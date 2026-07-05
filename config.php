@@ -867,3 +867,14 @@ if (file_exists($_monitorPath)) {
     require_once $_monitorPath;
 }
 
+// ============================================================
+// CENTRALIZED ACCESS CONTROL (must run AFTER auth helpers above)
+// ============================================================
+// This single guard enforces "who may open which admin page".
+// It only acts on /admin/ and /backend/ scripts; the public site,
+// the mobile API, and cron jobs are exempt inside the guard itself.
+$_accessControlPath = ROOT_PATH . '/admin/access_control.php';
+if (file_exists($_accessControlPath)) {
+    require_once $_accessControlPath;
+}
+

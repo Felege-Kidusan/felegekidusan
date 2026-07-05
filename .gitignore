@@ -1,0 +1,45 @@
+# ============================================================
+# DO NOT COMMIT SECRETS, BACKUPS, LOGS, OR USER UPLOADS
+# ============================================================
+# These contain database credentials, student PII, or grow without
+# bound. They must live on the server, never in version control.
+
+# --- Secrets / environment ---
+.fkss_env.php
+.wbws_env.php
+*_env.php
+.env
+
+# --- Database backups (contain password hashes + full student PII) ---
+admin/uploads/backups/
+*.sql.gz
+*.sql.bak
+backup_*.sql
+auto_backup_*.sql
+
+# --- Error logs & runtime logs ---
+error.log
+error_log
+*.log
+admin/backend/error_log
+
+# --- Rate-limit / runtime cache (per-IP login data) ---
+admin/uploads/cache/
+
+# --- User-uploaded student files (photos, documents = PII) ---
+admin/uploads/members/
+uploads/gallery/*
+uploads/teachers/*
+!uploads/gallery/README.txt
+!uploads/teachers/README.txt
+
+# --- Generated QR codes (member card images) ---
+admin/id_cards/assets/qr/
+# NOTE: the phpqrcode library's own frame cache
+# (admin/id_cards/libs/phpqrcode/cache/) is intentionally left tracked —
+# it is regenerable but harmless, and untracking it just adds noise.
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+*.swp

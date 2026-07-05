@@ -128,55 +128,68 @@ switch ($action) {
         
         $successCount = 0;
         $errors = [];
-        
-        // Delete existing attendance for this class/date first
-        $stmt = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ?");
-        if (!$stmt) {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
-            exit;
-        }
-        $stmt->bind_param("is", $classId, $date);
-        $stmt->execute();
-        
-        // Insert new records (attendance table has no term_id column)
-        $insertStmt = $conn->prepare("
-            INSERT INTO attendance 
-            (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ");
-        
-        if (!$insertStmt) {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
-            exit;
-        }
-        
-        foreach ($records as $record) {
-            $memberId = (int)($record['member_id'] ?? 0);
-            $status = $record['status'] ?? 'present';
-            $note = trim($record['note'] ?? '');
-            
-            if (!$memberId) continue;
-            
-            // Validate status
-            if (!in_array($status, ['present', 'absent', 'late', 'excused'])) {
-                $status = 'present';
+
+        // ── Save the whole class's attendance as ONE all-or-nothing unit ──
+        // We delete the old rows for this class/date and insert the new ones.
+        // Without a transaction, an interruption between the delete and the
+        // inserts would WIPE the class's attendance for that day. The
+        // transaction guarantees we either fully replace it or leave the old
+        // data untouched — a teacher can never end up with an empty day.
+        $conn->begin_transaction();
+        try {
+            // Delete existing attendance for this class/date first
+            $stmt = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ?");
+            if (!$stmt) {
+                throw new Exception('Prepare failed (delete): ' . $conn->error);
             }
-            
-            try {
+            $stmt->bind_param("is", $classId, $date);
+            $stmt->execute();
+
+            // Insert new records (attendance table has no term_id column)
+            $insertStmt = $conn->prepare("
+                INSERT INTO attendance
+                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+            if (!$insertStmt) {
+                throw new Exception('Prepare failed (insert): ' . $conn->error);
+            }
+
+            foreach ($records as $record) {
+                $memberId = (int)($record['member_id'] ?? 0);
+                $status = $record['status'] ?? 'present';
+                $note = trim($record['note'] ?? '');
+
+                if (!$memberId) continue;
+
+                // Validate status
+                if (!in_array($status, ['present', 'absent', 'late', 'excused'])) {
+                    $status = 'present';
+                }
+
+                // A bad row must fail the whole save, not silently vanish.
                 $insertStmt->bind_param(
                     "iiisssi",
                     $memberId, $classId, $academicYearId, $date, $status, $note, $userId
                 );
                 $insertStmt->execute();
                 $successCount++;
-            } catch (Exception $e) {
-                $errors[] = "Error for member $memberId: " . $e->getMessage();
             }
+
+            $conn->commit();
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("save_attendance failed (class $classId, $date): " . $e->getMessage());
+            echo json_encode([
+                'status'  => 'error',
+                'message' => 'Attendance was NOT saved. Your previous data is unchanged. Please try again.'
+            ]);
+            exit;
         }
-        
-        // Update attendance summary
+
+        // Summary is a derived cache — safe to update after the commit.
         updateAttendanceSummary($conn, $classId, $date, $academicYearId, null);
-        
+
         echo json_encode([
             'status' => 'success',
             'message' => "$successCount attendance record(s) saved",

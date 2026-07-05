@@ -28,17 +28,17 @@ if (is_dir($qr_dir)) {
     if (is_writable($qr_dir)) {
         echo "   ✅ Directory is writable\n";
     } else {
-        echo "   ❌ Directory is NOT writable — run: chmod 777 admin/id_cards/assets/qr/\n";
+        echo "   ❌ Directory is NOT writable — set it to 0755 owned by the web user: chmod 755 admin/id_cards/assets/qr/\n";
     }
     $files = glob($qr_dir . '*.png');
     echo "   📊 QR files found: " . count($files) . "\n";
 } else {
     echo "   ❌ Directory does NOT exist\n";
     echo "   🔧 Attempting to create...\n";
-    if (mkdir($qr_dir, 0777, true)) {
+    if (mkdir($qr_dir, 0755, true)) {
         echo "   ✅ Created successfully!\n";
     } else {
-        echo "   ❌ Could not create! Manually create: admin/id_cards/assets/qr/ and chmod 777\n";
+        echo "   ❌ Could not create! Manually create: admin/id_cards/assets/qr/ and chmod 755\n";
     }
 }
 
@@ -96,8 +96,8 @@ if (file_exists($qr_lib) && extension_loaded('gd')) {
     require_once $qr_lib;
     $test_file = $qr_dir . 'test_diagnostic.png';
     
-    if (!is_dir($qr_dir)) mkdir($qr_dir, 0777, true);
-    
+    if (!is_dir($qr_dir)) mkdir($qr_dir, 0755, true); // 0755, never world-writable
+
     QRcode::png("' . SITE_URL . '/test", $test_file, QR_ECLEVEL_L, 4, 2);
     
     if (file_exists($test_file)) {

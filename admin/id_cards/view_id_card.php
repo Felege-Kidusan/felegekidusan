@@ -155,7 +155,7 @@ if (!empty($member['qr_code_path'])) {
         if (file_exists($qr_lib)) {
             require_once $qr_lib;
             $qr_dir = __DIR__ . '/assets/qr/';
-            if (!is_dir($qr_dir)) mkdir($qr_dir, 0777, true);
+            if (!is_dir($qr_dir)) mkdir($qr_dir, 0755, true); // 0755, never world-writable
             $qr_content = SITE_URL . '/member.php?code=' . $member['member_code'];
             $qr_file = $qr_dir . 'qr_' . $member['member_code'] . '.png';
             QRcode::png($qr_content, $qr_file, QR_ECLEVEL_L, 4, 2);
@@ -170,7 +170,7 @@ if (!empty($member['qr_code_path'])) {
         if (file_exists($qr_lib)) {
             require_once $qr_lib;
             $qr_dir = __DIR__ . '/assets/qr/';
-            if (!is_dir($qr_dir)) mkdir($qr_dir, 0777, true);
+            if (!is_dir($qr_dir)) mkdir($qr_dir, 0755, true); // 0755, never world-writable
             $qr_content = (defined('SITE_URL') ? SITE_URL : SITE_URL) . '/member.php?code=' . $member['member_code'];
             $qr_file = $qr_dir . 'qr_' . $member['member_code'] . '.png';
             QRcode::png($qr_content, $qr_file, QR_ECLEVEL_L, 4, 2);

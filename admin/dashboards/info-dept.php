@@ -2045,30 +2045,39 @@ function renderManageTable(members) {
         return;
     }
 
+    // Escape any member-supplied text before putting it into innerHTML.
+    // Student/father names are entered by staff and stored in the DB, so an
+    // unescaped name like <img src=x onerror=...> would run in THIS admin's
+    // browser (stored XSS). This local helper guarantees escaping is applied
+    // regardless of where escapeHtml() is defined in the page.
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
     members.forEach(m => {
         const row = document.createElement('tr');
         row.className = 'hover:bg-slate-50 transition';
+        const fullName = ((m.student_name || '') + ' ' + (m.father_name || '')).trim();
         row.innerHTML = `
             <td class="px-4 py-3">
-                <div class="font-bold text-slate-800">${m.student_name} ${m.father_name}</div>
-                <div class="text-[10px] text-slate-500">${m.member_code || 'No ID'}</div>
+                <div class="font-bold text-slate-800">${esc(m.student_name)} ${esc(m.father_name)}</div>
+                <div class="text-[10px] text-slate-500">${esc(m.member_code || 'No ID')}</div>
             </td>
             <td class="px-4 py-3 capitalize">
                 <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
-                    ${m.registration_type}
+                    ${esc(m.registration_type)}
                 </span>
             </td>
             <td class="px-4 py-3">
                 <span class="px-2 py-0.5 rounded-full ${getStatusColor(m.status)} text-[10px] font-bold border border-white shadow-sm">
-                    ${m.status}
+                    ${esc(m.status)}
                 </span>
             </td>
             <td class="px-4 py-3 text-right">
                 <div class="flex items-center justify-end gap-2">
-                    <button onclick="openManageSheet(${m.id})" class="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-bold text-[11px] transition">
+                    <button onclick="openManageSheet(${parseInt(m.id, 10)})" class="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-bold text-[11px] transition">
                         <i class="fa-solid fa-pen-to-square mr-1"></i> Manage
                     </button>
-                    <button onclick="archiveMember(${m.id}, '${(m.student_name + ' ' + m.father_name).replace(/'/g, "\\'")}')" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-bold text-[11px] transition" title="Move to Archive">
+                    <button data-id="${parseInt(m.id, 10)}" data-name="${esc(fullName)}" onclick="archiveMember(this.dataset.id, this.dataset.name)" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-bold text-[11px] transition" title="Move to Archive">
                         <i class="fa-solid fa-box-archive"></i>
                     </button>
                 </div>

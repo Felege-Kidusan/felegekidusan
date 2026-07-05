@@ -24,6 +24,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $action = $_REQUEST['action'] ?? '';
 
+// ── Action-level authorization ──
+// Teachers are allowed in to grade (get_students_for_grading, save_grades,
+// read subjects/assessments). But creating/editing/deleting subjects and
+// assessments is education-staff work. Block those for teachers.
+$__manageActions = [
+    'create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes',
+    'create_assessment', 'update_assessment', 'delete_assessment',
+];
+if (in_array($action, $__manageActions, true)) {
+    $__role = $_SESSION['admin_role'] ?? '';
+    if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Only the Education department can manage subjects and assessments.']);
+        exit;
+    }
+}
+
 // Get current academic year
 $currentYear = null;
 $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");

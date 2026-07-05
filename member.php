@@ -203,7 +203,7 @@ function getMemberLabel($type) {
                             <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Address</p>
                             <p class="font-bold text-gray-700 text-sm leading-tight">
                                 <i class="fa-solid fa-location-dot mr-1" style="color:var(--maroon)"></i>
-                                <?php echo $address; ?>
+                                <?php echo e($address); ?>
                             </p>
                         </div>
 

@@ -26,6 +26,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $action = $_REQUEST['action'] ?? '';
 
+// ── Action-level authorization ──
+// This endpoint lets teachers and attendance-takers in so they can READ
+// classes and record grades/attendance. But class, enrolment and
+// academic-year MANAGEMENT must stay with education staff — a teacher must
+// never be able to delete a class or promote students. Block those actions
+// for anyone who is not super_admin / school_admin / edu_dept.
+$__manageActions = [
+    'enroll', 'unenroll_student', 'promote', 'bulk_enroll', 'transfer_student',
+    'assign_teacher', 'save_class', 'delete_class',
+    'save_academic_year', 'set_current_year',
+    'save_term', 'delete_term', 'set_current_term',
+    'sync_member_types',
+];
+if (in_array($action, $__manageActions, true)) {
+    $__role = $_SESSION['admin_role'] ?? '';
+    if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Only the Education department can manage classes, enrolments and academic years.']);
+        exit;
+    }
+}
+
 // Get current academic year (safe — don't crash if table missing)
 $currentYear = null;
 try {
@@ -731,8 +753,13 @@ switch ($action) {
         $ecYearVal = ($ecYear > 0) ? $ecYear : null;
         $yearGcVal = ($yearGc !== '') ? $yearGc : null;
         
-        if ($isCurrent) $conn->query("UPDATE academic_years SET is_current=0");
-        
+        // NOTE: we deliberately do NOT clear the other years' is_current flag
+        // here. Clearing it before the save could leave ZERO current years if
+        // the save then failed. Instead we set THIS year current as part of the
+        // save below, and clear the others only AFTER the save succeeds
+        // (search for "clear other current years"). Worst case is two current
+        // years, which is harmless because every lookup uses LIMIT 1.
+
         // Ensure year_gc and ec_year columns exist
         try {
             $cols = [];
@@ -757,6 +784,11 @@ switch ($action) {
                 }
                 $stmt->bind_param("sisssii", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $isCurrent, $id);
                 if ($stmt->execute()) {
+                    // clear other current years — only now that THIS one saved
+                    if ($isCurrent) {
+                        $c = $conn->prepare("UPDATE academic_years SET is_current=0 WHERE id <> ?");
+                        if ($c) { $c->bind_param("i", $id); $c->execute(); $c->close(); }
+                    }
                     echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id]);
                 } else {
                     echo json_encode(['status'=>'error','message'=>'Update failed: '.$stmt->error]);
@@ -772,6 +804,11 @@ switch ($action) {
                 $stmt->bind_param("sisssi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $isCurrent);
                 if ($stmt->execute()) {
                     $newId = $conn->insert_id;
+                    // clear other current years — only now that THIS one saved
+                    if ($isCurrent && $newId) {
+                        $c = $conn->prepare("UPDATE academic_years SET is_current=0 WHERE id <> ?");
+                        if ($c) { $c->bind_param("i", $newId); $c->execute(); $c->close(); }
+                    }
                     // Auto-create 2 semesters
                     if ($newId) {
                         try {
@@ -799,12 +836,25 @@ switch ($action) {
     case 'set_current_year':
         $yid = (int)($_POST['year_id'] ?? 0);
         if (!$yid) { echo json_encode(['status'=>'error','message'=>'Year ID required']); exit; }
-        $conn->query("UPDATE academic_years SET is_current=0");
-        $stmt = $conn->prepare("UPDATE academic_years SET is_current=1 WHERE id = ?");
-        $stmt->bind_param("i", $yid);
-        $stmt->execute();
-        $stmt->close();
-        echo json_encode(['status'=>'success','message'=>'Current year updated']);
+        // Clearing the old current year and setting the new one MUST happen
+        // together. If the second step failed on its own, the system would be
+        // left with ZERO current years and every "WHERE is_current=1" query
+        // (attendance, enrollment, grades) would silently return nothing.
+        $conn->begin_transaction();
+        try {
+            $conn->query("UPDATE academic_years SET is_current=0");
+            $stmt = $conn->prepare("UPDATE academic_years SET is_current=1 WHERE id = ?");
+            if (!$stmt) { throw new Exception($conn->error); }
+            $stmt->bind_param("i", $yid);
+            $stmt->execute();
+            $stmt->close();
+            $conn->commit();
+            echo json_encode(['status'=>'success','message'=>'Current year updated']);
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("set_current_year failed: " . $e->getMessage());
+            echo json_encode(['status'=>'error','message'=>'Could not change the current year. No changes were made.']);
+        }
         break;
 
     case 'get_terms':

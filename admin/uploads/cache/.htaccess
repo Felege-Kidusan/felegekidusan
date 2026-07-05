@@ -1,9 +1,0 @@
-# Block all web access to cache files
-# These contain rate-limiting data and should never be public
-Order deny,allow
-Deny from all
-
-# Apache 2.4+
-<IfModule mod_authz_core.c>
-    Require all denied
-</IfModule>

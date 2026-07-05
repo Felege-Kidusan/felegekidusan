@@ -614,15 +614,18 @@ function autoUpdateMemberClass($conn, $memberId, $classId, $academicYearId) {
  */
 function updateAttendanceSummary($conn, $memberId, $academicYearId = null) {
     try {
-    // Get Ethiopian date components
-    require_once __DIR__ . '/ethiopian_date.php';
-    $today = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa'));
-    $ethMonth = (int)ethio_date_format($today, 'n');
-    $ethYear = (int)ethio_date_format($today, 'Y');
-    
-    // Calculate summary for current month
-    $startOfMonth = "$ethYear-$ethMonth-01";
-    $endOfMonth = "$ethYear-$ethMonth-30";
+    // IMPORTANT: attendance_date is stored as a normal (Gregorian) date, and
+    // the other copy of this routine in api_attendance.php also keys the
+    // summary table by Gregorian month/year. We MUST match it — using the
+    // Ethiopian year here would both (a) look up the wrong date range and
+    // (b) write a second, conflicting row for the same real month. Keep both
+    // functions on Gregorian so the (member_id, year, month) key never clashes.
+    $gcMonth = (int)date('n');
+    $gcYear  = (int)date('Y');
+
+    // Calculate summary for the current Gregorian month
+    $startOfMonth = date('Y-m-01');
+    $endOfMonth   = date('Y-m-t');
     
     $stmt = $conn->prepare("
         SELECT 
@@ -660,7 +663,7 @@ function updateAttendanceSummary($conn, $memberId, $academicYearId = null) {
     
     $stmt->bind_param(
         "iiiiiiiid",
-        $memberId, $academicYearId, $ethMonth, $ethYear,
+        $memberId, $academicYearId, $gcMonth, $gcYear,
         $totalDays, $presentDays, $stats['absent_days'], $stats['late_days'], $stats['excused_days'],
         $attendanceRate
     );

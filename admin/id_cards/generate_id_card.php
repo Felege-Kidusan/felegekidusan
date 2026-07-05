@@ -39,15 +39,17 @@ $qr_abs_path = $qr_dir . $qr_filename;
 $qr_web_path = '/admin/id_cards/assets/qr/' . $qr_filename;
 
 // Create directory with full chain if needed
+// 0755 = owner can write, others can only read. NEVER use 0777 (world-writable)
+// under the web root — a world-writable web folder is a remote-code-execution risk.
 if (!is_dir($qr_dir)) {
-    if (!mkdir($qr_dir, 0777, true)) {
+    if (!mkdir($qr_dir, 0755, true)) {
         die("Error: Could not create QR directory: " . $qr_dir . " — Check folder permissions.");
     }
 }
 
 // Check directory is writable
 if (!is_writable($qr_dir)) {
-    die("Error: QR directory is not writable: " . $qr_dir . " — Please chmod 777 the assets/qr/ folder.");
+    die("Error: QR directory is not writable: " . $qr_dir . " — set the assets/qr/ folder to 0755 and ensure it is owned by the web user.");
 }
 
 // Generate QR code
