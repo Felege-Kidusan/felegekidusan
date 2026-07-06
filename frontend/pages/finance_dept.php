@@ -21,6 +21,10 @@ $pageTitle  = 'Finance Department';
 $pageScript = 'finance';
 $bodyClass  = 'page-finance';
 
+// Only finance staff and admins may open the finance dashboard.
+// (base.php enforces this list; the finance API is guarded separately.)
+$requiredRoles = ['super_admin', 'school_admin', 'finance_dept'];
+
 // Extra libraries needed by this dashboard
 $extraHead = '
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>

@@ -1,51 +1,90 @@
-<FilesMatch "\.(md|txt)$">
-    Order Allow,Deny
-    Deny from all
-</FilesMatch>
-
 # ============================================================
-# Security Configuration
+# ROOT .htaccess — WBSS/FKSS  (hardened for production)
 # ============================================================
 
-# Prevent directory browsing
+# Prevent directory browsing everywhere
 Options -Indexes
 
-# Deny access to config files
-<FilesMatch "^(config\.php|\.env|\.htaccess|error\.log)$">
-    Order Allow,Deny
-    Deny from all
+# ------------------------------------------------------------
+# 1. Block sensitive file TYPES (config, secrets, dumps, logs, docs)
+# ------------------------------------------------------------
+<FilesMatch "\.(env|sql|bak|backup|zip|gz|tar|dump|sqlite|log|md|ini|sh)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
-# Deny access to SQL files
-<FilesMatch "\.(sql|bak|backup|zip)$">
-    Order Allow,Deny
-    Deny from all
+# ------------------------------------------------------------
+# 2. Block specific sensitive FILES by name
+# ------------------------------------------------------------
+<FilesMatch "^(config\.php|school_config\.php|\.htaccess|error\.log|env\.example\.php|leak_detector\.php)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
-# Protect backup directory
+# Block any secrets env file (defence in depth — these should live ABOVE the web root)
+<FilesMatch "_env\.php$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# ------------------------------------------------------------
+# 3. Block sensitive PATHS
+# ------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    
-    # Block direct access to backup files
+
+    # Database backups (contain student PII + password hashes)
     RewriteRule ^admin/uploads/backups/ - [F,L]
-    
-    # Block access to cache directory
+
+    # Rate-limit / runtime cache
     RewriteRule ^admin/uploads/cache/ - [F,L]
-    
-    # Block access to migration files
+
+    # Migration scripts (schema mutators)
     RewriteRule ^admin/migrations/ - [F,L]
-    
-    # Block debug files (CRITICAL: these have hardcoded DB credentials)
+    RewriteRule ^backend/migrations/ - [F,L]
+
+    # NOTE: do NOT block the whole /backend/ folder — the frontend finance
+    # module calls /backend/api/finance.php, /backend/api/members.php and
+    # /backend/auth/login.php (they are thin shims into /admin/). Only the
+    # migrations sub-folder above is blocked. Access control for these shims
+    # is enforced by admin/access_control.php (keyed on both file names).
+
+    # Debug endpoints and dev tools (hardcoded credentials / info leaks)
     RewriteRule ^api/v1/debug_ - [F,L]
-    
-    # Block API test console in production
-    RewriteRule ^api/api_test_console\.html$ - [F,L]
-    
-    # Block access to generate_hash.php (temp script)
     RewriteRule ^admin/backend/generate_hash\.php$ - [F,L]
+    RewriteRule ^admin/id_cards/qr_diagnostic\.php$ - [F,L]
+    RewriteRule (^|/)leak_detector\.php$ - [F,L]
+
+    # API test console
+    RewriteRule ^api/api_test_console\.html$ - [F,L]
 </IfModule>
 
-# Security headers
+# ------------------------------------------------------------
+# 4. Pass Authorization header to PHP (needed by the mobile API)
+# ------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+# ------------------------------------------------------------
+# 5. Security headers
+# ------------------------------------------------------------
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "SAMEORIGIN"
@@ -54,12 +93,13 @@ Options -Indexes
     Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
 </IfModule>
 
-# Compress output for better performance
+# ------------------------------------------------------------
+# 6. Performance: compression + static caching
+# ------------------------------------------------------------
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json
 </IfModule>
 
-# Browser caching for static assets
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType image/jpeg "access plus 1 month"
@@ -71,7 +111,7 @@ Options -Indexes
 </IfModule>
 
 # php -- BEGIN cPanel-generated handler, do not edit
-# Set the “ea-php82” package as the default “PHP” programming language.
+# Set the "ea-php82" package as the default "PHP" programming language.
 <IfModule mime_module>
   AddHandler application/x-httpd-ea-php82 .php .php8 .phtml
 </IfModule>

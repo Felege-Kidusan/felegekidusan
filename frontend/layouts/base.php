@@ -42,6 +42,24 @@ if (function_exists('requireAuth')) {
     requireAuth();
 }
 
+// Optional per-page ROLE restriction. A page sets $requiredRoles (an array
+// of allowed roles) BEFORE including this layout, and we enforce it here.
+// This gives frontend pages the same role protection that the central admin
+// guard (admin/access_control.php) gives to /admin/ pages — important because
+// the central guard does not cover the /frontend/ folder.
+if (!empty($requiredRoles) && is_array($requiredRoles)) {
+    $__role = $_SESSION['admin_role'] ?? '';
+    if (!in_array($__role, $requiredRoles, true)) {
+        if (function_exists('_isAjaxRequest') && _isAjaxRequest()) {
+            if (!headers_sent()) { http_response_code(403); header('Content-Type: application/json; charset=utf-8'); }
+            echo json_encode(['status' => 'error', 'message' => 'You do not have permission to view this page.']);
+        } else {
+            if (!headers_sent()) { header('Location: /admin/dashboard.php?error=access_denied'); }
+        }
+        exit;
+    }
+}
+
 // Resolve theme
 $_activeTheme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
 $_themeBase = '/themes/' . $_activeTheme;

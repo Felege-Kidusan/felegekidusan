@@ -45,14 +45,25 @@ foreach ($_envPaths as $_envPath) {
     }
 }
 if (!$_envLoaded) {
-    // FALLBACK: hardcoded defaults so the system doesn't crash
-    // ⚠️ If you see this in error logs, the env file is missing!
-    error_log('CRITICAL: env file not found! Using hardcoded fallback. Fix ASAP.');
-    if (!defined('DB_HOST')) define('DB_HOST', 'localhost');
-    if (!defined('DB_NAME')) define('DB_NAME', 'school_db');
-    if (!defined('DB_USER')) define('DB_USER', 'school_db');
-   if (!defined('DB_PASS')) define('DB_PASS', 'ENV_FILE_MISSING');
-if (!defined('JWT_SECRET')) define('JWT_SECRET', 'FALLBACK_ONLY_env_file_missing');}
+    // FAIL CLOSED. We must NOT run with guessable/placeholder secrets:
+    // a fixed fallback JWT_SECRET would let anyone forge login tokens, and a
+    // placeholder DB password just produces confusing errors. If the secrets
+    // file is missing, stop with a clear setup message instead of limping on
+    // insecurely. (There is no live data until this file exists.)
+    error_log('CRITICAL: secrets env file not found. Refusing to start. Expected one of: ' . implode(', ', $_envPaths));
+    http_response_code(500);
+    if (!headers_sent()) header('Content-Type: text/html; charset=utf-8');
+    die(
+        '<div style="font-family:sans-serif;max-width:640px;margin:3rem auto;padding:1.5rem;border:1px solid #ddd;border-radius:10px">'
+        . '<h2 style="color:#b91c1c">Setup required: secrets file missing</h2>'
+        . '<p>The system cannot start because its secret configuration file was not found. '
+        . 'This file holds the database password and security keys and must live <strong>above</strong> the public web folder.</p>'
+        . '<p>Create a file named <code>.fkss_env.php</code> in your account home folder '
+        . '(one level above <code>public_html</code>) using the template <code>env.example.php</code> '
+        . 'included with this project, then reload this page.</p>'
+        . '</div>'
+    );
+}
 
 // ============================================================
 // SCHOOL BRANDING (loaded from school_config.php)

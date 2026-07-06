@@ -119,8 +119,10 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'communication.php'     => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
 
             // ---- Member management (Information department) ----
-            'api_list_members.php'    => ['super_admin', 'school_admin', 'info_dept', 'edu_dept'],
-            'members.php'             => ['super_admin', 'school_admin', 'info_dept', 'edu_dept'],
+            // finance_dept included: the finance dashboard fetches the student
+            // roster to assign fees (frontend/js/finance.js → members.php).
+            'api_list_members.php'    => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept'],
+            'members.php'             => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept'],
             'api_check_duplicate.php' => ['super_admin', 'school_admin', 'info_dept'],
             'members_check.php'       => ['super_admin', 'school_admin', 'info_dept'],
             'info_register_member.php'      => ['super_admin', 'school_admin', 'info_dept'],
