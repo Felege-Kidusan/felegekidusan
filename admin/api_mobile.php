@@ -110,6 +110,15 @@ if ($method === 'POST') {
 // PUBLIC ENDPOINTS (no token needed)
 // ============================================================
 if ($path === 'auth/login') {
+    // Brute-force protection: the mobile login had NONE, which let an
+    // attacker try unlimited passwords. Reuse the same file-based limiter as
+    // the web login (fail-safe: if the cache dir can't be written it simply
+    // doesn't block, so a legitimate user is never locked out by an error).
+    // Allow 10 tries per 5 minutes per IP.
+    if (function_exists('isRateLimited') && isRateLimited('mobile_login', 10, 300)) {
+        _err('Too many login attempts. Please wait 5 minutes and try again.', 429);
+    }
+
     $username = trim($input['username'] ?? '');
     $password = $input['password'] ?? '';
     if (empty($username) || empty($password)) _err('Username and password required');
@@ -121,9 +130,12 @@ if ($path === 'auth/login') {
     $user = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    if (!$user) _err('Invalid username or password', 401);
+    if (!$user) { if (function_exists('recordAttempt')) recordAttempt('mobile_login'); _err('Invalid username or password', 401); }
     if ((int)$user['is_active'] !== 1) _err('Account is inactive', 403);
-    if (!password_verify($password, $user['password_hash'])) _err('Invalid username or password', 401);
+    if (!password_verify($password, $user['password_hash'])) { if (function_exists('recordAttempt')) recordAttempt('mobile_login'); _err('Invalid username or password', 401); }
+
+    // Successful login → clear the failed-attempt counter for this IP.
+    if (function_exists('clearRateLimit')) clearRateLimit('mobile_login');
 
     $conn->query("UPDATE users SET last_login = NOW() WHERE id = " . (int)$user['id']);
     try {
