@@ -319,6 +319,44 @@ if (!is_dir($backupDirCheck)) { @mkdir($backupDirCheck, 0755, true); }
 // ============================================================
 // DEEP SYSTEM ANALYSIS DATA (for System Health section)
 // ============================================================
+// PERFORMANCE FIX: everything below (file_get_contents + regex scans of
+// every api_*.php file and its includes, plus ~10 extra SQL queries) is
+// EXPENSIVE and is only shown on the Site Health / System Health tabs — but
+// it ran on EVERY page load because all dashboard sections render
+// server-side (CSS-toggled). We now cache the computed results to a JSON
+// file for 5 minutes, so Overview / User Management / other tabs load fast.
+// Add ?refresh_health=1 (the "Refresh Now" button on System Health) to force
+// a fresh scan. Only WHEN this is computed changes — not WHAT or HOW.
+$__healthCacheFile = ROOT_PATH . '/admin/uploads/cache/superadmin_health.json';
+$__healthTtl = 300; // 5 minutes
+$__healthCache = null;
+if (empty($_GET['refresh_health']) && is_file($__healthCacheFile)
+        && (time() - filemtime($__healthCacheFile) < $__healthTtl)) {
+    $__raw = @file_get_contents($__healthCacheFile);
+    $__decoded = $__raw ? json_decode($__raw, true) : null;
+    if (is_array($__decoded)) { $__healthCache = $__decoded; }
+}
+$healthCacheFromCache = ($__healthCache !== null);
+$healthCacheAge = is_file($__healthCacheFile) ? (time() - filemtime($__healthCacheFile)) : 0;
+
+if ($__healthCache !== null) {
+    // ---- FAST PATH: load the pre-computed results from cache ----
+    $apiEndpoints    = $__healthCache['apiEndpoints']    ?? [];
+    $dbIntegrity     = $__healthCache['dbIntegrity']     ?? [];
+    $orphanedMembers = $__healthCache['orphanedMembers'] ?? 0;
+    $orphanedLeaders = $__healthCache['orphanedLeaders'] ?? 0;
+    $userAnalytics   = $__healthCache['userAnalytics']   ?? ['total'=>0,'active'=>0,'inactive'=>0,'roles'=>[],'last_login'=>'N/A'];
+    $memberQuality   = $__healthCache['memberQuality']   ?? ['total'=>0,'with_phone'=>0,'with_photo'=>0,'with_email'=>0,'male'=>0,'female'=>0,'missing_gender'=>0,'duplicates'=>0];
+    $benchmarks      = $__healthCache['benchmarks']      ?? [];
+    $codeIssues      = $__healthCache['codeIssues']      ?? [];
+    $cronTasks       = $__healthCache['cronTasks']       ?? [];
+    $healthScore     = $__healthCache['healthScore']     ?? 0;
+    $healthTotal     = $__healthCache['healthTotal']     ?? 0;
+    $overallScore    = $__healthCache['overallScore']    ?? 0;
+    $scoreColor      = $__healthCache['scoreColor']      ?? '#f87171';
+    $scoreLabel      = $__healthCache['scoreLabel']      ?? 'Needs Attention';
+} else {
+    // ---- SLOW PATH: recompute everything, then write the cache (bottom) ----
 
 // 1. API Endpoint Health Check
 $apiEndpoints = [];
@@ -504,6 +542,27 @@ $healthTotal += 10; if ($sHealth['disk_percent'] < 90) $healthScore += 10;
 $overallScore = $healthTotal > 0 ? round($healthScore / $healthTotal * 100) : 0;
 $scoreColor = $overallScore >= 80 ? '#4ade80' : ($overallScore >= 60 ? '#fbbf24' : '#f87171');
 $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' : 'Needs Attention');
+
+    // ---- Write the freshly-computed results to the 5-minute cache ----
+    $__cacheDir = dirname($__healthCacheFile);
+    if (!is_dir($__cacheDir)) { @mkdir($__cacheDir, 0755, true); }
+    @file_put_contents($__healthCacheFile, json_encode([
+        'apiEndpoints'    => $apiEndpoints,
+        'dbIntegrity'     => $dbIntegrity,
+        'orphanedMembers' => $orphanedMembers ?? 0,
+        'orphanedLeaders' => $orphanedLeaders ?? 0,
+        'userAnalytics'   => $userAnalytics,
+        'memberQuality'   => $memberQuality,
+        'benchmarks'      => $benchmarks,
+        'codeIssues'      => $codeIssues,
+        'cronTasks'       => $cronTasks,
+        'healthScore'     => $healthScore,
+        'healthTotal'     => $healthTotal,
+        'overallScore'    => $overallScore,
+        'scoreColor'      => $scoreColor,
+        'scoreLabel'      => $scoreLabel,
+    ]));
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -1326,7 +1385,13 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 
             <!-- SYSTEM HEALTH - DEEP ANALYSIS -->
             <section id="section-syshealth" class="section <?= $activeSection === 'syshealth' ? 'active' : '' ?>">
-                <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-stethoscope"></i> System Health</h2><p class="sec-desc">Deep code analysis, data integrity, performance & diagnostics</p></div>
+                <div class="sec-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+                    <div><h2 class="sec-title"><i class="fa-solid fa-stethoscope"></i> System Health</h2><p class="sec-desc">Deep code analysis, data integrity, performance & diagnostics</p></div>
+                    <div style="text-align:right">
+                        <a href="?section=syshealth&refresh_health=1" class="btn btn-sm" style="white-space:nowrap"><i class="fa-solid fa-rotate"></i> Refresh Now</a>
+                        <div style="font-size:.65rem;color:#64748b;margin-top:.35rem"><?= $healthCacheFromCache ? ('Cached ' . max(0, (int)round($healthCacheAge / 60)) . ' min ago') : 'Freshly scanned' ?></div>
+                    </div>
+                </div>
 
                 <!-- Performance Strip -->
                 <div class="grid-4" style="margin-bottom:1.25rem">

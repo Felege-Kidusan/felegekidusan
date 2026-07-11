@@ -29,11 +29,26 @@ define('MONITOR_DB_NAME', DB_NAME);
 define('MONITOR_DB_USER', DB_USER);
 define('MONITOR_DB_PASS', DB_PASS);
 
-// Secret key for dashboard access — loaded from env file
-// If not defined in env file, use a secure random fallback (blocks all browser access)
+// Secret key for the monitor dashboard.
+// PREFERRED: set MONITOR_SECRET_KEY in the secrets env file (.fkss_env.php).
+// If it is not set, we generate a key ONCE and persist it to a protected file
+// so it stays stable across requests. The OLD code generated a NEW random key
+// on EVERY run — which made the dashboard permanently inaccessible AND wrote a
+// warning to error.log on every single invocation (this file runs ~once per
+// minute), flooding the log. Now the warning fires at most once.
 if (!defined('MONITOR_SECRET_KEY')) {
-    define('MONITOR_SECRET_KEY', bin2hex(random_bytes(32)));
-    error_log('WARNING: MONITOR_SECRET_KEY not in env file — using random key (dashboard inaccessible)');
+    $__mkFile = (defined('ROOT_PATH') ? ROOT_PATH : dirname(__DIR__)) . '/admin/uploads/cache/.monitor_key';
+    $__mkKey  = @is_file($__mkFile) ? trim((string)@file_get_contents($__mkFile)) : '';
+    if (strlen($__mkKey) < 32) {
+        $__mkKey = bin2hex(random_bytes(32));
+        $__mkDir = dirname($__mkFile);
+        if (!is_dir($__mkDir)) { @mkdir($__mkDir, 0755, true); }
+        // Persist ONCE and warn ONCE (only when the key is first created).
+        if (@file_put_contents($__mkFile, $__mkKey) !== false) {
+            error_log('NOTICE: MONITOR_SECRET_KEY not in env file. Generated a persistent key at admin/uploads/cache/.monitor_key (add MONITOR_SECRET_KEY to your env file to set your own).');
+        }
+    }
+    define('MONITOR_SECRET_KEY', $__mkKey);
 }
 
 // Telegram Settings — Set these up later via @BotFather

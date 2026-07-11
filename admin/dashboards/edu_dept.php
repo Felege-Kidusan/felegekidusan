@@ -974,8 +974,16 @@ async function loadYears(){try{const d=await getAPI('/admin/api_education.php?ac
 function viewYearTermsById(id){const y=window._yearData?.[id];if(y)viewYearTerms(id,y.year_name||'');}
 function editYearById(id){const y=window._yearData?.[id];if(y)editYear(y);}
 function openYearModal(){
-    const ecYear=<?= (int)ethio_date_format($now, 'Y') ?>;
-    const gcYear=new Date().getFullYear();
+    const currentEc=<?= (int)ethio_date_format($now, 'Y') ?>;
+    let ecYear=currentEc, gcYear=new Date().getFullYear();
+    /* Suggest a year name that does NOT already exist. If the current
+       Ethiopian year (or a later one) is already saved, suggest the NEXT
+       year — otherwise the prefill always collided with the UNIQUE
+       year_name constraint and every save after the first one failed. */
+    try{
+        let maxEc=0;Object.values(window._yearData||{}).forEach(y=>{const e=parseInt(y.ec_year,10);if(!isNaN(e)&&e>maxEc)maxEc=e;});
+        if(maxEc>=currentEc){const bump=(maxEc+1)-currentEc;ecYear=maxEc+1;gcYear=gcYear+bump;}
+    }catch(e){}
     document.getElementById('yearFormId').value=0;
     document.getElementById('yearName').value=ecYear+' ዓ.ም.';
     document.getElementById('yearEc').value=ecYear;

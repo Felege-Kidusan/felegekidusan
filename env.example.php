@@ -37,6 +37,7 @@ define('DB_PASS', 'REPLACE_WITH_YOUR_DB_PASSWORD');
 //   php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
 // Paste a DIFFERENT value into each of the three below. Keep them stable
 // (do not change them after go-live, or existing logins/tokens break).
-define('JWT_SECRET',  'REPLACE_WITH_A_LONG_RANDOM_STRING_1'); // mobile app login tokens
-define('BACKUP_KEY',  'REPLACE_WITH_A_LONG_RANDOM_STRING_2'); // lets the cron job run backups
-define('HEALTH_KEY',  'REPLACE_WITH_A_LONG_RANDOM_STRING_3'); // password for the health-check page
+define('JWT_SECRET',         'REPLACE_WITH_A_LONG_RANDOM_STRING_1'); // mobile app login tokens
+define('BACKUP_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_2'); // lets the cron job run backups
+define('HEALTH_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_3'); // password for the health-check page
+define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password for the error-monitor dashboard (/monitor/)

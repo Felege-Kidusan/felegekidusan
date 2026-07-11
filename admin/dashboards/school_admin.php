@@ -265,6 +265,7 @@ select.inp{cursor:pointer}
 <button class="np" data-section="members"><i class="fa-solid fa-users"></i> Members <span class="badge" style="background:var(--purple)"><?=$stats['total']?></span></button>
 <button class="np" data-section="attendance"><i class="fa-solid fa-clipboard-check"></i> Attendance</button>
 <button class="np" data-section="classes"><i class="fa-solid fa-chalkboard"></i> Classes</button>
+<button class="np" data-section="academicyear"><i class="fa-solid fa-calendar-days"></i> Academic Year</button>
 <div class="nt">Administration</div>
 <button class="np" data-section="departments"><i class="fa-solid fa-building"></i> Departments</button>
 <button class="np" data-section="staff"><i class="fa-solid fa-user-gear"></i> Staff & Users</button>
@@ -403,6 +404,13 @@ select.inp{cursor:pointer}
 <div id="classesContent"><div class="cd" style="text-align:center;padding:2rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin" style="color:var(--ac)"></i> Loading...</div></div>
 </div>
 
+<!-- ═══ ACADEMIC YEAR ═══ -->
+<div id="section-academicyear" class="cs">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.1rem;font-weight:700;color:var(--bright)"><i class="fa-solid fa-calendar-days" style="color:var(--purple)"></i> Academic Year & Semesters</h2><p style="font-size:.72rem;color:var(--dim)">Create the school year, set the current one, and manage semesters.</p></div><button class="btn bp bs" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div>
+<div class="cd"><div class="tw"><table><thead><tr><th>Year Name</th><th>EC</th><th>GC</th><th>Start</th><th>End</th><th>Semesters</th><th>Current</th><th>Actions</th></tr></thead><tbody id="yearBody"><tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
+<div id="termArea" style="margin-top:.75rem"></div>
+</div>
+
 <!-- ═══ DEPARTMENTS ═══ -->
 <div id="section-departments" class="cs">
 <h2 style="font-size:1.1rem;font-weight:700;color:var(--bright);margin-bottom:.85rem"><i class="fa-solid fa-building" style="color:var(--ac)"></i> Departments Overview</h2>
@@ -460,6 +468,24 @@ select.inp{cursor:pointer}
 </main>
 
 <!-- MODALS -->
+<div class="mo" id="yearModal"><div class="md" style="max-width:560px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem"><h3 id="yearModalTitle" style="margin:0"><i class="fa-solid fa-calendar" style="color:var(--purple)"></i> Academic Year</h3><button onclick="document.getElementById('yearModal').classList.remove('show')" style="background:none;border:none;color:var(--dim);font-size:1.1rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button></div>
+<div style="display:flex;flex-direction:column;gap:.55rem">
+<input type="hidden" id="yearFormId" value="0">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem">
+<div><label class="flbl">Year Name *</label><input id="yearName" class="inp amharic" style="width:100%" placeholder="e.g. 2018 ዓ.ም."></div>
+<div><label class="flbl">EC Year</label><input type="number" id="yearEc" class="inp" style="width:100%"></div>
+</div>
+<div><label class="flbl">GC Year</label><input id="yearGc" class="inp" style="width:100%" placeholder="e.g. 2025/2026"></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem">
+<div><label class="flbl">Start Date</label><input type="date" id="yearStart" class="inp" style="width:100%"></div>
+<div><label class="flbl">End Date</label><input type="date" id="yearEnd" class="inp" style="width:100%"></div>
+</div>
+<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem"><input type="checkbox" id="yearCurrent"> Set as Current Year</label>
+<div style="font-size:.65rem;color:var(--dim)">Two semesters are auto-created for a new academic year.</div>
+<button class="btn bp" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
+</div></div></div>
+
 <div class="mo" id="memberModal"><div class="md" style="max-width:680px">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
 <h3 style="margin:0"><i class="fa-solid fa-id-card" style="color:var(--ac)"></i> Member Profile</h3>
@@ -525,7 +551,7 @@ function toggleTheme(){const h=document.documentElement,c=h.getAttribute('data-t
 (function(){const s=localStorage.getItem('wbws-theme');if(s){document.documentElement.setAttribute('data-theme',s);if(s==='light')document.getElementById('themeIcon').className='fa-solid fa-moon';}})();
 
 // NAVIGATION
-function nav(name){document.querySelectorAll('.cs').forEach(s=>s.classList.remove('active'));const t=document.getElementById('section-'+name);if(t)t.classList.add('active');document.querySelectorAll('aside .np').forEach(b=>b.classList.remove('active'));document.querySelectorAll('aside [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.bn [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));if(name==='members'&&!allMembers.length)loadMembers();if(name==='classes')loadClasses();if(name==='staff')renderUsers();if(name==='reports')loadAnalysis();const _u=new URL(window.location);_u.searchParams.set('section',name);history.replaceState(null,'',_u);}
+function nav(name){document.querySelectorAll('.cs').forEach(s=>s.classList.remove('active'));const t=document.getElementById('section-'+name);if(t)t.classList.add('active');document.querySelectorAll('aside .np').forEach(b=>b.classList.remove('active'));document.querySelectorAll('aside [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.bn [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));if(name==='members'&&!allMembers.length)loadMembers();if(name==='classes')loadClasses();if(name==='academicyear')loadYears();if(name==='staff')renderUsers();if(name==='reports')loadAnalysis();const _u=new URL(window.location);_u.searchParams.set('section',name);history.replaceState(null,'',_u);}
 document.querySelectorAll('[data-section]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-section');if(n)nav(n);});});
 
 // GLOBAL SEARCH
@@ -1042,6 +1068,91 @@ function genCustomReport(){
 }
 
 // HELPERS
+/* ─── Academic Year & Semester management (school_admin) ─── */
+window._yearData={};window._termData={};window._termYearId=0;
+async function loadYears(){
+    const tb=document.getElementById('yearBody');if(!tb)return;
+    try{
+        const r=await fetch('/admin/api_education.php?action=get_academic_years',{credentials:'same-origin'});const d=await r.json();
+        if(d.status==='success'){
+            const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);
+            tb.innerHTML=y.length?y.map(x=>`<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${esc(String(x.ec_year||'—'))}</td><td style="font-size:.72rem">${esc(x.year_gc||'—')}</td><td style="font-size:.72rem">${esc(x.start_date||'—')}</td><td style="font-size:.72rem">${esc(x.end_date||'—')}</td><td><span class="bg bg-info">${parseInt(x.term_count)||0}</span></td><td>${x.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':'<span class="bg" style="background:rgba(128,128,128,.12);color:var(--dim)">No</span>'}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="viewTerms(${parseInt(x.id)})" title="Semesters"><i class="fa-solid fa-calendar-week"></i></button> <button class="btn bo bs" onclick="editYearById(${parseInt(x.id)})" title="Edit"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" onclick="setCurrentYear(${parseInt(x.id)})" title="Set Current"><i class="fa-solid fa-check"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">No academic years yet. Click "Add Year".</td></tr>';
+        }else tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Could not load</td></tr>';
+    }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Error loading years</td></tr>';}
+}
+function openYearModal(){
+    const currentEc=<?= (int)ethio_date_format($today, 'Y') ?>;
+    let ecYear=currentEc, gcYear=new Date().getFullYear();
+    /* Suggest a year name that does NOT already exist. If the current
+       Ethiopian year (or a later one) is already saved, suggest the NEXT
+       year — otherwise the prefill always collided with the UNIQUE
+       year_name constraint and every save after the first one failed. */
+    try{
+        let maxEc=0;Object.values(window._yearData||{}).forEach(y=>{const e=parseInt(y.ec_year,10);if(!isNaN(e)&&e>maxEc)maxEc=e;});
+        if(maxEc>=currentEc){const bump=(maxEc+1)-currentEc;ecYear=maxEc+1;gcYear=gcYear+bump;}
+    }catch(e){}
+    document.getElementById('yearFormId').value=0;
+    document.getElementById('yearName').value=ecYear+' ዓ.ም.';
+    document.getElementById('yearEc').value=ecYear;
+    document.getElementById('yearGc').value=gcYear+'/'+(gcYear+1);
+    document.getElementById('yearStart').value='';
+    document.getElementById('yearEnd').value='';
+    document.getElementById('yearCurrent').checked=true;
+    document.getElementById('yearModalTitle').innerHTML='<i class="fa-solid fa-calendar"></i> New Academic Year';
+    document.getElementById('yearModal').classList.add('show');
+}
+function editYearById(id){const y=window._yearData?.[id];if(!y)return;
+    document.getElementById('yearFormId').value=y.id;
+    document.getElementById('yearName').value=y.year_name||'';
+    document.getElementById('yearEc').value=y.ec_year||'';
+    document.getElementById('yearGc').value=y.year_gc||'';
+    document.getElementById('yearStart').value=y.start_date||'';
+    document.getElementById('yearEnd').value=y.end_date||'';
+    document.getElementById('yearCurrent').checked=y.is_current==1;
+    document.getElementById('yearModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Academic Year';
+    document.getElementById('yearModal').classList.add('show');
+}
+async function saveYear(){
+    const fd=new FormData();fd.append('action','save_academic_year');
+    fd.append('id',document.getElementById('yearFormId').value);
+    fd.append('year_name',document.getElementById('yearName').value);
+    fd.append('ec_year',document.getElementById('yearEc').value);
+    fd.append('year_gc',document.getElementById('yearGc').value);
+    fd.append('start_date',document.getElementById('yearStart').value);
+    fd.append('end_date',document.getElementById('yearEnd').value);
+    fd.append('is_current',document.getElementById('yearCurrent').checked?1:0);
+    fd.append('csrf_token',CSRF);
+    try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
+    if(d.status==='success'){toast('Academic year saved!','s');document.getElementById('yearModal').classList.remove('show');loadYears();}
+    else toast(d.message||'Save failed','e');}catch(e){toast('Network error','e');}
+}
+async function setCurrentYear(id){if(!confirm('Set this as the current academic year?'))return;const fd=new FormData();fd.append('action','set_current_year');fd.append('year_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')loadYears();}catch(e){toast('Error','e');}}
+async function viewTerms(yearId){
+    window._termYearId=yearId;const area=document.getElementById('termArea');
+    area.innerHTML='<div class="cd" style="text-align:center;padding:1.25rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin"></i> Loading semesters...</div>';
+    try{const r=await fetch('/admin/api_education.php?action=get_terms&year_id='+yearId,{credentials:'same-origin'});const d=await r.json();
+    const terms=d.terms||[];window._termData={};terms.forEach(t=>window._termData[t.id]=t);
+    const yn=window._yearData?.[yearId]?.year_name||'';
+    area.innerHTML=`<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.5rem"><div class="ct" style="margin:0"><i class="fa-solid fa-calendar-week" style="color:var(--purple)"></i> Semesters — <span class="amharic">${esc(yn)}</span></div><button class="btn bp bs" onclick="openTermModal(0)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>${terms.length?`<div class="tw"><table><thead><tr><th>Name</th><th>#</th><th>Start</th><th>End</th><th>Current</th><th>Actions</th></tr></thead><tbody>${terms.map(t=>`<tr><td class="amharic" style="font-weight:600">${esc(t.term_name)}</td><td>${esc(String(t.term_number||''))}</td><td style="font-size:.72rem">${esc(t.start_date||'—')}</td><td style="font-size:.72rem">${esc(t.end_date||'—')}</td><td>${t.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':`<button class="btn bo bs" onclick="setCurrentTerm(${parseInt(t.id)})">Set</button>`}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="openTermModal(${parseInt(t.id)})"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" style="color:var(--bad)" onclick="deleteTerm(${parseInt(t.id)})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`:'<div style="text-align:center;color:var(--dim);font-size:.78rem;padding:1rem">No semesters yet.</div>'}</div>`;
+    }catch(e){area.innerHTML='<div class="cd" style="text-align:center;padding:1rem;color:var(--dim)">Error loading semesters</div>';}
+}
+function openTermModal(termId){
+    const t=termId?window._termData?.[termId]:null;const isEdit=!!t;
+    document.getElementById('termModal')?.remove();
+    const h=`<div class="mo show" id="termModal"><div class="md" style="max-width:460px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem"><h3 style="margin:0"><i class="fa-solid fa-calendar-week" style="color:var(--purple)"></i> ${isEdit?'Edit':'Add'} Semester</h3><button onclick="document.getElementById('termModal').remove()" style="background:none;border:none;color:var(--dim);font-size:1.1rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button></div><div style="display:flex;flex-direction:column;gap:.55rem"><div style="display:grid;grid-template-columns:2fr 1fr;gap:.55rem"><div><label class="flbl">Semester Name *</label><input id="termName" class="inp amharic" style="width:100%" value="${isEdit?esc(t.term_name):''}" placeholder="e.g. 1ኛ ሴሚስተር"></div><div><label class="flbl">#</label><input type="number" id="termNumber" class="inp" style="width:100%" min="1" max="4" value="${isEdit?(t.term_number||1):1}"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem"><div><label class="flbl">Start</label><input type="date" id="termStart" class="inp" style="width:100%" value="${isEdit&&t.start_date?t.start_date:''}"></div><div><label class="flbl">End</label><input type="date" id="termEnd" class="inp" style="width:100%" value="${isEdit&&t.end_date?t.end_date:''}"></div></div><button class="btn bp" onclick="saveTerm(${isEdit?parseInt(t.id):0})"><i class="fa-solid fa-save"></i> ${isEdit?'Update':'Create'} Semester</button></div></div></div>`;
+    document.body.insertAdjacentHTML('beforeend',h);
+}
+async function saveTerm(termId){
+    const name=document.getElementById('termName').value.trim();if(!name)return toast('Semester name required','e');
+    const fd=new FormData();fd.append('action','save_term');fd.append('term_id',termId);fd.append('academic_year_id',window._termYearId);
+    fd.append('term_name',name);fd.append('term_number',document.getElementById('termNumber').value||1);
+    fd.append('start_date',document.getElementById('termStart').value);fd.append('end_date',document.getElementById('termEnd').value);fd.append('csrf_token',CSRF);
+    try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
+    if(d.status==='success'){toast('Semester saved!','s');document.getElementById('termModal')?.remove();viewTerms(window._termYearId);loadYears();}
+    else toast(d.message||'Failed','e');}catch(e){toast('Network error','e');}
+}
+async function setCurrentTerm(id){const fd=new FormData();fd.append('action','set_current_term');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
+async function deleteTerm(id){if(!confirm('Delete this semester?'))return;const fd=new FormData();fd.append('action','delete_term');fd.append('term_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Deleted':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')viewTerms(window._termYearId);}catch(e){toast('Error','e');}}
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function toast(msg,type){const t=document.getElementById('toast');t.className='toast '+(type==='s'?'ts':'te')+' show';t.innerHTML=`<i class="fa-solid fa-${type==='s'?'check-circle':'exclamation-circle'}"></i> ${msg}`;setTimeout(()=>t.classList.remove('show'),3500);}
 function dlFile(content,filename,mime){const b=new Blob([content],{type:mime+';charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=filename;a.click();URL.revokeObjectURL(a.href);}

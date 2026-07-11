@@ -791,7 +791,10 @@ switch ($action) {
                     }
                     echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id]);
                 } else {
-                    echo json_encode(['status'=>'error','message'=>'Update failed: '.$stmt->error]);
+                    $msg = ($stmt->errno == 1062)
+                        ? 'An academic year with this name already exists — please choose a different year name.'
+                        : 'Update failed: ' . $stmt->error;
+                    echo json_encode(['status'=>'error','message'=>$msg]);
                 }
             } else {
                 // INSERT new
@@ -825,7 +828,10 @@ switch ($action) {
                     }
                     echo json_encode(['status'=>'success','message'=>'Academic year created with 2 semesters','id'=>$newId]);
                 } else {
-                    echo json_encode(['status'=>'error','message'=>'Insert failed: '.$stmt->error]);
+                    $msg = ($stmt->errno == 1062)
+                        ? 'An academic year with this name already exists — please choose a different year name.'
+                        : 'Insert failed: ' . $stmt->error;
+                    echo json_encode(['status'=>'error','message'=>$msg]);
                 }
             }
         } catch (Exception $e) {
