@@ -879,6 +879,16 @@ if (file_exists($_monitorPath)) {
 }
 
 // ============================================================
+// ACADEMIC YEAR CONTEXT (single source of truth for "which year")
+// ============================================================
+// Defines ay_resolve()/ay_active_year()/ay_require_writable()/etc.
+// Loaded here so every page and API can resolve the effective year.
+$_ayPath = ROOT_PATH . '/admin/backend/academic_year.php';
+if (file_exists($_ayPath)) {
+    require_once $_ayPath;
+}
+
+// ============================================================
 // CENTRALIZED ACCESS CONTROL (must run AFTER auth helpers above)
 // ============================================================
 // This single guard enforces "who may open which admin page".

@@ -33,7 +33,7 @@ $__role = $_SESSION['admin_role'] ?? '';
 
 // TIER 1 — Academic YEAR / SEMESTER management: School Admin & Super Admin ONLY.
 // (Education dept can VIEW the year for context but cannot create/change it.)
-$__yearActions = ['save_academic_year', 'set_current_year', 'save_term', 'delete_term', 'set_current_term'];
+$__yearActions = ['save_academic_year', 'set_current_year', 'reopen_year', 'delete_year', 'save_term', 'delete_term', 'set_current_term'];
 if (in_array($action, $__yearActions, true)
         && !in_array($__role, ['super_admin', 'school_admin'], true)) {
     http_response_code(403);
@@ -55,17 +55,8 @@ if (in_array($action, $__manageActions, true)) {
     }
 }
 
-// Get current academic year (safe — don't crash if table missing)
-$currentYear = null;
-try {
-    $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    if ($result) {
-        $currentYear = $result->fetch_assoc();
-    }
-} catch (Exception $e) {
-    // academic_years table might not exist yet — that's OK
-    // Allow dashboard and other read actions to still work
-}
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
 // Ensure ec_year column exists (added after migration 002)
 try {
@@ -123,9 +114,24 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
+// ── STEP 3: write-protection ────────────────────────────────────────────────
+// Year-scoped writes stamp the ACTIVE year and are refused while time-travelling
+// (viewing a past year) or when no active year is set. Year-MANAGEMENT actions
+// (save_academic_year, set_current_year, save_term, …) are deliberately exempt —
+// they are how the active year is administered, not year-scoped data writes.
+if (function_exists('ay_require_writable')) {
+    $ayYearScopedWrites = ['enroll','assign_teacher','record_grade','record_attendance','batch_attendance','promote','bulk_enroll','transfer_student'];
+    $ayReadonlyBlocked  = ['save_class','delete_class','unenroll_student','sync_member_types'];
+    if (in_array($action, $ayYearScopedWrites, true)) {
+        ay_require_writable($conn);
+    } elseif (in_array($action, $ayReadonlyBlocked, true)) {
+        ay_block_if_readonly($conn);
+    }
+}
+
 try {
 switch ($action) {
-    
+
     // ============================================================
     // ENROLL STUDENT IN CLASS
     // ============================================================
@@ -760,12 +766,13 @@ switch ($action) {
         $ecYearVal = ($ecYear > 0) ? $ecYear : null;
         $yearGcVal = ($yearGc !== '') ? $yearGc : null;
         
-        // NOTE: we deliberately do NOT clear the other years' is_current flag
-        // here. Clearing it before the save could leave ZERO current years if
-        // the save then failed. Instead we set THIS year current as part of the
-        // save below, and clear the others only AFTER the save succeeds
-        // (search for "clear other current years"). Worst case is two current
-        // years, which is harmless because every lookup uses LIMIT 1.
+        // LIFECYCLE: this form NEVER flips the active year directly. A new year
+        // is created as 'upcoming'; it becomes active only through the explicit
+        // "Set Active" switch (ay_switch_active) with typed confirmation. The
+        // one exception is first-time setup: if no active year exists yet, a
+        // newly created year is auto-activated (nothing to close). This keeps a
+        // single source of truth and makes two-active-years impossible.
+        $isCurrent = 0; // ignored for lifecycle; kept for backward-compat only.
 
         // Ensure year_gc and ec_year columns exist
         try {
@@ -782,20 +789,17 @@ switch ($action) {
         
         try {
             if ($id > 0) {
-                // UPDATE existing
-                $sql = "UPDATE academic_years SET year_name=?, ec_year=?, year_gc=?, start_date=?, end_date=?, is_current=? WHERE id=?";
+                // UPDATE existing — descriptive fields only. The active-year
+                // lifecycle (status/is_current) changes ONLY through the explicit
+                // "Set Active" switch, never from this edit form.
+                $sql = "UPDATE academic_years SET year_name=?, ec_year=?, year_gc=?, start_date=?, end_date=? WHERE id=?";
                 $stmt = $conn->prepare($sql);
                 if (!$stmt) {
                     echo json_encode(['status'=>'error','message'=>'SQL Error: '.$conn->error]);
                     exit;
                 }
-                $stmt->bind_param("sisssii", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $isCurrent, $id);
+                $stmt->bind_param("sisssi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $id);
                 if ($stmt->execute()) {
-                    // clear other current years — only now that THIS one saved
-                    if ($isCurrent) {
-                        $c = $conn->prepare("UPDATE academic_years SET is_current=0 WHERE id <> ?");
-                        if ($c) { $c->bind_param("i", $id); $c->execute(); $c->close(); }
-                    }
                     echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id]);
                 } else {
                     $msg = ($stmt->errno == 1062)
@@ -804,21 +808,17 @@ switch ($action) {
                     echo json_encode(['status'=>'error','message'=>$msg]);
                 }
             } else {
-                // INSERT new
-                $sql = "INSERT INTO academic_years (year_name, ec_year, year_gc, start_date, end_date, is_current) VALUES (?,?,?,?,?,?)";
+                // INSERT new — always starts as 'upcoming' (is_current=0). It
+                // becomes active only via the explicit "Set Active" switch.
+                $sql = "INSERT INTO academic_years (year_name, ec_year, year_gc, start_date, end_date, is_current) VALUES (?,?,?,?,?,0)";
                 $stmt = $conn->prepare($sql);
                 if (!$stmt) {
                     echo json_encode(['status'=>'error','message'=>'SQL Error: '.$conn->error]);
                     exit;
                 }
-                $stmt->bind_param("sisssi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $isCurrent);
+                $stmt->bind_param("sisss", $name, $ecYearVal, $yearGcVal, $startDate, $endDate);
                 if ($stmt->execute()) {
                     $newId = $conn->insert_id;
-                    // clear other current years — only now that THIS one saved
-                    if ($isCurrent && $newId) {
-                        $c = $conn->prepare("UPDATE academic_years SET is_current=0 WHERE id <> ?");
-                        if ($c) { $c->bind_param("i", $newId); $c->execute(); $c->close(); }
-                    }
                     // Auto-create 2 semesters
                     if ($newId) {
                         try {
@@ -833,7 +833,31 @@ switch ($action) {
                             }
                         } catch (Exception $e) { /* terms table might not exist */ }
                     }
-                    echo json_encode(['status'=>'success','message'=>'Academic year created with 2 semesters','id'=>$newId]);
+                    // Bootstrap: if there is no active year yet, make this one
+                    // active — there is no running year to close, so it is safe.
+                    $activated = false;
+                    if ($newId) {
+                        $hasActive = false;
+                        try {
+                            $ac = $conn->query("SELECT COUNT(*) c FROM academic_years WHERE status='active'");
+                            if ($ac) $hasActive = ((int)$ac->fetch_assoc()['c'] > 0);
+                        } catch (Exception $e) {
+                            try { $ac = $conn->query("SELECT COUNT(*) c FROM academic_years WHERE is_current=1"); if ($ac) $hasActive = ((int)$ac->fetch_assoc()['c'] > 0); } catch (Exception $e2) {}
+                        }
+                        if (!$hasActive) {
+                            if (function_exists('ay_switch_active')) {
+                                $sw = ay_switch_active($conn, $newId, false);
+                                $activated = (($sw['status'] ?? '') === 'success');
+                            } else {
+                                $conn->query("UPDATE academic_years SET is_current=1 WHERE id=".(int)$newId);
+                                $activated = true;
+                            }
+                        }
+                    }
+                    $msg = $activated
+                        ? 'Academic year created and set as the ACTIVE year (first year).'
+                        : 'Academic year created with 2 semesters. Use "Set Active" to make it the current year.';
+                    echo json_encode(['status'=>'success','message'=>$msg,'id'=>$newId,'activated'=>$activated]);
                 } else {
                     $msg = ($stmt->errno == 1062)
                         ? 'An academic year with this name already exists — please choose a different year name.'
@@ -847,26 +871,95 @@ switch ($action) {
         break;
 
     case 'set_current_year':
+        // STEP 4 — SAFE, ATOMIC active-year switch. Never leaves zero or two
+        // active years. Requires typed confirmation; reopening a CLOSED (past)
+        // year requires the stronger "REOPEN" confirmation.
         $yid = (int)($_POST['year_id'] ?? 0);
         if (!$yid) { echo json_encode(['status'=>'error','message'=>'Year ID required']); exit; }
-        // Clearing the old current year and setting the new one MUST happen
-        // together. If the second step failed on its own, the system would be
-        // left with ZERO current years and every "WHERE is_current=1" query
-        // (attendance, enrollment, grades) would silently return nothing.
+
+        if (!function_exists('ay_switch_active')) {
+            // Fallback: legacy transactional flip (resolver unavailable).
+            $conn->begin_transaction();
+            try {
+                $conn->query("UPDATE academic_years SET is_current=0");
+                $stmt = $conn->prepare("UPDATE academic_years SET is_current=1 WHERE id = ?");
+                if (!$stmt) { throw new Exception($conn->error); }
+                $stmt->bind_param("i", $yid);
+                $stmt->execute();
+                $stmt->close();
+                $conn->commit();
+                echo json_encode(['status'=>'success','message'=>'Current year updated']);
+            } catch (Exception $e) {
+                $conn->rollback();
+                error_log("set_current_year failed: " . $e->getMessage());
+                echo json_encode(['status'=>'error','message'=>'Could not change the current year. No changes were made.']);
+            }
+            break;
+        }
+
+        $target = ay_year_by_id($conn, $yid);
+        if (!$target) { echo json_encode(['status'=>'error','message'=>'That academic year does not exist.']); break; }
+        $tstatus = $target['status'] ?? ((int)($target['is_current'] ?? 0) === 1 ? 'active' : 'upcoming');
+
+        if ($tstatus === 'active') {
+            echo json_encode(['status'=>'success','message'=>'That year is already the active year.']);
+            break;
+        }
+
+        $reopen  = ($tstatus === 'closed');
+        $confirm = strtoupper(trim((string)($_POST['confirm'] ?? '')));
+        $need    = $reopen ? 'REOPEN' : 'SWITCH';
+        if ($confirm !== $need) {
+            echo json_encode([
+                'status'             => 'error',
+                'code'               => $reopen ? 'confirm_reopen' : 'confirm_switch',
+                'needs_confirmation' => true,
+                'reopen'             => $reopen,
+                'target_name'        => $target['year_name'] ?? '',
+                'message'            => $reopen
+                    ? 'This year is CLOSED. Reopening a past year makes it active again and NEW records will be stamped to it. This is unusual — only do it to correct a mistake. Type REOPEN to confirm.'
+                    : 'Switching the active year will CLOSE the current year. New records will then belong to the newly selected year. Type SWITCH to confirm.'
+            ]);
+            break;
+        }
+
+        $res = ay_switch_active($conn, $yid, $reopen);
+        echo json_encode($res);
+        break;
+
+    case 'delete_year':
+        // STEP 6 — deletion protection. Only an EMPTY 'upcoming' year may be
+        // deleted. The active year and any closed (past) year — and any year
+        // that already holds records — are permanently protected.
+        $yid = (int)($_POST['year_id'] ?? 0);
+        if (!$yid) { echo json_encode(['status'=>'error','message'=>'Year ID required']); exit; }
+        $target = function_exists('ay_year_by_id') ? ay_year_by_id($conn, $yid) : null;
+        if (!$target) {
+            $rr = $conn->query("SELECT * FROM academic_years WHERE id=".(int)$yid." LIMIT 1");
+            $target = $rr ? $rr->fetch_assoc() : null;
+        }
+        if (!$target) { echo json_encode(['status'=>'error','message'=>'That academic year does not exist.']); break; }
+        $tstatus = $target['status'] ?? ((int)($target['is_current'] ?? 0) === 1 ? 'active' : 'upcoming');
+        if ($tstatus === 'active') { echo json_encode(['status'=>'error','message'=>'The ACTIVE year cannot be deleted. Switch to another year first.']); break; }
+        if ($tstatus === 'closed') { echo json_encode(['status'=>'error','message'=>'Closed (past) years are permanently protected and cannot be deleted.']); break; }
+        // 'upcoming' — allowed only if it holds NO year-scoped records.
+        $recCount = 0;
+        foreach (['class_enrollments','attendance','academic_records','teacher_assignments','submissions','assessments'] as $tbl) {
+            try { $rc = $conn->query("SELECT COUNT(*) c FROM `$tbl` WHERE academic_year_id=".(int)$yid); if ($rc) $recCount += (int)$rc->fetch_assoc()['c']; } catch (Exception $e) {}
+        }
+        if ($recCount > 0) { echo json_encode(['status'=>'error','message'=>"This year already holds $recCount record(s) and cannot be deleted. Only an empty upcoming year can be removed."]); break; }
         $conn->begin_transaction();
         try {
-            $conn->query("UPDATE academic_years SET is_current=0");
-            $stmt = $conn->prepare("UPDATE academic_years SET is_current=1 WHERE id = ?");
-            if (!$stmt) { throw new Exception($conn->error); }
-            $stmt->bind_param("i", $yid);
-            $stmt->execute();
-            $stmt->close();
+            $conn->query("DELETE FROM academic_terms WHERE academic_year_id=".(int)$yid);
+            $st = $conn->prepare("DELETE FROM academic_years WHERE id=?");
+            if (!$st) { throw new Exception($conn->error); }
+            $st->bind_param('i', $yid); $st->execute(); $st->close();
             $conn->commit();
-            echo json_encode(['status'=>'success','message'=>'Current year updated']);
+            echo json_encode(['status'=>'success','message'=>'Empty upcoming year deleted.']);
         } catch (Exception $e) {
             $conn->rollback();
-            error_log("set_current_year failed: " . $e->getMessage());
-            echo json_encode(['status'=>'error','message'=>'Could not change the current year. No changes were made.']);
+            error_log('delete_year failed: '.$e->getMessage());
+            echo json_encode(['status'=>'error','message'=>'Could not delete the year. No changes were made.']);
         }
         break;
 
@@ -938,6 +1031,21 @@ switch ($action) {
     case 'delete_term':
         $tid = (int)($_POST['term_id'] ?? 0);
         if (!$tid) { echo json_encode(['status'=>'error','message'=>'Term ID required']); exit; }
+        // STEP 6 — protect historical data: semesters of a CLOSED (past) year
+        // cannot be deleted.
+        try {
+            $chk = $conn->prepare("SELECT ay.status FROM academic_terms t JOIN academic_years ay ON ay.id=t.academic_year_id WHERE t.id=?");
+            if ($chk) {
+                $chk->bind_param('i', $tid);
+                $chk->execute();
+                $row = $chk->get_result()->fetch_assoc();
+                $chk->close();
+                if ($row && ($row['status'] ?? '') === 'closed') {
+                    echo json_encode(['status'=>'error','message'=>'This semester belongs to a closed (past) year and is protected. It cannot be deleted.']);
+                    break;
+                }
+            }
+        } catch (Exception $e) { /* status column may not exist yet — allow */ }
         $stmt = $conn->prepare("DELETE FROM academic_terms WHERE id = ?");
         $stmt->bind_param("i", $tid);
         $stmt->execute();

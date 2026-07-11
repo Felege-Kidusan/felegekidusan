@@ -92,7 +92,8 @@ $stmt2->close();
 
 $total = $summary['total'] ?? count($members);
 $today = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa'));
-$dateStr = $today->format('M j, Y g:i A');
+// Ethiopian date for the report header (time-of-day is calendar-agnostic).
+$dateStr = ethio_date_format($today, 'F j, Y') . ' ' . $today->format('g:i A');
 
 $ageLabels = ['under6' => 'Under 6', '7_13' => '7-13', '14_17' => '14-17', '18_plus' => '18+'];
 

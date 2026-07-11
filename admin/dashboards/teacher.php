@@ -31,14 +31,8 @@ $now = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa'));
 $todayFormatted = wbws_format_date($now, 'long', $conn ?? null);
 $todayDate = $now->format('Y-m-d');
 
-// Get current academic year
-$currentYear = null;
-try {
-    $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    if ($result && $row = $result->fetch_assoc()) {
-        $currentYear = $row;
-    }
-} catch (Exception $e) { /* table may not exist yet */ }
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 $yearId = $currentYear ? $currentYear['id'] : 0;
 
 // Get teacher's assigned classes and subjects
@@ -155,6 +149,7 @@ $csrfToken = generateCsrfToken();
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
     <div class="flex min-h-screen">
         
         <!-- Sidebar -->

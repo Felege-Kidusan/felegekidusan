@@ -730,6 +730,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
     <aside class="sb">
         <div class="brand">
             <div class="brand-logo"><i class="fa-solid fa-shield-halved"></i></div>

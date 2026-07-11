@@ -258,6 +258,7 @@ select.inp{cursor:pointer}
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 
 <!-- SIDEBAR -->
 <aside>
@@ -408,8 +409,8 @@ select.inp{cursor:pointer}
 
 <!-- ═══ ACADEMIC YEAR ═══ -->
 <div id="section-academicyear" class="cs">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.1rem;font-weight:700;color:var(--bright)"><i class="fa-solid fa-calendar-days" style="color:var(--purple)"></i> Academic Year & Semesters</h2><p style="font-size:.72rem;color:var(--dim)">Create the school year, set the current one, and manage semesters.</p></div><button class="btn bp bs" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div>
-<div class="cd"><div class="tw"><table><thead><tr><th>Year Name</th><th>EC</th><th>GC</th><th>Start</th><th>End</th><th>Semesters</th><th>Current</th><th>Actions</th></tr></thead><tbody id="yearBody"><tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.1rem;font-weight:700;color:var(--bright)"><i class="fa-solid fa-calendar-days" style="color:var(--purple)"></i> Academic Year & Semesters</h2><p style="font-size:.72rem;color:var(--dim)">Create the school year, set the active one, and manage semesters. Only one year is <b>Active</b> at a time.</p></div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="btn bo bs" onclick="window.open('/admin/tools/year_rollover.php','_blank')" title="Start a new school year and carry students forward"><i class="fa-solid fa-rotate"></i> Year Rollover</button><button class="btn bp bs" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div></div>
+<div class="cd"><div class="tw"><table><thead><tr><th>Year Name</th><th>EC</th><th>GC</th><th>Start</th><th>End</th><th>Semesters</th><th>Status</th><th>Actions</th></tr></thead><tbody id="yearBody"><tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 <div id="termArea" style="margin-top:.75rem"></div>
 </div>
 
@@ -483,8 +484,8 @@ select.inp{cursor:pointer}
 <div><label class="flbl">Start Date</label><input type="date" id="yearStart" class="inp" style="width:100%"></div>
 <div><label class="flbl">End Date</label><input type="date" id="yearEnd" class="inp" style="width:100%"></div>
 </div>
-<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem"><input type="checkbox" id="yearCurrent"> Set as Current Year</label>
-<div style="font-size:.65rem;color:var(--dim)">Two semesters are auto-created for a new academic year.</div>
+<input type="hidden" id="yearCurrent" value="0">
+<div style="font-size:.68rem;color:var(--dim);background:rgba(59,130,246,.08);border-left:3px solid #60a5fa;padding:.45rem .6rem;border-radius:4px">A new year is created as <b>Upcoming</b> and two semesters are added automatically. It stays inactive until you use the <b>Set Active</b> (✓) button on the year list — that safely closes the current year and switches over. <b>The very first year</b> you create becomes active automatically.</div>
 <button class="btn bp" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
 </div></div></div>
 
@@ -722,7 +723,7 @@ function pdfHeader(doc,title,subtitle){
     doc.setFontSize(9);doc.setFont(undefined,'normal');doc.setTextColor(220,252,231);
     doc.text(title||'Member Report',14,21);
     doc.setFontSize(7);doc.setTextColor(187,247,208);
-    doc.text((subtitle?subtitle+' | ':'')+'Generated: '+new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})+' '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),14,27);
+    doc.text((subtitle?subtitle+' | ':'')+'Generated: '+genStamp(),14,27);
     doc.setTextColor(0,0,0);
     return 38;
 }
@@ -786,7 +787,7 @@ function exportMemberPDF(m){
     </style><link rel="stylesheet" href="/admin/css/mobile.css">
 </head><body>
     <div class="toolbar no-print"><button class="btn-g" onclick="window.print()">🖨️ Print / Save as PDF</button><button class="btn-o" onclick="window.close()">← Close</button><span style="color:#64748b;font-size:11px;margin-left:8px">Tip: Select "Save as PDF" in print dialog</span></div>
-    <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Profile</h1><p>Official Member Record • Generated: ${new Date().toLocaleString()}</p></div>
+    <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Profile</h1><p>Official Member Record • Generated: ${genStamp()}</p></div>
     <div class="profile"><div class="avatar">${(m.student_name||'?')[0].toUpperCase()}</div><div>
     <div style="font-size:14pt;font-weight:bold">${esc(m.student_name||'')} ${esc(m.father_name||'')} ${esc(m.grandfather_name||'')}</div>
     <div style="margin-top:4px"><span class="badge b-info">${esc(m.member_code||'—')}</span><span class="badge b-${m.status==='active'?'ok':(m.status==='warning'?'w':'bad')}">${(m.status||'—').toUpperCase()}</span><span class="badge b-info">${(m.registration_type||'').toUpperCase()}</span><span class="badge b-info">${m.gender==='male'?'Male':'Female'}</span></div></div></div>
@@ -795,7 +796,7 @@ function exportMemberPDF(m){
     {t:'Contact Details',c:'st3',f:[['Phone Number',m.phone_number],['Alt Phone',m.alt_phone_number],['Guardian Name',m.guardian_name],['Guardian Phone',m.guardian_phone1]]},
     {t:'Address Information',c:'st4',f:[['City',m.city],['Sub City',m.sub_city],['Woreda',m.woreda],['Mender',m.mender],['Block Number',m.block_number],['House Number',m.house_number]]}
     ].map(s=>'<div class="sec"><div class="sec-title '+s.c+'">'+s.t+'</div><table class="f">'+s.f.map(([l,v],i)=>i%2===0?'<tr><td style="width:50%"><span class="lbl">'+l+'</span><span class="val">'+(esc(v)||'—')+'</span></td>'+(s.f[i+1]?'<td><span class="lbl">'+s.f[i+1][0]+'</span><span class="val">'+(esc(s.f[i+1][1])||'—')+'</span></td>':'<td></td>')+'</tr>':'').filter(Boolean).join('')+'</table></div>').join('')}
-    <div class="footer"><?= SCHOOL_NAME ?> • Member ID: ${m.id} • Registered: ${fmtDate(m.created_at)} • Generated: ${new Date().toLocaleString()}</div>
+    <div class="footer"><?= SCHOOL_NAME ?> • Member ID: ${m.id} • Registered: ${fmtDate(m.created_at)} • Generated: ${genStamp()}</div>
     <script>setTimeout(()=>window.print(),600)<\/script></body></html>`);
     w.document.close();
     toast('Print dialog opening — choose "Save as PDF"','s');
@@ -829,7 +830,7 @@ function exportMemberWord(m){
     {t:'Contact Details',c:'contact',f:[['Phone Number',m.phone_number],['Alt Phone',m.alt_phone_number],['Guardian Name',m.guardian_name],['Guardian Phone',m.guardian_phone1]]},
     {t:'Address Information',c:'address',f:[['City',m.city],['Sub City',m.sub_city],['Woreda',m.woreda],['Mender',m.mender],['Block Number',m.block_number],['House Number',m.house_number]]}
     ].map(s=>`<div class="section"><div class="section-title st-${s.c}">${s.t}</div><table class="fields">${s.f.map(([l,v],i)=>i%2===0?`<tr><td style="width:25%"><span class="label">${l}</span><br><span class="value">${esc(v)||'—'}</span></td>${s.f[i+1]?`<td style="width:25%"><span class="label">${s.f[i+1][0]}</span><br><span class="value">${esc(s.f[i+1][1])||'—'}</span></td>`:'<td></td>'}</tr>`:'').filter(Boolean).join('')}</table></div>`).join('')}
-    <div class="footer">Generated: ${new Date().toLocaleString()} | Member ID: ${m.id} | <?= SCHOOL_NAME ?> | Registered: ${fmtDate(m.created_at)}</div>
+    <div class="footer">Generated: ${genStamp()} | Member ID: ${m.id} | <?= SCHOOL_NAME ?> | Registered: ${fmtDate(m.created_at)}</div>
     </body></html>`;
     dlFile(html,'<?= MEMBER_CODE_PREFIX ?>_Member_'+(m.student_name||'profile').replace(/\s/g,'_')+'.doc','application/msword');
     toast('Member profile exported as Word','s');
@@ -863,7 +864,7 @@ function exportExcelPro(data){
     // Sheet 1: Summary Dashboard
     const summary=[
         ['<?= strtoupper(SCHOOL_NAME) ?>'],['Member Data Report'],
-        ['Generated: '+new Date().toLocaleString()],[''],
+        ['Generated: '+genStamp()],[''],
         ['OVERVIEW STATISTICS'],
         ['Total Members','Active','Warning','Inactive','Pending','Male','Female','Sections'],
         [a.total,a.bySt.active,a.bySt.warning,a.bySt.inactive,data.filter(m=>m.registration_type==='waiting').length,a.byG.Male,a.byG.Female,a.bySec.length],
@@ -935,7 +936,7 @@ function exportPDFPro(data){
 </head><body>
     <div class="toolbar no-print"><button class="btn-g" onclick="window.print()">🖨️ Print / Save as PDF</button><button class="btn-o" onclick="window.close()">← Close</button><span style="color:#64748b;font-size:11px;margin-left:8px">Tip: In print dialog, select "Save as PDF"</span></div>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Report</h1>
-    <div class="meta">${isFiltered?'Filtered: '+data.length+' of '+allMembers.length+' members':'Complete Report: '+data.length+' members'} | Generated: ${new Date().toLocaleString()}</div></div>
+    <div class="meta">${isFiltered?'Filtered: '+data.length+' of '+allMembers.length+' members':'Complete Report: '+data.length+' members'} | Generated: ${genStamp()}</div></div>
     <div class="summary">
     <div class="pill"><b>${a.total}</b> Total</div>
     <div class="pill"><b>${a.bySt.active}</b> Active</div>
@@ -955,7 +956,7 @@ function exportPDFPro(data){
     <table class="main"><thead><tr><th>#</th><th>Code</th><th>Full Name</th><th>Father</th><th>Gender</th><th>Age</th><th>Section</th><th>Status</th><th>Reg Type</th><th>Phone</th><th>City</th><th>Sub City</th><th>Education</th></tr></thead><tbody>
     ${data.map((m,i)=>{const sc=m.status==='active'?'s-active':(m.status==='warning'?'s-warning':'s-inactive');return'<tr><td style="color:#9ca3af">'+(i+1)+'</td><td style="font-family:monospace;font-size:7.5pt">'+esc(m.member_code||'')+'</td><td style="font-weight:600">'+esc(m.student_name||'')+'</td><td>'+esc(m.father_name||'')+'</td><td>'+(m.gender==='male'?'M':'F')+'</td><td>'+fmtAge(m.age_group)+'</td><td>'+esc(m.current_section||'—')+'</td><td><span class="status '+sc+'">'+(m.status||'')+'</span></td><td>'+esc(m.registration_type||'')+'</td><td>'+esc(m.phone_number||'')+'</td><td>'+esc(m.city||'')+'</td><td>'+esc(m.sub_city||'')+'</td><td>'+esc(m.education_level||'')+'</td></tr>';}).join('')}
     </tbody></table>
-    <div class="footer"><?= SCHOOL_NAME ?> — Confidential Report — ${new Date().toLocaleString()} — ${data.length} members</div>
+    <div class="footer"><?= SCHOOL_NAME ?> — Confidential Report — ${genStamp()} — ${data.length} members</div>
     <script>setTimeout(()=>window.print(),600)<\/script></body></html>`);
     w.document.close();
     toast('Print dialog opening — choose "Save as PDF"','s');
@@ -991,7 +992,7 @@ function exportWordPro(data){
 </head><body>
     <div class="header"><h1>⛪ <?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Report</h1>
     <p>${isFiltered?'Filtered Report: '+data.length+' of '+allMembers.length+' members':'Complete Report: '+data.length+' members'}</p>
-    <div class="date">Generated: ${new Date().toLocaleString('en-GB',{dateStyle:'full',timeStyle:'short'})}</div></div>
+    <div class="date">Generated: ${genStamp()}</div></div>
 
     <div class="stats">
     <div class="stat-box"><div class="num" style="color:#06b6d4">${a.total}</div><div class="lbl">Total Members</div></div>
@@ -1030,7 +1031,7 @@ function exportWordPro(data){
     <td style="font-size:7pt">${esc(m.phone_number||'—')}</td>
     <td>${esc(m.city||'—')}</td></tr>`).join('')}
     </tbody></table>
-    <div class="footer"><?= SCHOOL_NAME ?> — Confidential Report — Generated ${new Date().toLocaleString()} — Total: ${data.length} members</div>
+    <div class="footer"><?= SCHOOL_NAME ?> — Confidential Report — Generated ${genStamp()} — Total: ${data.length} members</div>
     </body></html>`;
     dlFile(html,'<?= MEMBER_CODE_PREFIX ?>_Members_Report_'+new Date().toISOString().slice(0,10)+'.doc','application/msword');
     toast('Professional Word report exported with analytics','s');
@@ -1065,7 +1066,7 @@ function genCustomReport(){
         pdfFooter(doc);doc.save('<?= MEMBER_CODE_PREFIX ?>_'+fn+'_Report.pdf');
     }else if(fmt==='excel'){
         const wb=XLSX.utils.book_new();
-        const ws=XLSX.utils.aoa_to_sheet([['<?= SCHOOL_NAME_SHORT ?> Sunday School — '+title],['Generated: '+new Date().toLocaleString()],[''],[h],...r.map(x=>[x])]);
+        const ws=XLSX.utils.aoa_to_sheet([['<?= SCHOOL_NAME_SHORT ?> Sunday School — '+title],['Generated: '+genStamp()],[''],[h],...r.map(x=>[x])]);
         ws['!cols']=h.map(()=>({wch:20}));ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:h.length-1}}];
         XLSX.utils.book_append_sheet(wb,ws,fn);XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_'+fn+'_Report.xlsx');
     }else if(fmt==='word'){
@@ -1076,10 +1077,10 @@ function genCustomReport(){
         td{padding:5px 10px;border-bottom:1px solid #e5e7eb;font-size:9pt}tr:nth-child(even){background:#f8fafc}
         .footer{margin-top:15px;padding-top:5px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:7pt;text-align:center}
         </style><link rel="stylesheet" href="/admin/css/mobile.css">
-</head><body><div class="header"><h1>⛪ ${title}</h1><p>${allMembers.length} members analyzed • ${new Date().toLocaleDateString('en-GB',{dateStyle:'full'})}</p></div>
+</head><body><div class="header"><h1>⛪ ${title}</h1><p>${allMembers.length} members analyzed • ${genDate()}</p></div>
         <table><tr>${h.slice(0,3).map(x=>'<th>'+x+'</th>').join('')}</tr>
         ${r.map((x,i)=>'<tr'+(i%2?' style="background:#f8fafc"':'')+'>'+x.slice(0,3).map(c=>'<td>'+esc(c+'')+'</td>').join('')+'</tr>').join('')}</table>
-        <div class="footer"><?= SCHOOL_NAME ?> — Generated ${new Date().toLocaleString()}</div></body></html>`;
+        <div class="footer"><?= SCHOOL_NAME ?> — Generated ${genStamp()}</div></body></html>`;
         dlFile(html,'<?= MEMBER_CODE_PREFIX ?>_'+fn+'_Report.doc','application/msword');
     }
     toast(fn+' report generated as '+fmt.toUpperCase(),'s');
@@ -1094,7 +1095,14 @@ async function loadYears(){
         const r=await fetch('/admin/api_education.php?action=get_academic_years',{credentials:'same-origin'});const d=await r.json();
         if(d.status==='success'){
             const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);
-            tb.innerHTML=y.length?y.map(x=>`<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${esc(String(x.ec_year||'—'))}</td><td style="font-size:.72rem">${esc(x.year_gc||'—')}</td><td style="font-size:.72rem">${esc(x.start_date||'—')}</td><td style="font-size:.72rem">${esc(x.end_date||'—')}</td><td><span class="bg bg-info">${parseInt(x.term_count)||0}</span></td><td>${x.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':'<span class="bg" style="background:rgba(128,128,128,.12);color:var(--dim)">No</span>'}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="viewTerms(${parseInt(x.id)})" title="Semesters"><i class="fa-solid fa-calendar-week"></i></button> <button class="btn bo bs" onclick="editYearById(${parseInt(x.id)})" title="Edit"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" onclick="setCurrentYear(${parseInt(x.id)})" title="Set Current"><i class="fa-solid fa-check"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">No academic years yet. Click "Add Year".</td></tr>';
+            tb.innerHTML=y.length?y.map(x=>{
+                const st=(x.status||(x.is_current==1?'active':'upcoming'));
+                const badge=st==='active'?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Active</span>':(st==='closed'?'<span class="bg" style="background:rgba(128,128,128,.15);color:var(--dim)">Closed</span>':'<span class="bg" style="background:rgba(59,130,246,.15);color:#60a5fa">Upcoming</span>');
+                let acts=`<button class="btn bo bs" onclick="viewTerms(${parseInt(x.id)})" title="Semesters"><i class="fa-solid fa-calendar-week"></i></button> <button class="btn bo bs" onclick="editYearById(${parseInt(x.id)})" title="Edit"><i class="fa-solid fa-pen"></i></button>`;
+                if(st!=='active'){acts+=` <button class="btn bo bs" style="color:var(--ok)" onclick="setCurrentYear(${parseInt(x.id)})" title="${st==='closed'?'Reopen and set active':'Set as active year'}"><i class="fa-solid fa-${st==='closed'?'rotate-left':'check'}"></i></button>`;}
+                if(st==='upcoming'){acts+=` <button class="btn bo bs" style="color:var(--bad)" onclick="deleteYear(${parseInt(x.id)})" title="Delete empty year"><i class="fa-solid fa-trash"></i></button>`;}
+                return `<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${esc(String(x.ec_year||'—'))}</td><td style="font-size:.72rem">${esc(x.year_gc||'—')}</td><td style="font-size:.72rem">${fmtDate(x.start_date)}</td><td style="font-size:.72rem">${fmtDate(x.end_date)}</td><td><span class="bg bg-info">${parseInt(x.term_count)||0}</span></td><td>${badge}</td><td style="white-space:nowrap">${acts}</td></tr>`;
+            }).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">No academic years yet. Click "Add Year".</td></tr>';
         }else tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Could not load</td></tr>';
     }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Error loading years</td></tr>';}
 }
@@ -1150,14 +1158,38 @@ async function saveYear(){
     if(d.status==='success'){toast('Academic year saved!','s');document.getElementById('yearModal').classList.remove('show');loadYears();}
     else toast(d.message||'Save failed','e');}catch(e){toast('Network error','e');}
 }
-async function setCurrentYear(id){if(!confirm('Set this as the current academic year?'))return;const fd=new FormData();fd.append('action','set_current_year');fd.append('year_id',id);fd.append('csrf_token',CSRF);try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();toast(d.message||(d.status==='success'?'Updated':'Failed'),d.status==='success'?'s':'e');if(d.status==='success')loadYears();}catch(e){toast('Error','e');}}
+async function setCurrentYear(id){
+    const y=window._yearData?.[id];const st=y?(y.status||(y.is_current==1?'active':'upcoming')):'upcoming';
+    if(st==='active'){toast('That year is already the active year','s');return;}
+    const reopen=(st==='closed');const phrase=reopen?'REOPEN':'SWITCH';
+    const warn=reopen
+        ? 'This year is CLOSED (a past year).\n\nReopening it makes it the ACTIVE year again and NEW records will be stamped to it. Only do this to correct a mistake.\n\nType REOPEN to confirm:'
+        : 'Switching the active year will CLOSE the current year.\n\nNew attendance, enrolments and grades will belong to the newly selected year.\n\nType SWITCH to confirm:';
+    const typed=prompt(warn);
+    if(typed===null)return;
+    if((typed||'').trim().toUpperCase()!==phrase){toast('Confirmation text did not match — no change made','e');return;}
+    const fd=new FormData();fd.append('action','set_current_year');fd.append('year_id',id);fd.append('confirm',phrase);fd.append('csrf_token',CSRF);
+    try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
+        toast(d.message||(d.status==='success'?'Active year changed':'Failed'),d.status==='success'?'s':'e');
+        if(d.status==='success')loadYears();
+    }catch(e){toast('Error','e');}
+}
+async function deleteYear(id){
+    const y=window._yearData?.[id];const nm=y?y.year_name:'';
+    if(!confirm('Delete the empty upcoming year "'+nm+'"?\n\nOnly a year with NO records can be deleted. This cannot be undone.'))return;
+    const fd=new FormData();fd.append('action','delete_year');fd.append('year_id',id);fd.append('csrf_token',CSRF);
+    try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
+        toast(d.message||(d.status==='success'?'Deleted':'Failed'),d.status==='success'?'s':'e');
+        if(d.status==='success')loadYears();
+    }catch(e){toast('Error','e');}
+}
 async function viewTerms(yearId){
     window._termYearId=yearId;const area=document.getElementById('termArea');
     area.innerHTML='<div class="cd" style="text-align:center;padding:1.25rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin"></i> Loading semesters...</div>';
     try{const r=await fetch('/admin/api_education.php?action=get_terms&year_id='+yearId,{credentials:'same-origin'});const d=await r.json();
     const terms=d.terms||[];window._termData={};terms.forEach(t=>window._termData[t.id]=t);
     const yn=window._yearData?.[yearId]?.year_name||'';
-    area.innerHTML=`<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.5rem"><div class="ct" style="margin:0"><i class="fa-solid fa-calendar-week" style="color:var(--purple)"></i> Semesters — <span class="amharic">${esc(yn)}</span></div><button class="btn bp bs" onclick="openTermModal(0)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>${terms.length?`<div class="tw"><table><thead><tr><th>Name</th><th>#</th><th>Start</th><th>End</th><th>Current</th><th>Actions</th></tr></thead><tbody>${terms.map(t=>`<tr><td class="amharic" style="font-weight:600">${esc(t.term_name)}</td><td>${esc(String(t.term_number||''))}</td><td style="font-size:.72rem">${esc(t.start_date||'—')}</td><td style="font-size:.72rem">${esc(t.end_date||'—')}</td><td>${t.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':`<button class="btn bo bs" onclick="setCurrentTerm(${parseInt(t.id)})">Set</button>`}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="openTermModal(${parseInt(t.id)})"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" style="color:var(--bad)" onclick="deleteTerm(${parseInt(t.id)})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`:'<div style="text-align:center;color:var(--dim);font-size:.78rem;padding:1rem">No semesters yet.</div>'}</div>`;
+    area.innerHTML=`<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.5rem"><div class="ct" style="margin:0"><i class="fa-solid fa-calendar-week" style="color:var(--purple)"></i> Semesters — <span class="amharic">${esc(yn)}</span></div><button class="btn bp bs" onclick="openTermModal(0)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>${terms.length?`<div class="tw"><table><thead><tr><th>Name</th><th>#</th><th>Start</th><th>End</th><th>Current</th><th>Actions</th></tr></thead><tbody>${terms.map(t=>`<tr><td class="amharic" style="font-weight:600">${esc(t.term_name)}</td><td>${esc(String(t.term_number||''))}</td><td style="font-size:.72rem">${fmtDate(t.start_date)}</td><td style="font-size:.72rem">${fmtDate(t.end_date)}</td><td>${t.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':`<button class="btn bo bs" onclick="setCurrentTerm(${parseInt(t.id)})">Set</button>`}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="openTermModal(${parseInt(t.id)})"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" style="color:var(--bad)" onclick="deleteTerm(${parseInt(t.id)})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`:'<div style="text-align:center;color:var(--dim);font-size:.78rem;padding:1rem">No semesters yet.</div>'}</div>`;
     }catch(e){area.innerHTML='<div class="cd" style="text-align:center;padding:1rem;color:var(--dim)">Error loading semesters</div>';}
 }
 function openTermModal(termId){
@@ -1185,6 +1217,9 @@ function rgBg(t){const m={waiting:'bg-w',transfer:'bg-info',direct:'bg-ok'};retu
 function rlBg(r){const m={super_admin:'bg-bad',school_admin:'bg-info',info_dept:'bg-ok',edu_dept:'bg-p',finance_dept:'bg-w',material_dept:'bg-p',teacher:'bg-info',attendance_taker:'bg-ok'};return`<span class="bg ${m[r]||'bg-info'}">${(r||'').replace(/_/g,' ')}</span>`;}
 function fmtAge(g){const m={under6:'Under 6','7_13':'7-13','14_17':'14-17','18_plus':'18+'};return m[g]||g||'—';}
 function fmtDate(d){if(!d)return'—';if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(d,'medium');try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
+// Report/export timestamps in the Ethiopian calendar (with a GC fallback).
+function genStamp(){try{if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDateTime(new Date());}catch(e){}return genStamp();}
+function genDate(){try{if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(new Date(),'long');}catch(e){}return new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});}
 
 // INIT
 document.addEventListener('DOMContentLoaded',()=>{

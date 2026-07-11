@@ -25,14 +25,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $action = $_REQUEST['action'] ?? '';
 $userId = $_SESSION['admin_id'];
 
-// Get current academic year (safe — table might not exist)
-$currentYear = null;
-try {
-    $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    if ($result) {
-        $currentYear = $result->fetch_assoc();
-    }
-} catch (Exception $e) { /* academic_years table may not exist yet */ }
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
+
+// ── STEP 3: write-protection ────────────────────────────────────────────────
+// Year-scoped writes are refused while time-travelling (viewing a past year)
+// and always stamp the ACTIVE year — never the year being viewed.
+if (function_exists('ay_require_writable') && in_array($action, ['save_attendance'], true)) {
+    ay_require_writable($conn); // exits 403 (read-only) / 409 (no active year) as needed
+}
 
 try {
 switch ($action) {

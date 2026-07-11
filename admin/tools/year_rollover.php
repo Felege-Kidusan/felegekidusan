@@ -36,11 +36,14 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 
-// ── Super Admin ONLY (belt and braces on top of the central guard) ──
-if (empty($_SESSION['admin_logged_in']) || ($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+// ── School Admin (owner) + Super Admin (break-glass) ONLY ──
+if (empty($_SESSION['admin_logged_in']) || !in_array($_SESSION['admin_role'] ?? '', ['super_admin', 'school_admin'], true)) {
     http_response_code(403);
-    die('<p style="font-family:sans-serif;padding:2rem">Only a Super Admin can run the year rollover.</p>');
+    die('<p style="font-family:sans-serif;padding:2rem">Only a School Admin or Super Admin can run the year rollover.</p>');
 }
+
+// Guarantee the lifecycle `status` column exists before we touch it below.
+if (function_exists('ay_ensure_schema')) { ay_ensure_schema($conn); }
 
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 $isPost  = ($_SERVER['REQUEST_METHOD'] === 'POST');
@@ -105,9 +108,16 @@ if ($isPost && ($_POST['action'] ?? '') === 'run') {
     if (!$errors) {
         $conn->begin_transaction();
         try {
-            // 1. Make the new year the current one — atomically.
-            $conn->query("UPDATE academic_years SET is_current = 0");
-            $st = $conn->prepare("UPDATE academic_years SET is_current = 1 WHERE id = ?");
+            // 1. Make the new year the current one — atomically AND
+            //    lifecycle-correct (status + is_current together). Any currently
+            //    active year is CLOSED; the chosen new year becomes active. Done
+            //    inline (not via ay_switch_active) because that helper opens its
+            //    own transaction, which cannot nest inside this one.
+            $st = $conn->prepare("UPDATE academic_years SET is_current = 0, status = CASE WHEN status = 'active' THEN 'closed' ELSE status END WHERE id <> ?");
+            $st->bind_param("i", $newYearId);
+            $st->execute();
+            $st->close();
+            $st = $conn->prepare("UPDATE academic_years SET is_current = 1, status = 'active' WHERE id = ?");
             $st->bind_param("i", $newYearId);
             $st->execute();
             $st->close();

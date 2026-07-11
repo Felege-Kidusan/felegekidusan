@@ -24,6 +24,8 @@ if (!isset($conn) || !$conn || $conn->connect_error) {
  */
 function getCurrentAcademicYear() {
     global $conn;
+    // Delegates to the central resolver — the ACTIVE year (used for stamping).
+    if (function_exists('ay_active_year')) return ay_active_year($conn);
     try {
         $r = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
         return $r ? $r->fetch_assoc() : null;

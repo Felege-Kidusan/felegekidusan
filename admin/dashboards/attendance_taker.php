@@ -37,12 +37,8 @@ try {
     if ($result) while ($row = $result->fetch_assoc()) { $allClasses[] = $row; }
 } catch (Exception $e) { /* classes table may not exist */ }
 
-// Get current academic year
-$currentYear = null;
-try {
-    $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    if ($result && $row = $result->fetch_assoc()) { $currentYear = $row; }
-} catch (Exception $e) { /* academic_years table may not exist */ }
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
 $csrfToken = generateCsrfToken();
 ?>
@@ -107,6 +103,7 @@ $csrfToken = generateCsrfToken();
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
     <div class="flex min-h-screen">
         
         <!-- Sidebar -->

@@ -75,6 +75,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 <aside class="school-sidebar">
 <div class="brand"><div class="bl"><i class="fa-solid fa-coins"></i></div><div><span style="font-size:.95rem;font-weight:600;color:#f1f5f9"><?= SCHOOL_NAME_SHORT ?> Finance</span><br><span style="font-size:.7rem;color:var(--dm)"><?= DEPT_FINANCE_NAME ?></span></div></div>
 <div><div class="nt">Finance</div>

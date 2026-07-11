@@ -7,6 +7,7 @@
  * Access roles: super_admin, school_admin, info_dept, content_editor
  */
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../backend/calendar_system.php';
 
 if (!isLoggedIn()) { header('Location: ../index.php'); exit; }
 
@@ -164,8 +165,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
   .topbar-sub{display:none}
 }
 </style>
+<?= function_exists('wbws_calendar_scripts') ? wbws_calendar_scripts($conn ?? null) : '' ?>
 </head>
 <body>
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 
 <div class="topbar">
   <div class="topbar-brand">
@@ -358,7 +361,7 @@ async function loadRegistrations(filter){
   if(!d.data.length){list.innerHTML='<div class="empty"><i class="fa-solid fa-inbox"></i>No submissions yet.</div>';return;}
   let html='<table class="tbl"><thead><tr><th>Name</th><th>Phone</th><th>Interest</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody>';
   d.data.forEach(s=>{
-    const dt=new Date(s.created_at).toLocaleDateString();
+    const dt=(typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(s.created_at,'medium'):new Date(s.created_at).toLocaleDateString();
     html+=`<tr>
       <td><strong>${esc(s.full_name)}</strong>${s.email?'<br><span style="font-size:0.72rem;color:var(--text-dim)">'+esc(s.email)+'</span>':''}</td>
       <td>${esc(s.phone)}</td>

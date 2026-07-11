@@ -81,11 +81,8 @@ try {
 } catch (Exception $e) { /* non-critical */ }
 
 // Get current academic year
-$currentYear = null;
-try {
-    $r = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    if ($r) $currentYear = $r->fetch_assoc();
-} catch (Exception $e) {}
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
 $currentTerm = null;
 try {
@@ -94,6 +91,16 @@ try {
 } catch (Exception $e) {}
 
 $action = $_REQUEST['action'] ?? '';
+
+// ── STEP 3: write-protection ────────────────────────────────────────────────
+// Marklist submission stamps the active year; refuse writes while time-travelling.
+if (function_exists('ay_require_writable')) {
+    if (in_array($action, ['submit_marklist'], true)) {
+        ay_require_writable($conn);
+    } elseif (in_array($action, ['review_submission'], true)) {
+        ay_block_if_readonly($conn);
+    }
+}
 
 switch ($action) {
 

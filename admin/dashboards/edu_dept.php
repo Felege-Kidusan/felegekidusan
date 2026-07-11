@@ -23,8 +23,7 @@ $greeting = ((int)$now->format('H') < 12) ? 'Good Morning' : (((int)$now->format
 
 $currentYear = null; $currentTerm = null; $classes = []; $subjects = []; $members = [];
 if ($tablesExist) {
-    $r = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    $currentYear = $r ? $r->fetch_assoc() : null;
+    $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
     try { $r = $conn->query("SELECT * FROM academic_terms WHERE is_current = 1 LIMIT 1");
     $currentTerm = $r ? $r->fetch_assoc() : null; } catch(Exception $e) {}
     $r = $conn->query("SELECT * FROM classes WHERE is_active = 1 ORDER BY level_order");
@@ -94,6 +93,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 <div style="display:flex;min-height:100vh">
 <!-- SIDEBAR -->
 <aside class="sb school-sidebar">

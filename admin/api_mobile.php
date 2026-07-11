@@ -181,7 +181,7 @@ case 'data/dashboard':
     } catch (Exception $e) { $data['today_attendance'] = ['recorded'=>0,'present_cnt'=>0,'absent_cnt'=>0,'late_cnt'=>0]; }
     try { $r = $conn->query("SELECT COUNT(*) as cnt FROM classes WHERE is_active=1"); $data['classes_count'] = $r ? (int)$r->fetch_assoc()['cnt'] : 0; } catch (Exception $e) { $data['classes_count']=0; }
     $r = $conn->query("SELECT COUNT(*) as cnt FROM users WHERE is_active=1"); $data['users_count'] = $r ? (int)$r->fetch_assoc()['cnt'] : 0;
-    try { $r = $conn->query("SELECT year_name,year_gc FROM academic_years WHERE is_current=1 LIMIT 1"); $data['academic_year']=$r?$r->fetch_assoc():null; } catch(Exception $e){$data['academic_year']=null;}
+    try { $ay = function_exists('ay_active_year') ? ay_active_year($conn) : null; if(!$ay){ $r = $conn->query("SELECT year_name,year_gc FROM academic_years WHERE is_current=1 LIMIT 1"); $ay = $r?$r->fetch_assoc():null; } $data['academic_year'] = $ay ? ['year_name'=>$ay['year_name']??null,'year_gc'=>$ay['year_gc']??null] : null; } catch(Exception $e){$data['academic_year']=null;}
     _ok(['status'=>'success','data'=>$data,'server_time'=>date('c')]);
     break;
 
@@ -204,14 +204,14 @@ case 'data/members':
 
 case 'data/class_students':
     $classId=(int)($_GET['class_id']??0);if(!$classId)_err('class_id required');
-    $yf="";$yfParam=null;try{$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");if($r&&$yr=$r->fetch_assoc()){$yfParam=(int)$yr['id'];$yf=" AND ce.academic_year_id=?";}}catch(Exception $e){}
+    $yf="";$yfParam=null;try{$ay=function_exists('ay_active_year')?ay_active_year($conn):null;if(!$ay){$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");$ay=$r?$r->fetch_assoc():null;}if($ay&&!empty($ay['id'])){$yfParam=(int)$ay['id'];$yf=" AND ce.academic_year_id=?";}}catch(Exception $e){}
     $students=[];try{if($yfParam){$stmt=$conn->prepare("SELECT m.id,m.member_code,m.student_name,m.father_name,m.gender,m.age_group,m.phone_number FROM class_enrollments ce JOIN members m ON ce.member_id=m.id WHERE ce.class_id=? AND ce.status='active'".$yf." ORDER BY m.student_name");$stmt->bind_param('ii',$classId,$yfParam);}else{$stmt=$conn->prepare("SELECT m.id,m.member_code,m.student_name,m.father_name,m.gender,m.age_group,m.phone_number FROM class_enrollments ce JOIN members m ON ce.member_id=m.id WHERE ce.class_id=? AND ce.status='active' ORDER BY m.student_name");$stmt->bind_param('i',$classId);}$stmt->execute();$r=$stmt->get_result();while($row=$r->fetch_assoc())$students[]=$row;$stmt->close();}catch(Exception $e){}
     _ok(['status'=>'success','students'=>$students,'class_id'=>$classId]);
     break;
 
 case 'attendance/get':
     $classId=(int)($_GET['class_id']??0);$date=$_GET['date']??date('Y-m-d');if(!$classId)_err('class_id required');if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date))_err('Invalid date');
-    $yf="";try{$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");if($r&&$yr=$r->fetch_assoc())$yf=" AND ce.academic_year_id=".(int)$yr['id'];}catch(Exception $e){}
+    $yf="";try{$ay=function_exists('ay_active_year')?ay_active_year($conn):null;if(!$ay){$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");$ay=$r?$r->fetch_assoc():null;}if($ay&&!empty($ay['id']))$yf=" AND ce.academic_year_id=".(int)$ay['id'];}catch(Exception $e){}
     $students=[];try{$stmt=$conn->prepare("SELECT ce.member_id,m.student_name,m.father_name,m.member_code,m.gender,a.id as attendance_id,a.status as att_status,a.notes,a.check_in_time FROM class_enrollments ce JOIN members m ON ce.member_id=m.id LEFT JOIN attendance a ON a.member_id=ce.member_id AND a.attendance_date=? WHERE ce.class_id=? AND ce.status='active' $yf ORDER BY m.student_name");if($stmt){$stmt->bind_param('si',$date,$classId);$stmt->execute();$r=$stmt->get_result();while($row=$r->fetch_assoc())$students[]=$row;$stmt->close();}}catch(Exception $e){}
     $cls=['class_name'=>'','class_name_en'=>''];try{$stmt=$conn->prepare("SELECT class_name,class_name_en FROM classes WHERE id=?");if($stmt){$stmt->bind_param('i',$classId);$stmt->execute();$cls=$stmt->get_result()->fetch_assoc()?:$cls;$stmt->close();}}catch(Exception $e){}
     _ok(['status'=>'success','students'=>$students,'class'=>$cls,'date'=>$date]);
@@ -220,7 +220,7 @@ case 'attendance/get':
 case 'attendance/save':
     if($method!=='POST')_err('POST required');$classId=(int)($input['class_id']??0);$date=$input['date']??date('Y-m-d');$records=$input['records']??[];
     if(!$classId||empty($records))_err('class_id and records required');if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date))_err('Invalid date');
-    $yearId=null;try{$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");if($r&&$yr=$r->fetch_assoc())$yearId=(int)$yr['id'];}catch(Exception $e){}
+    $yearId=null;try{$ay=function_exists('ay_active_year')?ay_active_year($conn):null;if(!$ay){$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");$ay=$r?$r->fetch_assoc():null;}if($ay&&!empty($ay['id']))$yearId=(int)$ay['id'];}catch(Exception $e){}
     $stmt=$conn->prepare("DELETE FROM attendance WHERE class_id=? AND attendance_date=?");if($stmt){$stmt->bind_param('is',$classId,$date);$stmt->execute();$stmt->close();}
     $ins=$conn->prepare("INSERT INTO attendance (member_id,class_id,academic_year_id,attendance_date,status,notes,recorded_by) VALUES (?,?,?,?,?,?,?)");$saved=0;
     if(!$ins)_err('Database error: '.$conn->error,500);
@@ -231,7 +231,7 @@ case 'attendance/save':
 case 'sync/push':
     if($method!=='POST')_err('POST required');$items=$input['items']??[];if(empty($items))_err('No items');
     $results=[];foreach($items as $item){$type=$item['type']??'';$data=$item['data']??[];$lid=$item['local_id']??'';
-    try{if($type==='attendance'){$cid=(int)($data['class_id']??0);$dt=$data['date']??'';$recs=$data['records']??[];if($cid&&$dt&&!empty($recs)){$d=$conn->prepare("DELETE FROM attendance WHERE class_id=? AND attendance_date=?");$d->bind_param('is',$cid,$dt);$d->execute();$d->close();$yid=null;try{$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");if($r&&$yr=$r->fetch_assoc())$yid=(int)$yr['id'];}catch(Exception $e){}$ins=$conn->prepare("INSERT INTO attendance (member_id,class_id,academic_year_id,attendance_date,status,notes,recorded_by) VALUES (?,?,?,?,?,?,?)");$c=0;foreach($recs as $rec){$mid=(int)($rec['member_id']??0);$st=$rec['status']??'present';$n=trim($rec['note']??'');if(!$mid)continue;$ins->bind_param('iiisssi',$mid,$cid,$yid,$dt,$st,$n,$userId);$ins->execute();$c++;}$ins->close();$results[]=['local_id'=>$lid,'status'=>'success','saved'=>$c];}else $results[]=['local_id'=>$lid,'status'=>'error','message'=>'Missing data'];}else $results[]=['local_id'=>$lid,'status'=>'error','message'=>'Unknown type'];}catch(Exception $e){$results[]=['local_id'=>$lid,'status'=>'error','message'=>'Error'];}}
+    try{if($type==='attendance'){$cid=(int)($data['class_id']??0);$dt=$data['date']??'';$recs=$data['records']??[];if($cid&&$dt&&!empty($recs)){$d=$conn->prepare("DELETE FROM attendance WHERE class_id=? AND attendance_date=?");$d->bind_param('is',$cid,$dt);$d->execute();$d->close();$yid=null;try{$ay=function_exists('ay_active_year')?ay_active_year($conn):null;if(!$ay){$r=$conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");$ay=$r?$r->fetch_assoc():null;}if($ay&&!empty($ay['id']))$yid=(int)$ay['id'];}catch(Exception $e){}$ins=$conn->prepare("INSERT INTO attendance (member_id,class_id,academic_year_id,attendance_date,status,notes,recorded_by) VALUES (?,?,?,?,?,?,?)");$c=0;foreach($recs as $rec){$mid=(int)($rec['member_id']??0);$st=$rec['status']??'present';$n=trim($rec['note']??'');if(!$mid)continue;$ins->bind_param('iiisssi',$mid,$cid,$yid,$dt,$st,$n,$userId);$ins->execute();$c++;}$ins->close();$results[]=['local_id'=>$lid,'status'=>'success','saved'=>$c];}else $results[]=['local_id'=>$lid,'status'=>'error','message'=>'Missing data'];}else $results[]=['local_id'=>$lid,'status'=>'error','message'=>'Unknown type'];}catch(Exception $e){$results[]=['local_id'=>$lid,'status'=>'error','message'=>'Error'];}}
     _ok(['status'=>'success','results'=>$results]);
     break;
 

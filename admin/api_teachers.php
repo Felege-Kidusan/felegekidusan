@@ -63,13 +63,8 @@ try {
 } catch (Exception $e) { /* non-critical */ }
 
 // Get current academic year (table may not exist yet)
-$currentYear = null;
-try {
-    $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-    if ($result) {
-        $currentYear = $result->fetch_assoc();
-    }
-} catch (Exception $e) { /* academic_years table may not exist */ }
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
 // ── Auto-fix teacher_assignments table ──
 try {

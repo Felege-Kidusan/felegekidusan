@@ -499,6 +499,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="bg-slate-100">
+<?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 
 <div class="min-h-screen flex flex-col md:flex-row">
 

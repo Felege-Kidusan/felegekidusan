@@ -794,6 +794,8 @@ function onMemberArchived($conn, $memberId, $reason = null) {
  * Get current academic year
  */
 function getCurrentAcademicYear($conn) {
+    // Delegates to the central resolver — the ACTIVE year (used for stamping).
+    if (function_exists('ay_active_year')) return ay_active_year($conn);
     try {
         $result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
         return $result ? $result->fetch_assoc() : null;

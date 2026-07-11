@@ -41,11 +41,20 @@ if (in_array($action, $__manageActions, true)) {
     }
 }
 
-// Get current academic year
-$currentYear = null;
-$result = $conn->query("SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1");
-if ($result) {
-    $currentYear = $result->fetch_assoc();
+// Effective academic year — single source of truth (resolver, time-travel aware)
+$currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
+
+// ── STEP 3: write-protection ────────────────────────────────────────────────
+// Refuse writes while time-travelling. Year-scoped writes (assessments, grades,
+// class-subject assignment) additionally require an active year to stamp.
+if (function_exists('ay_require_writable')) {
+    $ayYearScopedWrites = ['assign_subject_to_classes','create_assessment','update_assessment','delete_assessment','save_grades'];
+    $ayReadonlyBlocked  = ['create_subject','update_subject','delete_subject'];
+    if (in_array($action, $ayYearScopedWrites, true)) {
+        ay_require_writable($conn);
+    } elseif (in_array($action, $ayReadonlyBlocked, true)) {
+        ay_block_if_readonly($conn);
+    }
 }
 
 try {
