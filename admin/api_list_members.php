@@ -56,8 +56,14 @@ FROM members
 WHERE status != 'archived'
 ORDER BY id DESC";
 
-$stmt = $conn->prepare($sql);
-if ($stmt) {
+// Report the REAL error (a missing column etc.) instead of a generic
+// message, so a failure is diagnosable instead of hanging the UI silently.
+try {
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        echo json_encode(['status' => 'error', 'message' => 'Query prepare failed: ' . $conn->error]);
+        exit;
+    }
     $stmt->execute();
     $result = $stmt->get_result();
     $members = [];
@@ -66,6 +72,7 @@ if ($stmt) {
     }
     $stmt->close();
     echo json_encode(['status' => 'success', 'members' => $members]);
-} else {
-    echo json_encode(['status' => 'error', 'message' => 'Database query failed']);
+} catch (Throwable $e) {
+    error_log('api_list_members error: ' . $e->getMessage());
+    echo json_encode(['status' => 'error', 'message' => 'Could not load members: ' . $e->getMessage()]);
 }

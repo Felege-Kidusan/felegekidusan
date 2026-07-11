@@ -26,24 +26,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $action = $_REQUEST['action'] ?? '';
 
-// ── Action-level authorization ──
-// This endpoint lets teachers and attendance-takers in so they can READ
-// classes and record grades/attendance. But class, enrolment and
-// academic-year MANAGEMENT must stay with education staff — a teacher must
-// never be able to delete a class or promote students. Block those actions
-// for anyone who is not super_admin / school_admin / edu_dept.
+// ── Action-level authorization (two tiers) ──
+// Teachers and attendance-takers are allowed in to READ classes and record
+// grades/attendance, but management is restricted:
+$__role = $_SESSION['admin_role'] ?? '';
+
+// TIER 1 — Academic YEAR / SEMESTER management: School Admin & Super Admin ONLY.
+// (Education dept can VIEW the year for context but cannot create/change it.)
+$__yearActions = ['save_academic_year', 'set_current_year', 'save_term', 'delete_term', 'set_current_term'];
+if (in_array($action, $__yearActions, true)
+        && !in_array($__role, ['super_admin', 'school_admin'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Only a School Admin or Super Admin can manage academic years and semesters.']);
+    exit;
+}
+
+// TIER 2 — Class / enrolment management: Education dept + admins.
 $__manageActions = [
     'enroll', 'unenroll_student', 'promote', 'bulk_enroll', 'transfer_student',
     'assign_teacher', 'save_class', 'delete_class',
-    'save_academic_year', 'set_current_year',
-    'save_term', 'delete_term', 'set_current_term',
     'sync_member_types',
 ];
 if (in_array($action, $__manageActions, true)) {
-    $__role = $_SESSION['admin_role'] ?? '';
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
         http_response_code(403);
-        echo json_encode(['status' => 'error', 'message' => 'Only the Education department can manage classes, enrolments and academic years.']);
+        echo json_encode(['status' => 'error', 'message' => 'Only the Education department can manage classes and enrolments.']);
         exit;
     }
 }

@@ -7,6 +7,7 @@
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
+require_once __DIR__ . '/../backend/calendar_system.php';
 
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'School Admin';
 $username = $_SESSION['admin_username'] ?? '';
@@ -80,6 +81,7 @@ $mStroke=round($mPct*3.14);$fStroke=round($fPct*3.14);
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>School Admin — <?= SCHOOL_NAME_SHORT ?></title>
+<?= wbws_calendar_scripts($conn) ?>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -474,9 +476,9 @@ select.inp{cursor:pointer}
 <input type="hidden" id="yearFormId" value="0">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem">
 <div><label class="flbl">Year Name *</label><input id="yearName" class="inp amharic" style="width:100%" placeholder="e.g. 2018 ዓ.ም."></div>
-<div><label class="flbl">EC Year</label><input type="number" id="yearEc" class="inp" style="width:100%"></div>
+<div><label class="flbl">EC Year (Ethiopian) *</label><input type="number" id="yearEc" class="inp" style="width:100%" oninput="syncGcFromEc()"></div>
 </div>
-<div><label class="flbl">GC Year</label><input id="yearGc" class="inp" style="width:100%" placeholder="e.g. 2025/2026"></div>
+<div><label class="flbl">GC Year <span style="color:var(--dim);font-weight:400">(auto — reference only)</span></label><input id="yearGc" class="inp" style="width:100%;opacity:.65;cursor:not-allowed" readonly tabindex="-1" placeholder="auto from EC year"></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem">
 <div><label class="flbl">Start Date</label><input type="date" id="yearStart" class="inp" style="width:100%"></div>
 <div><label class="flbl">End Date</label><input type="date" id="yearEnd" class="inp" style="width:100%"></div>
@@ -574,7 +576,23 @@ async function restoreRole(){try{const fd=new FormData();fd.append('action','res
 (function(){const el=document.getElementById('secBars');if(!el||!secDist.length){if(el)el.innerHTML='<p style="font-size:.72rem;color:var(--dim)">No data</p>';return;}const mx=Math.max(...secDist.map(s=>parseInt(s.c)));const clrs=['var(--ac)','var(--ok)','var(--purple)','var(--warn)','var(--pink)','#f97316','#06b6d4','#84cc16'];el.innerHTML=secDist.slice(0,8).map((s,i)=>{const p=mx>0?Math.round(parseInt(s.c)/mx*100):0;return`<div style="margin-bottom:.5rem"><div style="display:flex;justify-content:space-between;font-size:.65rem;margin-bottom:.15rem"><span style="color:var(--text);font-weight:500">${s.s}</span><span style="font-weight:700;color:${clrs[i%8]}">${s.c}</span></div><div class="progress"><div class="progress-bar" style="width:${p}%;background:${clrs[i%8]}"></div></div></div>`;}).join('');})();
 
 // MEMBERS
-async function loadMembers(){try{const r=await fetch('/admin/api_list_members.php',{credentials:'same-origin'});const d=await r.json();if(d.status==='success'){allMembers=d.members||[];populateDropdowns();applyFilters();}}catch(e){toast('Failed to load','e');}}
+async function loadMembers(){
+    const rc=document.getElementById('resultCount');
+    try{
+        const r=await fetch('/admin/api_list_members.php',{credentials:'same-origin'});
+        let d;try{d=await r.json();}catch(_){throw new Error('Server returned an unexpected response (HTTP '+r.status+').');}
+        if(d.status==='success'){allMembers=d.members||[];populateDropdowns();applyFilters();return;}
+        // Session expired / access denied → go to login instead of hanging.
+        if(d.action==='reload'||d.status==='session_expired'){window.location.href='/admin/index.php';return;}
+        // Any other error: SHOW it (the old code silently ignored non-success,
+        // which left "Loading…" spinning forever with no clue why).
+        if(rc)rc.innerHTML='<span style="color:var(--bad)">'+esc(d.message||'Could not load members')+'</span>';
+        toast(d.message||'Could not load members','e');
+    }catch(e){
+        if(rc)rc.innerHTML='<span style="color:var(--bad)">Could not load members. '+esc(e.message||'')+'</span>';
+        toast('Failed to load members','e');
+    }
+}
 function populateDropdowns(){const secs=[...new Set(allMembers.map(m=>m.current_section).filter(Boolean))].sort();['fSection','attSection','qmSection'].forEach(id=>{const s=document.getElementById(id);if(!s)return;const v=s.value;const def=id==='qmSection'?'<option value="">Select</option>':'<option value="">All</option>';s.innerHTML=def+secs.map(x=>`<option value="${x}">${x}</option>`).join('');s.value=v;});}
 function applyFilters(){const q=(document.getElementById('fSearch')?.value||'').toLowerCase();const st=document.getElementById('fStatus')?.value||'';const ge=document.getElementById('fGender')?.value||'';const se=document.getElementById('fSection')?.value||'';const rt=document.getElementById('fRegType')?.value||'';const mt=document.getElementById('fMemberType')?.value||'';const ag=document.getElementById('fAgeGroup')?.value||'';const ci=(document.getElementById('fCity')?.value||'').toLowerCase();filteredMembers=allMembers.filter(m=>{if(q&&![m.student_name,m.father_name,m.member_code,m.phone_number,m.baptismal_name,m.guardian_name].filter(Boolean).join(' ').toLowerCase().includes(q))return false;if(st&&m.status!==st)return false;if(ge&&m.gender!==ge)return false;if(se&&m.current_section!==se)return false;if(rt&&m.registration_type!==rt)return false;if(mt&&m.member_type!==mt)return false;if(ag&&m.age_group!==ag)return false;if(ci&&!(m.city||'').toLowerCase().includes(ci))return false;return true;});sortMembers();curPage=1;renderMembers();}
 function sortBy(col){if(sortCol===col)sortDir=sortDir==='asc'?'desc':'asc';else{sortCol=col;sortDir='asc';}document.querySelectorAll('#mTbl th').forEach(th=>th.classList.remove('sa','sd'));const th=document.querySelector('#mTbl th[data-col="'+col+'"]');if(th)th.classList.add(sortDir==='asc'?'sa':'sd');sortMembers();renderMembers();}
@@ -1080,21 +1098,27 @@ async function loadYears(){
         }else tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Could not load</td></tr>';
     }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Error loading years</td></tr>';}
 }
+function syncGcFromEc(){
+    // GC year is DERIVED from the Ethiopian year (E → GC span E+7 / E+8),
+    // NOT taken from the browser's Gregorian clock. Reference only.
+    const ec=parseInt(document.getElementById('yearEc').value,10);
+    if(!isNaN(ec)&&ec>0){const g=ec+7;document.getElementById('yearGc').value=g+'/'+(g+1);}
+}
 function openYearModal(){
     const currentEc=<?= (int)ethio_date_format($today, 'Y') ?>;
-    let ecYear=currentEc, gcYear=new Date().getFullYear();
+    let ecYear=currentEc;
     /* Suggest a year name that does NOT already exist. If the current
        Ethiopian year (or a later one) is already saved, suggest the NEXT
        year — otherwise the prefill always collided with the UNIQUE
        year_name constraint and every save after the first one failed. */
     try{
         let maxEc=0;Object.values(window._yearData||{}).forEach(y=>{const e=parseInt(y.ec_year,10);if(!isNaN(e)&&e>maxEc)maxEc=e;});
-        if(maxEc>=currentEc){const bump=(maxEc+1)-currentEc;ecYear=maxEc+1;gcYear=gcYear+bump;}
+        if(maxEc>=currentEc){ecYear=maxEc+1;}
     }catch(e){}
     document.getElementById('yearFormId').value=0;
     document.getElementById('yearName').value=ecYear+' ዓ.ም.';
     document.getElementById('yearEc').value=ecYear;
-    document.getElementById('yearGc').value=gcYear+'/'+(gcYear+1);
+    syncGcFromEc(); // derive GC from EC, not the browser clock
     document.getElementById('yearStart').value='';
     document.getElementById('yearEnd').value='';
     document.getElementById('yearCurrent').checked=true;
@@ -1160,7 +1184,7 @@ function stBg(s){const m={active:'bg-ok',warning:'bg-w',inactive:'bg-bad'};retur
 function rgBg(t){const m={waiting:'bg-w',transfer:'bg-info',direct:'bg-ok'};return`<span class="bg ${m[t]||'bg-info'}">${t||'—'}</span>`;}
 function rlBg(r){const m={super_admin:'bg-bad',school_admin:'bg-info',info_dept:'bg-ok',edu_dept:'bg-p',finance_dept:'bg-w',material_dept:'bg-p',teacher:'bg-info',attendance_taker:'bg-ok'};return`<span class="bg ${m[r]||'bg-info'}">${(r||'').replace(/_/g,' ')}</span>`;}
 function fmtAge(g){const m={under6:'Under 6','7_13':'7-13','14_17':'14-17','18_plus':'18+'};return m[g]||g||'—';}
-function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
+function fmtDate(d){if(!d)return'—';if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(d,'medium');try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
 
 // INIT
 document.addEventListener('DOMContentLoaded',()=>{

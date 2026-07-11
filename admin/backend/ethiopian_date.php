@@ -1,6 +1,33 @@
 <?php
-// Ethiopian calendar helpers
-// Provides conversions between Gregorian (PHP DateTime) and Ethiopian calendar
+/**
+ * ============================================================
+ * Ethiopian calendar helpers — SOURCE OF TRUTH
+ * ============================================================
+ * Converts between Gregorian (PHP DateTime) and Ethiopian dates.
+ *
+ * HOW THE SYSTEM USES DATES (important for future developers):
+ *   1. STORAGE is always Gregorian. Every DATE column in the database
+ *      holds a normal Gregorian date. This is deliberate — it keeps date
+ *      math, sorting and comparisons reliable. Do NOT store Ethiopian
+ *      strings in date columns.
+ *   2. DISPLAY / PICKERS are Ethiopian. The Ethiopian date the user sees
+ *      or picks is DERIVED from the stored Gregorian value at runtime
+ *      (in PHP via these functions, in the browser via wbws-calendar.js).
+ *
+ * VERIFIED-CORRECT RANGE:
+ *   The Ethiopian leap-year is derived from the Gregorian leap rule
+ *   (is_gregorian_leap). This is correct from now through Gregorian
+ *   year 2099 inclusive.
+ *
+ * KNOWN 2100 BOUNDARY (NOT a bug to fix now — ~74 years away):
+ *   Gregorian 2100 is NOT a leap year (divisible by 100, not 400), but the
+ *   Ethiopian year that spans it IS a leap year. Because this file infers
+ *   the Ethiopian leap year from the Gregorian rule, conversions will drift
+ *   by one day starting in 2100. When that time comes, replace the leap
+ *   inference with the true Ethiopian rule (Ethiopian year % 4 === 3).
+ *   Until then the logic is correct and must NOT be changed.
+ * ============================================================
+ */
 
 function is_gregorian_leap(int $y): bool
 {

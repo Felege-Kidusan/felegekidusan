@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
+require_once __DIR__ . '/../backend/calendar_system.php';
 // session is already started and role checked in dashboard.php
 
 // ------------------------------------------------------------
@@ -229,6 +230,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 <head>
     <meta charset="UTF-8">
     <title><?= DEPT_INFO_NAME_EN ?> - <?= SCHOOL_NAME_SHORT_AM ?></title>
+    <?= wbws_calendar_scripts($conn) ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <!-- CSRF Token for AJAX requests -->
@@ -3943,7 +3945,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const photo = m.student_photo_path ? fixImagePath(m.student_photo_path) : '';
             const section = m.current_section || m.age_group || '—';
             const reason = reasonLabels[m.archive_reason] || m.archive_reason || 'Unknown';
-            const archivedDate = m.archived_at ? new Date(m.archived_at).toLocaleDateString('en-GB') : '—';
+            const archivedDate = m.archived_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(m.archived_at,'medium'):new Date(m.archived_at).toLocaleDateString('en-GB')) : '—';
             
             return `
                 <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition">
@@ -5002,8 +5004,8 @@ function loadProfile() {
         document.getElementById('profName').value = u.full_name || '';
         document.getElementById('profEmail').value = u.email || '';
         document.getElementById('spEmail').textContent = u.email || '—';
-        document.getElementById('spCreated').textContent = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—';
-        document.getElementById('spLastLogin').textContent = u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never';
+        document.getElementById('spCreated').textContent = u.created_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.created_at,'medium'):new Date(u.created_at).toLocaleDateString()) : '—';
+        document.getElementById('spLastLogin').textContent = u.last_login ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.last_login,'medium'):new Date(u.last_login).toLocaleDateString()) : 'Never';
         document.getElementById('spLogins').textContent = d.login_count || '0';
     });
 }

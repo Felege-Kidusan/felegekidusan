@@ -37,6 +37,13 @@ if (!defined('ROOT_PATH')) {
     }
 }
 
+// Ethiopian date picker for ALL frontend pages (finance etc.) — same engine
+// the admin dashboards use. Converts every <input type="date"> to Ethiopian
+// while still storing/sending the Gregorian value.
+if (defined('ROOT_PATH') && is_file(ROOT_PATH . '/admin/backend/calendar_system.php')) {
+    require_once ROOT_PATH . '/admin/backend/calendar_system.php';
+}
+
 // Auth check — all dashboard pages require login
 if (function_exists('requireAuth')) {
     requireAuth();
@@ -168,6 +175,9 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     
     <?= $extraHead ?>
     
+    <!-- Ethiopian date picker (converts all date inputs; stores Gregorian) -->
+    <?= function_exists('wbws_calendar_scripts') ? wbws_calendar_scripts($conn ?? null) : '' ?>
+
     <!-- Prevent flash of wrong theme mode -->
     <script>try{if(localStorage.getItem('school_theme_mode')==='light')document.documentElement.style.colorScheme='light'}catch(e){}</script>
 </head>

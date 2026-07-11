@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
+require_once __DIR__ . '/../backend/calendar_system.php';
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 
@@ -50,6 +51,7 @@ $csrfToken = generateCsrfToken();
 <head>
     <meta charset="UTF-8">
     <title>Attendance Taker - <?= SCHOOL_NAME_SHORT_AM ?></title>
+    <?= wbws_calendar_scripts($conn) ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script>const CSRF_TOKEN = '<?= $csrfToken ?>';</script>
     <script src="https://cdn.tailwindcss.com"></script>

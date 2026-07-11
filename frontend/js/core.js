@@ -195,6 +195,8 @@
         if (!dateStr) return '—';
         var d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
+        // Show Ethiopian to the user (Gregorian stays the stored value).
+        if (typeof WBWSCalendar !== 'undefined') return WBWSCalendar.formatDate(dateStr, 'medium');
         return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     };
 

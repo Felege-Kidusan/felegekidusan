@@ -5,6 +5,7 @@
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
+require_once __DIR__ . '/../backend/calendar_system.php';
 
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'Material Admin';
 $username = $_SESSION['admin_username'] ?? '';
@@ -32,6 +33,7 @@ if (isset($conn)) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>Material — <?= SCHOOL_NAME_SHORT ?></title>
+<?= wbws_calendar_scripts($conn) ?>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -223,7 +225,7 @@ function exportItems(){if(!items.length)return toast('No data','e');const h=['Na
 function closeModal(id){document.getElementById(id).classList.remove('show');}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function toast(m,t){const el=document.getElementById('toast');el.className='toast '+(t==='s'?'t-ok':'t-err')+' show';el.innerHTML=`<i class="fa-solid fa-${t==='s'?'check-circle':'exclamation-circle'}"></i> ${m}`;setTimeout(()=>el.classList.remove('show'),3000);}
-function fDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
+function fDate(d){if(!d)return'—';if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(d,'medium');try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
 function stBg(s){const m={in_stock:'bg-ok',low_stock:'bg-w',out_of_stock:'bg-bd',maintenance:'bg-in'};return`<span class="bg ${m[s]||'bg-in'}">${(s||'').replace(/_/g,' ')}</span>`;}
 function reqBg(s){const m={pending:'bg-w',approved:'bg-ok',denied:'bg-bd',fulfilled:'bg-in'};return`<span class="bg ${m[s]||'bg-in'}">${s||'—'}</span>`;}
 

@@ -279,7 +279,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 
 <!-- ═══ SETTINGS (Academic Year + Semesters) ═══ -->
 <div id="sec-settings" class="sec">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-calendar" style="color:#7c3aed"></i> Academic Year Setup</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዘመን እና ሴሚስተር አስተዳደር</p></div><button class="btn btn-p" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-calendar" style="color:#7c3aed"></i> Academic Year Setup</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዘመን እና ሴሚስተር አስተዳደር</p></div><span style="font-size:.72rem;color:#64748b;background:#f1f5f9;padding:.45rem .75rem;border-radius:8px"><i class="fa-solid fa-lock" style="color:#94a3b8"></i> Managed by School Admin</span></div>
 <?php if($currentYear): ?>
 <div class="crd" style="padding:1rem;margin-bottom:1rem;border-left:4px solid #7c3aed;background:#faf5ff">
 <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
@@ -970,7 +970,7 @@ async function deleteAssessment(id){if(!confirm('Delete assessment?'))return;con
 
 // ═══ ACADEMIC YEARS + SEMESTERS ═══
 function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-async function loadYears(){try{const d=await getAPI('/admin/api_education.php?action=get_academic_years');if(d.status==='success'){const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);document.getElementById('yearBody').innerHTML=y.length?y.map(x=>`<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${x.ec_year||'—'}</td><td style="font-size:.75rem">${esc(x.year_gc||'—')}</td><td style="font-size:.75rem">${fD(x.start_date)}</td><td style="font-size:.75rem">${fD(x.end_date)}</td><td><span class="ch ch-i">${x.term_count||0} semesters</span></td><td>${x.is_current==1?'<span class="ch ch-ok">Current</span>':'<span class="ch ch-w">No</span>'}</td><td style="white-space:nowrap"><button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="viewYearTermsById(${x.id})" title="Manage Semesters"><i class="fa-solid fa-calendar-week"></i></button> <button class="ab" style="background:#dbeafe;color:#2563eb" onclick="editYearById(${x.id})" title="Edit"><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:#d1fae5;color:#065f46" onclick="setCurrent(${x.id})" title="Set Current"><i class="fa-solid fa-check"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No academic years. Create one to get started.</td></tr>';}}catch(e){toast('Error loading years','err');}}
+async function loadYears(){try{const d=await getAPI('/admin/api_education.php?action=get_academic_years');if(d.status==='success'){const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);document.getElementById('yearBody').innerHTML=y.length?y.map(x=>`<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${x.ec_year||'—'}</td><td style="font-size:.75rem">${esc(x.year_gc||'—')}</td><td style="font-size:.75rem">${fD(x.start_date)}</td><td style="font-size:.75rem">${fD(x.end_date)}</td><td><span class="ch ch-i">${x.term_count||0} semesters</span></td><td>${x.is_current==1?'<span class="ch ch-ok">Current</span>':'<span class="ch ch-w">No</span>'}</td><td style="white-space:nowrap"><button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="viewYearTermsById(${x.id})" title="View Semesters"><i class="fa-solid fa-calendar-week"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No academic years. Create one to get started.</td></tr>';}}catch(e){toast('Error loading years','err');}}
 function viewYearTermsById(id){const y=window._yearData?.[id];if(y)viewYearTerms(id,y.year_name||'');}
 function editYearById(id){const y=window._yearData?.[id];if(y)editYear(y);}
 function openYearModal(){
@@ -1026,18 +1026,17 @@ async function viewYearTerms(yearId,yearName){
     try{const d=await getAPI(`/admin/api_education.php?action=get_terms&year_id=${yearId}`);
     if(d.status==='success'){const terms=d.terms||[];
     window._termData={};terms.forEach(t=>window._termData[t.id]=t);
-    document.getElementById('termArea').innerHTML=`<div class="crd" style="padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem"><h3 style="font-size:.9rem;font-weight:600;color:#1e293b"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters — <span class="amharic">${esc(yearName)}</span></h3><button class="btn btn-p btn-xs" onclick="openTermModal(${yearId},null)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>
+    document.getElementById('termArea').innerHTML=`<div class="crd" style="padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem"><h3 style="font-size:.9rem;font-weight:600;color:#1e293b"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters — <span class="amharic">${esc(yearName)}</span></h3><span style="font-size:.62rem;color:#94a3b8"><i class="fa-solid fa-lock"></i> View only — managed by School Admin</span></div>
     ${terms.length?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem">${terms.map(t=>`<div class="crd" style="padding:1rem;border-left:4px solid ${t.is_current==1?'#7c3aed':'#e2e8f0'}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
     <div><span class="amharic" style="font-weight:700;font-size:.9rem;color:#1e293b">${esc(t.term_name)}</span><br><span style="font-size:.65rem;color:#94a3b8">Semester ${t.term_number}</span></div>
-    ${t.is_current==1?'<span class="ch ch-ok">Current</span>':`<button class="btn btn-o btn-xs" onclick="doSetCurrentTerm(${t.id})">Set Current</button>`}
+    ${t.is_current==1?'<span class="ch ch-ok">Current</span>':'<span class="ch ch-w">Not current</span>'}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-bottom:.5rem">
     <div style="background:#f8fafc;padding:.4rem .6rem;border-radius:6px"><div style="font-size:.55rem;color:#94a3b8;text-transform:uppercase">Start Date</div><div style="font-size:.75rem;font-weight:600;color:#1e293b">${t.start_date?fD(t.start_date):'<span style=color:#dc2626>Not Set</span>'}</div></div>
     <div style="background:#f8fafc;padding:.4rem .6rem;border-radius:6px"><div style="font-size:.55rem;color:#94a3b8;text-transform:uppercase">End Date</div><div style="font-size:.75rem;font-weight:600;color:#1e293b">${t.end_date?fD(t.end_date):'<span style=color:#dc2626>Not Set</span>'}</div></div>
     </div>
-    <div style="display:flex;gap:.3rem"><button class="btn btn-o btn-xs" style="flex:1" onclick="openTermModal(${yearId},${t.id})"><i class="fa-solid fa-pen"></i> Edit</button><button class="btn btn-d btn-xs" onclick="doDeleteTerm(${t.id})"><i class="fa-solid fa-trash"></i></button></div>
-    </div>`).join('')}</div>`:'<div style="text-align:center;color:#94a3b8;font-size:.8rem;padding:1rem"><i class="fa-solid fa-calendar-xmark" style="font-size:1.5rem;margin-bottom:.5rem;display:block"></i>No semesters configured yet.<br>Click "Add Semester" to create the first one.</div>'}
+    </div>`).join('')}</div>`:'<div style="text-align:center;color:#94a3b8;font-size:.8rem;padding:1rem"><i class="fa-solid fa-calendar-xmark" style="font-size:1.5rem;margin-bottom:.5rem;display:block"></i>No semesters configured yet.<br>Your School Admin can add them.</div>'}
     </div>`;
     window._currentTermYearId=yearId;window._currentTermYearName=yearName;
     }}catch(e){toast('Error loading semesters','err');}
@@ -1118,7 +1117,7 @@ async function loadSubmissions(){
             const sc={draft:'ch-w',submitted:'ch-w',approved:'ch-ok',rejected:'ch-d',revision_needed:'ch-w'};
             const sl=sc[s.status]||'ch-w';
             const avg=s.average_score?parseFloat(s.average_score).toFixed(1):'—';
-            const dt=s.submitted_at?new Date(s.submitted_at).toLocaleDateString():'—';
+            const dt=s.submitted_at?fD(s.submitted_at):'—';
             return `<tr>
                 <td style="font-weight:600;font-size:.8rem">${esc(s.teacher_name||'—')}</td>
                 <td class="amharic">${esc(s.class_name||'—')}</td>
@@ -1162,7 +1161,7 @@ async function reviewSubmission(id){
             <div><strong style="color:#64748b">Students:</strong> ${s.student_count||0}</div>
             <div><strong style="color:#64748b">Average:</strong> <span style="font-weight:700;color:#7c3aed">${s.average_score?parseFloat(s.average_score).toFixed(1):'—'}</span></div>
             <div><strong style="color:#64748b">Status:</strong> <span style="padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;color:#fff;background:${sc[s.status]||'#94a3b8'}">${(s.status||'').replace(/_/g,' ')}</span></div>
-            <div><strong style="color:#64748b">Submitted:</strong> ${s.submitted_at?new Date(s.submitted_at).toLocaleString():'—'}</div>
+            <div><strong style="color:#64748b">Submitted:</strong> ${s.submitted_at?fD(s.submitted_at):'—'}</div>
             ${s.reviewer_name?`<div><strong style="color:#64748b">Reviewed by:</strong> ${esc(s.reviewer_name)}</div>`:''}
             ${s.review_notes?`<div style="grid-column:1/-1"><strong style="color:#64748b">Notes:</strong> ${esc(s.review_notes)}</div>`:''}
         </div>
