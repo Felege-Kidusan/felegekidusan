@@ -535,7 +535,7 @@ function downloadMsg(btn) {
     const blob = new Blob([text], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = EXPORT_PREFIX . '_ai_report_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.download = '<?= EXPORT_PREFIX ?>_ai_report_' + new Date().toISOString().slice(0,10) + '.txt';
     a.click();
 }
 
@@ -552,7 +552,7 @@ function exportChat() {
     const blob = new Blob([text], { type: 'text/plain' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = EXPORT_PREFIX . '_chat_' + new Date().toISOString().slice(0,10) + '.txt';
+    a.download = '<?= EXPORT_PREFIX ?>_chat_' + new Date().toISOString().slice(0,10) + '.txt';
     a.click();
 }
 </script>

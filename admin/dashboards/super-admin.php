@@ -1378,7 +1378,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                         <?php if (empty($backupFiles)): ?>
                         <p style="color:#64748b;font-size:.8rem">No backups yet</p>
                         <?php else: foreach (array_slice($backupFiles, 0, 5) as $f): ?>
-                        <div class="backup-item"><div class="backup-info"><div class="backup-icon"><i class="fa-solid fa-file-code"></i></div><div><div class="backup-name"><?= e($f['name']) ?></div><div class="backup-meta"><?= $f['size'] ?> • <?= $f['date'] ?></div></div></div><a href="/admin/uploads/backups/<?= urlencode($f['name']) ?>" download class="btn btn-primary btn-sm"><i class="fa-solid fa-download"></i></a></div>
+                        <div class="backup-item"><div class="backup-info"><div class="backup-icon"><i class="fa-solid fa-file-code"></i></div><div><div class="backup-name"><?= e($f['name']) ?></div><div class="backup-meta"><?= $f['size'] ?> • <?= $f['date'] ?></div></div></div><a href="/admin/tools/download_backup.php?file=<?= urlencode($f['name']) ?>" class="btn btn-primary btn-sm" title="Download backup"><i class="fa-solid fa-download"></i></a></div>
                         <?php endforeach; endif; ?>
                     </div>
                 </div>

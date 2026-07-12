@@ -99,6 +99,13 @@ if ($action === 'run' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         _rollover_out(['status' => 'error', 'message' => 'Security token expired. Please refresh the page and try again.']);
     }
 
+    // A rollover is a live, destructive action — it must NOT be run while the
+    // user is time-travelling (viewing a past year, read-only). Return to the
+    // current year first.
+    if (function_exists('ay_is_readonly') && ay_is_readonly($conn)) {
+        _rollover_out(['status' => 'error', 'message' => 'You are viewing a past year (read-only). Return to the current year before running a rollover.']);
+    }
+
     $oldYearId = (int)($_POST['old_year_id'] ?? 0);
     $newYearId = (int)($_POST['new_year_id'] ?? 0);
     $mode      = ($_POST['mode'] ?? 'carry_forward') === 'promote' ? 'promote' : 'carry_forward';

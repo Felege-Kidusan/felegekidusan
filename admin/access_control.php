@@ -168,6 +168,9 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // Year section; matches the rest of the year lifecycle ownership.
             'year_rollover.php' => ['super_admin', 'school_admin'],
 
+            // ---- Backup download: SUPER ADMIN ONLY (streams PII-bearing dumps) ----
+            'download_backup.php' => ['super_admin'],
+
             // ---- User management: SUPER ADMIN ONLY ----
             'users.php'       => ['super_admin'],
             'user-save.php'   => ['super_admin'],

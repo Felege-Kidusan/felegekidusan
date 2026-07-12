@@ -398,7 +398,13 @@ function ay_context_bar_html($conn) {
         . 'btn.innerHTML=\'<span style="display:inline-flex;align-items:center;gap:.5rem;width:100%">📅 <span>\'+LBL+\'</span>\'+chip+\'</span>\';'
         . 'btn.title="View the current or a past academic year";'
         . 'btn.onclick=function(e){e.preventDefault();e.stopPropagation();window.ayOpenYearModal();};'
-        . 'if(nav){var first=nav.querySelector(".np,a,button");if(first&&first.parentNode){first.parentNode.insertBefore(btn,first.nextSibling);}else{nav.appendChild(btn);}}'
+        . 'if(nav){'
+        . 'var sb=document.querySelector("aside")||nav;'
+        . 'var foot=sb.querySelector(".uc")||sb.querySelector(".user-card")||sb.querySelector(".sidebar-footer");'
+        . 'if(!foot){var la=sb.querySelectorAll("a,button");for(var i=la.length-1;i>=0;i--){if(/log\\s*out/i.test(la[i].textContent||"")){foot=la[i];break;}}}'
+        . 'if(foot&&foot.parentNode){foot.parentNode.insertBefore(btn,foot);}'  // just ABOVE the user-card / logout = end of the list
+        . 'else{(document.querySelector("aside nav")||nav).appendChild(btn);}'
+        . '}'
         . 'else{btn.style.position="fixed";btn.style.left="12px";btn.style.bottom="12px";btn.style.zIndex="80";btn.style.width="auto";btn.style.background=RO?"#f59e0b":"#0f172a";btn.style.color=RO?"#1a1200":"#e2e8f0";btn.style.border="1px solid #334155";btn.style.borderRadius="10px";btn.style.padding=".5rem .8rem";btn.style.fontFamily="system-ui,sans-serif";btn.style.boxShadow="0 4px 12px rgba(0,0,0,.3)";document.body.appendChild(btn);}'
         . '}'
         . 'if(document.readyState!=="loading")inject();else document.addEventListener("DOMContentLoaded",inject);'
@@ -423,7 +429,7 @@ function ay_context_bar_html($conn) {
         . 'document.querySelectorAll(\'button,.btn,input[type=submit],a.btn\').forEach(function(el){'
         . 'if(el.id==="ayNavBtn")return;'
         . 'var t=(el.textContent||"").toLowerCase();'
-        . 'if(/save|add|edit|delete|create|remove|record|submit|enroll|promote|approve|reject|assign|set current|set active|reopen/.test(t)'
+        . 'if(/save|add|edit|delete|create|remove|record|submit|enroll|promote|approve|reject|assign|set current|set active|reopen|rollover/.test(t)'
         . '&&!/return to current/.test(t)){el.setAttribute("disabled","disabled");el.style.opacity=".45";'
         . 'el.style.pointerEvents="none";el.title="Read-only: viewing a past year";}});});</script>';
     }
