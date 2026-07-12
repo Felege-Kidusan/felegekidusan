@@ -214,7 +214,7 @@ try {
             `start_date` DATE DEFAULT NULL,
             `end_date` DATE DEFAULT NULL,
             `is_current` TINYINT(1) NOT NULL DEFAULT 0,
-            `status` ENUM('active', 'completed', 'upcoming') NOT NULL DEFAULT 'upcoming',
+            `status` ENUM('upcoming', 'active', 'closed') NOT NULL DEFAULT 'upcoming',
             `created_by` INT UNSIGNED DEFAULT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
