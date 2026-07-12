@@ -179,14 +179,27 @@ $csrfToken = generateCsrfToken();
         <?php if ($isSuperAdmin): ?>
         <div class="sidebar-section">
             <div class="sidebar-section-title"><i class="fa-solid fa-key"></i> AI Setup</div>
-            <div class="setup-panel">
-                <label>Google Gemini API Key</label>
-                <input type="password" id="apiKeyInput" placeholder="AIzaSy..." />
-                <button class="save-key-btn" onclick="saveApiKey()"><i class="fa-solid fa-check"></i> Save & Verify</button>
-                <div class="setup-help">
-                    Free at <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a><br>
-                    15 req/min • 500 req/day • No credit card
+            <div class="setup-panel" id="aiSetupPanel">
+                <div id="aiActiveLine" style="font-size:.72rem;opacity:.85;margin-bottom:.55rem">Loading…</div>
+                <label>AI Provider</label>
+                <select id="aiProvider" onchange="aiProviderChanged()" style="width:100%;padding:.5rem;border-radius:8px;background:rgba(255,255,255,.06);color:inherit;border:1px solid rgba(255,255,255,.15);margin-bottom:.4rem"></select>
+                <label>API Key</label>
+                <input type="password" id="aiKey" placeholder="paste key" autocomplete="off" />
+                <div id="aiKeyStatus" style="font-size:.66rem;opacity:.75;margin:.2rem 0 .4rem"></div>
+                <label>Model</label>
+                <input type="text" id="aiModel" placeholder="model name" autocomplete="off" />
+                <div id="aiBaseWrap" style="display:none">
+                    <label>Base URL (OpenAI-compatible)</label>
+                    <input type="text" id="aiBase" placeholder="https://…/v1" autocomplete="off" />
                 </div>
+                <label style="display:flex;align-items:center;gap:.45rem;margin:.5rem 0;font-size:.76rem;cursor:pointer"><input type="checkbox" id="aiActive" style="width:auto"> Make this the active provider</label>
+                <div style="display:flex;gap:.4rem">
+                    <button class="save-key-btn" onclick="testConnection()" style="flex:1;background:rgba(255,255,255,.12)"><i class="fa-solid fa-plug"></i> Test</button>
+                    <button class="save-key-btn" onclick="saveAiConfig()" style="flex:1"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                </div>
+                <div id="aiTestResult" style="font-size:.7rem;margin-top:.45rem;min-height:1em"></div>
+                <div class="setup-help" id="aiSignup"></div>
+                <div class="setup-help" style="margin-top:.35rem;opacity:.65">Keys are encrypted before saving and never shown again in full.</div>
             </div>
         </div>
         <?php endif; ?>
@@ -217,7 +230,7 @@ $csrfToken = generateCsrfToken();
         <div class="input-area">
             <div id="noKeyBanner" class="no-key-banner" style="display:none">
                 <i class="fa-solid fa-exclamation-triangle"></i>
-                <span><?= $isSuperAdmin ? 'Add your Gemini API key in the sidebar to activate AI.' : 'Ask Super Admin to set up the Gemini API key.' ?></span>
+                <span><?= $isSuperAdmin ? 'Set up an AI provider in the sidebar (AI Setup) to activate AI.' : 'Ask a Super Admin to set up an AI provider.' ?></span>
             </div>
             <div class="input-row">
                 <div class="input-wrapper">
@@ -225,7 +238,7 @@ $csrfToken = generateCsrfToken();
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
             </div>
-            <div class="input-hint">Enter to send • Shift+Enter for new line • Powered by Google Gemini Free</div>
+            <div class="input-hint">Enter to send • Shift+Enter for new line • <span id="aiPoweredBy">Multi-provider AI</span></div>
         </div>
     </div>
 </div>
@@ -236,7 +249,82 @@ const API = '/admin/api_ai.php';
 let hasApiKey = false;
 let isProcessing = false;
 
-document.addEventListener('DOMContentLoaded', () => { checkStatus(); loadHistory(); });
+document.addEventListener('DOMContentLoaded', () => { checkStatus(); loadHistory(); loadAiConfig(); });
+
+/* ─── Multi-provider AI settings (Super Admin) ─── */
+let AI_PROVIDERS = [];
+async function loadAiConfig(){
+    const sel = document.getElementById('aiProvider');
+    if(!sel) return; // not a Super Admin
+    try{
+        const r = await fetch(API + '?action=get_ai_config', {credentials:'same-origin'});
+        const d = await r.json();
+        if(d.status !== 'success') return;
+        AI_PROVIDERS = d.providers || [];
+        sel.innerHTML = AI_PROVIDERS.map(p =>
+            `<option value="${p.id}" ${p.is_active?'selected':''}>${p.label}${p.is_active?'  ✓ active':''}${p.has_key?'  • key set':''}</option>`
+        ).join('');
+        const active = AI_PROVIDERS.find(p=>p.is_active);
+        const line = document.getElementById('aiActiveLine');
+        if(active && active.has_key){ line.innerHTML = 'Active: <b>'+escapeHtml(active.label)+'</b> — key '+escapeHtml(active.key_masked); }
+        else if(active){ line.innerHTML = 'Active: <b>'+escapeHtml(active.label)+'</b> — <span style="color:#fbbf24">no key yet</span>'; }
+        else { line.innerHTML = '<span style="color:#fbbf24">No active provider yet — pick one, add a key, tick “make active”, Save.</span>'; }
+        const pb = document.getElementById('aiPoweredBy');
+        if(pb && active && active.has_key) pb.textContent = 'Powered by '+active.label;
+        aiProviderChanged();
+    }catch(e){}
+}
+function aiCurrentProvider(){ return AI_PROVIDERS.find(p => p.id === document.getElementById('aiProvider').value); }
+function aiProviderChanged(){
+    const p = aiCurrentProvider(); if(!p) return;
+    document.getElementById('aiModel').value = p.model || p.default_model || '';
+    document.getElementById('aiBaseWrap').style.display = p.needs_base ? 'block' : 'none';
+    const base = document.getElementById('aiBase'); if(base) base.value = p.base_url || '';
+    const keyInput = document.getElementById('aiKey');
+    keyInput.value = '';
+    keyInput.placeholder = p.has_key ? ('saved: '+p.key_masked+' — leave blank to keep') : (p.keyhint || 'paste key');
+    document.getElementById('aiKeyStatus').textContent = p.has_key ? ('✓ key saved ('+p.key_masked+')') : 'no key saved yet';
+    document.getElementById('aiActive').checked = !!p.is_active;
+    document.getElementById('aiSignup').innerHTML = p.signup
+        ? ('Get a '+(p.free?'FREE ':'')+'key → <a href="'+p.signup+'" target="_blank" rel="noopener">'+p.signup.replace(/^https?:\/\//,'')+'</a>')
+        : '';
+    document.getElementById('aiTestResult').textContent = '';
+}
+function aiFormData(action){
+    const p = aiCurrentProvider();
+    const f = new FormData();
+    f.append('action', action);
+    f.append('provider', p ? p.id : '');
+    f.append('api_key', document.getElementById('aiKey').value.trim());
+    f.append('model', document.getElementById('aiModel').value.trim());
+    const base = document.getElementById('aiBase'); if(base) f.append('base_url', base.value.trim());
+    f.append('csrf_token', CSRF);
+    return f;
+}
+async function testConnection(){
+    const res = document.getElementById('aiTestResult');
+    res.style.color = '#94a3b8'; res.textContent = 'Testing…';
+    try{
+        const r = await fetch(API, {method:'POST', body: aiFormData('test_connection'), credentials:'same-origin'});
+        const d = await r.json();
+        res.style.color = d.status==='success' ? '#34d399' : '#f87171';
+        res.textContent = (d.status==='success'?'✓ ':'✕ ') + d.message;
+    }catch(e){ res.style.color='#f87171'; res.textContent='Network error while testing.'; }
+}
+async function saveAiConfig(){
+    const res = document.getElementById('aiTestResult');
+    res.style.color = '#94a3b8'; res.textContent = 'Saving…';
+    const f = aiFormData('save_ai_config');
+    if(document.getElementById('aiActive').checked) f.append('make_active','1');
+    try{
+        const r = await fetch(API, {method:'POST', body: f, credentials:'same-origin'});
+        const d = await r.json();
+        res.style.color = d.status==='success' ? '#34d399' : '#f87171';
+        res.textContent = (d.status==='success'?'✓ ':'✕ ') + d.message;
+        if(d.status==='success'){ await loadAiConfig(); checkStatus(); }
+    }catch(e){ res.style.color='#f87171'; res.textContent='Network error while saving.'; }
+}
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
 
 function autoResize(el) {
     el.style.height = 'auto';
@@ -410,29 +498,8 @@ async function generateReport(type) {
     isProcessing = false;
 }
 
-// ── Save API Key ──
-async function saveApiKey() {
-    const key = document.getElementById('apiKeyInput').value.trim();
-    if (!key) return alert('Enter an API key');
-    document.getElementById('welcomeState').style.display = 'none';
-    appendMessage('user', '🔑 Saving API key...', false);
-    try {
-        const form = new FormData();
-        form.append('action', 'save_api_key');
-        form.append('api_key', key);
-        form.append('csrf_token', CSRF);
-        const r = await fetch(API, { method: 'POST', body: form });
-        const d = await r.json();
-        if (d.status === 'success') {
-            hasApiKey = true;
-            document.getElementById('noKeyBanner').style.display = 'none';
-            document.getElementById('apiKeyInput').value = '';
-            appendMessage('assistant', '✅ API key verified and saved! I\'m ready to analyze your school data. Try asking me anything or click a Quick Insight button!', false);
-        } else {
-            appendMessage('assistant', '❌ ' + (d.message || 'Failed to save key. Check if the key is correct.'), false);
-        }
-    } catch(e) { appendMessage('assistant', '❌ Connection error. Check your internet.', false); }
-}
+// (Legacy single-key saveApiKey() removed — replaced by the multi-provider
+//  AI Setup panel: loadAiConfig / saveAiConfig / testConnection above.)
 
 // ── Clear chat ──
 async function clearChat() {

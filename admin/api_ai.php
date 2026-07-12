@@ -11,6 +11,27 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/ai_providers.php';
+
+/**
+ * Provider-agnostic generation used by chat / insights / reports.
+ * Routes through the multi-provider layer (ai_chat) and falls back to the
+ * legacy Gemini path only if the new layer is unavailable.
+ * Returns ['text'=>..., 'tokens'=>0] on success, or ['error'=>clean message].
+ */
+function aiGenerate($conn, $userPrompt, $systemPrompt, $temperature) {
+    if (function_exists('ai_chat')) {
+        $msgs = [];
+        if ($systemPrompt !== '') $msgs[] = ['role' => 'system', 'content' => $systemPrompt];
+        $msgs[] = ['role' => 'user', 'content' => $userPrompt];
+        $res = ai_chat($conn, $msgs, ['temperature' => $temperature, 'max_tokens' => 2048, 'timeout' => 45]);
+        if (!empty($res['ok'])) return ['text' => $res['text'], 'tokens' => 0];
+        return ['error' => $res['error'] ?? 'AI request failed.'];
+    }
+    $apiKey = getGeminiApiKey($conn);
+    if (!$apiKey) return ['error' => 'AI is not configured.'];
+    return callGemini($apiKey, $userPrompt, $systemPrompt, $temperature);
+}
 
 // Authentication
 if (empty($_SESSION['admin_id'])) {
@@ -403,10 +424,18 @@ switch ($action) {
     // CHECK IF API KEY IS SET
     // ──────────────────────────────────────────────────────────
     case 'check_status':
-        $apiKey = getGeminiApiKey($conn);
-        $hasKey = !empty($apiKey);
-        
-        // Get chat history count
+        $active = function_exists('ai_active_config') ? ai_active_config($conn) : null;
+        $reg    = function_exists('ai_provider_registry') ? ai_provider_registry() : [];
+        $hasKey = false; $provLabel = 'Not configured'; $modelName = '';
+        if ($active) {
+            $hasKey    = (ai_decrypt($active['api_key_enc'] ?? '') !== '');
+            $provLabel = $reg[$active['provider']]['label'] ?? $active['provider'];
+            $modelName = $active['model'] ?? '';
+        } else {
+            // Legacy fallback: a bare Gemini key in system_settings still counts.
+            $hasKey = !empty(getGeminiApiKey($conn));
+            if ($hasKey) { $provLabel = 'Google Gemini'; $modelName = 'gemini-2.0-flash'; }
+        }
         $chatCount = 0;
         try {
             $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM ai_chat_history WHERE user_id = ?");
@@ -415,14 +444,86 @@ switch ($action) {
             $chatCount = (int)$stmt->get_result()->fetch_assoc()['cnt'];
             $stmt->close();
         } catch (Exception $e) {}
-        
+
         echo json_encode([
-            'status' => 'success',
+            'status'      => 'success',
             'has_api_key' => $hasKey,
-            'chat_count' => $chatCount,
-            'model' => 'gemini-2.5-flash (auto-fallback)',
-            'provider' => 'Google Gemini (Free Tier)'
+            'chat_count'  => $chatCount,
+            'model'       => $modelName,
+            'provider'    => $provLabel,
         ]);
+        break;
+
+    // ──────────────────────────────────────────────────────────
+    // MULTI-PROVIDER CONFIG (Super Admin only)
+    // ──────────────────────────────────────────────────────────
+    case 'get_ai_config':
+        if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+            echo json_encode(['status' => 'error', 'message' => 'Only a Super Admin can view AI settings.']); exit;
+        }
+        $reg  = ai_provider_registry();
+        $all  = ai_all_configs($conn);
+        $out  = [];
+        foreach ($reg as $pid => $meta) {
+            $cfg = $all[$pid] ?? null;
+            $plain = $cfg ? ai_decrypt($cfg['api_key_enc'] ?? '') : '';
+            $out[] = [
+                'id'        => $pid,
+                'label'     => $meta['label'],
+                'free'      => $meta['free'],
+                'signup'    => $meta['signup'],
+                'keyhint'   => $meta['keyhint'],
+                'needs_base'=> ($pid === 'compatible'),
+                'default_model' => $meta['model'],
+                'model'     => $cfg['model'] ?? $meta['model'],
+                'base_url'  => $cfg['base_url'] ?? $meta['base'],
+                'has_key'   => ($plain !== ''),
+                'key_masked'=> ($plain !== '' ? ai_mask_key($plain) : ''),
+                'is_active' => $cfg ? ((int)$cfg['is_active'] === 1) : false,
+            ];
+        }
+        echo json_encode(['status' => 'success', 'providers' => $out]);
+        break;
+
+    case 'save_ai_config':
+        if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+            echo json_encode(['status' => 'error', 'message' => 'Only a Super Admin can change AI settings.']); exit;
+        }
+        $provider = trim($_POST['provider'] ?? '');
+        $apiKey   = trim($_POST['api_key'] ?? '');
+        $model    = trim($_POST['model'] ?? '');
+        $baseUrl  = trim($_POST['base_url'] ?? '');
+        $active   = !empty($_POST['make_active']);
+        $res = ai_save_config($conn, $provider, $apiKey, $model, $baseUrl, $active);
+        echo json_encode($res['ok']
+            ? ['status' => 'success', 'message' => 'Saved.' . ($active ? ' This provider is now active.' : '')]
+            : ['status' => 'error', 'message' => $res['error'] ?? 'Could not save.']);
+        break;
+
+    case 'set_active_provider':
+        if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+            echo json_encode(['status' => 'error', 'message' => 'Only a Super Admin can change AI settings.']); exit;
+        }
+        $res = ai_set_active($conn, trim($_POST['provider'] ?? ''));
+        echo json_encode($res['ok']
+            ? ['status' => 'success', 'message' => 'Active provider changed.']
+            : ['status' => 'error', 'message' => $res['error'] ?? 'Could not switch.']);
+        break;
+
+    case 'test_connection':
+        if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+            echo json_encode(['status' => 'error', 'message' => 'Only a Super Admin can test AI providers.']); exit;
+        }
+        $res = ai_test_connection(
+            $conn,
+            trim($_POST['provider'] ?? ''),
+            trim($_POST['api_key'] ?? ''),
+            trim($_POST['model'] ?? ''),
+            trim($_POST['base_url'] ?? '')
+        );
+        echo json_encode($res['ok']
+            ? ['status' => 'success', 'message' => 'Connection OK — the provider replied.', 'reply' => $res['text'] ?? '']
+            : ['status' => 'error', 'message' => $res['error'] ?? 'Test failed.']);
         break;
 
     // ──────────────────────────────────────────────────────────
@@ -487,12 +588,11 @@ switch ($action) {
     // CHAT — Main AI conversation
     // ──────────────────────────────────────────────────────────
     case 'chat':
-        $apiKey = getGeminiApiKey($conn);
-        if (!$apiKey) {
-            echo json_encode(['status' => 'error', 'message' => 'AI not configured. Super Admin must add a Gemini API key first.']);
+        if (function_exists('ai_active_config') && !ai_active_config($conn) && !getGeminiApiKey($conn)) {
+            echo json_encode(['status' => 'error', 'message' => 'AI is not set up yet. A Super Admin can add a provider in AI Assistant → AI Setup.']);
             exit;
         }
-        
+
         $userMessage = trim($_POST['message'] ?? '');
         if (empty($userMessage)) {
             echo json_encode(['status' => 'error', 'message' => 'Message cannot be empty']);
@@ -541,7 +641,7 @@ switch ($action) {
         }
         
         // Call Gemini
-        $result = callGemini($apiKey, $fullPrompt, getSystemPrompt($conn), 0.7);
+        $result = aiGenerate($conn, $fullPrompt, getSystemPrompt($conn), 0.7);
         
         if (isset($result['error'])) {
             echo json_encode(['status' => 'error', 'message' => 'AI Error: ' . $result['error']]);
@@ -573,9 +673,8 @@ switch ($action) {
     // QUICK INSIGHTS — Pre-built analysis prompts
     // ──────────────────────────────────────────────────────────
     case 'quick_insight':
-        $apiKey = getGeminiApiKey($conn);
-        if (!$apiKey) {
-            echo json_encode(['status' => 'error', 'message' => 'AI not configured.']);
+        if (function_exists('ai_active_config') && !ai_active_config($conn) && !getGeminiApiKey($conn)) {
+            echo json_encode(['status' => 'error', 'message' => 'AI is not set up yet. A Super Admin can add a provider in AI Assistant → AI Setup.']);
             exit;
         }
         
@@ -593,7 +692,7 @@ switch ($action) {
         
         $prompt = ($prompts[$insightType] ?? $prompts['overview']) . "\n\nData:\n```json\n{$dataJson}\n```";
         
-        $result = callGemini($apiKey, $prompt, getSystemPrompt($conn), 0.5);
+        $result = aiGenerate($conn, $prompt, getSystemPrompt($conn), 0.5);
         
         if (isset($result['error'])) {
             echo json_encode(['status' => 'error', 'message' => 'AI Error: ' . $result['error']]);
@@ -612,9 +711,8 @@ switch ($action) {
     // GENERATE REPORT — Structured report for export
     // ──────────────────────────────────────────────────────────
     case 'generate_report':
-        $apiKey = getGeminiApiKey($conn);
-        if (!$apiKey) {
-            echo json_encode(['status' => 'error', 'message' => 'AI not configured.']);
+        if (function_exists('ai_active_config') && !ai_active_config($conn) && !getGeminiApiKey($conn)) {
+            echo json_encode(['status' => 'error', 'message' => 'AI is not set up yet. A Super Admin can add a provider in AI Assistant → AI Setup.']);
             exit;
         }
         
@@ -637,7 +735,7 @@ switch ($action) {
         
         $prompt = ($reportPrompts[$reportType] ?? $reportPrompts['monthly']) . "\n\nUse this actual data:\n```json\n{$dataJson}\n```\n\nIMPORTANT: Use actual numbers from the data. Structure with proper report headings. This will be exported as a document.";
         
-        $result = callGemini($apiKey, $prompt, getSystemPrompt($conn), 0.4);
+        $result = aiGenerate($conn, $prompt, getSystemPrompt($conn), 0.4);
         
         if (isset($result['error'])) {
             echo json_encode(['status' => 'error', 'message' => 'AI Error: ' . $result['error']]);

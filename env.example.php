@@ -41,3 +41,12 @@ define('JWT_SECRET',         'REPLACE_WITH_A_LONG_RANDOM_STRING_1'); // mobile a
 define('BACKUP_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_2'); // lets the cron job run backups
 define('HEALTH_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_3'); // password for the health-check page
 define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password for the error-monitor dashboard (/monitor/)
+
+// ---- AI provider key encryption (OPTIONAL but recommended) ----
+// AI API keys (Gemini/Groq/OpenAI/…) are stored ENCRYPTED in the database.
+// If you set a dedicated secret here, it is used to encrypt them; otherwise the
+// system derives one from DB_PASS + JWT_SECRET above (which already live in this
+// file, above the web root). Set a stable value and do NOT change it after
+// saving keys, or the saved AI keys can no longer be decrypted (just re-enter
+// them). Generate with:  php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
+// define('AI_ENC_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_5');
