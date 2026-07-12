@@ -327,17 +327,24 @@ function ay_context_bar_html($conn) {
     $tokenJs = json_encode(function_exists('generateCsrfToken') ? generateCsrfToken() : ($_SESSION['csrf_token'] ?? ''));
 
     // One shared JS helper: set/clear the per-user viewing context, then reload.
+    // Also pushes page content down by the (fixed) bar's height so the bar can
+    // sit full-width at the top WITHOUT becoming a flex item on flex-layout
+    // dashboards (which had wedged it into the left column).
     $js = '<script>window.ayCtx=window.ayCtx||{csrf:' . $tokenJs . ','
         . 'go:function(id){var f=new FormData();f.append("action",id?"set":"clear");if(id)f.append("year_id",id);'
         . 'f.append("csrf_token",this.csrf);'
         . 'fetch("/admin/api_year_context.php",{method:"POST",body:f,credentials:"same-origin"})'
-        . '.then(function(){location.reload();}).catch(function(){location.reload();});}};</script>';
+        . '.then(function(){location.reload();}).catch(function(){location.reload();});}};'
+        . '(function(){function ayPad(){var b=document.getElementById("ayBar")||document.getElementById("ayTimeTravelBanner");'
+        . 'if(b){document.body.style.paddingTop=b.offsetHeight+"px";}}'
+        . 'if(document.readyState!=="loading")ayPad();else document.addEventListener("DOMContentLoaded",ayPad);'
+        . 'window.addEventListener("resize",ayPad);setTimeout(ayPad,300);})();</script>';
 
     // ── TIME-TRAVEL: loud, impossible-to-miss read-only banner ──
     if ($ctx['is_readonly'] && $ctx['year']) {
         $vn = htmlspecialchars($ctx['year']['year_name'] ?? '', ENT_QUOTES, 'UTF-8');
         return
-        '<div id="ayTimeTravelBanner" style="position:sticky;top:0;left:0;right:0;z-index:9998;'
+        '<div id="ayTimeTravelBanner" style="position:fixed;top:0;left:0;right:0;z-index:95;'
         . 'background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 18px,#d97706 18px,#d97706 36px);'
         . 'color:#1a1200;font-family:system-ui,Segoe UI,sans-serif;font-weight:800;'
         . 'padding:.6rem 1rem;display:flex;align-items:center;justify-content:center;gap:1rem;flex-wrap:wrap;'
@@ -366,7 +373,7 @@ function ay_context_bar_html($conn) {
     }
 
     $barOpen =
-        '<div style="position:sticky;top:0;z-index:9990;background:#0f172a;color:#e2e8f0;'
+        '<div id="ayBar" style="position:fixed;top:0;left:0;right:0;z-index:90;background:#0f172a;color:#e2e8f0;'
         . 'font-family:system-ui,Segoe UI,sans-serif;font-size:.8rem;padding:.4rem .8rem;'
         . 'display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;border-bottom:1px solid #1e293b">'
         . '<span style="opacity:.9">📅 You are in: <b style="color:#34d399" class="amharic">' . $an . '</b> '
