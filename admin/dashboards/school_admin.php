@@ -409,7 +409,17 @@ select.inp{cursor:pointer}
 
 <!-- ═══ ACADEMIC YEAR ═══ -->
 <div id="section-academicyear" class="cs">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.1rem;font-weight:700;color:var(--bright)"><i class="fa-solid fa-calendar-days" style="color:var(--purple)"></i> Academic Year & Semesters</h2><p style="font-size:.72rem;color:var(--dim)">Create the school year, set the active one, and manage semesters. Only one year is <b>Active</b> at a time.</p></div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="btn bo bs" onclick="window.open('/admin/tools/year_rollover.php','_blank')" title="Start a new school year and carry students forward"><i class="fa-solid fa-rotate"></i> Year Rollover</button><button class="btn bp bs" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.1rem;font-weight:700;color:var(--bright)"><i class="fa-solid fa-calendar-days" style="color:var(--purple)"></i> Academic Year & Semesters</h2><p style="font-size:.72rem;color:var(--dim)">Create the school year, set the active one, and manage semesters. Only one year is <b>Active</b> at a time.</p></div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="btn bo bs" onclick="toggleYearHelp()" title="Explain what each button here does"><i class="fa-solid fa-circle-question"></i> Help</button><button class="btn bo bs" onclick="openRolloverModal()" title="Start the next school year and move students forward in one safe step"><i class="fa-solid fa-rotate"></i> Year Rollover</button><button class="btn bp bs" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div></div>
+<div id="yearHelp" style="display:none;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:.85rem 1rem;margin-bottom:.85rem;font-size:.76rem;line-height:1.5">
+<div style="font-weight:700;color:var(--bright);margin-bottom:.4rem"><i class="fa-solid fa-circle-info" style="color:#60a5fa"></i> What each control does</div>
+<ul style="margin:0;padding-left:1.1rem;color:var(--dim)">
+<li><b>Add Year</b> — creates the next school year. It starts as <b>Upcoming</b> (not live). The very first year you ever create becomes Active automatically. <i>Reversible: an empty Upcoming year can be deleted.</i></li>
+<li><b>Set Active</b> (✓ on an Upcoming year) — makes that year the live one and <b>closes</b> the current year. You must type <b>SWITCH</b> to confirm. <i>Changes what everyone sees; reversible only by switching again.</i></li>
+<li><b>Reopen</b> (↺ on a Closed year) — makes a past year live again (rare, for fixing mistakes). You must type <b>REOPEN</b>. <i>New records then belong to that reopened year.</i></li>
+<li><b>Year Rollover</b> — the normal way to start a new year: it closes the current year and carries every student into the new year (same class, or promoted one level) in one safe, all-or-nothing step. You must type <b>ROLLOVER</b>. <i>Not auto-reversible — take a backup first.</i></li>
+<li><b>Delete</b> (🗑 on an Upcoming year) — removes an empty future year. <i>Only works if it has no students/records. Active and Closed years cannot be deleted.</i></li>
+<li><b>View another year</b> (top bar) — opens a past year <b>read-only</b> to look at old data. A loud amber banner shows you are in the past; <b>Return to Current Year</b> brings you back in one click. <i>Never changes any data.</i></li>
+</ul></div>
 <div class="cd"><div class="tw"><table><thead><tr><th>Year Name</th><th>EC</th><th>GC</th><th>Start</th><th>End</th><th>Semesters</th><th>Status</th><th>Actions</th></tr></thead><tbody id="yearBody"><tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 <div id="termArea" style="margin-top:.75rem"></div>
 </div>
@@ -488,6 +498,23 @@ select.inp{cursor:pointer}
 <div style="font-size:.68rem;color:var(--dim);background:rgba(59,130,246,.08);border-left:3px solid #60a5fa;padding:.45rem .6rem;border-radius:4px">A new year is created as <b>Upcoming</b> and two semesters are added automatically. It stays inactive until you use the <b>Set Active</b> (✓) button on the year list — that safely closes the current year and switches over. <b>The very first year</b> you create becomes active automatically.</div>
 <button class="btn bp" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
 </div></div></div>
+
+<!-- YEAR ROLLOVER MODAL (styled, in-dashboard) -->
+<div class="mo" id="rolloverModal"><div class="md" style="max-width:560px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem"><h3 style="margin:0"><i class="fa-solid fa-rotate" style="color:var(--purple)"></i> Year Rollover</h3><button onclick="document.getElementById('rolloverModal').classList.remove('show')" style="background:none;border:none;color:var(--dim);font-size:1.1rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button></div>
+<div style="display:flex;flex-direction:column;gap:.6rem">
+<div style="font-size:.72rem;background:rgba(245,158,11,.1);border-left:3px solid #f59e0b;color:var(--dim);padding:.5rem .65rem;border-radius:4px"><b>Take a backup first.</b> This closes the current year and moves every active student into the new year in one all-or-nothing step. If the new year doesn't exist yet, close this and use <b>Add Year</b> first.</div>
+<div><label class="flbl">Year to CLOSE <span style="color:var(--dim);font-weight:400">(students move OUT of this year)</span></label><select id="roOld" class="inp" style="width:100%" onchange="updateRolloverPreview()"></select></div>
+<div><label class="flbl">New year to OPEN <span style="color:var(--dim);font-weight:400">(becomes the Active year)</span></label><select id="roNew" class="inp" style="width:100%"></select></div>
+<div><label class="flbl">How should students move?</label>
+<label style="display:flex;gap:.45rem;align-items:flex-start;font-size:.76rem;margin:.25rem 0;cursor:pointer"><input type="radio" name="roMode" value="carry_forward" checked style="margin-top:.15rem"><span><b>Carry forward</b> (recommended) — everyone stays in the same class, in the new year. Promote individuals later.</span></label>
+<label style="display:flex;gap:.45rem;align-items:flex-start;font-size:.76rem;cursor:pointer"><input type="radio" name="roMode" value="promote" style="margin-top:.15rem"><span><b>Promote one level</b> — everyone moves up one class level; the top class is marked graduated. Use only if each level has exactly one class.</span></label>
+</div>
+<div id="roPreview" style="font-size:.75rem;color:var(--dim);background:rgba(148,163,184,.08);border-radius:6px;padding:.45rem .6rem">Loading…</div>
+<div><label class="flbl">Type <code style="background:rgba(148,163,184,.18);padding:.05rem .3rem;border-radius:3px">ROLLOVER</code> to confirm</label><input id="roConfirm" class="inp" style="width:100%" placeholder="ROLLOVER" autocomplete="off"></div>
+<button class="btn bp" id="roRunBtn" onclick="runRollover()"><i class="fa-solid fa-rotate"></i> Run Year Rollover</button>
+</div>
+</div></div>
 
 <div class="mo" id="memberModal"><div class="md" style="max-width:680px">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
@@ -1182,6 +1209,52 @@ async function deleteYear(id){
         toast(d.message||(d.status==='success'?'Deleted':'Failed'),d.status==='success'?'s':'e');
         if(d.status==='success')loadYears();
     }catch(e){toast('Error','e');}
+}
+function toggleYearHelp(){const h=document.getElementById('yearHelp');if(h)h.style.display=(h.style.display==='none'||!h.style.display)?'block':'none';}
+/* ─── Year Rollover (styled modal, backed by /admin/tools/year_rollover.php) ─── */
+async function openRolloverModal(){
+    const m=document.getElementById('rolloverModal');if(!m)return;
+    document.getElementById('roConfirm').value='';
+    document.getElementById('roOld').innerHTML='<option>Loading…</option>';
+    document.getElementById('roNew').innerHTML='<option>Loading…</option>';
+    document.getElementById('roPreview').textContent='Loading…';
+    m.classList.add('show');
+    try{
+        const r=await fetch('/admin/tools/year_rollover.php?action=preview',{credentials:'same-origin'});const d=await r.json();
+        if(d.status!=='success'){toast(d.message||'Could not load years','e');return;}
+        const years=d.years||[];window._roCurrentId=d.current_id;
+        const stTag=x=>{const s=x.status||(x.is_current==1?'active':'upcoming');return s==='active'?'Active':(s==='closed'?'Closed':'Upcoming');};
+        const oldOpts=years.map(x=>`<option value="${parseInt(x.id)}" ${parseInt(x.id)===parseInt(d.current_id)?'selected':''}>${esc(x.year_name)} · ${stTag(x)}</option>`).join('');
+        // Default "new year" = an Upcoming year that is NOT the one being closed, else blank.
+        const newOpts=years.map(x=>{const s=x.status||(x.is_current==1?'active':'upcoming');const sel=(s==='upcoming'&&parseInt(x.id)!==parseInt(d.current_id))?'selected':'';return `<option value="${parseInt(x.id)}" ${sel}>${esc(x.year_name)} · ${stTag(x)}</option>`;}).join('');
+        document.getElementById('roOld').innerHTML=oldOpts;
+        document.getElementById('roNew').innerHTML=newOpts;
+        updateRolloverPreview();
+    }catch(e){toast('Network error loading rollover','e');}
+}
+async function updateRolloverPreview(){
+    const oldId=document.getElementById('roOld')?.value;if(!oldId)return;
+    document.getElementById('roPreview').textContent='Counting students…';
+    try{
+        const r=await fetch('/admin/tools/year_rollover.php?action=preview&old_year_id='+encodeURIComponent(oldId),{credentials:'same-origin'});const d=await r.json();
+        if(d.status==='success'){document.getElementById('roPreview').innerHTML=`About <b>${parseInt(d.count)||0}</b> active student(s) will move out of the selected year.`;}
+    }catch(e){document.getElementById('roPreview').textContent='';}
+}
+async function runRollover(){
+    const oldId=document.getElementById('roOld').value, newId=document.getElementById('roNew').value;
+    const mode=(document.querySelector('input[name="roMode"]:checked')||{}).value||'carry_forward';
+    const confirmTxt=document.getElementById('roConfirm').value.trim();
+    if(!oldId||!newId){toast('Choose both years','e');return;}
+    if(oldId===newId){toast('The two years must be different','e');return;}
+    if(confirmTxt.toUpperCase()!=='ROLLOVER'){toast('Type ROLLOVER to confirm','e');return;}
+    const btn=document.getElementById('roRunBtn');btn.disabled=true;btn.style.opacity=.6;
+    const fd=new FormData();fd.append('action','run');fd.append('old_year_id',oldId);fd.append('new_year_id',newId);fd.append('mode',mode);fd.append('confirm','ROLLOVER');fd.append('csrf_token',CSRF);
+    try{
+        const r=await fetch('/admin/tools/year_rollover.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
+        toast(d.message||(d.status==='success'?'Rollover complete':'Failed'),d.status==='success'?'s':'e');
+        if(d.status==='success'){document.getElementById('rolloverModal').classList.remove('show');loadYears();}
+    }catch(e){toast('Network error','e');}
+    finally{btn.disabled=false;btn.style.opacity=1;}
 }
 async function viewTerms(yearId){
     window._termYearId=yearId;const area=document.getElementById('termArea');

@@ -163,8 +163,10 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'api_impersonate.php' => ['super_admin', 'school_admin'],
             'impersonate.php'     => ['super_admin', 'school_admin'],
 
-            // ---- Year rollover tool: SUPER ADMIN ONLY ----
-            'year_rollover.php' => ['super_admin'],
+            // ---- Year rollover: School Admin (owner) + Super Admin (break-glass) ----
+            // Driven as a JSON endpoint by the School Admin dashboard's Academic
+            // Year section; matches the rest of the year lifecycle ownership.
+            'year_rollover.php' => ['super_admin', 'school_admin'],
 
             // ---- User management: SUPER ADMIN ONLY ----
             'users.php'       => ['super_admin'],

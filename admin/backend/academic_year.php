@@ -309,8 +309,9 @@ function ay_banner_html($conn) {
  *   - TIME-TRAVEL mode: the loud amber READ-ONLY banner + one-click return,
  *     and auto-disables write controls on the page.
  * Self-contained (embeds the CSRF token server-side) so it works on every
- * dashboard regardless of how that page names its JS token. It renders nothing
- * until at least two academic years exist (nothing to travel to before then).
+ * dashboard regardless of how that page names its JS token. It ALWAYS renders a
+ * slim bar so the user always knows which year they are in; when there is no
+ * past year to open it shows a plain-language hint instead of an empty dropdown.
  * Echo it right after <body>.
  */
 function ay_context_bar_html($conn) {
@@ -356,31 +357,52 @@ function ay_context_bar_html($conn) {
         . $js;
     }
 
-    // ── NORMAL: slim selector. Hidden until there is a past year to view. ──
-    if (count($years) < 2) return '';
-
-    $opts = '';
+    // ── NORMAL MODE: compact, self-explanatory context bar. ──
+    // OTHER years are the possible read-only "time-travel" targets.
+    $targets = [];
     foreach ($years as $y) {
+        if ((int)$y['id'] === $activeId) continue;
+        $targets[] = $y;
+    }
+
+    $barOpen =
+        '<div style="position:sticky;top:0;z-index:9990;background:#0f172a;color:#e2e8f0;'
+        . 'font-family:system-ui,Segoe UI,sans-serif;font-size:.8rem;padding:.4rem .8rem;'
+        . 'display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;border-bottom:1px solid #1e293b">'
+        . '<span style="opacity:.9">📅 You are in: <b style="color:#34d399" class="amharic">' . $an . '</b> '
+        . '<span style="opacity:.6">· Active (current year)</span></span>';
+
+    // No other years yet → a plain-language hint, not an empty dropdown.
+    if (empty($targets)) {
+        return $barOpen
+            . '<span style="opacity:.4">|</span>'
+            . '<span style="opacity:.7" title="A past year appears here after you run a Year Rollover to start the next school year. Until then there is only this one year.">'
+            . '🕘 No past years yet — they will appear here (read-only) after a Year Rollover.</span>'
+            . '</div>' . $js;
+    }
+
+    // Otherwise → a labelled selector. The DEFAULT option makes it obvious that
+    // choosing a year OPENS it read-only, and that staying put is the default.
+    $opts = '<option value="0" selected>— Stay in the current year —</option>';
+    foreach ($targets as $y) {
         $sid = (int)$y['id'];
         $st  = $y['status'] ?? 'upcoming';
-        $tag = $st === 'active' ? 'Active' : ($st === 'closed' ? 'Closed' : 'Upcoming');
-        $sel = ($sid === $activeId) ? ' selected' : '';
-        $opts .= '<option value="' . $sid . '"' . $sel . '>'
-              . htmlspecialchars($y['year_name'] . '  ·  ' . $tag, ENT_QUOTES, 'UTF-8')
+        $lbl = $st === 'closed'    ? 'Closed — view only'
+             : ($st === 'upcoming' ? 'Upcoming — not started yet'
+             : 'View only');
+        $opts .= '<option value="' . $sid . '">'
+              . htmlspecialchars($y['year_name'] . '  ·  ' . $lbl, ENT_QUOTES, 'UTF-8')
               . '</option>';
     }
-    return
-    '<div style="position:sticky;top:0;z-index:9990;background:#0f172a;color:#e2e8f0;'
-    . 'font-family:system-ui,Segoe UI,sans-serif;font-size:.8rem;padding:.35rem .8rem;'
-    . 'display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;border-bottom:1px solid #1e293b">'
-    . '<span style="opacity:.85">📅 Current year: <b style="color:#fff" class="amharic">' . $an . '</b></span>'
-    . '<span style="opacity:.5">|</span>'
-    . '<label style="opacity:.85">View another year:</label>'
-    . '<select onchange="ayCtx.go(this.value==' . $activeId . '?0:this.value)" '
-    . 'style="background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:.2rem .4rem;font-family:inherit;font-size:.78rem">'
-    . $opts . '</select>'
-    . '<span style="opacity:.55">Past years open READ-ONLY.</span>'
-    . '</div>' . $js;
+    return $barOpen
+        . '<span style="opacity:.4">|</span>'
+        . '<label for="ayJump" style="opacity:.9">🕘 Open a past year (read-only):</label>'
+        . '<select id="ayJump" onchange="if(this.value!=0){ayCtx.go(this.value);}" '
+        . 'title="Pick a past year to look at its data. Nothing changes — you stay read-only until you click Return to Current Year." '
+        . 'style="background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:.22rem .45rem;font-family:inherit;font-size:.78rem;cursor:pointer">'
+        . $opts . '</select>'
+        . '<span style="opacity:.5;font-size:.72rem">Viewing a past year never changes your live data.</span>'
+        . '</div>' . $js;
 }
 
 } // end function guard
