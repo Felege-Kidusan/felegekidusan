@@ -1,0 +1,10 @@
+# School System - Prevent search engine indexing of admin and API
+User-agent: *
+Disallow: /admin/
+Disallow: /api/
+Disallow: /monitor/
+Disallow: /app/
+Disallow: /uploads/
+Allow: /member.php
+Allow: /index.html
+Allow: /

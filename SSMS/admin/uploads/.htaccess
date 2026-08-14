@@ -1,0 +1,42 @@
+# Prevent PHP execution in uploads directory
+# Even if a malicious PHP file gets uploaded, it can't run
+<FilesMatch "\.ph(p[345]?|t|tml)$">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.ph(p[345]?|t|tml)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+# Also disable script execution via handler
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+# Block access to cache subdirectory entirely
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^cache/ - [F,L]
+</IfModule>
+
+# ── PRODUCTION PATCH: Block sensitive file downloads ──
+# Without this, anyone who knows the URL can download database backups,
+# member photos, member documents, and other sensitive files.
+
+# Block backup files (SQL dumps, archives)
+<FilesMatch "\.(sql|gz|tar|bak|dump|sqlite)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Block entire backups directory
+<IfModule mod_rewrite.c>
+    RewriteRule ^backups/ - [F,L]
+</IfModule>

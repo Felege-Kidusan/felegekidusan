@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+<link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ውሉደ ብርሃን ሰንበት ትምህርት ቤት - Children of Light Sunday School</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+        
+        .amharic-text {
+            font-family: 'Noto Serif Ethiopic', serif;
+        }
+        
+        .hero-pattern {
+            background-color: #1a472a;
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffd700' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        }
+        
+        .cross-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            clip-path: polygon(40% 0%, 60% 0%, 60% 40%, 100% 40%, 100% 60%, 60% 60%, 60% 100%, 40% 100%, 40% 60%, 0% 60%, 0% 40%, 40% 40%);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .card-hover {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .section-title::after {
+            content: '';
+            display: block;
+            width: 80px;
+            height: 4px;
+            background: linear-gradient(90deg, #FFD700, #FFA500);
+            margin: 10px auto;
+            border-radius: 2px;
+        }
+        
+        nav {
+            backdrop-filter: blur(10px);
+            background-color: rgba(26, 71, 42, 0.95);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="fixed w-full z-50 shadow-lg">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between py-4">
+                <div class="flex items-center space-x-3">
+                    <div class="cross-icon"></div>
+                    <div>
+                        <h1 class="text-white text-xl font-bold amharic-text">ውሉደ ብርሃን ሰንበት ትምህርት ቤት</h1>
+                        <p class="text-yellow-400 text-xs">Children of Light</p>
+                    </div>
+                </div>
+                
+                <!-- Mobile menu button -->
+                <button id="mobile-menu-btn" class="md:hidden text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+                
+                <!-- Desktop menu -->
+                <div class="hidden md:flex space-x-6">
+                    <a href="#home" class="text-white hover:text-yellow-400 transition">Home</a>
+                    <a href="#about" class="text-white hover:text-yellow-400 transition">About</a>
+                    <a href="#programs" class="text-white hover:text-yellow-400 transition">Programs</a>
+                    <a href="#schedule" class="text-white hover:text-yellow-400 transition">Schedule</a>
+                    <a href="#gallery" class="text-white hover:text-yellow-400 transition">Gallery</a>
+                    <a href="#contact" class="text-white hover:text-yellow-400 transition">Contact</a>
+                </div>
+            </div>
+            
+            <!-- Mobile menu -->
+            <div id="mobile-menu" class="hidden md:hidden pb-4">
+                <a href="#home" class="block text-white hover:text-yellow-400 py-2 transition">Home</a>
+                <a href="#about" class="block text-white hover:text-yellow-400 py-2 transition">About</a>
+                <a href="#programs" class="block text-white hover:text-yellow-400 py-2 transition">Programs</a>
+                <a href="#schedule" class="block text-white hover:text-yellow-400 py-2 transition">Schedule</a>
+                <a href="#gallery" class="block text-white hover:text-yellow-400 py-2 transition">Gallery</a>
+                <a href="#contact" class="block text-white hover:text-yellow-400 py-2 transition">Contact</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="home" class="hero-pattern pt-32 pb-20 text-white">
+        <div class="container mx-auto px-4">
+            <div class="text-center max-w-4xl mx-auto">
+                <h1 class="text-5xl md:text-7xl font-bold mb-6 amharic-text">ውሉደ ብርሃን ሰንበት ትምህርት ቤት</h1>
+                <h2 class="text-3xl md:text-4xl mb-4">Children of Light Sunday School</h2>
+                <p class="text-xl md:text-2xl mb-4 amharic-text">የኢትዮጵያ ኦርቶዶክስ ተዋሕዶ ቤተ ክርስቲያን ሰንበት ትምህርት ቤት</p>
+                <p class="text-lg md:text-xl mb-8 text-yellow-300">Ethiopian Orthodox Tewahdo Church Sunday School</p>
+                <div class="flex flex-col md:flex-row gap-4 justify-center">
+                    <a href="#contact" class="bg-yellow-500 hover:bg-yellow-600 text-green-900 font-bold py-3 px-8 rounded-lg transition transform hover:scale-105">
+                        Register Now
+                    </a>
+                    <a href="#about" class="border-2 border-yellow-500 hover:bg-yellow-500 hover:text-green-900 text-white font-bold py-3 px-8 rounded-lg transition transform hover:scale-105">
+                        Learn More
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 bg-white">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-4 text-green-900 section-title">About Our School</h2>
+            <p class="text-center text-xl mb-12 text-gray-600 amharic-text">ስለ ትምህርት ቤታችን</p>
+            
+            <div class="grid md:grid-cols-2 gap-12 items-center max-w-6xl mx-auto">
+                <div>
+                    <div class="bg-gradient-to-br from-green-800 to-green-600 p-8 rounded-lg shadow-xl text-white">
+                        <h3 class="text-2xl font-bold mb-4">Our Mission</h3>
+                        <p class="mb-4">To nurture young souls in the teachings of the Ethiopian Orthodox Tewahdo Church, fostering spiritual growth, moral values, and a deep connection with our faith and heritage.</p>
+                        <p class="amharic-text text-yellow-300">የኛ ተልእኮ ልጆችን በኢትዮጵያ ኦርቶዶክስ ተዋሕዶ ቤተ ክርስቲያን ትምህርቶች እያሳደግን መንፈሳዊ እድገትን፣ የሞራል እሴቶችን እና ከእምነታችን እና ከቅርሶቻችን ጋር ጥልቅ ግንኙነት መፍጠር ነው።</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-6">
+                    <div class="flex items-start space-x-4">
+                        <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                            <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-bold text-green-900 mb-2">Biblical Education</h4>
+                            <p class="text-gray-600">Comprehensive study of Holy Scripture in both Ge'ez and Amharic languages.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-start space-x-4">
+                        <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                            <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-bold text-green-900 mb-2">Cultural Heritage</h4>
+                            <p class="text-gray-600">Preservation and teaching of Ethiopian Orthodox traditions and practices.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-start space-x-4">
+                        <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                            <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="text-xl font-bold text-green-900 mb-2">Community Building</h4>
+                            <p class="text-gray-600">Creating a loving community where children grow together in faith.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Programs Section -->
+    <section id="programs" class="py-20 bg-gray-100">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-4 text-green-900 section-title">Our Programs</h2>
+            <p class="text-center text-xl mb-12 text-gray-600 amharic-text">የትምህርት መርሃ ግብሮች</p>
+            
+            <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <!-- Program 1 -->
+                <div class="bg-white rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="bg-gradient-to-r from-green-700 to-green-600 p-6 text-white">
+                        <h3 class="text-2xl font-bold mb-2">Little Lambs</h3>
+                        <p class="text-sm amharic-text text-yellow-300">ትንንሽ በጎች</p>
+                        <p class="mt-2 text-sm">Ages 4-6</p>
+                    </div>
+                    <div class="p-6">
+                        <ul class="space-y-2 text-gray-700">
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Basic Bible stories
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Simple prayers & hymns
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Introduction to Ge'ez alphabet
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Arts & crafts activities
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Program 2 -->
+                <div class="bg-white rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="bg-gradient-to-r from-green-700 to-green-600 p-6 text-white">
+                        <h3 class="text-2xl font-bold mb-2">Young Disciples</h3>
+                        <p class="text-sm amharic-text text-yellow-300">ወጣት ደቀ መዛሙርት</p>
+                        <p class="mt-2 text-sm">Ages 7-12</p>
+                    </div>
+                    <div class="p-6">
+                        <ul class="space-y-2 text-gray-700">
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                In-depth Scripture study
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Ge'ez language lessons
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Church history & saints
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Liturgical music training
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Program 3 -->
+                <div class="bg-white rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="bg-gradient-to-r from-green-700 to-green-600 p-6 text-white">
+                        <h3 class="text-2xl font-bold mb-2">Teen Ministry</h3>
+                        <p class="text-sm amharic-text text-yellow-300">የወጣቶች አገልግሎት</p>
+                        <p class="mt-2 text-sm">Ages 13-18</p>
+                    </div>
+                    <div class="p-6">
+                        <ul class="space-y-2 text-gray-700">
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Advanced theological studies
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Leadership development
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Community service projects
+                            </li>
+                            <li class="flex items-center">
+                                <span class="text-yellow-500 mr-2">✓</span>
+                                Youth fellowship & retreats
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Schedule Section -->
+    <section id="schedule" class="py-20 bg-white">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-4 text-green-900 section-title">Weekly Schedule</h2>
+            <p class="text-center text-xl mb-12 text-gray-600 amharic-text">የሳምንት መርሃ ግብር</p>
+            
+            <div class="max-w-4xl mx-auto">
+                <div class="bg-gradient-to-br from-green-800 to-green-600 rounded-lg shadow-xl overflow-hidden">
+                    <div class="p-8">
+                        <div class="space-y-6">
+                            <!-- Sunday -->
+                            <div class="bg-white rounded-lg p-6 card-hover">
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                                    <div class="mb-4 md:mb-0">
+                                        <h3 class="text-2xl font-bold text-green-900 flex items-center">
+                                            <span class="text-yellow-500 mr-3">📅</span>
+                                            Sunday / እሁድ
+                                        </h3>
+                                    </div>
+                                    <div class="text-gray-600">
+                                        <p class="font-semibold">9:00 AM - 12:00 PM</p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 ml-10">
+                                    <p class="text-gray-700"><strong>9:00 - 9:30:</strong> Morning Prayer & Hymns</p>
+                                    <p class="text-gray-700"><strong>9:30 - 10:30:</strong> Bible Study (Age Groups)</p>
+                                    <p class="text-gray-700"><strong>10:30 - 11:15:</strong> Ge'ez Language Class</p>
+                                    <p class="text-gray-700"><strong>11:15 - 12:00:</strong> Church History & Activities</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Wednesday -->
+                            <div class="bg-white rounded-lg p-6 card-hover">
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                                    <div class="mb-4 md:mb-0">
+                                        <h3 class="text-2xl font-bold text-green-900 flex items-center">
+                                            <span class="text-yellow-500 mr-3">📅</span>
+                                            Wednesday / ረቡዕ
+                                        </h3>
+                                    </div>
+                                    <div class="text-gray-600">
+                                        <p class="font-semibold">6:00 PM - 7:30 PM</p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 ml-10">
+                                    <p class="text-gray-700"><strong>Evening Prayer Service</strong></p>
+                                    <p class="text-gray-700">Youth Fellowship & Discussion Groups</p>
+                                    <p class="text-gray-700 text-sm italic">(For ages 10 and above)</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Saturday -->
+                            <div class="bg-white rounded-lg p-6 card-hover">
+                                <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                                    <div class="mb-4 md:mb-0">
+                                        <h3 class="text-2xl font-bold text-green-900 flex items-center">
+                                            <span class="text-yellow-500 mr-3">📅</span>
+                                            Saturday / ቅዳሜ
+                                        </h3>
+                                    </div>
+                                    <div class="text-gray-600">
+                                        <p class="font-semibold">2:00 PM - 4:00 PM</p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 ml-10">
+                                    <p class="text-gray-700"><strong>Special Activities Day</strong></p>
+                                    <p class="text-gray-700">Music Practice, Arts, Sports & Community Service</p>
+                                    <p class="text-gray-700 text-sm italic">(Monthly - Check calendar for dates)</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Teachers Section -->
+    <section class="py-20 bg-gray-100">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-4 text-green-900 section-title">Our Teachers</h2>
+            <p class="text-center text-xl mb-12 text-gray-600 amharic-text">መምህራኖቻችን</p>
+            
+            <div class="grid md:grid-cols-4 gap-6 max-w-6xl mx-auto">
+                <div class="bg-white rounded-lg shadow-lg p-6 text-center card-hover">
+                    <div class="w-24 h-24 bg-gradient-to-br from-green-600 to-green-800 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-3xl font-bold">
+                        👨‍🏫
+                    </div>
+                    <h3 class="text-xl font-bold text-green-900 mb-1">Abba Tekle</h3>
+                    <p class="text-gray-600 text-sm mb-2">Head Teacher</p>
+                    <p class="text-gray-700 text-sm">20+ years of service</p>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-lg p-6 text-center card-hover">
+                    <div class="w-24 h-24 bg-gradient-to-br from-green-600 to-green-800 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-3xl font-bold">
+                        👨‍🏫
+                    </div>
+                    <h3 class="text-xl font-bold text-green-900 mb-1">Memhir Dawit</h3>
+                    <p class="text-gray-600 text-sm mb-2">Ge'ez Teacher</p>
+                    <p class="text-gray-700 text-sm">Biblical Languages</p>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-lg p-6 text-center card-hover">
+                    <div class="w-24 h-24 bg-gradient-to-br from-green-600 to-green-800 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-3xl font-bold">
+                        👩‍🏫
+                    </div>
+                    <h3 class="text-xl font-bold text-green-900 mb-1">W/ro Marta</h3>
+                    <p class="text-gray-600 text-sm mb-2">Children's Ministry</p>
+                    <p class="text-gray-700 text-sm">Ages 4-8 Coordinator</p>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-lg p-6 text-center card-hover">
+                    <div class="w-24 h-24 bg-gradient-to-br from-green-600 to-green-800 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-3xl font-bold">
+                        👨‍🏫
+                    </div>
+                    <h3 class="text-xl font-bold text-green-900 mb-1">Gashe Solomon</h3>
+                    <p class="text-gray-600 text-sm mb-2">Music Director</p>
+                    <p class="text-gray-700 text-sm">Traditional Hymns</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Gallery Section -->
+    <section id="gallery" class="py-20 bg-white">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-4 text-green-900 section-title">Gallery</h2>
+            <p class="text-center text-xl mb-12 text-gray-600 amharic-text">የፎቶ መድብር</p>
+            
+            <div class="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+                <!-- Gallery items with placeholder gradient backgrounds -->
+                <div class="relative h-64 bg-gradient-to-br from-green-700 to-green-500 rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">📖</div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
+                        <p class="font-semibold">Bible Study Class</p>
+                    </div>
+                </div>
+                
+                <div class="relative h-64 bg-gradient-to-br from-yellow-600 to-yellow-400 rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">🎵</div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
+                        <p class="font-semibold">Music & Hymns Practice</p>
+                    </div>
+                </div>
+                
+                <div class="relative h-64 bg-gradient-to-br from-red-700 to-red-500 rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">⛪</div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
+                        <p class="font-semibold">Sunday Service</p>
+                    </div>
+                </div>
+                
+                <div class="relative h-64 bg-gradient-to-br from-blue-700 to-blue-500 rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">🎨</div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
+                        <p class="font-semibold">Arts & Crafts</p>
+                    </div>
+                </div>
+                
+                <div class="relative h-64 bg-gradient-to-br from-purple-700 to-purple-500 rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">🤝</div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
+                        <p class="font-semibold">Community Service</p>
+                    </div>
+                </div>
+                
+                <div class="relative h-64 bg-gradient-to-br from-green-700 to-teal-500 rounded-lg shadow-lg overflow-hidden card-hover">
+                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">🎉</div>
+                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
+                        <p class="font-semibold">Special Events</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="py-20 bg-gradient-to-br from-green-800 to-green-600 text-white">
+        <div class="container mx-auto px-4">
+            <h2 class="text-4xl font-bold text-center mb-4 section-title">Contact Us</h2>
+            <p class="text-center text-xl mb-12 amharic-text text-yellow-300">ያግኙን</p>
+            
+            <div class="grid md:grid-cols-2 gap-12 max-w-6xl mx-auto">
+                <!-- Contact Information -->
+                <div>
+                    <h3 class="text-2xl font-bold mb-6">Get in Touch</h3>
+                    
+                    <div class="space-y-4">
+                        <div class="flex items-start space-x-4">
+                            <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                                <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Location</h4>
+                                <p>Ethiopian Orthodox Tewahdo Church</p>
+                                <p class="text-yellow-300">https://maps.app.goo.gl/iHSzmE5BphXrWo8Z8</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-start space-x-4">
+                            <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                                <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Phone</h4>
+                                <p>+251 XXX XXX XXX</p>
+                                <p class="text-sm text-yellow-300">Sunday: 8:00 AM - 1:00 PM</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-start space-x-4">
+                            <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                                <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Email</h4>
+                                <p>info@wulidebirhan.org</p>
+                                <p class="text-sm text-yellow-300">We'll respond within 24 hours</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-start space-x-4">
+                            <div class="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+                                <svg class="w-6 h-6 text-green-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Office Hours</h4>
+                                <p>Sunday: 8:30 AM - 12:30 PM</p>
+                                <p>Wednesday: 5:30 PM - 8:00 PM</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Registration Form -->
+                <div>
+                    <h3 class="text-2xl font-bold mb-6">Register Your Child</h3>
+                    <form id="registration-form" class="space-y-4">
+                        <div>
+                            <label class="block mb-2 font-semibold">Parent/Guardian Name</label>
+                            <input type="text" required class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Full Name">
+                        </div>
+                        
+                        <div>
+                            <label class="block mb-2 font-semibold">Child's Name</label>
+                            <input type="text" required class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Child's Full Name">
+                        </div>
+                        
+                        <div>
+                            <label class="block mb-2 font-semibold">Child's Age</label>
+                            <select required class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                                <option value="">Select Age</option>
+                                <option value="4">4 years</option>
+                                <option value="5">5 years</option>
+                                <option value="6">6 years</option>
+                                <option value="7">7 years</option>
+                                <option value="8">8 years</option>
+                                <option value="9">9 years</option>
+                                <option value="10">10 years</option>
+                                <option value="11">11 years</option>
+                                <option value="12">12 years</option>
+                                <option value="13">13 years</option>
+                                <option value="14">14 years</option>
+                                <option value="15">15 years</option>
+                                <option value="16">16 years</option>
+                                <option value="17">17 years</option>
+                                <option value="18">18 years</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block mb-2 font-semibold">Phone Number</label>
+                            <input type="tel" required class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="+251 XXX XXX XXX">
+                        </div>
+                        
+                        <div>
+                            <label class="block mb-2 font-semibold">Email</label>
+                            <input type="email" required class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="your.email@example.com">
+                        </div>
+                        
+                        <div>
+                            <label class="block mb-2 font-semibold">Message (Optional)</label>
+                            <textarea rows="3" class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Any questions or special needs?"></textarea>
+                        </div>
+                        
+                        <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-green-900 font-bold py-3 px-6 rounded-lg transition transform hover:scale-105">
+                            Submit Registration
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-white py-12">
+        <div class="container mx-auto px-4">
+            <div class="grid md:grid-cols-3 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="cross-icon w-12 h-12"></div>
+                        <div>
+                            <h3 class="font-bold text-lg amharic-text">ውሉደ ብርሃን</h3>
+                            <p class="text-sm text-gray-400">Children of Light</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-400 text-sm">Nurturing young souls in the Orthodox Tewahdo faith since 2010.</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold text-lg mb-4">Quick Links</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#home" class="hover:text-yellow-400 transition">Home</a></li>
+                        <li><a href="#about" class="hover:text-yellow-400 transition">About Us</a></li>
+                        <li><a href="#programs" class="hover:text-yellow-400 transition">Programs</a></li>
+                        <li><a href="#schedule" class="hover:text-yellow-400 transition">Schedule</a></li>
+                        <li><a href="#contact" class="hover:text-yellow-400 transition">Contact</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-bold text-lg mb-4">Connect With Us</h4>
+                    <div class="flex space-x-4">
+                        <a href="#" class="bg-yellow-500 hover:bg-yellow-600 p-3 rounded-full transition transform hover:scale-110">
+                            <svg class="w-5 h-5 text-green-900" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                            </svg>
+                        </a>
+                        <a href="#" class="bg-yellow-500 hover:bg-yellow-600 p-3 rounded-full transition transform hover:scale-110">
+                            <svg class="w-5 h-5 text-green-900" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                            </svg>
+                        </a>
+                        <a href="#" class="bg-yellow-500 hover:bg-yellow-600 p-3 rounded-full transition transform hover:scale-110">
+                            <svg class="w-5 h-5 text-green-900" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
+                            </svg>
+                        </a>
+                    </div>
+                    <p class="text-gray-400 text-sm mt-4 amharic-text">በማህበራዊ ሚዲያ ይከተሉን</p>
+                </div>
+            </div>
+            
+            <div class="border-t border-gray-800 pt-8 text-center text-gray-400 text-sm">
+                <p>&copy; 2024 ውሉደ ብርሃን ሰንበት ትምህርት ቤት - Children of Light Sunday School. All rights reserved.</p>
+                <p class="mt-2">Ethiopian Orthodox Tewahdo Church</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // Mobile menu toggle
+        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+        const mobileMenu = document.getElementById('mobile-menu');
+        
+        mobileMenuBtn.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+        
+        // Close mobile menu when clicking on a link
+        const mobileLinks = mobileMenu.querySelectorAll('a');
+        mobileLinks.forEach(link => {
+            link.addEventListener('click', () => {
+                mobileMenu.classList.add('hidden');
+            });
+        });
+        
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const offset = 80; // Account for fixed header
+                    const targetPosition = target.offsetTop - offset;
+                    window.scrollTo({
+                        top: targetPosition,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+        
+        // Form submission
+        const registrationForm = document.getElementById('registration-form');
+        registrationForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('Thank you for your registration! We will contact you soon.\n\nበምዝገባዎ እናመሰግናለን! በቅርቡ እናገኝዎታለን።');
+            registrationForm.reset();
+        });
+        
+        // Navbar background on scroll
+        const nav = document.querySelector('nav');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 100) {
+                nav.style.backgroundColor = 'rgba(26, 71, 42, 0.98)';
+            } else {
+                nav.style.backgroundColor = 'rgba(26, 71, 42, 0.95)';
+            }
+        });
+        
+        // Animate elements on scroll
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+        
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+        
+        // Observe all cards
+        document.querySelectorAll('.card-hover').forEach(card => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+            observer.observe(card);
+        });
+    </script>
+</body>
+</html>

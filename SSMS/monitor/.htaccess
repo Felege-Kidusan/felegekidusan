@@ -1,0 +1,36 @@
+# ============================================================
+# WBWS Error Monitor — .htaccess Protection
+# ============================================================
+
+# Block direct access to log files and sensitive files
+<FilesMatch "\.(log|json|bak|sql)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+# Block access to error_monitor.php directly (it's included by config.php)
+<Files "error_monitor.php">
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Block setup file (should be deleted after setup anyway)
+<Files "setup_monitor.php">
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Block uptime cron from web access (runs via CLI only)
+<Files "uptime_cron.php">
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Only index.php (dashboard) is accessible via web
+<Files "index.php">
+    Order Allow,Deny
+    Allow from all
+</Files>
+
+# Prevent directory listing
+Options -Indexes

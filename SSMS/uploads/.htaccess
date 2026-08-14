@@ -1,0 +1,11 @@
+# Protect uploads — allow images/docs only, deny PHP execution
+<FilesMatch "\.(php|php5|phtml|phps)$">
+    Require all denied
+</FilesMatch>
+
+# Allow images
+<FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|pdf|doc|docx)$">
+    Require all granted
+</FilesMatch>
+
+Options -Indexes

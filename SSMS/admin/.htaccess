@@ -1,0 +1,25 @@
+# Pass Authorization header to PHP (Apache strips it by default)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+# CORS for mobile API — handled by PHP code (api_mobile.php) which checks origins.
+# Do NOT set Access-Control-Allow-Origin here at the Apache level because it
+# overrides the PHP origin checks with a blanket wildcard, defeating the security.
+<Files "api_mobile.php">
+    <IfModule mod_headers.c>
+        Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+        Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+    </IfModule>
+</Files>
+
+# Block direct access to sensitive files in web root
+<FilesMatch "\.(sql|zip|gz|tar|bak|log)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    Order deny,allow
+    Deny from all
+</FilesMatch>
