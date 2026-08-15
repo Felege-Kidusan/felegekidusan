@@ -53,7 +53,15 @@ $headers = array_map('trim', $headers);
 
 // Get valid columns from database to prevent SQL errors
 $stmtCols = $pdo->query("SHOW COLUMNS FROM members");
-$validCols = $stmtCols->fetchAll(PDO::FETCH_COLUMN);
+$colsInfo = $stmtCols->fetchAll(PDO::FETCH_ASSOC);
+$validCols = array_column($colsInfo, 'Field');
+
+$notNullCols = [];
+foreach ($colsInfo as $col) {
+    if ($col['Null'] === 'NO' && $col['Default'] === null && $col['Extra'] !== 'auto_increment') {
+        $notNullCols[] = $col['Field'];
+    }
+}
 
 $stats = [
     'updated' => 0,
@@ -128,6 +136,22 @@ try {
             // Assign membership_tier based on the template used (if not explicitly in the Excel file)
             if (empty($rowData['membership_tier'])) {
                 $rowData['membership_tier'] = $tier;
+            }
+            
+            // Fix NOT NULL constraints for names if only full_name_am is provided
+            if (empty($rowData['student_name']) && !empty($rowData['full_name_am'])) {
+                $parts = explode(' ', trim($rowData['full_name_am']));
+                $rowData['student_name'] = $parts[0] ?? '';
+                if (empty($rowData['father_name'])) {
+                    $rowData['father_name'] = $parts[1] ?? '';
+                }
+            }
+
+            // Fallback for ANY other missing NOT NULL column (satisfy MySQL strict mode)
+            foreach ($notNullCols as $reqCol) {
+                if (!isset($rowData[$reqCol])) {
+                    $rowData[$reqCol] = ''; 
+                }
             }
 
             $cols = array_keys($rowData);
