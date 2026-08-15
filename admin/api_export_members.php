@@ -14,7 +14,7 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
 // Security check
-if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], ['super_admin', 'info_dept', 'hr_dept'])) {
+if (!isset($_SESSION['admin_role']) || !in_array($_SESSION['admin_role'], ['super_admin', 'info_dept', 'hr_dept'])) {
     die("Access Denied");
 }
 
