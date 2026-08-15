@@ -5442,12 +5442,12 @@ function clearCache() {
 
 <!-- DATA SYNC MODAL (EXPORT/IMPORT) -->
 <div id="dataSyncModal" class="fixed inset-0 z-[100] hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
         <!-- Header -->
         <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
             <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <i class="fa-solid fa-file-csv text-blue-600"></i>
-                Data Sync (Excel / CSV)
+                <i class="fa-solid fa-file-excel text-emerald-600"></i>
+                Data Sync (Excel)
             </h3>
             <button type="button" onclick="document.getElementById('dataSyncModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 transition-colors">
                 <i class="fa-solid fa-xmark text-xl"></i>
@@ -5460,41 +5460,64 @@ function clearCache() {
             <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 text-blue-800 text-sm">
                 <i class="fa-solid fa-circle-info mt-0.5"></i>
                 <div>
-                    <p class="font-semibold mb-1">Smart Protection Rule Active</p>
-                    <p>When you import updated data, the system will ONLY fill in missing (empty) fields. Any field that already has data in the system will be protected and ignored. This ensures critical dates and existing correct records are never accidentally corrupted.</p>
+                    <p class="font-semibold mb-1">Strict Protection Rule Active</p>
+                    <p>When you import an Excel file, the system will ONLY update missing (empty) fields. Any field that already has data will be ignored and protected. This prevents accidental overwrites.</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Export Section -->
-                <div class="border border-slate-200 rounded-xl p-5 flex flex-col items-center text-center bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                    <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xl mb-3">
-                        <i class="fa-solid fa-download"></i>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Temporary Members Column -->
+                <div class="border-2 border-amber-200 rounded-2xl p-5 bg-amber-50/30">
+                    <h4 class="font-bold text-amber-800 mb-4 flex items-center gap-2 text-lg">
+                        <i class="fa-solid fa-hourglass-half text-amber-500"></i> Temporary Members
+                    </h4>
+                    
+                    <div class="bg-white rounded-xl p-4 shadow-sm mb-4">
+                        <p class="text-xs text-slate-500 mb-3">Download the template with fields specific to Temporary members.</p>
+                        <a href="/admin/api_export_members.php?tier=temporary" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-100 text-amber-800 rounded-lg font-semibold hover:bg-amber-200 transition border border-amber-300">
+                            <i class="fa-solid fa-download"></i> Download Template
+                        </a>
                     </div>
-                    <h4 class="font-semibold text-slate-800 mb-1">1. Export Current Data</h4>
-                    <p class="text-xs text-slate-500 mb-4 flex-1">Download the entire database into an Excel-compatible CSV file. Edit this file offline.</p>
-                    <a href="/admin/api_export_members.php" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition">
-                        <i class="fa-solid fa-file-export"></i> Download CSV
-                    </a>
+                    
+                    <div class="bg-white rounded-xl p-4 shadow-sm">
+                        <p class="text-xs text-slate-500 mb-3">Upload updated Temporary member data.</p>
+                        <form id="formSyncTemporary" class="w-full">
+                            <input type="file" id="import_file_temp" accept=".xlsx, .xls" class="hidden">
+                            <label for="import_file_temp" class="cursor-pointer w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-100 transition mb-2">
+                                <i class="fa-solid fa-folder-open"></i> <span id="fileNameDisplayTemp" class="truncate max-w-[200px]">Select Excel File</span>
+                            </label>
+                            <button type="submit" id="btnSyncTemp" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700 transition disabled:opacity-50">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Start Import
+                            </button>
+                        </form>
+                    </div>
                 </div>
 
-                <!-- Import Section -->
-                <div class="border border-slate-200 rounded-xl p-5 flex flex-col items-center text-center bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl mb-3">
-                        <i class="fa-solid fa-upload"></i>
-                    </div>
-                    <h4 class="font-semibold text-slate-800 mb-1">2. Import Updated Data</h4>
-                    <p class="text-xs text-slate-500 mb-4 flex-1">Upload the edited CSV file back to the system to intelligently update missing fields.</p>
+                <!-- Permanent Members Column -->
+                <div class="border-2 border-emerald-200 rounded-2xl p-5 bg-emerald-50/30">
+                    <h4 class="font-bold text-emerald-800 mb-4 flex items-center gap-2 text-lg">
+                        <i class="fa-solid fa-user-check text-emerald-500"></i> Permanent Members
+                    </h4>
                     
-                    <form id="dataSyncImportForm" class="w-full">
-                        <input type="file" id="import_file" name="import_file" accept=".csv" class="hidden" onchange="document.getElementById('fileNameDisplay').textContent = this.files[0]?.name || 'No file selected'">
-                        <label for="import_file" class="cursor-pointer w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition mb-2">
-                            <i class="fa-solid fa-folder-open"></i> <span id="fileNameDisplay">Select CSV File</span>
-                        </label>
-                        <button type="submit" id="btnSyncImportSubmit" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
-                            <i class="fa-solid fa-cloud-arrow-up"></i> Start Import
-                        </button>
-                    </form>
+                    <div class="bg-white rounded-xl p-4 shadow-sm mb-4">
+                        <p class="text-xs text-slate-500 mb-3">Download the full template for Permanent members.</p>
+                        <a href="/admin/api_export_members.php?tier=permanent" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg font-semibold hover:bg-emerald-200 transition border border-emerald-300">
+                            <i class="fa-solid fa-download"></i> Download Template
+                        </a>
+                    </div>
+                    
+                    <div class="bg-white rounded-xl p-4 shadow-sm">
+                        <p class="text-xs text-slate-500 mb-3">Upload updated Permanent member data.</p>
+                        <form id="formSyncPermanent" class="w-full">
+                            <input type="file" id="import_file_perm" accept=".xlsx, .xls" class="hidden">
+                            <label for="import_file_perm" class="cursor-pointer w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-100 transition mb-2">
+                                <i class="fa-solid fa-folder-open"></i> <span id="fileNameDisplayPerm" class="truncate max-w-[200px]">Select Excel File</span>
+                            </label>
+                            <button type="submit" id="btnSyncPerm" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition disabled:opacity-50">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Start Import
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
 

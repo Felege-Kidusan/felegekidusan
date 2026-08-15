@@ -1,9 +1,12 @@
 <?php
 /**
- * Smart Member Import API (CSV UPSERT)
- * Dynamically parses CSV and strictly protects existing non-empty DB fields.
+ * Smart Member Import API (Excel .xlsx UPSERT)
+ * Dynamically parses XLSX and strictly protects existing non-empty DB fields.
  */
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -20,33 +23,32 @@ if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD
 $file = $_FILES['import_file']['tmp_name'];
 $fileName = $_FILES['import_file']['name'];
 
+$tier = $_POST['tier'] ?? 'permanent';
+if (!in_array($tier, ['temporary', 'permanent'])) {
+    $tier = 'permanent';
+}
+
 $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-if ($ext !== 'csv') {
-    echo json_encode(['success' => false, 'message' => 'Only CSV files are supported. Please export as CSV.']);
+if (!in_array($ext, ['xlsx', 'xls'])) {
+    echo json_encode(['success' => false, 'message' => 'Only Excel files (.xlsx, .xls) are supported.']);
     exit;
 }
 
-$handle = fopen($file, "r");
-if ($handle === false) {
-    echo json_encode(['success' => false, 'message' => 'Could not open uploaded file.']);
+try {
+    $spreadsheet = IOFactory::load($file);
+    $sheet = $spreadsheet->getActiveSheet();
+    $rows = $sheet->toArray(null, true, true, false); // Get rows as arrays, calculate formulas, format data, don't index by col letter
+} catch (\Exception $e) {
+    echo json_encode(['success' => false, 'message' => 'Error reading Excel file: ' . $e->getMessage()]);
     exit;
 }
 
-// Check and remove BOM if present
-$bom = fread($handle, 3);
-if ($bom === b"\xEF\xBB\xBF") {
-    // BOM removed, proceed
-} else {
-    rewind($handle); // No BOM, go back to start
-}
-
-$headers = fgetcsv($handle, 10000, ",");
-if (!$headers) {
-    echo json_encode(['success' => false, 'message' => 'CSV file is empty or invalid.']);
+if (count($rows) < 2) {
+    echo json_encode(['success' => false, 'message' => 'Excel file is empty or missing data rows.']);
     exit;
 }
 
-// Clean headers
+$headers = array_shift($rows); // First row is headers
 $headers = array_map('trim', $headers);
 
 // Get valid columns from database to prevent SQL errors
@@ -63,19 +65,19 @@ $stats = [
 try {
     $pdo->beginTransaction();
 
-    while (($row = fgetcsv($handle, 10000, ",")) !== false) {
-        // Skip empty rows
-        if (empty(array_filter($row))) continue;
+    foreach ($rows as $row) {
+        // Skip completely empty rows
+        if (empty(array_filter($row, function($v) { return $v !== null && $v !== ''; }))) continue;
 
         // Map row to headers
         $rowData = [];
         foreach ($headers as $index => $col) {
             if (in_array($col, $validCols) && isset($row[$index])) {
-                $rowData[$col] = trim($row[$index]);
+                $rowData[$col] = trim((string)$row[$index]);
             }
         }
 
-        // Must have at least a name to do anything meaningful
+        // Must have at least a name or member_code to do anything meaningful
         if (empty($rowData['full_name_am']) && empty($rowData['member_code'])) {
             $stats['errors']++;
             continue;
@@ -101,16 +103,12 @@ try {
             $updateValues = [];
             
             foreach ($rowData as $col => $val) {
-                // Skip the ID column
                 if ($col === 'id') continue;
-                
-                // If the CSV value is empty, do nothing
-                if ($val === '') continue;
+                if ($val === '') continue; // Empty cell in excel means skip
 
                 // STRICT RULE: If the DB currently has a non-empty value, DO NOT OVERWRITE
                 $dbVal = $existingMember[$col];
                 if ($dbVal === null || trim((string)$dbVal) === '') {
-                    // Safe to update
                     $updateFields[] = "`$col` = ?";
                     $updateValues[] = $val;
                 }
@@ -125,10 +123,12 @@ try {
             }
         } else {
             // 3. INSERT LOGIC
-            unset($rowData['id']); // never insert custom ID
+            unset($rowData['id']); 
             
-            // Generate auto member code if missing and it's a permanent or direct registration
-            // (Assuming you have logic for this, or leave NULL to auto-assign later)
+            // Assign membership_tier based on the template used (if not explicitly in the Excel file)
+            if (empty($rowData['membership_tier'])) {
+                $rowData['membership_tier'] = $tier;
+            }
 
             $cols = array_keys($rowData);
             $vals = array_values($rowData);
@@ -152,6 +152,4 @@ try {
     $pdo->rollBack();
     echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
 }
-
-fclose($handle);
 exit;

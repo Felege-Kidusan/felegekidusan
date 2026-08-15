@@ -1,22 +1,30 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const importForm = document.getElementById('dataSyncImportForm');
-    const submitBtn = document.getElementById('btnSyncImportSubmit');
-    const fileInput = document.getElementById('import_file');
     const statusContainer = document.getElementById('dataSyncStatusContainer');
     const statusLog = document.getElementById('dataSyncStatusLog');
     
-    if (importForm) {
+    function attachFormLogic(formId, inputId, displayId, btnId, tier) {
+        const importForm = document.getElementById(formId);
+        const fileInput = document.getElementById(inputId);
+        const displaySpan = document.getElementById(displayId);
+        const submitBtn = document.getElementById(btnId);
+
+        if (!importForm) return;
+
+        fileInput.addEventListener('change', () => {
+            displaySpan.textContent = fileInput.files[0]?.name || 'Select Excel File';
+        });
+
         importForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
             if (!fileInput.files || fileInput.files.length === 0) {
-                alert('Please select a CSV file first.');
+                alert('Please select an Excel (.xlsx) file first.');
                 return;
             }
             
             const file = fileInput.files[0];
-            if (!file.name.toLowerCase().endsWith('.csv')) {
-                alert('Only CSV files are allowed. Please export to CSV and try again.');
+            if (!file.name.toLowerCase().endsWith('.xlsx') && !file.name.toLowerCase().endsWith('.xls')) {
+                alert('Only Excel files (.xlsx) are allowed.');
                 return;
             }
             
@@ -24,10 +32,11 @@ document.addEventListener('DOMContentLoaded', () => {
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...';
             statusContainer.classList.remove('hidden');
-            statusLog.innerHTML = `<div class="text-blue-400">Uploading ${file.name}...</div>`;
+            statusLog.innerHTML = `<div class="text-blue-400">Uploading ${file.name} for ${tier} members...</div>`;
             
             const formData = new FormData();
             formData.append('import_file', file);
+            formData.append('tier', tier);
             
             try {
                 const response = await fetch('/admin/api_import_members.php', {
@@ -41,7 +50,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     statusLog.innerHTML += `<div class="text-green-400 font-bold mt-2"><i class="fa-solid fa-check"></i> ${result.message}</div>`;
                     statusLog.innerHTML += `<div class="text-slate-400 mt-1">Strict protection rule was applied. No existing data was overwritten.</div>`;
                     
-                    // Refresh the members list if the function exists
                     if (typeof fetchMembers === 'function') {
                         setTimeout(() => fetchMembers(), 1500);
                     }
@@ -56,8 +64,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Start Import';
                 fileInput.value = ''; // Reset file input
-                document.getElementById('fileNameDisplay').textContent = 'Select CSV File';
+                displaySpan.textContent = 'Select Excel File';
             }
         });
     }
+
+    attachFormLogic('formSyncTemporary', 'import_file_temp', 'fileNameDisplayTemp', 'btnSyncTemp', 'temporary');
+    attachFormLogic('formSyncPermanent', 'import_file_perm', 'fileNameDisplayPerm', 'btnSyncPerm', 'permanent');
 });
