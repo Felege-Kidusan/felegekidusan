@@ -4,7 +4,6 @@
  * Streams all members to a CSV file dynamically based on the current schema.
  */
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/app_session.php'; // ensure logged in
 require_once __DIR__ . '/access_control.php';
 
 // Security check (only hr or super admin should probably export)

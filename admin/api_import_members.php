@@ -4,7 +4,6 @@
  * Dynamically parses CSV and strictly protects existing non-empty DB fields.
  */
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/app_session.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
