@@ -1040,6 +1040,13 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     </div>
                     <div class="flex gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
                         <button type="button"
+                                onclick="document.getElementById('dataSyncModal').classList.remove('hidden')"
+                                class="mobile-touch-target inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-blue-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm">
+                            <i class="fa-solid fa-file-csv text-xs"></i>
+                            <span class="hidden sm:inline">Data Sync</span>
+                        </button>
+                        <div class="w-px bg-slate-200 my-1"></div>
+                        <button type="button"
                                 id="btnRegisterTemporary"
                                 onclick="toggleMemberRegistrationForm(true, 'temporary')"
                                 class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm">
@@ -5432,5 +5439,75 @@ function clearCache() {
         </button>
     </div>
 </div>
+
+<!-- DATA SYNC MODAL (EXPORT/IMPORT) -->
+<div id="dataSyncModal" class="fixed inset-0 z-[100] hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <!-- Header -->
+        <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-file-csv text-blue-600"></i>
+                Data Sync (Excel / CSV)
+            </h3>
+            <button type="button" onclick="document.getElementById('dataSyncModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+        
+        <!-- Body -->
+        <div class="p-6 overflow-y-auto space-y-6">
+            <!-- Alert Info -->
+            <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 text-blue-800 text-sm">
+                <i class="fa-solid fa-circle-info mt-0.5"></i>
+                <div>
+                    <p class="font-semibold mb-1">Smart Protection Rule Active</p>
+                    <p>When you import updated data, the system will ONLY fill in missing (empty) fields. Any field that already has data in the system will be protected and ignored. This ensures critical dates and existing correct records are never accidentally corrupted.</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Export Section -->
+                <div class="border border-slate-200 rounded-xl p-5 flex flex-col items-center text-center bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                    <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xl mb-3">
+                        <i class="fa-solid fa-download"></i>
+                    </div>
+                    <h4 class="font-semibold text-slate-800 mb-1">1. Export Current Data</h4>
+                    <p class="text-xs text-slate-500 mb-4 flex-1">Download the entire database into an Excel-compatible CSV file. Edit this file offline.</p>
+                    <a href="/admin/api_export_members.php" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition">
+                        <i class="fa-solid fa-file-export"></i> Download CSV
+                    </a>
+                </div>
+
+                <!-- Import Section -->
+                <div class="border border-slate-200 rounded-xl p-5 flex flex-col items-center text-center bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl mb-3">
+                        <i class="fa-solid fa-upload"></i>
+                    </div>
+                    <h4 class="font-semibold text-slate-800 mb-1">2. Import Updated Data</h4>
+                    <p class="text-xs text-slate-500 mb-4 flex-1">Upload the edited CSV file back to the system to intelligently update missing fields.</p>
+                    
+                    <form id="dataSyncImportForm" class="w-full">
+                        <input type="file" id="import_file" name="import_file" accept=".csv" class="hidden" onchange="document.getElementById('fileNameDisplay').textContent = this.files[0]?.name || 'No file selected'">
+                        <label for="import_file" class="cursor-pointer w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition mb-2">
+                            <i class="fa-solid fa-folder-open"></i> <span id="fileNameDisplay">Select CSV File</span>
+                        </label>
+                        <button type="submit" id="btnSyncImportSubmit" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> Start Import
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Import Status/Logs -->
+            <div id="dataSyncStatusContainer" class="hidden">
+                <h4 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Import Logs</h4>
+                <div id="dataSyncStatusLog" class="bg-slate-900 text-green-400 font-mono text-xs p-3 rounded-lg max-h-40 overflow-y-auto break-words">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/admin/js/hr_data_sync.js"></script>
 </body>
 </html>
