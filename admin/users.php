@@ -511,6 +511,7 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
                             $roles = [
                                 'super_admin'   => 'Super Admin',
                                 'school_admin'  => 'School Admin',
+                                'hr_dept'       => 'HR Department',
                                 'info_dept'     => 'Information Dept',
                                 'edu_dept'      => 'Education Dept',
                                 'finance_dept'  => 'Finance Dept',

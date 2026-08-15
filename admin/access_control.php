@@ -121,17 +121,18 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // ---- Member management (Information department) ----
             // finance_dept included: the finance dashboard fetches the student
             // roster to assign fees (frontend/js/finance.js → members.php).
-            'api_list_members.php'    => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept'],
-            'members.php'             => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept'],
-            'api_check_duplicate.php' => ['super_admin', 'school_admin', 'info_dept'],
-            'members_check.php'       => ['super_admin', 'school_admin', 'info_dept'],
-            'info_register_member.php'      => ['super_admin', 'school_admin', 'info_dept'],
-            'info_manage_member.php'        => ['super_admin', 'school_admin', 'info_dept'],
-            'info_archive_member.php'       => ['super_admin', 'school_admin', 'info_dept'],
-            'info_restore_member.php'       => ['super_admin', 'school_admin', 'info_dept'],
-            'info_get_archived_members.php' => ['super_admin', 'school_admin', 'info_dept'],
-            'print_member.php'  => ['super_admin', 'school_admin', 'info_dept', 'edu_dept'],
+            'api_list_members.php'    => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept', 'finance_dept'],
+            'members.php'             => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept', 'finance_dept'],
+            'api_check_duplicate.php' => ['super_admin', 'school_admin', 'hr_dept'],
+            'members_check.php'       => ['super_admin', 'school_admin', 'hr_dept'],
+            'hr_register_member.php'  => ['super_admin', 'school_admin', 'hr_dept'],
+            'info_manage_member.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'info_archive_member.php'       => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'info_restore_member.php'       => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'info_get_archived_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'print_member.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept'],
             'info-dept.php'     => ['super_admin', 'school_admin', 'info_dept'],
+            'hr-dept.php'       => ['super_admin', 'school_admin', 'hr_dept'],
 
             // ---- Material department ----
             'api_material.php'      => ['super_admin', 'school_admin', 'material_dept'],
@@ -139,16 +140,16 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'material_department.php' => ['super_admin', 'school_admin', 'material_dept'],
 
             // ---- Groups / associations ----
-            'groups.php'     => ['super_admin', 'school_admin', 'info_dept'],
-            'groups_api.php' => ['super_admin', 'school_admin', 'info_dept'],
+            'groups.php'     => ['super_admin', 'school_admin', 'hr_dept'],
+            'groups_api.php' => ['super_admin', 'school_admin', 'hr_dept'],
 
             // ---- Reports & exports (contain all-member data) ----
             'api_reports.php' => ['super_admin', 'school_admin'],
             'reports.php'     => ['super_admin', 'school_admin'],
-            'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept'],
+            'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
 
             // ---- CMS (public website content) ----
-            'api_cms.php'        => ['super_admin', 'school_admin', 'info_dept', 'content_editor'],
+            'api_cms.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'content_editor'],
             'content_editor.php' => ['super_admin', 'school_admin', 'content_editor'],
 
             // ---- Branding / settings / health ----
@@ -178,8 +179,8 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'user-toggle.php' => ['super_admin'],
 
             // ---- ID cards ----
-            'view_id_card.php'     => ['super_admin', 'school_admin', 'info_dept'],
-            'generate_id_card.php' => ['super_admin', 'school_admin', 'info_dept'],
+            'view_id_card.php'     => ['super_admin', 'school_admin', 'hr_dept'],
+            'generate_id_card.php' => ['super_admin', 'school_admin', 'hr_dept'],
 
             // ---- Dashboards (also protected by dashboards/.htaccess) ----
             'super-admin.php'   => ['super_admin'],

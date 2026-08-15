@@ -84,6 +84,7 @@ $validRoles = [
     'super_admin',
     'school_admin',
     'info_dept',
+    'hr_dept',
     'edu_dept',
     'finance_dept',
     'material_dept',

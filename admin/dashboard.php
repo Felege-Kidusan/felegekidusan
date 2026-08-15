@@ -60,6 +60,10 @@ switch ($role) {
         }
         break;
 
+    case 'hr_dept':
+        require __DIR__ . '/dashboards/hr-dept.php';
+        break;
+
     case 'info_dept':
         require __DIR__ . '/dashboards/info-dept.php';
         break;

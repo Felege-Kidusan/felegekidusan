@@ -31,8 +31,8 @@ $currentRole = $_SESSION['admin_role'] ?? '';
 
 // Check permissions - who can toggle which users
 $allowedToToggle = [
-    'super_admin' => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept', 'material_dept', 'teacher', 'attendance_taker'],
-    'school_admin' => ['info_dept', 'edu_dept', 'finance_dept', 'material_dept', 'teacher', 'attendance_taker'],
+    'super_admin' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept', 'finance_dept', 'material_dept', 'teacher', 'attendance_taker'],
+    'school_admin' => ['info_dept', 'hr_dept', 'edu_dept', 'finance_dept', 'material_dept', 'teacher', 'attendance_taker'],
     'info_dept' => ['attendance_taker'],
     'edu_dept' => ['teacher'],
 ];
