@@ -35,12 +35,45 @@ class ExcelExportService {
         
         $sheet->setTitle(substr($title, 0, 31)); // Max length for sheet title is 31 chars
         
-        // 1. Write Headers
+        $lastColumnString = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($columns));
+        
+        // 1. Row 1: Main Title
+        $sheet->mergeCells("A1:{$lastColumnString}1");
+        $sheet->setCellValue('A1', 'ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት');
+        $sheet->getRowDimension(1)->setRowHeight(34.5);
+        $sheet->getStyle("A1:{$lastColumnString}1")->applyFromArray([
+            'font' => [
+                'name' => 'Calibri',
+                'bold' => true,
+                'size' => 22,
+                'color' => ['argb' => 'FFFFFFFF'],
+            ],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FF3B0909'],
+            ],
+            'alignment' => [
+                'horizontal' => Alignment::HORIZONTAL_CENTER,
+                'vertical' => Alignment::VERTICAL_CENTER,
+            ],
+        ]);
+        
+        // 2. Row 2: Spacer
+        $sheet->mergeCells("A2:{$lastColumnString}2");
+        $sheet->getRowDimension(2)->setRowHeight(24.75);
+        $sheet->getStyle("A2:{$lastColumnString}2")->applyFromArray([
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FF3B0909'],
+            ]
+        ]);
+        
+        // 3. Row 3: Column Headers
         $colIndex = 1;
         $lockedColumnIndices = [];
         
         foreach ($columns as $colName) {
-            $cell = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . '1';
+            $cell = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . '3';
             $sheet->setCellValue($cell, $colName);
             
             if (in_array($colName, $lockedColumns)) {
@@ -49,8 +82,31 @@ class ExcelExportService {
             $colIndex++;
         }
         
-        // 2. Fetch and Write Data
-        $rowIndex = 2;
+        $sheet->getRowDimension(3)->setRowHeight(19.5);
+        $sheet->getStyle("A3:{$lastColumnString}3")->applyFromArray([
+            'font' => [
+                'name' => 'Calibri',
+                'bold' => true,
+                'color' => ['argb' => 'FFDBAD00'], // Gold text
+            ],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FF3B0909'],
+            ],
+            'borders' => [
+                'top' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color' => ['argb' => 'FF000000'],
+                ],
+                'bottom' => [
+                    'borderStyle' => Border::BORDER_THIN,
+                    'color' => ['argb' => 'FF000000'],
+                ],
+            ],
+        ]);
+        
+        // 4. Row 4+: Fetch and Write Data
+        $rowIndex = 4;
         foreach ($data as $row) {
             $colIndex = 1;
             foreach ($columns as $colName) {
@@ -67,59 +123,32 @@ class ExcelExportService {
             }
             
             // Set row height for better UI
-            $sheet->getRowDimension($rowIndex)->setRowHeight(22);
+            $sheet->getRowDimension($rowIndex)->setRowHeight(19.5);
             $rowIndex++;
         }
         
-        // 3. Styling the Sheet
-        $lastColumnString = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($columns));
+        // Freeze top rows (Row 4 is where scrolling starts)
+        $sheet->freezePane('A4');
         
-        // Freeze top row
-        $sheet->freezePane('A2');
-        
-        // Style the header row (FKSS Brand Maroon)
-        $headerRange = 'A1:' . $lastColumnString . '1';
-        $sheet->getStyle($headerRange)->applyFromArray([
-            'font' => [
-                'bold' => true,
-                'size' => 12,
-                'color' => ['argb' => 'FFFFFFFF'], // White text
-            ],
-            'fill' => [
-                'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['argb' => 'FF5A1212'], // Deep Maroon
-            ],
-            'borders' => [
-                'bottom' => [
-                    'borderStyle' => Border::BORDER_MEDIUM,
-                    'color' => ['argb' => 'FFD4AF37'], // Gold border bottom
-                ],
-            ],
-            'alignment' => [
-                'horizontal' => Alignment::HORIZONTAL_CENTER,
-                'vertical' => Alignment::VERTICAL_CENTER,
-            ],
-        ]);
+        // Auto-size columns based on the data and headers
+        for ($i = 1; $i <= count($columns); $i++) {
+            $colString = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
+            $sheet->getColumnDimension($colString)->setAutoSize(true);
+        }
         
         // Style all data rows (Vertical center, light bottom border)
         if (count($data) > 0) {
-            $dataRange = 'A2:' . $lastColumnString . ($rowIndex - 1);
+            $dataRange = 'A4:' . $lastColumnString . ($rowIndex - 1);
             $sheet->getStyle($dataRange)->applyFromArray([
                 'alignment' => [
                     'vertical' => Alignment::VERTICAL_CENTER,
-                ],
-                'borders' => [
-                    'bottom' => [
-                        'borderStyle' => Border::BORDER_THIN,
-                        'color' => ['argb' => 'FFE5E7EB'], // Light gray border
-                    ],
                 ]
             ]);
             
             // Apply a slight grey background to locked columns to indicate they are read-only
             foreach ($lockedColumnIndices as $lockedColIndex) {
                 $lockedColLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($lockedColIndex);
-                $lockedColRange = $lockedColLetter . '2:' . $lockedColLetter . ($rowIndex - 1);
+                $lockedColRange = $lockedColLetter . '4:' . $lockedColLetter . ($rowIndex - 1);
                 $sheet->getStyle($lockedColRange)->applyFromArray([
                     'fill' => [
                         'fillType' => Fill::FILL_SOLID,
@@ -132,17 +161,9 @@ class ExcelExportService {
             }
         }
         
-        $sheet->getRowDimension(1)->setRowHeight(30); // Taller header
-        
-        // Auto-size columns
-        for ($i = 1; $i <= count($columns); $i++) {
-            $colString = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
-            $sheet->getColumnDimension($colString)->setAutoSize(true);
-        }
-        
         // Unlock empty rows below data so users can add new entries
         // We'll unlock 500 rows below the existing data for new entries
-        $startEmptyRow = count($data) > 0 ? count($data) + 2 : 2;
+        $startEmptyRow = count($data) > 0 ? count($data) + 4 : 4;
         $endEmptyRow = $startEmptyRow + 500;
         
         for ($r = $startEmptyRow; $r <= $endEmptyRow; $r++) {

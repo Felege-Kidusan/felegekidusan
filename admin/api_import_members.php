@@ -48,7 +48,30 @@ if (count($rows) < 2) {
     exit;
 }
 
-$headers = array_shift($rows); // First row is headers
+$headers = [];
+$headerIndex = -1;
+foreach ($rows as $index => $row) {
+    // Look for recognizable column names to identify the header row
+    $rowStr = implode(',', $row);
+    if (strpos($rowStr, 'full_name_am') !== false || strpos($rowStr, 'member_code') !== false) {
+        $headers = $row;
+        $headerIndex = $index;
+        break;
+    }
+}
+
+if (empty($headers)) {
+    // Fallback to first row if we can't auto-detect
+    $headers = array_shift($rows);
+} else {
+    // Remove all rows up to and including the header row
+    foreach (array_keys($rows) as $idx) {
+        if ($idx <= $headerIndex) {
+            unset($rows[$idx]);
+        }
+    }
+}
+
 $headers = array_map('trim', $headers);
 
 // Get valid columns from database to prevent SQL errors
