@@ -1240,11 +1240,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                             <div>
-                                <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2">
-                                    <span class="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
-                                        <i class="fa-solid fa-user-pen text-xs"></i>
+                                <h3 id="registrationFormTitle" class="text-sm font-semibold text-slate-800 flex items-center gap-2 transition-colors duration-300">
+                                    <span id="registrationFormIconWrapper" class="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 transition-colors duration-300">
+                                        <i id="registrationFormIcon" class="fa-solid fa-user-pen text-xs"></i>
                                     </span>
-                                    <span>Register New Member</span>
+                                    <span id="registrationFormTitleText">Register New Member</span>
                                 </h3>
                                 <p class="text-[11px] text-slate-500">
                                     Live logic: Waiting has pending ID; Direct/Transfer auto-assign ID + card-ready.
@@ -1602,7 +1602,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                         </select>
                                     </div>
 
-                                    <div>
+                                    <div class="permanent-only">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
                                             Education Level
                                         </label>
@@ -1624,7 +1624,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                         </select>
                                     </div>
 
-                                    <div>
+                                    <div class="permanent-only">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
                                             <i class="fa-solid fa-cross text-emerald-500 mr-1"></i>
                                             Spiritual Education (የመንፈሳዊ ትምህርት ደረጃ)
@@ -3339,6 +3339,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const wrapper = document.getElementById('memberRegistrationWrapper');
         const list = document.getElementById('membersListPlaceholder');
         const formTitle = document.getElementById('registrationFormTitle');
+        const formTitleText = document.getElementById('registrationFormTitleText');
+        const formIconWrapper = document.getElementById('registrationFormIconWrapper');
+        const formIcon = document.getElementById('registrationFormIcon');
         const tierInput = document.getElementById('membershipTierField');
         const upgradeIdInput = document.getElementById('upgradeMemberIdField');
 
@@ -3346,13 +3349,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (show === true) {
             if (tierInput) tierInput.value = tier;
+            
+            // Remove previous theme classes
+            wrapper.classList.remove('border-emerald-300', 'border-amber-300', 'shadow-emerald-100', 'shadow-amber-100', 'border-2', 'shadow-lg');
+            formTitle.classList.remove('text-emerald-800', 'text-amber-800', 'text-slate-800');
+            formIconWrapper.classList.remove('bg-emerald-100', 'text-emerald-600', 'bg-amber-100', 'text-amber-600');
+            
             if (tier === 'temporary') {
-                if (formTitle) formTitle.textContent = 'Register Temporary Member';
+                if (formTitleText) formTitleText.textContent = 'Register Temporary Member';
+                
+                // Apply Temporary (Amber) Theme
+                wrapper.classList.add('border-2', 'border-amber-300', 'shadow-lg', 'shadow-amber-100');
+                formTitle.classList.add('text-amber-800');
+                formIconWrapper.classList.add('bg-amber-100', 'text-amber-600');
+                if (formIcon) formIcon.className = 'fa-solid fa-hourglass-half text-xs';
+                
                 document.querySelectorAll('.permanent-only').forEach(el => el.classList.add('hidden'));
                 // Clear upgrade ID
                 if (upgradeIdInput) upgradeIdInput.value = '0';
             } else if (tier === 'permanent') {
-                if (formTitle) formTitle.textContent = title || 'Register Permanent Member';
+                if (formTitleText) formTitleText.textContent = title || 'Register Permanent Member';
+                
+                // Apply Permanent (Emerald) Theme
+                wrapper.classList.add('border-2', 'border-emerald-300', 'shadow-lg', 'shadow-emerald-100');
+                formTitle.classList.add('text-emerald-800');
+                formIconWrapper.classList.add('bg-emerald-100', 'text-emerald-600');
+                if (formIcon) formIcon.className = 'fa-solid fa-user-check text-xs';
+                
                 document.querySelectorAll('.permanent-only').forEach(el => el.classList.remove('hidden'));
                 if (!title && upgradeIdInput) upgradeIdInput.value = '0'; // reset if not an upgrade
             }
