@@ -61,6 +61,7 @@ $hasArchivedAt = in_array('archived_at', $columns);
 $hasArchivedBy = in_array('archived_by', $columns);
 $hasArchiveReason = in_array('archive_reason', $columns);
 $hasArchiveNotes = in_array('archive_notes', $columns);
+$hasArchiveType = in_array('archive_type', $columns);
 
 // Build dynamic update query
 $updateParts = ["status = 'archived'"];
@@ -86,6 +87,13 @@ if ($hasArchiveReason && $reason) {
 if ($hasArchiveNotes && $notes) {
     $updateParts[] = "archive_notes = ?";
     $params[] = $notes;
+    $types .= 's';
+}
+
+if ($hasArchiveType) {
+    $archiveType = ($reason === 'failed_observation') ? 'failed_observation' : 'permanent_archive';
+    $updateParts[] = "archive_type = ?";
+    $params[] = $archiveType;
     $types .= 's';
 }
 

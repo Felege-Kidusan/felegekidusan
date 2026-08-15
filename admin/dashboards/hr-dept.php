@@ -92,6 +92,8 @@ if (isset($conn)) {
             member_code,
             registration_type,
             member_type,
+            membership_tier,
+            archive_type,
             status,
             age_group,
             current_section,
@@ -113,6 +115,7 @@ if (isset($conn)) {
             house_number,
             work_profession,
             education_level,
+            registered_at,
             created_at
          FROM members
          WHERE status != 'archived'
@@ -124,10 +127,12 @@ if (isset($conn)) {
     $recentMembers = db_fetch_all_assoc(
         $conn,
         "SELECT 
+            id,
             student_name,
             father_name,
             grandfather_name,
             member_type,
+            membership_tier,
             status,
             current_section,
             created_at
@@ -135,6 +140,23 @@ if (isset($conn)) {
          WHERE status != 'archived'
          ORDER BY id DESC
          LIMIT 10"
+    );
+
+    // Eligible for upgrade (6 months+)
+    $eligibleUpgrades = db_fetch_all_assoc(
+        $conn,
+        "SELECT 
+            id, 
+            student_name, 
+            father_name, 
+            grandfather_name, 
+            phone_number, 
+            registered_at
+         FROM members
+         WHERE membership_tier = 'temporary' 
+           AND status != 'archived' 
+           AND registered_at <= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+         ORDER BY registered_at ASC"
     );
 
     // Aggregations - Total excludes archived, but we count archived separately
@@ -780,6 +802,53 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     </div>
                 </div>
 
+                <!-- Eligible Upgrades Widget -->
+                <?php if (!empty($eligibleUpgrades)): ?>
+                <div class="mb-4 panel p-4 border-l-4 border-amber-500 bg-amber-50 rounded-2xl">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-amber-900 flex items-center gap-2">
+                            <i class="fa-solid fa-bell text-amber-500"></i>
+                            Eligible for Permanent Upgrade (6+ Months)
+                        </h3>
+                        <span class="px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-800 text-xs font-bold">
+                            <?= count($eligibleUpgrades) ?> Pending
+                        </span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="text-xs text-amber-700 bg-amber-100/50 uppercase">
+                                <tr>
+                                    <th class="px-3 py-2 font-medium">Name</th>
+                                    <th class="px-3 py-2 font-medium">Registered</th>
+                                    <th class="px-3 py-2 font-medium">Phone</th>
+                                    <th class="px-3 py-2 font-medium text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-amber-200/50">
+                                <?php foreach ($eligibleUpgrades as $m): ?>
+                                <tr class="hover:bg-amber-100/50 transition">
+                                    <td class="px-3 py-2 font-medium text-amber-900">
+                                        <?= htmlspecialchars(trim($m['student_name'].' '.$m['father_name'].' '.$m['grandfather_name'])) ?>
+                                    </td>
+                                    <td class="px-3 py-2 text-amber-800 text-xs">
+                                        <?= date('M j, Y', strtotime($m['registered_at'])) ?>
+                                    </td>
+                                    <td class="px-3 py-2 text-amber-800 text-xs">
+                                        <?= htmlspecialchars($m['phone_number'] ?: 'N/A') ?>
+                                    </td>
+                                    <td class="px-3 py-2 text-right">
+                                        <button onclick="openUpgradeModal(<?= (int)$m['id'] ?>)" class="px-3 py-1 bg-amber-500 text-white rounded-lg text-xs font-semibold hover:bg-amber-600 shadow-sm transition">
+                                            <i class="fa-solid fa-arrow-up mr-1"></i>Upgrade
+                                        </button>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                     <div class="panel p-4 mobile-card">
                         <div class="flex items-center justify-between mb-2">
@@ -932,11 +1001,16 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     </div>
                     <div class="flex gap-2">
                         <button type="button"
-                                onclick="toggleMemberRegistrationForm(true)"
-                                id="toggleMemberFormBtn"
+                                onclick="toggleMemberRegistrationForm(true, 'temporary')"
+                                class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white text-xs sm:text-sm font-semibold shadow active:scale-95 bg-emerald-600 hover:bg-emerald-700">
+                            <i class="fa-solid fa-clock text-xs"></i>
+                            <span>Register Temporary</span>
+                        </button>
+                        <button type="button"
+                                onclick="toggleMemberRegistrationForm(true, 'permanent')"
                                 class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white text-xs sm:text-sm font-semibold shadow active:scale-95" style="background:linear-gradient(135deg, <?= THEME_PRIMARY ?>, <?= THEME_PRIMARY_LIGHT ?>)">
                             <i class="fa-solid fa-user-plus text-xs"></i>
-                            <span>Register New Member</span>
+                            <span>Register Permanent</span>
                         </button>
                     </div>
                 </div>
@@ -1064,13 +1138,20 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                                 <?php echo $index + 1; ?>
                                             </td>
                                             <td class="px-3 py-2">
-                                                <div class="flex flex-col">
+                                                <div class="flex flex-col gap-1">
                                                     <span class="text-[11px] font-medium text-slate-900 amharic-text">
                                                         <?php echo esc($fullName, '—'); ?>
                                                     </span>
-                                                    <span class="text-[10px] text-slate-400">
-                                                        <?php echo e($m['current_section'] ?? $sectionLabel); ?>
-                                                    </span>
+                                                    <div class="flex items-center gap-1">
+                                                        <span class="text-[10px] text-slate-400">
+                                                            <?php echo e($m['current_section'] ?? $sectionLabel); ?>
+                                                        </span>
+                                                        <?php if (($m['membership_tier'] ?? 'permanent') === 'temporary'): ?>
+                                                            <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] rounded font-bold">Temporary</span>
+                                                        <?php else: ?>
+                                                            <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] rounded font-bold">Permanent</span>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td class="px-3 py-2 text-[11px] text-slate-700">
@@ -1232,6 +1313,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                 </div>
 
                                 <input type="hidden" name="registration_type" id="registrationTypeField" value="waiting">
+                                <input type="hidden" name="membership_tier" id="membershipTierField" value="permanent">
+                                <input type="hidden" name="upgrade_member_id" id="upgradeMemberIdField" value="0">
                             </div>
                         </div>
 
@@ -1302,7 +1385,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         </div>
 
                         <!-- Registration Date for Existing Members -->
-                        <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 sm:p-4 mb-4">
+                        <div class="permanent-only bg-blue-50 border border-blue-200 rounded-xl p-3 sm:p-4 mb-4">
                             <h4 class="text-xs font-semibold text-blue-900 mb-2 flex items-center gap-2">
                                 <span class="w-6 h-6 rounded-lg bg-blue-200 flex items-center justify-center">
                                     <i class="fa-solid fa-calendar-plus text-[10px]"></i>
@@ -1570,7 +1653,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         </div>
 
                         <!-- Address -->
-                        <div class="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 mb-4">
+                        <div class="permanent-only bg-white border border-slate-200 rounded-xl p-3 sm:p-4 mb-4">
                             <h4 class="text-xs font-semibold text-slate-800 mb-3 flex items-center gap-2">
                                 <span class="w-6 h-6 rounded-lg bg-sky-100 flex items-center justify-center text-sky-600">
                                     <i class="fa-solid fa-location-dot"></i>
@@ -1820,7 +1903,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         </div>
 
                         <!-- Documents -->
-                        <div class="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 mb-6">
+                        <div class="permanent-only bg-white border border-slate-200 rounded-xl p-3 sm:p-4 mb-6">
                             <h4 class="text-xs font-semibold text-slate-800 mb-3 flex items-center gap-2">
                                 <span class="w-6 h-6 rounded-lg bg-slate-200 flex items-center justify-center text-slate-700">
                                     <i class="fa-solid fa-file-arrow-up text-[10px]"></i>
@@ -2220,6 +2303,15 @@ document.addEventListener('DOMContentLoaded', () => {
                                    class="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition">
                         </div>
                     </div>
+                    <!-- Archive Tabs -->
+                    <div class="flex gap-2 mb-4 border-b border-slate-200 pb-2">
+                        <button onclick="switchArchiveTab('permanent_archive')" id="tab_permanent_archive" class="px-4 py-2 text-sm font-semibold text-amber-700 border-b-2 border-amber-500">
+                            Permanent Archive
+                        </button>
+                        <button onclick="switchArchiveTab('failed_observation')" id="tab_failed_observation" class="px-4 py-2 text-sm font-semibold text-slate-500 border-b-2 border-transparent hover:text-amber-700">
+                            Failed Observation
+                        </button>
+                    </div>
                     
                     <!-- Archived Members List -->
                     <div id="archivedMembersList" class="space-y-3">
@@ -2268,6 +2360,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     $id_sql = "SELECT id, student_name, father_name, member_code, registration_type, id_card_status, id_card_generated_at
                                FROM members 
                                WHERE status = 'active' 
+                               AND membership_tier = 'permanent'
                                AND registration_type IN ('direct', 'transfer', 'honorary') 
                                ORDER BY student_name ASC";
                     
@@ -3242,28 +3335,76 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Member registration UI helpers ---
 
-    function toggleMemberRegistrationForm(show) {
+    function toggleMemberRegistrationForm(show, tier = 'permanent', title = null) {
         const wrapper = document.getElementById('memberRegistrationWrapper');
         const list = document.getElementById('membersListPlaceholder');
+        const formTitle = document.getElementById('registrationFormTitle');
+        const tierInput = document.getElementById('membershipTierField');
+        const upgradeIdInput = document.getElementById('upgradeMemberIdField');
 
         if (!wrapper || !list) return;
 
         if (show === true) {
+            if (tierInput) tierInput.value = tier;
+            if (tier === 'temporary') {
+                if (formTitle) formTitle.textContent = 'Register Temporary Member';
+                document.querySelectorAll('.permanent-only').forEach(el => el.classList.add('hidden'));
+                // Clear upgrade ID
+                if (upgradeIdInput) upgradeIdInput.value = '0';
+            } else if (tier === 'permanent') {
+                if (formTitle) formTitle.textContent = title || 'Register Permanent Member';
+                document.querySelectorAll('.permanent-only').forEach(el => el.classList.remove('hidden'));
+                if (!title && upgradeIdInput) upgradeIdInput.value = '0'; // reset if not an upgrade
+            }
+
             wrapper.classList.remove('hidden');
             list.classList.add('hidden');
             navigateToSection('members');
         } else if (show === false) {
             wrapper.classList.add('hidden');
             list.classList.remove('hidden');
+            if (upgradeIdInput) upgradeIdInput.value = '0';
         } else {
             if (wrapper.classList.contains('hidden')) {
-                wrapper.classList.remove('hidden');
-                list.classList.add('hidden');
+                toggleMemberRegistrationForm(true, tier);
             } else {
-                wrapper.classList.add('hidden');
-                list.classList.remove('hidden');
+                toggleMemberRegistrationForm(false);
             }
         }
+    }
+
+    function openUpgradeModal(memberId) {
+        // Fetch existing data for upgrade
+        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(memberId) + '&v=' + new Date().getTime())
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success' && data.member) {
+                    toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
+                    const upgradeIdInput = document.getElementById('upgradeMemberIdField');
+                    if (upgradeIdInput) upgradeIdInput.value = memberId;
+
+                    // Prefill form
+                    const m = data.member;
+                    const f = document.getElementById('hrRegistrationForm');
+                    
+                    if(f.student_name) f.student_name.value = m.student_name || '';
+                    if(f.father_name) f.father_name.value = m.father_name || '';
+                    if(f.grandfather_name) f.grandfather_name.value = m.grandfather_name || '';
+                    if(f.phone_number) f.phone_number.value = m.phone_number || '';
+                    if(f.guardian_name) f.guardian_name.value = m.guardian_name || '';
+                    if(f.guardian_phone1) f.guardian_phone1.value = m.guardian_phone1 || '';
+                    // Populate other fields if needed, but the primary ones are enough to get started
+                    
+                    // Show toast
+                    if (typeof showToast === 'function') showToast('Please complete the remaining permanent fields.', 'info');
+                } else {
+                    alert('Error loading member data.');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Error loading member data.');
+            });
     }
 
     function selectRegistrationType(type, btn) {
@@ -3880,6 +4021,25 @@ document.addEventListener('DOMContentLoaded', () => {
     // ARCHIVED MEMBERS FUNCTIONS
     // ---------------------------------------------------------
     let archivedMembersData = [];
+    let currentArchiveTab = 'permanent_archive';
+    
+    function switchArchiveTab(tabName) {
+        currentArchiveTab = tabName;
+        
+        // Update tab styling
+        const tabPerm = document.getElementById('tab_permanent_archive');
+        const tabFail = document.getElementById('tab_failed_observation');
+        
+        if (tabName === 'permanent_archive') {
+            tabPerm.className = "px-4 py-2 text-sm font-semibold text-amber-700 border-b-2 border-amber-500";
+            tabFail.className = "px-4 py-2 text-sm font-semibold text-slate-500 border-b-2 border-transparent hover:text-amber-700";
+        } else {
+            tabFail.className = "px-4 py-2 text-sm font-semibold text-amber-700 border-b-2 border-amber-500";
+            tabPerm.className = "px-4 py-2 text-sm font-semibold text-slate-500 border-b-2 border-transparent hover:text-amber-700";
+        }
+        
+        filterArchivedMembers();
+    }
     
     function loadArchivedMembers() {
         const listContainer = document.getElementById('archivedMembersList');
@@ -3898,7 +4058,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.status === 'success') {
                     archivedMembersData = data.members || [];
                     countBadge.textContent = archivedMembersData.length + ' Members';
-                    renderArchivedMembers(archivedMembersData);
+                    filterArchivedMembers();
                 } else {
                     listContainer.innerHTML = `
                         <div class="text-center py-8 text-red-400">
@@ -3918,6 +4078,25 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
     
+    function filterArchivedMembers() {
+        const query = (document.getElementById('archiveSearch').value || '').toLowerCase();
+        
+        const filtered = archivedMembersData.filter(m => {
+            const matchesTab = (m.archive_type || 'permanent_archive') === currentArchiveTab;
+            if (!matchesTab) return false;
+            
+            if (!query) return true;
+            
+            const name = ((m.student_name || '') + ' ' + (m.father_name || '') + ' ' + (m.grandfather_name || '')).toLowerCase();
+            const code = (m.member_code || '').toLowerCase();
+            const phone = (m.phone_number || '').toLowerCase();
+            
+            return name.includes(query) || code.includes(query) || phone.includes(query);
+        });
+        
+        renderArchivedMembers(filtered);
+    }
+    
     function renderArchivedMembers(members) {
         const listContainer = document.getElementById('archivedMembersList');
         
@@ -3926,7 +4105,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="text-center py-12 text-slate-400">
                     <i class="fa-solid fa-box-open text-4xl mb-3 text-slate-300"></i>
                     <p class="text-sm font-medium">No archived members found</p>
-                    <p class="text-xs mt-1">Archived members will appear here</p>
+                    <p class="text-xs mt-1">Archived members for this category will appear here</p>
                 </div>
             `;
             return;
@@ -3937,6 +4116,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'graduated': 'ተመርቋል',
             'transferred': 'ተዛውሯል',
             'inactive_long': 'ረጅም ጊዜ ቦዝ',
+            'failed_observation': 'የሙከራ ጊዜ አላጠናቀቀም',
             'deceased': 'አርፏል',
             'other': 'ሌላ'
         };
@@ -4270,6 +4450,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <option value="graduated">ተመርቋል/ች (Graduated)</option>
                     <option value="transferred">ወደ ሌላ ቦታ ተዛውሯል/ች (Transferred)</option>
                     <option value="inactive_long">ረጅም ጊዜ አልተገኘም/ች (Long Inactive)</option>
+                    <option value="failed_observation">የሙከራ ጊዜውን አላጠናቀቀም/ች (Failed Observation)</option>
                     <option value="deceased">አርፏል/ች (Deceased)</option>
                     <option value="other">ሌላ (Other)</option>
                 </select>

@@ -18,7 +18,7 @@ $sql = "SELECT
             id, member_code, student_name, father_name, grandfather_name,
             baptismal_name, gender, age, current_section, age_group,
             phone_number, guardian_name, student_photo_path,
-            status, registration_type, member_type,
+            status, registration_type, member_type, archive_type,
             registered_at, archived_at, archived_by, archive_reason, archive_notes
         FROM members 
         WHERE status = 'archived' 

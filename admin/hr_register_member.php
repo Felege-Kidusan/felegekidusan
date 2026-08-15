@@ -94,12 +94,20 @@ if (field('gender') === '')    $errors[] = "Gender is required.";
 if (field('dob_year') === '' || field('dob_month') === '' || field('dob_day') === '') {
     $errors[] = "Date of birth is required.";
 }
-if (field('phone_number') === '')     $errors[] = "Phone number is required.";
+$membership_tier = field('membership_tier', 'permanent');
+
+if (field('phone_number') === '' && $membership_tier !== 'temporary') {
+    // Only strictly require personal phone for permanent members
+    $errors[] = "Phone number is required.";
+}
+
 if (field('guardian_name') === '')    $errors[] = "Guardian name is required.";
 if (field('guardian_phone1') === '')  $errors[] = "Guardian phone is required.";
 
-if (($registration_type === 'transfer' || $registration_type === 'direct') && empty($_FILES['doc_signed_form']['name'])) {
-    $errors[] = "Signed form is required for transfer or direct registration.";
+if ($membership_tier !== 'temporary' && empty($_POST['upgrade_member_id'])) {
+    if (($registration_type === 'transfer' || $registration_type === 'direct') && empty($_FILES['doc_signed_form']['name'])) {
+        $errors[] = "Signed form is required for transfer or direct registration.";
+    }
 }
 
 if (!empty($errors)) {
@@ -297,6 +305,7 @@ try {
         'registration_type'    => $registration_type,
         'member_type'          => $member_type,
         'status'               => $status,
+        'membership_tier'      => field('membership_tier', 'permanent'),
         'full_name_am'         => $full_name_am,
         'full_name_en'         => $full_name_en,
         'student_name'         => $student_name,
@@ -354,26 +363,63 @@ try {
         'registered_at'            => $registered_at,
     ];
 
-    $columns      = array_keys($data);
-    $placeholders = array_fill(0, count($columns), '?');
-    $sql = "INSERT INTO members (" . implode(',', $columns) . ") VALUES (" . implode(',', $placeholders) . ")";
+    $upgrade_id = (int) field('upgrade_member_id', 0);
+    $newId = 0;
 
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) throw new Exception('Prepare failed: ' . $conn->error);
+    if ($upgrade_id > 0) {
+        // Remove fields we don't want to overwrite during upgrade
+        unset($data['registered_at']);
+        unset($data['waiting_since']);
+        unset($data['member_code']);
+        unset($data['registration_type']);
+        
+        $setClauses = [];
+        $vals = [];
+        $types = '';
+        foreach ($data as $col => $v) {
+            // If it's a file upload field and null, don't overwrite existing file unless requested
+            if (str_ends_with($col, '_path') && $v === null && empty($_POST['replace_'.$col])) continue;
+            
+            $setClauses[] = "$col = ?";
+            if ($v === null)    { $types .= 's'; $vals[] = null; }
+            elseif (is_int($v)) { $types .= 'i'; $vals[] = $v; }
+            else                { $types .= 's'; $vals[] = (string)$v; }
+        }
+        
+        $types .= 'i';
+        $vals[] = $upgrade_id;
+        
+        $sql = "UPDATE members SET " . implode(', ', $setClauses) . " WHERE id = ?";
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) throw new Exception('Prepare failed: ' . $conn->error);
+        $stmt->bind_param($types, ...$vals);
+        if (!$stmt->execute()) throw new Exception('Execute failed: ' . $stmt->error);
+        
+        $newId = $upgrade_id;
+        $stmt->close();
+    } else {
+        $columns      = array_keys($data);
+        $placeholders = array_fill(0, count($columns), '?');
+        $sql = "INSERT INTO members (" . implode(',', $columns) . ") VALUES (" . implode(',', $placeholders) . ")";
 
-    $types = '';
-    $vals  = [];
-    foreach ($data as $v) {
-        if ($v === null)    { $types .= 's'; $vals[] = null; }
-        elseif (is_int($v)) { $types .= 'i'; $vals[] = $v; }
-        else                { $types .= 's'; $vals[] = (string)$v; }
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) throw new Exception('Prepare failed: ' . $conn->error);
+
+        $types = '';
+        $vals  = [];
+        foreach ($data as $v) {
+            if ($v === null)    { $types .= 's'; $vals[] = null; }
+            elseif (is_int($v)) { $types .= 'i'; $vals[] = $v; }
+            else                { $types .= 's'; $vals[] = (string)$v; }
+        }
+        $stmt->bind_param($types, ...$vals);
+
+        if (!$stmt->execute()) throw new Exception('Execute failed: ' . $stmt->error);
+
+        $newId = $conn->insert_id;
+        $stmt->close();
     }
-    $stmt->bind_param($types, ...$vals);
 
-    if (!$stmt->execute()) throw new Exception('Execute failed: ' . $stmt->error);
-
-    $newId = $conn->insert_id;
-    $stmt->close();
     $conn->commit();
 
     // Post-registration workflow (non-fatal)
