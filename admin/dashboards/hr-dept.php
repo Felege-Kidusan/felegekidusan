@@ -271,6 +271,45 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
     <style>
+        /* Form Theme Overrides */
+        .theme-temporary {
+            background-color: #fffbeb !important; /* amber-50 */
+            border-color: #fcd34d !important; /* amber-300 */
+        }
+        .theme-temporary .rounded-xl.p-3, 
+        .theme-temporary .rounded-xl.p-4 {
+            background-color: #fef3c7 !important; /* amber-100 */
+            border-color: #fde68a !important; /* amber-200 */
+        }
+        .theme-temporary h4.text-slate-800,
+        .theme-temporary h4.text-emerald-900 {
+            color: #92400e !important; /* amber-800 */
+        }
+        .theme-temporary .bg-slate-200, 
+        .theme-temporary .bg-emerald-100 {
+            background-color: #fde68a !important; /* amber-200 */
+            color: #b45309 !important; /* amber-700 */
+        }
+
+        .theme-permanent {
+            background-color: #ecfdf5 !important; /* emerald-50 */
+            border-color: #6ee7b7 !important; /* emerald-300 */
+        }
+        .theme-permanent .rounded-xl.p-3, 
+        .theme-permanent .rounded-xl.p-4 {
+            background-color: #d1fae5 !important; /* emerald-100 */
+            border-color: #a7f3d0 !important; /* emerald-200 */
+        }
+        .theme-permanent h4.text-slate-800,
+        .theme-permanent h4.text-emerald-900 {
+            color: #065f46 !important; /* emerald-800 */
+        }
+        .theme-permanent .bg-slate-200, 
+        .theme-permanent .bg-emerald-100 {
+            background-color: #a7f3d0 !important; /* emerald-200 */
+            color: #047857 !important; /* emerald-700 */
+        }
+
         @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
 
         :root {
@@ -987,7 +1026,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 
             <!-- ALL MEMBERS -->
             <section id="section-members" class="content-section">
-                <div id="membersHeaderSection" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 sticky top-[60px] z-30 bg-slate-50/90 backdrop-blur-md py-3 rounded-b-xl px-1 -mx-1">
+                <div id="membersHeaderSection" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sticky top-0 z-50 bg-white shadow-sm border-b border-slate-200 py-3 px-4 -mx-4">
                     <div>
                         <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2">
                             <span class="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
@@ -995,11 +1034,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             </span>
                             <span>All Members</span>
                         </h3>
-                        <p class="text-[11px] text-slate-500">
+                        <p class="text-[11px] text-slate-500 hidden sm:block">
                             Full registration and management for HR Department members.
                         </p>
                     </div>
-                    <div class="flex gap-2 bg-slate-200/50 p-1 rounded-2xl">
+                    <div class="flex gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
                         <button type="button"
                                 id="btnRegisterTemporary"
                                 onclick="toggleMemberRegistrationForm(true, 'temporary')"
@@ -3356,7 +3395,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tierInput) tierInput.value = tier;
             
             // Remove previous theme classes
-            wrapper.classList.remove('border-emerald-300', 'border-amber-300', 'shadow-emerald-100', 'shadow-amber-100', 'border-2', 'shadow-lg', 'bg-amber-50/50', 'bg-emerald-50/50');
+            wrapper.classList.remove('theme-temporary', 'theme-permanent', 'border-2', 'shadow-lg');
             formTitle.classList.remove('text-emerald-800', 'text-amber-800', 'text-slate-800');
             formIconWrapper.classList.remove('bg-emerald-100', 'text-emerald-600', 'bg-amber-100', 'text-amber-600');
             
@@ -3370,7 +3409,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (formTitleText) formTitleText.textContent = 'Register Temporary Member';
                 
                 // Apply Temporary (Amber) Theme
-                wrapper.classList.add('border-2', 'border-amber-300', 'shadow-lg', 'shadow-amber-100', 'bg-amber-50/50');
+                wrapper.classList.add('theme-temporary', 'border-2', 'shadow-lg');
                 formTitle.classList.add('text-amber-800');
                 formIconWrapper.classList.add('bg-amber-100', 'text-amber-600');
                 if (formIcon) formIcon.className = 'fa-solid fa-hourglass-half text-xs';
@@ -3383,7 +3422,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (formTitleText) formTitleText.textContent = title || 'Register Permanent Member';
                 
                 // Apply Permanent (Emerald) Theme
-                wrapper.classList.add('border-2', 'border-emerald-300', 'shadow-lg', 'shadow-emerald-100', 'bg-emerald-50/50');
+                wrapper.classList.add('theme-permanent', 'border-2', 'shadow-lg');
                 formTitle.classList.add('text-emerald-800');
                 formIconWrapper.classList.add('bg-emerald-100', 'text-emerald-600');
                 if (formIcon) formIcon.className = 'fa-solid fa-user-check text-xs';
