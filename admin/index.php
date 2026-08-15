@@ -43,15 +43,15 @@ $csrfToken = generateCsrfToken();
     body {
       min-height: 100vh;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
       padding: 1.25rem;
       background:
         radial-gradient(circle at 15% 15%, rgba(240,192,0,0.12), transparent 45%),
         radial-gradient(circle at 85% 85%, rgba(240,192,0,0.08), transparent 40%),
         linear-gradient(150deg, var(--maroon-dark), var(--maroon) 55%, #4a1208);
       position: relative;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
 
     /* Decorative gold corner ornaments */
@@ -72,6 +72,7 @@ $csrfToken = generateCsrfToken();
       max-width: 410px;
       position: relative;
       z-index: 2;
+      margin: auto;
     }
 
     .login-card {
