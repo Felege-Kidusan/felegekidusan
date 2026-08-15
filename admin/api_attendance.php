@@ -190,12 +190,127 @@ switch ($action) {
 
         // Summary is a derived cache — safe to update after the commit.
         updateAttendanceSummary($conn, $classId, $date, $academicYearId, null);
+        
+        // AI Logic for 3 Consecutive Absences
+        $absentMembers = [];
+        foreach ($records as $record) {
+            if (($record['status'] ?? '') === 'absent') {
+                $absentMembers[] = (int)($record['member_id'] ?? 0);
+            }
+        }
+        
+        if (!empty($absentMembers)) {
+            $checkStmt = $conn->prepare("
+                SELECT member_id, COUNT(*) as absent_count
+                FROM (
+                    SELECT member_id, status
+                    FROM attendance
+                    WHERE member_id = ? AND class_id = ?
+                    ORDER BY attendance_date DESC
+                    LIMIT 3
+                ) as last_three
+                WHERE status = 'absent'
+            ");
+            
+            $alertStmt = $conn->prepare("
+                INSERT INTO notifications (type, title, message, data, priority, target_roles, source_dept)
+                VALUES ('attendance_alert', ?, ?, ?, 'high', 'hr_dept,info_dept', 'attendance_taker')
+            ");
+            
+            foreach ($absentMembers as $mId) {
+                if (!$mId) continue;
+                $checkStmt->bind_param("ii", $mId, $classId);
+                $checkStmt->execute();
+                $res = $checkStmt->get_result()->fetch_assoc();
+                
+                if ($res && $res['absent_count'] == 3) {
+                    // Prevent duplicate notifications in the last 7 days
+                    $likeData = '%"member_id":' . $mId . '%';
+                    $recentCheck = $conn->prepare("SELECT id FROM notifications WHERE type = 'attendance_alert' AND data LIKE ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+                    $recentCheck->bind_param("s", $likeData);
+                    $recentCheck->execute();
+                    if ($recentCheck->get_result()->num_rows === 0) {
+                        $mDetails = $conn->query("SELECT student_name, father_name FROM members WHERE id = $mId")->fetch_assoc();
+                        $mName = $mDetails['student_name'] . ' ' . $mDetails['father_name'];
+                        
+                        $title = "Consecutive Absence Alert";
+                        $msg = "$mName has been absent for 3 consecutive classes.";
+                        $dataJson = json_encode(['member_id' => $mId, 'class_id' => $classId]);
+                        
+                        $alertStmt->bind_param("sss", $title, $msg, $dataJson);
+                        $alertStmt->execute();
+                        
+                        // Automatically flag as warning
+                        $conn->query("UPDATE members SET status = 'warning' WHERE id = $mId AND status = 'active'");
+                    }
+                }
+            }
+        }
 
         echo json_encode([
             'status' => 'success',
             'message' => "$successCount attendance record(s) saved",
             'errors' => $errors
         ]);
+        break;
+        
+    case 'scan_member':
+        $memberCode = trim($_POST['member_code'] ?? '');
+        $classId = (int)($_POST['class_id'] ?? 0);
+        $date = validateDate($_POST['date'] ?? '', date('Y-m-d'));
+        
+        if (empty($memberCode) || !$classId) {
+            echo json_encode(['status' => 'error', 'message' => 'Member Code and Class ID required.']);
+            exit;
+        }
+
+        // Find the member by code and ensure they are enrolled in this class
+        $stmt = $conn->prepare("
+            SELECT m.id, m.student_name, m.father_name, m.status as member_status, ce.status as enrollment_status 
+            FROM members m 
+            JOIN class_enrollments ce ON m.id = ce.member_id 
+            WHERE m.member_code = ? AND ce.class_id = ? AND ce.status = 'active'
+        ");
+        $stmt->bind_param("si", $memberCode, $classId);
+        $stmt->execute();
+        $memberResult = $stmt->get_result()->fetch_assoc();
+        
+        if (!$memberResult) {
+            echo json_encode(['status' => 'error', 'message' => "Member code '$memberCode' not found or not enrolled in this class."]);
+            exit;
+        }
+        
+        $memberId = $memberResult['id'];
+        $memberName = $memberResult['student_name'] . ' ' . $memberResult['father_name'];
+        $academicYearId = $currentYear ? $currentYear['id'] : null;
+        $checkInTime = date('H:i:s');
+        
+        // Insert or update attendance using ON DUPLICATE KEY UPDATE
+        $stmt = $conn->prepare("
+            INSERT INTO attendance (member_id, class_id, academic_year_id, attendance_date, status, check_in_time, recorded_by)
+            VALUES (?, ?, ?, ?, 'present', ?, ?)
+            ON DUPLICATE KEY UPDATE status = 'present', check_in_time = IF(check_in_time IS NULL, VALUES(check_in_time), check_in_time), recorded_by = VALUES(recorded_by)
+        ");
+        
+        if (!$stmt) {
+            echo json_encode(['status' => 'error', 'message' => 'Database error during scan.']);
+            exit;
+        }
+        
+        $stmt->bind_param("iiissi", $memberId, $classId, $academicYearId, $date, $checkInTime, $userId);
+        
+        if ($stmt->execute()) {
+            updateAttendanceSummary($conn, $classId, $date, $academicYearId, null);
+            echo json_encode([
+                'status' => 'success', 
+                'message' => "Scan successful!",
+                'member_name' => $memberName,
+                'member_id' => $memberId,
+                'check_in_time' => $checkInTime
+            ]);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to record scan.']);
+        }
         break;
     
     case 'get_attendance_summary':
@@ -242,6 +357,115 @@ switch ($action) {
             'summary' => $summary
         ]);
         break;
+        
+    case 'get_class_history':
+        $classId = (int)($_GET['class_id'] ?? 0);
+        if (!$classId) {
+            echo json_encode(['status' => 'error', 'message' => 'Class ID required']);
+            exit;
+        }
+        
+        $stmt = $conn->prepare("
+            SELECT 
+                attendance_date,
+                COUNT(DISTINCT member_id) as total_recorded,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_count
+            FROM attendance
+            WHERE class_id = ?
+            GROUP BY attendance_date
+            ORDER BY attendance_date DESC
+            LIMIT 30
+        ");
+        $stmt->bind_param("i", $classId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $history = [];
+        while ($row = $result->fetch_assoc()) {
+            $history[] = $row;
+        }
+        
+        echo json_encode([
+            'status' => 'success',
+            'history' => $history
+        ]);
+        break;
+        
+    case 'export_history':
+        $classId = (int)($_GET['class_id'] ?? 0);
+        if (!$classId) {
+            die("Class ID required.");
+        }
+        
+        // Fetch class info
+        $stmt = $conn->prepare("SELECT class_name FROM classes WHERE id = ?");
+        $stmt->bind_param("i", $classId);
+        $stmt->execute();
+        $classInfo = $stmt->get_result()->fetch_assoc();
+        $className = $classInfo ? $classInfo['class_name'] : 'Unknown_Class';
+        
+        require_once __DIR__ . '/../vendor/autoload.php';
+        
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle(substr("Attendance " . preg_replace('/[^a-zA-Z0-9\s]/', '', $className), 0, 31));
+        
+        $columns = ['Date', 'Total Recorded', 'Present', 'Absent', 'Late'];
+        $colIndex = 'A';
+        foreach ($columns as $colName) {
+            $sheet->setCellValue($colIndex . '1', $colName);
+            $sheet->getColumnDimension($colIndex)->setAutoSize(true);
+            $colIndex++;
+        }
+        
+        $headerStyle = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FFEAB308'] // Yellow-500
+            ],
+            'borders' => [
+                'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN]
+            ]
+        ];
+        $sheet->getStyle('A1:E1')->applyFromArray($headerStyle);
+        
+        // Data
+        $stmt = $conn->prepare("
+            SELECT 
+                attendance_date,
+                COUNT(DISTINCT member_id) as total_recorded,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_count
+            FROM attendance
+            WHERE class_id = ?
+            GROUP BY attendance_date
+            ORDER BY attendance_date DESC
+        ");
+        $stmt->bind_param("i", $classId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $rowIdx = 2;
+        while ($row = $result->fetch_assoc()) {
+            $sheet->setCellValue("A$rowIdx", $row['attendance_date']);
+            $sheet->setCellValue("B$rowIdx", $row['total_recorded']);
+            $sheet->setCellValue("C$rowIdx", $row['present_count']);
+            $sheet->setCellValue("D$rowIdx", $row['absent_count']);
+            $sheet->setCellValue("E$rowIdx", $row['late_count']);
+            $rowIdx++;
+        }
+        
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment;filename="Attendance_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $className) . '.xlsx"');
+        header('Cache-Control: max-age=0');
+        
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
     
     case 'get_daily_stats':
         $date = validateDate($_GET['date'] ?? '', date('Y-m-d'));

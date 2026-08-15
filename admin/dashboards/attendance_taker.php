@@ -248,10 +248,20 @@ $csrfToken = generateCsrfToken();
                     </div>
                     
                     <!-- Quick Actions -->
-                    <div class="flex flex-wrap gap-2 mb-4" id="attQuickActions" style="display:none;">
-                        <button onclick="markAllAttendance('present')" class="btn btn-success"><i class="fa-solid fa-check-double"></i> All Present</button>
-                        <button onclick="markAllAttendance('absent')" class="btn" style="background:#fee2e2;color:#991b1b;"><i class="fa-solid fa-xmark"></i> All Absent</button>
-                        <button onclick="markAllAttendance('late')" class="btn" style="background:#fef3c7;color:#92400e;"><i class="fa-solid fa-clock"></i> All Late</button>
+                    <div class="flex flex-wrap items-center justify-between gap-4 mb-4" id="attQuickActions" style="display:none;">
+                        <div class="flex gap-2">
+                            <button onclick="markAllAttendance('present')" class="btn btn-success"><i class="fa-solid fa-check-double"></i> All Present</button>
+                            <button onclick="markAllAttendance('absent')" class="btn" style="background:#fee2e2;color:#991b1b;"><i class="fa-solid fa-xmark"></i> All Absent</button>
+                            <button onclick="markAllAttendance('late')" class="btn" style="background:#fef3c7;color:#92400e;"><i class="fa-solid fa-clock"></i> All Late</button>
+                        </div>
+                        
+                        <!-- Rapid Scan Mode -->
+                        <div class="flex items-center gap-2 bg-slate-800 text-white p-2 rounded-xl border border-slate-700 shadow-inner w-full md:w-auto">
+                            <i class="fa-solid fa-barcode ml-2 text-emerald-400"></i>
+                            <input type="text" id="barcodeScannerInput" autocomplete="off" placeholder="Scan ID Card..." 
+                                   class="bg-slate-900 border-none text-emerald-400 font-mono text-sm rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 outline-none w-full md:w-64 placeholder-slate-500"
+                                   onkeyup="if(event.key==='Enter') handleBarcodeScan(this.value)">
+                        </div>
                     </div>
                     
                     <div class="card" id="attendanceCard" style="display:none;">
@@ -307,12 +317,45 @@ $csrfToken = generateCsrfToken();
                 <section id="sec-history" class="section">
                     <div class="mb-4">
                         <h2 class="text-xl font-bold text-slate-800">Attendance History</h2>
-                        <p class="text-sm text-slate-500">View past attendance records</p>
+                        <p class="text-sm text-slate-500">Select a class to view past attendance dates and edit records.</p>
                     </div>
                     
-                    <div class="card p-8 text-center text-slate-400">
+                    <div class="card p-4 mb-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                        <div class="flex-1">
+                            <label class="form-label">Select Class</label>
+                            <select id="historyClassSelect" class="form-input" onchange="loadClassHistory()">
+                                <option value="">-- Select Class --</option>
+                                <?php foreach ($allClasses as $c): ?>
+                                <option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?> (<?= e($c['class_name_en']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <button onclick="exportClassHistory()" class="btn btn-secondary" style="display:none;" id="exportHistoryBtn">
+                            <i class="fa-solid fa-file-excel text-green-600"></i> Export to Excel
+                        </button>
+                    </div>
+                    
+                    <div id="historyTableContainer" class="card" style="display:none;">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Total Recorded</th>
+                                        <th>Present</th>
+                                        <th>Absent</th>
+                                        <th>Late</th>
+                                        <th class="text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div id="selectHistoryMsg" class="card p-8 text-center text-slate-400">
                         <i class="fa-solid fa-clock-rotate-left text-3xl mb-2"></i>
-                        <p>Attendance history feature coming soon</p>
+                        <p>Select a class to view history</p>
                     </div>
                 </section>
                 
@@ -501,6 +544,123 @@ $csrfToken = generateCsrfToken();
                 })
                 .catch(() => showToast('Attendance saved!', 'success'));
         }
+        
+        function handleBarcodeScan(code) {
+            code = code.trim();
+            if (!code) return;
+            
+            const classId = document.getElementById('attClassSelect').value;
+            const date = document.getElementById('attDateInput').value;
+            
+            if (!classId) {
+                showToast('Please select a class first.', 'error');
+                return;
+            }
+            
+            const inputField = document.getElementById('barcodeScannerInput');
+            inputField.disabled = true; // prevent double scans
+            
+            const formData = new FormData();
+            formData.append('action', 'scan_member');
+            formData.append('member_code', code);
+            formData.append('class_id', classId);
+            formData.append('date', date);
+            formData.append('csrf_token', CSRF_TOKEN);
+            
+            fetch('/admin/api_attendance.php', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    inputField.disabled = false;
+                    inputField.value = '';
+                    inputField.focus();
+                    
+                    if (data.status === 'success') {
+                        showToast(`Scanned: ${data.member_name}`, 'success');
+                        
+                        // Update UI row to present
+                        const row = document.querySelector(`tr[data-member-id="${data.member_id}"]`);
+                        if (row) {
+                            const btn = row.querySelector('.att-present');
+                            if (btn) setAttStatus(btn, data.member_id, 'present');
+                            row.style.animation = 'none';
+                            row.offsetHeight; // trigger reflow
+                            row.style.animation = 'flashGreen 1s ease';
+                        } else {
+                            // Row might not exist if they just transferred in, reload table
+                            loadStudentsForAttendance();
+                        }
+                    } else {
+                        showToast(data.message, 'error');
+                        inputField.style.animation = 'none';
+                        inputField.offsetHeight;
+                        inputField.style.animation = 'shake 0.5s ease';
+                    }
+                })
+                .catch(err => {
+                    inputField.disabled = false;
+                    inputField.value = '';
+                    inputField.focus();
+                    showToast('Network error during scan.', 'error');
+                });
+        }
+        
+        function loadClassHistory() {
+            const classId = document.getElementById('historyClassSelect').value;
+            if (!classId) {
+                document.getElementById('historyTableContainer').style.display = 'none';
+                document.getElementById('selectHistoryMsg').style.display = 'block';
+                return;
+            }
+            
+            document.getElementById('selectHistoryMsg').style.display = 'none';
+            document.getElementById('historyTableContainer').style.display = 'block';
+            document.getElementById('exportHistoryBtn').style.display = 'inline-flex';
+            
+            fetch(`/admin/api_attendance.php?action=get_class_history&class_id=${classId}`)
+                .then(r => r.json())
+                .then(data => {
+                    const tbody = document.getElementById('historyBody');
+                    if (data.status === 'success' && data.history.length > 0) {
+                        tbody.innerHTML = data.history.map(h => `
+                            <tr>
+                                <td class="font-medium">${h.attendance_date}</td>
+                                <td>${h.total_recorded}</td>
+                                <td class="text-emerald-600 font-semibold">${h.present_count}</td>
+                                <td class="text-red-600 font-semibold">${h.absent_count}</td>
+                                <td class="text-amber-600 font-semibold">${h.late_count}</td>
+                                <td class="text-right">
+                                    <button onclick="editPastAttendance(${classId}, '${h.attendance_date}')" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-edit"></i> Edit
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-400 py-8">No history found for this class</td></tr>';
+                    }
+                });
+        }
+        
+        function editPastAttendance(classId, date) {
+            document.getElementById('attClassSelect').value = classId;
+            document.getElementById('attDateInput').value = date;
+            showSection('take');
+            loadStudentsForAttendance();
+        }
+        
+        function exportClassHistory() {
+            const classId = document.getElementById('historyClassSelect').value;
+            if (!classId) return;
+            window.location.href = `/admin/api_attendance.php?action=export_history&class_id=${classId}`;
+        }
+        
+        // CSS animations for scanner feedback
+        const style = document.createElement('style');
+        style.innerHTML = `
+            @keyframes flashGreen { 0% { background-color: #d1fae5; } 100% { background-color: transparent; } }
+            @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        `;
+        document.head.appendChild(style);
     </script>
 <!-- MOBILE BOTTOM NAV -->
 <nav class="wbws-bnav" id="wbwsBottomNav">
