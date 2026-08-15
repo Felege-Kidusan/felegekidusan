@@ -185,7 +185,7 @@ $departments = [
     ['name' => 'Material Dept', 'icon' => 'fa-boxes-stacked', 'color' => '#8b5cf6', 'amharic' => 'ቁሳቁስ ክፍል'],
 ];
 
-$roles = ['super_admin' => 'Super Admin', 'school_admin' => 'School Admin', 'info_dept' => 'Info Dept', 'edu_dept' => 'Edu Dept', 'finance_dept' => 'Finance Dept', 'material_dept' => 'Material Dept'];
+$roles = ['super_admin' => 'Super Admin', 'school_admin' => 'School Admin', 'hr_dept' => 'HR Dept', 'info_dept' => 'Info Dept', 'edu_dept' => 'Edu Dept', 'finance_dept' => 'Finance Dept', 'material_dept' => 'Material Dept', 'teacher' => 'Teacher', 'attendance_taker' => 'Attendance Taker'];
 
 $checks = [
     ['name' => 'PHP', 'status' => version_compare($phpVersion, '7.4', '>=') ? 'good' : 'warning', 'value' => $phpVersion],
@@ -405,7 +405,7 @@ if (isset($conn) && !$conn->connect_error) {
     // Check key table relationships
     $integrityChecks = [
         ['name' => 'Members with valid status', 'sql' => "SELECT COUNT(*) as c FROM members WHERE status IN ('active','inactive','archived','waiting')"],
-        ['name' => 'Users with valid roles', 'sql' => "SELECT COUNT(*) as c FROM users WHERE role IN ('super_admin','school_admin','info_dept','edu_dept','finance_dept','material_dept','teacher','attendance_taker')"],
+        ['name' => 'Users with valid roles', 'sql' => "SELECT COUNT(*) as c FROM users WHERE role IN ('super_admin','school_admin','hr_dept','info_dept','edu_dept','finance_dept','material_dept','teacher','attendance_taker')"],
         ['name' => 'Group members with valid groups', 'sql' => "SELECT COUNT(*) as c FROM wbws_group_members gm LEFT JOIN wbws_groups g ON gm.group_id=g.id WHERE g.id IS NOT NULL", 'total_sql' => "SELECT COUNT(*) as c FROM wbws_group_members"],
         ['name' => 'Group leaders with valid groups', 'sql' => "SELECT COUNT(*) as c FROM wbws_group_leaders gl LEFT JOIN wbws_groups g ON gl.group_id=g.id WHERE g.id IS NOT NULL", 'total_sql' => "SELECT COUNT(*) as c FROM wbws_group_leaders"],
     ];
@@ -1482,7 +1482,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                     <div class="card" style="margin-top:1rem">
                         <h3 class="card-title"><i class="fa-solid fa-users"></i> User Role Distribution</h3>
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem">
-                            <?php $roleColors = ['super_admin'=>'#ef4444','school_admin'=>'#f59e0b','info_dept'=>'#10b981','edu_dept'=>'#3b82f6','finance_dept'=>'#8b5cf6','material_dept'=>'#ec4899','teacher'=>'#06b6d4','attendance_taker'=>'#84cc16'];
+                            <?php $roleColors = ['super_admin'=>'#ef4444','school_admin'=>'#f59e0b','hr_dept'=>'#ec4899','info_dept'=>'#10b981','edu_dept'=>'#3b82f6','finance_dept'=>'#8b5cf6','material_dept'=>'#ec4899','teacher'=>'#06b6d4','attendance_taker'=>'#84cc16'];
                             foreach ($userAnalytics['roles'] as $ur): $rc = $roleColors[$ur['role']] ?? '#64748b'; ?>
                             <div style="background:rgba(0,0,0,.2);border-radius:.6rem;padding:.75rem;text-align:center;border:1px solid rgba(255,255,255,.05)">
                                 <div style="width:36px;height:36px;border-radius:50%;background:<?=$rc?>20;color:<?=$rc?>;display:flex;align-items:center;justify-content:center;margin:0 auto .4rem;font-size:.85rem;font-weight:700"><?=$ur['c']?></div>
