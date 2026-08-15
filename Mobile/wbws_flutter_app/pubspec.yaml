@@ -1,0 +1,75 @@
+name: fkss_app
+description: FKSS Sunday School Management System — Mobile App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # HTTP & API
+  http: ^1.2.0
+  
+  # Local storage (for JWT token — encrypted)
+  shared_preferences: ^2.2.0
+  flutter_secure_storage: ^9.2.0
+  
+  # State management
+  provider: ^6.1.0
+  
+  # Icons
+  cupertino_icons: ^1.0.6
+  flutter_feather_icons: ^2.0.0+1
+  
+  # Pull to refresh
+  pull_to_refresh_flutter3: ^2.0.2
+  
+  # Loading indicators
+  shimmer: ^3.0.0
+  
+  # Date formatting
+  intl: ^0.19.0
+
+ # Offline storage
+  sqflite: ^2.3.0
+  path: ^1.8.0
+  crypto: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.8
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/
+
+  fonts:
+    - family: NotoSansEthiopic
+      fonts:
+        - asset: assets/fonts/NotoSansEthiopic-Regular.ttf
+        - asset: assets/fonts/NotoSansEthiopic-Bold.ttf
+          weight: 700
+
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "../logo_felege_kidusan.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "../logo_felege_kidusan.png"
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "../logo_felege_kidusan.png"
+  android_12:
+    image: "../logo_felege_kidusan.png"
+    color: "#FFFFFF"
+

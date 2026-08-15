@@ -1,0 +1,667 @@
+import 'package:flutter/material.dart';
+import '../../utils/transitions.dart';
+import 'package:flutter/services.dart';
+import '../../services/api_service.dart';
+import '../../services/local_db.dart';
+import '../../services/sync_service.dart';
+import '../../utils/theme.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/app_error.dart';
+import '../../widgets/loading_skeleton.dart';
+
+class TeacherGradesScreen extends StatefulWidget {
+  const TeacherGradesScreen({super.key});
+
+  @override
+  State<TeacherGradesScreen> createState() => TeacherGradesScreenState();
+}
+
+class TeacherGradesScreenState extends State<TeacherGradesScreen> {
+  final _api = ApiService();
+  final _db = LocalDb();
+  final _sync = SyncService();
+
+  List<dynamic> _classes = [];
+  List<dynamic> _subjects = [];
+  List<dynamic> _assessments = [];
+
+  int? _selectedClassId;
+  int? _selectedSubjectId;
+  String? _selectedClassName;
+
+  bool _loadingClasses = true;
+  bool _loadingSubjects = false;
+  bool _loadingAssessments = false;
+  bool _isOffline = false;
+  String? _error;
+  int _pendingGrades = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadClasses();
+    _updatePendingCount();
+    _sync.syncStream.listen((s) {
+      if (mounted) setState(() => _pendingGrades = s.pendingGrades);
+    });
+  }
+
+  void refresh() {
+    _loadClasses();
+    _updatePendingCount();
+  }
+
+  Future<void> _updatePendingCount() async {
+    final c = await _db.getPendingGradesCount();
+    if (mounted) setState(() => _pendingGrades = c);
+  }
+
+  // ---- LOAD CLASSES (API → cache fallback) ----
+  Future<void> _loadClasses() async {
+    setState(() { _loadingClasses = true; _error = null; });
+    final res = await _api.getClasses();
+    if (!mounted) return;
+
+    if (res.success && res.data != null) {
+      final classes = res.data['classes'] ?? [];
+      await _db.cacheClasses(classes);
+      setState(() { _classes = classes; _loadingClasses = false; _isOffline = false; });
+      if (classes.length == 1) {
+        _selectedClassId = classes[0]['id'];
+        _selectedClassName = classes[0]['class_name'];
+        _loadSubjects();
+      }
+    } else {
+      final cached = await _db.getCachedClasses();
+      setState(() {
+        if (cached.isNotEmpty) { _classes = cached; _isOffline = true; }
+        else { _error = res.message; }
+        _loadingClasses = false;
+      });
+      if (cached.length == 1) {
+        _selectedClassId = cached[0]['id'] as int;
+        _selectedClassName = cached[0]['class_name'] as String;
+        _loadSubjects();
+      }
+    }
+  }
+
+  // ---- LOAD SUBJECTS (API → cache fallback) ----
+  Future<void> _loadSubjects() async {
+    if (_selectedClassId == null) return;
+    setState(() { _loadingSubjects = true; _subjects = []; _assessments = []; _selectedSubjectId = null; });
+
+    final res = await _api.getClassSubjects(_selectedClassId!);
+    if (!mounted) return;
+
+    if (res.success && res.data != null) {
+      final subjects = res.data['subjects'] ?? [];
+      await _db.cacheSubjects(_selectedClassId!, subjects);
+      setState(() { _subjects = subjects; _loadingSubjects = false; _isOffline = false; });
+    } else {
+      final cached = await _db.getCachedSubjects(_selectedClassId!);
+      setState(() {
+        _subjects = cached.isNotEmpty ? cached : [];
+        _loadingSubjects = false;
+        if (cached.isNotEmpty) _isOffline = true;
+      });
+    }
+  }
+
+  // ---- LOAD ASSESSMENTS (API → cache fallback) ----
+  Future<void> _loadAssessments() async {
+    if (_selectedClassId == null || _selectedSubjectId == null) return;
+    setState(() { _loadingAssessments = true; _assessments = []; });
+
+    final res = await _api.getAssessments(_selectedClassId!, _selectedSubjectId!);
+    if (!mounted) return;
+
+    if (res.success && res.data != null) {
+      final assessments = res.data['assessments'] ?? [];
+      await _db.cacheAssessments(_selectedClassId!, _selectedSubjectId!, assessments);
+      setState(() { _assessments = assessments; _loadingAssessments = false; _isOffline = false; });
+    } else {
+      final cached = await _db.getCachedAssessments(_selectedClassId!, _selectedSubjectId!);
+      setState(() {
+        _assessments = cached.isNotEmpty ? cached : [];
+        _loadingAssessments = false;
+        if (cached.isNotEmpty) _isOffline = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Grades'),
+        automaticallyImplyLeading: false,
+        actions: [
+          if (_pendingGrades > 0)
+            IconButton(
+              onPressed: () async {
+                final r = await _sync.syncAll();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(r.message), backgroundColor: r.failed > 0 ? AppTheme.warning : AppTheme.success));
+                  _updatePendingCount();
+                }
+              },
+              icon: Badge(
+                label: Text('$_pendingGrades', style: const TextStyle(fontSize: 9)),
+                backgroundColor: AppTheme.warning,
+                child: const Icon(Icons.sync, size: 22),
+              ),
+            ),
+          IconButton(icon: const Icon(Icons.refresh, size: 20), onPressed: refresh),
+        ],
+      ),
+      body: _loadingClasses
+          ? const DashboardSkeleton()
+          : _error != null
+              ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error), onRetry: refresh, autoRetry: true))
+              : _classes.isEmpty
+                  ? const EmptyState(icon: Icons.grading_rounded, title: 'No classes assigned',
+                      subtitle: 'You need to be assigned to classes to enter grades.')
+                  : RefreshIndicator(
+                      onRefresh: _loadClasses,
+                      child: ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          if (_isOffline) _offlineBanner(),
+                          _buildClassSelector(),
+                          const SizedBox(height: 12),
+                          if (_selectedClassId != null) ...[
+                            _buildSubjectSelector(),
+                            const SizedBox(height: 12),
+                          ],
+                          if (_selectedSubjectId != null) _buildAssessmentSection(),
+                        ],
+                      ),
+                    ),
+    );
+  }
+
+  Widget _offlineBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.warning.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: [
+        Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
+        const SizedBox(width: 8),
+        Expanded(child: Text('Offline — using cached data. Grades will sync when online.',
+            style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
+      ]),
+    );
+  }
+
+  Widget _buildClassSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Class', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<int>(
+          value: _selectedClassId,
+          hint: const Text('Select class', style: TextStyle(fontSize: 13)),
+          isExpanded: true,
+          decoration: InputDecoration(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          items: _classes.map<DropdownMenuItem<int>>((c) => DropdownMenuItem(
+            value: c['id'] is int ? c['id'] : int.tryParse('${c['id']}'),
+            child: Text('${c['class_name']}', style: const TextStyle(fontSize: 13)),
+          )).toList(),
+          onChanged: (v) {
+            setState(() {
+              _selectedClassId = v;
+              _selectedClassName = _classes.firstWhere((c) => (c['id'] is int ? c['id'] : int.tryParse('${c['id']}')) == v)['class_name'];
+              _selectedSubjectId = null;
+              _assessments = [];
+            });
+            _loadSubjects();
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubjectSelector() {
+    if (_loadingSubjects) return const Padding(padding: EdgeInsets.all(16), child: StudentListSkeleton(count: 2));
+    if (_subjects.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Icon(Icons.info_outline, color: AppTheme.warning, size: 18),
+          const SizedBox(width: 10),
+          Expanded(child: Text('No subjects assigned to you for this class.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
+        ]),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Subject', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 8, runSpacing: 8, children: _subjects.map((s) {
+          final selected = _selectedSubjectId == (s['id'] is int ? s['id'] : int.tryParse('${s['id']}'));
+          return ChoiceChip(
+            label: Text(s['subject_name'] ?? '', style: TextStyle(fontSize: 12, color: selected ? Colors.white : null, fontWeight: selected ? FontWeight.w600 : null)),
+            selected: selected,
+            selectedColor: AppTheme.primary,
+            onSelected: (_) {
+              setState(() => _selectedSubjectId = s['id'] is int ? s['id'] : int.tryParse('${s['id']}'));
+              _loadAssessments();
+            },
+            side: BorderSide(color: selected ? AppTheme.primary : AppTheme.borderLight),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          );
+        }).toList()),
+      ],
+    );
+  }
+
+  Widget _buildAssessmentSection() {
+    if (_loadingAssessments) return const Padding(padding: EdgeInsets.all(24), child: StudentListSkeleton(count: 3));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text('Assessments', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          if (!_isOffline)
+            TextButton.icon(
+              onPressed: _showCreateAssessmentDialog,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('New', style: TextStyle(fontSize: 12)),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.primary, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        if (_assessments.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(color: AppTheme.surfaceLight, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.borderLight)),
+            child: Column(children: [
+              Icon(Icons.assignment_outlined, size: 36, color: AppTheme.textSecondary),
+              const SizedBox(height: 10),
+              const Text('No assessments yet', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text(_isOffline ? 'Go online to create assessments.' : 'Tap "New" to create a test, quiz, or assignment.',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+            ]),
+          )
+        else
+          ..._assessments.map((a) => _assessmentCard(a)),
+      ],
+    );
+  }
+
+  Widget _assessmentCard(dynamic a) {
+    final name = a['assessment_name'] ?? '';
+    final type = a['assessment_type'] ?? 'test';
+    final maxScore = a['max_score'] ?? 100;
+    final weight = a['weight_percentage'] ?? 100;
+    final gradesEntered = a['grades_entered'] ?? 0;
+    final typeColors = {'test': AppTheme.primary, 'quiz': AppTheme.info, 'midterm': AppTheme.warning, 'final': AppTheme.danger, 'assignment': AppTheme.accent};
+    final color = typeColors[type] ?? AppTheme.primary;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openGradeEntry(a),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            Container(width: 44, height: 44,
+              decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+              child: Icon(Icons.assignment, color: color, size: 22)),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 3),
+              Row(children: [
+                Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
+                  child: Text(type, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w600))),
+                const SizedBox(width: 6),
+                Text('Max: $maxScore', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                const SizedBox(width: 6),
+                Text('Wt: $weight%', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+              ]),
+            ])),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: gradesEntered > 0 ? AppTheme.success.withOpacity(0.12) : AppTheme.surfaceLight,
+                borderRadius: BorderRadius.circular(8)),
+              child: Text(gradesEntered > 0 ? '$gradesEntered graded' : 'Enter',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
+                  color: gradesEntered > 0 ? AppTheme.success : AppTheme.textSecondary))),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right, size: 18, color: AppTheme.textSecondary),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _showCreateAssessmentDialog() {
+    final nameCtrl = TextEditingController();
+    final maxCtrl = TextEditingController(text: '100');
+    final weightCtrl = TextEditingController(text: '100');
+    String type = 'test';
+
+    showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: AppTheme.cardLight,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, ss) => Padding(
+          padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('New Assessment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            Text('$_selectedClassName', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+            const SizedBox(height: 16),
+            TextField(controller: nameCtrl, decoration: const InputDecoration(hintText: 'Name (e.g., Quiz 1)', prefixIcon: Icon(Icons.edit_outlined, size: 18)), textCapitalization: TextCapitalization.words),
+            const SizedBox(height: 12),
+            Wrap(spacing: 6, children: ['test', 'quiz', 'midterm', 'final', 'assignment'].map((t) =>
+              ChoiceChip(label: Text(t, style: const TextStyle(fontSize: 11)), selected: type == t, selectedColor: AppTheme.primary, onSelected: (_) => ss(() => type = t), side: BorderSide(color: AppTheme.borderLight))).toList()),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: TextField(controller: maxCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Max Score', labelStyle: TextStyle(fontSize: 12)))),
+              const SizedBox(width: 12),
+              Expanded(child: TextField(controller: weightCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Weight %', labelStyle: TextStyle(fontSize: 12)))),
+            ]),
+            const SizedBox(height: 20),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: () async {
+                if (nameCtrl.text.trim().isEmpty) return;
+                final res = await _api.createAssessment({
+                  'class_id': _selectedClassId, 'subject_id': _selectedSubjectId,
+                  'assessment_name': nameCtrl.text.trim(), 'assessment_type': type,
+                  'max_score': double.tryParse(maxCtrl.text) ?? 100, 'weight_percentage': double.tryParse(weightCtrl.text) ?? 100,
+                });
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                if (res.success) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Assessment created!'), backgroundColor: AppTheme.success));
+                  _loadAssessments();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Failed'), backgroundColor: AppTheme.danger));
+                }
+              },
+              child: const Text('Create Assessment'),
+            )),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _openGradeEntry(dynamic assessment) {
+    final subjectName = _subjects.firstWhere(
+      (s) => (s['id'] is int ? s['id'] : int.tryParse('${s['id']}')) == _selectedSubjectId,
+      orElse: () => {'subject_name': ''},
+    )['subject_name'] ?? '';
+
+    Navigator.push(context, SmoothPageRoute(page:
+      _GradeEntryScreen(
+        assessmentId: assessment['id'] is int ? assessment['id'] : int.tryParse('${assessment['id']}') ?? 0,
+        assessmentName: assessment['assessment_name'] ?? '',
+        maxScore: (assessment['max_score'] is num ? assessment['max_score'] : double.tryParse('${assessment['max_score']}') ?? 100).toDouble(),
+        className: _selectedClassName ?? '',
+        classId: _selectedClassId ?? 0,
+        subjectId: _selectedSubjectId ?? 0,
+        subjectName: subjectName,
+      ),
+    )).then((_) { _loadAssessments(); _updatePendingCount(); });
+  }
+}
+
+// ============================================================
+// GRADE ENTRY SCREEN — offline-first score input
+// ============================================================
+
+class _GradeEntryScreen extends StatefulWidget {
+  final int assessmentId;
+  final String assessmentName;
+  final double maxScore;
+  final String className;
+  final int classId;
+  final int subjectId;
+  final String subjectName;
+
+  const _GradeEntryScreen({
+    required this.assessmentId, required this.assessmentName,
+    required this.maxScore, required this.className,
+    required this.classId, required this.subjectId, required this.subjectName,
+  });
+
+  @override
+  State<_GradeEntryScreen> createState() => _GradeEntryScreenState();
+}
+
+class _GradeEntryScreenState extends State<_GradeEntryScreen> {
+  final _api = ApiService();
+  final _db = LocalDb();
+  List<Map<String, dynamic>> _students = [];
+  Map<int, TextEditingController> _scoreCtrl = {};
+  Map<int, TextEditingController> _remarkCtrl = {};
+  bool _loading = true;
+  bool _saving = false;
+  bool _isOffline = false;
+  String? _error;
+  int _gradedCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStudents();
+  }
+
+  @override
+  void dispose() {
+    _scoreCtrl.values.forEach((c) => c.dispose());
+    _remarkCtrl.values.forEach((c) => c.dispose());
+    super.dispose();
+  }
+
+  Future<void> _loadStudents() async {
+    setState(() { _loading = true; _error = null; });
+
+    final res = await _api.getGradeStudents(widget.assessmentId);
+    if (!mounted) return;
+
+    if (res.success && res.data != null) {
+      _setupStudents((res.data['students'] as List?)?.cast<Map<String, dynamic>>() ?? []);
+      setState(() { _isOffline = false; _loading = false; });
+    } else {
+      // Fallback: load cached students for this class
+      final cached = await _db.getCachedStudents(widget.classId);
+      if (cached.isNotEmpty) {
+        // Check pending grades
+        final pending = await _db.getPendingGradeRecords(widget.assessmentId);
+        final pendingMap = <int, Map<String, dynamic>>{};
+        for (final p in pending) { pendingMap[p['member_id'] as int] = p; }
+
+        final students = cached.map((s) {
+          final mid = s['member_id'] as int;
+          final pg = pendingMap[mid];
+          return <String, dynamic>{
+            'member_id': mid, 'student_name': s['student_name'] ?? '',
+            'father_name': s['father_name'] ?? '', 'member_code': s['member_code'] ?? '',
+            'gender': s['gender'] ?? '', 'score': pg?['score'], 'record_id': pg?['record_id'],
+            'remarks': pg?['remark'] ?? '',
+          };
+        }).toList();
+        _setupStudents(students);
+        setState(() { _isOffline = true; _loading = false; });
+      } else {
+        setState(() { _error = 'No internet and no cached students.'; _loading = false; _isOffline = true; });
+      }
+    }
+  }
+
+  void _setupStudents(List<Map<String, dynamic>> students) {
+    _scoreCtrl.clear(); _remarkCtrl.clear();
+    int graded = 0;
+    for (final s in students) {
+      final mid = s['member_id'] as int;
+      final score = s['score'];
+      _scoreCtrl[mid] = TextEditingController(text: score != null ? '$score' : '');
+      _remarkCtrl[mid] = TextEditingController(text: s['remarks'] ?? '');
+      if (score != null) graded++;
+    }
+    _students = students;
+    _gradedCount = graded;
+  }
+
+  Future<void> _saveGrades() async {
+    setState(() => _saving = true);
+
+    final grades = <Map<String, dynamic>>[];
+    for (final s in _students) {
+      final mid = s['member_id'] as int;
+      final text = _scoreCtrl[mid]?.text.trim() ?? '';
+      final remark = _remarkCtrl[mid]?.text.trim() ?? '';
+      if (text.isNotEmpty) {
+        final score = double.tryParse(text);
+        if (score != null && score >= 0 && score <= widget.maxScore) {
+          grades.add({
+            'member_id': mid, 'score': score, 'remark': remark,
+            'record_id': s['record_id'], 'student_name': s['student_name'],
+          });
+        }
+      }
+    }
+
+    if (grades.isEmpty) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No valid grades to save'), backgroundColor: AppTheme.warning));
+      return;
+    }
+
+    // SAVE LOCALLY FIRST (offline-first)
+    await _db.saveGradesLocal(
+      widget.assessmentId, widget.assessmentName,
+      widget.classId, widget.className,
+      widget.subjectId, widget.subjectName,
+      widget.maxScore, grades,
+    );
+
+    // Try to sync immediately
+    final res = await _api.saveGrades(widget.assessmentId, grades);
+    if (!mounted) return;
+
+    if (res.success) {
+      await _db.markGradesSynced(widget.assessmentId);
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${grades.length} grades saved and synced'), backgroundColor: AppTheme.success));
+      _loadStudents(); // Refresh to get record_ids
+    } else {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saved locally — will sync when online'), backgroundColor: AppTheme.warning));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(widget.assessmentName, style: const TextStyle(fontSize: 16)),
+          Text('${widget.className} · Max: ${widget.maxScore.toStringAsFixed(0)}',
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+        ]),
+        actions: [
+          if (_students.isNotEmpty)
+            TextButton.icon(
+              onPressed: _saving ? null : _saveGrades,
+              icon: _saving
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.save_rounded, size: 18),
+              label: Text(_saving ? 'Saving...' : 'Save'),
+            ),
+        ],
+      ),
+      body: _loading
+          ? const StudentListSkeleton()
+          : _error != null
+              ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error), onRetry: _loadStudents, autoRetry: true))
+              : _students.isEmpty
+                  ? const EmptyState(icon: Icons.people_outline, title: 'No students enrolled',
+                      subtitle: 'This class has no students for the current year.')
+                  : Column(children: [
+                      if (_isOffline)
+                        Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          color: AppTheme.warning.withOpacity(0.15),
+                          child: Row(children: [
+                            Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text('Offline — grades save locally and sync later',
+                                style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
+                          ])),
+                      Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), color: AppTheme.surfaceLight,
+                        child: Row(children: [
+                          Text('${_students.length} students', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                          const Spacer(),
+                          Text('$_gradedCount graded', style: TextStyle(fontSize: 12,
+                              color: _gradedCount > 0 ? AppTheme.success : AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+                        ])),
+                      Expanded(child: ListView.builder(
+                        itemCount: _students.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        itemBuilder: (_, i) => _studentRow(i),
+                      )),
+                    ]),
+    );
+  }
+
+  Widget _studentRow(int index) {
+    final s = _students[index];
+    final mid = s['member_id'] as int;
+    final hasScore = _scoreCtrl[mid]?.text.isNotEmpty ?? false;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(children: [
+          SizedBox(width: 28, child: Text('${index + 1}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600))),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${s['student_name'] ?? ''} ${s['father_name'] ?? ''}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (s['member_code'] != null && s['member_code'].toString().isNotEmpty)
+              Text(s['member_code'], style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+          ])),
+          SizedBox(width: 72, height: 38,
+            child: TextField(
+              controller: _scoreCtrl[mid],
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: hasScore ? AppTheme.primary : null),
+              decoration: InputDecoration(
+                hintText: '—', hintStyle: TextStyle(color: AppTheme.textSecondary),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: hasScore ? AppTheme.primary.withOpacity(0.3) : AppTheme.borderLight)),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+

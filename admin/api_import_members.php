@@ -111,7 +111,7 @@ try {
             $updateValues = [];
             
             foreach ($rowData as $col => $val) {
-                if ($col === 'id') continue;
+                if ($col === 'id' || $col === 'member_code') continue;
                 if ($val === '') continue; // Empty cell in excel means skip
 
                 // STRICT RULE: If the DB currently has a non-empty value, DO NOT OVERWRITE
@@ -132,6 +132,7 @@ try {
         } else {
             // 3. INSERT LOGIC
             unset($rowData['id']); 
+            unset($rowData['member_code']); // Force system generation
             
             // Assign membership_tier based on the template used (if not explicitly in the Excel file)
             if (empty($rowData['membership_tier'])) {
