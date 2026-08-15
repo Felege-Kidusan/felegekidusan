@@ -987,7 +987,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 
             <!-- ALL MEMBERS -->
             <section id="section-members" class="content-section">
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+                <div id="membersHeaderSection" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 sticky top-[60px] z-30 bg-slate-50/90 backdrop-blur-md py-3 rounded-b-xl px-1 -mx-1">
                     <div>
                         <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2">
                             <span class="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
@@ -999,17 +999,19 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             Full registration and management for HR Department members.
                         </p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 bg-slate-200/50 p-1 rounded-2xl">
                         <button type="button"
+                                id="btnRegisterTemporary"
                                 onclick="toggleMemberRegistrationForm(true, 'temporary')"
-                                class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white text-xs sm:text-sm font-semibold shadow active:scale-95 bg-emerald-600 hover:bg-emerald-700">
-                            <i class="fa-solid fa-clock text-xs"></i>
+                                class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm">
+                            <i class="fa-solid fa-hourglass-half text-xs"></i>
                             <span>Register Temporary</span>
                         </button>
                         <button type="button"
+                                id="btnRegisterPermanent"
                                 onclick="toggleMemberRegistrationForm(true, 'permanent')"
-                                class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white text-xs sm:text-sm font-semibold shadow active:scale-95" style="background:linear-gradient(135deg, <?= THEME_PRIMARY ?>, <?= THEME_PRIMARY_LIGHT ?>)">
-                            <i class="fa-solid fa-user-plus text-xs"></i>
+                                class="mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm">
+                            <i class="fa-solid fa-user-check text-xs"></i>
                             <span>Register Permanent</span>
                         </button>
                     </div>
@@ -3344,6 +3346,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const formIcon = document.getElementById('registrationFormIcon');
         const tierInput = document.getElementById('membershipTierField');
         const upgradeIdInput = document.getElementById('upgradeMemberIdField');
+        
+        const btnTemp = document.getElementById('btnRegisterTemporary');
+        const btnPerm = document.getElementById('btnRegisterPermanent');
 
         if (!wrapper || !list) return;
 
@@ -3351,18 +3356,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tierInput) tierInput.value = tier;
             
             // Remove previous theme classes
-            wrapper.classList.remove('border-emerald-300', 'border-amber-300', 'shadow-emerald-100', 'shadow-amber-100', 'border-2', 'shadow-lg');
+            wrapper.classList.remove('border-emerald-300', 'border-amber-300', 'shadow-emerald-100', 'shadow-amber-100', 'border-2', 'shadow-lg', 'bg-amber-50/50', 'bg-emerald-50/50');
             formTitle.classList.remove('text-emerald-800', 'text-amber-800', 'text-slate-800');
             formIconWrapper.classList.remove('bg-emerald-100', 'text-emerald-600', 'bg-amber-100', 'text-amber-600');
+            
+            // Reset buttons
+            if (btnTemp && btnPerm) {
+                btnTemp.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-500 text-xs sm:text-sm font-semibold transition-all hover:text-slate-700";
+                btnPerm.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-500 text-xs sm:text-sm font-semibold transition-all hover:text-slate-700";
+            }
             
             if (tier === 'temporary') {
                 if (formTitleText) formTitleText.textContent = 'Register Temporary Member';
                 
                 // Apply Temporary (Amber) Theme
-                wrapper.classList.add('border-2', 'border-amber-300', 'shadow-lg', 'shadow-amber-100');
+                wrapper.classList.add('border-2', 'border-amber-300', 'shadow-lg', 'shadow-amber-100', 'bg-amber-50/50');
                 formTitle.classList.add('text-amber-800');
                 formIconWrapper.classList.add('bg-amber-100', 'text-amber-600');
                 if (formIcon) formIcon.className = 'fa-solid fa-hourglass-half text-xs';
+                if (btnTemp) btnTemp.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-amber-700 bg-white shadow-sm border border-amber-200 text-xs sm:text-sm font-bold transition-all transform scale-105 ring-2 ring-amber-100 ring-offset-1";
                 
                 document.querySelectorAll('.permanent-only').forEach(el => el.classList.add('hidden'));
                 // Clear upgrade ID
@@ -3371,10 +3383,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (formTitleText) formTitleText.textContent = title || 'Register Permanent Member';
                 
                 // Apply Permanent (Emerald) Theme
-                wrapper.classList.add('border-2', 'border-emerald-300', 'shadow-lg', 'shadow-emerald-100');
+                wrapper.classList.add('border-2', 'border-emerald-300', 'shadow-lg', 'shadow-emerald-100', 'bg-emerald-50/50');
                 formTitle.classList.add('text-emerald-800');
                 formIconWrapper.classList.add('bg-emerald-100', 'text-emerald-600');
                 if (formIcon) formIcon.className = 'fa-solid fa-user-check text-xs';
+                if (btnPerm) btnPerm.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-emerald-700 bg-white shadow-sm border border-emerald-200 text-xs sm:text-sm font-bold transition-all transform scale-105 ring-2 ring-emerald-100 ring-offset-1";
                 
                 document.querySelectorAll('.permanent-only').forEach(el => el.classList.remove('hidden'));
                 if (!title && upgradeIdInput) upgradeIdInput.value = '0'; // reset if not an upgrade
@@ -3387,6 +3400,12 @@ document.addEventListener('DOMContentLoaded', () => {
             wrapper.classList.add('hidden');
             list.classList.remove('hidden');
             if (upgradeIdInput) upgradeIdInput.value = '0';
+            
+            // Reset buttons to initial inactive look
+            if (btnTemp && btnPerm) {
+                btnTemp.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm";
+                btnPerm.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-slate-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm";
+            }
         } else {
             if (wrapper.classList.contains('hidden')) {
                 toggleMemberRegistrationForm(true, tier);
