@@ -46,11 +46,29 @@ if ($tier === 'temporary') {
     ];
 }
 
+require_once __DIR__ . '/backend/ethiopian_date.php';
+
 $data = [];
+$dateColumns = ['date_of_birth', 'registered_at', 'waiting_since', 'joined_date'];
+
 try {
     $stmt = $pdo->prepare("SELECT * FROM members WHERE membership_tier = ? ORDER BY id DESC");
     $stmt->execute([$tier]);
-    $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        // Enforce Strict EC Display for UI/Exports
+        foreach ($dateColumns as $dc) {
+            if (!empty($row[$dc])) {
+                try {
+                    $dt = new DateTime($row[$dc], new DateTimeZone('Africa/Addis_Ababa'));
+                    $row[$dc] = ethio_date_format($dt, 'Y-m-d');
+                } catch (\Exception $e) {
+                    // If parsing fails, leave it raw or empty
+                }
+            }
+        }
+        $data[] = $row;
+    }
 } catch (PDOException $e) {
     die("Database error: " . $e->getMessage());
 }

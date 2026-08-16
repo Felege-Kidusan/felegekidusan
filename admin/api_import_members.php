@@ -5,6 +5,7 @@
  */
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/backend/ethiopian_date.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -102,9 +103,32 @@ try {
 
         // Map row to headers
         $rowData = [];
+        $dateColumns = ['date_of_birth', 'registered_at', 'waiting_since', 'joined_date'];
+        
         foreach ($headers as $index => $col) {
             if (in_array($col, $validCols) && isset($row[$index])) {
-                $rowData[$col] = trim((string)$row[$index]);
+                $val = trim((string)$row[$index]);
+                
+                // If it is a date column and not empty, convert from EC to GC
+                if (in_array($col, $dateColumns) && !empty($val)) {
+                    $parts = preg_split('/[-\/.]/', $val);
+                    if (count($parts) >= 3) {
+                        $y = (int)$parts[0];
+                        $m = (int)$parts[1];
+                        $d = (int)$parts[2];
+                        // Validate reasonable EC bounds
+                        if ($y > 1900 && $m >= 1 && $m <= 13 && $d >= 1 && $d <= 30) {
+                            try {
+                                $gcDate = ethiopian_to_gregorian($y, $m, $d);
+                                $val = $gcDate->format('Y-m-d');
+                            } catch (\Exception $e) {
+                                // fallback
+                            }
+                        }
+                    }
+                }
+                
+                $rowData[$col] = $val;
             }
         }
 
