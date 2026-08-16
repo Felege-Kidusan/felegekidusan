@@ -130,10 +130,24 @@ class ExcelExportService {
         // Freeze top rows (Row 4 is where scrolling starts)
         $sheet->freezePane('A4');
         
-        // Auto-size columns based on the data and headers
+        // Set comfortable explicit widths (setAutoSize often fails for Amharic/UTF-8)
         for ($i = 1; $i <= count($columns); $i++) {
             $colString = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
-            $sheet->getColumnDimension($colString)->setAutoSize(true);
+            $colName = strtolower($columns[$i - 1]);
+            
+            $width = 25; // Default comfortable width
+            if (strpos($colName, 'name') !== false) {
+                $width = 35; // Wider for names
+            } elseif (strpos($colName, 'date') !== false || strpos($colName, 'dob') !== false || strpos($colName, 'registered') !== false || strpos($colName, 'since') !== false) {
+                $width = 20; // Dates
+            } elseif (strpos($colName, 'phone') !== false) {
+                $width = 22; // Phone numbers
+            } elseif (strpos($colName, 'code') !== false || strpos($colName, 'id') !== false) {
+                $width = 20; // IDs
+            }
+            
+            $sheet->getColumnDimension($colString)->setAutoSize(false);
+            $sheet->getColumnDimension($colString)->setWidth($width);
         }
         
         // Style all data rows (Vertical center, light bottom border)
