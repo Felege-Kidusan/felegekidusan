@@ -696,6 +696,229 @@ switch ($action) {
         echo json_encode(['status' => 'success', 'members' => $members]);
         break;
 
+    // ============================================================
+    // SEARCH MEMBERS TO LINK (name + code only — no phone/address)
+    // ============================================================
+    case 'search_members_for_teacher':
+        if ($isTeacher) {
+            echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+            exit;
+        }
+        $q = trim((string)($_GET['q'] ?? ''));
+        if (strlen($q) < 1) {
+            echo json_encode(['status' => 'success', 'members' => []]);
+            break;
+        }
+        $st = '%' . $q . '%';
+        $limit = 15;
+        $stmt = $conn->prepare(
+            "SELECT id, member_code, student_name, father_name
+             FROM members
+             WHERE status = 'active'
+               AND (student_name LIKE ? OR father_name LIKE ? OR member_code LIKE ? OR baptismal_name LIKE ?)
+             ORDER BY student_name
+             LIMIT ?"
+        );
+        if (!$stmt) {
+            echo json_encode(['status' => 'success', 'members' => []]);
+            break;
+        }
+        $stmt->bind_param('ssssi', $st, $st, $st, $st, $limit);
+        $stmt->execute();
+        $members = [];
+        $r = $stmt->get_result();
+        while ($row = $r->fetch_assoc()) {
+            $members[] = [
+                'id' => (int)$row['id'],
+                'member_code' => $row['member_code'] ?? '',
+                'student_name' => $row['student_name'] ?? '',
+                'father_name' => $row['father_name'] ?? '',
+            ];
+        }
+        $stmt->close();
+        echo json_encode(['status' => 'success', 'members' => $members], JSON_UNESCAPED_UNICODE);
+        break;
+
+    // ============================================================
+    // SAVE TEACHER + LOGIN + ASSIGNMENTS IN ONE REQUEST
+    // ============================================================
+    case 'save_teacher_bundle':
+        if ($isTeacher) {
+            echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+            exit;
+        }
+
+        $teacherId = (int)($_POST['teacher_id'] ?? 0);
+        $fullName = trim((string)($_POST['full_name'] ?? ''));
+        $username = trim((string)($_POST['username'] ?? ''));
+        $email = trim((string)($_POST['email'] ?? ''));
+        $password = (string)($_POST['password'] ?? '');
+        $memberId = !empty($_POST['member_id']) ? (int)$_POST['member_id'] : null;
+        $dutiesRaw = $_POST['duties'] ?? '[]';
+        $duties = is_array($dutiesRaw) ? $dutiesRaw : (json_decode((string)$dutiesRaw, true) ?: []);
+
+        if ($fullName === '' || $username === '') {
+            echo json_encode(['status' => 'error', 'message' => 'Full name and username are required.']);
+            exit;
+        }
+        if ($teacherId <= 0 && strlen($password) < 4) {
+            echo json_encode(['status' => 'error', 'message' => 'Password must be at least 4 characters so the teacher can log in.']);
+            exit;
+        }
+        if ($teacherId > 0 && $password !== '' && strlen($password) < 4) {
+            echo json_encode(['status' => 'error', 'message' => 'New password must be at least 4 characters.']);
+            exit;
+        }
+
+        if ($memberId) {
+            $mchk = $conn->prepare("SELECT id, student_name, status FROM members WHERE id = ? LIMIT 1");
+            if ($mchk) {
+                $mchk->bind_param('i', $memberId);
+                $mchk->execute();
+                $mrow = $mchk->get_result()->fetch_assoc();
+                $mchk->close();
+                if (!$mrow || ($mrow['status'] ?? '') === 'archived') {
+                    echo json_encode(['status' => 'error', 'message' => 'That member was not found.']);
+                    exit;
+                }
+                if ($fullName === '') {
+                    $fullName = (string)$mrow['student_name'];
+                }
+            }
+        }
+
+        $unameChk = $conn->prepare("SELECT id FROM users WHERE username = ? AND id != ? LIMIT 1");
+        $otherId = $teacherId ?: 0;
+        $unameChk->bind_param('si', $username, $otherId);
+        $unameChk->execute();
+        if ($unameChk->get_result()->num_rows > 0) {
+            echo json_encode(['status' => 'error', 'message' => 'That username is already used. Choose another.']);
+            exit;
+        }
+        $unameChk->close();
+
+        if ($email !== '') {
+            $emChk = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1");
+            $emChk->bind_param('si', $email, $otherId);
+            $emChk->execute();
+            if ($emChk->get_result()->num_rows > 0) {
+                echo json_encode(['status' => 'error', 'message' => 'That email is already used.']);
+                exit;
+            }
+            $emChk->close();
+        }
+
+        $emailDb = $email !== '' ? $email : null;
+        $created = false;
+
+        if ($teacherId > 0) {
+            $cur = $conn->prepare("SELECT id, member_id FROM users WHERE id = ? AND role = 'teacher' LIMIT 1");
+            $cur->bind_param('i', $teacherId);
+            $cur->execute();
+            $current = $cur->get_result()->fetch_assoc();
+            $cur->close();
+            if (!$current) {
+                echo json_encode(['status' => 'error', 'message' => 'Teacher not found.']);
+                exit;
+            }
+            if ($password !== '') {
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ?, password_hash = ? WHERE id = ?");
+                $stmt->bind_param('sssisi', $fullName, $username, $emailDb, $memberId, $hash, $teacherId);
+            } else {
+                $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ? WHERE id = ?");
+                $stmt->bind_param('sssii', $fullName, $username, $emailDb, $memberId, $teacherId);
+            }
+            if (!$stmt->execute()) {
+                echo json_encode(['status' => 'error', 'message' => 'Could not update teacher login.']);
+                exit;
+            }
+            $stmt->close();
+            $oldMid = (int)($current['member_id'] ?? 0);
+            if ($oldMid && $oldMid !== (int)$memberId) {
+                syncMemberTeacherFlag($conn, $oldMid, false);
+            }
+        } else {
+            $hash = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare(
+                "INSERT INTO users (username, email, full_name, role, password_hash, is_active, member_id)
+                 VALUES (?, ?, ?, 'teacher', ?, 1, ?)"
+            );
+            $stmt->bind_param('ssssi', $username, $emailDb, $fullName, $hash, $memberId);
+            if (!$stmt->execute()) {
+                echo json_encode(['status' => 'error', 'message' => 'Could not create teacher login.']);
+                exit;
+            }
+            $teacherId = (int)$conn->insert_id;
+            $stmt->close();
+            $created = true;
+        }
+
+        if ($memberId) {
+            syncMemberTeacherFlag($conn, $memberId, true);
+        }
+
+        $assigned = 0;
+        $assignErrors = [];
+        if ($duties && function_exists('ay_require_writable')) {
+            $okYear = ay_require_writable($conn, true);
+            if ($okYear === false) {
+                $assignErrors[] = 'Teacher login was saved. Assignments were skipped because there is no writable academic year.';
+                $duties = [];
+            }
+        }
+        foreach ($duties as $duty) {
+            if (!is_array($duty)) {
+                continue;
+            }
+            $kind = strtolower(trim((string)($duty['type'] ?? 'regular')));
+            $classIds = $duty['class_ids'] ?? [];
+            if (!is_array($classIds)) {
+                $classIds = [];
+            }
+            $classIds = array_values(array_unique(array_filter(array_map('intval', $classIds))));
+            if (!$classIds) {
+                continue;
+            }
+            if ($kind === 'homeroom') {
+                foreach ($classIds as $cid) {
+                    $res = AssignmentService::setHomeroom($conn, $teacherId, $cid, null, (int)$_SESSION['admin_id']);
+                    if (($res['status'] ?? '') === 'success') {
+                        $assigned++;
+                    } else {
+                        $assignErrors[] = $res['message'] ?? 'Could not set Class Teacher.';
+                    }
+                }
+            } else {
+                $subjectId = !empty($duty['subject_id']) ? (int)$duty['subject_id'] : null;
+                $role = (string)($duty['role'] ?? 'primary');
+                $res = AssignmentService::assignBulk($conn, $teacherId, $classIds, $subjectId, $role, null, (int)$_SESSION['admin_id']);
+                $assigned += (int)($res['assigned'] ?? 0);
+                if (($res['status'] ?? '') !== 'success' && empty($res['assigned'])) {
+                    $assignErrors[] = $res['message'] ?? 'Could not assign classes.';
+                }
+            }
+        }
+
+        $msg = $created
+            ? 'Teacher login created. They can sign in with username “' . $username . '”.'
+            : 'Teacher updated.';
+        if ($assigned) {
+            $msg .= ' ' . $assigned . ' class assignment(s) saved.';
+        }
+        if ($assignErrors) {
+            $msg .= ' ' . $assignErrors[0];
+        }
+
+        echo json_encode([
+            'status' => 'success',
+            'message' => $msg,
+            'teacher_id' => $teacherId,
+            'created' => $created,
+            'assigned' => $assigned,
+        ], JSON_UNESCAPED_UNICODE);
+        break;
+
     default:
         echo json_encode(['status' => 'error', 'message' => 'Unknown action: ' . $action]);
 }

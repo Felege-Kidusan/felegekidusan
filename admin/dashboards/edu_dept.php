@@ -101,8 +101,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div>
 <div class="nt">Main</div>
 <button class="nl act" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
-<button class="nl" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i> Teachers</button>
-<a class="nl" href="/frontend/pages/edu_assignments.php"><i class="fa-solid fa-diagram-project"></i> Assignments</a>
+<a class="nl" href="/frontend/pages/edu_teachers.php"><i class="fa-solid fa-chalkboard-teacher"></i> Teachers</a>
 <button class="nl" data-sec="classes"><i class="fa-solid fa-school"></i> Classes</button>
 <button class="nl" data-sec="subjects"><i class="fa-solid fa-book"></i> Subjects</button>
 </div>
@@ -149,7 +148,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
 <div class="crd" style="padding:1.25rem"><h3 style="font-size:.9rem;font-weight:600;margin-bottom:.75rem"><i class="fa-solid fa-bolt" style="color:#7c3aed"></i> Quick Actions</h3>
 <div style="display:flex;flex-direction:column;gap:.5rem">
-<button class="btn btn-p" style="width:100%;justify-content:center" onclick="nav('teachers');openCreateTeacher()"><i class="fa-solid fa-user-plus"></i> Add Teacher</button>
+<a class="btn btn-p" style="width:100%;justify-content:center" href="/frontend/pages/edu_teachers.php?new=1"><i class="fa-solid fa-user-plus"></i> Add Teacher</a>
 <button class="btn btn-s" style="width:100%;justify-content:center" onclick="nav('enrollment')"><i class="fa-solid fa-user-graduate"></i> Manage Enrollment</button>
 <button class="btn btn-o" style="width:100%;justify-content:center" onclick="nav('grades')"><i class="fa-solid fa-star"></i> Enter Grades</button>
 <button class="btn btn-o" style="width:100%;justify-content:center" onclick="nav('classes')"><i class="fa-solid fa-plus"></i> Manage Classes</button>
@@ -164,8 +163,8 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- ═══ TEACHERS ═══ -->
 <div id="sec-teachers" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b" class="amharic">መምህራን አስተዳደር</p></div>
-<div style="display:flex;gap:.5rem" class="no-print"><button class="btn btn-p" onclick="openCreateTeacher()"><i class="fa-solid fa-plus"></i> Add Teacher</button><button class="btn btn-o btn-xs" onclick="exportTeachers()"><i class="fa-solid fa-download"></i> Export</button></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b">Moved to the new Teachers screen</p></div>
+<a class="btn btn-p" href="/frontend/pages/edu_teachers.php"><i class="fa-solid fa-arrow-right"></i> Open Teachers</a>
 </div>
 <div class="crd" style="padding:.75rem" class="no-print"><div style="display:flex;gap:.5rem;flex-wrap:wrap"><input type="text" id="teacherSearch" class="inp" style="max-width:250px" placeholder="Search teachers..." oninput="debounceTeacherSearch()"><label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b"><input type="checkbox" id="showInactive" onchange="loadTeachers()"> Show inactive</label></div></div>
 <div class="crd" style="margin-top:.75rem"><div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Username</th><th>Email</th><th>Member Link</th><th>Assignments</th><th>Status</th><th class="text-center">Actions</th></tr></thead><tbody id="teacherBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
@@ -206,7 +205,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <button class="tbn act" id="enrTabClasses" onclick="switchEnrollTab('classes')"><i class="fa-solid fa-school"></i> By Class</button>
 <button class="tbn" id="enrTabRoster" onclick="switchEnrollTab('roster')"><i class="fa-solid fa-table-list"></i> All Students</button>
 <button class="tbn" id="enrTabUnassigned" onclick="switchEnrollTab('unassigned')"><i class="fa-solid fa-user-xmark"></i> Unassigned Members</button>
-<button class="tbn" id="enrTabTeachers" onclick="switchEnrollTab('teachers')"><i class="fa-solid fa-chalkboard-teacher"></i> Teacher Assignments</button>
+
 </div>
 
 <!-- TAB: By Class -->
@@ -500,8 +499,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
 <div class="wbws-bnav-inner" id="bnScroll">
 <button class="wbws-bnav-btn active" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-<button class="wbws-bnav-btn" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i><span>Teachers</span></button>
-<a class="wbws-bnav-btn" href="/frontend/pages/edu_assignments.php"><i class="fa-solid fa-diagram-project"></i><span>Assign</span></a>
+<a class="wbws-bnav-btn" href="/frontend/pages/edu_teachers.php"><i class="fa-solid fa-chalkboard-teacher"></i><span>Teachers</span></a>
 <button class="wbws-bnav-btn" data-sec="classes"><i class="fa-solid fa-school"></i><span>Classes</span></button>
 <button class="wbws-bnav-btn" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i><span>Enroll</span></button>
 <div class="wbws-bnav-divider"></div>
@@ -520,7 +518,7 @@ let allTeachers=[],currentTeacherId=null,tempAssignments=[];
 const membersData=<?= json_encode($members) ?>;
 
 // ═══ NAVIGATION ═══
-function nav(n){document.querySelectorAll('.sec').forEach(s=>s.classList.remove('act'));const t=document.getElementById('sec-'+n);if(t)t.classList.add('act');document.querySelectorAll('.sb .nl').forEach(b=>b.classList.remove('act'));document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
+function nav(n){if(n==='teachers'){location.href='/frontend/pages/edu_teachers.php';return;}document.querySelectorAll('.sec').forEach(s=>s.classList.remove('act'));const t=document.getElementById('sec-'+n);if(t)t.classList.add('act');document.querySelectorAll('.sb .nl').forEach(b=>b.classList.remove('act'));document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
 if(n==='teachers')loadTeachers();if(n==='classes')loadClasses();if(n==='settings')loadYears();if(n==='enrollment')loadEnrollOverview();const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);}
 document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-sec');if(n)nav(n);});});
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
