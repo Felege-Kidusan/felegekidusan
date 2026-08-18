@@ -175,7 +175,6 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- ═══ TEACHERS ═══ -->
 <div id="sec-teachers" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#647ign-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
 <div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b" class="amharic">መምህራን አስተዳደር</p></div>
 <button class="btn btn-p" onclick="openCreateTeacher()"><i class="fa-solid fa-plus"></i> Add Teacher</button>
 </div>
@@ -366,7 +365,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div class="crd" style="padding:1rem;margin-bottom:1rem">
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.75rem;align-items:end">
 <div><label class="lbl">Class</label><select id="rcClass" class="inp" onchange="loadClassPerformance()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?> (<?= e($c['class_name_en'] ?? '') ?>)</option><?php endforeach; ?></select></div>
-<div><lass="lbl">Subject (Optional)</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All Subjects</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Subject (Optional)</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All Subjects</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Export</label><button class="btn btn-o" style="width:100%" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button></div>
 <button class="btn btn-s" onclick="generateBulkReports()" title="Generate all student report cards"><i class="fa-solid fa-file-lines"></i> Bulk Generate</button>
 </div></div>
@@ -577,14 +576,35 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
 const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {
     return ['id' => (int)$c['id'], 'name' => (string)$c['class_name']];
-}, $classes), JSON_UNESCAPED_UNICODE) ?>;
+}, $classes), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]' ?>;
 const EDU_SUBJECTS=<?= json_encode(array_map(static function ($s) {
     return ['id' => (int)$s['id'], 'name' => (string)$s['subject_name']];
-}, $subjects), JSON_UNESCAPED_UNICODE) ?>;
+}, $subjects), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]' ?>;
 
 // ═══ NAVIGATION ═══
-function nav(n){document.querySelectorAll('.sec').forEach(s=>s.classList.remove('act'));const t=document.getElementById('sec-'+n);if(t)t.classList.add('act');document.querySelectorAll('.sb .nl').forEach(b=>b.classList.remove('act'));document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
-if(n==='teachers')loadTeachers();if(n==='classes')loadClasses();if(n==='settings')loadYears();if(n==='enrollment')loadEnrollOverview();const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);}
+function nav(n){
+    try{
+        const secs=document.querySelectorAll('.sec');
+        secs.forEach(s=>s.classList.remove('act'));
+        let t=document.getElementById('sec-'+n);
+        if(!t){n='dashboard';t=document.getElementById('sec-dashboard');}
+        if(t)t.classList.add('act');
+        else if(secs[0])secs[0].classList.add('act');
+        document.querySelectorAll('.sb .nl').forEach(b=>b.classList.remove('act'));
+        document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
+        document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));
+        document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
+        try{ if(n==='teachers')loadTeachers(); }catch(e){console.error(e);}
+        try{ if(n==='classes')loadClasses(); }catch(e){console.error(e);}
+        try{ if(n==='settings')loadYears(); }catch(e){console.error(e);}
+        try{ if(n==='enrollment')loadEnrollOverview(); }catch(e){console.error(e);}
+        const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);
+    }catch(e){
+        console.error(e);
+        const d=document.getElementById('sec-dashboard');
+        if(d)d.classList.add('act');
+    }
+}
 document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-sec');if(n)nav(n);});});
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
 
@@ -1670,7 +1690,15 @@ function generateBulkReports(){
 
 // ═══ NAV EXTENSION ═══
 const _origNav=nav;
-nav=function(n){_origNav(n);if(n==='submissions')loadSubmissions();if(n==='reportcards')loadClassPerformance();};
+nav=function(n){try{_origNav(n);}catch(e){console.error(e);}try{if(n==='submissions')loadSubmissions();}catch(e){console.error(e);}try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}};
+try{
+    const _sp=new URLSearchParams(window.location.search).get('section');
+    if(_sp) nav(_sp);
+}catch(e){console.error(e);}
+if(!document.querySelector('.sec.act')){
+    const _dash=document.getElementById('sec-dashboard');
+    if(_dash) _dash.classList.add('act');
+}
 
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',()=>{loadTeachers();
