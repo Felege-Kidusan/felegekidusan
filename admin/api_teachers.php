@@ -756,6 +756,28 @@ switch ($action) {
         $memberId = !empty($_POST['member_id']) ? (int)$_POST['member_id'] : null;
         $dutiesRaw = $_POST['duties'] ?? '[]';
         $duties = is_array($dutiesRaw) ? $dutiesRaw : (json_decode((string)$dutiesRaw, true) ?: []);
+        // One-form payload: assignments[{class_id,subject_id}] + homeroom_class_ids[]
+        // Empty subject on a row is ignored (homeroom is only the chips).
+        $asgRaw = array_key_exists('assignments', $_POST) ? $_POST['assignments'] : null;
+        $homeRaw = array_key_exists('homeroom_class_ids', $_POST) ? $_POST['homeroom_class_ids'] : null;
+        $syncRows = null;
+        $syncHomes = null;
+        if ($asgRaw !== null || $homeRaw !== null) {
+            $syncRows = [];
+            $rawRows = $asgRaw === null ? [] : (is_array($asgRaw) ? $asgRaw : (json_decode((string)$asgRaw, true) ?: []));
+            foreach ($rawRows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $cid = (int)($row['class_id'] ?? 0);
+                $sid = !empty($row['subject_id']) ? (int)$row['subject_id'] : 0;
+                if ($cid > 0 && $sid > 0) {
+                    $syncRows[] = ['class_id' => $cid, 'subject_id' => $sid];
+                }
+            }
+            $rawHomes = $homeRaw === null ? [] : (is_array($homeRaw) ? $homeRaw : (json_decode((string)$homeRaw, true) ?: []));
+            $syncHomes = array_values(array_unique(array_filter(array_map('intval', $rawHomes))));
+        }
 
         if ($fullName === '' || $username === '') {
             echo json_encode(['status' => 'error', 'message' => 'Full name and username are required.']);
@@ -859,13 +881,31 @@ switch ($action) {
         }
 
         $assigned = 0;
+        $removed = 0;
         $assignErrors = [];
-        if ($duties && function_exists('ay_require_writable')) {
+        if (($syncRows !== null || $duties) && function_exists('ay_require_writable')) {
             $okYear = ay_require_writable($conn, true);
             if ($okYear === false) {
                 $assignErrors[] = 'Teacher login was saved. Assignments were skipped because there is no writable academic year.';
                 $duties = [];
+                $syncRows = null;
             }
+        }
+        if ($syncRows !== null) {
+            $sync = AssignmentService::syncForTeacher(
+                $conn,
+                $teacherId,
+                $syncRows,
+                $syncHomes ?: [],
+                null,
+                (int)$_SESSION['admin_id']
+            );
+            $assigned = (int)($sync['assigned'] ?? 0);
+            $removed = (int)($sync['removed'] ?? 0);
+            if (($sync['status'] ?? '') !== 'success') {
+                $assignErrors[] = $sync['message'] ?? 'Could not save assignments.';
+            }
+            $duties = [];
         }
         foreach ($duties as $duty) {
             if (!is_array($duty)) {
@@ -903,8 +943,11 @@ switch ($action) {
         $msg = $created
             ? 'Teacher login created. They can sign in with username “' . $username . '”.'
             : 'Teacher updated.';
-        if ($assigned) {
+        if ($assigned || $removed) {
             $msg .= ' ' . $assigned . ' class assignment(s) saved.';
+            if ($removed) {
+                $msg .= ' ' . $removed . ' removed.';
+            }
         }
         if ($assignErrors) {
             $msg .= ' ' . $assignErrors[0];
@@ -916,6 +959,7 @@ switch ($action) {
             'teacher_id' => $teacherId,
             'created' => $created,
             'assigned' => $assigned,
+            'removed' => $removed,
         ], JSON_UNESCAPED_UNICODE);
         break;
 

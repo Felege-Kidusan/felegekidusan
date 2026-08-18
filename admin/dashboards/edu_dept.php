@@ -21,7 +21,7 @@ $now = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa'));
 $todayFormatted = wbws_format_date($now, 'long', $conn);
 $greeting = ((int)$now->format('H') < 12) ? 'Good Morning' : (((int)$now->format('H') < 17) ? 'Good Afternoon' : 'Good Evening');
 
-$currentYear = null; $currentTerm = null; $classes = []; $subjects = []; $members = [];
+$currentYear = null; $currentTerm = null; $classes = []; $subjects = [];
 if ($tablesExist) {
     $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
     try { $r = $conn->query("SELECT * FROM academic_terms WHERE is_current = 1 LIMIT 1");
@@ -30,8 +30,6 @@ if ($tablesExist) {
     if ($r) while ($row = $r->fetch_assoc()) $classes[] = $row;
     $r = $conn->query("SELECT * FROM subjects WHERE is_active = 1 ORDER BY subject_name");
     if ($r) while ($row = $r->fetch_assoc()) $subjects[] = $row;
-    $r = $conn->query("SELECT id, member_code, student_name, father_name, phone_number, gender FROM members WHERE status = 'active' ORDER BY student_name LIMIT 500");
-    if ($r) while ($row = $r->fetch_assoc()) $members[] = $row;
 }
 
 $totalStudents = 0; $r = $conn->query("SELECT COUNT(*) c FROM members WHERE status='active'");
@@ -85,6 +83,12 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 .toast{position:fixed;bottom:1.5rem;right:1.5rem;padding:.75rem 1.1rem;border-radius:12px;color:#fff;z-index:200;animation:slideIn .3s}.toast-ok{background:#059669}.toast-err{background:#dc2626}
 @keyframes slideIn{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
 .bn{display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-top:1px solid #e2e8f0;padding:.3rem 0;z-index:50}.bni{display:flex;justify-content:space-around;max-width:480px;margin:0 auto}.bn button,.bn a{display:flex;flex-direction:column;align-items:center;gap:.1rem;background:none;border:none;color:#94a3b8;font-size:.55rem;padding:.2rem .4rem;cursor:pointer;text-decoration:none}.bn button.act{color:#7c3aed}.bn i{font-size:1rem}
+.hr-chip{display:inline-flex;align-items:center;gap:4px;padding:.35rem .7rem;border-radius:10px;border:1px solid #e2e8f0;background:#fff;font-size:.72rem;cursor:pointer;color:#475569;font-family:inherit}
+.hr-chip.on{background:#7c3aed;border-color:#7c3aed;color:#fff}
+.asg-row{display:grid;grid-template-columns:1fr 1fr auto;gap:.4rem;align-items:center;margin-bottom:.4rem}
+.t-hits{border:1px solid #e2e8f0;border-radius:10px;max-height:180px;overflow:auto;margin-top:.3rem}
+.t-hit{padding:.5rem .7rem;cursor:pointer;font-size:.8rem;border-bottom:1px solid #f1f5f9}
+.t-hit:hover{background:#faf5ff}
 @media(max-width:768px){.sb{display:none}main{padding:1rem 1rem 5rem!important}.bn{display:block}}
 @media print{.sb,.bn,.no-print{display:none!important}main{padding:0!important}}
 </style>
@@ -101,7 +105,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div>
 <div class="nt">Main</div>
 <button class="nl act" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
-<a class="nl" href="/frontend/pages/edu_teachers.php"><i class="fa-solid fa-chalkboard-teacher"></i> Teachers</a>
+<button class="nl" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i> Teachers</button>
 <button class="nl" data-sec="classes"><i class="fa-solid fa-school"></i> Classes</button>
 <button class="nl" data-sec="subjects"><i class="fa-solid fa-book"></i> Subjects</button>
 </div>
@@ -148,7 +152,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
 <div class="crd" style="padding:1.25rem"><h3 style="font-size:.9rem;font-weight:600;margin-bottom:.75rem"><i class="fa-solid fa-bolt" style="color:#7c3aed"></i> Quick Actions</h3>
 <div style="display:flex;flex-direction:column;gap:.5rem">
-<a class="btn btn-p" style="width:100%;justify-content:center" href="/frontend/pages/edu_teachers.php?new=1"><i class="fa-solid fa-user-plus"></i> Add Teacher</a>
+<button class="btn btn-p" style="width:100%;justify-content:center" onclick="nav('teachers');openCreateTeacher()"><i class="fa-solid fa-user-plus"></i> Add Teacher</button>
 <button class="btn btn-s" style="width:100%;justify-content:center" onclick="nav('enrollment')"><i class="fa-solid fa-user-graduate"></i> Manage Enrollment</button>
 <button class="btn btn-o" style="width:100%;justify-content:center" onclick="nav('grades')"><i class="fa-solid fa-star"></i> Enter Grades</button>
 <button class="btn btn-o" style="width:100%;justify-content:center" onclick="nav('classes')"><i class="fa-solid fa-plus"></i> Manage Classes</button>
@@ -163,10 +167,16 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- ═══ TEACHERS ═══ -->
 <div id="sec-teachers" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b">Moved to the new Teachers screen</p></div>
-<a class="btn btn-p" href="/frontend/pages/edu_teachers.php"><i class="fa-solid fa-arrow-right"></i> Open Teachers</a>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#647ign-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b" class="amharic">መምህራን አስተዳደር</p></div>
+<button class="btn btn-p" onclick="openCreateTeacher()"><i class="fa-solid fa-plus"></i> Add Teacher</button>
 </div>
-<div class="crd" style="padding:.75rem" class="no-print"><div style="display:flex;gap:.5rem;flex-wrap:wrap"><input type="text" id="teacherSearch" class="inp" style="max-width:250px" placeholder="Search teachers..." oninput="debounceTeacherSearch()"><label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b"><input type="checkbox" id="showInactive" onchange="loadTeachers()"> Show inactive</label></div></div>
+<div class="crd no-print" style="padding:.75rem"><div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+<input type="text" id="teacherSearch" class="inp" style="max-width:240px" placeholder="Search name, username, or code..." oninput="debounceTeacherSearch()">
+<select id="teacherStatus" class="inp" style="max-width:140px" onchange="loadTeachers()"><option value="active">Active</option><option value="all">All statuses</option><option value="inactive">Inactive</option></select>
+<select id="teacherSort" class="inp" style="max-width:160px" onchange="renderTeachers()"><option value="name">Sort: Name</option><option value="username">Sort: Username</option><option value="classes">Sort: Most classes</option></select>
+<button class="btn btn-o btn-xs" onclick="exportTeachers()"><i class="fa-solid fa-download"></i> Excel</button>
+</div></div>
 <div class="crd" style="margin-top:.75rem"><div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Username</th><th>Email</th><th>Member Link</th><th>Assignments</th><th>Status</th><th class="text-center">Actions</th></tr></thead><tbody id="teacherBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 </div>
 
@@ -243,8 +253,8 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div id="enrPanelTeachers" style="display:none">
 <div class="crd" style="padding:.85rem 1rem;margin-bottom:.75rem;border-left:4px solid #7c3aed;background:#faf5ff">
 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
-<div style="font-size:.82rem;color:#5b21b6"><i class="fa-solid fa-diagram-project"></i> Assign one teacher to many classes at once on the new Assignments board.</div>
-<a class="btn btn-p btn-xs" href="/frontend/pages/edu_assignments.php"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open Assignments</a>
+<div style="font-size:.82rem;color:#5b21b6"><i class="fa-solid fa-chalkboard-teacher"></i> Create a teacher login and assign classes from Teachers — one section.</div>
+<button class="btn btn-p btn-xs" type="button" onclick="nav('teachers')"><i class="fa-solid fa-arrow-right"></i> Open Teachers</button>
 </div>
 </div>
 <div class="crd" style="padding:1rem">
@@ -355,29 +365,36 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <?php endif; ?>
 </main>
 </div>
-<!-- TEACHER MODAL -->
-<div class="mo" id="teacherModal"><div class="mc">
+<!-- TEACHER MODAL — one form: login + class/subject + homeroom -->
+<div class="mo" id="teacherModal"><div class="mc" style="max-width:720px">
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="teacherModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-user-plus"></i> Add Teacher</h3><button onclick="closeModal('teacherModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem">
-<div style="display:flex;gap:.5rem;margin-bottom:1rem;border-bottom:1px solid #e2e8f0"><button class="tbn act" id="tabInfo" onclick="showTab('info')">Basic Info</button><button class="tbn" id="tabAssign" onclick="showTab('assign')">Assignments</button></div>
-<div id="panelInfo">
-<div style="margin-bottom:.75rem"><label class="lbl">Link to Existing Member</label><select id="teacherMemberId" class="inp" onchange="fillFromMember()"><option value="">— Optional —</option><?php foreach ($members as $m): ?><option value="<?= $m['id'] ?>" data-name="<?= e($m['student_name']) ?>"><?= e($m['student_name']) ?> — <?= e($m['member_code']) ?></option><?php endforeach; ?></select></div>
+<p style="font-size:.75rem;color:#64748b;margin:0 0 1rem">Creates their login and class work in one save. They sign in with the username and password.</p>
+<input type="hidden" id="teacherMemberId" value="">
+<div style="margin-bottom:.75rem"><label class="lbl">Link an existing member (optional)</label>
+<input id="teacherMemberQ" class="inp" placeholder="Search member name or code..." autocomplete="off" oninput="searchTeacherMembers(this.value)">
+<div id="teacherMemberHits" class="t-hits" style="display:none"></div>
+<div id="teacherMemberPicked" style="font-size:.72rem;color:#64748b;margin-top:.35rem">Not linked — you can still type a name below.</div>
+</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
 <div><label class="lbl">Full Name *</label><input id="teacherFullName" class="inp" required></div>
 <div><label class="lbl">Username *</label><input id="teacherUsername" class="inp" required></div>
 <div><label class="lbl">Email</label><input id="teacherEmail" type="email" class="inp"></div>
-<div><label class="lbl">Password *</label><input id="teacherPassword" type="password" class="inp"></div>
-</div></div>
-<div id="panelAssign" style="display:none">
-<p style="font-size:.8rem;color:#64748b;margin-bottom:.75rem">Assign classes and subjects to this teacher</p>
-<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:.5rem;align-items:end;margin-bottom:.75rem">
-<div><label class="lbl">Class</label><select id="asgClass" class="inp"><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject</label><select id="asgSubject" class="inp"><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
-<button class="btn btn-p btn-xs" onclick="addTempAssignment()"><i class="fa-solid fa-plus"></i></button>
+<div><label class="lbl" id="teacherPasswordLabel">Password *</label><input id="teacherPassword" type="password" class="inp" autocomplete="new-password">
+<div id="teacherPasswordHint" style="font-size:.65rem;color:#94a3b8;margin-top:.25rem">They will sign in with this password.</div></div>
 </div>
-<div id="tempAssignments"></div>
+<div style="margin-top:1.15rem;padding-top:1rem;border-top:1px solid #f1f5f9">
+<div style="font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7c3aed;margin-bottom:.35rem">Teaching this year</div>
+<p style="font-size:.72rem;color:#64748b;margin:0 0 .6rem">Each row is one class + one subject. Add as many as you need. Class Teacher is separate — tap the class chips.</p>
+<div id="asgRows"></div>
+<button type="button" class="btn btn-o btn-xs" onclick="addAsgRow()" style="margin-top:.25rem"><i class="fa-solid fa-plus"></i> Add class &amp; subject</button>
+<div style="margin-top:1rem">
+<div style="font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin-bottom:.35rem"><i class="fa-solid fa-house"></i> Class Teacher of</div>
+<p style="font-size:.68rem;color:#94a3b8;margin:0 0 .5rem">A class has one Class Teacher. Picking a class that already has one reassigns it.</p>
+<div id="homeroomChips" style="display:flex;flex-wrap:wrap;gap:.4rem"></div>
 </div>
-<div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem"><button class="btn btn-o" onclick="closeModal('teacherModal')">Cancel</button><button class="btn btn-p" id="teacherSubmitBtn" onclick="saveTeacher()"><i class="fa-solid fa-save"></i> Save</button></div>
+</div>
+<div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1.15rem"><button class="btn btn-o" onclick="closeModal('teacherModal')">Cancel</button><button class="btn btn-p" id="teacherSubmitBtn" onclick="saveTeacher()"><i class="fa-solid fa-save"></i> Save teacher</button></div>
 </div></div></div>
 
 <!-- VIEW TEACHER MODAL -->
@@ -463,12 +480,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div style="background:#ede9fe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#5b21b6">1ኛ ሴሚስተር</div><div style="font-size:.6rem;color:#7c3aed">Meskerem — Yekatit</div></div>
 <div style="background:#dbeafe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#1e40af">2ኛ ሴሚስተር</div><div style="font-size:.6rem;color:#2563eb">Megabit — Hamle</div></div>
 </div>
-<p style="font-size:.6rem;color:#94a3b8;margin-top:.3rem">Two semesters will be auto-created when you save a new academic year</p>
-</div>
-<button class="btn btn-p" style="width:100%;justify-content:center" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
-</div></div></div>
-
-<!-- BULK ENROLL MODAL -->
+<p style="font-size:.6rem;color:#94a3b8;margin-top:.3rem">Two semesters will be auto-creaDAL -->
 <div class="mo" id="bulkEnrollModal"><div class="mc" style="max-width:680px">
 <div style="background:linear-gradient(135deg,#ec4899,#d946ef);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-users"></i> Bulk Enroll Students</h3><button onclick="closeModal('bulkEnrollModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem">
@@ -499,7 +511,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
 <div class="wbws-bnav-inner" id="bnScroll">
 <button class="wbws-bnav-btn active" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-<a class="wbws-bnav-btn" href="/frontend/pages/edu_teachers.php"><i class="fa-solid fa-chalkboard-teacher"></i><span>Teachers</span></a>
+<button class="wbws-bnav-btn" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i><span>Teachers</span></button>
 <button class="wbws-bnav-btn" data-sec="classes"><i class="fa-solid fa-school"></i><span>Classes</span></button>
 <button class="wbws-bnav-btn" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i><span>Enroll</span></button>
 <div class="wbws-bnav-divider"></div>
@@ -514,11 +526,16 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div><script>
-let allTeachers=[],currentTeacherId=null,tempAssignments=[];
-const membersData=<?= json_encode($members) ?>;
+let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
+const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {
+    return ['id' => (int)$c['id'], 'name' => (string)$c['class_name']];
+}, $classes), JSON_UNESCAPED_UNICODE) ?>;
+const EDU_SUBJECTS=<?= json_encode(array_map(static function ($s) {
+    return ['id' => (int)$s['id'], 'name' => (string)$s['subject_name']];
+}, $subjects), JSON_UNESCAPED_UNICODE) ?>;
 
 // ═══ NAVIGATION ═══
-function nav(n){if(n==='teachers'){location.href='/frontend/pages/edu_teachers.php';return;}document.querySelectorAll('.sec').forEach(s=>s.classList.remove('act'));const t=document.getElementById('sec-'+n);if(t)t.classList.add('act');document.querySelectorAll('.sb .nl').forEach(b=>b.classList.remove('act'));document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
+function nav(n){document.querySelectorAll('.sec').forEach(s=>s.classList.remove('act'));const t=document.getElementById('sec-'+n);if(t)t.classList.add('act');document.querySelectorAll('.sb .nl').forEach(b=>b.classList.remove('act'));document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
 if(n==='teachers')loadTeachers();if(n==='classes')loadClasses();if(n==='settings')loadYears();if(n==='enrollment')loadEnrollOverview();const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);}
 document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-sec');if(n)nav(n);});});
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
@@ -529,15 +546,16 @@ function fD(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDat
 function fDL(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'long'):(d||'—');}
 function toast(m,t='ok'){const el=document.createElement('div');el.className='toast toast-'+t;el.innerHTML=`<i class="fa-solid fa-${t==='ok'?'check-circle':'exclamation-circle'}" style="margin-right:.4rem"></i>${m}`;document.getElementById('toastC').appendChild(el);setTimeout(()=>el.remove(),3500);}
 function closeModal(id){document.getElementById(id).classList.remove('show');}
-function showTab(t){document.getElementById('tabInfo').className='tbn'+(t==='info'?' act':'');document.getElementById('tabAssign').className='tbn'+(t==='assign'?' act':'');document.getElementById('panelInfo').style.display=t==='info'?'block':'none';document.getElementById('panelAssign').style.display=t==='assign'?'block':'none';}
+function showTab(){/* teacher form is one scroll — no tabs */}
 function postAPI(url,fd){fd.append('csrf_token',CSRF_TOKEN);return fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json());}
 function getAPI(url){return fetch(url,{credentials:'same-origin'}).then(r=>r.json());}
 
 // ═══ TEACHERS ═══
-let _teacherSearchTimer=null;
+let _teacherSearchTimer=null,_memberSearchTimer=null;
 function debounceTeacherSearch(){ clearTimeout(_teacherSearchTimer); _teacherSearchTimer=setTimeout(loadTeachers, 300); }
 async function loadTeachers(){
-    const inc=document.getElementById('showInactive')?.checked?'1':'0';
+    const status=document.getElementById('teacherStatus')?.value||'active';
+    const inc=status==='active'?'0':'1';
     const q=document.getElementById('teacherSearch')?.value||'';
     let url=`/admin/api_teachers.php?action=get_teachers&include_inactive=${inc}&limit=100`;
     if(q.trim()) url+=`&q=${encodeURIComponent(q.trim())}`;
@@ -546,7 +564,17 @@ async function loadTeachers(){
 }
 function renderTeachers(){
     const q=(document.getElementById('teacherSearch')?.value||'').toLowerCase();
-    const list=q?allTeachers.filter(t=>[t.full_name,t.username,t.email,t.member_code].filter(Boolean).join(' ').toLowerCase().includes(q)):allTeachers;
+    const status=document.getElementById('teacherStatus')?.value||'active';
+    const sort=document.getElementById('teacherSort')?.value||'name';
+    let list=allTeachers.slice();
+    if(status==='inactive') list=list.filter(t=>t.is_active!=1);
+    else if(status==='active') list=list.filter(t=>t.is_active==1);
+    if(q) list=list.filter(t=>[t.full_name,t.username,t.email,t.member_code].filter(Boolean).join(' ').toLowerCase().includes(q));
+    list.sort((a,b)=>{
+        if(sort==='username') return String(a.username||'').localeCompare(String(b.username||''));
+        if(sort==='classes') return (parseInt(b.assigned_classes,10)||0)-(parseInt(a.assigned_classes,10)||0);
+        return String(a.full_name||'').localeCompare(String(b.full_name||''));
+    });
     document.getElementById('teacherBody').innerHTML=list.length?list.map(t=>`<tr style="${t.is_active==0?'opacity:.5':''}">
         <td><div style="display:flex;align-items:center;gap:.5rem"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.7rem">${esc((t.full_name||'?')[0].toUpperCase())}</div><div><div style="font-weight:600;font-size:.8rem">${esc(t.full_name)}</div></div></div></td>
         <td style="font-size:.8rem">${esc(t.username)}</td><td style="font-size:.8rem">${esc(t.email||'—')}</td>
@@ -561,60 +589,164 @@ function renderTeachers(){
         </td></tr>`).join(''):'<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">No teachers found</td></tr>';
 }
 function filterTeachers(){renderTeachers();}
-function openCreateTeacher(){currentTeacherId=null;tempAssignments=[];document.getElementById('teacherModalTitle').innerHTML='<i class="fa-solid fa-user-plus"></i> Add Teacher';document.getElementById('teacherFullName').value='';document.getElementById('teacherUsername').value='';document.getElementById('teacherEmail').value='';document.getElementById('teacherPassword').value='';document.getElementById('teacherPassword').required=true;document.getElementById('teacherMemberId').value='';renderTempAssignments();showTab('info');document.getElementById('teacherModal').classList.add('show');}
+function classOptionsHtml(selected){
+    return `<option value="">Select class…</option>`+EDU_CLASSES.map(c=>`<option value="${c.id}" ${String(c.id)===String(selected)?'selected':''}>${esc(c.name)}</option>`).join('');
+}
+function subjectOptionsHtml(selected){
+    return `<option value="">Select subject…</option>`+EDU_SUBJECTS.map(s=>`<option value="${s.id}" ${String(s.id)===String(selected)?'selected':''}>${esc(s.name)}</option>`).join('');
+}
+function addAsgRow(classId,subjectId){asgRows.push({class_id:classId||'',subject_id:subjectId||''});renderAsgRows();}
+function removeAsgRow(i){asgRows.splice(i,1);renderAsgRows();}
+function setAsgRow(i,field,val){if(!asgRows[i])return;asgRows[i][field]=val;}
+function renderAsgRows(){
+    const box=document.getElementById('asgRows');
+    if(!box)return;
+    if(!asgRows.length){box.innerHTML='<p style="font-size:.78rem;color:#94a3b8;margin:.2rem 0 .5rem">No class &amp; subject rows yet.</p>';return;}
+    box.innerHTML=asgRows.map((row,i)=>`<div class="asg-row">
+        <select class="inp" onchange="setAsgRow(${i},'class_id',this.value)">${classOptionsHtml(row.class_id)}</select>
+        <select class="inp" onchange="setAsgRow(${i},'subject_id',this.value)">${subjectOptionsHtml(row.subject_id)}</select>
+        <button type="button" class="ab" style="background:#fee2e2;color:#dc2626" onclick="removeAsgRow(${i})" title="Remove"><i class="fa-solid fa-trash"></i></button>
+    </div>`).join('');
+}
+function toggleHomeroom(classId){
+    classId=parseInt(classId,10);
+    if(!classId)return;
+    const i=homeroomClassIds.indexOf(classId);
+    if(i>=0) homeroomClassIds.splice(i,1); else homeroomClassIds.push(classId);
+    renderHomeroomChips();
+}
+function renderHomeroomChips(){
+    const box=document.getElementById('homeroomChips');
+    if(!box)return;
+    if(!EDU_CLASSES.length){box.innerHTML='<p style="font-size:.75rem;color:#94a3b8">No classes yet.</p>';return;}
+    box.innerHTML=EDU_CLASSES.map(c=>{
+        const on=homeroomClassIds.indexOf(c.id)>=0;
+        const holder=homeroomHolders[c.id];
+        const other=holder&&!on?` · ${esc(holder)}`:'';
+        return `<button type="button" class="hr-chip${on?' on':''}" onclick="toggleHomeroom(${c.id})" title="${holder?'Currently: '+esc(holder):'No Class Teacher yet'}">${esc(c.name)}${other}</button>`;
+    }).join('');
+}
+async function loadHomeroomHolders(){
+    homeroomHolders={};
+    try{
+        const d=await getAPI('/admin/api_assignments.php?action=matrix');
+        const homes=d.homerooms||{};
+        Object.keys(homes).forEach(k=>{
+            const h=homes[k];
+            if(h&&h.full_name) homeroomHolders[parseInt(k,10)]=h.full_name;
+        });
+    }catch(e){}
+}
+function resetTeacherForm(){
+    document.getElementById('teacherFullName').value='';
+    document.getElementById('teacherUsername').value='';
+    document.getElementById('teacherEmail').value='';
+    document.getElementById('teacherPassword').value='';
+    document.getElementById('teacherMemberId').value='';
+    document.getElementById('teacherMemberQ').value='';
+    document.getElementById('teacherMemberHits').style.display='none';
+    document.getElementById('teacherMemberHits').innerHTML='';
+    document.getElementById('teacherMemberPicked').textContent='Not linked — you can still type a name below.';
+}
+function setPasswordMode(isCreate){
+    document.getElementById('teacherPasswordLabel').textContent=isCreate?'Password *':'Password';
+    document.getElementById('teacherPasswordHint').textContent=isCreate?'They will sign in with this password.':'Leave blank to keep the current password.';
+    document.getElementById('teacherPassword').required=!!isCreate;
+}
+function pickTeacherMember(id,name,code){
+    document.getElementById('teacherMemberId').value=id;
+    document.getElementById('teacherMemberQ').value='';
+    document.getElementById('teacherMemberHits').style.display='none';
+    document.getElementById('teacherMemberPicked').innerHTML=`Linked: <strong>${esc(name)}</strong> <span class="ch ch-i">${esc(code||'')}</span> <button type="button" class="btn btn-o btn-xs" onclick="clearTeacherMember()">Unlink</button>`;
+    const fn=document.getElementById('teacherFullName');
+    if(!fn.value.trim()) fn.value=name;
+}
+function clearTeacherMember(){
+    document.getElementById('teacherMemberId').value='';
+    document.getElementById('teacherMemberQ').value='';
+    document.getElementById('teacherMemberPicked').textContent='Not linked — you can still type a name below.';
+}
+function searchTeacherMembers(q){
+    clearTimeout(_memberSearchTimer);
+    const box=document.getElementById('teacherMemberHits');
+    if(!q||q.trim().length<1){box.style.display='none';return;}
+    _memberSearchTimer=setTimeout(async()=>{
+        try{
+            const d=await getAPI('/admin/api_teachers.php?action=search_members_for_teacher&q='+encodeURIComponent(q.trim()));
+            const m=d.members||[];
+            if(!m.length){box.innerHTML='<div class="t-hit" style="cursor:default;color:#94a3b8">No matching members</div>';box.style.display='block';return;}
+            box.innerHTML=m.map(x=>{
+                const nm=((x.student_name||'')+' '+(x.father_name||'')).trim();
+                const safeNm=nm.replace(/['"\\]/g,'');
+                const safeCode=String(x.member_code||'').replace(/['"\\]/g,'');
+                return `<div class="t-hit" onclick="pickTeacherMember(${parseInt(x.id,10)},'${esc(safeNm)}','${esc(safeCode)}')"><strong>${esc(x.student_name||'')}</strong> <span style="color:#64748b">${esc(x.father_name||'')}</span> <span class="ch ch-i">${esc(x.member_code||'')}</span></div>`;
+            }).join('');
+            box.style.display='block';
+        }catch(e){box.style.display='none';}
+    },250);
+}
+async function openCreateTeacher(){
+    currentTeacherId=null;asgRows=[];homeroomClassIds=[];
+    resetTeacherForm();setPasswordMode(true);
+    document.getElementById('teacherModalTitle').innerHTML='<i class="fa-solid fa-user-plus"></i> Add Teacher';
+    addAsgRow();
+    await loadHomeroomHolders();
+    renderHomeroomChips();
+    document.getElementById('teacherModal').classList.add('show');
+}
 function editTeacher(id){
-    getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${id}`).then(d=>{
-        if(d.status==='success'){const t=d.teacher;currentTeacherId=t.id;
+    getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${id}`).then(async d=>{
+        if(d.status!=='success'){toast(d.message||'Teacher not found','err');return;}
+        const t=d.teacher;currentTeacherId=t.id;
+        resetTeacherForm();setPasswordMode(false);
         document.getElementById('teacherModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Teacher';
-        document.getElementById('teacherFullName').value=t.full_name||'';document.getElementById('teacherUsername').value=t.username||'';
-        document.getElementById('teacherEmail').value=t.email||'';document.getElementById('teacherPassword').value='';
-        document.getElementById('teacherPassword').required=false;document.getElementById('teacherMemberId').value=t.member_id||'';
+        document.getElementById('teacherFullName').value=t.full_name||'';
+        document.getElementById('teacherUsername').value=t.username||'';
+        document.getElementById('teacherEmail').value=t.email||'';
+        if(t.member_id){
+            const nm=(t.member_name||t.full_name||'Member');
+            pickTeacherMember(t.member_id,nm,t.member_code||'');
+        }
         const asgns=t.assignments||d.assignments||[];
-        tempAssignments=asgns.map(a=>({class_id:a.class_id,subject_id:a.subject_id,class_name:a.class_name,subject_name:a.subject_name,id:a.id}));
-        renderTempAssignments();showTab('info');document.getElementById('teacherModal').classList.add('show');}
+        asgRows=[];homeroomClassIds=[];
+        asgns.forEach(a=>{
+            const isHome=a.is_class_teacher==1||!a.subject_id;
+            if(a.subject_id) asgRows.push({class_id:a.class_id,subject_id:a.subject_id});
+            if(isHome&&a.class_id){const cid=parseInt(a.class_id,10);if(homeroomClassIds.indexOf(cid)<0)homeroomClassIds.push(cid);}
+        });
+        if(!asgRows.length) asgRows.push({class_id:'',subject_id:''});
+        renderAsgRows();
+        await loadHomeroomHolders();
+        renderHomeroomChips();
+        document.getElementById('teacherModal').classList.add('show');
     });
 }
-function fillFromMember(){const s=document.getElementById('teacherMemberId');const opt=s.options[s.selectedIndex];if(opt&&opt.dataset.name){document.getElementById('teacherFullName').value=opt.dataset.name;}}
-function addTempAssignment(){const cSel=document.getElementById('asgClass'),sSel=document.getElementById('asgSubject');if(!cSel.value||!sSel.value)return;const exists=tempAssignments.some(a=>a.class_id==cSel.value&&a.subject_id==sSel.value);if(exists)return toast('Already assigned','err');tempAssignments.push({class_id:cSel.value,subject_id:sSel.value,class_name:cSel.options[cSel.selectedIndex].text,subject_name:sSel.options[sSel.selectedIndex].text});renderTempAssignments();}
-function removeTempAssignment(i){tempAssignments.splice(i,1);renderTempAssignments();}
-function renderTempAssignments(){document.getElementById('tempAssignments').innerHTML=tempAssignments.length?tempAssignments.map((a,i)=>`<span class="at">${esc(a.class_name)} → ${esc(a.subject_name)} <button onclick="removeTempAssignment(${i})">&times;</button></span>`).join(''):'<p style="font-size:.8rem;color:#94a3b8">No assignments yet</p>';}
 async function saveTeacher(){
-    const fd=new FormData();fd.append('action',currentTeacherId?'update_teacher':'create_teacher');
-    if(currentTeacherId)fd.append('teacher_id',currentTeacherId);
-    fd.append('full_name',document.getElementById('teacherFullName').value);fd.append('username',document.getElementById('teacherUsername').value);
-    fd.append('email',document.getElementById('teacherEmail').value);fd.append('member_id',document.getElementById('teacherMemberId').value);
-    const pw=document.getElementById('teacherPassword').value;if(pw)fd.append(currentTeacherId?'new_password':'password',pw);
-    try{const d=await postAPI('/admin/api_teachers.php',fd);
-    if(d.status==='success'){toast(d.message);const tid=currentTeacherId||d.teacher_id;
-    // Sync assignments in separate try-catch so teacher save is not affected
-    if(tid){try{
-        // Get existing assignments from server for comparison
-        if(currentTeacherId){
-            const ed=await getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${tid}`);
-            const ea=ed.teacher?.assignments||ed.assignments||[];
-            const existingIds=ea.map(a=>a.id).filter(Boolean);
-            const keepIds=tempAssignments.map(a=>a.id).filter(Boolean);
-            // Remove assignments that were deleted
-            for(const eid of existingIds){
-                if(!keepIds.includes(eid)){
-                    const rfd=new FormData();rfd.append('action','remove_assignment');rfd.append('assignment_id',eid);
-                    const rr=await postAPI('/admin/api_teachers.php',rfd);
-                    if(rr.status==='success')console.log('Removed assignment',eid);
-                }
-            }
-        }
-        // Add new assignments (ones without an id)
-        for(const a of tempAssignments){
-            if(!a.id){
-                const afd=new FormData();afd.append('action','add_assignment');afd.append('teacher_id',tid);afd.append('class_id',a.class_id);afd.append('subject_id',a.subject_id);
-                const ar=await postAPI('/admin/api_teachers.php',afd);
-                if(ar.status==='success')toast('Assignment added','ok');
-                else if(ar.message&&ar.message.includes('already exists'))console.log('Assignment already exists, skipping');
-                else toast(ar.message||'Assignment error','err');
-            }
-        }
-    }catch(ae){console.log('Assignment sync note:',ae);}}
-    closeModal('teacherModal');loadTeachers();}else toast(d.message,'err');}catch(e){console.error('Save teacher error:',e);toast('Error saving teacher','err');}
+    const name=document.getElementById('teacherFullName').value.trim();
+    const user=document.getElementById('teacherUsername').value.trim();
+    const pw=document.getElementById('teacherPassword').value;
+    if(!name||!user) return toast('Full name and username are required.','err');
+    if(!currentTeacherId&&pw.length<4) return toast('Password must be at least 4 characters.','err');
+    if(currentTeacherId&&pw&&pw.length<4) return toast('New password must be at least 4 characters.','err');
+    const assignments=asgRows.filter(r=>r.class_id&&r.subject_id).map(r=>({class_id:parseInt(r.class_id,10),subject_id:parseInt(r.subject_id,10)}));
+    const fd=new FormData();
+    fd.append('action','save_teacher_bundle');
+    if(currentTeacherId) fd.append('teacher_id',currentTeacherId);
+    fd.append('full_name',name);
+    fd.append('username',user);
+    fd.append('email',document.getElementById('teacherEmail').value.trim());
+    fd.append('member_id',document.getElementById('teacherMemberId').value);
+    if(pw) fd.append('password',pw);
+    fd.append('assignments',JSON.stringify(assignments));
+    fd.append('homeroom_class_ids',JSON.stringify(homeroomClassIds));
+    const btn=document.getElementById('teacherSubmitBtn');
+    if(btn) btn.disabled=true;
+    try{
+        const d=await postAPI('/admin/api_teachers.php',fd);
+        if(d.status==='success'){toast(d.message);closeModal('teacherModal');loadTeachers();}
+        else toast(d.message||'Could not save teacher','err');
+    }catch(e){console.error('Save teacher error:',e);toast('Error saving teacher','err');}
+    if(btn) btn.disabled=false;
 }
 async function viewTeacher(id){
     try{const d=await getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${id}`);
@@ -654,7 +786,7 @@ async function viewTeacher(id){
             :`<div style="text-align:center;padding:1.5rem;color:#94a3b8;background:#f8fafc;border-radius:12px">
                 <i class="fa-solid fa-chalkboard" style="font-size:1.5rem;margin-bottom:.5rem;display:block;opacity:.3"></i>
                 <p style="font-size:.85rem;margin-bottom:.5rem">No assignments yet</p>
-                <button class="btn btn-p btn-xs" onclick="closeModal('viewTeacherModal');editTeacher(${t.id});showTab('assign')"><i class="fa-solid fa-plus"></i> Assign Classes</button>
+                <button class="btn btn-p btn-xs" onclick="closeModal('viewTeacherModal');editTeacher(${t.id})"><i class="fa-solid fa-plus"></i> Assign Classes</button>
             </div>`}
         </div>`;
     document.getElementById('viewTeacherModal').classList.add('show');}}catch(e){toast('Error loading teacher','err');}
@@ -1373,8 +1505,12 @@ nav=function(n){_origNav(n);if(n==='submissions')loadSubmissions();if(n==='repor
 
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',()=>{loadTeachers();
-// Close search dropdown on click outside
-document.addEventListener('click',e=>{const sr=document.getElementById('enrollSearchResults');if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';});
+document.addEventListener('click',e=>{
+    const sr=document.getElementById('enrollSearchResults');
+    if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
+    const mh=document.getElementById('teacherMemberHits');
+    if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';
+});
 });
 </script>
 </body></html>

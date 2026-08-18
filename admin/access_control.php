@@ -113,6 +113,8 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'assignments.php'     => ['super_admin', 'school_admin', 'edu_dept'],
             'edu_assignments.php' => ['super_admin', 'school_admin', 'edu_dept'],
             'edu_teachers.php'    => ['super_admin', 'school_admin', 'edu_dept'],
+            'api_timetable.php'   => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
+            'timetable.php'       => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
 
             // ---- Attendance ----
             'api_attendance.php'      => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'attendance_taker'],

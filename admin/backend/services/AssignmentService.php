@@ -462,6 +462,137 @@ class AssignmentService
     }
 
     /**
+     * Replace this teacher's regular + homeroom set for the current year.
+     * Rows with a subject stay regular; homeroom is only the listed classes.
+     *
+     * @param array<int, array{class_id?:int,subject_id?:int|null}> $assignments
+     * @param int[] $homeroomClassIds
+     * @return array{status:string,message:string,assigned:int,removed:int}
+     */
+    public static function syncForTeacher(
+        \mysqli $conn,
+        int $teacherId,
+        array $assignments,
+        array $homeroomClassIds,
+        ?int $yearId = null,
+        ?int $assignedBy = null
+    ): array {
+        self::ensureSchema($conn);
+        $yearId = self::resolveYearId($conn, $yearId);
+        if (!$yearId) {
+            return ['status' => 'error', 'message' => 'No active academic year.', 'assigned' => 0, 'removed' => 0];
+        }
+        $assignedBy = $assignedBy ?: (int)($_SESSION['admin_id'] ?? 0);
+
+        $desiredRegular = [];
+        foreach ($assignments as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $cid = (int)($row['class_id'] ?? 0);
+            $sid = !empty($row['subject_id']) ? (int)$row['subject_id'] : 0;
+            if ($cid <= 0 || $sid <= 0) {
+                continue;
+            }
+            $desiredRegular[$cid . ':' . $sid] = ['class_id' => $cid, 'subject_id' => $sid];
+        }
+        $desiredHome = [];
+        foreach ($homeroomClassIds as $cid) {
+            $cid = (int)$cid;
+            if ($cid > 0) {
+                $desiredHome[$cid] = $cid;
+            }
+        }
+
+        $current = [];
+        $stmt = $conn->prepare(
+            "SELECT id, class_id, subject_id, is_class_teacher, assignment_role
+             FROM teacher_assignments
+             WHERE teacher_id = ? AND academic_year_id = ? AND is_active = 1"
+        );
+        if ($stmt) {
+            $stmt->bind_param('ii', $teacherId, $yearId);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $current[] = $row;
+            }
+            $stmt->close();
+        }
+
+        $keptRegular = [];
+        $keptHome = [];
+        $removed = 0;
+        foreach ($current as $row) {
+            $aid = (int)$row['id'];
+            $cid = (int)$row['class_id'];
+            $sid = !empty($row['subject_id']) ? (int)$row['subject_id'] : 0;
+            $isHome = !empty($row['is_class_teacher']) || (($row['assignment_role'] ?? '') === 'homeroom');
+            if ($sid > 0) {
+                $key = $cid . ':' . $sid;
+                if (isset($desiredRegular[$key])) {
+                    $keptRegular[$key] = true;
+                    continue;
+                }
+                $res = self::unassign($conn, $aid);
+                if (($res['status'] ?? '') === 'success') {
+                    $removed++;
+                }
+                continue;
+            }
+            if ($isHome) {
+                if (isset($desiredHome[$cid])) {
+                    $keptHome[$cid] = true;
+                    continue;
+                }
+                $res = self::unassign($conn, $aid);
+                if (($res['status'] ?? '') === 'success') {
+                    $removed++;
+                }
+            }
+        }
+
+        $assigned = 0;
+        foreach ($desiredRegular as $key => $pair) {
+            if (!empty($keptRegular[$key])) {
+                continue;
+            }
+            $res = self::assign(
+                $conn,
+                $teacherId,
+                $pair['class_id'],
+                $pair['subject_id'],
+                'primary',
+                $yearId,
+                $assignedBy
+            );
+            if (($res['status'] ?? '') === 'success' && empty($res['skipped'])) {
+                $assigned++;
+            }
+        }
+        foreach ($desiredHome as $cid) {
+            if (!empty($keptHome[$cid])) {
+                continue;
+            }
+            $res = self::setHomeroom($conn, $teacherId, $cid, $yearId, $assignedBy);
+            if (($res['status'] ?? '') === 'success') {
+                $assigned++;
+            }
+        }
+
+        $msg = 'Assignments saved.';
+        if ($assigned || $removed) {
+            $msg = $assigned . ' added, ' . $removed . ' removed.';
+        }
+        return [
+            'status' => 'success',
+            'message' => $msg,
+            'assigned' => $assigned,
+            'removed' => $removed,
+        ];
+    }
+
+    /**
      * Replace the class list for one subject (catalog). Does not touch teacher rows.
      *
      * @param int[] $classIds
