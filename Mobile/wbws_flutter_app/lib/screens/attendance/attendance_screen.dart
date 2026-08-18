@@ -8,7 +8,8 @@ import '../../utils/theme.dart';
 import '../../widgets/loading_skeleton.dart';
 
 class AttendanceScreen extends StatefulWidget {
-  const AttendanceScreen({super.key});
+  final int? initialClassId;
+  const AttendanceScreen({super.key, this.initialClassId});
 
   @override
   State<AttendanceScreen> createState() => AttendanceScreenState();
@@ -77,7 +78,22 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     if (_classes.isNotEmpty && _selectedClassId == null) {
-      setState(() => _selectedClassId = _classes.first['id']);
+      int? pick;
+      if (widget.initialClassId != null) {
+        for (final c in _classes) {
+          final id = c['id'] is int ? c['id'] as int : int.tryParse('${c['id']}');
+          if (id == widget.initialClassId) pick = id;
+        }
+      }
+      pick ??= _classes.first['id'] is int
+          ? _classes.first['id'] as int
+          : int.tryParse('${_classes.first['id']}');
+      setState(() {
+        _selectedClassId = pick;
+        _selectedClassName = _classes.firstWhere(
+            (c) => (c['id'] is int ? c['id'] : int.tryParse('${c['id']}')) == pick,
+            orElse: () => _classes.first)['class_name'];
+      });
       _loadAttendance();
     }
   }

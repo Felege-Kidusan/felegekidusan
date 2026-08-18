@@ -662,4 +662,14 @@ class LocalDb {
     await db.delete('cached_members');
     try { await db.delete('cached_attendance'); } catch (_) {}
   }
+
+  /// Full wipe for this device user — cache + unsynced rows.
+  /// Prevents the next login on this phone from seeing the previous roster.
+  Future<void> clearAllUserData() async {
+    final db = await database;
+    await clearAllCache();
+    await db.delete('pending_attendance');
+    await db.delete('pending_grades');
+    try { await db.delete('sync_log'); } catch (_) {}
+  }
 }

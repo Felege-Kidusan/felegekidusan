@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/local_db.dart';
+import '../../services/session_service.dart';
 import '../../services/sync_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
@@ -82,9 +83,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (confirm != true) return;
     }
 
-    _sync.stopAutoSync();
-    await _db.clearAllCache();
-    await _api.logout();
+    await SessionService.signOut();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       SmoothPageRoute(page: const LoginScreen()),

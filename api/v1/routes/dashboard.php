@@ -100,7 +100,7 @@ if ($action === 'stats' && $method === 'GET') {
         $data['classes_count'] = count($classIds);
     } else {
         try {
-            $r = $conn->query("SELECT COUNT(*) as cnt FROM classes WHERE status = 'active'");
+            $r = $conn->query("SELECT COUNT(*) as cnt FROM classes WHERE is_active = 1");
             $data['classes_count'] = $r ? (int)$r->fetch_assoc()['cnt'] : 0;
         } catch (Exception $e) { $data['classes_count'] = 0; }
     }

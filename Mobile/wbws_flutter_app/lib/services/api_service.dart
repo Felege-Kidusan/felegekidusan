@@ -346,4 +346,26 @@ class ApiService {
     if (subjectId != null) params['subject_id'] = '$subjectId';
     return get('/grades/summary', params: params);
   }
+
+  // ============================================================
+  // EDUCATION (read + one-student enroll — create teacher stays on website)
+  // ============================================================
+
+  Future<ApiResponse> getTeachers({int page = 1, int limit = 50, String? search}) {
+    final params = <String, String>{'page': '$page', 'limit': '$limit'};
+    if (search != null && search.isNotEmpty) params['q'] = search;
+    return get('/teachers', params: params);
+  }
+
+  Future<ApiResponse> getTeacher(int id) => get('/teachers/$id');
+
+  Future<ApiResponse> getSubjects() => get('/subjects');
+
+  Future<ApiResponse> getEnrollmentOverview() => get('/enrollment/overview');
+
+  Future<ApiResponse> searchEnrollment(String q, {int limit = 20}) =>
+      get('/enrollment/search', params: {'q': q, 'limit': '$limit'});
+
+  Future<ApiResponse> enrollStudent(int memberId, int classId) =>
+      post('/enrollment', body: {'member_id': memberId, 'class_id': classId});
 }

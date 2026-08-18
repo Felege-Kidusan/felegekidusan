@@ -135,7 +135,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Grades'),
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
           if (_pendingGrades > 0)
             IconButton(

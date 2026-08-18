@@ -124,7 +124,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Members'),
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
           IconButton(
               icon: const Icon(Icons.refresh, size: 20),

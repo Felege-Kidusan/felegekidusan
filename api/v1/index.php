@@ -18,6 +18,7 @@
 require_once __DIR__ . '/core/response.php';
 require_once __DIR__ . '/core/database.php';
 require_once __DIR__ . '/core/auth.php';
+require_once __DIR__ . '/core/acl.php';
 require_once __DIR__ . '/core/middleware.php';
 
 // CORS + headers
@@ -68,14 +69,11 @@ $routeMap = [
     'attendance'    => 'attendance.php',
     'classes'       => 'classes.php',
     'dashboard'     => 'dashboard.php',
-    'groups'        => 'groups.php',
     'teachers'      => 'teachers.php',
-    'reports'       => 'reports.php',
-    'settings'      => 'settings.php',
-    'notifications' => 'notifications.php',
+    'enrollment'    => 'enrollment.php',
+    'subjects'      => 'subjects.php',
     'users'         => 'users.php',
-    'sync'          => 'sync.php',
-  'grades'        => 'grades.php',
+    'grades'        => 'grades.php',
 ];
 
 // Check if resource exists

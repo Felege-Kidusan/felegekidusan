@@ -7,6 +7,10 @@ import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/feature_tile.dart';
+import '../../widgets/use_website_note.dart';
+import '../../utils/transitions.dart';
+import '../members/member_list_screen.dart';
+import '../attendance/attendance_screen.dart';
 
 class InfoHomeScreen extends StatefulWidget {
   const InfoHomeScreen({super.key});
@@ -108,21 +112,21 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
         Expanded(child: StatCard(label: 'New (7d)', value: '${_stats['recent_registrations'] ?? 0}', icon: Icons.person_add, color: AppTheme.info)),
       ]),
       const SizedBox(height: 20),
-      const SectionHeader(title: 'Member Management'),
+      const SectionHeader(title: 'On this phone'),
       GridView.count(
         crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.95,
         children: [
-          FeatureTile(label: 'Register', icon: Icons.person_add_rounded, color: AppTheme.success, onTap: () {}),
-          FeatureTile(label: 'Members', icon: Icons.people_rounded, color: AppTheme.primary, onTap: () {}),
-          FeatureTile(label: 'ID Cards', icon: Icons.badge_rounded, color: Color(0xFF7C3AED), onTap: () {}),
-          FeatureTile(label: 'Archive', icon: Icons.archive_rounded, color: Colors.grey, onTap: () {}),
-          FeatureTile(label: 'Groups', icon: Icons.groups_rounded, color: AppTheme.accent, onTap: () {}),
-          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.warning, onTap: () {}),
-          FeatureTile(label: 'Reports', icon: Icons.assessment_rounded, color: AppTheme.info, onTap: () {}),
-          FeatureTile(label: 'Att. Takers', icon: Icons.person_pin_rounded, color: AppTheme.danger, onTap: () {}),
-          FeatureTile(label: 'Settings', icon: Icons.settings_rounded, color: Colors.grey, onTap: () {}),
+          FeatureTile(label: 'Members', icon: Icons.people_rounded, color: AppTheme.primary,
+              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const MemberListScreen()))),
+          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.warning,
+              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const AttendanceScreen()))),
         ],
+      ),
+      const SizedBox(height: 16),
+      const UseWebsiteNote(
+        title: 'Register, ID cards, groups',
+        body: 'Those stay on the website so a child’s full record is only opened there.',
       ),
     ];
   }

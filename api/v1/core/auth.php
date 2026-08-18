@@ -72,13 +72,12 @@ function getTokenFromRequest() {
         $header = $h['Authorization'] ?? $h['authorization'] ?? '';
     }
     
-    // Extract Bearer token
+    // Bearer header only — never accept ?token= (it leaks into access logs).
     if (strpos($header, 'Bearer ') === 0) {
         return substr($header, 7);
     }
-    
-    // Fallback: query param or POST field
-    return $_GET['token'] ?? $_POST['token'] ?? '';
+
+    return '';
 }
 
 /**

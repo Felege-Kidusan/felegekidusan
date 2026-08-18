@@ -7,6 +7,7 @@ import '../../utils/theme.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../attendance/attendance_screen.dart';
 
 class AttTakerHomeScreen extends StatefulWidget {
   const AttTakerHomeScreen({super.key});
@@ -148,6 +149,12 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
                     ..._classes.map((c) => Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
+                        onTap: () {
+                          final id = c['id'] is int ? c['id'] as int : int.tryParse('${c['id']}');
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => AttendanceScreen(initialClassId: id),
+                          ));
+                        },
                         leading: Container(
                           width: 44, height: 44,
                           decoration: BoxDecoration(color: AppTheme.primary.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),

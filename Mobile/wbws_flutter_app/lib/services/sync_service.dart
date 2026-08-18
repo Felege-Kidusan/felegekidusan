@@ -130,20 +130,8 @@ class SyncService {
       }
     } catch (_) {}
 
-    // Cache members list (all pages)
-    try {
-      int page = 1;
-      while (true) {
-        final membersRes = await _api.getMembers(page: page, limit: 100);
-        if (!membersRes.success || membersRes.data == null) break;
-        final items = membersRes.data['items'] as List? ?? [];
-        if (items.isEmpty) break;
-        await _db.cacheMembers(items);
-        if (items.length < 100) break; // last page
-        page++;
-        if (page > 20) break; // safety cap: 2000 members max
-      }
-    } catch (_) {}
+    // Never download the whole school onto the phone.
+    // Teachers only get the classes they are assigned.
 
     // Cache classes and their students/subjects
     try {

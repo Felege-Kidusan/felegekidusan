@@ -14,6 +14,10 @@ $auth = apiRequireAuth();
 $id = $ROUTE['id'];
 $sub = $ROUTE['sub'];
 
+if (apiRoleIs($auth, ['finance_dept', 'material_dept'])) {
+    err('Classes are not available for this role. Use the website.', 403);
+}
+
 // ============================================================
 // GET /classes — List classes (role-filtered)
 // ============================================================
@@ -191,7 +195,7 @@ if ($method === 'GET' && $id !== null && $sub === 'students') {
     try {
         if ($year) {
             $stmt = $conn->prepare("SELECT m.id, m.member_code, m.student_name, m.father_name, 
-                                           m.gender, m.age_group, m.phone_number, 
+                                           m.gender, m.age_group,
                                            m.student_photo_path, m.status
                                     FROM class_enrollments ce 
                                     JOIN members m ON ce.member_id = m.id 
@@ -202,7 +206,7 @@ if ($method === 'GET' && $id !== null && $sub === 'students') {
             $stmt->bind_param('ii', $id, $year['id']);
         } else {
             $stmt = $conn->prepare("SELECT m.id, m.member_code, m.student_name, m.father_name, 
-                                           m.gender, m.age_group, m.phone_number, 
+                                           m.gender, m.age_group,
                                            m.student_photo_path, m.status
                                     FROM class_enrollments ce 
                                     JOIN members m ON ce.member_id = m.id 
@@ -213,12 +217,9 @@ if ($method === 'GET' && $id !== null && $sub === 'students') {
         $stmt->execute();
         $r = $stmt->get_result();
         while ($row = $r->fetch_assoc()) {
-            $row['id'] = (int)$row['id'];
-            $row['photo_url'] = $row['student_photo_path'] 
-                ? SITE_URL . '/' . ltrim($row['student_photo_path'], '/') 
-                : null;
+            $row['photo_url'] = apiPhotoUrl($row['student_photo_path'] ?? null);
             unset($row['student_photo_path']);
-            $students[] = $row;
+            $students[] = apiRosterStudentRow($row);
         }
         $stmt->close();
     } catch (Exception $e) {

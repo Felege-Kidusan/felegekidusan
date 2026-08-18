@@ -7,6 +7,11 @@ import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/feature_tile.dart';
+import '../../widgets/use_website_note.dart';
+import '../../utils/transitions.dart';
+import '../members/member_list_screen.dart';
+import '../attendance/attendance_screen.dart';
+import '../teacher/teacher_grades.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -147,22 +152,23 @@ class AdminHomeScreenState extends State<AdminHomeScreen> {
       ]),
       const SizedBox(height: 20),
 
-      // Quick actions
-      const SectionHeader(title: 'System Management'),
+      const SectionHeader(title: 'On this phone'),
       GridView.count(
         crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.95,
         children: [
-          FeatureTile(label: 'Users', icon: Icons.people_alt_rounded, color: AppTheme.primary, onTap: () {}),
-          FeatureTile(label: 'Departments', icon: Icons.business_rounded, color: AppTheme.accent, onTap: () {}),
-          FeatureTile(label: 'Settings', icon: Icons.settings_rounded, color: Colors.grey, onTap: () {}),
-          FeatureTile(label: 'Activity Log', icon: Icons.history_rounded, color: AppTheme.info, onTap: () {}),
-          FeatureTile(label: 'Backup', icon: Icons.backup_rounded, color: AppTheme.success, onTap: () {}),
-          FeatureTile(label: 'System Health', icon: Icons.monitor_heart_rounded, color: AppTheme.danger, onTap: () {}),
-          FeatureTile(label: 'Branding', icon: Icons.palette_rounded, color: Color(0xFF7C3AED), onTap: () {}),
-          FeatureTile(label: 'Reports', icon: Icons.assessment_rounded, color: AppTheme.warning, onTap: () {}),
-          FeatureTile(label: 'Academic Year', icon: Icons.calendar_month_rounded, color: AppTheme.primary, onTap: () {}),
+          FeatureTile(label: 'Members', icon: Icons.people_rounded, color: AppTheme.primary,
+              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const MemberListScreen()))),
+          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.warning,
+              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const AttendanceScreen()))),
+          FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.info,
+              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const TeacherGradesScreen()))),
         ],
+      ),
+      const SizedBox(height: 16),
+      const UseWebsiteNote(
+        title: 'Users, backup, academic year',
+        body: 'System settings stay on the website so they are not changed from a phone by mistake.',
       ),
     ];
   }

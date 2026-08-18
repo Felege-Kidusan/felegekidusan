@@ -56,10 +56,14 @@ class UserRoles {
 
   static bool canManageMembers(String role) =>
       [superAdmin, schoolAdmin, infoDept].contains(role);
+  static bool canBrowseMembers(String role) =>
+      [superAdmin, schoolAdmin, infoDept, eduDept].contains(role);
   static bool canTakeAttendance(String role) =>
       [superAdmin, schoolAdmin, teacher, attendanceTaker, eduDept].contains(role);
   static bool canManageGrades(String role) =>
       [superAdmin, schoolAdmin, teacher, eduDept].contains(role);
+  static bool canManageEducation(String role) =>
+      [superAdmin, schoolAdmin, eduDept].contains(role);
 }
 
 // ============================================================

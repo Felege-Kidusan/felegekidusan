@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
 import '../../services/local_db.dart';
+import '../../services/session_service.dart';
 import '../../utils/config.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/transitions.dart';
@@ -11,6 +12,7 @@ import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../auth/login_screen.dart';
+import '../attendance/attendance_screen.dart';
 
 class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
@@ -128,7 +130,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     );
 
     if (confirm == true) {
-      await _api.logout();
+      await SessionService.signOut();
       if (!mounted) return;
       context.pushAndClearSmooth(const LoginScreen());
     }
@@ -395,8 +397,11 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
-          // Navigate to attendance tab with this class pre-selected
-          // We'll use a simple callback approach
+          Navigator.of(context).push(SmoothPageRoute(
+            page: AttendanceScreen(initialClassId: classData['id'] is int
+                ? classData['id'] as int
+                : int.tryParse('${classData['id']}')),
+          ));
         },
         child: Padding(
           padding: const EdgeInsets.all(14),

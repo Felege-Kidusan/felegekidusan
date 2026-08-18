@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/local_db.dart';
-import '../../utils/config.dart';
 import '../../utils/theme.dart';
+import '../../utils/transitions.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/feature_tile.dart';
+import '../../widgets/use_website_note.dart';
+import '../attendance/attendance_screen.dart';
+import '../teacher/teacher_grades.dart';
+import 'edu_classes_screen.dart';
+import 'edu_teachers_screen.dart';
+import 'edu_enrollment_screen.dart';
+import 'edu_subjects_screen.dart';
 
 class EduHomeScreen extends StatefulWidget {
   const EduHomeScreen({super.key});
@@ -37,7 +44,7 @@ class EduHomeScreenState extends State<EduHomeScreen> {
 
     final res = await _api.getDashboardStats();
     if (!mounted) return;
-    
+
     if (res.success && res.data != null) {
       setState(() { _stats = res.data['stats'] ?? {}; _loading = false; _isOffline = false; });
       _db.cacheDashboardStats(res.data, _api.userRole);
@@ -46,6 +53,10 @@ class EduHomeScreenState extends State<EduHomeScreen> {
     } else {
       setState(() { _isOffline = res.isNetworkError; });
     }
+  }
+
+  void _open(Widget page) {
+    Navigator.of(context).push(SmoothPageRoute(page: page));
   }
 
   @override
@@ -100,9 +111,9 @@ class EduHomeScreenState extends State<EduHomeScreen> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('የትምህርት ክፍል', style: TextStyle(fontSize: 13, color: Colors.grey.shade300, fontFamily: 'NotoSansEthiopic')),
           const SizedBox(height: 2),
-          Text('Education Department', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white)),
+          const Text('Education Department', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white)),
           const SizedBox(height: 4),
-          Text('Manage classes, teachers, grades & enrollment', style: TextStyle(fontSize: 12, color: Colors.grey.shade300)),
+          Text('Classes, teachers, grades & enrollment', style: TextStyle(fontSize: 12, color: Colors.grey.shade300)),
         ]),
       ),
       const SizedBox(height: 16),
@@ -114,26 +125,24 @@ class EduHomeScreenState extends State<EduHomeScreen> {
         Expanded(child: StatCard(label: 'Today', value: '${att['present'] ?? 0}', icon: Icons.check_circle, color: AppTheme.success)),
       ]),
       const SizedBox(height: 20),
-      const SectionHeader(title: 'Education Management'),
+      const SectionHeader(title: 'On this phone'),
       GridView.count(
         crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.95,
         children: [
-          FeatureTile(label: 'Classes', icon: Icons.class_rounded, color: AppTheme.primary, onTap: () {}),
-          FeatureTile(label: 'Teachers', icon: Icons.person_rounded, color: Color(0xFF7C3AED), onTap: () {}),
-          FeatureTile(label: 'Subjects', icon: Icons.book_rounded, color: AppTheme.info, onTap: () {}),
-          FeatureTile(label: 'Enrollment', icon: Icons.person_add_rounded, color: AppTheme.success, onTap: () {}),
-          FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () {}),
-          FeatureTile(label: 'Assessments', icon: Icons.assignment_rounded, color: AppTheme.accent, onTap: () {}),
-          FeatureTile(label: 'Report Cards', icon: Icons.description_rounded, color: AppTheme.danger, onTap: () {}, enabled: false),
-          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: Colors.grey, onTap: () {}),
-          FeatureTile(label: 'Settings', icon: Icons.tune_rounded, color: Colors.grey, onTap: () {}),
+          FeatureTile(label: 'Classes', icon: Icons.class_rounded, color: AppTheme.primary, onTap: () => _open(const EduClassesScreen())),
+          FeatureTile(label: 'Teachers', icon: Icons.person_rounded, color: const Color(0xFF7C3AED), onTap: () => _open(const EduTeachersScreen())),
+          FeatureTile(label: 'Subjects', icon: Icons.book_rounded, color: AppTheme.info, onTap: () => _open(const EduSubjectsScreen())),
+          FeatureTile(label: 'Enrollment', icon: Icons.person_add_rounded, color: AppTheme.success, onTap: () => _open(const EduEnrollmentScreen())),
+          FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () => _open(const TeacherGradesScreen())),
+          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.accent, onTap: () => _open(const AttendanceScreen())),
         ],
+      ),
+      const SizedBox(height: 16),
+      const UseWebsiteNote(
+        title: 'Report cards, bulk enroll, new teacher login',
+        body: 'Those stay on the website Education screen — same purple sidebar you already use.',
       ),
     ];
   }
 }
-
-
-
-

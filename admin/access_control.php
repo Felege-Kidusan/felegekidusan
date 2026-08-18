@@ -73,7 +73,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'index.php',        // the admin login screen itself
             'login.php',        // backend/login.php — processes the login form
             'logout.php',       // clears the session
-            'app_session.php',  // mobile app → web session bridge (own token check)
+            'app_session.php',  // retired phone-to-web bridge (returns 410)
             'theme.php',        // theme CSS, pulled in by the login screen
             'manifest.php',
         ];

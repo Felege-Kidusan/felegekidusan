@@ -1,21 +1,21 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    
+
     # Pass Authorization header through
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-    
+
     # If the request is for an actual file or directory, serve it
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
-    
+
     # Route everything to index.php
     RewriteRule ^(.*)$ index.php?_route=$1 [QSA,L]
 </IfModule>
 
-# CORS headers
+# CORS is decided in PHP (api/v1/core/middleware.php) so we do not
+# blindly send Access-Control-Allow-Origin: * from Apache.
 <IfModule mod_headers.c>
-    Header always set Access-Control-Allow-Origin "*"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
-    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-API-Version "1.0"
 </IfModule>

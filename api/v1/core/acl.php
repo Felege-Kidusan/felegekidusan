@@ -1,0 +1,190 @@
+<?php
+/**
+ * School API v1 — Access control and member-field shaping.
+ *
+ * Security lives here, not in the Flutter screens. Every route should
+ * call these helpers so a future UI rewrite cannot leak Sunday-school PII.
+ */
+
+function apiRoleOf(array $auth): string
+{
+    return (string)($auth['rol'] ?? '');
+}
+
+function apiRoleIs(array $auth, $roles): bool
+{
+    return in_array(apiRoleOf($auth), (array)$roles, true);
+}
+
+/** Info / school / super admin — the only roles that may see phones and addresses. */
+function apiRolesPii(): array
+{
+    return ['info_dept', 'school_admin', 'super_admin'];
+}
+
+function apiRolesEducation(): array
+{
+    return ['edu_dept', 'school_admin', 'super_admin'];
+}
+
+function apiRolesAttendance(): array
+{
+    return ['teacher', 'attendance_taker', 'edu_dept', 'school_admin', 'super_admin'];
+}
+
+function apiRolesGrades(): array
+{
+    return ['teacher', 'edu_dept', 'school_admin', 'super_admin'];
+}
+
+function apiCanViewMemberPii(array $auth): bool
+{
+    return apiRoleIs($auth, apiRolesPii());
+}
+
+function apiCanBrowseMembers(array $auth): bool
+{
+    return apiRoleIs($auth, array_merge(apiRolesPii(), ['edu_dept']));
+}
+
+function apiCanManageMembers(array $auth): bool
+{
+    return apiRoleIs($auth, apiRolesPii());
+}
+
+function apiIsClassRestricted(array $auth): bool
+{
+    return apiRoleIs($auth, ['teacher', 'attendance_taker']);
+}
+
+function apiUserAssignedToClass($conn, int $userId, int $classId, int $yearId): bool
+{
+    if ($userId <= 0 || $classId <= 0) {
+        return false;
+    }
+    $stmt = $conn->prepare(
+        "SELECT id FROM teacher_assignments
+         WHERE teacher_id = ? AND class_id = ?
+           AND is_active = 1
+           AND (academic_year_id IS NULL OR academic_year_id = ?)
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param('iii', $userId, $classId, $yearId);
+    $stmt->execute();
+    $ok = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+    return $ok;
+}
+
+function apiRequireClassAccess($conn, array $auth, int $classId, int $yearId): void
+{
+    if (!apiIsClassRestricted($auth)) {
+        return;
+    }
+    if (!apiUserAssignedToClass($conn, (int)$auth['uid'], $classId, $yearId)) {
+        err('You are not assigned to this class.', 403);
+    }
+}
+
+function apiTeacherCanSeeMember($conn, array $auth, int $memberId, int $yearId): bool
+{
+    $uid = (int)($auth['uid'] ?? 0);
+    if ($uid <= 0 || $memberId <= 0) {
+        return false;
+    }
+    $stmt = $conn->prepare(
+        "SELECT 1
+         FROM class_enrollments ce
+         JOIN teacher_assignments ta
+           ON ta.class_id = ce.class_id
+          AND ta.teacher_id = ?
+          AND ta.is_active = 1
+          AND (ta.academic_year_id IS NULL OR ta.academic_year_id = ?)
+         WHERE ce.member_id = ?
+           AND ce.status = 'active'
+           AND ce.academic_year_id = ?
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param('iiii', $uid, $yearId, $memberId, $yearId);
+    $stmt->execute();
+    $ok = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+    return $ok;
+}
+
+/** Name, code, class — never phones or home address. */
+function apiMemberSafeRow(array $row): array
+{
+    $out = [
+        'id' => isset($row['id']) ? (int)$row['id'] : 0,
+        'member_code' => $row['member_code'] ?? '',
+        'student_name' => $row['student_name'] ?? '',
+        'father_name' => $row['father_name'] ?? '',
+        'grandfather_name' => $row['grandfather_name'] ?? '',
+        'full_name_am' => $row['full_name_am'] ?? null,
+        'gender' => $row['gender'] ?? '',
+        'age_group' => $row['age_group'] ?? null,
+        'status' => $row['status'] ?? '',
+        'member_type' => $row['member_type'] ?? null,
+        'current_section' => $row['current_section'] ?? null,
+        'photo_url' => $row['photo_url'] ?? null,
+        'created_at' => $row['created_at'] ?? null,
+    ];
+    if (array_key_exists('current_class', $row)) {
+        $out['current_class'] = $row['current_class'];
+    }
+    return $out;
+}
+
+/** Extra fields for Info / School Admin only. */
+function apiMemberStaffRow(array $row): array
+{
+    $out = apiMemberSafeRow($row);
+    $out['phone_number'] = $row['phone_number'] ?? null;
+    $out['phone_primary'] = $row['phone_primary'] ?? null;
+    $out['alt_phone_number'] = $row['alt_phone_number'] ?? null;
+    $out['guardian_name'] = $row['guardian_name'] ?? null;
+    $out['guardian_phone1'] = $row['guardian_phone1'] ?? null;
+    $out['guardian_phone2'] = $row['guardian_phone2'] ?? null;
+    $out['address'] = $row['address'] ?? null;
+    $out['city'] = $row['city'] ?? null;
+    $out['sub_city'] = $row['sub_city'] ?? null;
+    $out['woreda'] = $row['woreda'] ?? null;
+    $out['date_of_birth'] = $row['date_of_birth'] ?? null;
+    $out['baptismal_name'] = $row['baptismal_name'] ?? ($row['christian_name'] ?? null);
+    $out['education_level'] = $row['education_level'] ?? null;
+    $out['registration_type'] = $row['registration_type'] ?? null;
+    return $out;
+}
+
+function apiRosterStudentRow(array $row): array
+{
+    return [
+        'id' => isset($row['id']) ? (int)$row['id'] : (isset($row['member_id']) ? (int)$row['member_id'] : 0),
+        'member_id' => isset($row['member_id']) ? (int)$row['member_id'] : (isset($row['id']) ? (int)$row['id'] : 0),
+        'member_code' => $row['member_code'] ?? '',
+        'student_name' => $row['student_name'] ?? '',
+        'father_name' => $row['father_name'] ?? '',
+        'gender' => $row['gender'] ?? '',
+        'age_group' => $row['age_group'] ?? null,
+        'status' => $row['status'] ?? null,
+        'photo_url' => $row['photo_url'] ?? null,
+    ];
+}
+
+function apiPhotoUrl(?string $path): ?string
+{
+    if (!$path) {
+        return null;
+    }
+    if (defined('SITE_URL')) {
+        return SITE_URL . '/' . ltrim($path, '/');
+    }
+    return '/' . ltrim($path, '/');
+}

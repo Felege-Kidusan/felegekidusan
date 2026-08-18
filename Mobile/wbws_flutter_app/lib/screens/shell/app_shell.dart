@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/sync_service.dart';
+import '../../services/session_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
