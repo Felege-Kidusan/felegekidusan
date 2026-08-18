@@ -135,19 +135,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $dob_month         = (int) field('dob_month', $cur['dob_ec_month'] ?? 0);
     $dob_year          = (int) field('dob_year', $cur['dob_ec_year'] ?? 0);
     
-    // Calculate age
-    $age = null; $age_group = null; $current_section = null;
+    // Age (optional) — Auto-age sectioning DISABLED by design
+    $age = null;
     if ($dob_year > 0) { 
         $now = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa')); 
         $y = (int)ethio_date_format($now, 'Y'); 
         $age = max(0, $y - $dob_year);
-        if ($age <= 6) { $current_section = 'አጸደ ህጻናት'; $age_group = 'under6'; }
-        elseif ($age <= 13) { $current_section = 'ህጻናት'; $age_group = '7_13'; }
-        elseif ($age <= 17) { $current_section = 'ማዕከላዊያን'; $age_group = '14_17'; }
-        else { $current_section = 'ወጣቶች'; $age_group = '18_plus'; }
     }
-    // Ensure age_group is either a valid value or NULL (never empty string)
-    if (empty($age_group)) { $age_group = null; }
+    // Respect explicitly provided values; never auto-override
+    $age_group       = field('age_group', $cur['age_group'] ?? null) ?: null;
+    $current_section = field('current_section', $cur['current_section'] ?? null) ?: null;
     
     $education_level  = field('education_level', $cur['education_level'] ?? '');
     $spiritual_education = field('spiritual_education', $cur['spiritual_education'] ?? '');
@@ -636,7 +633,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                     <div class="mm-info-row"><span class="mm-info-label">Full Name</span><span class="mm-info-value"><?= e($m['student_name']) ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Father Name</span><span class="mm-info-value"><?= e($m['father_name']) ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Grandfather</span><span class="mm-info-value"><?= esc($m['grandfather_name'], '—') ?></span></div>
-                    <div class="mm-info-row"><span class="mm-info-label">Baptismal Name</span><span class="mm-info-value"><?= esc($m['baptismal_name'], '—') ?></span></div>
+                    <div class="mm-info-row"><span class="mm-info-label">Christian Name (የክርስትና ስም)</span><span class="mm-info-value"><?= esc($m['baptismal_name'], '—') ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Gender</span><span class="mm-info-value"><?= $m['gender'] === 'male' ? 'ወንድ (Male)' : 'ሴት (Female)' ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Date of Birth</span><span class="mm-info-value"><?= $dobDisplay ?: '—' ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Age</span><span class="mm-info-value"><?= $m['age'] ? $m['age'] . ' years' : '—' ?></span></div>
@@ -849,7 +846,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                             </div>
                         </div>
                         <div class="mm-form-group">
-                            <label class="mm-label">Baptismal Name</label>
+                            <label class="mm-label">Christian Name (የክርስትና ስም)</label>
                             <input type="text" name="baptismal_name" value="<?= e($m['baptismal_name']) ?>" class="mm-input">
                         </div>
                         <div class="mm-row">

@@ -639,7 +639,7 @@ document.getElementById('memberDetail').innerHTML=`
 <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--ac),var(--ac2));display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.2rem;font-weight:700;flex-shrink:0">${(m.student_name||'?')[0].toUpperCase()}</div>
 <div style="flex:1;min-width:0"><div style="font-size:1.05rem;font-weight:700;color:var(--bright)">${esc(m.student_name||'')} ${esc(m.father_name||'')} ${esc(m.grandfather_name||'')}</div>
 <div style="font-size:.72rem;color:var(--dim);display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.2rem"><span class="bg bg-info">${esc(m.member_code||'—')}</span> ${stBg(m.status)} ${rgBg(m.registration_type)} <span style="color:${m.gender==='male'?'var(--info)':'var(--pink)'}">${m.gender==='male'?'♂ Male':'♀ Female'}</span></div></div></div>
-${sec('Personal Information','user','var(--ac)',[['Full Name',`<strong>${esc(m.student_name)}</strong>`],['Father Name',esc(m.father_name)],['Grandfather Name',esc(m.grandfather_name)],['Baptismal Name',esc(m.baptismal_name)],['Gender',m.gender==='male'?'♂ Male':'♀ Female'],['Age Group',fmtAge(m.age_group)]])}
+${sec('Personal Information','user','var(--ac)',[['Full Name',`<strong>${esc(m.student_name)}</strong>`],['Father Name',esc(m.father_name)],['Grandfather Name',esc(m.grandfather_name)],['Christian Name (የክርስትና ስም)',esc(m.baptismal_name)],['Gender',m.gender==='male'?'♂ Male':'♀ Female'],['Age Group',fmtAge(m.age_group)]])}
 ${sec('Church & Education','graduation-cap','var(--purple)',[['Current Section',esc(m.current_section)],['Member Type',esc(m.member_type)],['Registration Type',esc(m.registration_type)],['Education Level',esc(m.education_level)],['Profession',esc(m.work_profession)],['Member Code',esc(m.member_code)]])}
 ${sec('Contact Details','phone','var(--ok)',[['Phone Number',esc(m.phone_number)],['Alt Phone',esc(m.alt_phone_number)],['Guardian Name',esc(m.guardian_name)],['Guardian Phone 1',esc(m.guardian_phone1)]])}
 ${sec('Address','location-dot','var(--warn)',[['City',esc(m.city)],['Sub City',esc(m.sub_city)],['Woreda',esc(m.woreda)],['Mender',esc(m.mender)],['Block Number',esc(m.block_number)],['House Number',esc(m.house_number)]])}
@@ -820,7 +820,7 @@ function exportMemberPDF(m){
     <div class="profile"><div class="avatar">${(m.student_name||'?')[0].toUpperCase()}</div><div>
     <div style="font-size:14pt;font-weight:bold">${esc(m.student_name||'')} ${esc(m.father_name||'')} ${esc(m.grandfather_name||'')}</div>
     <div style="margin-top:4px"><span class="badge b-info">${esc(m.member_code||'—')}</span><span class="badge b-${m.status==='active'?'ok':(m.status==='warning'?'w':'bad')}">${(m.status||'—').toUpperCase()}</span><span class="badge b-info">${(m.registration_type||'').toUpperCase()}</span><span class="badge b-info">${m.gender==='male'?'Male':'Female'}</span></div></div></div>
-    ${[{t:'Personal Information',c:'st1',f:[['Full Name',m.student_name],['Father Name',m.father_name],['Grandfather Name',m.grandfather_name],['Baptismal Name',m.baptismal_name],['Gender',m.gender==='male'?'Male':'Female'],['Age Group',fmtAge(m.age_group)]]},
+    ${[{t:'Personal Information',c:'st1',f:[['Full Name',m.student_name],['Father Name',m.father_name],['Grandfather Name',m.grandfather_name],['Christian Name (የክርስትና ስም)',m.baptismal_name],['Gender',m.gender==='male'?'Male':'Female'],['Age Group',fmtAge(m.age_group)]]},
     {t:'Church & Education',c:'st2',f:[['Current Section',m.current_section],['Member Type',m.member_type],['Registration Type',m.registration_type],['Education Level',m.education_level],['Profession',m.work_profession],['Member Code',m.member_code]]},
     {t:'Contact Details',c:'st3',f:[['Phone Number',m.phone_number],['Alt Phone',m.alt_phone_number],['Guardian Name',m.guardian_name],['Guardian Phone',m.guardian_phone1]]},
     {t:'Address Information',c:'st4',f:[['City',m.city],['Sub City',m.sub_city],['Woreda',m.woreda],['Mender',m.mender],['Block Number',m.block_number],['House Number',m.house_number]]}
@@ -854,7 +854,7 @@ function exportMemberWord(m){
     <div style="font-size:14pt;font-weight:bold;color:#111827">${esc(m.student_name||'')} ${esc(m.father_name||'')} ${esc(m.grandfather_name||'')}</div>
     <div style="margin-top:4px"><span class="badge bg-info">${esc(m.member_code||'—')}</span><span class="badge bg-${m.status==='active'?'active':(m.status==='warning'?'warning':'inactive')}">${(m.status||'—').toUpperCase()}</span><span class="badge bg-info">${(m.registration_type||'—').toUpperCase()}</span><span class="badge bg-info">${m.gender==='male'?'Male':'Female'}</span></div>
     </div></div>
-    ${[{t:'Personal Information',c:'personal',f:[['Full Name',m.student_name],['Father Name',m.father_name],['Grandfather Name',m.grandfather_name],['Baptismal Name',m.baptismal_name],['Gender',m.gender==='male'?'Male':'Female'],['Age Group',fmtAge(m.age_group)]]},
+    ${[{t:'Personal Information',c:'personal',f:[['Full Name',m.student_name],['Father Name',m.father_name],['Grandfather Name',m.grandfather_name],['Christian Name (የክርስትና ስም)',m.baptismal_name],['Gender',m.gender==='male'?'Male':'Female'],['Age Group',fmtAge(m.age_group)]]},
     {t:'Church & Education',c:'church',f:[['Current Section',m.current_section],['Member Type',m.member_type],['Registration Type',m.registration_type],['Education Level',m.education_level],['Profession',m.work_profession],['Member Code',m.member_code]]},
     {t:'Contact Details',c:'contact',f:[['Phone Number',m.phone_number],['Alt Phone',m.alt_phone_number],['Guardian Name',m.guardian_name],['Guardian Phone',m.guardian_phone1]]},
     {t:'Address Information',c:'address',f:[['City',m.city],['Sub City',m.sub_city],['Woreda',m.woreda],['Mender',m.mender],['Block Number',m.block_number],['House Number',m.house_number]]}
@@ -878,7 +878,7 @@ function exportFullReport(fmt){if(!allMembers.length){loadMembers().then(()=>exp
 
 // ── CSV ──
 function exportCSV(data){
-    const h=['Code','Name','Father Name','Grandfather','Baptismal Name','Gender','Age Group','Section','Status','Reg Type','Member Type','Phone','Alt Phone','Guardian','Guardian Phone','City','Sub City','Woreda','Education','Profession','Registered'];
+    const h=['Code','Name','Father Name','Grandfather','Christian Name (የክርስትና ስም)','Gender','Age Group','Section','Status','Reg Type','Member Type','Phone','Alt Phone','Guardian','Guardian Phone','City','Sub City','Woreda','Education','Profession','Registered'];
     const rows=data.map(m=>[m.member_code,m.student_name,m.father_name,m.grandfather_name,m.baptismal_name,m.gender,fmtAge(m.age_group),m.current_section,m.status,m.registration_type,m.member_type,m.phone_number,m.alt_phone_number,m.guardian_name,m.guardian_phone1,m.city,m.sub_city,m.woreda,m.education_level,m.work_profession,m.created_at].map(v=>v||''));
     let csv=h.join(',')+'\n'+rows.map(r=>r.map(c=>`"${(c+'').replace(/"/g,'""')}"`).join(',')).join('\n');
     dlFile(csv,'<?= MEMBER_CODE_PREFIX ?>_Members_Full_'+new Date().toISOString().slice(0,10)+'.csv','text/csv');

@@ -1559,42 +1559,28 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                 </div>
 
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
+                                    <div class="md:col-span-2">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Student Name (Amharic) *
+                                            Full Name (Amharic) *
                                         </label>
-                                        <input type="text" name="student_name" required
+                                        <input type="text" name="full_name_am" required
                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400"
-                                               placeholder="ሙሉ ስም">
+                                               placeholder="ሙሉ ስም (ስም አባት ወይም አያት)"
+                                               title="Enter full name separated by spaces: First Father Grandfather">
+                                        <p class="text-[10px] text-slate-400 mt-1">Separate First, Father, and Grandfather names with spaces</p>
                                     </div>
 
                                     <div>
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Baptismal Name (የክርስትና ስም)
+                                            Christian Name (የክርስትና ስም)
                                         </label>
                                         <input type="text" name="baptismal_name"
                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400">
                                     </div>
 
-                                    <div>
-                                        <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Father's Name *
-                                        </label>
-                                        <input type="text" name="father_name" required
-                                               class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400">
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Grandfather's Name
-                                        </label>
-                                        <input type="text" name="grandfather_name"
-                                               class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400">
-                                    </div>
-
                                     <div class="md:col-span-2">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Date of Birth (E.C.) *
+                                            Date of Birth (E.C.)
                                         </label>
                                         <div class="grid grid-cols-3 gap-2">
                                             <input type="number" name="dob_day" id="dobDay"

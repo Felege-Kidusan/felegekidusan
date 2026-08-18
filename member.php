@@ -189,7 +189,7 @@ function getMemberLabel($type) {
                         </div>
 
                         <div class="flex justify-between border-b border-amber-100 pb-2">
-                            <span class="text-xs text-gray-500 uppercase tracking-wide">Baptismal Name</span>
+                            <span class="text-xs text-gray-500 uppercase tracking-wide">Christian Name (የክርስትና ስም)</span>
                             <span class="font-bold text-gray-700 amharic"><?php echo e($member['baptismal_name'] ?? '---'); ?></span>
                         </div>
 

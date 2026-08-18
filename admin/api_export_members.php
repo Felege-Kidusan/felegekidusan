@@ -26,22 +26,28 @@ $lockedColumns = [];
 // Define columns based on tier
 if ($tier === 'temporary') {
     $title = 'Temporary Members Sync';
-    // member_code removed since it's system generated for new temporary members
     $columns = [
         'full_name_am', 'baptismal_name', 
-        'phone_primary', 'guardian_name', 'guardian_phone1', 
-        'dob_year', 'waiting_since'
+        'current_section', 'education_level',
+        'phone_primary', 'phone_number',
+        'guardian_name', 'guardian_phone1', 
+        'waiting_since'
     ];
 } else {
     $title = 'Permanent Members Sync';
-    // member_code kept for existing permanent members but locked
     $lockedColumns = ['member_code']; 
     $columns = [
-        'member_code', 'full_name_am', 'student_name', 'father_name', 'grandfather_name', 
-        'baptismal_name', 'full_name_en', 'christian_name', 'gender', 'date_of_birth', 'age', 
-        'current_section', 'education_level', 'spiritual_education', 'member_type', 'membership_tier', 
-        'status', 'phone_primary', 'phone_number', 'alt_phone_number', 'phone_guardian', 
-        'guardian_name', 'address', 'city', 'sub_city', 'woreda', 'house_number', 
+        'member_code',
+        'full_name_am',          // Single name field — space-separated
+        'baptismal_name',        // Christian Name (የክርስትና ስም)
+        'current_section',       // Class / Grade — used by Edu Dept
+        'education_level',
+        'gender', 'date_of_birth', 'age',
+        'spiritual_education', 'member_type', 'membership_tier', 
+        'status', 
+        'phone_primary', 'phone_number', 'alt_phone_number', 'phone_guardian', 
+        'guardian_name', 'guardian_phone1', 'guardian_phone2',
+        'address', 'city', 'sub_city', 'woreda', 'house_number', 
         'work_profession', 'registered_at'
     ];
 }

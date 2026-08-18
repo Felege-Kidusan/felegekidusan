@@ -81,69 +81,50 @@ $registration_type = field('registration_type', 'waiting');
 $member_type       = field('member_type', 'regular');
 $status            = field('status', 'active');
 
-$student_name     = field('student_name');
+// --- Single Full Name input (required). Split into parts for DB compatibility. ---
+$full_name_input  = trim(field('full_name_am'));
 $baptismal_name   = field('baptismal_name');
-$father_name      = field('father_name');
-$grandfather_name = field('grandfather_name');
+$membership_tier  = field('membership_tier', 'permanent');
 
-// Validation
+// Only Full Name is required
 $errors = [];
-if ($student_name === '')      $errors[] = "Student name is required.";
-if ($father_name === '')       $errors[] = "Father name is required.";
-if (field('gender') === '')    $errors[] = "Gender is required.";
-if (field('dob_year') === '' || field('dob_month') === '' || field('dob_day') === '') {
-    $errors[] = "Date of birth is required.";
+if ($full_name_input === '') {
+    $errors[] = "Full Name is required.";
 }
-$membership_tier = field('membership_tier', 'permanent');
-
-if (field('phone_number') === '' && $membership_tier !== 'temporary') {
-    // Only strictly require personal phone for permanent members
-    $errors[] = "Phone number is required.";
-}
-
-if (field('guardian_name') === '')    $errors[] = "Guardian name is required.";
-if (field('guardian_phone1') === '')  $errors[] = "Guardian phone is required.";
-
-if ($membership_tier !== 'temporary' && empty($_POST['upgrade_member_id'])) {
-    if (($registration_type === 'transfer' || $registration_type === 'direct') && empty($_FILES['doc_signed_form']['name'])) {
-        $errors[] = "Signed form is required for transfer or direct registration.";
-    }
-}
-
 if (!empty($errors)) {
     jsonExit(['status' => 'error', 'message' => implode("\n", $errors)]);
 }
 
-// Names
-$full_name_am = trim($student_name . ' ' . $father_name . ' ' . $grandfather_name);
-$full_name_en = null;
-$gender = field('gender', 'male');
+// Split full name into parts (space-separated: First Father Grandfather)
+$nameParts        = preg_split('/\s+/', $full_name_input, 3);
+$student_name     = $nameParts[0] ?? '';
+$father_name      = $nameParts[1] ?? '';
+$grandfather_name = $nameParts[2] ?? '';
 
-// DOB & Age
+// Build full name from the single input
+$full_name_am = $full_name_input;
+$full_name_en = null;
+$gender       = field('gender', 'male') ?: 'male';
+
+// DOB & Age (all optional)
 $dob_day   = (int) field('dob_day', 0);
 $dob_month = (int) field('dob_month', 0);
 $dob_year  = (int) field('dob_year', 0);
-$date_of_birth = null;
-$age = null;
-$age_group = null;
-$current_section = null;
+$date_of_birth   = null;
+$age             = null;
+// Auto-age sectioning DISABLED by design — section is set explicitly by HR
+$age_group       = field('age_group') ?: null;
+$current_section = field('current_section') ?: null;
 
 if ($dob_year > 0) {
-    $currentYearEC = null;
     if ($_ethDateLoaded) {
         try {
             $currentYearEC = (int) ethio_date_format(new DateTime('now', new DateTimeZone('Africa/Addis_Ababa')), 'Y');
+            $age = max(0, $currentYearEC - $dob_year);
         } catch (Throwable $e) {
             error_log('Registration: date calc error: ' . $e->getMessage());
         }
     }
-    if (!$currentYearEC) $currentYearEC = (int)date('Y') - 8;
-    
-    $age = max(0, $currentYearEC - $dob_year);
-    if ($age <= 6)       { $current_section = 'አጸደ ህጻናት'; $age_group = 'under6'; }
-    elseif ($age <= 13)  { $current_section = 'ህጻናት';      $age_group = '7_13'; }
-    elseif ($age <= 17)  { $current_section = 'ማዕከላዊያን';   $age_group = '14_17'; }
-    else                 { $current_section = 'ወጣቶች';      $age_group = '18_plus'; }
 }
 
 // Address & Education

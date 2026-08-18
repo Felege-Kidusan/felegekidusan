@@ -181,23 +181,28 @@ try {
             unset($rowData['id']); 
             unset($rowData['member_code']); // Force system generation
             
-            // Assign membership_tier based on the template used (if not explicitly in the Excel file)
+            // Assign membership_tier based on the template used
             if (empty($rowData['membership_tier'])) {
                 $rowData['membership_tier'] = $tier;
             }
             
-            // Fix NOT NULL constraints for names if only full_name_am is provided
-            if (empty($rowData['student_name']) && !empty($rowData['full_name_am'])) {
-                $parts = explode(' ', trim($rowData['full_name_am']));
-                $rowData['student_name'] = $parts[0] ?? '';
+            // Smart Name Splitting: if full_name_am is present, derive sub-fields
+            if (!empty($rowData['full_name_am'])) {
+                $nameParts = preg_split('/\s+/', trim($rowData['full_name_am']), 3);
+                if (empty($rowData['student_name'])) {
+                    $rowData['student_name'] = $nameParts[0] ?? '';
+                }
                 if (empty($rowData['father_name'])) {
-                    $rowData['father_name'] = $parts[1] ?? '';
+                    $rowData['father_name'] = $nameParts[1] ?? '';
+                }
+                if (empty($rowData['grandfather_name']) && isset($nameParts[2])) {
+                    $rowData['grandfather_name'] = $nameParts[2];
                 }
             }
 
-            // Fallback for ANY other missing NOT NULL column (satisfy MySQL strict mode)
+            // Graceful fallback for ALL NOT NULL columns — never crash on missing data
             foreach ($notNullCols as $reqCol) {
-                if (!isset($rowData[$reqCol])) {
+                if (!isset($rowData[$reqCol]) || $rowData[$reqCol] === null) {
                     $rowData[$reqCol] = ''; 
                 }
             }

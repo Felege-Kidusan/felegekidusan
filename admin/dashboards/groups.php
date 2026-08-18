@@ -425,7 +425,7 @@ if (isset($conn)) {
                             <input type="text" name="full_name" id="memberName" class="form-input" required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Baptismal Name / ስመ ጥምቀት</label>
+                            <label class="form-label">Christian Name (የክርስትና ስም)</label>
                             <input type="text" name="baptismal_name" id="memberBaptismal" class="form-input">
                         </div>
                     </div>
