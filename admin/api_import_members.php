@@ -3,8 +3,8 @@
  * Smart Member Import API (Excel .xlsx UPSERT)
  * - CSRF + role gated
  * - Human headers AND legacy snake_case headers
- * - Strict protection: never overwrite a non-empty DB field
- * - Class Code enrolls into the active academic year (new rows / empty class only unless code changes)
+ * - Filled Excel cells update the member. Blank cells are left unchanged.
+ * - Member code is never overwritten. Class Code enrolls/transfers in the active year.
  */
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -219,6 +219,19 @@ try {
             $updateFields = [];
             $updateValues = [];
 
+            if (!empty($rowData['full_name_am'])) {
+                $nameParts = preg_split('/\s+/', trim($rowData['full_name_am']), 3);
+                if (empty($rowData['student_name'])) {
+                    $rowData['student_name'] = $nameParts[0] ?? '';
+                }
+                if (empty($rowData['father_name'])) {
+                    $rowData['father_name'] = $nameParts[1] ?? '';
+                }
+                if (empty($rowData['grandfather_name']) && isset($nameParts[2])) {
+                    $rowData['grandfather_name'] = $nameParts[2];
+                }
+            }
+
             foreach ($rowData as $col => $val) {
                 if ($col === 'id' || $col === 'member_code') {
                     continue;
@@ -226,11 +239,12 @@ try {
                 if ($val === '') {
                     continue;
                 }
-                $dbVal = $existingMember[$col] ?? null;
-                if ($dbVal === null || trim((string)$dbVal) === '') {
-                    $updateFields[] = "`$col` = ?";
-                    $updateValues[] = $val;
+                $dbVal = trim((string)($existingMember[$col] ?? ''));
+                if ($dbVal === $val) {
+                    continue;
                 }
+                $updateFields[] = "`$col` = ?";
+                $updateValues[] = $val;
             }
 
             if (!empty($updateFields)) {
@@ -283,29 +297,36 @@ try {
         }
 
         if ($memberId > 0 && $classCode !== '') {
-            $enr = EnrollmentService::enrollByCode(
-                $conn,
-                $memberId,
-                $classCode,
-                null,
-                (int)$_SESSION['admin_id']
-            );
-            if (($enr['status'] ?? '') === 'success') {
-                if (!empty($enr['skipped'])) {
-                    $stats['enroll_skipped']++;
-                } else {
-                    $stats['enrolled']++;
-                }
-            } else {
-                $stats['errors']++;
-                $stats['error_details'][] = 'Row ' . ($rowNum + 1) . ': ' . ($enr['message'] ?? 'enrollment failed');
-            }
+            $enrollJobs[] = ['member_id' => $memberId, 'class_code' => $classCode, 'row' => $rowNum + 1];
         }
     }
 
     $pdo->commit();
 
-    $msg = "Process complete! Inserted: {$stats['inserted']}, Updated: {$stats['updated']}, Enrolled: {$stats['enrolled']}";
+    foreach ($enrollJobs as $job) {
+        $enr = EnrollmentService::enrollByCode(
+            $conn,
+            (int)$job['member_id'],
+            $job['class_code'],
+            null,
+            (int)$_SESSION['admin_id']
+        );
+        if (($enr['status'] ?? '') === 'success') {
+            if (!empty($enr['skipped'])) {
+                $stats['enroll_skipped']++;
+            } else {
+                $stats['enrolled']++;
+            }
+        } else {
+            $stats['errors']++;
+            $stats['error_details'][] = 'Row ' . $job['row'] . ': ' . ($enr['message'] ?? 'enrollment failed');
+        }
+    }
+
+    $msg = "Sync complete. Inserted {$stats['inserted']}, updated {$stats['updated']}";
+    if ($stats['enrolled']) {
+        $msg .= ", enrolled {$stats['enrolled']}";
+    }
     if ($stats['enroll_skipped']) {
         $msg .= ", Already enrolled: {$stats['enroll_skipped']}";
     }

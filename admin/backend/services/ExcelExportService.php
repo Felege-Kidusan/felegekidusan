@@ -193,7 +193,8 @@ class ExcelExportService {
         // 4. Output the file
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: max-age=0');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
         
         $writer = new Xlsx($spreadsheet);
         $writer->save('php://output');

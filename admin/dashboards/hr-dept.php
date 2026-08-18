@@ -5518,27 +5518,22 @@ function clearCache() {
 <div id="dataSyncModal" class="fixed inset-0 hidden items-center justify-center p-4" style="display:none;z-index:10000;background:rgba(15,23,42,0.6);" onclick="if(event.target===this)closeDataSyncModal();">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
         <!-- Header -->
-        <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <i class="fa-solid fa-file-excel text-emerald-600"></i>
-                Data Sync (Excel)
-            </h3>
-            <button type="button" onclick="closeDataSyncModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
-                <i class="fa-solid fa-xmark text-xl"></i>
+        <div class="px-6 py-4 flex items-center justify-between sticky top-0 z-10" style="background:linear-gradient(135deg,#064e3b,#047857);color:#fff">
+            <div>
+                <h3 class="text-lg font-semibold flex items-center gap-2">
+                    <i class="fa-solid fa-file-excel"></i>
+                    Excel Sync
+                </h3>
+                <p class="text-xs text-emerald-100 mt-0.5">Download members, edit in Excel, then upload to apply changes.</p>
+            </div>
+            <button type="button" onclick="closeDataSyncModal()" class="w-8 h-8 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center transition" aria-label="Close">
+                <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
         
         <!-- Body -->
         <div class="p-6 overflow-y-auto space-y-6">
-            <!-- Alert Info -->
-            <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 text-blue-800 text-sm">
-                <i class="fa-solid fa-circle-info mt-0.5"></i>
-                <div>
-                    <p class="font-semibold mb-1">Strict Protection Rule Active</p>
-                    <p>When you import an Excel file, the system will ONLY update missing (empty) fields. Any field that already has data will be ignored and protected. This prevents accidental overwrites.</p>
-                    <p class="mt-2">Permanent files use <strong>Christian Name</strong> and a <strong>Class Code</strong> column. Put a class code (for example grade_1) to auto-enroll into that Education class. Older files that still say baptismal_name still import.</p>
-                </div>
-            </div>
+            <p class="text-sm text-slate-600">Filled cells update the member record. Blank cells are left as they are. Member codes cannot be changed. Use <span class="font-medium text-slate-800">Class Code</span> to assign an Education class.</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Temporary Members Column -->
@@ -5576,7 +5571,7 @@ function clearCache() {
                     
                     <div class="bg-white rounded-xl p-4 shadow-sm mb-4">
                         <p class="text-xs text-slate-500 mb-3">Download the full template for Permanent members.</p>
-                        <a href="/admin/api_export_members.php?tier=permanent" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg font-semibold hover:bg-emerald-200 transition border border-emerald-300">
+                        <a href="/admin/api_export_members.php?tier=permanent" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg font-semibold hover:bg-emerald-200 transition border border-emerald-300" onclick="this.href='/admin/api_export_members.php?tier=permanent&amp;t='+Date.now()">
                             <i class="fa-solid fa-download"></i> Download Template
                         </a>
                     </div>

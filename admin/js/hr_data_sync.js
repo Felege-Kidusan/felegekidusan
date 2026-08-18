@@ -51,7 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (result.success) {
                     statusLog.innerHTML += `<div class="text-green-400 font-bold mt-2"><i class="fa-solid fa-check"></i> ${result.message}</div>`;
-                    statusLog.innerHTML += `<div class="text-slate-400 mt-1">Strict protection rule was applied. No existing data was overwritten.</div>`;
                     
                     if (typeof fetchMembers === 'function') {
                         setTimeout(() => fetchMembers(), 1500);
