@@ -55,13 +55,14 @@ try {
              AND (ce.academic_year_id = ? OR ? = 0)) as student_count
         FROM teacher_assignments ta
         JOIN classes c ON ta.class_id = c.id
-        JOIN subjects s ON ta.subject_id = s.id
+        LEFT JOIN subjects s ON ta.subject_id = s.id
         WHERE ta.teacher_id = ? 
         AND (ta.is_active = 1 OR ta.status = 'active')
+        AND (? = 0 OR ta.academic_year_id = ? OR ta.academic_year_id IS NULL)
         ORDER BY c.level_order, s.subject_name
     ");
     if ($stmt) {
-        $stmt->bind_param("iii", $yearId, $yearId, $userId);
+        $stmt->bind_param("iiiii", $yearId, $yearId, $userId, $yearId, $yearId);
         $stmt->execute();
         $result = $stmt->get_result();
         while ($row = $result->fetch_assoc()) {
@@ -286,15 +287,17 @@ $csrfToken = generateCsrfToken();
                                 </div>
                                 <div>
                                     <div class="font-semibold amharic"><?= e($a['class_name']) ?></div>
-                                    <div class="text-sm text-slate-500"><?= e($a['subject_name']) ?></div>
+                                    <div class="text-sm text-slate-500"><?= e($a['subject_name'] ?: (!empty($a['is_class_teacher']) ? 'Class Teacher' : '—')) ?></div>
                                 </div>
                             </div>
                             <div class="flex items-center gap-3">
                                 <span class="chip chip-info"><?= $a['student_count'] ?> students</span>
                                 <div class="flex gap-2">
+                                    <?php if (!empty($a['subject_id'])): ?>
                                     <button onclick="goToGrades(<?= $a['class_id'] ?>, <?= $a['subject_id'] ?>)" class="btn btn-sm btn-primary">
                                         <i class="fa-solid fa-pen"></i> Grades
                                     </button>
+                                    <?php endif; ?>
                                     <button onclick="goToAttendance(<?= $a['class_id'] ?>)" class="btn btn-sm btn-secondary">
                                         <i class="fa-solid fa-check"></i> Attendance
                                     </button>
@@ -328,7 +331,7 @@ $csrfToken = generateCsrfToken();
                                 <label class="form-label">Select Class-Subject</label>
                                 <select id="gradeAssignmentSelect" class="form-input" onchange="loadAssessments()">
                                     <option value="">-- Select --</option>
-                                    <?php foreach ($assignments as $a): ?>
+                                    <?php foreach ($assignments as $a): if (empty($a['subject_id'])) continue; ?>
                                     <option value="<?= $a['class_id'] ?>-<?= $a['subject_id'] ?>" 
                                             data-class="<?= $a['class_id'] ?>" 
                                             data-subject="<?= $a['subject_id'] ?>">
@@ -523,7 +526,7 @@ $csrfToken = generateCsrfToken();
                                 <label class="form-label">Class-Subject</label>
                                 <select id="submitAssignmentSelect" class="form-input" onchange="loadSubmitAssessments()">
                                     <option value="">-- Select --</option>
-                                    <?php foreach ($assignments as $a): ?>
+                                    <?php foreach ($assignments as $a): if (empty($a['subject_id'])) continue; ?>
                                     <option value="<?= $a['class_id'] ?>-<?= $a['subject_id'] ?>"><?= e($a['class_name']) ?> — <?= e($a['subject_name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>

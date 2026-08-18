@@ -15,6 +15,9 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/member_sync.php';
+require_once __DIR__ . '/backend/services/AssignmentService.php';
+
+use App\Services\AssignmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -50,68 +53,11 @@ function _teacherSafeColExists($conn, $table, $col) {
     catch (Exception $e) { return false; }
 }
 
-// Ensure users table has needed columns
-try {
-    if (!_teacherSafeColExists($conn, 'users', 'member_id')) {
-        $conn->query("ALTER TABLE `users` ADD COLUMN `member_id` INT UNSIGNED DEFAULT NULL AFTER `is_active`");
-    }
-    if (!_teacherSafeColExists($conn, 'users', 'last_login')) {
-        $conn->query("ALTER TABLE `users` ADD COLUMN `last_login` DATETIME DEFAULT NULL AFTER `is_active`");
-    }
-    // Ensure role column can hold 'teacher' value
-    $conn->query("ALTER TABLE `users` MODIFY COLUMN `role` VARCHAR(50) NOT NULL DEFAULT 'info_dept'");
-} catch (Exception $e) { /* non-critical */ }
-
-// Get current academic year (table may not exist yet)
 // Effective academic year — single source of truth (resolver, time-travel aware)
 $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
-// ── Auto-fix teacher_assignments table ──
-try {
-    $r = $conn->query("SHOW TABLES LIKE 'teacher_assignments'");
-    if ($r && $r->num_rows > 0) {
-        // Drop FK that wrongly references members instead of users
-        try {
-            $fks = $conn->query("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS 
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'teacher_assignments' 
-                AND CONSTRAINT_TYPE = 'FOREIGN KEY'");
-            if ($fks) {
-                while ($fk = $fks->fetch_assoc()) {
-                    $conn->query("ALTER TABLE `teacher_assignments` DROP FOREIGN KEY `{$fk['CONSTRAINT_NAME']}`");
-                }
-            }
-        } catch (Exception $e) {}
-        // Make academic_year_id nullable
-        try { $conn->query("ALTER TABLE `teacher_assignments` MODIFY `academic_year_id` INT UNSIGNED DEFAULT NULL"); } catch (Exception $e) {}
-        // Add is_active if missing
-        if (!_teacherSafeColExists($conn, 'teacher_assignments', 'is_active')) {
-            $conn->query("ALTER TABLE `teacher_assignments` ADD COLUMN `is_active` TINYINT(1) NOT NULL DEFAULT 1");
-        }
-        // Add is_primary if missing
-        if (!_teacherSafeColExists($conn, 'teacher_assignments', 'is_primary')) {
-            $conn->query("ALTER TABLE `teacher_assignments` ADD COLUMN `is_primary` TINYINT(1) NOT NULL DEFAULT 0");
-        }
-    } else {
-        // Create table from scratch without FK constraints
-        $conn->query("CREATE TABLE IF NOT EXISTS `teacher_assignments` (
-            `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-            `teacher_id` INT UNSIGNED NOT NULL COMMENT 'users.id of the teacher',
-            `class_id` INT UNSIGNED NOT NULL,
-            `subject_id` INT UNSIGNED NOT NULL,
-            `academic_year_id` INT UNSIGNED DEFAULT NULL,
-            `is_class_teacher` TINYINT(1) NOT NULL DEFAULT 0,
-            `is_primary` TINYINT(1) NOT NULL DEFAULT 0,
-            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-            `assigned_by` INT UNSIGNED DEFAULT NULL,
-            `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            KEY `teacher_id` (`teacher_id`),
-            KEY `class_id` (`class_id`),
-            KEY `subject_id` (`subject_id`),
-            KEY `academic_year_id` (`academic_year_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    }
-} catch (Exception $e) { /* non-critical */ }
+// Schema is owned by AssignmentService + sql/006 (no ALTER on every request).
+AssignmentService::ensureSchema($conn);
 
 try {
 switch ($action) {
@@ -251,7 +197,7 @@ switch ($action) {
         // Get assignments
         $yearId = $currentYear ? $currentYear['id'] : 0;
         $stmt = $conn->prepare("
-            SELECT ta.id, ta.class_id, ta.subject_id, ta.is_primary,
+            SELECT ta.id, ta.class_id, ta.subject_id, ta.is_primary, ta.is_class_teacher,
                    c.class_name, c.class_name_en, c.level_order,
                    s.subject_name, s.subject_name_en,
                    (SELECT COUNT(*) FROM class_enrollments ce 
@@ -259,7 +205,7 @@ switch ($action) {
                     AND (ce.academic_year_id = ? OR ? = 0)) as student_count
             FROM teacher_assignments ta
             JOIN classes c ON ta.class_id = c.id
-            JOIN subjects s ON ta.subject_id = s.id
+            LEFT JOIN subjects s ON ta.subject_id = s.id
             WHERE ta.teacher_id = ? AND ta.is_active = 1
             ORDER BY c.level_order, s.subject_name
         ");
@@ -269,6 +215,9 @@ switch ($action) {
         
         $assignments = [];
         while ($row = $result->fetch_assoc()) {
+            if (empty($row['subject_name']) && !empty($row['is_class_teacher'])) {
+                $row['subject_name'] = 'Class Teacher';
+            }
             $assignments[] = $row;
         }
         
@@ -561,7 +510,7 @@ switch ($action) {
                  AND (ce.academic_year_id = ? OR ? = 0)) as student_count
             FROM teacher_assignments ta
             JOIN classes c ON ta.class_id = c.id
-            JOIN subjects s ON ta.subject_id = s.id
+            LEFT JOIN subjects s ON ta.subject_id = s.id
             WHERE ta.teacher_id = ? AND ta.is_active = 1
             ORDER BY c.level_order, s.subject_name
         ");
@@ -571,6 +520,9 @@ switch ($action) {
         
         $assignments = [];
         while ($row = $result->fetch_assoc()) {
+            if (empty($row['subject_name']) && !empty($row['is_class_teacher'])) {
+                $row['subject_name'] = 'Class Teacher';
+            }
             $assignments[] = $row;
         }
         
@@ -585,69 +537,18 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Access denied']);
             exit;
         }
-        
+        if (function_exists('ay_require_writable')) {
+            ay_require_writable($conn);
+        }
         $teacherId = (int)($_POST['teacher_id'] ?? 0);
         $classId = (int)($_POST['class_id'] ?? 0);
-        $subjectId = (int)($_POST['subject_id'] ?? 0);
-        $isPrimary = isset($_POST['is_primary']) ? (int)$_POST['is_primary'] : 0;
-        
-        if (!$teacherId || !$classId || !$subjectId) {
-            echo json_encode(['status' => 'error', 'message' => 'Teacher, class, and subject are required']);
-            exit;
-        }
-        
-        $yearId = $currentYear ? $currentYear['id'] : null;
-        
-        // Check if assignment already exists
-        $stmt = $conn->prepare("
-            SELECT id FROM teacher_assignments 
-            WHERE teacher_id = ? AND class_id = ? AND subject_id = ? AND is_active = 1
-        ");
-        $stmt->bind_param("iii", $teacherId, $classId, $subjectId);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            echo json_encode(['status' => 'error', 'message' => 'This assignment already exists']);
-            exit;
-        }
-        
-        // Insert assignment — handle NULL academic_year_id properly
-        $assignedBy = $_SESSION['admin_id'];
-        if ($yearId) {
-            $stmt = $conn->prepare("
-                INSERT INTO teacher_assignments 
-                (teacher_id, class_id, subject_id, academic_year_id, is_primary, is_active, assigned_by)
-                VALUES (?, ?, ?, ?, ?, 1, ?)
-            ");
-            $stmt->bind_param("iiiiii", $teacherId, $classId, $subjectId, $yearId, $isPrimary, $assignedBy);
-        } else {
-            $stmt = $conn->prepare("
-                INSERT INTO teacher_assignments 
-                (teacher_id, class_id, subject_id, academic_year_id, is_primary, is_active, assigned_by)
-                VALUES (?, ?, ?, NULL, ?, 1, ?)
-            ");
-            $stmt->bind_param("iiiii", $teacherId, $classId, $subjectId, $isPrimary, $assignedBy);
-        }
-        
-        if ($stmt->execute()) {
-            // Get class and subject names for response
-            $stmt = $conn->prepare("SELECT class_name FROM classes WHERE id = ?");
-            $stmt->bind_param("i", $classId);
-            $stmt->execute();
-            $className = $stmt->get_result()->fetch_assoc()['class_name'] ?? '';
-            
-            $stmt = $conn->prepare("SELECT subject_name FROM subjects WHERE id = ?");
-            $stmt->bind_param("i", $subjectId);
-            $stmt->execute();
-            $subjectName = $stmt->get_result()->fetch_assoc()['subject_name'] ?? '';
-            
-            echo json_encode([
-                'status' => 'success',
-                'message' => "Assigned: $className - $subjectName",
-                'assignment_id' => $conn->insert_id
-            ]);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
-        }
+        $subjectId = !empty($_POST['subject_id']) ? (int)$_POST['subject_id'] : null;
+        $isPrimary = isset($_POST['is_primary']) ? (int)$_POST['is_primary'] : 1;
+        $isClassTeacher = !empty($_POST['is_class_teacher']);
+        $asgRole = $isClassTeacher && !$subjectId ? 'homeroom' : ($isPrimary ? 'primary' : 'assistant');
+        echo json_encode(AssignmentService::assign(
+            $conn, $teacherId, $classId, $subjectId, $asgRole, null, (int)$_SESSION['admin_id']
+        ), JSON_UNESCAPED_UNICODE);
         break;
 
     // ============================================================
@@ -666,15 +567,10 @@ switch ($action) {
             exit;
         }
         
-        // Soft delete - just deactivate
-        $stmt = $conn->prepare("UPDATE teacher_assignments SET is_active = 0 WHERE id = ?");
-        $stmt->bind_param("i", $assignmentId);
-        
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'message' => 'Assignment removed']);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+        if (function_exists('ay_require_writable')) {
+            ay_require_writable($conn);
         }
+        echo json_encode(AssignmentService::unassign($conn, $assignmentId), JSON_UNESCAPED_UNICODE);
         break;
 
     // ============================================================
@@ -750,7 +646,7 @@ switch ($action) {
                  AND (ce.academic_year_id = ? OR ? = 0)) as student_count
             FROM teacher_assignments ta
             JOIN classes c ON ta.class_id = c.id
-            JOIN subjects s ON ta.subject_id = s.id
+            LEFT JOIN subjects s ON ta.subject_id = s.id
             WHERE ta.teacher_id = ? AND ta.is_active = 1
             ORDER BY c.level_order, s.subject_name
         ");
@@ -760,6 +656,9 @@ switch ($action) {
         
         $assignments = [];
         while ($row = $result->fetch_assoc()) {
+            if (empty($row['subject_name']) && !empty($row['is_class_teacher'])) {
+                $row['subject_name'] = 'Class Teacher';
+            }
             $assignments[] = $row;
         }
         
@@ -795,28 +694,6 @@ switch ($action) {
         }
         
         echo json_encode(['status' => 'success', 'members' => $members]);
-        break;
-
-    // ============================================================
-    // DEBUG: Check teacher_assignments table health
-    // ============================================================
-    case 'debug_assignments':
-        $debug = ['table_exists' => false, 'columns' => [], 'foreign_keys' => [], 'row_count' => 0, 'current_year' => $currentYear ? $currentYear['id'] : null];
-        try {
-            $r = $conn->query("SHOW TABLES LIKE 'teacher_assignments'");
-            $debug['table_exists'] = $r && $r->num_rows > 0;
-            if ($debug['table_exists']) {
-                $cols = $conn->query("SHOW COLUMNS FROM teacher_assignments");
-                while ($c = $cols->fetch_assoc()) $debug['columns'][] = $c['Field'] . ' (' . $c['Type'] . ')' . ($c['Null'] === 'YES' ? ' NULL' : ' NOT NULL');
-                $fks = $conn->query("SELECT CONSTRAINT_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'teacher_assignments' AND REFERENCED_TABLE_NAME IS NOT NULL");
-                if ($fks) while ($fk = $fks->fetch_assoc()) $debug['foreign_keys'][] = $fk;
-                $cnt = $conn->query("SELECT COUNT(*) c FROM teacher_assignments");
-                if ($cnt) $debug['row_count'] = (int)$cnt->fetch_assoc()['c'];
-                // Try a test insert to see what error we get
-                $debug['test_insert'] = 'skipped';
-            }
-        } catch (Exception $e) { $debug['error'] = $e->getMessage(); }
-        echo json_encode(['status' => 'success', 'debug' => $debug]);
         break;
 
     default:

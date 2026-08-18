@@ -9,8 +9,10 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/workflow.php';
 require_once __DIR__ . '/backend/member_sync.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
+require_once __DIR__ . '/backend/services/AssignmentService.php';
 
 use App\Services\EnrollmentService;
+use App\Services\AssignmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -201,109 +203,22 @@ switch ($action) {
         $teacherId = (int)($_POST['teacher_id'] ?? 0);
         $classId = (int)($_POST['class_id'] ?? 0);
         $subjectId = !empty($_POST['subject_id']) ? (int)$_POST['subject_id'] : null;
-        $isClassTeacher = isset($_POST['is_class_teacher']) ? 1 : 0;
-        
-        if (!$teacherId || !$classId) {
-            echo json_encode(['status' => 'error', 'message' => 'Please select both teacher and class']);
-            exit;
+        $isClassTeacher = !empty($_POST['is_class_teacher']);
+        $assignedBy = (int)($_SESSION['admin_id'] ?? 0);
+
+        if ($isClassTeacher && !$subjectId) {
+            echo json_encode(AssignmentService::setHomeroom($conn, $teacherId, $classId, null, $assignedBy), JSON_UNESCAPED_UNICODE);
+            break;
         }
-        
-        if (!$currentYear) {
-            echo json_encode(['status' => 'error', 'message' => 'No active academic year.']);
-            exit;
+
+        $res = AssignmentService::assign($conn, $teacherId, $classId, $subjectId, 'primary', null, $assignedBy);
+        if (($res['status'] ?? '') === 'success' && $isClassTeacher) {
+            $home = AssignmentService::setHomeroom($conn, $teacherId, $classId, null, $assignedBy);
+            if (($home['status'] ?? '') === 'success') {
+                $res['message'] = ($res['message'] ?? 'Assigned.') . ' Also set as Class Teacher.';
+            }
         }
-        
-        // Check if this exact assignment already exists
-        if ($subjectId) {
-            $stmt = $conn->prepare("
-                SELECT id FROM teacher_assignments 
-                WHERE teacher_id = ? AND class_id = ? AND academic_year_id = ? AND subject_id = ? AND is_active = 1
-            ");
-            $stmt->bind_param("iiii", $teacherId, $classId, $currentYear['id'], $subjectId);
-        } else {
-            $stmt = $conn->prepare("
-                SELECT id FROM teacher_assignments 
-                WHERE teacher_id = ? AND class_id = ? AND academic_year_id = ? AND subject_id IS NULL AND is_active = 1
-            ");
-            $stmt->bind_param("iii", $teacherId, $classId, $currentYear['id']);
-        }
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            echo json_encode(['status' => 'error', 'message' => 'This teacher is already assigned to this class/subject.']);
-            exit;
-        }
-        
-        // If assigning as class teacher, remove previous class teacher for this class
-        if ($isClassTeacher) {
-            $stmt = $conn->prepare("UPDATE teacher_assignments SET is_class_teacher = 0 WHERE class_id = ? AND academic_year_id = ? AND is_class_teacher = 1");
-            $stmt->bind_param("ii", $classId, $currentYear['id']);
-            $stmt->execute();
-        }
-        
-        // Insert assignment
-        $assignedBy = $_SESSION['admin_id'];
-        if ($subjectId) {
-            $stmt = $conn->prepare("
-                INSERT INTO teacher_assignments 
-                (teacher_id, class_id, subject_id, academic_year_id, is_class_teacher, is_active, assigned_by)
-                VALUES (?, ?, ?, ?, ?, 1, ?)
-            ");
-            $stmt->bind_param("iiiiii", $teacherId, $classId, $subjectId, $currentYear['id'], $isClassTeacher, $assignedBy);
-        } else {
-            $stmt = $conn->prepare("
-                INSERT INTO teacher_assignments 
-                (teacher_id, class_id, subject_id, academic_year_id, is_class_teacher, is_active, assigned_by)
-                VALUES (?, ?, NULL, ?, ?, 1, ?)
-            ");
-            $stmt->bind_param("iiiii", $teacherId, $classId, $currentYear['id'], $isClassTeacher, $assignedBy);
-        }
-        
-        if ($stmt->execute()) {
-            // Auto-update member's teacher status
-            autoUpdateTeacherStatus($conn, $teacherId, true);
-            
-            // Sync member_type: if teacher is linked to a member, upgrade to special_regular
-            try {
-                $stmt3 = $conn->prepare("SELECT member_id FROM users WHERE id = ? AND role = 'teacher'");
-                if ($stmt3) { $stmt3->bind_param("i", $teacherId); $stmt3->execute();
-                    $tUser3 = $stmt3->get_result()->fetch_assoc(); $stmt3->close();
-                    if ($tUser3 && !empty($tUser3['member_id'])) {
-                        syncMemberTeacherFlag($conn, (int)$tUser3['member_id'], true);
-                    }
-                }
-            } catch (Exception $e) {}
-            
-            // Get names for notification
-            $stmt = $conn->prepare("SELECT student_name, father_name FROM members WHERE id = ?");
-            $stmt->bind_param("i", $teacherId);
-            $stmt->execute();
-            $teacher = $stmt->get_result()->fetch_assoc();
-            
-            $stmt = $conn->prepare("SELECT class_name FROM classes WHERE id = ?");
-            $stmt->bind_param("i", $classId);
-            $stmt->execute();
-            $class = $stmt->get_result()->fetch_assoc();
-            
-            $teacherName = $teacher['student_name'] . ' ' . $teacher['father_name'];
-            $role = $isClassTeacher ? 'Class Teacher' : 'Subject Teacher';
-            
-            // Send notification
-            sendNotification($conn, 'teacher_assigned',
-                "Teacher Assigned to Class",
-                "$teacherName assigned to {$class['class_name']} as $role",
-                [
-                    'data' => ['teacher_id' => $teacherId, 'class_id' => $classId],
-                    'target_roles' => ['info_dept', 'school_admin']
-                ]
-            );
-            
-            echo json_encode([
-                'status' => 'success',
-                'message' => "$teacherName assigned to {$class['class_name']} as $role!"
-            ]);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
-        }
+        echo json_encode($res, JSON_UNESCAPED_UNICODE);
         break;
     
     // ============================================================

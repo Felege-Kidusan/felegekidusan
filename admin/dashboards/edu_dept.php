@@ -102,6 +102,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div class="nt">Main</div>
 <button class="nl act" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
 <button class="nl" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i> Teachers</button>
+<a class="nl" href="/frontend/pages/edu_assignments.php"><i class="fa-solid fa-diagram-project"></i> Assignments</a>
 <button class="nl" data-sec="classes"><i class="fa-solid fa-school"></i> Classes</button>
 <button class="nl" data-sec="subjects"><i class="fa-solid fa-book"></i> Subjects</button>
 </div>
@@ -241,6 +242,12 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 
 <!-- TAB: Teacher Assignments -->
 <div id="enrPanelTeachers" style="display:none">
+<div class="crd" style="padding:.85rem 1rem;margin-bottom:.75rem;border-left:4px solid #7c3aed;background:#faf5ff">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+<div style="font-size:.82rem;color:#5b21b6"><i class="fa-solid fa-diagram-project"></i> Assign one teacher to many classes at once on the new Assignments board.</div>
+<a class="btn btn-p btn-xs" href="/frontend/pages/edu_assignments.php"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open Assignments</a>
+</div>
+</div>
 <div class="crd" style="padding:1rem">
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.5rem;align-items:end">
 <div><label class="lbl">Teacher</label><select id="taTeacher" class="inp"><option value="">— Select Teacher —</option></select></div>
@@ -389,6 +396,14 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div><label class="lbl">Name (Amharic) *</label><input id="subjectName" class="inp amharic" required placeholder="e.g. ቅዱስ ቁርባን"></div>
 <div><label class="lbl">Name (English)</label><input id="subjectNameEn" class="inp" placeholder="e.g. Holy Communion"></div>
 <div><label class="lbl">Description</label><textarea id="subjectDesc" class="inp" rows="2"></textarea></div>
+<div><label class="lbl">Taught in classes</label>
+<div id="subjectClassChecks" style="display:grid;grid-template-columns:1fr 1fr;gap:.3rem;max-height:160px;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;padding:.5rem">
+<?php foreach ($classes as $c): ?>
+<label style="display:flex;align-items:center;gap:.35rem;font-size:.75rem"><input type="checkbox" class="subj-class-cb" value="<?= (int)$c['id'] ?>"> <span class="amharic"><?= e($c['class_name']) ?></span></label>
+<?php endforeach; ?>
+</div>
+<p style="font-size:.65rem;color:#94a3b8;margin-top:.25rem">Tick every class that studies this subject.</p>
+</div>
 </div>
 <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem"><button type="button" class="btn btn-o" onclick="closeModal('subjectModal')">Cancel</button><button type="submit" class="btn btn-p"><i class="fa-solid fa-save"></i> Save</button></div>
 </form></div></div>
@@ -459,10 +474,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div style="background:linear-gradient(135deg,#ec4899,#d946ef);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-users"></i> Bulk Enroll Students</h3><button onclick="closeModal('bulkEnrollModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem">
-<div><label class="lbl">Target Class *</label><select id="bulkClass" class="inp"><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Filter</label><select id="bulkFilter" class="inp" onchange="loadBulkCandidates()"><option value="">All Unassigned</option><option value="male">Male Only</option><option value="female">Female Only</option><option value="under6">Under 6</option><option value="7_13">Age 7-13</option><option value="14_17">Age 14-17</option><option value="18_plus">18+</option></select></div>
-</div>
-<div style="margin-bottom:.75rem"><input type="text" id="bulkSearch" class="inp" placeholder="Search unassigned members..." oninput="loadBulkCandidates()"></div>
+<div><label class="lbl">Target Class *</label><select id="bulkClass" class="inp" placeholder="Search unassigned members..." oninput="loadBulkCandidates()"></div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
 <label style="font-size:.75rem;color:#64748b"><input type="checkbox" id="bulkSelectAll" onchange="toggleBulkAll()"> Select All</label>
 <span id="bulkCount" style="font-size:.7rem;color:#7c3aed;font-weight:600">0 selected</span>
@@ -489,6 +501,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div class="wbws-bnav-inner" id="bnScroll">
 <button class="wbws-bnav-btn active" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
 <button class="wbws-bnav-btn" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i><span>Teachers</span></button>
+<a class="wbws-bnav-btn" href="/frontend/pages/edu_assignments.php"><i class="fa-solid fa-diagram-project"></i><span>Assign</span></a>
 <button class="wbws-bnav-btn" data-sec="classes"><i class="fa-solid fa-school"></i><span>Classes</span></button>
 <button class="wbws-bnav-btn" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i><span>Enroll</span></button>
 <div class="wbws-bnav-divider"></div>
@@ -660,9 +673,9 @@ async function saveClass(){const fd=new FormData();fd.append('action','save_clas
 async function deleteClass(id){if(!confirm('Delete this class?'))return;const fd=new FormData();fd.append('action','delete_class');fd.append('class_id',id);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadClasses();}catch(e){toast('Error','err');}}
 
 // ═══ SUBJECTS ═══
-function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.getElementById('subjectModal').classList.add('show');}
-function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.getElementById('subjectModal').classList.add('show');}
-document.getElementById('subjectForm')?.addEventListener('submit',function(e){e.preventDefault();const sid=document.getElementById('subjectFormId').value;const fd=new FormData();fd.append('action',sid?'update_subject':'create_subject');if(sid)fd.append('subject_id',sid);fd.append('subject_name',document.getElementById('subjectName').value);fd.append('subject_name_en',document.getElementById('subjectNameEn').value);fd.append('description',document.getElementById('subjectDesc').value);postAPI('/admin/api_subjects.php',fd).then(d=>{if(d.status==='success'){toast(d.message);closeModal('subjectModal');location.reload();}else toast(d.message,'err');});});
+function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');}
+function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
+document.getElementById('subjectForm')?.addEventListener('submit',function(e){e.preventDefault();const sid=document.getElementById('subjectFormId').value;const fd=new FormData();fd.append('action',sid?'update_subject':'create_subject');if(sid)fd.append('subject_id',sid);fd.append('subject_name',document.getElementById('subjectName').value);fd.append('subject_name_en',document.getElementById('subjectNameEn').value);fd.append('description',document.getElementById('subjectDesc').value);postAPI('/admin/api_subjects.php',fd).then(async d=>{if(d.status!=='success'){toast(d.message,'err');return;}const subjectId=sid||d.subject_id;if(subjectId){const ids=[];document.querySelectorAll('.subj-class-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));const cfd=new FormData();cfd.append('action','assign_subject_to_classes');cfd.append('subject_id',subjectId);cfd.append('class_ids',JSON.stringify(ids));await postAPI('/admin/api_subjects.php',cfd);}toast(d.message);closeModal('subjectModal');location.reload();});});
 
 // ═══ MEMBER TYPE HELPERS ═══
 function mtBadge(type) {

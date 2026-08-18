@@ -6,6 +6,9 @@
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/AssignmentService.php';
+
+use App\Services\AssignmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -185,25 +188,7 @@ switch ($action) {
         if (!is_array($classIds)) {
             $classIds = json_decode($classIds, true) ?: [];
         }
-        
-        // First, remove all existing assignments for this subject
-        $stmt = $conn->prepare("DELETE FROM class_subjects WHERE subject_id = ?");
-        $stmt->bind_param("i", $subjectId);
-        $stmt->execute();
-        
-        // Insert new assignments
-        if (!empty($classIds)) {
-            $stmt = $conn->prepare("INSERT INTO class_subjects (class_id, subject_id) VALUES (?, ?)");
-            foreach ($classIds as $classId) {
-                $classId = (int)$classId;
-                if ($classId > 0) {
-                    $stmt->bind_param("ii", $classId, $subjectId);
-                    $stmt->execute();
-                }
-            }
-        }
-        
-        echo json_encode(['status' => 'success', 'message' => 'Subject assigned to ' . count($classIds) . ' class(es)']);
+        echo json_encode(AssignmentService::setClassSubjects($conn, $subjectId, $classIds), JSON_UNESCAPED_UNICODE);
         break;
     
     case 'get_subject_classes':
