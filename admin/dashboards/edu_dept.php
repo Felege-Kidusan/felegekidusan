@@ -242,9 +242,30 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div id="enrollArea" style="margin-top:.75rem"></div>
 </div>
 
+<!-- TAB: All Students -->
+<div id="enrPanelRoster" style="display:none">
+<div class="crd" style="padding:1rem">
+<div id="rosterFormAlert" class="form-alert" role="alert"></div>
+<div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:.5rem;align-items:end;flex-wrap:wrap">
+<div><label class="lbl">Search</label><input type="text" id="rosterQ" class="inp" placeholder="Name or code…" autocomplete="off" oninput="debounceRoster()"></div>
+<div><label class="lbl">Class</label><select id="rosterClass" class="inp" onchange="loadRoster(1)"><option value="">All classes</option><option value="unassigned">Unassigned</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Gender</label><select id="rosterGender" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="male">Male</option><option value="female">Female</option></select></div>
+<div><label class="lbl">Type</label><select id="rosterType" class="inp" onchange="loadRoster(1)"><option value="">All types</option><option value="regular">Regular</option><option value="special_regular">Special</option><option value="honorary">Honorary</option></select></div>
+<div><label class="lbl">Age</label><select id="rosterAge" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="under6">Under 6</option><option value="7_13">7–13</option><option value="14_17">14–17</option><option value="18_plus">18+</option></select></div>
+<div><label class="lbl">Sort</label><select id="rosterSort" class="inp" onchange="loadRoster(1)"><option value="name">Name</option><option value="code">Code</option><option value="class">Class</option></select></div>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-top:.65rem">
+<div style="min-width:180px"><label class="lbl">Enroll selected into</label><select id="rosterTargetClass" class="inp"><option value="">— Class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<button class="btn btn-s" type="button" onclick="rosterBulkEnroll()"><i class="fa-solid fa-users"></i> Enroll selected</button>
+</div>
+</div>
+<div id="rosterArea" style="margin-top:.75rem"></div>
+</div>
+
 <!-- TAB: Unassigned Members -->
 <div id="enrPanelUnassigned" style="display:none">
 <div class="crd" style="padding:1rem">
+<div id="unassignedFormAlert" class="form-alert" role="alert"></div>
 <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:.5rem;align-items:end;flex-wrap:wrap">
 <div><label class="lbl">Search Members</label><input type="text" id="unassignedSearch" class="inp" placeholder="Search by name or code..." oninput="debounceUnassigned()"></div>
 <div><label class="lbl">Gender</label><select id="unassignedGender" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="male">Male ♂</option><option value="female">Female ♀</option></select></div>
@@ -489,18 +510,36 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div style="background:#ede9fe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#5b21b6">1ኛ ሴሚስተር</div><div style="font-size:.6rem;color:#7c3aed">Meskerem — Yekatit</div></div>
 <div style="background:#dbeafe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#1e40af">2ኛ ሴሚስተር</div><div style="font-size:.6rem;color:#2563eb">Megabit — Hamle</div></div>
 </div>
-<p style="font-size:.6rem;color:#94a3b8;margin-top:.3rem">Two semesters will be auto-creaDAL -->
+<p style="font-size:.6rem;color:#94a3b8;margin-top:.3rem">Two semesters will be auto-created when you save a new academic year</p>
+</div>
+<button class="btn btn-p" style="width:100%;justify-content:center" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
+</div></div></div>
+
+<!-- BULK ENROLL MODAL -->
 <div class="mo" id="bulkEnrollModal"><div class="mc" style="max-width:680px">
 <div style="background:linear-gradient(135deg,#ec4899,#d946ef);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-users"></i> Bulk Enroll Students</h3><button onclick="closeModal('bulkEnrollModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem">
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem">
-<div><label class="lbl">Target Class *</label><select id="bulkClass" class="inp" placeholder="Search unassigned members..." oninput="loadBulkCandidates()"></div>
+<p style="font-size:.75rem;color:#64748b;margin:0 0 .75rem">Pick a class, search the members who are not in a class yet, tick the ones you want, and save once.</p>
+<div id="bulkFormAlert" class="form-alert" role="alert"></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+<div><label class="lbl">Target class *</label>
+<select id="bulkClass" class="inp"><option value="">— Select class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Search members</label>
+<input type="text" id="bulkSearch" class="inp" placeholder="Name or member code…" autocomplete="off" oninput="debounceBulkSearch()"></div>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-bottom:.75rem">
+<div style="min-width:140px"><label class="lbl">Filter</label>
+<select id="bulkFilter" class="inp" onchange="loadBulkCandidates()"><option value="">All unassigned</option><option value="male">Male</option><option value="female">Female</option><option value="under6">Under 6</option><option value="7_13">7–13</option><option value="14_17">14–17</option><option value="18_plus">18+</option></select></div>
+</div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
-<label style="font-size:.75rem;color:#64748b"><input type="checkbox" id="bulkSelectAll" onchange="toggleBulkAll()"> Select All</label>
+<label style="font-size:.75rem;color:#64748b"><input type="checkbox" id="bulkSelectAll" onchange="toggleBulkAll()"> Select all on this list</label>
 <span id="bulkCount" style="font-size:.7rem;color:#7c3aed;font-weight:600">0 selected</span>
 </div>
-<div id="bulkCandidateList" style="max-height:300px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:10px;padding:.5rem"></div>
-<button class="btn btn-p" style="width:100%;justify-content:center;margin-top:1rem" onclick="executeBulkEnroll()"><i class="fa-solid fa-check-double"></i> Enroll Selected Students</button>
+<div id="bulkCandidateList" style="max-height:280px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:10px;padding:.5rem"><div style="padding:1rem;text-align:center;color:#94a3b8">Open this window to load unassigned members.</div></div>
+<div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem">
+<button type="button" class="btn btn-o" onclick="closeModal('bulkEnrollModal')">Cancel</button>
+<button type="button" class="btn btn-p" id="bulkEnrollBtn" onclick="executeBulkEnroll()"><i class="fa-solid fa-check-double"></i> Enroll selected</button>
+</div>
 </div></div></div>
 
 <!-- TRANSFER MODAL -->
@@ -968,14 +1007,24 @@ async function loadRoster(page){
     }catch(e){ area.innerHTML='<div class="crd" style="padding:1.5rem;color:#ef4444">Error loading roster</div>'; }
 }
 async function rosterBulkEnroll(){
+    setFormAlert('rosterFormAlert','');
     const cls=document.getElementById('rosterTargetClass')?.value;
-    if(!cls) return toast('Select a target class','err');
+    if(!cls){ setFormAlert('rosterFormAlert','Pick the class these students should join.','err'); toast('Pick a class first.','err'); return; }
     const ids=[]; document.querySelectorAll('.roster-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));
-    if(!ids.length) return toast('Select at least one student','err');
+    if(!ids.length){ setFormAlert('rosterFormAlert','Tick at least one student.','err'); toast('Tick at least one student.','err'); return; }
     if(!confirm('Enroll '+ids.length+' student(s) into the selected class?')) return;
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
-    try{ const d=await postAPI('/admin/api_education.php',fd); toast(d.message,d.status==='success'?'ok':'err'); if(d.status==='success'){ loadRoster(_rosterPage); loadEnrollOverview(); } }
-    catch(e){ toast('Error','err'); }
+    try{
+        const d=await postAPI('/admin/api_education.php',fd);
+        if(d.status==='success'||d.status==='partial'){
+            toast(d.message||'Students enrolled.', d.status==='partial'?'w':'ok');
+            setFormAlert('rosterFormAlert',d.message||'Students enrolled.', d.status==='partial'?'warn':'ok');
+            loadRoster(_rosterPage); loadEnrollOverview();
+        }else{
+            setFormAlert('rosterFormAlert',d.message||'Could not enroll those students.','err');
+            toast(d.message||'Could not enroll those students.','err');
+        }
+    }catch(e){ const msg=friendlyNetError(e); setFormAlert('rosterFormAlert',msg,'err'); toast(msg,'err'); }
 }
 
 // --- Enrollment Overview ---
@@ -983,10 +1032,7 @@ async function loadEnrollOverview() {
     try { const d=await getAPI('/admin/api_education.php?action=enrollment_overview');
     if(d.status==='success') {
         const s=d.summary||{}, tb=s.type_breakdown||{}, eb=s.enrolled_by_type||{};
-        document.getElementById('enrollOverviewStats').innerHTML=`
-            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.total_enrolled||0}<span style="font-size:.65rem;opacity:.7">/${s.total_members||0}</span></div><div style="font-size:.6rem;opacity:.8">Enrolled / Total</div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#ef4444,#f97316);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.unassigned_members||0}</div><div style="font-size:.6rem;opacity:.8">Unassigned</div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.assigned_teachers||0}<span style="font-size:.65rem;opacity:.7">/${s.total_teachers||0}</span></div><div style="font-size:.6rem;opacity:.8">Teachers</div></div>
+        document.getEleear-gradient(135deg,#059669,#10b981);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.assigned_teachers||0}<span style="font-size:.65rem;opacity:.7">/${s.total_teachers||0}</span></div><div style="font-size:.6rem;opacity:.8">Teachers</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#0ea5e9,#3b82f6);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.total_classes||0}</div><div style="font-size:.6rem;opacity:.8">Classes</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#10b981,#34d399);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">መደበኛ Regular</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);padding:.85rem;color:#78350f"><div style="font-size:1.2rem;font-weight:700">${tb.special_regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.special_regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">ልዩ መደበኛ Special</div></div>
@@ -1154,51 +1200,91 @@ async function loadUnassigned(offset=0) {
 function toggleBulkPage(checked) { document.querySelectorAll('.unassigned-cb').forEach(cb=>{cb.checked=checked;}); updateBulkCount(); }
 function updateBulkCount() { const cnt=document.querySelectorAll('.unassigned-cb:checked').length; const el=document.querySelector('#enrPanelUnassigned .btn-s'); if(el) el.innerHTML=`<i class="fa-solid fa-users"></i> Enroll Selected (${cnt})`; }
 async function bulkEnrollSelected() {
+    setFormAlert('unassignedFormAlert','');
     const cls=document.getElementById('unassignedTargetClass').value;
-    if(!cls) return toast('Select a target class','err');
+    if(!cls){ setFormAlert('unassignedFormAlert','Pick the class these members should join.','err'); toast('Pick a class first.','err'); return; }
     const ids=[]; document.querySelectorAll('.unassigned-cb:checked').forEach(cb=>ids.push(parseInt(cb.value)));
-    if(!ids.length) return toast('Select at least one member','err');
+    if(!ids.length){ setFormAlert('unassignedFormAlert','Tick at least one member.','err'); toast('Tick at least one member.','err'); return; }
     if(!confirm(`Enroll ${ids.length} student(s) into the selected class?`)) return;
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
-    try { const d=await postAPI('/admin/api_education.php',fd);
-    toast(d.message, d.status==='success'?'ok':'err');
-    if(d.status==='success') { loadUnassigned(); loadEnrollOverview(); }
-    } catch(e){ toast('Error','err'); }
+    try {
+        const d=await postAPI('/admin/api_education.php',fd);
+        if(d.status==='success'||d.status==='partial'){
+            toast(d.message||'Students enrolled.', d.status==='partial'?'w':'ok');
+            loadUnassigned(); loadEnrollOverview();
+        }else{
+            setFormAlert('unassignedFormAlert',d.message||'Could not enroll those members.','err');
+            toast(d.message||'Could not enroll those members.','err');
+        }
+    } catch(e){ const msg=friendlyNetError(e); setFormAlert('unassignedFormAlert',msg,'err'); toast(msg,'err'); }
 }
 
 // --- Bulk Enroll Modal ---
-function openBulkEnrollModal() { document.getElementById('bulkEnrollModal').classList.add('show'); loadBulkCandidates(); }
+let _bulkSearchTimer=null;
+function debounceBulkSearch(){ clearTimeout(_bulkSearchTimer); _bulkSearchTimer=setTimeout(loadBulkCandidates, 300); }
+function openBulkEnrollModal() {
+    setFormAlert('bulkFormAlert','');
+    const btn=document.getElementById('bulkEnrollBtn');
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check-double"></i> Enroll selected';}
+    const sa=document.getElementById('bulkSelectAll'); if(sa) sa.checked=false;
+    document.getElementById('bulkEnrollModal').classList.add('show');
+    loadBulkCandidates();
+}
 async function loadBulkCandidates() {
+    const list=document.getElementById('bulkCandidateList');
+    if(!list) return;
+    list.innerHTML='<div style="padding:1rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading unassigned members…</div>';
     const search=document.getElementById('bulkSearch')?.value||'';
     const filter=document.getElementById('bulkFilter')?.value||'';
     let url=`/admin/api_education.php?action=get_unassigned_members&limit=100`;
-    if(search) url+=`&search=${encodeURIComponent(search)}`;
+    if(search.trim()) url+=`&search=${encodeURIComponent(search.trim())}`;
     if(['male','female'].includes(filter)) url+=`&gender=${filter}`;
     if(['under6','7_13','14_17','18_plus'].includes(filter)) url+=`&age_group=${filter}`;
-    try { const d=await getAPI(url);
-    if(d.status==='success') {
+    try {
+        const d=await getAPI(url);
+        if(d.status!=='success'){
+            list.innerHTML=`<div style="padding:1rem;text-align:center;color:#dc2626">${esc(d.message||'Could not load members.')}</div>`;
+            return;
+        }
         const m=d.members||[];
-        _bulkSelected=new Set();
-        document.getElementById('bulkCandidateList').innerHTML=m.length?m.map(x=>`<label style="display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-bottom:1px solid #f8fafc;cursor:pointer;font-size:.8rem" onmouseover="this.style.background='#faf5ff'" onmouseout="this.style.background=''">
+        const total=d.total||m.length;
+        list.innerHTML=m.length?m.map(x=>`<label style="display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-bottom:1px solid #f8fafc;cursor:pointer;font-size:.8rem" onmouseover="this.style.background='#faf5ff'" onmouseout="this.style.background=''">
             <input type="checkbox" class="bulk-cb" value="${x.id}" onchange="updateBulkModalCount()">
-            <div style="flex:1"><strong>${esc(x.student_name)}</strong> ${esc(x.father_name)} <span class="ch ch-i" style="font-size:.5rem">${esc(x.member_code||'')}</span> ${mtBadge(x.member_type)} ${roleTags(x)}</div>
+            <div style="flex:1"><strong>${esc(x.student_name)}</strong> ${esc(x.father_name||'')} <span class="ch ch-i" style="font-size:.5rem">${esc(x.member_code||'')}</span> ${mtBadge(x.member_type)} ${roleTags(x)}</div>
             <span style="color:${x.gender==='male'?'#2563eb':'#ec4899'};font-size:.7rem">${x.gender==='male'?'♂':'♀'}</span>
-        </label>`).join(''):'<div style="padding:1rem;text-align:center;color:#94a3b8">No unassigned members found</div>';
+        </label>`).join('')+'<div style="padding:.45rem .5rem;font-size:.68rem;color:#94a3b8">Showing '+m.length+(total>m.length?' of '+total:'')+' unassigned member(s).</div>':'<div style="padding:1rem;text-align:center;color:#94a3b8">No unassigned members match this search.</div>';
+        const sa=document.getElementById('bulkSelectAll'); if(sa) sa.checked=false;
         updateBulkModalCount();
-    }} catch(e){}
+    } catch(e){
+        list.innerHTML=`<div style="padding:1rem;text-align:center;color:#dc2626">${esc(friendlyNetError(e))}</div>`;
+    }
 }
 function toggleBulkAll() { const c=document.getElementById('bulkSelectAll').checked; document.querySelectorAll('.bulk-cb').forEach(cb=>{cb.checked=c;}); updateBulkModalCount(); }
-function updateBulkModalCount() { const cnt=document.querySelectorAll('.bulk-cb:checked').length; document.getElementById('bulkCount').textContent=cnt+' selected'; }
+function updateBulkModalCount() { const cnt=document.querySelectorAll('.bulk-cb:checked').length; const el=document.getElementById('bulkCount'); if(el) el.textContent=cnt+' selected'; }
 async function executeBulkEnroll() {
+    setFormAlert('bulkFormAlert','');
+    markField('bulkClass',false);
     const cls=document.getElementById('bulkClass').value;
     const ids=[]; document.querySelectorAll('.bulk-cb:checked').forEach(cb=>ids.push(parseInt(cb.value)));
-    if(!ids.length) return toast('Select at least one student','err');
-    if(!confirm(`Enroll ${ids.length} student(s)?`)) return;
+    if(!cls){ setFormAlert('bulkFormAlert','Pick the class these students should join.','err'); markField('bulkClass',true); toast('Pick a class first.','err'); return; }
+    if(!ids.length){ setFormAlert('bulkFormAlert','Tick at least one member.','err'); toast('Tick at least one member.','err'); return; }
+    const btn=document.getElementById('bulkEnrollBtn');
+    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Enrolling…';}
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
-    try { const d=await postAPI('/admin/api_education.php',fd);
-    toast(d.message, d.status==='success'?'ok':'err');
-    if(d.status==='success') { closeModal('bulkEnrollModal'); loadEnrollOverview(); }
-    } catch(e){ toast('Error','err'); }
+    try {
+        const d=await postAPI('/admin/api_education.php',fd);
+        if(d.status==='success'||d.status==='partial'){
+            toast(d.message||'Students enrolled.', d.status==='partial'?'w':'ok');
+            if(d.status==='success') closeModal('bulkEnrollModal');
+            else { setFormAlert('bulkFormAlert',d.message,'warn'); loadBulkCandidates(); }
+            loadEnrollOverview();
+            if(document.getElementById('enrPanelUnassigned')?.style.display==='block') loadUnassigned();
+        }else{
+            setFormAlert('bulkFormAlert',d.message||'Could not enroll those members.','err');
+            toast(d.message||'Could not enroll those members.','err');
+        }
+    } catch(e){ const msg=friendlyNetError(e); setFormAlert('bulkFormAlert',msg,'err'); toast(msg,'err'); }
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check-double"></i> Enroll selected';}
 }
 
 // --- Unassigned Teachers & Class-Teacher Grid ---

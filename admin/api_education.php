@@ -963,8 +963,14 @@ switch ($action) {
     case 'bulk_enroll':
         $classId = (int)($_POST['class_id'] ?? 0);
         $memberIds = json_decode($_POST['member_ids'] ?? '[]', true);
-        if (!$classId || empty($memberIds)) { echo json_encode(['status'=>'error','message'=>'Class and students required']); exit; }
-        if (!$currentYear) { echo json_encode(['status'=>'error','message'=>'No active academic year']); exit; }
+        if (!$classId || empty($memberIds)) {
+            echo json_encode(['status' => 'error', 'message' => 'Pick a class and at least one student.', 'field' => !$classId ? 'class_id' : 'member_ids']);
+            exit;
+        }
+        if (!$currentYear) {
+            echo json_encode(['status' => 'error', 'message' => 'There is no active academic year. Ask a School Admin to set one first.']);
+            exit;
+        }
         $by = (int)($_SESSION['admin_id'] ?? 0); $ok=0; $skip=0; $fail=0;
         foreach ($memberIds as $mid) {
             $mid = (int)$mid; if (!$mid) continue;
