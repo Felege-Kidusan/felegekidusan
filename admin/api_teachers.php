@@ -780,15 +780,15 @@ switch ($action) {
         }
 
         if ($fullName === '' || $username === '') {
-            echo json_encode(['status' => 'error', 'message' => 'Full name and username are required.']);
+            echo json_encode(['status' => 'error', 'message' => 'Please enter the full name and a username.', 'field' => $fullName === '' ? 'full_name' : 'username']);
             exit;
         }
         if ($teacherId <= 0 && strlen($password) < 4) {
-            echo json_encode(['status' => 'error', 'message' => 'Password must be at least 4 characters so the teacher can log in.']);
+            echo json_encode(['status' => 'error', 'message' => 'Set a password of at least 4 characters so the teacher can log in.', 'field' => 'password']);
             exit;
         }
         if ($teacherId > 0 && $password !== '' && strlen($password) < 4) {
-            echo json_encode(['status' => 'error', 'message' => 'New password must be at least 4 characters.']);
+            echo json_encode(['status' => 'error', 'message' => 'New password must be at least 4 characters.', 'field' => 'password']);
             exit;
         }
 
@@ -814,7 +814,7 @@ switch ($action) {
         $unameChk->bind_param('si', $username, $otherId);
         $unameChk->execute();
         if ($unameChk->get_result()->num_rows > 0) {
-            echo json_encode(['status' => 'error', 'message' => 'That username is already used. Choose another.']);
+            echo json_encode(['status' => 'error', 'message' => 'That username is already used. Choose another.', 'field' => 'username']);
             exit;
         }
         $unameChk->close();
@@ -824,7 +824,7 @@ switch ($action) {
             $emChk->bind_param('si', $email, $otherId);
             $emChk->execute();
             if ($emChk->get_result()->num_rows > 0) {
-                echo json_encode(['status' => 'error', 'message' => 'That email is already used.']);
+                echo json_encode(['status' => 'error', 'message' => 'That email is already used. Choose another.', 'field' => 'email']);
                 exit;
             }
             $emChk->close();

@@ -80,8 +80,16 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 .tbn{padding:.55rem 1.1rem;border:none;background:transparent;cursor:pointer;font-size:.8rem;font-weight:500;color:#64748b;border-bottom:2px solid transparent;transition:.2s}.tbn.act{color:#7c3aed;border-bottom-color:#7c3aed}
 .at{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:8px;font-size:.65rem;background:#ede9fe;color:#5b21b6;margin:2px}
 .at button{background:none;border:none;cursor:pointer;color:#7c3aed;padding:0;font-size:.7rem}.at button:hover{color:#dc2626}
-.toast{position:fixed;bottom:1.5rem;right:1.5rem;padding:.75rem 1.1rem;border-radius:12px;color:#fff;z-index:200;animation:slideIn .3s}.toast-ok{background:#059669}.toast-err{background:#dc2626}
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;padding:.85rem 1rem;border-radius:12px;color:#fff;z-index:300;animation:slideIn .3s;max-width:380px;display:flex;align-items:flex-start;gap:.55rem;box-shadow:0 10px 28px rgba(15,23,42,.18);font-size:.82rem;line-height:1.4}
+.toast-ok{background:#059669}.toast-err{background:#dc2626}.toast-w{background:#d97706}
+.toast .tx{flex:1;min-width:0}.toast .tx-close{background:none;border:none;color:#fff;opacity:.8;cursor:pointer;font-size:1.1rem;line-height:1;padding:0}
+.form-alert{display:none;padding:.7rem .85rem;border-radius:10px;font-size:.78rem;margin-bottom:.85rem;line-height:1.4}
+.form-alert.show{display:block}.form-alert.err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.form-alert.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+.form-alert.warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+.fld-err{border-color:#ef4444!important;box-shadow:0 0 0 3px rgba(239,68,68,.12)!important}
 @keyframes slideIn{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:768px){.toast{left:1rem;right:1rem;bottom:5.2rem;max-width:none}}
 .bn{display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-top:1px solid #e2e8f0;padding:.3rem 0;z-index:50}.bni{display:flex;justify-content:space-around;max-width:480px;margin:0 auto}.bn button,.bn a{display:flex;flex-direction:column;align-items:center;gap:.1rem;background:none;border:none;color:#94a3b8;font-size:.55rem;padding:.2rem .4rem;cursor:pointer;text-decoration:none}.bn button.act{color:#7c3aed}.bn i{font-size:1rem}
 .hr-chip{display:inline-flex;align-items:center;gap:4px;padding:.35rem .7rem;border-radius:10px;border:1px solid #e2e8f0;background:#fff;font-size:.72rem;cursor:pointer;color:#475569;font-family:inherit}
 .hr-chip.on{background:#7c3aed;border-color:#7c3aed;color:#fff}
@@ -370,6 +378,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="teacherModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-user-plus"></i> Add Teacher</h3><button onclick="closeModal('teacherModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem">
 <p style="font-size:.75rem;color:#64748b;margin:0 0 1rem">Creates their login and class work in one save. They sign in with the username and password.</p>
+<div id="teacherFormAlert" class="form-alert" role="alert"></div>
 <input type="hidden" id="teacherMemberId" value="">
 <div style="margin-bottom:.75rem"><label class="lbl">Link an existing member (optional)</label>
 <input id="teacherMemberQ" class="inp" placeholder="Search member name or code..." autocomplete="off" oninput="searchTeacherMembers(this.value)">
@@ -544,11 +553,51 @@ document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click'
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
 function fD(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'medium'):(d||'—');}
 function fDL(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'long'):(d||'—');}
-function toast(m,t='ok'){const el=document.createElement('div');el.className='toast toast-'+t;el.innerHTML=`<i class="fa-solid fa-${t==='ok'?'check-circle':'exclamation-circle'}" style="margin-right:.4rem"></i>${m}`;document.getElementById('toastC').appendChild(el);setTimeout(()=>el.remove(),3500);}
+function toast(m,t='ok'){
+    const box=document.getElementById('toastC');
+    if(!box)return;
+    const el=document.createElement('div');
+    el.className='toast toast-'+t;
+    const icon=t==='ok'?'check-circle':(t==='w'?'exclamation-triangle':'exclamation-circle');
+    el.innerHTML=`<i class="fa-solid fa-${icon}" style="margin-top:.15rem"></i><div class="tx"></div><button type="button" class="tx-close" aria-label="Close">&times;</button>`;
+    el.querySelector('.tx').textContent=m||'';
+    el.querySelector('.tx-close').onclick=()=>el.remove();
+    box.appendChild(el);
+    setTimeout(()=>{if(el.parentNode)el.remove();}, t==='err'?8000:(t==='w'?6000:4500));
+}
+function friendlyNetError(e){
+    const raw=String((e&&e.message)||e||'');
+    if(/failed to fetch|networkerror|load failed/i.test(raw)) return 'Could not reach the server. Check your connection and try again.';
+    if(/unexpected reply|invalid json|unexpected token/i.test(raw)) return 'The server sent an unexpected reply. Please refresh and try again.';
+    return raw||'Something went wrong. Please try again.';
+}
+function parseJsonResponse(r){
+    return r.text().then(txt=>{
+        let d=null;
+        try{d=JSON.parse(txt);}catch(e){
+            throw new Error(r.ok?'The server sent an unexpected reply. Please refresh and try again.':'Could not reach the server. Please try again.');
+        }
+        if(d && (d.status==='session_expired' || d.action==='reload')){
+            throw new Error(d.message||'Your session expired. Please refresh the page and sign in again.');
+        }
+        if(!r.ok && d && !d.message) d.message='Something went wrong. Please try again.';
+        if(!d) throw new Error('Something went wrong. Please try again.');
+        return d;
+    });
+}
+function postAPI(url,fd){if(!fd.has('csrf_token'))fd.append('csrf_token',CSRF_TOKEN);return fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(parseJsonResponse);}
+function getAPI(url){return fetch(url,{credentials:'same-origin'}).then(parseJsonResponse);}
+function setFormAlert(id,msg,kind){
+    const el=document.getElementById(id);
+    if(!el)return;
+    if(!msg){el.className='form-alert';el.textContent='';return;}
+    el.className='form-alert show '+(kind||'err');
+    el.textContent=msg;
+    try{el.scrollIntoView({block:'nearest',behavior:'smooth'});}catch(e){}
+}
+function markField(id,on){const el=document.getElementById(id);if(el)el.classList.toggle('fld-err',!!on);}
 function closeModal(id){document.getElementById(id).classList.remove('show');}
 function showTab(){/* teacher form is one scroll — no tabs */}
-function postAPI(url,fd){fd.append('csrf_token',CSRF_TOKEN);return fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json());}
-function getAPI(url){return fetch(url,{credentials:'same-origin'}).then(r=>r.json());}
 
 // ═══ TEACHERS ═══
 let _teacherSearchTimer=null,_memberSearchTimer=null;
@@ -560,7 +609,9 @@ async function loadTeachers(){
     let url=`/admin/api_teachers.php?action=get_teachers&include_inactive=${inc}&limit=100`;
     if(q.trim()) url+=`&q=${encodeURIComponent(q.trim())}`;
     try{const d=await getAPI(url);
-    if(d.status==='success'){allTeachers=d.teachers||[];renderTeachers();}}catch(e){toast('Failed to load teachers','err');}
+    if(d.status==='success'){allTeachers=d.teachers||[];renderTeachers();}
+    else{allTeachers=[];renderTeachers();toast(d.message||'Could not load teachers.','err');}
+    }catch(e){allTeachers=[];renderTeachers();toast(friendlyNetError(e),'err');}
 }
 function renderTeachers(){
     const q=(document.getElementById('teacherSearch')?.value||'').toLowerCase();
@@ -637,7 +688,17 @@ async function loadHomeroomHolders(){
         });
     }catch(e){}
 }
+function clearTeacherErrors(){
+    setFormAlert('teacherFormAlert','');
+    ['teacherFullName','teacherUsername','teacherEmail','teacherPassword'].forEach(id=>markField(id,false));
+}
+function highlightTeacherField(field){
+    const map={full_name:'teacherFullName',username:'teacherUsername',email:'teacherEmail',password:'teacherPassword'};
+    const id=map[field];
+    if(id){markField(id,true);const el=document.getElementById(id);if(el)el.focus();}
+}
 function resetTeacherForm(){
+    clearTeacherErrors();
     document.getElementById('teacherFullName').value='';
     document.getElementById('teacherUsername').value='';
     document.getElementById('teacherEmail').value='';
@@ -647,6 +708,8 @@ function resetTeacherForm(){
     document.getElementById('teacherMemberHits').style.display='none';
     document.getElementById('teacherMemberHits').innerHTML='';
     document.getElementById('teacherMemberPicked').textContent='Not linked — you can still type a name below.';
+    const btn=document.getElementById('teacherSubmitBtn');
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-save"></i> Save teacher';}
 }
 function setPasswordMode(isCreate){
     document.getElementById('teacherPasswordLabel').textContent=isCreate?'Password *':'Password';
@@ -696,7 +759,7 @@ async function openCreateTeacher(){
 }
 function editTeacher(id){
     getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${id}`).then(async d=>{
-        if(d.status!=='success'){toast(d.message||'Teacher not found','err');return;}
+        if(d.status!=='success'){toast(d.message||'That teacher could not be opened.','err');return;}
         const t=d.teacher;currentTeacherId=t.id;
         resetTeacherForm();setPasswordMode(false);
         document.getElementById('teacherModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Teacher';
@@ -719,34 +782,51 @@ function editTeacher(id){
         await loadHomeroomHolders();
         renderHomeroomChips();
         document.getElementById('teacherModal').classList.add('show');
-    });
+    }).catch(e=>toast(friendlyNetError(e),'err'));
 }
 async function saveTeacher(){
+    clearTeacherErrors();
     const name=document.getElementById('teacherFullName').value.trim();
     const user=document.getElementById('teacherUsername').value.trim();
+    const email=document.getElementById('teacherEmail').value.trim();
     const pw=document.getElementById('teacherPassword').value;
-    if(!name||!user) return toast('Full name and username are required.','err');
-    if(!currentTeacherId&&pw.length<4) return toast('Password must be at least 4 characters.','err');
-    if(currentTeacherId&&pw&&pw.length<4) return toast('New password must be at least 4 characters.','err');
+    if(!name){setFormAlert('teacherFormAlert','Please enter the teacher’s full name.','err');markField('teacherFullName',true);document.getElementById('teacherFullName').focus();return;}
+    if(!user){setFormAlert('teacherFormAlert','Please choose a username for login.','err');markField('teacherUsername',true);document.getElementById('teacherUsername').focus();return;}
+    if(!currentTeacherId&&pw.length<4){setFormAlert('teacherFormAlert','Set a password of at least 4 characters so they can log in.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
+    if(currentTeacherId&&pw&&pw.length<4){setFormAlert('teacherFormAlert','New password must be at least 4 characters, or leave it blank to keep the current one.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
+    if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setFormAlert('teacherFormAlert','That email does not look right.','err');markField('teacherEmail',true);document.getElementById('teacherEmail').focus();return;}
+    const incomplete=asgRows.some(r=>(r.class_id&&!r.subject_id)||(!r.class_id&&r.subject_id));
+    if(incomplete){setFormAlert('teacherFormAlert','Each teaching row needs both a class and a subject. Finish the row or remove it.','err');return;}
     const assignments=asgRows.filter(r=>r.class_id&&r.subject_id).map(r=>({class_id:parseInt(r.class_id,10),subject_id:parseInt(r.subject_id,10)}));
     const fd=new FormData();
     fd.append('action','save_teacher_bundle');
     if(currentTeacherId) fd.append('teacher_id',currentTeacherId);
     fd.append('full_name',name);
     fd.append('username',user);
-    fd.append('email',document.getElementById('teacherEmail').value.trim());
+    fd.append('email',email);
     fd.append('member_id',document.getElementById('teacherMemberId').value);
     if(pw) fd.append('password',pw);
     fd.append('assignments',JSON.stringify(assignments));
     fd.append('homeroom_class_ids',JSON.stringify(homeroomClassIds));
     const btn=document.getElementById('teacherSubmitBtn');
-    if(btn) btn.disabled=true;
+    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Saving…';}
     try{
         const d=await postAPI('/admin/api_teachers.php',fd);
-        if(d.status==='success'){toast(d.message);closeModal('teacherModal');loadTeachers();}
-        else toast(d.message||'Could not save teacher','err');
-    }catch(e){console.error('Save teacher error:',e);toast('Error saving teacher','err');}
-    if(btn) btn.disabled=false;
+        if(d.status==='success' || d.status==='partial'){
+            toast(d.message||'Teacher saved.', d.status==='partial'?'w':'ok');
+            closeModal('teacherModal');
+            loadTeachers();
+        }else{
+            setFormAlert('teacherFormAlert',d.message||'Could not save this teacher.','err');
+            highlightTeacherField(d.field);
+            toast(d.message||'Could not save this teacher.','err');
+        }
+    }catch(e){
+        const msg=friendlyNetError(e);
+        setFormAlert('teacherFormAlert',msg,'err');
+        toast(msg,'err');
+    }
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-save"></i> Save teacher';}
 }
 async function viewTeacher(id){
     try{const d=await getAPI(`/admin/api_teachers.php?action=get_teacher&teacher_id=${id}`);
@@ -789,7 +869,7 @@ async function viewTeacher(id){
                 <button class="btn btn-p btn-xs" onclick="closeModal('viewTeacherModal');editTeacher(${t.id})"><i class="fa-solid fa-plus"></i> Assign Classes</button>
             </div>`}
         </div>`;
-    document.getElementById('viewTeacherModal').classList.add('show');}}catch(e){toast('Error loading teacher','err');}
+    document.getElementById('viewTeacherModal').classList.add('show');}}catch(e){toast(friendlyNetError(e),'err');}
 }
 async function toggleTeacher(id,cur){const act=cur==1?'deactivate':'activate';if(!confirm(act+' this teacher?'))return;const fd=new FormData();fd.append('action','toggle_status');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
 async function deleteTeacher(id,name){if(!confirm(`Delete teacher "${name}"? This cannot be undone.`))return;const fd=new FormData();fd.append('action','delete_teacher');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
