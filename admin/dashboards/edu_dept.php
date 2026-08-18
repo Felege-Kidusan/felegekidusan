@@ -829,7 +829,7 @@ async function saveTeacher(){
     const user=document.getElementById('teacherUsername').value.trim();
     const email=document.getElementById('teacherEmail').value.trim();
     const pw=document.getElementById('teacherPassword').value;
-    if(!name){setFormAlert('teacherFormAlert','Please enter the teacher’s full name.','err');markField('teacherFullName',true);document.getElementById('teacherFullName').focus();return;}
+    if(!name){setFormAlert('teacherFormAlert','Please enter the teacher full name.','err');markField('teacherFullName',true);document.getElementById('teacherFullName').focus();return;}
     if(!user){setFormAlert('teacherFormAlert','Please choose a username for login.','err');markField('teacherUsername',true);document.getElementById('teacherUsername').focus();return;}
     if(!currentTeacherId&&pw.length<4){setFormAlert('teacherFormAlert','Set a password of at least 4 characters so they can log in.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
     if(currentTeacherId&&pw&&pw.length<4){setFormAlert('teacherFormAlert','New password must be at least 4 characters, or leave it blank to keep the current one.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
@@ -893,7 +893,7 @@ async function viewTeacher(id){
             <h4 style="font-weight:700;font-size:.9rem;color:#1e293b;margin-bottom:.75rem"><i class="fa-solid fa-chalkboard" style="color:#7c3aed"></i> Teaching Assignments <span class="ch ch-p">${a.length}</span></h4>
             ${a.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.6rem">${a.map(x=>`
                 <div style="background:#faf5ff;border:1px solid #ede9fe;border-radius:12px;padding:.85rem;display:flex;align-items:flex-start;gap:.6rem">
-                    <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#a855f7);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#a855f7);display:flex;align-items:center;justify-content:center;flex-shrink:0">
                         <i class="fa-solid fa-book-open" style="color:#fff;font-size:.75rem"></i>
                     </div>
                     <div style="flex:1;min-width:0">
@@ -1032,13 +1032,16 @@ async function loadEnrollOverview() {
     try { const d=await getAPI('/admin/api_education.php?action=enrollment_overview');
     if(d.status==='success') {
         const s=d.summary||{}, tb=s.type_breakdown||{}, eb=s.enrolled_by_type||{};
-        document.getEleear-gradient(135deg,#059669,#10b981);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.assigned_teachers||0}<span style="font-size:.65rem;opacity:.7">/${s.total_teachers||0}</span></div><div style="font-size:.6rem;opacity:.8">Teachers</div></div>
+        document.getElementById('enrollOverviewStats').innerHTML=`
+            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.total_enrolled||0}<span style="font-size:.65rem;opacity:.7">/${s.total_members||0}</span></div><div style="font-size:.6rem;opacity:.8">Enrolled / Total</div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#ef4444,#f97316);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.unassigned_members||0}</div><div style="font-size:.6rem;opacity:.8">Unassigned</div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.assigned_teachers||0}<span style="font-size:.65rem;opacity:.7">/${s.total_teachers||0}</span></div><div style="font-size:.6rem;opacity:.8">Teachers</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#0ea5e9,#3b82f6);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.total_classes||0}</div><div style="font-size:.6rem;opacity:.8">Classes</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#10b981,#34d399);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">መደበኛ Regular</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);padding:.85rem;color:#78350f"><div style="font-size:1.2rem;font-weight:700">${tb.special_regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.special_regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">ልዩ መደበኛ Special</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.honorary||0}<span style="font-size:.6rem;opacity:.7"> (${eb.honorary||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">ክብር Honorary</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#64748b,#94a3b8);padding:.85rem;cursor:pointer" onclick="runMemberTypeSync()"><div style="font-size:1rem;font-weight:700"><i class="fa-solid fa-sync"></i></div><div style="font-size:.6rem;opacity:.8">Sync Types</div></div>`;
-    }} catch(e){}
+    }} catch(e){ toast(friendlyNetError(e),'err'); }
 }
 
 async function runMemberTypeSync() {
