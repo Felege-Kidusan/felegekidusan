@@ -52,19 +52,36 @@ class EnrollmentService
             $stmt->close();
             return $row ?: null;
         }
-        $code = trim((string)$idOrCode);
-        if ($code === '') {
+        $label = trim((string)$idOrCode);
+        if ($label === '') {
             return null;
         }
-        $stmt = $conn->prepare("SELECT * FROM classes WHERE class_code = ? AND is_active = 1 LIMIT 1");
+        $stmt = $conn->prepare(
+            "SELECT * FROM classes
+             WHERE is_active = 1
+               AND (class_code = ? OR class_name = ? OR class_name_en = ?)
+             LIMIT 1"
+        );
         if (!$stmt) {
             return null;
         }
-        $stmt->bind_param('s', $code);
+        $stmt->bind_param('sss', $label, $label, $label);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         return $row ?: null;
+    }
+
+    /**
+     * Enroll using a dropdown name, class_code, or numeric class id.
+     */
+    public static function enrollByLabel(\mysqli $conn, int $memberId, string $label, ?int $yearId = null, ?int $enrolledBy = null): array
+    {
+        $class = self::resolveClass($conn, $label);
+        if (!$class) {
+            return ['status' => 'error', 'message' => 'Unknown class: ' . $label];
+        }
+        return self::enroll($conn, $memberId, (int)$class['id'], $yearId, $enrolledBy);
     }
 
     /**

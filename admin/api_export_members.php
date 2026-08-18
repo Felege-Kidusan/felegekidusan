@@ -35,6 +35,22 @@ $lockedColumns = ExcelColumnMap::locked($tier);
 $headerLabels = ExcelColumnMap::headersFor($columns);
 $title = ($tier === 'temporary') ? 'Temporary Members Sync' : 'Permanent Members Sync';
 
+$classOptions = [];
+if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
+    try {
+        $cr = $conn->query("SELECT class_name FROM classes WHERE is_active = 1 ORDER BY level_order, class_name");
+        if ($cr) {
+            while ($crow = $cr->fetch_assoc()) {
+                if (!empty($crow['class_name'])) {
+                    $classOptions[] = $crow['class_name'];
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        $classOptions = [];
+    }
+}
+
 require_once __DIR__ . '/backend/ethiopian_date.php';
 
 $year = (isset($conn) && $conn instanceof mysqli) ? EnrollmentService::activeYear($conn) : null;
@@ -85,6 +101,11 @@ try {
                 }
             }
         }
+        if (!empty($row['class_name'])) {
+            $row['class'] = $row['class_name'];
+        } elseif (!empty($row['class_code'])) {
+            $row['class'] = $row['class_code'];
+        }
         $data[] = $row;
     }
 } catch (PDOException $e) {
@@ -94,4 +115,4 @@ try {
 
 $filename = 'sundayschool_' . $tier . '_members_' . date('Y-m-d') . '.xlsx';
 
-ExcelExportService::export($title, $columns, $data, $filename, $lockedColumns, $headerLabels);
+ExcelExportService::export($title, $columns, $data, $filename, $lockedColumns, $headerLabels, $classOptions);

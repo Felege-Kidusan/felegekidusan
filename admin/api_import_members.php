@@ -155,7 +155,7 @@ try {
         }
 
         $rowData = [];
-        $classCode = '';
+        $classLabel = '';
 
         foreach ($resolvedHeaders as $index => $key) {
             if ($key === null || !isset($row[$index])) {
@@ -163,8 +163,10 @@ try {
             }
             $val = trim((string)$row[$index]);
 
-            if ($key === 'class_code') {
-                $classCode = $val;
+            if (ExcelColumnMap::isClassColumn($key)) {
+                if ($val !== '') {
+                    $classLabel = $val;
+                }
                 continue;
             }
             if (ExcelColumnMap::isVirtual($key)) {
@@ -296,18 +298,18 @@ try {
             $stats['inserted']++;
         }
 
-        if ($memberId > 0 && $classCode !== '') {
-            $enrollJobs[] = ['member_id' => $memberId, 'class_code' => $classCode, 'row' => $rowNum + 1];
+        if ($memberId > 0 && $classLabel !== '') {
+            $enrollJobs[] = ['member_id' => $memberId, 'class_label' => $classLabel, 'row' => $rowNum + 1];
         }
     }
 
     $pdo->commit();
 
     foreach ($enrollJobs as $job) {
-        $enr = EnrollmentService::enrollByCode(
+        $enr = EnrollmentService::enrollByLabel(
             $conn,
             (int)$job['member_id'],
-            $job['class_code'],
+            (string)$job['class_label'],
             null,
             (int)$_SESSION['admin_id']
         );

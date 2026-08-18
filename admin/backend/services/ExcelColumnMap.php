@@ -2,17 +2,16 @@
 /**
  * Excel column dictionary.
  *
- * Internal DB/virtual keys stay stable. Display headers are what staff see
- * in the spreadsheet. Import accepts display headers, old snake_case keys,
- * and a few aliases so existing files keep working.
+ * Internal keys stay stable. Display headers are what staff see.
+ * Import accepts display headers, old snake_case keys, and aliases.
  */
 
 namespace App\Services;
 
 class ExcelColumnMap
 {
-    /** Virtual (not members.*) columns used only for class assignment. */
-    public const VIRTUAL = ['class_code', 'class_name'];
+    /** Virtual columns that are not members.* fields. */
+    public const VIRTUAL = ['class', 'class_code', 'class_name'];
 
     /**
      * key => [display header, aliases...]
@@ -20,9 +19,8 @@ class ExcelColumnMap
     private const META = [
         'member_code'        => ['Member Code'],
         'full_name_am'       => ['Full Name', 'full_name', 'name'],
-        'baptismal_name'     => ['Christian Name (የክርስትና ስም)', 'christian_name', 'Christian Name', 'baptismal'],
-        'class_code'         => ['Class Code', 'class', 'grade', 'grade_code'],
-        'class_name'         => ['Class Name'],
+        'baptismal_name'     => ['Christian Name', 'christian_name', 'Christian Name (የክርስትና ስም)', 'baptismal', 'baptismal_name'],
+        'class'              => ['Class', 'class_code', 'class_name', 'grade', 'grade_code'],
         'current_section'    => ['Age Section', 'section'],
         'education_level'    => ['Education Level'],
         'gender'             => ['Gender'],
@@ -64,8 +62,7 @@ class ExcelColumnMap
             'member_code',
             'full_name_am',
             'baptismal_name',
-            'class_code',
-            'class_name',
+            'class',
             'current_section',
             'education_level',
             'gender', 'date_of_birth', 'age',
@@ -80,7 +77,7 @@ class ExcelColumnMap
 
     public static function locked(string $tier): array
     {
-        return $tier === 'temporary' ? [] : ['member_code', 'class_name'];
+        return $tier === 'temporary' ? [] : ['member_code'];
     }
 
     public static function header(string $key): string
@@ -97,9 +94,6 @@ class ExcelColumnMap
         return $out;
     }
 
-    /**
-     * Map a spreadsheet header (display, snake_case, or alias) to an internal key.
-     */
     public static function resolveHeader(string $raw): ?string
     {
         $h = self::norm($raw);
@@ -124,6 +118,11 @@ class ExcelColumnMap
         return in_array($key, self::VIRTUAL, true);
     }
 
+    public static function isClassColumn(string $key): bool
+    {
+        return in_array($key, ['class', 'class_code', 'class_name'], true);
+    }
+
     public static function isDateColumn(string $key): bool
     {
         return in_array($key, ['date_of_birth', 'registered_at', 'waiting_since', 'joined_date'], true);
@@ -133,7 +132,6 @@ class ExcelColumnMap
     {
         $s = trim(mb_strtolower($s, 'UTF-8'));
         $s = preg_replace('/[_\s]+/u', ' ', $s);
-        // Drop parenthetical Amharic so "Christian Name (የክርስትና ስም)" == "christian name"
         $s = preg_replace('/\s*\([^)]*\)\s*/u', ' ', $s);
         return trim(preg_replace('/\s+/u', ' ', $s));
     }

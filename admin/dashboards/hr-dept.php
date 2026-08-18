@@ -5533,7 +5533,7 @@ function clearCache() {
         
         <!-- Body -->
         <div class="p-6 overflow-y-auto space-y-6">
-            <p class="text-sm text-slate-600">Filled cells update the member record. Blank cells are left as they are. Member codes cannot be changed. Use <span class="font-medium text-slate-800">Class Code</span> to assign an Education class.</p>
+            <p class="text-sm text-slate-600">Filled cells update the member. Blank cells are left unchanged. Member codes cannot be edited. Use the <span class="font-medium text-slate-800">Class</span> dropdown to assign an Education class.</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Temporary Members Column -->
