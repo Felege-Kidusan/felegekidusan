@@ -1,60 +1,100 @@
 <?php
 /**
  * Smart Member Import API (Excel .xlsx UPSERT)
- * Dynamically parses XLSX and strictly protects existing non-empty DB fields.
+ * - CSRF + role gated
+ * - Human headers AND legacy snake_case headers
+ * - Strict protection: never overwrite a non-empty DB field
+ * - Class Code enrolls into the active academic year (new rows / empty class only unless code changes)
  */
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
+require_once __DIR__ . '/backend/workflow.php';
+require_once __DIR__ . '/backend/services/ExcelColumnMap.php';
+require_once __DIR__ . '/backend/services/EnrollmentService.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use App\Services\ExcelColumnMap;
+use App\Services\EnrollmentService;
 
 header('Content-Type: application/json; charset=utf-8');
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'message' => 'Invalid request method.']);
+function import_json($data, $code = 200) {
+    http_response_code($code);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    import_json(['success' => false, 'message' => 'Invalid request method.'], 405);
+}
+
+$role = $_SESSION['admin_role'] ?? '';
+if (empty($_SESSION['admin_id']) || !in_array($role, ['super_admin', 'school_admin', 'hr_dept'], true)) {
+    import_json(['success' => false, 'message' => 'Access denied.'], 403);
+}
+
+$csrf = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+if (!function_exists('validateCsrf') || !validateCsrf($csrf)) {
+    import_json(['success' => false, 'message' => 'Security token expired. Please refresh and try again.'], 403);
 }
 
 if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD_ERR_OK) {
-    echo json_encode(['success' => false, 'message' => 'File upload failed.']);
-    exit;
+    import_json(['success' => false, 'message' => 'File upload failed.']);
 }
 
-$file = $_FILES['import_file']['tmp_name'];
-$fileName = $_FILES['import_file']['name'];
+$file = $_FILES['import_file'];
+if (($file['size'] ?? 0) > 5 * 1024 * 1024) {
+    import_json(['success' => false, 'message' => 'File too large (max 5 MB).']);
+}
+
+$fileName = $file['name'] ?? '';
+$ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+if ($ext !== 'xlsx') {
+    import_json(['success' => false, 'message' => 'Only Excel files (.xlsx) are supported.']);
+}
+
+$finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
+if ($finfo) {
+    $mime = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+    $okMime = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/octet-stream',
+        'application/zip',
+    ];
+    if ($mime && !in_array($mime, $okMime, true)) {
+        import_json(['success' => false, 'message' => 'File does not look like a valid Excel workbook.']);
+    }
+}
 
 $tier = $_POST['tier'] ?? 'permanent';
-if (!in_array($tier, ['temporary', 'permanent'])) {
+if (!in_array($tier, ['temporary', 'permanent'], true)) {
     $tier = 'permanent';
 }
 
-$ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-if (!in_array($ext, ['xlsx', 'xls'])) {
-    echo json_encode(['success' => false, 'message' => 'Only Excel files (.xlsx, .xls) are supported.']);
-    exit;
-}
-
 try {
-    $spreadsheet = IOFactory::load($file);
+    $spreadsheet = IOFactory::load($file['tmp_name']);
     $sheet = $spreadsheet->getActiveSheet();
-    $rows = $sheet->toArray(null, true, true, false); // Get rows as arrays, calculate formulas, format data, don't index by col letter
+    $rows = $sheet->toArray(null, true, true, false);
 } catch (\Exception $e) {
-    echo json_encode(['success' => false, 'message' => 'Error reading Excel file: ' . $e->getMessage()]);
-    exit;
+    import_json(['success' => false, 'message' => 'Error reading Excel file.']);
 }
 
 if (count($rows) < 2) {
-    echo json_encode(['success' => false, 'message' => 'Excel file is empty or missing data rows.']);
-    exit;
+    import_json(['success' => false, 'message' => 'Excel file is empty or missing data rows.']);
 }
 
 $headers = [];
 $headerIndex = -1;
 foreach ($rows as $index => $row) {
-    // Look for recognizable column names to identify the header row
-    $rowStr = implode(',', $row);
-    if (strpos($rowStr, 'full_name_am') !== false || strpos($rowStr, 'member_code') !== false) {
+    $mapped = 0;
+    foreach ($row as $cell) {
+        if (ExcelColumnMap::resolveHeader((string)$cell) !== null) {
+            $mapped++;
+        }
+    }
+    if ($mapped >= 2) {
         $headers = $row;
         $headerIndex = $index;
         break;
@@ -62,10 +102,8 @@ foreach ($rows as $index => $row) {
 }
 
 if (empty($headers)) {
-    // Fallback to first row if we can't auto-detect
     $headers = array_shift($rows);
 } else {
-    // Remove all rows up to and including the header row
     foreach (array_keys($rows) as $idx) {
         if ($idx <= $headerIndex) {
             unset($rows[$idx]);
@@ -73,9 +111,16 @@ if (empty($headers)) {
     }
 }
 
-$headers = array_map('trim', $headers);
+if (count($rows) > 2000) {
+    import_json(['success' => false, 'message' => 'Too many rows (max 2,000). Split the file and try again.']);
+}
 
-// Get valid columns from database to prevent SQL errors
+$resolvedHeaders = [];
+foreach ($headers as $i => $raw) {
+    $key = ExcelColumnMap::resolveHeader((string)$raw);
+    $resolvedHeaders[$i] = $key;
+}
+
 $stmtCols = $pdo->query("SHOW COLUMNS FROM members");
 $colsInfo = $stmtCols->fetchAll(PDO::FETCH_ASSOC);
 $validCols = array_column($colsInfo, 'Field');
@@ -90,79 +135,98 @@ foreach ($colsInfo as $col) {
 $stats = [
     'updated' => 0,
     'inserted' => 0,
+    'enrolled' => 0,
+    'enroll_skipped' => 0,
     'errors' => 0,
-    'error_details' => []
+    'error_details' => [],
 ];
+$enrollJobs = [];
+
+if (!isset($conn) || !($conn instanceof mysqli) || $conn->connect_error) {
+    import_json(['success' => false, 'message' => 'Database connection error.'], 503);
+}
 
 try {
     $pdo->beginTransaction();
 
-    foreach ($rows as $row) {
-        // Skip completely empty rows
-        if (empty(array_filter($row, function($v) { return $v !== null && $v !== ''; }))) continue;
-
-        // Map row to headers
-        $rowData = [];
-        $dateColumns = ['date_of_birth', 'registered_at', 'waiting_since', 'joined_date'];
-        
-        foreach ($headers as $index => $col) {
-            if (in_array($col, $validCols) && isset($row[$index])) {
-                $val = trim((string)$row[$index]);
-                
-                // If it is a date column and not empty, convert from EC to GC
-                if (in_array($col, $dateColumns) && !empty($val)) {
-                    $parts = preg_split('/[-\/.]/', $val);
-                    if (count($parts) >= 3) {
-                        $y = (int)$parts[0];
-                        $m = (int)$parts[1];
-                        $d = (int)$parts[2];
-                        // Validate reasonable EC bounds
-                        if ($y > 1900 && $m >= 1 && $m <= 13 && $d >= 1 && $d <= 30) {
-                            try {
-                                $gcDate = ethiopian_to_gregorian($y, $m, $d);
-                                $val = $gcDate->format('Y-m-d');
-                            } catch (\Exception $e) {
-                                // fallback
-                            }
-                        }
-                    }
-                }
-                
-                $rowData[$col] = $val;
-            }
-        }
-
-        // Must have at least a name or member_code to do anything meaningful
-        if (empty($rowData['full_name_am']) && empty($rowData['member_code'])) {
-            $stats['errors']++;
+    foreach ($rows as $rowNum => $row) {
+        if (empty(array_filter($row, function ($v) { return $v !== null && $v !== ''; }))) {
             continue;
         }
 
-        // 1. MATCHING LOGIC
+        $rowData = [];
+        $classCode = '';
+
+        foreach ($resolvedHeaders as $index => $key) {
+            if ($key === null || !isset($row[$index])) {
+                continue;
+            }
+            $val = trim((string)$row[$index]);
+
+            if ($key === 'class_code') {
+                $classCode = $val;
+                continue;
+            }
+            if (ExcelColumnMap::isVirtual($key)) {
+                continue;
+            }
+            if (!in_array($key, $validCols, true)) {
+                continue;
+            }
+
+            if (ExcelColumnMap::isDateColumn($key) && $val !== '') {
+                $parts = preg_split('/[-\/.]/', $val);
+                if (count($parts) >= 3) {
+                    $y = (int)$parts[0];
+                    $m = (int)$parts[1];
+                    $d = (int)$parts[2];
+                    if ($y > 1900 && $m >= 1 && $m <= 13 && $d >= 1 && $d <= 30) {
+                        try {
+                            $gcDate = ethiopian_to_gregorian($y, $m, $d);
+                            $val = $gcDate->format('Y-m-d');
+                        } catch (\Exception $e) {
+                            // keep original
+                        }
+                    }
+                }
+            }
+
+            $rowData[$key] = $val;
+        }
+
+        if (empty($rowData['full_name_am']) && empty($rowData['member_code'])) {
+            $stats['errors']++;
+            $stats['error_details'][] = 'Row ' . ($rowNum + 1) . ': missing name and member code.';
+            continue;
+        }
+
         $existingMember = false;
         if (!empty($rowData['member_code'])) {
             $stmt = $pdo->prepare("SELECT * FROM members WHERE member_code = ? LIMIT 1");
             $stmt->execute([$rowData['member_code']]);
             $existingMember = $stmt->fetch(PDO::FETCH_ASSOC);
         }
-        
+
         if (!$existingMember && !empty($rowData['full_name_am']) && !empty($rowData['phone_number'])) {
             $stmt = $pdo->prepare("SELECT * FROM members WHERE full_name_am = ? AND phone_number = ? LIMIT 1");
             $stmt->execute([$rowData['full_name_am'], $rowData['phone_number']]);
             $existingMember = $stmt->fetch(PDO::FETCH_ASSOC);
         }
 
+        $memberId = 0;
+
         if ($existingMember) {
-            // 2. UPDATE LOGIC (Strict Protection)
             $updateFields = [];
             $updateValues = [];
-            
-            foreach ($rowData as $col => $val) {
-                if ($col === 'id' || $col === 'member_code') continue;
-                if ($val === '') continue; // Empty cell in excel means skip
 
-                // STRICT RULE: If the DB currently has a non-empty value, DO NOT OVERWRITE
-                $dbVal = $existingMember[$col];
+            foreach ($rowData as $col => $val) {
+                if ($col === 'id' || $col === 'member_code') {
+                    continue;
+                }
+                if ($val === '') {
+                    continue;
+                }
+                $dbVal = $existingMember[$col] ?? null;
                 if ($dbVal === null || trim((string)$dbVal) === '') {
                     $updateFields[] = "`$col` = ?";
                     $updateValues[] = $val;
@@ -176,17 +240,14 @@ try {
                 $stmt->execute($updateValues);
                 $stats['updated']++;
             }
+            $memberId = (int)$existingMember['id'];
         } else {
-            // 3. INSERT LOGIC
-            unset($rowData['id']); 
-            unset($rowData['member_code']); // Force system generation
-            
-            // Assign membership_tier based on the template used
+            unset($rowData['id'], $rowData['member_code']);
+
             if (empty($rowData['membership_tier'])) {
                 $rowData['membership_tier'] = $tier;
             }
-            
-            // Smart Name Splitting: if full_name_am is present, derive sub-fields
+
             if (!empty($rowData['full_name_am'])) {
                 $nameParts = preg_split('/\s+/', trim($rowData['full_name_am']), 3);
                 if (empty($rowData['student_name'])) {
@@ -200,33 +261,67 @@ try {
                 }
             }
 
-            // Graceful fallback for ALL NOT NULL columns — never crash on missing data
             foreach ($notNullCols as $reqCol) {
                 if (!isset($rowData[$reqCol]) || $rowData[$reqCol] === null) {
-                    $rowData[$reqCol] = ''; 
+                    $rowData[$reqCol] = '';
                 }
+            }
+
+            $rowTier = $rowData['membership_tier'] ?? $tier;
+            if ($rowTier !== 'temporary') {
+                $rowData['member_code'] = EnrollmentService::generateMemberCode($conn);
             }
 
             $cols = array_keys($rowData);
             $vals = array_values($rowData);
-            
             $placeholders = str_repeat('?,', count($cols) - 1) . '?';
             $sql = "INSERT INTO members (`" . implode('`,`', $cols) . "`) VALUES ($placeholders)";
-            
             $stmt = $pdo->prepare($sql);
             $stmt->execute($vals);
+            $memberId = (int)$pdo->lastInsertId();
             $stats['inserted']++;
         }
-    }
-    
-    $pdo->commit();
-    echo json_encode([
-        'success' => true, 
-        'message' => "Process complete! Inserted: {$stats['inserted']}, Updated: {$stats['updated']}, Errors: {$stats['errors']}"
-    ]);
 
+        if ($memberId > 0 && $classCode !== '') {
+            $enr = EnrollmentService::enrollByCode(
+                $conn,
+                $memberId,
+                $classCode,
+                null,
+                (int)$_SESSION['admin_id']
+            );
+            if (($enr['status'] ?? '') === 'success') {
+                if (!empty($enr['skipped'])) {
+                    $stats['enroll_skipped']++;
+                } else {
+                    $stats['enrolled']++;
+                }
+            } else {
+                $stats['errors']++;
+                $stats['error_details'][] = 'Row ' . ($rowNum + 1) . ': ' . ($enr['message'] ?? 'enrollment failed');
+            }
+        }
+    }
+
+    $pdo->commit();
+
+    $msg = "Process complete! Inserted: {$stats['inserted']}, Updated: {$stats['updated']}, Enrolled: {$stats['enrolled']}";
+    if ($stats['enroll_skipped']) {
+        $msg .= ", Already enrolled: {$stats['enroll_skipped']}";
+    }
+    if ($stats['errors']) {
+        $msg .= ", Errors: {$stats['errors']}";
+    }
+
+    import_json([
+        'success' => true,
+        'message' => $msg,
+        'stats' => $stats,
+    ]);
 } catch (Exception $e) {
-    $pdo->rollBack();
-    echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('api_import_members: ' . $e->getMessage());
+    import_json(['success' => false, 'message' => 'Database error. No changes were saved.']);
 }
-exit;

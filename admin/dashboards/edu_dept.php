@@ -166,7 +166,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b" class="amharic">መምህራን አስተዳደር</p></div>
 <div style="display:flex;gap:.5rem" class="no-print"><button class="btn btn-p" onclick="openCreateTeacher()"><i class="fa-solid fa-plus"></i> Add Teacher</button><button class="btn btn-o btn-xs" onclick="exportTeachers()"><i class="fa-solid fa-download"></i> Export</button></div>
 </div>
-<div class="crd" style="padding:.75rem" class="no-print"><div style="display:flex;gap:.5rem;flex-wrap:wrap"><input type="text" id="teacherSearch" class="inp" style="max-width:250px" placeholder="Search teachers..." oninput="filterTeachers()"><label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b"><input type="checkbox" id="showInactive" onchange="loadTeachers()"> Show inactive</label></div></div>
+<div class="crd" style="padding:.75rem" class="no-print"><div style="display:flex;gap:.5rem;flex-wrap:wrap"><input type="text" id="teacherSearch" class="inp" style="max-width:250px" placeholder="Search teachers..." oninput="debounceTeacherSearch()"><label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b"><input type="checkbox" id="showInactive" onchange="loadTeachers()"> Show inactive</label></div></div>
 <div class="crd" style="margin-top:.75rem"><div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Username</th><th>Email</th><th>Member Link</th><th>Assignments</th><th>Status</th><th class="text-center">Actions</th></tr></thead><tbody id="teacherBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 </div>
 
@@ -203,6 +203,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- Tab Navigation -->
 <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1rem">
 <button class="tbn act" id="enrTabClasses" onclick="switchEnrollTab('classes')"><i class="fa-solid fa-school"></i> By Class</button>
+<button class="tbn" id="enrTabRoster" onclick="switchEnrollTab('roster')"><i class="fa-solid fa-table-list"></i> All Students</button>
 <button class="tbn" id="enrTabUnassigned" onclick="switchEnrollTab('unassigned')"><i class="fa-solid fa-user-xmark"></i> Unassigned Members</button>
 <button class="tbn" id="enrTabTeachers" onclick="switchEnrollTab('teachers')"><i class="fa-solid fa-chalkboard-teacher"></i> Teacher Assignments</button>
 </div>
@@ -320,7 +321,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <div class="crd" style="padding:1rem;margin-bottom:1rem">
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.75rem;align-items:end">
 <div><label class="lbl">Class</label><select id="rcClass" class="inp" onchange="loadClassPerformance()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?> (<?= e($c['class_name_en'] ?? '') ?>)</option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject (Optional)</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All Subjects</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
+<div><lass="lbl">Subject (Optional)</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All Subjects</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Export</label><button class="btn btn-o" style="width:100%" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button></div>
 <button class="btn btn-s" onclick="generateBulkReports()" title="Generate all student report cards"><i class="fa-solid fa-file-lines"></i> Bulk Generate</button>
 </div></div>
@@ -522,9 +523,14 @@ function postAPI(url,fd){fd.append('csrf_token',CSRF_TOKEN);return fetch(url,{me
 function getAPI(url){return fetch(url,{credentials:'same-origin'}).then(r=>r.json());}
 
 // ═══ TEACHERS ═══
+let _teacherSearchTimer=null;
+function debounceTeacherSearch(){ clearTimeout(_teacherSearchTimer); _teacherSearchTimer=setTimeout(loadTeachers, 300); }
 async function loadTeachers(){
     const inc=document.getElementById('showInactive')?.checked?'1':'0';
-    try{const d=await getAPI(`/admin/api_teachers.php?action=get_teachers&include_inactive=${inc}`);
+    const q=document.getElementById('teacherSearch')?.value||'';
+    let url=`/admin/api_teachers.php?action=get_teachers&include_inactive=${inc}&limit=100`;
+    if(q.trim()) url+=`&q=${encodeURIComponent(q.trim())}`;
+    try{const d=await getAPI(url);
     if(d.status==='success'){allTeachers=d.teachers||[];renderTeachers();}}catch(e){toast('Failed to load teachers','err');}
 }
 function renderTeachers(){
@@ -677,12 +683,76 @@ function roleTags(m) {
 let _enrollSearchTimer=null, _selectedEnrollMember=null, _unassignedTimer=null, _bulkSelected=new Set();
 
 function switchEnrollTab(tab) {
-    ['classes','unassigned','teachers'].forEach(t => {
-        document.getElementById('enrPanel'+(t.charAt(0).toUpperCase()+t.slice(1))).style.display = t===tab?'block':'none';
-        document.getElementById('enrTab'+(t.charAt(0).toUpperCase()+t.slice(1))).className = 'tbn'+(t===tab?' act':'');
+    ['classes','roster','unassigned','teachers'].forEach(t => {
+        const panel=document.getElementById('enrPanel'+(t.charAt(0).toUpperCase()+t.slice(1)));
+        const btn=document.getElementById('enrTab'+(t.charAt(0).toUpperCase()+t.slice(1)));
+        if(panel) panel.style.display = t===tab?'block':'none';
+        if(btn) btn.className = 'tbn'+(t===tab?' act':'');
     });
+    if(tab==='roster') loadRoster(1);
     if(tab==='unassigned') loadUnassigned();
     if(tab==='teachers') { loadUnassignedTeachers(); loadClassTeacherGrid(); }
+}
+
+// --- School-wide roster ---
+let _rosterTimer=null, _rosterPage=1;
+function debounceRoster(){ clearTimeout(_rosterTimer); _rosterTimer=setTimeout(()=>loadRoster(1), 350); }
+async function loadRoster(page){
+    _rosterPage = page || 1;
+    const area=document.getElementById('rosterArea');
+    if(!area) return;
+    area.innerHTML='<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading roster...</div>';
+    const q=document.getElementById('rosterQ')?.value||'';
+    const cls=document.getElementById('rosterClass')?.value||'';
+    const gender=document.getElementById('rosterGender')?.value||'';
+    const type=document.getElementById('rosterType')?.value||'';
+    const age=document.getElementById('rosterAge')?.value||'';
+    const sort=document.getElementById('rosterSort')?.value||'name';
+    let url=`/admin/api_education.php?action=roster&page=${_rosterPage}&per_page=25&sort=${encodeURIComponent(sort)}`;
+    if(q) url+=`&q=${encodeURIComponent(q)}`;
+    if(cls==='unassigned') url+='&unassigned=1';
+    else if(cls) url+=`&class_id=${encodeURIComponent(cls)}`;
+    if(gender) url+=`&gender=${encodeURIComponent(gender)}`;
+    if(type) url+=`&member_type=${encodeURIComponent(type)}`;
+    if(age) url+=`&age_group=${encodeURIComponent(age)}`;
+    try{
+        const d=await getAPI(url);
+        if(d.status!=='success'){ area.innerHTML=`<div class="crd" style="padding:1.5rem;color:#ef4444">${esc(d.message||'Error')}</div>`; return; }
+        const rows=d.rows||[], total=d.total||0, pages=d.pages||1;
+        area.innerHTML=`
+        <div class="crd">
+            <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">
+                <span style="font-weight:700">${total} student${total===1?'':'s'}</span>
+                <span style="font-size:.7rem;color:#64748b">Page ${_rosterPage} of ${pages}${d.year_name?' • '+esc(d.year_name):''}</span>
+            </div>
+            ${rows.length?`<div class="tw"><table class="dt"><thead><tr>
+                <th><input type="checkbox" onchange="document.querySelectorAll('.roster-cb').forEach(c=>c.checked=this.checked)"></th>
+                <th>Student</th><th>Code</th><th>Class</th><th>Type</th><th>Gender</th><th>Age</th>
+            </tr></thead><tbody>${rows.map(x=>`<tr>
+                <td><input type="checkbox" class="roster-cb" value="${x.id}"></td>
+                <td><div style="font-weight:600">${esc(x.student_name||'')} ${x.baptismal_name?'<span style="font-size:.65rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div></td>
+                <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
+                <td class="amharic">${x.class_name?esc(x.class_name)+' <span style="font-size:.6rem;color:#94a3b8">'+esc(x.class_code||'')+'</span>':'<span style="color:#f59e0b">Unassigned</span>'}</td>
+                <td>${mtBadge(x.member_type)}</td>
+                <td>${x.gender==='male'?'♂':'♀'}</td>
+                <td>${esc(x.age||x.age_group||'—')}</td>
+            </tr>`).join('')}</tbody></table></div>`:'<div style="padding:1.5rem;text-align:center;color:#94a3b8">No matching students</div>'}
+            ${pages>1?`<div style="padding:.75rem;display:flex;justify-content:center;gap:.4rem;border-top:1px solid #f1f5f9">
+                <button class="btn btn-o btn-xs" ${_rosterPage<=1?'disabled':''} onclick="loadRoster(${_rosterPage-1})">Prev</button>
+                <button class="btn btn-o btn-xs" ${_rosterPage>=pages?'disabled':''} onclick="loadRoster(${_rosterPage+1})">Next</button>
+            </div>`:''}
+        </div>`;
+    }catch(e){ area.innerHTML='<div class="crd" style="padding:1.5rem;color:#ef4444">Error loading roster</div>'; }
+}
+async function rosterBulkEnroll(){
+    const cls=document.getElementById('rosterTargetClass')?.value;
+    if(!cls) return toast('Select a target class','err');
+    const ids=[]; document.querySelectorAll('.roster-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));
+    if(!ids.length) return toast('Select at least one student','err');
+    if(!confirm('Enroll '+ids.length+' student(s) into the selected class?')) return;
+    const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
+    try{ const d=await postAPI('/admin/api_education.php',fd); toast(d.message,d.status==='success'?'ok':'err'); if(d.status==='success'){ loadRoster(_rosterPage); loadEnrollOverview(); } }
+    catch(e){ toast('Error','err'); }
 }
 
 // --- Enrollment Overview ---

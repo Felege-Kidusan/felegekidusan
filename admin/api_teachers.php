@@ -167,13 +167,39 @@ switch ($action) {
         if (!$includeInactive) {
             $sql .= " AND u.is_active = 1";
         }
-        $sql .= " ORDER BY u.full_name";
+        $q = trim((string)($_GET['q'] ?? ''));
+        $bind = [];
+        $types = '';
+        if ($q !== '') {
+            $sql .= " AND (u.full_name LIKE ? OR u.username LIKE ? OR u.email LIKE ?";
+            $st = '%' . $q . '%';
+            $bind = [$st, $st, $st];
+            $types = 'sss';
+            if ($hasMemberId) {
+                $sql .= " OR m.member_code LIKE ? OR m.student_name LIKE ?";
+                $bind[] = $st;
+                $bind[] = $st;
+                $types .= 'ss';
+            }
+            $sql .= ")";
+        }
+        $limit = min(100, max(1, (int)($_GET['limit'] ?? 100)));
+        $sql .= " ORDER BY u.full_name LIMIT " . $limit;
         
         try {
-            $result = $conn->query($sql);
+            if ($types !== '') {
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param($types, ...$bind);
+                $stmt->execute();
+                $result = $stmt->get_result();
+            } else {
+                $result = $conn->query($sql);
+            }
             $teachers = [];
-            while ($row = $result->fetch_assoc()) {
-                $teachers[] = $row;
+            if ($result) {
+                while ($row = $result->fetch_assoc()) {
+                    $teachers[] = $row;
+                }
             }
             echo json_encode(['status' => 'success', 'teachers' => $teachers]);
         } catch (Exception $e) {

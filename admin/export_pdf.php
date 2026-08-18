@@ -106,7 +106,7 @@ if ($format === 'csv') {
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     echo "\xEF\xBB\xBF"; // UTF-8 BOM for Amharic
     $fp = fopen('php://output', 'w');
-    fputcsv($fp, ['#', 'Code', 'Student Name', 'Father Name', 'Grandfather', 'Baptismal', 'Gender', 'Age Group', 'Phone', 'Alt Phone', 'Guardian', 'Guardian Ph1', 'Guardian Ph2', 'City', 'Sub City', 'Woreda', 'Profession', 'Education', 'Reg Type', 'Member Type', 'Status']);
+    fputcsv($fp, ['#', 'Code', 'Student Name', 'Father Name', 'Grandfather', 'Christian Name (የክርስትና ስም)', 'Gender', 'Age Group', 'Phone', 'Alt Phone', 'Guardian', 'Guardian Ph1', 'Guardian Ph2', 'City', 'Sub City', 'Woreda', 'Profession', 'Education', 'Reg Type', 'Member Type', 'Status']);
     foreach ($members as $i => $m) {
         fputcsv($fp, [$i+1, $m['member_code'], $m['student_name'], $m['father_name'], $m['grandfather_name'], $m['baptismal_name'], $m['gender'], $m['age_group'], $m['phone_number'], $m['alt_phone_number'], $m['guardian_name'], $m['guardian_phone1'], $m['guardian_phone2'], $m['city'], $m['sub_city'], $m['woreda'], $m['work_profession'], $m['education_level'], $m['registration_type'], $m['member_type'], $m['status']]);
     }

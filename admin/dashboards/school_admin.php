@@ -909,7 +909,7 @@ function exportExcelPro(data){
     XLSX.utils.book_append_sheet(wb,ws1,'📊 Summary');
 
     // Sheet 2: Full Member Data
-    const headers=['Code','Name','Father','Grandfather','Baptismal','Gender','Age Group','Section','Status','Reg Type','Member Type','Phone','Alt Phone','Guardian','Guardian Phone','City','Sub City','Woreda','Education','Profession','Registered'];
+    const headers=['Code','Name','Father','Grandfather','Christian Name (የክርስትና ስም)','Gender','Age Group','Section','Status','Reg Type','Member Type','Phone','Alt Phone','Guardian','Guardian Phone','City','Sub City','Woreda','Education','Profession','Registered'];
     const rows=data.map(m=>[m.member_code,m.student_name,m.father_name,m.grandfather_name,m.baptismal_name,m.gender,fmtAge(m.age_group),m.current_section,m.status,m.registration_type,m.member_type,m.phone_number,m.alt_phone_number,m.guardian_name,m.guardian_phone1,m.city,m.sub_city,m.woreda,m.education_level,m.work_profession,m.created_at].map(v=>v||''));
     const ws2=XLSX.utils.aoa_to_sheet([headers,...rows]);
     ws2['!cols']=headers.map(h=>({wch:h.length<8?12:18}));

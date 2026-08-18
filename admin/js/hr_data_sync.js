@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const formData = new FormData();
             formData.append('import_file', file);
             formData.append('tier', tier);
+            if (typeof CSRF_TOKEN !== 'undefined' && CSRF_TOKEN) {
+                formData.append('csrf_token', CSRF_TOKEN);
+            }
             
             try {
                 const response = await fetch('/admin/api_import_members.php', {

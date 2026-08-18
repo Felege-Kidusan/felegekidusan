@@ -74,7 +74,8 @@ class ExcelExportService {
         
         foreach ($columns as $colName) {
             $cell = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIndex) . '3';
-            $sheet->setCellValue($cell, $colName);
+            $headerText = $headerLabels[$colName] ?? $colName;
+            $sheet->setCellValue($cell, $headerText);
             
             if (in_array($colName, $lockedColumns)) {
                 $lockedColumnIndices[] = $colIndex;

@@ -604,7 +604,7 @@ if (isset($conn)) {
                         <button onclick="openMemberModal(${id})" class="btn btn-sm btn-primary"><i class="fa-solid fa-plus"></i> Add</button>
                     </div>
                     <table class="text-sm">
-                        <thead><tr><th>Name</th><th>Baptismal</th><th>Gender</th><th>Phone</th><th>Address</th><th></th></tr></thead>
+                        <thead><tr><th>Name</th><th>Christian Name</th><th>Gender</th><th>Phone</th><th>Address</th><th></th></tr></thead>
                         <tbody>
                             ${members.length === 0 ? '<tr><td colspan="6" class="text-center text-slate-400 py-4">No members yet</td></tr>' : ''}
                             ${members.map(m => `<tr>

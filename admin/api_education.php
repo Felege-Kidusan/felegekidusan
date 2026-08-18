@@ -8,6 +8,9 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/workflow.php';
 require_once __DIR__ . '/backend/member_sync.php';
+require_once __DIR__ . '/backend/services/EnrollmentService.php';
+
+use App\Services\EnrollmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -30,6 +33,13 @@ $action = $_REQUEST['action'] ?? '';
 // Teachers and attendance-takers are allowed in to READ classes and record
 // grades/attendance, but management is restricted:
 $__role = $_SESSION['admin_role'] ?? '';
+
+// HR may only fetch the live class catalog for the registration dropdown.
+if ($__role === 'hr_dept' && !in_array($action, ['get_classes'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'You do not have permission to use this Education action.']);
+    exit;
+}
 
 // TIER 1 — Academic YEAR / SEMESTER management: School Admin & Super Admin ONLY.
 // (Education dept can VIEW the year for context but cannot create/change it.)
@@ -138,71 +148,50 @@ switch ($action) {
     case 'enroll':
         $memberId = (int)($_POST['member_id'] ?? 0);
         $classId = (int)($_POST['class_id'] ?? 0);
-        $enrolledAt = $_POST['enrolled_at'] ?? date('Y-m-d');
-        $notes = trim($_POST['notes'] ?? '');
-        
+
         if (!$memberId || !$classId) {
             echo json_encode(['status' => 'error', 'message' => 'Please select both member and class']);
             exit;
         }
-        
-        if (!$currentYear) {
-            echo json_encode(['status' => 'error', 'message' => 'No active academic year. Please set up an academic year first.']);
+
+        $enr = EnrollmentService::enroll($conn, $memberId, $classId, $currentYear['id'] ?? null, (int)($_SESSION['admin_id'] ?? 0));
+        if (($enr['status'] ?? '') !== 'success') {
+            echo json_encode($enr);
             exit;
         }
-        
-        // Check if already enrolled in this class this year
-        $stmt = $conn->prepare("SELECT id FROM class_enrollments WHERE member_id = ? AND class_id = ? AND academic_year_id = ?");
-        $stmt->bind_param("iii", $memberId, $classId, $currentYear['id']);
+
+        $stmt = $conn->prepare("SELECT student_name, father_name, member_code FROM members WHERE id = ?");
+        $stmt->bind_param("i", $memberId);
         $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            echo json_encode(['status' => 'error', 'message' => 'Student is already enrolled in this class for this academic year.']);
-            exit;
-        }
-        
-        // Insert enrollment
-        $stmt = $conn->prepare("
-            INSERT INTO class_enrollments 
-            (member_id, class_id, academic_year_id, enrolled_at, status, notes, enrolled_by)
-            VALUES (?, ?, ?, ?, 'active', ?, ?)
-        ");
-        $enrolledBy = $_SESSION['admin_id'];
-        $stmt->bind_param("iiissi", $memberId, $classId, $currentYear['id'], $enrolledAt, $notes, $enrolledBy);
-        
-        if ($stmt->execute()) {
-            // Auto-update member's class info
-            autoUpdateMemberClass($conn, $memberId, $classId, $currentYear['id']);
-            
-            // Log the change and notify
-            $stmt = $conn->prepare("SELECT student_name, father_name, member_code FROM members WHERE id = ?");
-            $stmt->bind_param("i", $memberId);
-            $stmt->execute();
-            $member = $stmt->get_result()->fetch_assoc();
-            
-            $stmt = $conn->prepare("SELECT class_name FROM classes WHERE id = ?");
-            $stmt->bind_param("i", $classId);
-            $stmt->execute();
-            $class = $stmt->get_result()->fetch_assoc();
-            
-            $memberName = $member['student_name'] . ' ' . $member['father_name'];
-            
-            // Send notification
+        $member = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $stmt = $conn->prepare("SELECT class_name FROM classes WHERE id = ?");
+        $stmt->bind_param("i", $classId);
+        $stmt->execute();
+        $class = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $memberName = trim(($member['student_name'] ?? '') . ' ' . ($member['father_name'] ?? ''));
+        $className = $class['class_name'] ?? 'class';
+
+        if (empty($enr['skipped']) && function_exists('sendNotification')) {
             sendNotification($conn, 'class_enrolled',
                 "Student Enrolled in Class",
-                "$memberName has been enrolled in {$class['class_name']}",
+                "$memberName has been enrolled in {$className}",
                 [
                     'data' => ['member_id' => $memberId, 'class_id' => $classId],
                     'target_roles' => ['info_dept', 'school_admin']
                 ]
             );
-            
-            echo json_encode([
-                'status' => 'success',
-                'message' => "$memberName enrolled in {$class['class_name']} successfully!"
-            ]);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
         }
+
+        $msg = !empty($enr['transferred'])
+            ? "$memberName transferred to {$className}."
+            : (!empty($enr['skipped'])
+                ? "$memberName is already in {$className}."
+                : "$memberName enrolled in {$className} successfully!");
+        echo json_encode(['status' => 'success', 'message' => $msg]);
         break;
     
     // ============================================================
@@ -1061,18 +1050,18 @@ switch ($action) {
         $memberIds = json_decode($_POST['member_ids'] ?? '[]', true);
         if (!$classId || empty($memberIds)) { echo json_encode(['status'=>'error','message'=>'Class and students required']); exit; }
         if (!$currentYear) { echo json_encode(['status'=>'error','message'=>'No active academic year']); exit; }
-        $by = $_SESSION['admin_id']; $dt = date('Y-m-d'); $ok=0; $skip=0;
-        $chk = $conn->prepare("SELECT id FROM class_enrollments WHERE member_id=? AND class_id=? AND academic_year_id=? AND status='active'");
-        $ins = $conn->prepare("INSERT INTO class_enrollments (member_id,class_id,academic_year_id,enrolled_at,status,enrolled_by) VALUES (?,?,?,?,'active',?) ON DUPLICATE KEY UPDATE status='active',enrolled_by=VALUES(enrolled_by)");
+        $by = (int)($_SESSION['admin_id'] ?? 0); $ok=0; $skip=0; $fail=0;
         foreach ($memberIds as $mid) {
             $mid = (int)$mid; if (!$mid) continue;
-            $chk->bind_param("iii", $mid, $classId, $currentYear['id']); $chk->execute();
-            if ($chk->get_result()->num_rows > 0) { $skip++; continue; }
-            $ins->bind_param("iiisi", $mid, $classId, $currentYear['id'], $dt, $by);
-            if ($ins->execute()) { $ok++; if (function_exists('autoUpdateMemberClass')) autoUpdateMemberClass($conn, $mid, $classId, $currentYear['id']); }
+            $res = EnrollmentService::enroll($conn, $mid, $classId, (int)$currentYear['id'], $by);
+            if (($res['status'] ?? '') === 'success') {
+                if (!empty($res['skipped'])) $skip++; else $ok++;
+            } else {
+                $fail++;
+            }
         }
-        $msg = "$ok student(s) enrolled!"; if ($skip) $msg .= " ($skip already enrolled)";
-        echo json_encode(['status'=>'success','message'=>$msg,'enrolled'=>$ok,'skipped'=>$skip]);
+        $msg = "$ok student(s) enrolled!"; if ($skip) $msg .= " ($skip already enrolled)"; if ($fail) $msg .= " ($fail failed)";
+        echo json_encode(['status'=>'success','message'=>$msg,'enrolled'=>$ok,'skipped'=>$skip,'failed'=>$fail]);
         break;
 
     // ============================================================
@@ -1230,6 +1219,221 @@ switch ($action) {
         $stmt=$conn->prepare($sql); $stmt->bind_param($t,...$p); $stmt->execute();
         $members=[]; $r=$stmt->get_result(); while($row=$r->fetch_assoc()) $members[]=$row;
         echo json_encode(['status'=>'success','members'=>$members]);
+        break;
+
+    // ============================================================
+    // SCHOOL-WIDE ROSTER (server-side search / filter / page)
+    // ============================================================
+    case 'roster':
+        $q = trim((string)($_GET['q'] ?? ''));
+        $classId = (int)($_GET['class_id'] ?? 0);
+        $unassigned = isset($_GET['unassigned']) && $_GET['unassigned'] === '1';
+        $gender = trim((string)($_GET['gender'] ?? ''));
+        $ageGroup = trim((string)($_GET['age_group'] ?? ''));
+        $memberType = trim((string)($_GET['member_type'] ?? ''));
+        $status = trim((string)($_GET['status'] ?? 'active'));
+        $teacherId = (int)($_GET['teacher_id'] ?? 0);
+        $sort = trim((string)($_GET['sort'] ?? 'name'));
+        $dir = strtolower(trim((string)($_GET['dir'] ?? 'asc'))) === 'desc' ? 'DESC' : 'ASC';
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $perPage = min(100, max(10, (int)($_GET['per_page'] ?? 25)));
+        $offset = ($page - 1) * $perPage;
+
+        $yearId = $currentYear ? (int)$currentYear['id'] : 0;
+        $w = [];
+        $p = [];
+        $t = '';
+
+        if ($status !== '' && $status !== 'all') {
+            $w[] = 'm.status = ?';
+            $p[] = $status;
+            $t .= 's';
+        } else {
+            $w[] = "m.status != 'archived'";
+        }
+        if ($gender !== '' && in_array($gender, ['male', 'female'], true)) {
+            $w[] = 'm.gender = ?';
+            $p[] = $gender;
+            $t .= 's';
+        }
+        if ($ageGroup !== '' && in_array($ageGroup, ['under6', '7_13', '14_17', '18_plus'], true)) {
+            $w[] = 'm.age_group = ?';
+            $p[] = $ageGroup;
+            $t .= 's';
+        }
+        if ($memberType !== '' && in_array($memberType, ['regular', 'special_regular', 'honorary'], true)) {
+            $w[] = 'm.member_type = ?';
+            $p[] = $memberType;
+            $t .= 's';
+        }
+        if ($q !== '') {
+            $w[] = '(m.student_name LIKE ? OR m.father_name LIKE ? OR m.grandfather_name LIKE ? OR m.member_code LIKE ? OR m.baptismal_name LIKE ? OR m.phone_number LIKE ?)';
+            $st = '%' . $q . '%';
+            array_push($p, $st, $st, $st, $st, $st, $st);
+            $t .= 'ssssss';
+        }
+
+        if ($yearId) {
+            $join = "LEFT JOIN class_enrollments ce
+                        ON ce.member_id = m.id AND ce.status = 'active' AND ce.academic_year_id = ?
+                     LEFT JOIN classes c ON c.id = ce.class_id";
+            $p = array_merge([$yearId], $p);
+            $t = 'i' . $t;
+        } else {
+            $join = "LEFT JOIN class_enrollments ce
+                        ON ce.member_id = m.id AND ce.status = 'active'
+                     LEFT JOIN classes c ON c.id = ce.class_id";
+        }
+
+        if ($unassigned) {
+            $w[] = 'ce.id IS NULL';
+        } elseif ($classId > 0) {
+            $w[] = 'ce.class_id = ?';
+            $p[] = $classId;
+            $t .= 'i';
+        }
+
+        if ($teacherId > 0 && $yearId) {
+            $w[] = 'ce.class_id IN (SELECT ta.class_id FROM teacher_assignments ta WHERE ta.teacher_id = ? AND ta.is_active = 1 AND ta.academic_year_id = ?)';
+            $p[] = $teacherId;
+            $p[] = $yearId;
+            $t .= 'ii';
+        }
+
+        $orderMap = [
+            'name' => 'm.student_name',
+            'code' => 'm.member_code',
+            'class' => 'c.level_order',
+            'gender' => 'm.gender',
+            'date' => 'ce.enrolled_at',
+        ];
+        $orderCol = $orderMap[$sort] ?? 'm.student_name';
+        $wc = implode(' AND ', $w);
+
+        $countSql = "SELECT COUNT(DISTINCT m.id) AS total FROM members m $join WHERE $wc";
+        $stmt = $conn->prepare($countSql);
+        if (!$stmt) {
+            echo json_encode(['status' => 'error', 'message' => 'Query prepare failed.']);
+            exit;
+        }
+        if ($t !== '') {
+            $stmt->bind_param($t, ...$p);
+        }
+        $stmt->execute();
+        $total = (int)($stmt->get_result()->fetch_assoc()['total'] ?? 0);
+        $stmt->close();
+
+        $sql = "SELECT m.id, m.member_code, m.student_name, m.father_name, m.grandfather_name,
+                       m.baptismal_name, m.gender, m.age, m.age_group, m.member_type, m.status,
+                       m.phone_number, m.current_section, m.education_level, m.is_teacher,
+                       ce.id AS enrollment_id, ce.enrolled_at, ce.status AS enrollment_status,
+                       c.id AS class_id, c.class_name, c.class_name_en, c.class_code
+                FROM members m
+                $join
+                WHERE $wc
+                ORDER BY $orderCol $dir, m.student_name ASC
+                LIMIT ? OFFSET ?";
+        $fp = $p;
+        $ft = $t . 'ii';
+        $fp[] = $perPage;
+        $fp[] = $offset;
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            echo json_encode(['status' => 'error', 'message' => 'Query prepare failed.']);
+            exit;
+        }
+        $stmt->bind_param($ft, ...$fp);
+        $stmt->execute();
+        $rows = [];
+        $r = $stmt->get_result();
+        while ($row = $r->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+
+        echo json_encode([
+            'status' => 'success',
+            'rows' => $rows,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $perPage,
+            'pages' => $perPage > 0 ? (int)ceil($total / $perPage) : 1,
+            'year_id' => $yearId,
+            'year_name' => $currentYear['year_name'] ?? '',
+        ], JSON_UNESCAPED_UNICODE);
+        break;
+
+    case 'list_teachers':
+        $q = trim((string)($_GET['q'] ?? ''));
+        $assigned = trim((string)($_GET['assigned'] ?? ''));
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $perPage = min(100, max(10, (int)($_GET['per_page'] ?? 25)));
+        $offset = ($page - 1) * $perPage;
+        $yearId = $currentYear ? (int)$currentYear['id'] : 0;
+
+        $w = ["u.role = 'teacher'"];
+        $p = [];
+        $t = '';
+        if (empty($_GET['include_inactive'])) {
+            $w[] = 'u.is_active = 1';
+        }
+        if ($q !== '') {
+            $w[] = '(u.full_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? OR m.member_code LIKE ?)';
+            $st = '%' . $q . '%';
+            array_push($p, $st, $st, $st, $st);
+            $t .= 'ssss';
+        }
+        $yc = $yearId ? ' AND ta.academic_year_id = ' . $yearId : '';
+        if ($assigned === '1') {
+            $w[] = "u.id IN (SELECT ta.teacher_id FROM teacher_assignments ta WHERE ta.is_active = 1 $yc)";
+        } elseif ($assigned === '0') {
+            $w[] = "u.id NOT IN (SELECT ta.teacher_id FROM teacher_assignments ta WHERE ta.is_active = 1 $yc)";
+        }
+        $wc = implode(' AND ', $w);
+
+        $csql = "SELECT COUNT(*) AS total FROM users u LEFT JOIN members m ON u.member_id = m.id WHERE $wc";
+        if ($t !== '') {
+            $stmt = $conn->prepare($csql);
+            $stmt->bind_param($t, ...$p);
+            $stmt->execute();
+            $total = (int)$stmt->get_result()->fetch_assoc()['total'];
+            $stmt->close();
+        } else {
+            $r = $conn->query($csql);
+            $total = $r ? (int)$r->fetch_assoc()['total'] : 0;
+        }
+
+        $sql = "SELECT u.id, u.full_name, u.username, u.email, u.is_active, u.member_id,
+                       COALESCE(m.member_code,'') AS member_code,
+                       COALESCE(m.phone_number,'') AS phone,
+                       (SELECT COUNT(DISTINCT ta.class_id) FROM teacher_assignments ta WHERE ta.teacher_id = u.id AND ta.is_active = 1 $yc) AS assigned_classes
+                FROM users u
+                LEFT JOIN members m ON u.member_id = m.id
+                WHERE $wc
+                ORDER BY u.full_name
+                LIMIT ? OFFSET ?";
+        $fp = $p;
+        $ft = $t . 'ii';
+        $fp[] = $perPage;
+        $fp[] = $offset;
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param($ft, ...$fp);
+        $stmt->execute();
+        $teachers = [];
+        $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $teachers[] = $row;
+        }
+        $stmt->close();
+
+        echo json_encode([
+            'status' => 'success',
+            'teachers' => $teachers,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $perPage,
+            'pages' => $perPage > 0 ? (int)ceil($total / $perPage) : 1,
+        ], JSON_UNESCAPED_UNICODE);
         break;
 
     default:

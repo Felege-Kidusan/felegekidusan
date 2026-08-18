@@ -96,7 +96,10 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // grades/attendance, so they are allowed IN. The destructive
             // class/year MANAGEMENT actions are blocked separately, inside
             // api_education.php / api_subjects.php (action-level check).
-            'api_education.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'attendance_taker'],
+            // hr_dept is allowed onto the file so it can read get_classes
+            // (HR registration class dropdown). Destructive / roster actions
+            // are still blocked inside api_education.php for that role.
+            'api_education.php' => ['super_admin', 'school_admin', 'edu_dept', 'hr_dept', 'teacher', 'attendance_taker'],
             'education.php'     => ['super_admin', 'school_admin', 'edu_dept', 'teacher', 'attendance_taker'],
             'api_subjects.php'  => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
             'subjects.php'      => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
@@ -147,6 +150,8 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'api_reports.php' => ['super_admin', 'school_admin'],
             'reports.php'     => ['super_admin', 'school_admin'],
             'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'api_export_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'api_import_members.php' => ['super_admin', 'school_admin', 'hr_dept'],
 
             // ---- CMS (public website content) ----
             'api_cms.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'content_editor'],

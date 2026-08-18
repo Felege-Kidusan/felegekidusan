@@ -120,7 +120,7 @@ if (isset($conn)) {
          FROM members
          WHERE status != 'archived'
          ORDER BY id DESC
-         LIMIT 400"
+         LIMIT 50"
     );
 
     // Recent 10
@@ -245,6 +245,20 @@ function generate_next_member_code(mysqli $conn): string
 }
 
 $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
+
+$hrClasses = [];
+if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
+    try {
+        $cr = $conn->query("SELECT id, class_name, class_name_en, class_code FROM classes WHERE is_active = 1 ORDER BY level_order, class_name");
+        if ($cr) {
+            while ($crow = $cr->fetch_assoc()) {
+                $hrClasses[] = $crow;
+            }
+        }
+    } catch (Throwable $e) {
+        $hrClasses = [];
+    }
+}
 
 ?>
 <!DOCTYPE html>
@@ -1682,6 +1696,30 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                             <option value="degree">ዲግሪ (Degree)</option>
                                         </select>
                                     </div>
+
+                                    <div class="permanent-only md:col-span-2">
+                                        <label class="block text-[11px] font-medium text-slate-700 mb-1">
+                                            <i class="fa-solid fa-school text-violet-500 mr-1"></i>
+                                            Education Class (optional)
+                                        </label>
+                                        <select name="class_id" id="hrClassId"
+                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-violet-200 text-xs focus:ring-violet-200 focus:border-violet-400 bg-violet-50">
+                                            <option value="">— Do not assign a class —</option>
+                                            <?php foreach ($hrClasses as $hc): ?>
+                                            <option value="<?= (int)$hc['id'] ?>">
+                                                <?= e($hc['class_name']) ?>
+                                                <?php if (!empty($hc['class_name_en'])): ?> (<?= e($hc['class_name_en']) ?>)<?php endif; ?>
+                                                <?php if (!empty($hc['class_code'])): ?> — <?= e($hc['class_code']) ?><?php endif; ?>
+                                            </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <p class="text-[10px] text-slate-400 mt-1">
+                                            Assigns the member to this Education class for the active academic year. Education can still transfer or unenroll them.
+                                            <?php if (empty($hrClasses)): ?>
+                                            <span class="text-amber-600">No classes found — Education must create classes first.</span>
+                                            <?php endif; ?>
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2125,7 +2163,23 @@ function loadManageMembers() {
     // if we are on the same page, OR we can create a simple API.
     // Let's create a simple API endpoint for this: admin/api_list_members.php
     
-    fetch('/admin/api_list_members.php', {credentials: 'same-origin'})
+    const params = new URLSearchParams();
+    const qEl = document.getElementById('manageSearchInput');
+    const typeEl = document.getElementById('manageFilterType');
+    const statusEl = document.getElementById('manageFilterStatus');
+    const mtypeEl = document.getElementById('manageFilterMemberType');
+    const genderEl = document.getElementById('manageFilterGender');
+    const ageEl = document.getElementById('manageFilterAgeGroup');
+    if (qEl && qEl.value.trim()) params.set('q', qEl.value.trim());
+    if (typeEl && typeEl.value) params.set('registration_type', typeEl.value);
+    if (statusEl && statusEl.value) params.set('status', statusEl.value);
+    if (mtypeEl && mtypeEl.value) params.set('member_type', mtypeEl.value);
+    if (genderEl && genderEl.value) params.set('gender', genderEl.value);
+    if (ageEl && ageEl.value) params.set('age_group', ageEl.value);
+    params.set('limit', '50');
+    params.set('page', '1');
+
+    fetch('/admin/api_list_members.php?' + params.toString(), {credentials: 'same-origin'})
         .then(r => {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
@@ -2215,6 +2269,10 @@ function getStatusColor(status) {
 }
 
 function applyManageFilters() {
+    loadManageMembers();
+}
+
+function _legacyClientFilterUnused() {
     const q = document.getElementById('manageSearchInput').value.toLowerCase();
     const type = document.getElementById('manageFilterType').value;
     const status = document.getElementById('manageFilterStatus').value;
@@ -5448,6 +5506,8 @@ function clearCache() {
                 <div>
                     <p class="font-semibold mb-1">Strict Protection Rule Active</p>
                     <p>When you import an Excel file, the system will ONLY update missing (empty) fields. Any field that already has data will be ignored and protected. This prevents accidental overwrites.</p>
+                    <p class="mt-2">Permanent files now show <strong>Christian Name</strong> and a <strong>Class Code</strong> column. Fill Class Code (for example grade_1) to auto-enroll into that Education class for the active year. Older files that still say baptismal_name still import.</p>
+                    <p class="mt-2">Permanent template now uses <strong>Christian Name</strong> (not baptismal_name) and a <strong>Class Code</strong> column. Put an Education class code (for example grade_1) to auto-enroll new/updated rows into that class for the active year. Old files that still say baptismal_name still import.</p>
                 </div>
             </div>
 

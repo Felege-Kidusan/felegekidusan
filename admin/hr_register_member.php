@@ -403,6 +403,31 @@ try {
 
     $conn->commit();
 
+    // Optional class assignment — never fail the registration if this misses.
+    $enrollNote = '';
+    $classId = (int) field('class_id', 0);
+    if ($classId > 0 && $newId > 0) {
+        try {
+            require_once __DIR__ . '/backend/services/EnrollmentService.php';
+            $enr = \App\Services\EnrollmentService::enroll(
+                $conn,
+                (int)$newId,
+                $classId,
+                null,
+                (int)($_SESSION['admin_id'] ?? 0)
+            );
+            if (($enr['status'] ?? '') === 'success' && empty($enr['skipped'])) {
+                $enrollNote = ' Enrolled in class.';
+            } elseif (($enr['status'] ?? '') !== 'success') {
+                $enrollNote = ' Saved without class (' . ($enr['message'] ?? 'enrollment skipped') . ').';
+                error_log('HR register enroll: ' . ($enr['message'] ?? 'unknown'));
+            }
+        } catch (Throwable $e) {
+            error_log('HR register enroll error: ' . $e->getMessage());
+            $enrollNote = ' Saved without class.';
+        }
+    }
+
     // Post-registration workflow (non-fatal)
     try {
         if (file_exists(__DIR__ . '/backend/workflow.php')) {
@@ -413,7 +438,7 @@ try {
 
     jsonExit([
         'status'      => 'success',
-        'message'     => 'Member registered successfully! Code: ' . ($member_code ?? 'Pending'),
+        'message'     => 'Member registered successfully! Code: ' . ($member_code ?? 'Pending') . $enrollNote,
         'member_id'   => $newId,
         'member_code' => $member_code
     ]);
