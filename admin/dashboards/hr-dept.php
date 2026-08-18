@@ -274,6 +274,28 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     <script>
         // Global CSRF token for fetch requests
         const CSRF_TOKEN = '<?= generateCsrfToken() ?>';
+        function openDataSyncModal() {
+            var m = document.getElementById('dataSyncModal');
+            if (!m) {
+                alert('Excel Data Sync is not available. Please refresh the page.');
+                return false;
+            }
+            m.classList.remove('hidden');
+            m.style.display = 'flex';
+            m.style.zIndex = '10000';
+            document.body.style.overflow = 'hidden';
+            return false;
+        }
+        function closeDataSyncModal() {
+            var m = document.getElementById('dataSyncModal');
+            if (!m) return;
+            m.classList.add('hidden');
+            m.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeDataSyncModal();
+        });
     </script>
 
     <link rel="icon"
@@ -648,6 +670,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-clipboard-check text-sm"></i>
                 </span>
                 <span class="font-semibold">Attendance & Status</span>
+            </button>
+
+            <button type="button" onclick="return openDataSyncModal();"
+                    class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
+                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                    <i class="fa-solid fa-file-excel text-sm"></i>
+                </span>
+                <span class="font-semibold">Data Sync (Excel)</span>
             </button>
 
             <button data-section="reports"
@@ -1053,10 +1083,10 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         </p>
                     </div>
                     <div class="flex gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
-                        <button type="button"
-                                onclick="document.getElementById('dataSyncModal').classList.remove('hidden')"
+                        <button type="button" id="btnDataSync"
+                                onclick="return openDataSyncModal();"
                                 class="mobile-touch-target inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-blue-600 text-xs sm:text-sm font-semibold transition-all hover:bg-white hover:shadow-sm">
-                            <i class="fa-solid fa-file-csv text-xs"></i>
+                            <i class="fa-solid fa-file-excel text-xs"></i>
                             <span class="hidden sm:inline">Data Sync</span>
                         </button>
                         <div class="w-px bg-slate-200 my-1"></div>
@@ -5485,7 +5515,7 @@ function clearCache() {
 </div>
 
 <!-- DATA SYNC MODAL (EXPORT/IMPORT) -->
-<div id="dataSyncModal" class="fixed inset-0 z-[100] hidden bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+<div id="dataSyncModal" class="fixed inset-0 hidden items-center justify-center p-4" style="display:none;z-index:10000;background:rgba(15,23,42,0.6);" onclick="if(event.target===this)closeDataSyncModal();">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
         <!-- Header -->
         <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
@@ -5493,7 +5523,7 @@ function clearCache() {
                 <i class="fa-solid fa-file-excel text-emerald-600"></i>
                 Data Sync (Excel)
             </h3>
-            <button type="button" onclick="document.getElementById('dataSyncModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 transition-colors">
+            <button type="button" onclick="closeDataSyncModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
                 <i class="fa-solid fa-xmark text-xl"></i>
             </button>
         </div>
@@ -5506,8 +5536,7 @@ function clearCache() {
                 <div>
                     <p class="font-semibold mb-1">Strict Protection Rule Active</p>
                     <p>When you import an Excel file, the system will ONLY update missing (empty) fields. Any field that already has data will be ignored and protected. This prevents accidental overwrites.</p>
-                    <p class="mt-2">Permanent files now show <strong>Christian Name</strong> and a <strong>Class Code</strong> column. Fill Class Code (for example grade_1) to auto-enroll into that Education class for the active year. Older files that still say baptismal_name still import.</p>
-                    <p class="mt-2">Permanent template now uses <strong>Christian Name</strong> (not baptismal_name) and a <strong>Class Code</strong> column. Put an Education class code (for example grade_1) to auto-enroll new/updated rows into that class for the active year. Old files that still say baptismal_name still import.</p>
+                    <p class="mt-2">Permanent files use <strong>Christian Name</strong> and a <strong>Class Code</strong> column. Put a class code (for example grade_1) to auto-enroll into that Education class. Older files that still say baptismal_name still import.</p>
                 </div>
             </div>
 

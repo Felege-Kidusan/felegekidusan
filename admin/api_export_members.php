@@ -5,7 +5,12 @@
  */
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/access_control.php';
-require_once __DIR__ . '/../vendor/autoload.php';
+$_autoload = dirname(__DIR__) . '/vendor/autoload.php';
+if (!is_file($_autoload)) {
+    http_response_code(500);
+    die('Excel library is missing. Run composer install on the server.');
+}
+require_once $_autoload;
 require_once __DIR__ . '/backend/services/ExcelExportService.php';
 require_once __DIR__ . '/backend/services/ExcelColumnMap.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
@@ -38,22 +43,32 @@ $yearId = $year ? (int)$year['id'] : 0;
 $data = [];
 $dateColumns = ['date_of_birth', 'registered_at', 'waiting_since', 'joined_date'];
 
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    http_response_code(500);
+    die('Database connection is not available.');
+}
+
 try {
     if ($yearId > 0) {
-        $stmt = $pdo->prepare(
-            "SELECT m.*,
-                    c.class_code AS class_code,
-                    c.class_name AS class_name
-             FROM members m
-             LEFT JOIN class_enrollments ce
-                    ON ce.member_id = m.id
-                   AND ce.status = 'active'
-                   AND ce.academic_year_id = ?
-             LEFT JOIN classes c ON c.id = ce.class_id
-             WHERE m.membership_tier = ?
-             ORDER BY m.id DESC"
-        );
-        $stmt->execute([$yearId, $tier]);
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT m.*,
+                        c.class_code AS class_code,
+                        c.class_name AS class_name
+                 FROM members m
+                 LEFT JOIN class_enrollments ce
+                        ON ce.member_id = m.id
+                       AND ce.status = 'active'
+                       AND ce.academic_year_id = ?
+                 LEFT JOIN classes c ON c.id = ce.class_id
+                 WHERE m.membership_tier = ?
+                 ORDER BY m.id DESC"
+            );
+            $stmt->execute([$yearId, $tier]);
+        } catch (PDOException $e) {
+            $stmt = $pdo->prepare("SELECT * FROM members WHERE membership_tier = ? ORDER BY id DESC");
+            $stmt->execute([$tier]);
+        }
     } else {
         $stmt = $pdo->prepare("SELECT * FROM members WHERE membership_tier = ? ORDER BY id DESC");
         $stmt->execute([$tier]);
