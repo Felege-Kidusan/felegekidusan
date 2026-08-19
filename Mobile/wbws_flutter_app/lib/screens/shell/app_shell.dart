@@ -64,6 +64,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
     // Handle auth expiry — redirect to login
     _api.onAuthExpired = _handleAuthExpired;
+    SyncService().startAutoSync();
 
     // Radio came back — refresh the open tab after the link settles.
     // Do not pile cacheForOffline + ping + sync on the same 4G radio.
@@ -91,15 +92,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _connectivity.startMonitoring();
+      // Drain the outbox immediately — do not wait 90s or a tap.
       SyncService().startAutoSync();
       _refreshCurrentTab();
       AppUpdateService().check().then((_) {
         if (mounted) setState(() {});
       });
     } else if (state == AppLifecycleState.paused) {
-      // App went to background — stop timers to save battery
+      // Keep the outbox. Android freezes timers in the background anyway;
+      // killing it here meant a failed Save sat until the teacher tapped Sync.
       _connectivity.stopMonitoring();
-      SyncService().stopAutoSync();
     }
   }
 

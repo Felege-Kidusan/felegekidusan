@@ -272,6 +272,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       _selectedClassName ?? '',
       _selectedDate,
       records,
+      packetKind: 'draft',
     );
 
     // Try to sync immediately
@@ -293,8 +294,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     } else {
       setState(() {
         _saving = false;
-        _successMsg = 'Kept on this phone — tap the sync icon when you are online';
+        _successMsg = 'Kept on this phone — sending on its own';
       });
+      _sync.nudge();
     }
 
     await _updatePendingCount();
@@ -321,7 +323,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
     setState(() { _saving = true; _error = null; _successMsg = null; });
     final records = _records();
-    await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records);
+    await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records, packetKind: 'submitted');
     final apiRecords = records
         .map((r) => {'member_id': r['member_id'], 'status': r['status'], 'notes': r['notes'] ?? ''})
         .toList();
@@ -331,7 +333,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
       setState(() { _saving = false; _packetStatus = 'submitted'; _successMsg = 'Submitted to Education'; });
     } else {
-      setState(() { _saving = false; _successMsg = 'Kept on this phone — tap the sync icon when you are online'; });
+      setState(() { _saving = false; _successMsg = 'Kept on this phone — sending on its own'; });
+      _sync.nudge();
     }
     await _updatePendingCount();
   }

@@ -675,6 +675,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       widget.classId, widget.className,
       widget.subjectId, widget.subjectName,
       widget.maxScore, grades,
+      packetKind: 'draft',
     );
 
     // Try to sync immediately
@@ -690,7 +691,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved on this phone — will send when online'), backgroundColor: AppTheme.warning));
+        const SnackBar(content: Text('Saved on this phone — sending on its own'), backgroundColor: AppTheme.warning));
+      SyncService().nudge();
     }
   }
 
@@ -736,6 +738,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       widget.classId, widget.className,
       widget.subjectId, widget.subjectName,
       widget.maxScore, grades,
+      packetKind: 'submitted',
     );
     final res = await _api.submitGrades(widget.assessmentId, grades);
     if (!mounted) return;
@@ -748,7 +751,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Saved on this phone — will send when online'), backgroundColor: AppTheme.warning));
+          content: Text('Saved on this phone — sending on its own'), backgroundColor: AppTheme.warning));
+      SyncService().nudge();
     }
   }
 

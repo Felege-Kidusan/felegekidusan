@@ -4,8 +4,10 @@ import 'catalog_service.dart';
 import 'connectivity_service.dart';
 import 'local_db.dart';
 
-/// Syncs offline data (attendance + grades) to server.
-/// Also caches data for offline use.
+/// Telegram-style outbox.
+/// Save / Submit write the phone first. This queue sends them without a tap:
+/// as soon as 4G is up, on a failed send (backoff), and the moment the
+/// teacher opens the app again. The Sync button is only a manual kick.
 class SyncService {
   static final SyncService _instance = SyncService._internal();
   factory SyncService() => _instance;
@@ -13,9 +15,12 @@ class SyncService {
 
   final _api = ApiService();
   final _db = LocalDb();
-  Timer? _syncTimer;
+  Timer? _retryTimer;
+  StreamSubscription<bool>? _radioSub;
+  bool _started = false;
   bool _syncing = false;
   bool _queued = false;
+  int _failStreak = 0;
 
   final _syncController = StreamController<SyncStatus>.broadcast();
   Stream<SyncStatus> get syncStream => _syncController.stream;
@@ -23,19 +28,38 @@ class SyncService {
       SyncStatus(pendingAttendance: 0, pendingGrades: 0, syncing: false);
   SyncStatus get lastStatus => _lastStatus;
 
+  static const _backoff = <int>[3, 8, 20, 45, 90];
+
   void startAutoSync() {
-    _syncTimer?.cancel();
-    // Telegram does not hammer the radio. First send waits so Home can paint.
-    _syncTimer =
-        Timer.periodic(const Duration(seconds: 90), (_) => syncAll());
-    Future<void>.delayed(const Duration(seconds: 8), () {
-      if (_syncTimer != null) syncAll();
+    if (_started) {
+      nudge(delay: const Duration(milliseconds: 600));
+      return;
+    }
+    _started = true;
+    _radioSub?.cancel();
+    _radioSub = ConnectivityService().statusStream.listen((hasLink) {
+      if (hasLink) nudge(delay: const Duration(milliseconds: 800));
     });
+    nudge(delay: const Duration(seconds: 2));
   }
 
   void stopAutoSync() {
-    _syncTimer?.cancel();
-    _syncTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _radioSub?.cancel();
+    _radioSub = null;
+    _started = false;
+    _failStreak = 0;
+  }
+
+  /// Something new is waiting on this phone. Send soon.
+  void nudge({Duration delay = const Duration(milliseconds: 400)}) {
+    if (!_api.isLoggedIn) return;
+    if (!_started) startAutoSync();
+    _retryTimer?.cancel();
+    _retryTimer = Timer(delay, () {
+      syncAll();
+    });
   }
 
   Future<SyncResult> syncAll() async {
@@ -65,6 +89,7 @@ class SyncService {
           for (final batch in pendingAtt) {
             final classId = batch['class_id'] as int;
             final date = batch['date'] as String;
+            final kind = '${batch['packet_kind'] ?? 'draft'}';
             try {
               final records =
                   await _db.getPendingAttendanceRecords(classId, date);
@@ -76,7 +101,9 @@ class SyncService {
                         'notes': r['notes'] ?? r['note'] ?? '',
                       })
                   .toList();
-              final res = await _api.saveAttendance(classId, date, apiRecords);
+              final res = kind == 'submitted'
+                  ? await _api.submitAttendance(classId, date, apiRecords)
+                  : await _api.saveAttendance(classId, date, apiRecords);
               if (res.success) {
                 await _db.markAttendanceSynced(classId, date);
                 synced++;
@@ -93,6 +120,7 @@ class SyncService {
           final pendingGrades = await _db.getPendingGrades();
           for (final batch in pendingGrades) {
             final assessmentId = batch['assessment_id'] as int;
+            final kind = '${batch['packet_kind'] ?? 'draft'}';
             try {
               final records =
                   await _db.getPendingGradeRecords(assessmentId);
@@ -105,7 +133,9 @@ class SyncService {
                   'record_id': r['record_id'],
                 };
               }).toList();
-              final res = await _api.saveGrades(assessmentId, apiGrades);
+              final res = kind == 'submitted'
+                  ? await _api.submitGrades(assessmentId, apiGrades)
+                  : await _api.saveGrades(assessmentId, apiGrades);
               if (res.success) {
                 await _db.markGradesSynced(assessmentId);
                 synced++;
@@ -122,7 +152,16 @@ class SyncService {
       await _db.cleanupSynced();
     } finally {
       _syncing = false;
-      _emitStatus();
+      await _emitStatus();
+    }
+
+    final pendingLeft = await _db.getTotalPendingCount();
+    final stillWaiting = failed > 0 || pendingLeft > 0;
+    if (stillWaiting && ConnectivityService().hasLink) {
+      _failStreak = (_failStreak + 1).clamp(1, _backoff.length);
+      nudge(delay: Duration(seconds: _backoff[_failStreak - 1]));
+    } else if (failed == 0) {
+      _failStreak = 0;
     }
 
     return SyncResult(
@@ -130,10 +169,10 @@ class SyncService {
       failed: failed,
       message: synced > 0
           ? (failed > 0
-              ? 'Sent $synced. $failed still waiting — try again.'
+              ? 'Sent $synced. $failed still waiting — will retry.'
               : 'Sent to Education')
           : failed > 0
-              ? 'Could not send yet. Check your connection and try again.'
+              ? 'Could not send yet. Will retry on its own.'
               : 'Nothing waiting to send',
     );
   }
@@ -142,7 +181,6 @@ class SyncService {
   Future<void> cacheForOffline() async {
     if (!_api.isLoggedIn) return;
 
-    // Cache dashboard stats
     try {
       final dashRes = await _api.getDashboardStats();
       if (dashRes.success && dashRes.data != null) {
@@ -150,14 +188,12 @@ class SyncService {
       }
     } catch (_) {}
 
-    // Class list only. Rosters and subjects load when the teacher
-    // opens that class — otherwise a TECNO on slow data waits for every room.
     try {
       await CatalogService().classes();
     } catch (_) {}
   }
 
-  void _emitStatus() async {
+  Future<void> _emitStatus() async {
     final pa = await _db.getPendingAttendanceCount();
     final pg = await _db.getPendingGradesCount();
     _lastStatus = SyncStatus(
@@ -168,7 +204,7 @@ class SyncService {
   Future<void> emitCurrentStatus() async => _emitStatus();
 
   void dispose() {
-    _syncTimer?.cancel();
+    stopAutoSync();
     _syncController.close();
   }
 }

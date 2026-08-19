@@ -24,7 +24,7 @@ class LocalDb {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -70,6 +70,24 @@ class LocalDb {
             await db.execute('ALTER TABLE pending_attendance ADD COLUMN notes TEXT');
           } catch (_) {}
         }
+        if (oldVersion < 5) {
+          try {
+            await db.execute(
+                "ALTER TABLE pending_attendance ADD COLUMN packet_kind TEXT DEFAULT 'draft'");
+          } catch (_) {}
+          try {
+            await db.execute(
+                "ALTER TABLE pending_grades ADD COLUMN packet_kind TEXT DEFAULT 'draft'");
+          } catch (_) {}
+          try {
+            await db.execute(
+                "UPDATE pending_attendance SET packet_kind = 'draft' WHERE packet_kind IS NULL");
+          } catch (_) {}
+          try {
+            await db.execute(
+                "UPDATE pending_grades SET packet_kind = 'draft' WHERE packet_kind IS NULL");
+          } catch (_) {}
+        }
       },
     );
   }
@@ -88,6 +106,7 @@ class LocalDb {
         member_code TEXT,
         status TEXT NOT NULL DEFAULT 'present',
         notes TEXT,
+        packet_kind TEXT NOT NULL DEFAULT 'draft',
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
@@ -111,6 +130,7 @@ class LocalDb {
         score REAL,
         remark TEXT,
         max_score REAL DEFAULT 100,
+        packet_kind TEXT NOT NULL DEFAULT 'draft',
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
@@ -461,12 +481,14 @@ class LocalDb {
   // ============================================================
 
   Future<void> saveAttendanceLocal(int classId, String className, String date,
-      List<Map<String, dynamic>> records) async {
+      List<Map<String, dynamic>> records,
+      {String packetKind = 'draft'}) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
     await db.delete('pending_attendance',
         where: 'class_id = ? AND date = ? AND synced = 0',
         whereArgs: [classId, date]);
+    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final batch = db.batch();
     for (final r in records) {
       batch.insert('pending_attendance', {
@@ -479,6 +501,7 @@ class LocalDb {
         'member_code': r['member_code'] ?? '',
         'status': r['status'] ?? 'present',
         'notes': r['notes'] ?? r['note'] ?? '',
+        'packet_kind': kind,
         'synced': 0,
         'created_at': now,
       });
@@ -489,7 +512,10 @@ class LocalDb {
   Future<List<Map<String, dynamic>>> getPendingAttendance() async {
     final db = await database;
     return await db.rawQuery('''
-      SELECT class_id, class_name, date, COUNT(*) as student_count, MIN(created_at) as created_at
+      SELECT class_id, class_name, date,
+             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                  THEN 'submitted' ELSE 'draft' END as packet_kind,
+             COUNT(*) as student_count, MIN(created_at) as created_at
       FROM pending_attendance WHERE synced = 0
       GROUP BY class_id, date ORDER BY date DESC
     ''');
@@ -524,11 +550,13 @@ class LocalDb {
       int subjectId,
       String subjectName,
       double maxScore,
-      List<Map<String, dynamic>> grades) async {
+      List<Map<String, dynamic>> grades,
+      {String packetKind = 'draft'}) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
     await db.delete('pending_grades',
         where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
+    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final batch = db.batch();
     for (final g in grades) {
       batch.insert('pending_grades', {
@@ -544,6 +572,7 @@ class LocalDb {
         'score': g['score'],
         'remark': g['remark'] ?? '',
         'max_score': maxScore,
+        'packet_kind': kind,
         'synced': 0,
         'created_at': now,
       });
@@ -555,6 +584,8 @@ class LocalDb {
     final db = await database;
     return await db.rawQuery('''
       SELECT assessment_id, assessment_name, class_name, subject_name,
+             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                  THEN 'submitted' ELSE 'draft' END as packet_kind,
              COUNT(*) as grade_count, MIN(created_at) as created_at
       FROM pending_grades WHERE synced = 0
       GROUP BY assessment_id ORDER BY created_at DESC
