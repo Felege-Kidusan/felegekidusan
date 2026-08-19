@@ -19,8 +19,8 @@ if (file_exists($_cmsConfigPath)) {
         $cms['programs'] = $_safeFetch("SELECT * FROM cms_programs WHERE is_active=1 ORDER BY sort_order, id");
         $cms['schedule'] = $_safeFetch("SELECT * FROM cms_schedule WHERE is_active=1 ORDER BY sort_order, id");
         $cms['teachers'] = $_safeFetch("SELECT * FROM cms_teachers WHERE is_active=1 ORDER BY sort_order, id");
-        $cms['gallery']  = $_safeFetch("SELECT * FROM cms_gallery_photos WHERE is_active=1 ORDER BY sort_order, id DESC");
-        $cms['featured'] = $_safeFetch("SELECT * FROM cms_gallery_photos WHERE is_active=1 AND is_featured=1 ORDER BY sort_order, id DESC");
+        $cms['gallery']  = [];
+        $cms['featured'] = [];
         $cms['social']   = $_safeFetch("SELECT * FROM cms_social_links WHERE is_active=1 ORDER BY sort_order, id");
     }
 }
@@ -137,6 +137,7 @@ if (file_exists($_cmsConfigPath)) {
             background-color: rgba(64, 0, 0, 0.95);
         }
     </style>
+    <link rel="stylesheet" href="/css/public_gallery.css?v=20260820a">
 </head>
 <body class="bg-gray-50">
     <!-- Navigation -->
@@ -426,7 +427,7 @@ if (file_exists($_cmsConfigPath)) {
                         <div class="bg-white rounded-lg shadow-lg p-6 text-center card-hover">
                             <?php if (!empty($t['photo_path'])): ?>
                                 <div class="w-24 h-24 rounded-full mx-auto mb-4 overflow-hidden border-4" style="border-color:var(--fkss-gold)">
-                                    <img src="<?= e($t['photo_path']) ?>" class="w-full h-full object-cover" alt="<?= e($t['name']) ?>">
+                                    <img src="<?= e($t['photo_path']) ?>" class="w-full h-full object-cover" alt="<?= e($t['name']) ?>" onerror="this.style.display='none'">
                                 </div>
                             <?php else: ?>
                                 <div class="w-24 h-24 bg-gradient-to-br from-green-600 to-green-800 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-3xl"><i class="fa-solid fa-user"></i></div>
@@ -472,66 +473,14 @@ if (file_exists($_cmsConfigPath)) {
         <div class="container mx-auto px-4">
             <h2 class="text-4xl font-bold text-center mb-4 text-green-900 section-title">Gallery</h2>
             <p class="text-center text-xl mb-12 text-gray-600 amharic-text">የፎቶ መድብር</p>
-            
-            <?php if (!empty($cms['featured'])): ?>
-            <!-- Featured Slideshow -->
-            <div class="max-w-4xl mx-auto mb-10">
-                <div class="relative rounded-2xl overflow-hidden shadow-2xl" style="height:420px;background:#1a0606">
-                    <?php foreach ($cms['featured'] as $i => $ph): ?>
-                        <div class="gallery-slide" data-slide="<?= $i ?>" style="position:absolute;inset:0;opacity:<?= $i===0?'1':'0' ?>;transition:opacity 0.6s ease">
-                            <img src="<?= e($ph['image_path']) ?>" style="width:100%;height:100%;object-fit:cover" alt="<?= e($ph['caption']??'') ?>">
-                            <?php if (!empty($ph['caption']) || !empty($ph['caption_am'])): ?>
-                            <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(64,0,0,0.85));padding:2.5rem 1.5rem 1.5rem;color:#fff">
-                                <?php if (!empty($ph['caption_am'])): ?><p class="amharic-text text-xl font-bold"><?= e($ph['caption_am']) ?></p><?php endif; ?>
-                                <?php if (!empty($ph['caption'])): ?><p class="text-sm" style="color:var(--fkss-gold)"><?= e($ph['caption']) ?></p><?php endif; ?>
-                            </div>
-                            <?php endif; ?>
-                        </div>
-                    <?php endforeach; ?>
-                    <?php if (count($cms['featured']) > 1): ?>
-                    <button onclick="slideMove(-1)" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;background:rgba(240,192,0,0.9);color:var(--fkss-maroon-dark);border:none;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;z-index:5"><i class="fa-solid fa-chevron-left"></i></button>
-                    <button onclick="slideMove(1)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;background:rgba(240,192,0,0.9);color:var(--fkss-maroon-dark);border:none;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;z-index:5"><i class="fa-solid fa-chevron-right"></i></button>
-                    <div id="slideDots" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:5">
-                        <?php foreach ($cms['featured'] as $i => $ph): ?>
-                            <button onclick="slideGo(<?= $i ?>)" class="slide-dot" data-dot="<?= $i ?>" style="width:9px;height:9px;border-radius:50%;border:none;cursor:pointer;background:<?= $i===0?'var(--fkss-gold)':'rgba(255,255,255,0.5)' ?>"></button>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
-                </div>
+            <div id="fkssGallery" class="fkss-gal" data-api="/public_gallery.php">
+                <div class="fkss-gal-hero" data-gal="hero" hidden></div>
+                <div class="fkss-gal-filters" data-gal="filters" hidden></div>
+                <div class="fkss-gal-grid" data-gal="grid"></div>
+                <p class="fkss-gal-status" data-gal="status" hidden></p>
+                <p class="fkss-gal-empty" data-gal="empty" hidden>Photos from school life will appear here.</p>
+                <button type="button" class="fkss-gal-more" data-gal="more" hidden>Show more photos</button>
             </div>
-            <?php endif; ?>
-
-            <?php if (!empty($cms['gallery'])): ?>
-            <!-- Photo Grid -->
-            <div class="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-                <?php foreach ($cms['gallery'] as $ph): ?>
-                    <div class="relative h-64 rounded-lg shadow-lg overflow-hidden card-hover" style="background:#1a0606">
-                        <img src="<?= e($ph['image_path']) ?>" style="width:100%;height:100%;object-fit:cover" alt="<?= e($ph['caption']??'') ?>">
-                        <?php if (!empty($ph['caption']) || !empty($ph['caption_am'])): ?>
-                        <div class="absolute bottom-0 left-0 right-0 text-white p-4" style="background:linear-gradient(transparent,rgba(64,0,0,0.8))">
-                            <p class="font-semibold amharic-text"><?= e($ph['caption_am'] ?: $ph['caption']) ?></p>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            <?php else: ?>
-            <!-- Fallback gallery (shown until photos are uploaded in admin) -->
-            <div class="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-                <div class="relative h-64 bg-gradient-to-br from-green-700 to-green-500 rounded-lg shadow-lg overflow-hidden card-hover">
-                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">📖</div>
-                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4"><p class="font-semibold">Bible Study Class</p></div>
-                </div>
-                <div class="relative h-64 bg-gradient-to-br from-yellow-600 to-yellow-400 rounded-lg shadow-lg overflow-hidden card-hover">
-                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">🎵</div>
-                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4"><p class="font-semibold">Music &amp; Hymns Practice</p></div>
-                </div>
-                <div class="relative h-64 bg-gradient-to-br from-red-700 to-red-500 rounded-lg shadow-lg overflow-hidden card-hover">
-                    <div class="absolute inset-0 flex items-center justify-center text-white text-6xl">⛪</div>
-                    <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4"><p class="font-semibold">Sunday Service</p></div>
-                </div>
-            </div>
-            <?php endif; ?>
         </div>
     </section>
 
@@ -777,26 +726,6 @@ if (file_exists($_cmsConfigPath)) {
             });
         }
 
-        // ── Gallery featured slideshow ──
-        let slideIndex = 0;
-        const slides = document.querySelectorAll('.gallery-slide');
-        const dots = document.querySelectorAll('.slide-dot');
-        let slideTimer = null;
-
-        function showSlide(n) {
-            if (!slides.length) return;
-            slideIndex = (n + slides.length) % slides.length;
-            slides.forEach((s, i) => { s.style.opacity = (i === slideIndex) ? '1' : '0'; });
-            dots.forEach((d, i) => { d.style.background = (i === slideIndex) ? 'var(--fkss-gold)' : 'rgba(255,255,255,0.5)'; });
-        }
-        window.slideMove = function(dir) { showSlide(slideIndex + dir); resetSlideTimer(); };
-        window.slideGo = function(i) { showSlide(i); resetSlideTimer(); };
-        function resetSlideTimer() {
-            if (slideTimer) clearInterval(slideTimer);
-            if (slides.length > 1) slideTimer = setInterval(() => showSlide(slideIndex + 1), 5000);
-        }
-        if (slides.length > 1) resetSlideTimer();
-        
         // Navbar background on scroll
         const nav = document.querySelector('nav');
         window.addEventListener('scroll', () => {
@@ -830,5 +759,6 @@ if (file_exists($_cmsConfigPath)) {
             observer.observe(card);
         });
     </script>
+    <script src="/js/public_gallery.js?v=20260820a"></script>
 </body>
 </html>

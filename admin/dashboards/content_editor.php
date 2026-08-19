@@ -105,8 +105,9 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 
 /* Photo card */
 .photo-card{position:relative}
-.photo-card img{width:100%;height:150px;object-fit:cover;display:block}
+.photo-card img{width:100%;height:150px;object-fit:cover;display:block;background:#f3ebe0}
 .photo-card .feat-star{position:absolute;top:6px;right:6px;background:var(--gold);color:var(--maroon-dark);width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem}
+.photo-card .miss{position:absolute;inset:0 0 auto 0;height:150px;display:flex;align-items:center;justify-content:center;background:#f3ebe0;color:var(--text-dim);font-size:.75rem;flex-direction:column;gap:.25rem}
 
 /* Table */
 .tbl{width:100%;border-collapse:collapse;background:#fff;border-radius:0.6rem;overflow:hidden;border:1px solid var(--border)}
@@ -438,12 +439,15 @@ async function loadPhotos(catId){
   currentGalCat=catId;renderGalFilters();
   const d=await apiGet('photo_list',catId?{category_id:catId}:{});
   const grid=document.getElementById('photoGrid');
-  if(!d||d.status!=='success'){grid.innerHTML='';return;}
+  if(!d||d.status!=='success'){grid.innerHTML='<div class="empty" style="grid-column:1/-1">Could not load photos. Check your connection.</div>';return;}
   if(!d.data.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1"><i class="fa-solid fa-images"></i>No photos yet. Click "Upload Photo" to add some.</div>';return;}
-  grid.innerHTML=d.data.map(p=>`
+  grid.innerHTML=d.data.map(p=>{
+    const src=esc(p.thumb_path||p.image_path||'');
+    const missing=p.file_exists===false;
+    return `
     <div class="card photo-card">
       ${p.is_featured==1?'<div class="feat-star"><i class="fa-solid fa-star"></i></div>':''}
-      <img src="${esc(p.image_path)}" alt="${esc(p.caption||'')}">
+      ${missing?'<div class="miss"><i class="fa-solid fa-image"></i>File missing</div>':`<img src="${src}" alt="${esc(p.caption||'')}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'miss',innerHTML:'<i class=&quot;fa-solid fa-image&quot;></i>Could not load'}))">`}
       <div class="card-body">
         <div class="card-title" style="font-size:0.8rem">${esc(p.caption||'Untitled')}</div>
         <div class="card-meta">${esc(p.category_name||'Uncategorized')}</div>
@@ -452,7 +456,8 @@ async function loadPhotos(catId){
           <button class="btn btn-danger btn-sm" onclick="deletePhoto(${p.id})"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 function catOptions(sel){
   return galCategories.map(c=>`<option value="${c.id}"${sel==c.id?' selected':''}>${esc(c.name)}</option>`).join('');
@@ -461,7 +466,7 @@ function openPhotoModal(){
   modalMode={type:'photo_new'};
   document.getElementById('modalTitle').textContent='Upload Photo';
   document.getElementById('modalBody').innerHTML=`
-    <div class="field"><label>Image *</label><input type="file" id="m_image" accept="image/*"><div class="hint">JPG, PNG, GIF or WebP · max 8MB</div></div>
+    <div class="field"><label>Images *</label><input type="file" id="m_image" accept="image/jpeg,image/png,image/gif,image/webp" multiple><div class="hint">JPG, PNG, GIF or WebP · max 8MB each · you can pick several at once</div></div>
     <div class="field"><label>Album</label><select id="m_category"><option value="">— Uncategorized —</option>${catOptions(currentGalCat)}</select></div>
     <div class="field"><label>Caption (English)</label><input type="text" id="m_caption" placeholder="e.g. Christmas celebration 2025"></div>
     <div class="field"><label>Caption (Amharic)</label><input type="text" id="m_caption_am" class="amharic" placeholder="የገና በዓል"></div>
@@ -473,7 +478,8 @@ function editPhoto(p){
   modalMode={type:'photo_edit',id:p.id};
   document.getElementById('modalTitle').textContent='Edit Photo';
   document.getElementById('modalBody').innerHTML=`
-    <div style="text-align:center;margin-bottom:1rem"><img src="${esc(p.image_path)}" style="max-width:100%;max-height:160px;border-radius:0.5rem"></div>
+    <div style="text-align:center;margin-bottom:1rem"><img src="${esc(p.thumb_path||p.image_path)}" style="max-width:100%;max-height:160px;border-radius:0.5rem" onerror="this.style.display='none'"></div>
+    <div class="field"><label>Replace image</label><input type="file" id="m_image" accept="image/jpeg,image/png,image/gif,image/webp"><div class="hint">Leave empty to keep the current photo</div></div>
     <div class="field"><label>Album</label><select id="m_category"><option value="">— Uncategorized —</option>${catOptions(p.category_id)}</select></div>
     <div class="field"><label>Caption (English)</label><input type="text" id="m_caption" value="${esc(p.caption||'')}"></div>
     <div class="field"><label>Caption (Amharic)</label><input type="text" id="m_caption_am" class="amharic" value="${esc(p.caption_am||'')}"></div>

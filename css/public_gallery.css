@@ -1,0 +1,41 @@
+/* Public website gallery — load this file, not the CMS dashboard. */
+.fkss-gal{--g-maroon:#600000;--g-gold:#F0C000;--g-ink:#1a0a0a;--g-muted:#6b5a4a}
+.fkss-gal{max-width:1100px;margin:0 auto}
+.fkss-gal-hero{position:relative;border-radius:18px;overflow:hidden;background:#1a0606;min-height:280px;aspect-ratio:16/9;max-height:460px;margin:0 auto 1.5rem;box-shadow:0 16px 40px rgba(96,0,0,.18)}
+.fkss-gal-hero img{width:100%;height:100%;object-fit:cover;display:block;background:#2a1010}
+.fkss-gal-hero .fkss-gal-cap{position:absolute;left:0;right:0;bottom:0;padding:2.4rem 1.25rem 1.1rem;color:#fff;background:linear-gradient(transparent,rgba(40,0,0,.88))}
+.fkss-gal-hero .fkss-gal-cap strong{display:block;font-size:1.15rem}
+.fkss-gal-hero .fkss-gal-cap span{display:block;font-size:.85rem;color:var(--g-gold);margin-top:.15rem}
+.fkss-gal-nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border:0;border-radius:50%;background:rgba(240,192,0,.92);color:#400000;cursor:pointer;z-index:2}
+.fkss-gal-nav[disabled]{opacity:.35;cursor:default}
+.fkss-gal-prev{left:10px}
+.fkss-gal-next{right:10px}
+.fkss-gal-dots{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:6px;z-index:2}
+.fkss-gal-dots button{width:8px;height:8px;border:0;border-radius:50%;background:rgba(255,255,255,.45);cursor:pointer;padding:0}
+.fkss-gal-dots button.on{background:var(--g-gold)}
+.fkss-gal-filters{display:flex;flex-wrap:wrap;gap:.45rem;justify-content:center;margin:0 0 1.15rem}
+.fkss-gal-filters button{border:1px solid #eadcc4;background:#fff;color:var(--g-maroon);border-radius:999px;padding:.4rem .85rem;font-size:.8rem;font-weight:600;cursor:pointer}
+.fkss-gal-filters button.on{background:var(--g-maroon);color:#fff;border-color:var(--g-maroon)}
+.fkss-gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.85rem}
+.fkss-gal-card{position:relative;border:0;padding:0;border-radius:12px;overflow:hidden;background:#2a1010;aspect-ratio:1;cursor:pointer}
+.fkss-gal-card img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .25s}
+.fkss-gal-card img.ready{opacity:1}
+.fkss-gal-card .fkss-gal-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#c4a574;font-size:1.4rem;background:linear-gradient(135deg,#3a1818,#1a0808)}
+.fkss-gal-card.gone{display:none}
+.fkss-gal-skel{background:linear-gradient(90deg,#eadcc4 25%,#f6efe2 50%,#eadcc4 75%);background-size:200% 100%;animation:fkss-gal-shimmer 1.2s linear infinite;border-radius:12px;aspect-ratio:1}
+@keyframes fkss-gal-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.fkss-gal-more{display:block;margin:1.25rem auto 0;background:var(--g-maroon);color:#fff;border:0;border-radius:999px;padding:.65rem 1.4rem;font-weight:700;cursor:pointer}
+.fkss-gal-more[hidden]{display:none}
+.fkss-gal-status{text-align:center;color:var(--g-muted);font-size:.9rem;margin:.85rem 0 0}
+.fkss-gal-empty{text-align:center;padding:2rem 1rem;color:var(--g-muted)}
+.fkss-lb{display:none;position:fixed;inset:0;z-index:80;background:rgba(10,4,4,.92);align-items:center;justify-content:center;padding:1rem}
+.fkss-lb.open{display:flex}
+.fkss-lb img{max-width:min(1100px,96vw);max-height:78vh;object-fit:contain;border-radius:8px;background:#1a0808}
+.fkss-lb-cap{position:absolute;left:0;right:0;bottom:0;padding:1rem 1.25rem 1.25rem;color:#fff;text-align:center;background:linear-gradient(transparent,rgba(0,0,0,.75))}
+.fkss-lb-x,.fkss-lb-p,.fkss-lb-n{position:absolute;border:0;background:rgba(240,192,0,.9);color:#400000;width:42px;height:42px;border-radius:50%;cursor:pointer;font-size:1.1rem}
+.fkss-lb-x{top:14px;right:14px}
+.fkss-lb-p{left:12px;top:50%;transform:translateY(-50%)}
+.fkss-lb-n{right:12px;top:50%;transform:translateY(-50%)}
+.fkss-lb-spin{position:absolute;width:36px;height:36px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--g-gold);border-radius:50%;animation:fkss-gal-spin .8s linear infinite}
+@keyframes fkss-gal-spin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.fkss-gal-grid{grid-template-columns:repeat(2,1fr);gap:.55rem}.fkss-gal-hero{min-height:200px}}

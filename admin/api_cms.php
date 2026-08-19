@@ -11,6 +11,7 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/GalleryService.php';
 
 // ── Auth ──
 if (empty($_SESSION['admin_logged_in'])) {
@@ -42,54 +43,47 @@ function out($data) { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 function f($k, $d = '') { return isset($_POST[$k]) ? trim($_POST[$k]) : $d; }
 
 /**
- * Save an uploaded image to /uploads/gallery (or other subdir).
- * Returns relative web path, or ['error'=>msg].
+ * Save an uploaded image under /uploads/<subdir> (inside the website).
+ * Returns web path, or ['error'=>msg], or null if no file.
  */
 function saveImage($field, $subDir = 'gallery') {
-    if (!isset($_FILES[$field]) || $_FILES[$field]['error'] === UPLOAD_ERR_NO_FILE) {
+    $pack = \App\Services\GalleryService::saveUpload($field, $subDir);
+    if ($pack === null) {
         return null;
     }
-    $err = $_FILES[$field]['error'];
-    if ($err !== UPLOAD_ERR_OK) {
-        $map = [
-            UPLOAD_ERR_INI_SIZE => 'File exceeds server limit',
-            UPLOAD_ERR_FORM_SIZE => 'File too large',
-            UPLOAD_ERR_PARTIAL => 'Partial upload',
-            UPLOAD_ERR_NO_TMP_DIR => 'Server temp folder missing',
-            UPLOAD_ERR_CANT_WRITE => 'Disk write failed',
-        ];
-        return ['error' => $map[$err] ?? "Upload error $err"];
+    if (isset($pack['error'])) {
+        return $pack;
     }
-    if ($_FILES[$field]['size'] > 8 * 1024 * 1024) {
-        return ['error' => 'Image too large (max 8MB)'];
-    }
-    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
-        return ['error' => "Image type .$ext not allowed"];
-    }
-    if (@getimagesize($_FILES[$field]['tmp_name']) === false) {
-        return ['error' => 'File is not a valid image'];
-    }
-    // /admin/../uploads/<subdir>  →  public_html/uploads/<subdir>
-    $dir = dirname(ROOT_PATH) . '/uploads/' . $subDir;
-    if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
-        return ['error' => 'Server storage error'];
-    }
-    $name = $subDir . '_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
-    $path = $dir . '/' . $name;
-    if (!move_uploaded_file($_FILES[$field]['tmp_name'], $path)) {
-        return ['error' => 'Failed to save image'];
-    }
-    return '/uploads/' . $subDir . '/' . $name;
+    return $pack['image'];
 }
 
 /** Delete a previously-uploaded image by its web path */
 function deleteImage($webPath) {
-    if (!$webPath) return;
-    $full = dirname(ROOT_PATH) . $webPath;
-    if (is_file($full) && strpos(realpath($full), realpath(dirname(ROOT_PATH) . '/uploads')) === 0) {
-        @unlink($full);
+    \App\Services\GalleryService::deleteByWebPath($webPath);
+}
+
+/** @return array{id:int,image:string}|array{error:string} */
+function cmsInsertPhoto($conn, $catId, $caption, $captionAm, $featured, $adminId, $field) {
+    $pack = \App\Services\GalleryService::saveUpload($field, 'gallery');
+    if ($pack === null) {
+        return ['error' => 'No image selected.'];
     }
+    if (isset($pack['error'])) {
+        return $pack;
+    }
+    $img = $pack['image'];
+    $thumb = $pack['thumb'];
+    $stmt = $conn->prepare("INSERT INTO cms_gallery_photos (category_id, image_path, thumb_path, caption, caption_am, is_featured, uploaded_by) VALUES (?,?,?,?,?,?,?)");
+    if (!$stmt) {
+        $stmt = $conn->prepare("INSERT INTO cms_gallery_photos (category_id, image_path, caption, caption_am, is_featured, uploaded_by) VALUES (?,?,?,?,?,?)");
+        $stmt->bind_param('isssii', $catId, $img, $caption, $captionAm, $featured, $adminId);
+    } else {
+        $stmt->bind_param('issssii', $catId, $img, $thumb, $caption, $captionAm, $featured, $adminId);
+    }
+    $stmt->execute();
+    $newId = (int)$conn->insert_id;
+    $stmt->close();
+    return ['id' => $newId, 'image' => $img];
 }
 
 try {
@@ -153,7 +147,15 @@ try {
             $res = $conn->query("SELECT p.*, c.name AS category_name FROM cms_gallery_photos p LEFT JOIN cms_gallery_categories c ON p.category_id=c.id ORDER BY p.sort_order, p.id DESC");
         }
         $rows = [];
-        while ($r = $res->fetch_assoc()) $rows[] = $r;
+        $root = \App\Services\GalleryService::diskRoot();
+        while ($r = $res->fetch_assoc()) {
+            $disk = $root . (string)$r['image_path'];
+            $r['file_exists'] = is_file($disk);
+            if (empty($r['thumb_path'])) {
+                $r['thumb_path'] = $r['image_path'];
+            }
+            $rows[] = $r;
+        }
         out(['status' => 'success', 'data' => $rows]);
     }
 
@@ -163,26 +165,64 @@ try {
         $captionAm = f('caption_am');
         $featured = isset($_POST['is_featured']) ? 1 : 0;
 
-        $img = saveImage('image', 'gallery');
-        if ($img === null) out(['status' => 'error', 'message' => 'No image selected.']);
-        if (is_array($img)) out(['status' => 'error', 'message' => $img['error']]);
+        $files = [];
+        if (!empty($_FILES['images']) && is_array($_FILES['images']['name'])) {
+            $n = count($_FILES['images']['name']);
+            for ($i = 0; $i < $n; $i++) {
+                $_FILES['_gal_one'] = [
+                    'name' => $_FILES['images']['name'][$i],
+                    'type' => $_FILES['images']['type'][$i],
+                    'tmp_name' => $_FILES['images']['tmp_name'][$i],
+                    'error' => $_FILES['images']['error'][$i],
+                    'size' => $_FILES['images']['size'][$i],
+                ];
+                $files[] = '_gal_one';
+                $saved = cmsInsertPhoto($conn, $catId, $caption, $captionAm, $featured, $adminId, '_gal_one');
+                if (isset($saved['error'])) {
+                    out(['status' => 'error', 'message' => $saved['error']]);
+                }
+            }
+            out(['status' => 'success', 'message' => $n === 1 ? 'Photo uploaded.' : $n . ' photos uploaded.']);
+        }
 
-        $stmt = $conn->prepare("INSERT INTO cms_gallery_photos (category_id, image_path, caption, caption_am, is_featured, uploaded_by) VALUES (?,?,?,?,?,?)");
-        $stmt->bind_param('isssii', $catId, $img, $caption, $captionAm, $featured, $GLOBALS['adminId']);
-        $stmt->execute();
-        $newId = $conn->insert_id;
-        $stmt->close();
-        out(['status' => 'success', 'message' => 'Photo uploaded.', 'id' => $newId, 'image_path' => $img]);
+        $saved = cmsInsertPhoto($conn, $catId, $caption, $captionAm, $featured, $adminId, 'image');
+        if (isset($saved['error'])) {
+            out(['status' => 'error', 'message' => $saved['error']]);
+        }
+        out(['status' => 'success', 'message' => 'Photo uploaded.', 'id' => $saved['id'], 'image_path' => $saved['image']]);
     }
 
     case 'photo_update': {
         $id = (int) f('id', 0);
+        if ($id <= 0) {
+            out(['status' => 'error', 'message' => 'Photo not found.']);
+        }
         $catId = (int) f('category_id', 0) ?: null;
         $caption = f('caption');
         $captionAm = f('caption_am');
         $featured = isset($_POST['is_featured']) ? 1 : 0;
-        $stmt = $conn->prepare("UPDATE cms_gallery_photos SET category_id=?, caption=?, caption_am=?, is_featured=? WHERE id=?");
-        $stmt->bind_param('issii', $catId, $caption, $captionAm, $featured, $id);
+        $pack = \App\Services\GalleryService::saveUpload('image', 'gallery');
+        if (is_array($pack) && isset($pack['error'])) {
+            out(['status' => 'error', 'message' => $pack['error']]);
+        }
+        if (is_array($pack) && !empty($pack['ok'])) {
+            $old = $conn->prepare("SELECT image_path, thumb_path FROM cms_gallery_photos WHERE id=?");
+            $old->bind_param('i', $id);
+            $old->execute();
+            $prev = $old->get_result()->fetch_assoc();
+            $old->close();
+            if ($prev) {
+                deleteImage($prev['image_path'] ?? '');
+                if (!empty($prev['thumb_path'])) {
+                    deleteImage($prev['thumb_path']);
+                }
+            }
+            $stmt = $conn->prepare("UPDATE cms_gallery_photos SET category_id=?, caption=?, caption_am=?, is_featured=?, image_path=?, thumb_path=? WHERE id=?");
+            $stmt->bind_param('ississi', $catId, $caption, $captionAm, $featured, $pack['image'], $pack['thumb'], $id);
+        } else {
+            $stmt = $conn->prepare("UPDATE cms_gallery_photos SET category_id=?, caption=?, caption_am=?, is_featured=? WHERE id=?");
+            $stmt->bind_param('issii', $catId, $caption, $captionAm, $featured, $id);
+        }
         $stmt->execute();
         $stmt->close();
         out(['status' => 'success', 'message' => 'Photo updated.']);
@@ -190,13 +230,17 @@ try {
 
     case 'photo_delete': {
         $id = (int) f('id', 0);
-        // get path first so we can delete the file
-        $stmt = $conn->prepare("SELECT image_path FROM cms_gallery_photos WHERE id=?");
+        $stmt = $conn->prepare("SELECT image_path, thumb_path FROM cms_gallery_photos WHERE id=?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        if ($row) deleteImage($row['image_path']);
+        if ($row) {
+            deleteImage($row['image_path'] ?? '');
+            if (!empty($row['thumb_path'])) {
+                deleteImage($row['thumb_path']);
+            }
+        }
         $stmt = $conn->prepare("DELETE FROM cms_gallery_photos WHERE id=?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
