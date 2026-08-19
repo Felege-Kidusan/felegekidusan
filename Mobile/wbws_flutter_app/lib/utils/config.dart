@@ -5,15 +5,17 @@ class AppConfig {
   static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
   static const String appName = 'FKSS';
   static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
-  static const String appVersion = '1.1.2';
-  static const int appBuild = 4;
+  static const String appVersion = '1.1.3';
+  static const int appBuild = 5;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';
   static const int defaultPageSize = 20;
   static const int maxPageSize = 100;
-  static const int connectionTimeout = 12;
-  static const int receiveTimeout = 12;
+  /// Reads must fail fast on 2G so the last cached sheet stays on screen.
+  static const int connectionTimeout = 5;
+  static const int receiveTimeout = 5;
+  static const int postTimeout = 8;
 }
 
 /// User roles

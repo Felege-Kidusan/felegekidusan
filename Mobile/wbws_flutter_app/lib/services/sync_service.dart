@@ -146,7 +146,7 @@ class SyncService {
     // Class list only. Rosters and subjects load when the teacher
     // opens that class — otherwise a TECNO on slow data waits for every room.
     try {
-      await CatalogService().classes(force: true);
+      await CatalogService().classes();
     } catch (_) {}
   }
 

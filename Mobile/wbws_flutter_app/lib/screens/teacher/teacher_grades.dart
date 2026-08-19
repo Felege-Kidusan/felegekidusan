@@ -91,13 +91,20 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
 
   Future<void> _loadSubjects() async {
     if (_selectedClassId == null) return;
+    final cached = await _db.getCachedSubjects(_selectedClassId!);
+    if (!mounted) return;
     setState(() {
-      _loadingSubjects = true;
-      _subjects = [];
       _assessments = [];
       _bootAssessments = [];
       _didBootstrap = false;
       _selectedSubjectId = null;
+      if (cached.isNotEmpty) {
+        _subjects = cached;
+        _loadingSubjects = false;
+      } else {
+        _subjects = [];
+        _loadingSubjects = true;
+      }
     });
 
     final res = await _api.getGradeBootstrap(_selectedClassId!);
@@ -117,12 +124,11 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       return;
     }
 
-    final cached = await _db.getCachedSubjects(_selectedClassId!);
     setState(() {
-      _subjects = cached.isNotEmpty ? cached : [];
+      if (_subjects.isEmpty) _subjects = cached;
       _loadingSubjects = false;
-      if (cached.isNotEmpty) {
-        _isOffline = true;
+      if (_subjects.isNotEmpty) {
+        _isOffline = !ConnectivityService().isOnline;
       } else if (!res.success) {
         _error = res.message ?? 'Could not load subjects. Pull to refresh.';
       }

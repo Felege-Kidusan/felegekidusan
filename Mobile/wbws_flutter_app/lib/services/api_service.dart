@@ -52,6 +52,8 @@ class ApiService {
 
   final _connectivity = ConnectivityService();
   final _secureStorage = const FlutterSecureStorage();
+  final http.Client _http = http.Client();
+  final Map<String, Future<ApiResponse>> _getInflight = {};
 
   String? _token;
   String? _refreshToken;

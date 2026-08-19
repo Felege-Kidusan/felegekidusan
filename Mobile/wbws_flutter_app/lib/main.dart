@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'services/api_service.dart';
+import 'services/catalog_service.dart';
 import 'services/local_db.dart';
 import 'services/sync_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
+import 'services/warm_store.dart';
 import 'utils/theme.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/shell/app_shell.dart';
@@ -27,6 +29,7 @@ void main() async {
 
   await ApiService().init();
   await LocalDb().database;
+  await CatalogService().hydrate();
 
   runApp(const FKSSApp());
 
@@ -34,7 +37,7 @@ void main() async {
     ConnectivityService().startMonitoring();
     if (ApiService().isLoggedIn) {
       SyncService().startAutoSync();
-      SyncService().cacheForOffline();
+      WarmStore().afterLogin();
     }
   });
 }

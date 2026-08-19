@@ -5,6 +5,7 @@ import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/session_service.dart';
+import '../../services/warm_store.dart';
 import '../../utils/config.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/transitions.dart';
@@ -97,6 +98,8 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     if (!statsRes.success && classList.isEmpty && cached == null && cachedClasses.isEmpty) {
       setState(() { _error = statsRes.message ?? 'Failed to load dashboard'; _loading = false; });
     }
+
+    WarmStore().afterLogin();
   }
 
   String _greeting() {

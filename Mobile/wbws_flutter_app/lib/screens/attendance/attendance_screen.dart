@@ -120,13 +120,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _loadAttendance() async {
     if (_selectedClassId == null) return;
+    final keepSheet = _students.isNotEmpty;
     setState(() {
       _error = null;
       _successMsg = null;
       _loadFailed = false;
       _rosterNote = null;
-      _rosterReady = false;
-      if (_students.isEmpty) _loadingStudents = true;
+      if (!keepSheet) {
+        _rosterReady = false;
+        _loadingStudents = true;
+      }
     });
 
     // 1. Try cache first

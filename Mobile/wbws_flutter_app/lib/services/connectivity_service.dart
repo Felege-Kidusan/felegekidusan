@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import '../utils/config.dart';
+import 'api_service.dart';
 
-/// Monitors network connectivity by pinging the API server.
-/// Broadcasts online/offline status changes to listeners.
+/// Trust the last successful API call. Do not poke the radio every few
+/// seconds on 2G — that is what made the skeleton sit there.
 class ConnectivityService {
   static final ConnectivityService _instance = ConnectivityService._internal();
   factory ConnectivityService() => _instance;
@@ -13,53 +12,32 @@ class ConnectivityService {
   final _controller = StreamController<bool>.broadcast();
   Stream<bool> get statusStream => _controller.stream;
 
-  bool _isOnline = false; // Unknown until first check completes
+  bool _isOnline = true;
   bool get isOnline => _isOnline;
 
   Timer? _checkTimer;
   bool _checking = false;
 
-  /// Start periodic connectivity checks (every 10 seconds)
   void startMonitoring() {
     _checkTimer?.cancel();
-    // Check immediately, then every 10 seconds
-    checkNow();
-    _checkTimer = Timer.periodic(const Duration(seconds: 10), (_) => checkNow());
+    _checkTimer =
+        Timer.periodic(const Duration(seconds: 45), (_) => checkNow());
   }
 
-  /// Stop monitoring
   void stopMonitoring() {
     _checkTimer?.cancel();
     _checkTimer = null;
   }
 
-  /// Check connectivity right now
   Future<bool> checkNow() async {
     if (_checking) return _isOnline;
     _checking = true;
-
     try {
-      final uri = Uri.parse('${AppConfig.apiBaseUrl}/ping');
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 5);
-
-      final request = await client.getUrl(uri);
-      final response = await request.close().timeout(const Duration(seconds: 5));
-      await response.drain();
-      client.close(force: true);
-
-      _setOnline(response.statusCode == 200);
+      final res = await ApiService().get('/ping', auth: false);
+      _setOnline(res.success || res.statusCode > 0);
     } catch (_) {
-      // Try a simpler DNS lookup as fallback
-      try {
-        final result = await InternetAddress.lookup('felegekidusan.arkeonethiopia.com')
-            .timeout(const Duration(seconds: 3));
-        _setOnline(result.isNotEmpty && result[0].rawAddress.isNotEmpty);
-      } catch (_) {
-        _setOnline(false);
-      }
+      // Stay with the last known state. A failed ping on 2G is not "offline".
     }
-
     _checking = false;
     return _isOnline;
   }
@@ -74,10 +52,8 @@ class ConnectivityService {
     }
   }
 
-  /// Call this when an API call succeeds (we know we're online)
   void markOnline() => _setOnline(true);
 
-  /// Call this when an API call fails with network error
   void markOffline() => _setOnline(false);
 
   void dispose() {
