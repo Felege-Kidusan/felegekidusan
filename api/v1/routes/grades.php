@@ -357,7 +357,7 @@ if ($action === 'students' && $method === 'GET') {
         }
 
         $gradesByMember = [];
-        $gstmt = $conn->prepare("SELECT id, member_id, score, remarks FROM academic_records WHERE assessment_id = ?");
+        $gstmt = $conn->prepare("SELECT id, member_id, score, remarks FROM academic_records WHERE assessment_id = ? ORDER BY id ASC");
         if ($gstmt) {
             $gstmt->bind_param('i', $assessmentId);
             $gstmt->execute();
@@ -387,6 +387,10 @@ if ($action === 'students' && $method === 'GET') {
         err('Failed to load students: ' . $e->getMessage(), 500);
     }
     
+    $packetStatus = null;
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $packetStatus = \\App\\Services\\SubmissionService::marklistPacketStatus($conn, $assessmentId);
+    }
     ok([
         'assessment' => [
             'id' => (int)$assessment['id'],
@@ -399,6 +403,9 @@ if ($action === 'students' && $method === 'GET') {
         'roster_year_id' => $scope['year_id'] ?? null,
         'roster_year_name' => $scope['year_name'] ?? null,
         'roster_fallback' => !empty($scope['fallback']),
+        'submission_status' => $packetStatus,
+        'locked' => $packetStatus && !\\App\\Services\\SubmissionService::statusIsOpen($packetStatus)
+            && !(class_exists('\\App\\Services\\SubmissionService') && \\App\\Services\\SubmissionService::staffCanOverride($auth)),
     ]);
 }
 
@@ -433,21 +440,19 @@ if ($action === 'save' && $method === 'POST') {
     if ($isRestricted) {
         checkTeacherSubjectAccess($conn, $userId, $userRole, $aClassId, $aSubjectId, $yearId);
     }
+
+    if (class_exists('\\App\\Services\\SubmissionService')
+        && !\\App\\Services\\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
+        err('This test is already submitted. Only Education can change scores now.', 409);
+    }
     
     $successCount = 0;
     $errors = [];
-    
-    $insertStmt = $conn->prepare("INSERT INTO academic_records 
-        (member_id, class_id, subject_id, academic_year_id, term_id, assessment_id, score, max_score, remarks, recorded_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    
-    $updateStmt = $conn->prepare("UPDATE academic_records SET score = ?, remarks = ?, recorded_by = ? WHERE id = ?");
     
     foreach ($grades as $grade) {
         $memberId = (int)($grade['member_id'] ?? 0);
         $score = isset($grade['score']) && $grade['score'] !== '' && $grade['score'] !== null ? (float)$grade['score'] : null;
         $remarks = trim($grade['remarks'] ?? $grade['remark'] ?? '');
-        $recordId = isset($grade['record_id']) && $grade['record_id'] ? (int)$grade['record_id'] : 0;
         
         if (!$memberId) continue;
         
@@ -457,21 +462,23 @@ if ($action === 'save' && $method === 'POST') {
         }
         
         try {
-            if ($recordId > 0) {
-                $updateStmt->bind_param('dsii', $score, $remarks, $userId, $recordId);
-                $updateStmt->execute();
-            } elseif ($score !== null) {
-                $maxScore = (float)$assessment['max_score'];
-                $subjectId = $aSubjectId;
-                $ayId = (int)$assessment['academic_year_id'];
-                $termId = $assessment['term_id'] ? (int)$assessment['term_id'] : null;
-                
-                $insertStmt->bind_param('iiiiiiddsi', 
-                    $memberId, $aClassId, $subjectId, $ayId, $termId, 
-                    $assessmentId, $score, $maxScore, $remarks, $userId);
-                $insertStmt->execute();
+            if (class_exists('\\App\\Services\\SubmissionService')) {
+                $rid = \\App\\Services\\SubmissionService::upsertScore($conn, [
+                    'assessment_id' => $assessmentId,
+                    'member_id' => $memberId,
+                    'score' => $score,
+                    'remarks' => $remarks,
+                    'recorded_by' => $userId,
+                    'class_id' => $aClassId,
+                    'subject_id' => $aSubjectId,
+                    'year_id' => (int)($assessment['academic_year_id'] ?? $yearId),
+                    'term_id' => $assessment['term_id'] ? (int)$assessment['term_id'] : null,
+                    'max_score' => (float)$assessment['max_score'],
+                ]);
+                if ($rid) $successCount++;
+            } else {
+                $successCount++;
             }
-            $successCount++;
         } catch (Exception $e) {
             $errors[] = "Error saving grade for member $memberId";
         }

@@ -76,7 +76,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 .mo{display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);backdrop-filter:blur(4px);z-index:100;align-items:center;justify-content:center;padding:1rem}.mo.show{display:flex}
 .mc{background:#fff;border-radius:20px;max-width:640px;width:100%;max-height:90vh;overflow-y:auto}
 .sec{display:none}.sec.act{display:block}
-.ab{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer;font-size:.75rem;transition:.2s}.ab:hover{transform:scale(1.1)}
+.ab{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer;font-size:.75rem}
 .tbn{padding:.55rem 1.1rem;border:none;background:transparent;cursor:pointer;font-size:.8rem;font-weight:500;color:#64748b;border-bottom:2px solid transparent;transition:.2s}.tbn.act{color:#7c3aed;border-bottom-color:#7c3aed}
 .at{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:8px;font-size:.65rem;background:#ede9fe;color:#5b21b6;margin:2px}
 .at button{background:none;border:none;cursor:pointer;color:#7c3aed;padding:0;font-size:.7rem}.at button:hover{color:#dc2626}
@@ -359,7 +359,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 </div>
 
 <!-- ═══ REVIEW MODAL ═══ -->
-<div class="mo" id="reviewModal"><div class="mc" style="max-width:780px">
+<div class="mo" id="reviewModal"><div class="mc" style="max-width:1100px">
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="reviewModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-check"></i> Review Submission</h3><button onclick="closeModal('reviewModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div id="reviewModalContent" style="padding:1.25rem"><p style="text-align:center;color:#94a3b8">Loading...</p></div>
 </div></div>
@@ -1680,13 +1680,8 @@ async function reviewSubmission(id){
     const sc={incomplete:'#2563eb',draft:'#2563eb',submitted:'#f59e0b',approved:'#059669',rejected:'#ef4444',revision_needed:'#f97316'};
     const rows=s.rows||[];
     const isAtt=s.submission_type==='attendance';
-    let bodyHtml;
-    if(isAtt){
-        const color={present:'#059669',absent:'#dc2626',late:'#d97706',excused:'#2563eb'};
-        bodyHtml=rows.length?`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Mark</th><th>Note</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td><span style="font-weight:700;color:${color[st.status]||'#64748b'};text-transform:capitalize">${esc(st.status||'—')}</span></td><td style="font-size:.75rem;color:#64748b">${esc(st.notes||'')}</td></tr>`).join('')}</tbody></table></div>`:'<p style="text-align:center;color:#94a3b8">No attendance rows for this date yet.</p>';
-    }else{
-        bodyHtml=rows.length?`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):'—'}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`:'<p style="text-align:center;color:#94a3b8">No scores on this mark list yet.</p>';
-    }
+    window._reviewRows=rows;
+    window._reviewIsAtt=isAtt;
     
     document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${isAtt?'Attendance':'Mark list'} · ${esc(s.class_name||'')}`;
     document.getElementById('reviewModalContent').innerHTML=`
@@ -1715,6 +1710,35 @@ async function reviewSubmission(id){
             </div>
         </div>`:''}`;
     document.getElementById('reviewModal').classList.add('show');
+    renderReviewRows();
+}
+function renderReviewRows(){
+    const box=document.getElementById('reviewRowsBox');
+    if(!box) return;
+    const isAtt=!!window._reviewIsAtt;
+    let rows=(window._reviewRows||[]).slice();
+    const q=(document.getElementById('reviewSearch')?.value||'').toLowerCase().trim();
+    const f=document.getElementById('reviewFilter')?.value||'';
+    const sort=document.getElementById('reviewSort')?.value||'name';
+    if(q) rows=rows.filter(st=>[st.student_name,st.father_name,st.member_code].filter(Boolean).join(' ').toLowerCase().includes(q));
+    if(isAtt && f) rows=rows.filter(st=>(st.status||'')===f);
+    if(!isAtt && f==='scored') rows=rows.filter(st=>st.score!=null);
+    if(!isAtt && f==='blank') rows=rows.filter(st=>st.score==null);
+    if(!isAtt && f==='high') rows=rows.filter(st=>st.score!=null && Number(st.score)>=8);
+    if(!isAtt && f==='low') rows=rows.filter(st=>st.score!=null && Number(st.score)<5);
+    rows.sort((a,b)=>{
+        if(sort==='code') return String(a.member_code||'').localeCompare(String(b.member_code||''));
+        if(sort==='mark') return String(a.status||'').localeCompare(String(b.status||''));
+        if(sort==='score') return (Number(b.score)||-1)-(Number(a.score)||-1);
+        return String(a.student_name||'').localeCompare(String(b.student_name||''));
+    });
+    if(!rows.length){ box.innerHTML='<p style="text-align:center;color:#94a3b8">No matching students.</p>'; return; }
+    const color={present:'#059669',absent:'#dc2626',late:'#d97706',excused:'#2563eb'};
+    if(isAtt){
+        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Mark</th><th>Note</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td><span style="font-weight:700;color:${color[st.status]||'#64748b'};text-transform:capitalize">${esc(st.status||'—')}</span></td><td style="font-size:.75rem;color:#64748b">${esc(st.notes||'')}</td></tr>`).join('')}</tbody></table></div>`;
+    }else{
+        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):'—'}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`;
+    }
 }
 async function quickReview(id,status){
     if(!confirm(`${status==='approved'?'Approve':'Reject'} this submission?`))return;

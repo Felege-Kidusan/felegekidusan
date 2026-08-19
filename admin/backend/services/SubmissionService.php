@@ -87,6 +87,209 @@ class SubmissionService
                 $conn->query("ALTER TABLE `academic_records` ADD COLUMN `submission_id` INT UNSIGNED DEFAULT NULL AFTER `assessment_id`");
             } catch (\Throwable $e) { /* ok */ }
         }
+
+        self::hardenUniques($conn);
+    }
+
+    /**
+     * One score per student per test. One mark per student per class per day.
+     * Cleans leftover duplicates, then adds unique keys so they cannot return.
+     */
+    public static function hardenUniques(\mysqli $conn): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $conn->query(
+                "DELETE ar FROM academic_records ar
+                 INNER JOIN academic_records keep
+                    ON keep.assessment_id = ar.assessment_id
+                   AND keep.member_id = ar.member_id
+                   AND keep.id > ar.id
+                 WHERE ar.assessment_id IS NOT NULL"
+            );
+        } catch (\Throwable $e) { /* ok */ }
+        try {
+            $conn->query(
+                "ALTER TABLE academic_records
+                 ADD UNIQUE KEY uq_ar_assessment_member (assessment_id, member_id)"
+            );
+        } catch (\Throwable $e) { /* already there */ }
+        try {
+            $conn->query(
+                "DELETE a FROM attendance a
+                 INNER JOIN attendance keep
+                    ON keep.member_id = a.member_id
+                   AND keep.class_id = a.class_id
+                   AND keep.attendance_date = a.attendance_date
+                   AND keep.id > a.id"
+            );
+        } catch (\Throwable $e) { /* ok */ }
+        try {
+            $conn->query(
+                "ALTER TABLE attendance
+                 ADD UNIQUE KEY uq_att_member_class_date (member_id, class_id, attendance_date)"
+            );
+        } catch (\Throwable $e) { /* already there */ }
+        try {
+            $conn->query(
+                "DELETE gs FROM grade_submissions gs
+                 INNER JOIN grade_submissions keep
+                    ON keep.assessment_id = gs.assessment_id
+                   AND keep.submission_type = 'marklist'
+                   AND gs.submission_type = 'marklist'
+                   AND keep.id > gs.id
+                 WHERE gs.assessment_id IS NOT NULL"
+            );
+        } catch (\Throwable $e) { /* ok */ }
+    }
+
+    public static function staffCanOverride(array $auth): bool
+    {
+        $role = (string)($auth['rol'] ?? $auth['role'] ?? '');
+        return in_array($role, ['super_admin', 'school_admin', 'edu_dept'], true);
+    }
+
+    /** draft / incomplete / needs-revision can be changed by the teacher. */
+    public static function statusIsOpen(?string $status): bool
+    {
+        $status = self::normalizeStatus($status);
+        return in_array($status, [self::STATUS_DRAFT, self::STATUS_INCOMPLETE, self::STATUS_REVISION], true)
+            || $status === '';
+    }
+
+    public static function attendancePacketStatus(\mysqli $conn, int $classId, string $date): ?string
+    {
+        self::ensureTable($conn);
+        if ($classId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+        $stmt = $conn->prepare(
+            "SELECT status FROM grade_submissions
+             WHERE class_id = ? AND attendance_date = ? AND submission_type = 'attendance'
+             ORDER BY id DESC LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('is', $classId, $date);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? self::normalizeStatus($row['status'] ?? '') : null;
+    }
+
+    public static function marklistPacketStatus(\mysqli $conn, int $assessmentId): ?string
+    {
+        self::ensureTable($conn);
+        if ($assessmentId <= 0) {
+            return null;
+        }
+        $stmt = $conn->prepare(
+            "SELECT status FROM grade_submissions
+             WHERE assessment_id = ? AND submission_type = 'marklist'
+             ORDER BY id DESC LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('i', $assessmentId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? self::normalizeStatus($row['status'] ?? '') : null;
+    }
+
+    public static function teacherMayWriteAttendance(\mysqli $conn, array $auth, int $classId, string $date): bool
+    {
+        if (self::staffCanOverride($auth)) {
+            return true;
+        }
+        $status = self::attendancePacketStatus($conn, $classId, $date);
+        return $status === null || self::statusIsOpen($status);
+    }
+
+    public static function teacherMayWriteMarklist(\mysqli $conn, array $auth, int $assessmentId): bool
+    {
+        if (self::staffCanOverride($auth)) {
+            return true;
+        }
+        $status = self::marklistPacketStatus($conn, $assessmentId);
+        return $status === null || self::statusIsOpen($status);
+    }
+
+    /** One score per student per test. Always update the existing row. */
+    public static function upsertScore(\mysqli $conn, array $row): int
+    {
+        $assessmentId = (int)($row['assessment_id'] ?? 0);
+        $memberId = (int)($row['member_id'] ?? 0);
+        if ($assessmentId <= 0 || $memberId <= 0) {
+            return 0;
+        }
+        $score = array_key_exists('score', $row) ? $row['score'] : null;
+        $remarks = trim((string)($row['remarks'] ?? $row['remark'] ?? ''));
+        $recordedBy = (int)($row['recorded_by'] ?? 0);
+        $classId = (int)($row['class_id'] ?? 0);
+        $subjectId = (int)($row['subject_id'] ?? 0);
+        $yearId = isset($row['year_id']) ? (int)$row['year_id'] : null;
+        $termId = isset($row['term_id']) ? (int)$row['term_id'] : null;
+        $maxScore = isset($row['max_score']) ? (float)$row['max_score'] : 100;
+        $submissionId = isset($row['submission_id']) ? (int)$row['submission_id'] : null;
+
+        $find = $conn->prepare(
+            "SELECT id FROM academic_records WHERE assessment_id = ? AND member_id = ? ORDER BY id DESC LIMIT 1"
+        );
+        $existing = 0;
+        if ($find) {
+            $find->bind_param('ii', $assessmentId, $memberId);
+            $find->execute();
+            $got = $find->get_result()->fetch_assoc();
+            $find->close();
+            $existing = (int)($got['id'] ?? 0);
+        }
+        if ($existing > 0) {
+            $up = $conn->prepare(
+                "UPDATE academic_records SET score = ?, remarks = ?, recorded_by = ?,
+                        submission_id = COALESCE(?, submission_id)
+                 WHERE id = ?"
+            );
+            if (!$up) {
+                return 0;
+            }
+            $up->bind_param('dsiii', $score, $remarks, $recordedBy, $submissionId, $existing);
+            $up->execute();
+            $up->close();
+            return $existing;
+        }
+        $ins = $conn->prepare(
+            "INSERT INTO academic_records
+                (member_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_id, score, max_score, remarks, recorded_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        if (!$ins) {
+            return 0;
+        }
+        $ins->bind_param(
+            'iiiiiiddssi',
+            $memberId,
+            $classId,
+            $subjectId,
+            $yearId,
+            $termId,
+            $assessmentId,
+            $submissionId,
+            $score,
+            $maxScore,
+            $remarks,
+            $recordedBy
+        );
+        $ins->execute();
+        $id = (int)$ins->insert_id;
+        $ins->close();
+        return $id;
     }
 
     private static function ensureColumn(\mysqli $conn, string $table, string $column, string $definition): void
@@ -158,6 +361,22 @@ class SubmissionService
         $submittedAt = $status === self::STATUS_SUBMITTED ? date('Y-m-d H:i:s') : null;
 
         if ($existingId > 0) {
+            $cur = $conn->prepare("SELECT status FROM grade_submissions WHERE id = ? LIMIT 1");
+            $curStatus = '';
+            if ($cur) {
+                $cur->bind_param('i', $existingId);
+                $cur->execute();
+                $curStatus = (string)($cur->get_result()->fetch_assoc()['status'] ?? '');
+                $cur->close();
+            }
+            if (!self::statusIsOpen($curStatus) && empty($opts['force'])) {
+                return [
+                    'ok' => false,
+                    'id' => $existingId,
+                    'status' => self::normalizeStatus($curStatus),
+                    'message' => 'This attendance is already submitted. Only Education can change it.',
+                ];
+            }
             $sql = "UPDATE grade_submissions
                     SET status = ?, student_count = ?, present_count = ?, absent_count = ?, late_count = ?, excused_count = ?,
                         academic_year_id = ?, submitted_at = COALESCE(?, submitted_at), updated_at = NOW()
@@ -255,6 +474,22 @@ class SubmissionService
         $submittedAt = $status === self::STATUS_SUBMITTED ? date('Y-m-d H:i:s') : null;
 
         if ($existingId > 0) {
+            $cur = $conn->prepare("SELECT status FROM grade_submissions WHERE id = ? LIMIT 1");
+            $curStatus = '';
+            if ($cur) {
+                $cur->bind_param('i', $existingId);
+                $cur->execute();
+                $curStatus = (string)($cur->get_result()->fetch_assoc()['status'] ?? '');
+                $cur->close();
+            }
+            if (!self::statusIsOpen($curStatus) && empty($opts['force'])) {
+                return [
+                    'ok' => false,
+                    'id' => $existingId,
+                    'status' => self::normalizeStatus($curStatus),
+                    'message' => 'This mark list is already submitted. Only Education can change it.',
+                ];
+            }
             $up = $conn->prepare(
                 "UPDATE grade_submissions
                  SET status = ?, student_count = ?, average_score = ?, class_id = ?, subject_id = ?,
@@ -605,13 +840,19 @@ class SubmissionService
             "SELECT a.member_id, a.status, a.notes, m.student_name, m.father_name, m.member_code
              FROM attendance a
              JOIN members m ON m.id = a.member_id
+             INNER JOIN (
+                SELECT member_id, MAX(id) AS max_id
+                FROM attendance
+                WHERE class_id = ? AND attendance_date = ?
+                GROUP BY member_id
+             ) latest ON latest.max_id = a.id
              WHERE a.class_id = ? AND a.attendance_date = ?
              ORDER BY m.student_name"
         );
         if (!$stmt) {
             return [];
         }
-        $stmt->bind_param('is', $classId, $date);
+        $stmt->bind_param('isis', $classId, $date, $classId, $date);
         $stmt->execute();
         $rows = [];
         $r = $stmt->get_result();
@@ -645,7 +886,7 @@ class SubmissionService
         if (!$stmt) {
             return [];
         }
-        $stmt->bind_param('i', $assessmentId);
+        $stmt->bind_param('ii', $assessmentId, $assessmentId);
         $stmt->execute();
         $rows = [];
         $r = $stmt->get_result();

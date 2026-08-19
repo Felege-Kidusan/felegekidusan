@@ -87,6 +87,11 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
         $stmt->close();
     }
 
+    $packetStatus = null;
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $packetStatus = \\App\\Services\\SubmissionService::attendancePacketStatus($conn, $classId, $date);
+    }
+
     $students = [];
     foreach ($roster as $row) {
         $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
@@ -113,6 +118,11 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
         'roster_year_id' => $rosterYearId ?: null,
         'roster_year_name' => $scope['year_name'] ?? null,
         'roster_fallback' => !empty($scope['fallback']),
+        'submission_status' => $packetStatus,
+        'locked' => $packetStatus
+            && class_exists('\\App\\Services\\SubmissionService')
+            && !\\App\\Services\\SubmissionService::statusIsOpen($packetStatus)
+            && !\\App\\Services\\SubmissionService::staffCanOverride($auth),
     ]);
 }
 
@@ -134,6 +144,11 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     if (count($records) > 500) err('Too many records in one save (max 500).');
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
+
+    if (class_exists('\\App\\Services\\SubmissionService')
+        && !\\App\\Services\\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
+        err('This day’s attendance is already submitted. Only Education can change it.', 409);
+    }
 
     $yearIdOrNull = $year ? $year['id'] : null;
     $userId = (int)$auth['uid'];

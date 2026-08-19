@@ -511,6 +511,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   bool _loading = true;
   bool _saving = false;
   bool _isOffline = false;
+  String _packetStatus = '';
   String? _error;
   String? _rosterNote;
   int _gradedCount = 0;
@@ -567,10 +568,12 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
             ? 'Showing students from a previous year.'
             : 'Showing the $year roster.';
       }
+      final packet = '${res.data['submission_status'] ?? ''}';
       setState(() {
         _isOffline = !ConnectivityService().hasLink;
         _loading = false;
         _rosterNote = note;
+        if (packet.isNotEmpty) _packetStatus = packet;
       });
       _recountGraded();
       await _db.cacheGradeSheet(widget.assessmentId, widget.classId, merged);
@@ -644,11 +647,9 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   }
 
   void _mergeServer(List<Map<String, dynamic>> incoming) {
-    final seen = <int>{};
     for (final s in incoming) {
       final mid = RosterParse.asInt(s['member_id']);
       if (mid == null) continue;
-      seen.add(mid);
       final existing = _students.indexWhere((e) => RosterParse.asInt(e['member_id']) == mid);
       if (existing >= 0) {
         _students[existing]['record_id'] = s['record_id'] ?? _students[existing]['record_id'];
@@ -725,8 +726,16 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     );
   }
 
+  bool get _locked =>
+      _packetStatus == 'submitted' || _packetStatus == 'approved';
+
   Future<void> _saveGrades() async {
-    setState(() => _saving = true);
+    if (_locked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Already submitted. Only Education can change this.'),
+          backgroundColor: AppTheme.warning));
+      return;
+    }
 
     final grades = <Map<String, dynamic>>[];
     for (final s in _students) {
@@ -745,12 +754,10 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     }
 
     if (grades.isEmpty) {
-      setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No valid grades to save'), backgroundColor: AppTheme.warning));
       return;
     }
 
-    // SAVE LOCALLY FIRST (offline-first)
     await _db.saveGradesLocal(
       widget.assessmentId, widget.assessmentName,
       widget.classId, widget.className,
@@ -758,26 +765,29 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       widget.maxScore, grades,
       packetKind: 'draft',
     );
+    if (!mounted) return;
+    setState(() => _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
 
-    // Try to sync immediately
     final res = await _api.saveGrades(widget.assessmentId, grades);
     if (!mounted) return;
-
     if (res.success) {
       await _db.markGradesSynced(widget.assessmentId);
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved as a draft for Education'), backgroundColor: AppTheme.success));
-      _loadStudents(silent: true);
+    } else if ((res.message ?? '').toLowerCase().contains('already submitted')) {
+      setState(() => _packetStatus = 'submitted');
     } else {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved on this phone — sending on its own'), backgroundColor: AppTheme.warning));
       SyncService().nudge();
     }
   }
 
   Future<void> _submitGrades() async {
+    if (_locked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Already submitted. Only Education can change this.'),
+          backgroundColor: AppTheme.warning));
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -791,7 +801,6 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     );
     if (ok != true) return;
 
-    setState(() => _saving = true);
     final grades = <Map<String, dynamic>>[];
     for (final s in _students) {
       final mid = RosterParse.asInt(s['member_id']);
@@ -809,7 +818,6 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       });
     }
     if (grades.isEmpty) {
-      setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Enter at least one valid score first'), backgroundColor: AppTheme.warning));
       return;
@@ -821,18 +829,15 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       widget.maxScore, grades,
       packetKind: 'submitted',
     );
+    if (!mounted) return;
+    setState(() => _packetStatus = 'submitted');
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Submitted'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
     final res = await _api.submitGrades(widget.assessmentId, grades);
     if (!mounted) return;
     if (res.success) {
       await _db.markGradesSynced(widget.assessmentId);
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(res.message ?? 'Sent to Education'), backgroundColor: AppTheme.success));
-      _loadStudents(silent: true);
     } else {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Saved on this phone — sending on its own'), backgroundColor: AppTheme.warning));
       SyncService().nudge();
     }
   }
@@ -927,6 +932,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
               SizedBox(width: 72, height: 38,
                 child: TextField(
                   controller: _scoreCtrl[mid],
+                  readOnly: _locked,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
                   textAlign: TextAlign.center,
@@ -952,6 +958,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
             const SizedBox(height: 6),
             TextField(
               controller: _remarkCtrl[mid],
+              readOnly: _locked,
               style: const TextStyle(fontSize: 12),
               decoration: InputDecoration(
                 hintText: 'Remark (optional)',

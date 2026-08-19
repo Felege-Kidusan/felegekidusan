@@ -228,6 +228,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             : 'Showing the $year roster. Ask Education to enroll them for this year too.';
       }
 
+      final packet = '${res.data['submission_status'] ?? ''}';
+      final locked = res.data['locked'] == true ||
+          packet == 'submitted' ||
+          packet == 'approved';
       setState(() {
         _students = students;
         _loadingStudents = false;
@@ -235,6 +239,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _isOffline = !ConnectivityService().hasLink;
         _loadFailed = false;
         _rosterNote = note;
+        _packetStatus = packet;
+        if (locked) _packetStatus = packet.isEmpty ? 'submitted' : packet;
       });
       await _db.cacheStudents(_selectedClassId!, students);
       await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, students);
@@ -248,10 +254,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  bool get _locked =>
+      _packetStatus == 'submitted' || _packetStatus == 'approved';
+
   Future<void> _saveAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
+    if (_locked) {
+      setState(() => _successMsg = 'Already submitted. Only Education can change this.');
+      return;
+    }
     setState(() {
-      _saving = true;
       _error = null;
       _successMsg = null;
     });
@@ -279,35 +291,38 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final apiRecords = records
         .map((r) => {'member_id': r['member_id'], 'status': r['status']})
         .toList();
-    final res =
-        await _api.saveAttendance(_selectedClassId!, _selectedDate, apiRecords);
-
     if (!mounted) return;
-
-    if (res.success) {
-      await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
-      setState(() {
-        _saving = false;
-        _packetStatus = 'draft';
-        _successMsg = 'Saved as a draft for Education';
-      });
-    } else {
-      setState(() {
-        _saving = false;
-        _successMsg = 'Kept on this phone — sending on its own';
-      });
-      _sync.nudge();
-    }
-
+    setState(() {
+      _packetStatus = 'draft';
+      _successMsg = 'Saved';
+    });
     await _updatePendingCount();
-
-    Future.delayed(const Duration(seconds: 4), () {
+    Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _successMsg = null);
     });
+
+    final res =
+        await _api.saveAttendance(_selectedClassId!, _selectedDate, apiRecords);
+    if (!mounted) return;
+    if (res.success) {
+      await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
+      await _updatePendingCount();
+    } else if ((res.message ?? '').toLowerCase().contains('already submitted')) {
+      setState(() {
+        _packetStatus = 'submitted';
+        _successMsg = 'Already submitted. Only Education can change this.';
+      });
+    } else {
+      _sync.nudge();
+    }
   }
 
   Future<void> _submitAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
+    if (_locked) {
+      setState(() => _successMsg = 'Already submitted. Only Education can change this.');
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -321,9 +336,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     );
     if (ok != true) return;
 
-    setState(() { _saving = true; _error = null; _successMsg = null; });
+    setState(() { _error = null; _successMsg = null; });
     final records = _records();
     await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records, packetKind: 'submitted');
+    if (!mounted) return;
+    setState(() { _packetStatus = 'submitted'; _successMsg = 'Submitted'; });
+    await _updatePendingCount();
     final apiRecords = records
         .map((r) => {'member_id': r['member_id'], 'status': r['status'], 'notes': r['notes'] ?? ''})
         .toList();
@@ -331,9 +349,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
     if (res.success) {
       await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
-      setState(() { _saving = false; _packetStatus = 'submitted'; _successMsg = 'Submitted to Education'; });
     } else {
-      setState(() { _saving = false; _successMsg = 'Kept on this phone — sending on its own'; });
       _sync.nudge();
     }
     await _updatePendingCount();
@@ -729,10 +745,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       String label, String value, String current, Color color, int index) {
     final selected = current == value;
     return InkWell(
-      onTap: () {
-        setState(() => _students[index]['status'] = value);
-        _persistLocal();
-      },
+      onTap: _locked
+          ? null
+          : () {
+              setState(() => _students[index]['status'] = value);
+              _persistLocal();
+            },
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: 34,
