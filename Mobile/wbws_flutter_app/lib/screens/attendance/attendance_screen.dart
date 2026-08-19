@@ -469,7 +469,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                               style: TextStyle(fontSize: 13)),
                           isExpanded: true,
                           decoration: InputDecoration(
-                              items: _classes
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                          items: _classes
                               .map<DropdownMenuItem<int>>((c) =>
                                   DropdownMenuItem(
                                     value: c['id'] is int
@@ -481,13 +486,19 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                                   ))
                               .toList(),
                           onChanged: (v) {
-                            _selectedClassId = v;
-                            _selectedClassName = _classes
-                                .firstWhere((c) =>
-                                    (c['id'] is int
-                                        ? c['id']
-                                        : int.tryParse('${c['id']}')) ==
-                                    v)['class_name'];
+                            setState(() {
+                              _selectedClassId = v;
+                              _selectedClassName = _classes
+                                  .firstWhere((c) =>
+                                      (c['id'] is int
+                                          ? c['id']
+                                          : int.tryParse('${c['id']}')) ==
+                                      v)['class_name'];
+                              _students = [];
+                              _rosterReady = false;
+                              _loadingStudents = true;
+                              _packetStatus = '';
+                            });
                             _loadAttendance();
                           },
                         ),
@@ -724,25 +735,3 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 }
-
-derRadius.circular(8),
-      child: Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? color : color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? color : color.withOpacity(0.2)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: selected ? Colors.white : color,
-            )),
-      ),
-    );
-  }
-}
-
