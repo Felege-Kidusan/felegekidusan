@@ -667,7 +667,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       await _db.markGradesSynced(widget.assessmentId);
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Education can see this as incomplete'), backgroundColor: AppTheme.success));
+        SnackBar(content: Text('Saved as a draft for Education'), backgroundColor: AppTheme.success));
       _loadStudents(); // Refresh to get record_ids
     } else {
       setState(() => _saving = false);
@@ -680,11 +680,11 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Mark this list complete?'),
-        content: Text('Education will treat ${widget.assessmentName} for ${widget.className} as finished.'),
+        title: const Text('Submit mark list?'),
+        content: Text('Use this when the test is finished. Education will treat ${widget.assessmentName} as done.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark complete')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
         ],
       ),
     );
@@ -750,12 +750,12 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       bottomNavigationBar: _students.isEmpty
           ? null
           : TeacherActionBar(
-              saveLabel: 'Send incomplete',
-              submitLabel: 'Mark complete',
+              saveLabel: 'Save',
+              submitLabel: 'Submit',
               onSave: _saveGrades,
               onSubmit: _submitGrades,
               busy: _saving,
-              hint: 'Scores stay on this phone. Send incomplete so Education can watch. Mark complete when the list is done.',
+              hint: 'Save sends a draft to Education. Submit when the test is finished.',
             ),
       body: _loading
           ? const StudentListSkeleton()

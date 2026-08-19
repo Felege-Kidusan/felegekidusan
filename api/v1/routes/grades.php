@@ -491,14 +491,14 @@ if ($action === 'save' && $method === 'POST') {
     }
 
     apiEnsureSubmissionsTable();
-    $packet = ['id' => 0, 'status' => 'incomplete', 'message' => "$successCount grade(s) saved"];
+    $packet = ['id' => 0, 'status' => 'draft', 'message' => "$successCount grade(s) saved as a draft"];
     if (class_exists('\\App\\Services\\SubmissionService')) {
         $packet = \App\Services\SubmissionService::upsertMarklist($conn, [
             'teacher_id' => $userId,
             'class_id' => $aClassId,
             'subject_id' => $aSubjectId,
             'assessment_id' => $assessmentId,
-            'status' => \App\Services\SubmissionService::STATUS_INCOMPLETE,
+            'status' => \App\Services\SubmissionService::STATUS_DRAFT,
             'student_count' => $successCount,
             'average' => $avg,
             'year_id' => (int)($assessment['academic_year_id'] ?? $yearId),

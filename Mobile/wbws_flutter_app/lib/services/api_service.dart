@@ -192,18 +192,19 @@ class ApiService {
     }
   }
 
-  /// Handle network errors
+  /// Handle network errors.
+  /// A slow 4G blip is not "no internet" — never flip the global banner
+  /// from a single timed-out read.
   ApiResponse _handleError(dynamic error) {
     final msg = error.toString();
+    if (msg.contains('TimeoutException')) {
+      return ApiResponse.error('Server is taking too long. Please try again.');
+    }
     if (msg.contains('SocketException') ||
         msg.contains('HandshakeException') ||
         msg.contains('OS Error')) {
-      _connectivity.markOffline();
       return ApiResponse.error(
-          'No internet connection. Please check your network.');
-    }
-    if (msg.contains('TimeoutException')) {
-      return ApiResponse.error('Server is taking too long. Please try again.');
+          'Could not reach the server. Your work is still on this phone.');
     }
     return ApiResponse.error('Connection error. Please try again.');
   }

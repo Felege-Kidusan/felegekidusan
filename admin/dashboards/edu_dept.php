@@ -340,17 +340,22 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- ═══ SUBMISSIONS REVIEW ═══ -->
 <div id="sec-submissions" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-inbox" style="color:#7c3aed"></i> Teacher Submissions</h2><p style="font-size:.75rem;color:#64748b">Attendance and mark lists from teachers — incomplete while they still work, complete when they are done.</p></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-inbox" style="color:#7c3aed"></i> Teacher Submissions</h2><p style="font-size:.75rem;color:#64748b">Drafts are still being worked on. Submitted means the teacher finished.</p></div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap">
 <select id="subFilterType" class="inp" style="max-width:150px" onchange="loadSubmissions()"><option value="">All types</option><option value="attendance">Attendance</option><option value="marklist">Mark lists</option></select>
-<select id="subFilterStatus" class="inp" style="max-width:180px" onchange="loadSubmissions()"><option value="attention" selected>Needs attention</option><option value="incomplete">Incomplete</option><option value="submitted">Complete</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="revision_needed">Needs revision</option><option value="all">All</option></select>
 <select id="subFilterClass" class="inp" style="max-width:180px" onchange="loadSubmissions()"><option value="">All Classes</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select>
+<button class="btn btn-o btn-xs" type="button" onclick="exportSubmissions()"><i class="fa-solid fa-download"></i> Excel</button>
 <button class="btn btn-o btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-sync"></i> Refresh</button>
 </div></div>
-<!-- Stats Row -->
+<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1rem">
+<button class="tbn act" id="subTabDraft" type="button" onclick="switchSubTab('draft')"><i class="fa-solid fa-pen-to-square"></i> Drafts</button>
+<button class="tbn" id="subTabSubmitted" type="button" onclick="switchSubTab('submitted')"><i class="fa-solid fa-paper-plane"></i> Submitted</button>
+<button class="tbn" id="subTabInsights" type="button" onclick="switchSubTab('insights')"><i class="fa-solid fa-chart-line"></i> Insights</button>
+</div>
+<input type="hidden" id="subFilterStatus" value="draft">
 <div id="subStatsRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1rem"></div>
-<!-- Submissions List -->
 <div id="submissionsList" class="crd" style="padding:.5rem"><div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div></div>
+<div id="subInsights" class="crd" style="padding:1rem;display:none"></div>
 </div>
 
 <!-- ═══ REVIEW MODAL ═══ -->
@@ -1510,52 +1515,157 @@ async function doDeleteTerm(termId){if(!confirm('Delete this semester? Grades li
 }
 
 // ═══ SUBMISSIONS REVIEW ═══
-let allSubmissions=[];
+let allSubmissions=[], _subAnalytics=null;
+function subStatusChip(st){
+    const map={incomplete:'ch-i',draft:'ch-i',submitted:'ch-w',approved:'ch-ok',rejected:'ch-d',revision_needed:'ch-w'};
+    const label={incomplete:'Draft',draft:'Draft',submitted:'Submitted',approved:'Approved',rejected:'Rejected',revision_needed:'Needs revision'};
+    return `<span class="ch ${map[st]||'ch-w'}">${label[st]||esc(st||'—')}</span>`;
+}
+function switchSubTab(tab){
+    ['draft','submitted','insights'].forEach(t=>{
+        const b=document.getElementById('subTab'+(t==='insights'?'Insights':t.charAt(0).toUpperCase()+t.slice(1)));
+        if(b) b.className='tbn'+(t===tab?' act':'');
+    });
+    const list=document.getElementById('submissionsList');
+    const insights=document.getElementById('subInsights');
+    const hid=document.getElementById('subFilterStatus');
+    if(tab==='insights'){
+        if(list) list.style.display='none';
+        if(insights) insights.style.display='block';
+        loadSubInsights();
+        return;
+    }
+    if(list) list.style.display='block';
+    if(insights) insights.style.display='none';
+    if(hid) hid.value=tab;
+    loadSubmissions();
+}
 async function loadSubmissions(){
-    const sf=document.getElementById('subFilterStatus')?.value||'';
+    const list=document.getElementById('submissionsList');
+    const statsRow=document.getElementById('subStatsRow');
+    if(list) list.innerHTML='<div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+    const sf=document.getElementById('subFilterStatus')?.value||'draft';
     const cf=document.getElementById('subFilterClass')?.value||'';
+    const tf=document.getElementById('subFilterType')?.value||'';
     let url='/admin/api_communication.php?action=get_submissions';
-    if(sf)url+=`&status_filter=${sf}`;
-    if(cf)url+=`&class_id=${cf}`;
-    try{const d=await getAPI(url);
-    if(d.status==='success'){
+    if(sf) url+=`&status_filter=${encodeURIComponent(sf)}`;
+    if(cf) url+=`&class_id=${encodeURIComponent(cf)}`;
+    if(tf) url+=`&type=${encodeURIComponent(tf)}`;
+    try{
+        const d=await getAPI(url);
+        if(d.status!=='success'){
+            if(list) list.innerHTML=`<div style="text-align:center;padding:2rem"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load submissions</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(d.message||'Please try again.')}</div><button class="btn btn-p btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
+            toast(d.message||'Could not load submissions.','err');
+            return;
+        }
         allSubmissions=d.submissions||[];
-        // Stats
-        const pending=allSubmissions.filter(s=>s.status==='submitted').length;
-        const approved=allSubmissions.filter(s=>s.status==='approved').length;
-        const rejected=allSubmissions.filter(s=>s.status==='rejected').length;
-        const total=allSubmissions.length;
-        document.getElementById('subStatsRow').innerHTML=`
-            <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.5rem;font-weight:700">${pending}</div><div style="font-size:.65rem;opacity:.8">Pending</div></div><i class="fa-solid fa-clock" style="font-size:1.2rem;opacity:.3"></i></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.5rem;font-weight:700">${approved}</div><div style="font-size:.65rem;opacity:.8">Approved</div></div><i class="fa-solid fa-check-circle" style="font-size:1.2rem;opacity:.3"></i></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#ef4444,#dc2626);padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.5rem;font-weight:700">${rejected}</div><div style="font-size:.65rem;opacity:.8">Rejected</div></div><i class="fa-solid fa-times-circle" style="font-size:1.2rem;opacity:.3"></i></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.5rem;font-weight:700">${total}</div><div style="font-size:.65rem;opacity:.8">Total</div></div><i class="fa-solid fa-inbox" style="font-size:1.2rem;opacity:.3"></i></div></div>`;
-        // List
-        const el=document.getElementById('submissionsList');
-        if(!allSubmissions.length){el.innerHTML='<div style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-inbox" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>No submissions found</div>';return;}
-        el.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Class</th><th>Subject</th><th>Assessment</th><th>Students</th><th>Average</th><th>Status</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>${allSubmissions.map(s=>{
-            const sc={draft:'ch-w',submitted:'ch-w',approved:'ch-ok',rejected:'ch-d',revision_needed:'ch-w'};
-            const sl=sc[s.status]||'ch-w';
-            const avg=s.average_score?parseFloat(s.average_score).toFixed(1):'—';
-            const dt=s.submitted_at?fD(s.submitted_at):'—';
+        const st=d.stats||{};
+        const drafts=st.incomplete??allSubmissions.filter(s=>s.status==='draft'||s.status==='incomplete').length;
+        const pending=st.pending??allSubmissions.filter(s=>s.status==='submitted').length;
+        const approved=st.approved??0;
+        if(statsRow) statsRow.innerHTML=`
+            <div class="sc" style="background:linear-gradient(135deg,#2563eb,#3b82f6);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${drafts}</div><div style="font-size:.65rem;opacity:.8">Drafts (not finished)</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${pending}</div><div style="font-size:.65rem;opacity:.8">Submitted</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${approved}</div><div style="font-size:.65rem;opacity:.8">Approved</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:1rem"><div><div style="font-size:1.05rem;font-weight:700">${st.today_recorded?((st.today_present||0)+' P · '+(st.today_absent||0)+' A · '+(st.today_late||0)+' L'):'—'}</div><div style="font-size:.65rem;opacity:.8">Today’s marks</div></div></div>`;
+        if(!list) return;
+        if(!allSubmissions.length){
+            const empty=sf==='draft'?'No drafts yet. When a teacher taps Save, the unfinished sheet appears here.':'No submitted work yet. Submit is used after class or after a test.';
+            list.innerHTML=`<div style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-inbox" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>${empty}</div>`;
+            return;
+        }
+        list.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>Type</th><th>Teacher</th><th>Class</th><th>What</th><th>Students</th><th>Result</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${allSubmissions.map(s=>{
+            const isAtt=s.submission_type==='attendance';
+            const what=isAtt?(s.attendance_date?fD(s.attendance_date):'Attendance'):(s.assessment_name||s.subject_name||'Mark list');
+            const result=isAtt?`${s.present_count||0}P / ${s.absent_count||0}A / ${s.late_count||0}L`:(s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—');
+            const dt=s.updated_at||s.submitted_at||s.created_at;
             return `<tr>
+                <td><span class="ch ${isAtt?'ch-i':'ch-p'}">${isAtt?'Attendance':'Mark list'}</span></td>
                 <td style="font-weight:600;font-size:.8rem">${esc(s.teacher_name||'—')}</td>
                 <td class="amharic">${esc(s.class_name||'—')}</td>
-                <td class="amharic" style="font-size:.78rem">${esc(s.subject_name||'—')}</td>
-                <td style="font-size:.78rem">${esc(s.assessment_name||'—')}</td>
+                <td class="amharic" style="font-size:.78rem">${esc(what)}</td>
                 <td><span class="ch ch-i">${s.student_count||0}</span></td>
-                <td style="font-weight:700;font-size:.85rem">${avg}</td>
-                <td><span class="ch ${sl}" style="text-transform:capitalize">${(s.status||'').replace(/_/g,' ')}</span></td>
-                <td style="font-size:.75rem;color:#64748b">${dt}</td>
+                <td style="font-weight:700;font-size:.8rem">${esc(result)}</td>
+                <td>${subStatusChip(s.status)}</td>
+                <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'—'}</td>
                 <td style="white-space:nowrap">
-                    <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="reviewSubmission(${s.id})" title="Review"><i class="fa-solid fa-eye"></i></button>
+                    <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="reviewSubmission(${s.id})" title="Open"><i class="fa-solid fa-eye"></i></button>
                     ${s.status==='submitted'?`
                     <button class="ab" style="background:#d1fae5;color:#065f46" onclick="quickReview(${s.id},'approved')" title="Approve"><i class="fa-solid fa-check"></i></button>
                     <button class="ab" style="background:#fee2e2;color:#991b1b" onclick="quickReview(${s.id},'rejected')" title="Reject"><i class="fa-solid fa-times"></i></button>
                     `:''}
                 </td></tr>`;
         }).join('')}</tbody></table></div>`;
-    }}catch(e){toast('Error loading submissions','err');}
+    }catch(e){
+        if(list) list.innerHTML=`<div style="text-align:center;padding:2rem"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load submissions</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(friendlyNetError(e))}</div><button class="btn btn-p btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
+        toast(friendlyNetError(e),'err');
+    }
+}
+function exportSubmissions(){
+    if(!allSubmissions.length) return toast('Nothing to export on this tab.','err');
+    const h=['Type','Status','Teacher','Class','What','Students','Present','Absent','Late','Average','Updated'];
+    const r=allSubmissions.map(s=>[
+        s.submission_type||'', s.status_label||s.status||'', s.teacher_name||'', s.class_name||'',
+        s.attendance_date||s.assessment_name||s.subject_name||'', s.student_count||0,
+        s.present_count||'', s.absent_count||'', s.late_count||'', s.average_score||'',
+        s.updated_at||s.submitted_at||''
+    ]);
+    const ws=XLSX.utils.aoa_to_sheet([h,...r]);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Submissions');
+    if(_subAnalytics&&_subAnalytics.days){
+        const dh=['Date','Present','Absent','Late','Excused','Recorded','Rate %'];
+        const dr=_subAnalytics.days.map(d=>[d.date,d.present,d.absent,d.late,d.excused,d.recorded,d.rate]);
+        XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([dh,...dr]),'14-day attendance');
+    }
+    XLSX.writeFile(wb,'FKSS_Submissions.xlsx');
+}
+async function loadSubInsights(){
+    const box=document.getElementById('subInsights');
+    if(!box) return;
+    box.innerHTML='<div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Building analysis…</div>';
+    try{
+        const d=await getAPI('/admin/api_communication.php?action=get_submission_analytics');
+        if(d.status!=='success'){ box.innerHTML=`<p style="color:#dc2626">${esc(d.message||'Could not load analysis.')}</p>`; return; }
+        _subAnalytics=d.analytics||{};
+        const days=_subAnalytics.days||[];
+        const classes=_subAnalytics.classes||[];
+        const maxR=Math.max(1,...days.map(x=>x.recorded||0));
+        const wave=days.length?`<svg viewBox="0 0 280 72" width="100%" height="72" preserveAspectRatio="none">${(()=>{
+            const pts=days.map((x,i)=>{
+                const px=days.length===1?140:(i/(days.length-1))*280;
+                const py=68-((x.rate||0)/100)*60;
+                return px.toFixed(1)+','+py.toFixed(1);
+            }).join(' ');
+            return `<polyline fill="none" stroke="#7c3aed" stroke-width="2.2" points="${pts}"/><polyline fill="rgba(124,58,237,.12)" stroke="none" points="0,72 ${pts} 280,72"/>`;
+        })()}</svg>`:'<p style="color:#94a3b8;font-size:.8rem">No attendance in the last 14 days yet.</p>';
+        const bars=days.map(x=>{
+            const h=Math.max(4, Math.round((x.recorded||0)/maxR*80));
+            return `<div style="flex:1;min-width:12px;text-align:center"><div title="${esc(x.date)} ${x.present}P/${x.absent}A" style="height:${h}px;background:linear-gradient(180deg,#7c3aed,#6366f1);border-radius:4px 4px 0 0;margin:0 auto;width:70%"></div><div style="font-size:.5rem;color:#94a3b8;margin-top:3px">${esc((x.date||'').slice(5))}</div></div>`;
+        }).join('');
+        const classRows=classes.length?classes.map(c=>`<tr>
+            <td class="amharic" style="font-weight:600">${esc(c.class_name)}</td>
+            <td>${c.recorded||0}</td>
+            <td style="color:#059669;font-weight:700">${c.present||0}</td>
+            <td style="color:#dc2626">${c.absent||0}</td>
+            <td style="color:#d97706">${c.late||0}</td>
+            <td>${c.rate==null?'—':c.rate+'%'}</td>
+        </tr>`).join(''):'<tr><td colspan="6" style="text-align:center;color:#94a3b8">No class marks today</td></tr>';
+        box.innerHTML=`
+            <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:1rem;margin-bottom:1rem">
+                <div>
+                    <div style="font-size:.75rem;font-weight:700;color:#64748b;margin-bottom:.4rem">14-day present rate</div>
+                    ${wave}
+                </div>
+                <div>
+                    <div style="font-size:.75rem;font-weight:700;color:#64748b;margin-bottom:.4rem">Daily volume</div>
+                    <div style="display:flex;align-items:flex-end;gap:3px;height:96px">${bars||'<span style="color:#94a3b8;font-size:.8rem">No days yet</span>'}</div>
+                </div>
+            </div>
+            <div style="font-size:.75rem;font-weight:700;color:#64748b;margin-bottom:.4rem">Today by class</div>
+            <div class="tw"><table class="dt"><thead><tr><th>Class</th><th>Marked</th><th>Present</th><th>Absent</th><th>Late</th><th>Rate</th></tr></thead><tbody>${classRows}</tbody></table></div>
+            <div style="margin-top:.85rem;text-align:right"><button class="btn btn-o btn-xs" type="button" onclick="exportSubmissions()"><i class="fa-solid fa-download"></i> Export Excel</button></div>`;
+    }catch(e){ box.innerHTML=`<p style="color:#dc2626">${esc(friendlyNetError(e))}</p>`; }
 }
 async function reviewSubmission(id){
     const local=allSubmissions.find(x=>Number(x.id)===Number(id))||{};

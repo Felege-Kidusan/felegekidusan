@@ -5,8 +5,8 @@ class AppConfig {
   static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
   static const String appName = 'FKSS';
   static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
-  static const String appVersion = '1.1.3';
-  static const int appBuild = 5;
+  static const String appVersion = '1.1.4';
+  static const int appBuild = 6;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';

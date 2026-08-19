@@ -275,8 +275,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
       setState(() {
         _saving = false;
-        _packetStatus = 'incomplete';
-        _successMsg = 'Education can see this as incomplete';
+        _packetStatus = 'draft';
+        _successMsg = 'Saved as a draft for Education';
       });
     } else {
       setState(() {
@@ -297,11 +297,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Mark this class complete?'),
-        content: Text('Education will treat attendance for $_selectedClassName as finished. You can still send an update later if something changes.'),
+        title: const Text('Submit attendance?'),
+        content: Text('Use this after class. Education will treat $_selectedClassName as finished.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark complete')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
         ],
       ),
     );
@@ -317,7 +317,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
     if (res.success) {
       await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
-      setState(() { _saving = false; _packetStatus = 'complete'; _successMsg = 'Marked complete for Education'; });
+      setState(() { _saving = false; _packetStatus = 'submitted'; _successMsg = 'Submitted to Education'; });
     } else {
       setState(() { _saving = false; _successMsg = 'Kept on this phone — tap the sync icon when you are online'; });
     }
@@ -339,7 +339,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _persistLocal() async {
     if (_selectedClassId == null || _students.isEmpty) return;
-    // Keep the sheet on this phone only. Education sees it after Send incomplete / Mark complete.
+    // Taps stay on this phone. Save / Submit send the draft or the finished sheet.
     await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, _students);
   }
 
@@ -406,7 +406,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               padding: const EdgeInsets.only(right: 12),
               child: Center(
                 child: Text(
-                  _packetStatus == 'complete' ? 'Complete' : 'Incomplete',
+                  _packetStatus == 'submitted' ? 'Submitted' : 'Draft',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                 ),
               ),
@@ -416,12 +416,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       bottomNavigationBar: _students.isEmpty
           ? null
           : TeacherActionBar(
-              saveLabel: 'Send incomplete',
-              submitLabel: 'Mark complete',
+              saveLabel: 'Save',
+              submitLabel: 'Submit',
               onSave: _saveAttendance,
               onSubmit: _submitAttendance,
               busy: _saving,
-              hint: 'Taps stay on this phone. Send incomplete so Education can watch. Mark complete when the class is done.',
+              hint: 'Save sends a draft to Education. Submit after class.',
             ),
       body: Column(
         children: [

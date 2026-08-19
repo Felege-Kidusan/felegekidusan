@@ -174,8 +174,8 @@ class SubmissionService
                 'id' => $existingId,
                 'status' => $status,
                 'message' => $status === self::STATUS_SUBMITTED
-                    ? 'Attendance marked complete for Education.'
-                    : 'Education can see this attendance as incomplete.',
+                    ? 'Attendance submitted.'
+                    : 'Saved as a draft for Education.',
             ];
         }
 
@@ -211,8 +211,8 @@ class SubmissionService
             'id' => $id,
             'status' => $status,
             'message' => $status === self::STATUS_SUBMITTED
-                ? 'Attendance marked complete for Education.'
-                : 'Education can see this attendance as incomplete.',
+                ? 'Attendance submitted.'
+                : 'Saved as a draft for Education.',
         ];
     }
 
@@ -228,10 +228,7 @@ class SubmissionService
         $classId = (int)($opts['class_id'] ?? 0);
         $subjectId = (int)($opts['subject_id'] ?? 0);
         $assessmentId = (int)($opts['assessment_id'] ?? 0);
-        $status = self::normalizeStatus($opts['status'] ?? self::STATUS_INCOMPLETE);
-        if ($status === self::STATUS_DRAFT) {
-            $status = self::STATUS_INCOMPLETE;
-        }
+        $status = self::normalizeStatus($opts['status'] ?? self::STATUS_DRAFT);
         $count = (int)($opts['student_count'] ?? 0);
         $avg = isset($opts['average']) && $opts['average'] !== null ? (float)$opts['average'] : null;
         $yearId = isset($opts['year_id']) && $opts['year_id'] ? (int)$opts['year_id'] : null;
@@ -275,8 +272,8 @@ class SubmissionService
                 'id' => $existingId,
                 'status' => $status,
                 'message' => $status === self::STATUS_SUBMITTED
-                    ? 'Mark list marked complete for Education.'
-                    : 'Education can see this mark list as incomplete.',
+                    ? 'Mark list submitted.'
+                    : 'Saved as a draft for Education.',
             ];
         }
 
@@ -310,8 +307,8 @@ class SubmissionService
             'id' => $id,
             'status' => $status,
             'message' => $status === self::STATUS_SUBMITTED
-                ? 'Mark list marked complete for Education.'
-                : 'Education can see this mark list as incomplete.',
+                ? 'Mark list submitted.'
+                : 'Saved as a draft for Education.',
         ];
     }
 
@@ -345,6 +342,8 @@ class SubmissionService
         $status = trim((string)($filters['status'] ?? ''));
         if ($status === 'attention') {
             $where[] = "gs.status IN ('incomplete','submitted','draft')";
+        } elseif ($status === 'draft') {
+            $where[] = "gs.status IN ('draft','incomplete')";
         } elseif ($status !== '' && $status !== 'all') {
             $status = self::normalizeStatus($status);
             $where[] = 'gs.status = ?';
@@ -466,6 +465,89 @@ class SubmissionService
             $out['today_excused'] = (int)($a['excused_count'] ?? 0);
         }
         return $out;
+    }
+
+    /**
+     * Charts + tables for Education. No extra PII.
+     *
+     * @return array{days:list<array<string,mixed>>,classes:list<array<string,mixed>>,packets:array<string,int>}
+     */
+    public static function analytics(\mysqli $conn): array
+    {
+        self::ensureTable($conn);
+        $days = [];
+        $from = date('Y-m-d', strtotime('-13 days'));
+        $st = $conn->prepare(
+            "SELECT attendance_date AS d,
+                    COUNT(*) AS recorded,
+                    SUM(status = 'present') AS present_count,
+                    SUM(status = 'absent') AS absent_count,
+                    SUM(status = 'late') AS late_count,
+                    SUM(status = 'excused') AS excused_count
+             FROM attendance
+             WHERE attendance_date >= ?
+             GROUP BY attendance_date
+             ORDER BY attendance_date ASC"
+        );
+        if ($st) {
+            $st->bind_param('s', $from);
+            $st->execute();
+            $r = $st->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $rec = (int)$row['recorded'];
+                $present = (int)$row['present_count'];
+                $days[] = [
+                    'date' => $row['d'],
+                    'recorded' => $rec,
+                    'present' => $present,
+                    'absent' => (int)$row['absent_count'],
+                    'late' => (int)$row['late_count'],
+                    'excused' => (int)$row['excused_count'],
+                    'rate' => $rec > 0 ? round($present / $rec * 100, 1) : 0,
+                ];
+            }
+            $st->close();
+        }
+
+        $classes = [];
+        $today = date('Y-m-d');
+        $cs = $conn->prepare(
+            "SELECT c.id, c.class_name,
+                    COUNT(a.id) AS recorded,
+                    SUM(a.status = 'present') AS present_count,
+                    SUM(a.status = 'absent') AS absent_count,
+                    SUM(a.status = 'late') AS late_count
+             FROM classes c
+             LEFT JOIN attendance a ON a.class_id = c.id AND a.attendance_date = ?
+             WHERE c.is_active = 1
+             GROUP BY c.id, c.class_name
+             ORDER BY c.level_order, c.class_name"
+        );
+        if ($cs) {
+            $cs->bind_param('s', $today);
+            $cs->execute();
+            $r = $cs->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $rec = (int)$row['recorded'];
+                $present = (int)($row['present_count'] ?? 0);
+                $classes[] = [
+                    'id' => (int)$row['id'],
+                    'class_name' => $row['class_name'] ?? '',
+                    'recorded' => $rec,
+                    'present' => $present,
+                    'absent' => (int)($row['absent_count'] ?? 0),
+                    'late' => (int)($row['late_count'] ?? 0),
+                    'rate' => $rec > 0 ? round($present / $rec * 100, 1) : null,
+                ];
+            }
+            $cs->close();
+        }
+
+        return [
+            'days' => $days,
+            'classes' => $classes,
+            'packets' => self::stats($conn),
+        ];
     }
 
     /**
@@ -603,7 +685,7 @@ class SubmissionService
     private static function presentRow(array $row): array
     {
         $status = self::normalizeStatus($row['status'] ?? '');
-        $uiStatus = $status === self::STATUS_DRAFT ? self::STATUS_INCOMPLETE : $status;
+        $uiStatus = ($status === self::STATUS_INCOMPLETE) ? self::STATUS_DRAFT : $status;
         return [
             'id' => (int)$row['id'],
             'teacher_id' => (int)($row['teacher_id'] ?? 0),

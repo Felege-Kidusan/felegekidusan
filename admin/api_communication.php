@@ -228,6 +228,21 @@ switch ($action) {
         }
         break;
 
+    case 'get_submission_analytics':
+        if (!in_array($userRole, ['edu_dept', 'school_admin', 'super_admin', 'teacher'], true)) {
+            echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+            break;
+        }
+        try {
+            echo json_encode([
+                'status' => 'success',
+                'analytics' => \App\Services\SubmissionService::analytics($conn),
+            ]);
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not load analysis.']);
+        }
+        break;
+
     case 'get_submission_stats':
         try {
             $filters = [];

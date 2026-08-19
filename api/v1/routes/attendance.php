@@ -178,14 +178,35 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
         err('Could not save attendance. Nothing was changed. Please try again.', 500);
     }
 
+    $counts = class_exists('\\App\\Services\\SubmissionService')
+        ? \App\Services\SubmissionService::countsFromRecords($records)
+        : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
+    $packet = ['ok' => true, 'id' => 0, 'status' => 'draft', 'message' => 'Saved as a draft for Education.'];
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
+            'teacher_id' => $userId,
+            'class_id' => $classId,
+            'date' => $date,
+            'status' => \App\Services\SubmissionService::STATUS_DRAFT,
+            'student_count' => $counts['student_count'] ?: $saved,
+            'year_id' => $yearIdOrNull,
+            'present' => $counts['present'],
+            'absent' => $counts['absent'],
+            'late' => $counts['late'],
+            'excused' => $counts['excused'],
+        ]);
+    }
+
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Saved', "Class: {$classId}, Date: {$date}, Records: {$saved}");
 
     ok([
-        'message' => "{$saved} attendance records saved",
+        'message' => $packet['message'] ?? "{$saved} records saved as a draft for Education",
         'saved' => $saved,
         'errors' => $errors,
         'class_id' => $classId,
-        'date' => $date
+        'date' => $date,
+        'submission_id' => $packet['id'] ?? 0,
+        'submission_status' => $packet['status'] ?? 'draft',
     ], 201);
 }
 

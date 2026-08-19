@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../utils/theme.dart';
 
-/// Gold Save + maroon Submit, sitting above the bottom tabs
-/// so a teacher can reach them with a thumb.
+/// Everyday Save (primary) + rare Submit (secondary).
+/// Thumb-reach bar above the tabs — one meaning each, no duplicate Save.
 class TeacherActionBar extends StatelessWidget {
   final String saveLabel;
   final String submitLabel;
@@ -24,54 +24,79 @@ class TeacherActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      elevation: 8,
       color: Colors.white,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (hint != null && hint!.isNotEmpty) ...[
-                Text(hint!,
-                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                    textAlign: TextAlign.center),
-                const SizedBox(height: 8),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: busy ? null : onSave,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.primary,
-                        side: const BorderSide(color: AppTheme.primary, width: 1.4),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Color(0xFFE8E8E8))),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: SizedBox(
+                        height: 48,
+                        child: FilledButton(
+                          onPressed: busy ? null : onSave,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.primary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                AppTheme.primary.withOpacity(0.45),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                            elevation: 0,
+                          ),
+                          child: busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white))
+                              : Text(saveLabel,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16)),
+                        ),
                       ),
-                      child: busy
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Text(saveLabel, style: const TextStyle(fontWeight: FontWeight.w700)),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      onPressed: busy ? null : onSubmit,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.accent,
-                        foregroundColor: AppTheme.primaryDark,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 4,
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: busy ? null : onSubmit,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.primary,
+                            side: const BorderSide(
+                                color: AppTheme.primary, width: 1.3),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: Text(submitLabel,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 15)),
+                        ),
                       ),
-                      child: busy
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Text(submitLabel, style: const TextStyle(fontWeight: FontWeight.w800)),
                     ),
-                  ),
+                  ],
+                ),
+                if (hint != null && hint!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(hint!,
+                      style: TextStyle(
+                          fontSize: 11, color: AppTheme.textSecondary, height: 1.3),
+                      textAlign: TextAlign.center),
                 ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
