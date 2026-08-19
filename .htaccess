@@ -72,6 +72,11 @@ Options -Indexes
 
     # API test console
     RewriteRule ^api/api_test_console\.html$ - [F,L]
+
+    # Older CMS uploads landed outside the website folder. If the file is
+    # not sitting in /uploads/gallery or /uploads/teachers, PHP finds it.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^uploads/(gallery|teachers)/([A-Za-z0-9._/-]+)$ public_gallery.php?action=file&sub=$1&name=$2 [L,QSA]
 </IfModule>
 
 # ------------------------------------------------------------

@@ -49,19 +49,34 @@
     return html;
   }
 
-  function imgTag(src, alt, cls) {
-    return '<img src="' + esc(src) + '" alt="' + esc(alt) + '" class="' + (cls || '') + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
+  function imgTag(src, alt, cls, fallback) {
+    var extra = fallback ? ' data-fallback="' + esc(fallback) + '"' : '';
+    return '<img src="' + esc(src) + '" alt="' + esc(alt) + '" class="' + (cls || '') + '"' + extra + ' loading="lazy" decoding="async">';
   }
 
   function bindImg(img) {
     if (!img) return;
-    img.addEventListener('load', function () { img.classList.add('ready'); });
-    img.addEventListener('error', function () {
+    function ok() {
+      img.classList.add('ready');
       var card = img.closest('.fkss-gal-card');
-      if (card) card.classList.add('gone');
-      img.remove();
-    });
-    if (img.complete && img.naturalWidth) img.classList.add('ready');
+      if (card) card.classList.remove('broken');
+    }
+    function fail() {
+      var next = img.getAttribute('data-fallback');
+      if (next && next !== img.getAttribute('src')) {
+        img.removeAttribute('data-fallback');
+        img.src = next;
+        return;
+      }
+      var card = img.closest('.fkss-gal-card');
+      if (card) card.classList.add('broken');
+    }
+    img.addEventListener('load', ok);
+    img.addEventListener('error', fail);
+    if (img.complete) {
+      if (img.naturalWidth) ok();
+      else fail();
+    }
   }
 
   async function get(qs) {
@@ -103,7 +118,7 @@
       });
     }
     els.hero.innerHTML =
-      imgTag(it.thumb || it.full, cap) +
+      imgTag(it.full || it.thumb, cap, '', it.thumb && it.thumb !== it.full ? it.thumb : '') +
       (cap ? '<div class="fkss-gal-cap"><strong class="amharic-text">' + esc(it.caption_am || it.caption) + '</strong>' +
         (it.caption_am && it.caption ? '<span>' + esc(it.caption) + '</span>' : '') + '</div>' : '') +
       (state.featured.length > 1
@@ -113,13 +128,22 @@
         : '');
     var img = els.hero.querySelector('img');
     if (img) {
-      img.classList.add('ready');
+      img.addEventListener('load', function () { img.classList.add('ready'); });
       img.addEventListener('error', function () {
-        state.featured.splice(state.slide, 1);
-        if (!state.featured.length) { els.hero.hidden = true; return; }
-        state.slide = state.slide % state.featured.length;
-        renderHero();
+        var next = img.getAttribute('data-fallback');
+        if (next && next !== img.getAttribute('src')) {
+          img.removeAttribute('data-fallback');
+          img.src = next;
+          return;
+        }
+        if (state.featured.length > 1) {
+          state.featured.splice(state.slide, 1);
+          if (!state.featured.length) { els.hero.hidden = true; return; }
+          state.slide = state.slide % state.featured.length;
+          renderHero();
+        }
       });
+      if (img.complete && img.naturalWidth) img.classList.add('ready');
     }
   }
 
@@ -132,7 +156,8 @@
       btn.type = 'button';
       btn.className = 'fkss-gal-card';
       btn.setAttribute('data-i', String(idx));
-      btn.innerHTML = '<span class="fkss-gal-ph">✝</span>' + imgTag(it.thumb || it.full, caption(it));
+      btn.innerHTML = '<span class="fkss-gal-ph" aria-hidden="true">+</span>' +
+        imgTag(it.thumb || it.full, caption(it), '', it.full && it.full !== it.thumb ? it.full : '');
       els.grid.appendChild(btn);
       bindImg(btn.querySelector('img'));
     });
@@ -164,7 +189,7 @@
       renderHero();
       startSlide();
       renderGrid(false);
-      say(state.items.length ? '' : '');
+      say('');
       if (!state.items.length && !state.featured.length) {
         if (els.empty) els.empty.hidden = false;
       }
@@ -228,7 +253,7 @@
       return;
     }
     var card = e.target.closest('.fkss-gal-card');
-    if (card) {
+    if (card && !card.classList.contains('broken')) {
       openLb(parseInt(card.getAttribute('data-i'), 10) || 0);
     }
   });
@@ -278,6 +303,10 @@
     img.onload = function () { spin.hidden = true; };
     img.onerror = function () {
       spin.hidden = true;
+      if (it.thumb && img.src.indexOf('s=f') !== -1) {
+        img.src = it.thumb;
+        return;
+      }
       cap.textContent = 'This photo could not be loaded.';
     };
     img.src = it.full || it.thumb;

@@ -1,11 +1,23 @@
 # Protect uploads — allow images/docs only, deny PHP execution
 <FilesMatch "\.(php|php5|phtml|phps)$">
-    Require all denied
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
-# Allow images
+# Allow images (Apache 2.4 and 2.2 / LiteSpeed)
 <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|pdf|doc|docx)$">
-    Require all granted
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Allow from all
+    </IfModule>
 </FilesMatch>
 
 Options -Indexes

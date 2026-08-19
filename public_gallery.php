@@ -1,13 +1,45 @@
 <?php
 /**
  * Public gallery API — active photos only. No member PII. No writes.
+ * Also serves image bytes (action=img / action=file) so photos still
+ * display when the file sits in the older folder outside the website.
  */
+if (!defined('WBWS_API_REQUEST')) {
+    define('WBWS_API_REQUEST', true);
+}
+require_once __DIR__ . '/admin/config.php';
+require_once __DIR__ . '/admin/backend/services/GalleryService.php';
+
+$action = preg_replace('/[^a-z_]/', '', (string)($_GET['action'] ?? 'boot'));
+
+if ($action === 'file') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+        http_response_code(405);
+        exit;
+    }
+    \App\Services\GalleryService::rescueStrayFiles();
+    \App\Services\GalleryService::streamByName((string)($_GET['sub'] ?? 'gallery'), (string)($_GET['name'] ?? ''));
+}
+
+if ($action === 'img') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+        http_response_code(405);
+        exit;
+    }
+    if (!isset($conn) || $conn->connect_error) {
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Gallery unavailable';
+        exit;
+    }
+    \App\Services\GalleryService::ensureSchema($conn);
+    \App\Services\GalleryService::rescueStrayFiles();
+    \App\Services\GalleryService::streamById($conn, (int)($_GET['id'] ?? 0), (string)($_GET['s'] ?? 't'));
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: public, max-age=60');
-
-require_once __DIR__ . '/admin/config.php';
-require_once __DIR__ . '/admin/backend/services/GalleryService.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -22,8 +54,6 @@ if (!isset($conn) || $conn->connect_error) {
 
 \App\Services\GalleryService::ensureSchema($conn);
 \App\Services\GalleryService::rescueStrayFiles();
-
-$action = preg_replace('/[^a-z_]/', '', (string)($_GET['action'] ?? 'boot'));
 
 try {
     if ($action === 'albums') {
@@ -55,7 +85,6 @@ try {
         exit;
     }
 
-    // One round-trip for first paint
     $albums = \App\Services\GalleryService::publicAlbums($conn);
     $featured = \App\Services\GalleryService::publicFeatured($conn, 8);
     $pack = \App\Services\GalleryService::publicPhotos($conn, 0, 1, 18);

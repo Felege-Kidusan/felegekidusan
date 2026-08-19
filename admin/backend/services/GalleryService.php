@@ -1,7 +1,10 @@
 <?php
 /**
- * Gallery storage — one place for upload, thumbs, and public listing.
+ * Gallery storage — one place for upload, thumbs, public listing, and serving.
  * Public pages never talk to the database directly.
+ *
+ * Older CMS uploads were written to dirname(ROOT_PATH)/uploads/gallery
+ * (outside the website). This class finds those files and serves them.
  */
 namespace App\Services;
 
@@ -25,6 +28,7 @@ class GalleryService
 
     public static function uploadDir(string $sub = 'gallery'): string
     {
+        $sub = self::safeSub($sub);
         $dir = self::diskRoot() . '/uploads/' . $sub;
         if (!is_dir($dir)) {
             @mkdir($dir, 0755, true);
@@ -36,25 +40,33 @@ class GalleryService
         return $dir;
     }
 
-    /** Copy files saved to the old (wrong) folder into the public uploads folder. */
+    /** Copy files saved to the old (wrong) folders into the public uploads folder. */
     public static function rescueStrayFiles(): void
     {
-        $right = self::uploadDir('gallery');
-        $wrong = dirname(self::diskRoot()) . '/uploads/gallery';
-        if (!is_dir($wrong) || realpath($wrong) === realpath($right)) {
-            return;
-        }
-        $found = array_merge(
-            glob($wrong . '/*.jpg') ?: [],
-            glob($wrong . '/*.jpeg') ?: [],
-            glob($wrong . '/*.png') ?: [],
-            glob($wrong . '/*.gif') ?: [],
-            glob($wrong . '/*.webp') ?: []
-        );
-        foreach ($found as $src) {
-            $dest = $right . '/' . basename($src);
-            if (!is_file($dest)) {
-                @copy($src, $dest);
+        foreach (['gallery', 'teachers'] as $sub) {
+            $right = self::uploadDir($sub);
+            foreach (self::strayDirs($sub) as $wrong) {
+                if (!is_dir($wrong) || realpath($wrong) === realpath($right)) {
+                    continue;
+                }
+                $found = array_merge(
+                    glob($wrong . '/*.{jpg,jpeg,png,gif,webp,JPG,JPEG,PNG,GIF,WEBP}', GLOB_BRACE) ?: [],
+                    glob($wrong . '/*.jpg') ?: [],
+                    glob($wrong . '/*.jpeg') ?: [],
+                    glob($wrong . '/*.png') ?: [],
+                    glob($wrong . '/*.gif') ?: [],
+                    glob($wrong . '/*.webp') ?: []
+                );
+                foreach ($found as $src) {
+                    if (!is_file($src)) {
+                        continue;
+                    }
+                    $dest = $right . '/' . basename($src);
+                    if (!is_file($dest)) {
+                        @copy($src, $dest);
+                        @chmod($dest, 0644);
+                    }
+                }
             }
         }
     }
@@ -111,6 +123,7 @@ class GalleryService
             return ['error' => 'That file is not a valid image.'];
         }
 
+        $sub = self::safeSub($sub);
         $dir = self::uploadDir($sub);
         $base = $sub . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
         $origName = $base . '.jpg';
@@ -139,11 +152,8 @@ class GalleryService
         if (!$webPath) {
             return;
         }
-        $webPath = (string)$webPath;
-        if ($webPath === '' || $webPath[0] !== '/' || strpos($webPath, '..') !== false) {
-            return;
-        }
-        if (strpos($webPath, '/uploads/') !== 0) {
+        $webPath = self::normalizeWebPath((string)$webPath);
+        if ($webPath === null) {
             return;
         }
         $full = self::diskRoot() . $webPath;
@@ -152,7 +162,6 @@ class GalleryService
         if ($root && $real && strpos($real, $root) === 0 && is_file($real)) {
             @unlink($real);
         }
-        // matching thumb
         if (strpos($webPath, '/thumbs/') === false) {
             $thumb = preg_replace('#/([^/]+)$#', '/thumbs/$1', $webPath);
             if (is_string($thumb) && $thumb !== $webPath) {
@@ -273,19 +282,179 @@ class GalleryService
      */
     public static function publicCard(array $row): array
     {
-        $full = (string)($row['image_path'] ?? '');
-        $thumb = (string)($row['thumb_path'] ?? '');
-        if ($thumb === '') {
-            $thumb = $full;
-        }
+        $id = (int)($row['id'] ?? 0);
         return [
-            'id' => (int)$row['id'],
-            'thumb' => $thumb,
-            'full' => $full,
+            'id' => $id,
+            'thumb' => self::publicServeUrl($id, 't'),
+            'full' => self::publicServeUrl($id, 'f'),
             'caption' => (string)($row['caption'] ?? ''),
             'caption_am' => (string)($row['caption_am'] ?? ''),
             'featured' => (int)($row['is_featured'] ?? 0) === 1,
         ];
+    }
+
+    public static function publicServeUrl(int $id, string $size = 't'): string
+    {
+        $size = $size === 'f' ? 'f' : 't';
+        return '/public_gallery.php?action=img&id=' . $id . '&s=' . $size;
+    }
+
+    /** Active public photo only. */
+    public static function streamById(\mysqli $conn, int $id, string $size): void
+    {
+        if ($id < 1) {
+            self::streamNotFound();
+        }
+        $size = $size === 'f' ? 'f' : 't';
+        $row = null;
+        try {
+            $stmt = $conn->prepare('SELECT image_path, thumb_path FROM cms_gallery_photos WHERE id=? LIMIT 1');
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+        } catch (\Throwable $e) {
+            $row = null;
+        }
+        if (!$row) {
+            self::streamNotFound();
+        }
+        $full = (string)($row['image_path'] ?? '');
+        $thumb = (string)($row['thumb_path'] ?? '');
+        $path = $size === 't' ? ($thumb !== '' ? $thumb : $full) : $full;
+        self::streamResolved($path);
+    }
+
+    public static function streamByName(string $sub, string $name): void
+    {
+        $sub = self::safeSub($sub);
+        $name = str_replace('\\', '/', $name);
+        $name = ltrim($name, '/');
+        self::streamResolved('/uploads/' . $sub . '/' . $name);
+    }
+
+    public static function resolveOnDisk(string $webPath): ?string
+    {
+        $webPath = self::normalizeWebPath($webPath);
+        if ($webPath === null) {
+            return null;
+        }
+        $root = self::diskRoot();
+        $bases = [$root, dirname($root), $root . '/admin'];
+        $relatives = [$webPath];
+        $baseName = basename($webPath);
+        $dirName = dirname($webPath);
+        if (strpos($webPath, '/thumbs/') === false) {
+            $relatives[] = $dirName . '/thumbs/' . $baseName;
+            $jpgThumb = preg_replace('/\.(png|gif|webp)$/i', '.jpg', $baseName);
+            if (is_string($jpgThumb) && $jpgThumb !== $baseName) {
+                $relatives[] = $dirName . '/thumbs/' . $jpgThumb;
+            }
+        } else {
+            $relatives[] = str_replace('/thumbs/', '/', $webPath);
+        }
+
+        $canonical = $root . $webPath;
+        foreach ($bases as $base) {
+            foreach ($relatives as $rel) {
+                $full = $base . $rel;
+                if (!is_file($full) || !is_readable($full)) {
+                    continue;
+                }
+                if ($full !== $canonical && !is_file($canonical)) {
+                    $dir = dirname($canonical);
+                    if (!is_dir($dir)) {
+                        @mkdir($dir, 0755, true);
+                    }
+                    @copy($full, $canonical);
+                    @chmod($canonical, 0644);
+                    if (is_file($canonical) && is_readable($canonical)) {
+                        return $canonical;
+                    }
+                }
+                return $full;
+            }
+        }
+        return null;
+    }
+
+    public static function normalizeWebPath(string $webPath): ?string
+    {
+        $webPath = str_replace('\\', '/', trim($webPath));
+        $webPath = explode('?', $webPath, 2)[0];
+        if ($webPath === '' || strpos($webPath, '..') !== false) {
+            return null;
+        }
+        if ($webPath[0] !== '/') {
+            $webPath = '/' . $webPath;
+        }
+        if (!preg_match('#^/uploads/(gallery|teachers)/(thumbs/)?[A-Za-z0-9._-]+\.(jpe?g|png|gif|webp)$#i', $webPath)) {
+            return null;
+        }
+        return $webPath;
+    }
+
+    /** @return list<string> */
+    private static function strayDirs(string $sub): array
+    {
+        $sub = self::safeSub($sub);
+        $root = self::diskRoot();
+        return [
+            dirname($root) . '/uploads/' . $sub,
+            $root . '/admin/uploads/' . $sub,
+        ];
+    }
+
+    private static function safeSub(string $sub): string
+    {
+        $sub = strtolower(preg_replace('/[^a-z]/i', '', $sub) ?? '');
+        return in_array($sub, ['gallery', 'teachers'], true) ? $sub : 'gallery';
+    }
+
+    private static function streamResolved(string $webPath): void
+    {
+        $disk = self::resolveOnDisk($webPath);
+        if ($disk === null) {
+            self::streamNotFound();
+        }
+        $mime = 'application/octet-stream';
+        if (class_exists('finfo')) {
+            $f = new \finfo(FILEINFO_MIME_TYPE);
+            $detected = (string)$f->file($disk);
+            if ($detected !== '') {
+                $mime = $detected;
+            }
+        } else {
+            $ext = strtolower((string)pathinfo($disk, PATHINFO_EXTENSION));
+            $map = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
+            $mime = $map[$ext] ?? $mime;
+        }
+        if (strpos($mime, 'image/') !== 0) {
+            self::streamNotFound();
+        }
+        if (function_exists('header_remove')) {
+            @header_remove('Content-Type');
+        }
+        header('Content-Type: ' . $mime);
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: public, max-age=86400');
+        header('Content-Length: ' . (string)filesize($disk));
+        if (function_exists('ob_get_level')) {
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+        }
+        readfile($disk);
+        exit;
+    }
+
+    private static function streamNotFound(): void
+    {
+        http_response_code(404);
+        header('Content-Type: image/svg+xml; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="#3a1818"/><text x="100" y="112" text-anchor="middle" fill="#c4a574" font-size="40">+</text></svg>';
+        exit;
     }
 
     private static function writeJpeg(string $src, string $dest, int $maxW, int $quality): bool

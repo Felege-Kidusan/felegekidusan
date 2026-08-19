@@ -442,8 +442,8 @@ async function loadPhotos(catId){
   if(!d||d.status!=='success'){grid.innerHTML='<div class="empty" style="grid-column:1/-1">Could not load photos. Check your connection.</div>';return;}
   if(!d.data.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1"><i class="fa-solid fa-images"></i>No photos yet. Click "Upload Photo" to add some.</div>';return;}
   grid.innerHTML=d.data.map(p=>{
-    const src=esc(p.thumb_path||p.image_path||'');
-    const missing=p.file_exists===false;
+    const src=esc(p.view_thumb||p.thumb_path||p.image_path||'');
+    const missing=p.file_exists===false && !p.view_thumb;
     return `
     <div class="card photo-card">
       ${p.is_featured==1?'<div class="feat-star"><i class="fa-solid fa-star"></i></div>':''}
@@ -478,7 +478,7 @@ function editPhoto(p){
   modalMode={type:'photo_edit',id:p.id};
   document.getElementById('modalTitle').textContent='Edit Photo';
   document.getElementById('modalBody').innerHTML=`
-    <div style="text-align:center;margin-bottom:1rem"><img src="${esc(p.thumb_path||p.image_path)}" style="max-width:100%;max-height:160px;border-radius:0.5rem" onerror="this.style.display='none'"></div>
+    <div style="text-align:center;margin-bottom:1rem"><img src="${esc(p.view_thumb||p.thumb_path||p.image_path)}" style="max-width:100%;max-height:160px;border-radius:0.5rem" onerror="this.style.display='none'"></div>
     <div class="field"><label>Replace image</label><input type="file" id="m_image" accept="image/jpeg,image/png,image/gif,image/webp"><div class="hint">Leave empty to keep the current photo</div></div>
     <div class="field"><label>Album</label><select id="m_category"><option value="">— Uncategorized —</option>${catOptions(p.category_id)}</select></div>
     <div class="field"><label>Caption (English)</label><input type="text" id="m_caption" value="${esc(p.caption||'')}"></div>
@@ -703,11 +703,15 @@ async function saveModal(){
   }
   else if(m.type==='photo_new'){
     action='photo_upload';
-    const img=fileOf('m_image');if(!img){toast('Please choose an image',true);resetBtn();return;}
-    fd.append('image',img);fd.append('category_id',val('m_category'));fd.append('caption',val('m_caption'));fd.append('caption_am',val('m_caption_am'));if(checked('m_featured'))fd.append('is_featured','1');
+    const picker=document.getElementById('m_image');
+    if(!picker||!picker.files||!picker.files.length){toast('Please choose an image',true);resetBtn();return;}
+    if(picker.files.length===1){fd.append('image',picker.files[0]);}
+    else{for(let i=0;i<picker.files.length;i++) fd.append('images[]',picker.files[i]);}
+    fd.append('category_id',val('m_category'));fd.append('caption',val('m_caption'));fd.append('caption_am',val('m_caption_am'));if(checked('m_featured'))fd.append('is_featured','1');
   }
   else if(m.type==='photo_edit'){
     action='photo_update';fd.append('id',m.id);
+    const repl=fileOf('m_image');if(repl)fd.append('image',repl);
     fd.append('category_id',val('m_category'));fd.append('caption',val('m_caption'));fd.append('caption_am',val('m_caption_am'));if(checked('m_featured'))fd.append('is_featured','1');
   }
   else if(m.type==='teacher_new'||m.type==='teacher_edit'){

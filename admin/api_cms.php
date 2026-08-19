@@ -36,6 +36,9 @@ requireCsrfForPost();
 
 $action = $_REQUEST['action'] ?? '';
 
+\App\Services\GalleryService::ensureSchema($conn);
+\App\Services\GalleryService::rescueStrayFiles();
+
 /** Clean JSON exit */
 function out($data) { echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; }
 
@@ -147,13 +150,15 @@ try {
             $res = $conn->query("SELECT p.*, c.name AS category_name FROM cms_gallery_photos p LEFT JOIN cms_gallery_categories c ON p.category_id=c.id ORDER BY p.sort_order, p.id DESC");
         }
         $rows = [];
-        $root = \App\Services\GalleryService::diskRoot();
         while ($r = $res->fetch_assoc()) {
-            $disk = $root . (string)$r['image_path'];
-            $r['file_exists'] = is_file($disk);
+            $path = (string)($r['image_path'] ?? '');
+            $disk = \App\Services\GalleryService::resolveOnDisk($path);
+            $r['file_exists'] = $disk !== null;
             if (empty($r['thumb_path'])) {
                 $r['thumb_path'] = $r['image_path'];
             }
+            $r['view_thumb'] = \App\Services\GalleryService::publicServeUrl((int)$r['id'], 't');
+            $r['view_full'] = \App\Services\GalleryService::publicServeUrl((int)$r['id'], 'f');
             $rows[] = $r;
         }
         out(['status' => 'success', 'data' => $rows]);

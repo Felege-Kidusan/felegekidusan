@@ -137,7 +137,7 @@ if (file_exists($_cmsConfigPath)) {
             background-color: rgba(64, 0, 0, 0.95);
         }
     </style>
-    <link rel="stylesheet" href="/css/public_gallery.css?v=20260820a">
+    <link rel="stylesheet" href="/css/public_gallery.css?v=20260820b">
 </head>
 <body class="bg-gray-50">
     <!-- Navigation -->
