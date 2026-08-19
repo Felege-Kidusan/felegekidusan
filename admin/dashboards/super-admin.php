@@ -581,7 +581,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-    <link rel="stylesheet" href="/admin/css/super_admin.css?v=20260819g">
+    <link rel="stylesheet" href="/admin/css/super_admin.css?v=20260819h">
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
@@ -1105,10 +1105,10 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <?php endforeach; ?>
                 </div>
                 
-                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260819f">
+                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260819h">
                 <script>window.ID_DESIGNER={csrf:<?= json_encode($csrfToken) ?>,bg:<?= json_encode(defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg') ?>};</script>
                 <div id="idDesigner"></div>
-                <script src="/admin/js/id_card_designer.js?v=20260819f"></script>
+                <script src="/admin/js/id_card_designer.js?v=20260819h"></script>
 
             </section>
 
@@ -1410,7 +1410,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/super_admin.js?v=20260819g"></script>
+    <script src="/admin/js/super_admin.js?v=20260819h"></script>
     <script>
         // Calendar mode save
         async function saveCalendarMode(mode){

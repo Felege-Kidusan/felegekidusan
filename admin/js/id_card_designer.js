@@ -156,7 +156,7 @@
         '</div>' +
         '<p class="idc-note">Saved settings apply to every member ID card. Upload logo, seal, signatures, and background in the tiles above.</p>' +
       '</div>' +
-      '<div class="idc-panel">' +
+      '<div class="idc-panel idc-preview">' +
         '<div class="idc-tabs">' +
           '<button type="button" class="idc-tab on" data-side="front">Front</button>' +
           '<button type="button" class="idc-tab" data-side="back">Back</button>' +

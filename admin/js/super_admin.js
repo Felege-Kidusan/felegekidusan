@@ -36,6 +36,8 @@
       b.classList.add('active');
     });
     document.body.classList.toggle('branding-on', id === 'branding');
+    var pane = document.querySelector('main.main .content');
+    if (pane) pane.scrollTop = 0;
     if (window.history && history.replaceState) {
       history.replaceState(null, '', '?section=' + encodeURIComponent(id));
     }
