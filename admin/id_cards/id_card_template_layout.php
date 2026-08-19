@@ -18,7 +18,9 @@ $hideSide = $ID_CARD_SIDE ?? '';
 <div class="id-card-template id-front" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
     <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
     <div class="id-logo">
-        <img src="<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:100%;height:100%;object-fit:contain;background:transparent;">
+        <?php if (!empty($CONFIG['logo'])): ?>
+        <img src="<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:100%;height:100%;object-fit:contain;background:transparent;" onerror="this.style.display='none'">
+        <?php endif; ?>
     </div>
     <header class="id-head">
         <div class="id-head-text">
@@ -45,11 +47,11 @@ $hideSide = $ID_CARD_SIDE ?? '';
             <div class="id-row"><span class="id-lbl">የመታወቂያ ቁ.</span><span class="id-val id-code"><?php echo htmlspecialchars((string)$member['member_code']); ?></span></div>
             <div class="id-signs">
                 <div>
-                    <div class="id-sign-img"><img class="id-sign-head" src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt=""></div>
+                    <div class="id-sign-img"><?php if (!empty($CONFIG['sig_head'])): ?><img class="id-sign-head" src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>
                     <p class="id-sign-lbl"><?= ID_CARD_SIG_HEAD_AM ?></p>
                 </div>
                 <div>
-                    <div class="id-sign-img"><img class="id-sign-admin" src="<?php echo htmlspecialchars($CONFIG['sig_admin'], ENT_QUOTES, 'UTF-8'); ?>" alt=""></div>
+                    <div class="id-sign-img"><?php if (!empty($CONFIG['sig_admin'])): ?><img class="id-sign-admin" src="<?php echo htmlspecialchars($CONFIG['sig_admin'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>
                     <p class="id-sign-lbl"><?= ID_CARD_SIG_ADMIN_AM ?></p>
                 </div>
             </div>

@@ -181,6 +181,33 @@ function brandQuery($conn, $sql) {
     return $result;
 }
 
+/**
+ * Find a branding image on disk. Tiny / missing files count as absent.
+ * @return array{exists:bool,size:int,web:string,disk:string}
+ */
+function brandResolveAssetFile(string $webPath): array
+{
+    $empty = ['exists' => false, 'size' => 0, 'web' => '', 'disk' => ''];
+    $webPath = trim($webPath);
+    if ($webPath === '' || $webPath[0] !== '/') {
+        return $empty;
+    }
+    $candidates = [
+        ($_SERVER['DOCUMENT_ROOT'] ?? '') . $webPath,
+        dirname(__DIR__) . $webPath,
+        __DIR__ . '/..' . $webPath,
+    ];
+    foreach ($candidates as $disk) {
+        if ($disk && is_file($disk)) {
+            $size = (int)filesize($disk);
+            if ($size > 32) {
+                return ['exists' => true, 'size' => $size, 'web' => $webPath, 'disk' => $disk];
+            }
+        }
+    }
+    return $empty;
+}
+
 $action = $_REQUEST['action'] ?? '';
 
 switch ($action) {
@@ -191,22 +218,43 @@ switch ($action) {
     case 'get_assets':
         $result = brandQuery($conn, "SELECT * FROM system_branding WHERE asset_key != '_id_card_settings' ORDER BY id");
         $assets = [];
+        $packagedDefaults = [
+            'logo' => [
+                ['disk' => __DIR__ . '/id_cards/assets/logos/school_logo.png', 'web' => '/admin/id_cards/assets/logos/school_logo.png'],
+                ['disk' => dirname(__DIR__) . '/themes/fkss/assets/logos/school_logo.png', 'web' => '/themes/fkss/assets/logos/school_logo.png'],
+            ],
+            'card_bg' => [
+                ['disk' => __DIR__ . '/id_cards/assets/backgrounds/id_card_bg.jpg', 'web' => '/admin/id_cards/assets/backgrounds/id_card_bg.jpg'],
+            ],
+        ];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
-                // Check file existence using both DOCUMENT_ROOT and __DIR__ approaches
-                $fileExists = false;
-                if (!empty($row['file_path'])) {
-                    // Method 1: DOCUMENT_ROOT (works in normal web context)
-                    $absPath1 = ($_SERVER['DOCUMENT_ROOT'] ?? '') . $row['file_path'];
-                    // Method 2: Relative from this file (fallback)
-                    $absPath2 = realpath(__DIR__ . '/..' . $row['file_path']);
-                    // Method 3: Direct from /admin/ base
-                    $absPath3 = __DIR__ . '/id_cards/assets/' . basename(dirname($row['file_path'])) . '/' . basename($row['file_path']);
-                    
-                    $fileExists = file_exists($absPath1) || ($absPath2 && file_exists($absPath2)) || file_exists($absPath3);
+                $resolved = brandResolveAssetFile((string)($row['file_path'] ?? ''));
+                $isPackaged = false;
+                if (!$resolved['exists'] && isset($packagedDefaults[$row['asset_key']])) {
+                    foreach ($packagedDefaults[$row['asset_key']] as $pack) {
+                        if (is_file($pack['disk']) && filesize($pack['disk']) > 32) {
+                            $resolved = ['exists' => true, 'size' => filesize($pack['disk']), 'web' => $pack['web'], 'disk' => $pack['disk']];
+                            $isPackaged = true;
+                            break;
+                        }
+                    }
+                } elseif ($resolved['exists']) {
+                    foreach ($packagedDefaults[$row['asset_key']] ?? [] as $pack) {
+                        if ($resolved['web'] === $pack['web']) {
+                            $isPackaged = empty($row['uploaded_by']);
+                            break;
+                        }
+                    }
                 }
-                $row['file_exists'] = $fileExists;
-                $row['web_url'] = !empty($row['file_path']) ? $row['file_path'] . '?v=' . time() : null;
+                $row['file_exists'] = $resolved['exists'];
+                $row['file_size'] = $resolved['size'];
+                $row['is_packaged'] = $isPackaged;
+                $bust = ($resolved['disk'] && is_file($resolved['disk'])) ? filemtime($resolved['disk']) : time();
+                $row['web_url'] = $resolved['exists'] ? $resolved['web'] . '?v=' . $bust : null;
+                if ($resolved['exists'] && empty($row['original_name'])) {
+                    $row['original_name'] = basename($resolved['web']);
+                }
                 $assets[] = $row;
             }
         }
@@ -338,7 +386,9 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
             exit;
         }
-        $stmt->bind_param("ssssis", $webPath, $file['name'], $mimeType, $file['size'], $_SESSION['admin_id'], $assetKey);
+        $fileSize = (int)$file['size'];
+        $uploader = (int)($_SESSION['admin_id'] ?? 0);
+        $stmt->bind_param("sssisi", $webPath, $file['name'], $mimeType, $fileSize, $uploader, $assetKey);
         
         if ($stmt->execute()) {
             echo json_encode([
@@ -380,9 +430,14 @@ switch ($action) {
             exit;
         }
         
-        // Delete file from disk
-        if (!empty($asset['file_path'])) {
-            $filePath = ($_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__, 2)) . $asset['file_path'];
+        // Delete uploaded file from disk — never remove the packaged school logo / church art
+        $packagedKeep = [
+            '/admin/id_cards/assets/backgrounds/id_card_bg.jpg',
+            '/admin/id_cards/assets/logos/school_logo.png',
+            '/themes/fkss/assets/logos/school_logo.png',
+        ];
+        if (!empty($asset['file_path']) && !in_array($asset['file_path'], $packagedKeep, true)) {
+            $filePath = ($_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__)) . $asset['file_path'];
             if (file_exists($filePath)) {
                 @unlink($filePath);
             }
@@ -529,16 +584,8 @@ switch ($action) {
             exit;
         }
         
-        // Only allow known keys with safe numeric values
-        $allowedKeys = ['logo_size','logo_opacity','seal_size','seal_opacity',
-                        'sig_head_size','sig_head_opacity','sig_admin_size','sig_admin_opacity'];
-        $clean = [];
-        foreach ($decoded as $k => $v) {
-            if (in_array($k, $allowedKeys) && is_numeric($v)) {
-                $clean[$k] = max(0, min(1000, (int)$v)); // Clamp to 0-1000
-            }
-        }
-        $safeJson = json_encode($clean);
+        $clean = \App\Services\IdCardLayout::sanitize($decoded);
+        $safeJson = json_encode($clean, JSON_UNESCAPED_SLASHES);
         
         // Upsert the settings row
         $conn->query("INSERT IGNORE INTO system_branding (asset_key, asset_label) 
@@ -548,7 +595,7 @@ switch ($action) {
         if ($stmt) {
             $stmt->bind_param("s", $safeJson);
             if ($stmt->execute()) {
-                echo json_encode(['status' => 'success', 'message' => 'Display settings saved!']);
+                echo json_encode(['status' => 'success', 'message' => 'Saved. Every member ID card will use this layout.']);
             } else {
                 echo json_encode(['status' => 'error', 'message' => 'Failed to save: ' . $stmt->error]);
             }

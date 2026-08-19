@@ -14,11 +14,23 @@ if (!$member) die("Member not found");
 
 // ASSETS — Load from system_branding table (managed via Super Admin > Branding)
 $CONFIG = [
-    'logo'      => '/admin/id_cards/assets/logos/school_logo.png', 
-    'seal'      => '/admin/id_cards/assets/seals/school_seal.png', 
-    'sig_head'  => '/admin/id_cards/assets/signatures/head_signature.png',
-    'sig_admin' => '/admin/id_cards/assets/signatures/director_signature.png',
+    'logo'      => '/admin/id_cards/assets/logos/school_logo.png',
+    'seal'      => '',
+    'sig_head'  => '',
+    'sig_admin' => '',
 ];
+$assetOnDisk = static function (string $web): bool {
+    if ($web === '' || $web[0] !== '/') {
+        return false;
+    }
+    $root = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__, 2)), '/');
+    foreach ([$root . $web, dirname(__DIR__, 2) . $web] as $disk) {
+        if (is_file($disk) && filesize($disk) > 32) {
+            return true;
+        }
+    }
+    return false;
+};
 $DISPLAY = [
     'logo_size' => 100, 'logo_opacity' => 100,
     'seal_size' => 150, 'seal_opacity' => 85,
@@ -47,7 +59,7 @@ if ($conn && !$conn->connect_error) {
                             }
                         }
                     }
-                } elseif (isset($CONFIG[$row['asset_key']]) && !empty($row['file_path'])) {
+                } elseif (isset($CONFIG[$row['asset_key']]) && !empty($row['file_path']) && $assetOnDisk($row['file_path'])) {
                     $CONFIG[$row['asset_key']] = $row['file_path'];
                 }
             }
@@ -212,7 +224,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260819e">
+    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260819f">
     <style>
         /* page chrome only — card look lives in id_card.css */
         

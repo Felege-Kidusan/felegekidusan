@@ -578,9 +578,13 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         :root{--p:#16a34a;--pl:#22c55e}
         *{box-sizing:border-box;margin:0;padding:0;font-family:'Inter',system-ui,sans-serif}
         .eth{font-family:'Noto Serif Ethiopic',serif}
+        html,body{overflow-x:hidden}
         body{min-height:100vh;display:flex;background:#0a0f1a;color:#e2e8f0}
         
-        .sb{width:260px;min-width:260px;flex-shrink:0;background:linear-gradient(180deg,#0f172a,#1e293b);padding:1.25rem;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid rgba(255,255,255,.05);z-index:40}
+        .sb{width:260px;min-width:260px;flex-shrink:0;background:linear-gradient(180deg,#0f172a,#1e293b);padding:1.25rem;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid rgba(255,255,255,.05);z-index:40;scrollbar-width:thin;scrollbar-color:#1e293b #0f172a}
+        .sb::-webkit-scrollbar{width:8px}
+        .sb::-webkit-scrollbar-thumb{background:#1e293b;border-radius:8px}
+        .sb::-webkit-scrollbar-track{background:#0f172a}
         @media(min-width:769px){aside.sb,.sb{display:flex!important;width:260px!important;min-width:260px!important;flex-shrink:0}}
         .main{min-width:0;overflow-x:hidden}
         .brand{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem}
@@ -609,12 +613,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         .topbar h1{font-size:1.15rem;font-weight:700;color:#f8fafc}
         .topbar-sub{font-size:.75rem;color:#64748b;margin-top:2px}
         .status-badge{display:flex;align-items:center;gap:.35rem;padding:.35rem .65rem;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:999px;font-size:.7rem;color:#4ade80}
-        .status-dot{width:7px;height:7px;border-radius:50%;background:#4ade80;animation:pulse 2s infinite}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-        
-        .content{flex:1;padding:1.25rem;overflow-y:auto}
-        .section{display:none}
-        .section.active{display:block;animation:fadeIn .3s ease}
+        .status-dot{width:7px;height:7px;border-radius:50%;background:#4ade80;antion:fadeIn .3s ease}
         @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         @keyframes slideInBrand{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
         .brand-rm{background:rgba(239,68,68,.15);border:none;color:#ef4444;width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:.55rem;display:flex;align-items:center;justify-content:center;transition:all .15s}
@@ -1245,10 +1244,10 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                     <?php endforeach; ?>
                 </div>
                 
-                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260819d">
+                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260819f">
                 <script>window.ID_DESIGNER={csrf:<?= json_encode($csrfToken) ?>,bg:<?= json_encode(defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg') ?>};</script>
                 <div id="idDesigner"></div>
-                <script src="/admin/js/id_card_designer.js?v=20260819d"></script>
+                <script src="/admin/js/id_card_designer.js?v=20260819f"></script>
 
             </section>
 
@@ -1645,23 +1644,24 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 
                     if(a.file_exists && a.web_url){
                         img.src=a.web_url; img.style.display='block';
+                        img.onerror=function(){img.style.display='none'; if(empty)empty.style.display='block';};
                         if(empty)empty.style.display='none';
-                        if(rm)rm.style.display='flex';
+                        if(rm)rm.style.display=a.is_packaged?'none':'flex';
                         if(info){
                             let t=a.original_name||'';
-                            if(a.file_size)t+=(t?' · ':'')+Math.round(a.file_size/1024)+'KB';
+                            const kb=parseInt(a.file_size,10)||0;
+                            if(kb>=1024)t+=(t?' · ':'')+Math.max(1,Math.round(kb/1024))+' KB';
                             info.textContent=t; info.style.color='#64748b';
                         }
-                        // Update live ID card preview
                         _setPreviewImg(key, a.web_url);
+                        if(key==='card_bg' && typeof window.reloadIdDesignerPreview==='function'){
+                            window.reloadIdDesignerPreview(a.web_url);
+                        }
                     }else{
                         img.src=''; img.style.display='none';
                         if(empty){empty.style.display='block'; empty.innerHTML='<i class="fa-solid fa-cloud-arrow-up" style="font-size:1.8rem;display:block;margin-bottom:.35rem;opacity:.35"></i>Click to upload';}
                         if(rm)rm.style.display='none';
-                        if(info){
-                            if(a.file_path && !a.file_exists){info.textContent='⚠ File missing on disk'; info.style.color='#f59e0b';}
-                            else{info.textContent=''; info.style.color='#64748b';}
-                        }
+                        if(info){info.textContent=''; info.style.color='#64748b';}
                         _clearPreviewImg(key);
                     }
                 });
@@ -1821,10 +1821,6 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         const _origSwitch=switchSection;
         switchSection=function(id){_origSwitch(id);if(id==='branding'){loadBranding();if(typeof bootIdDesigner==='function'&&!document.getElementById('idcFrame'))bootIdDesigner();}};
         if('<?= $activeSection ?>'==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
-    </script>
-</body>
-</html>
-ctiveSection ?>'==='branding')setTimeout(loadBranding,150);
     </script>
 </body>
 </html>

@@ -21,22 +21,40 @@ $ID_CARD_SIDE = $side;
 
 $CONFIG = [
     'logo'      => '/admin/id_cards/assets/logos/school_logo.png',
-    'seal'      => '/admin/id_cards/assets/seals/school_seal.png',
-    'sig_head'  => '/admin/id_cards/assets/signatures/head_signature.png',
-    'sig_admin' => '/admin/id_cards/assets/signatures/director_signature.png',
+    'seal'      => '',
+    'sig_head'  => '',
+    'sig_admin' => '',
 ];
+$docRoot = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__, 2)), '/');
+$assetOnDisk = static function (string $web) use ($docRoot): bool {
+    if ($web === '' || $web[0] !== '/') {
+        return false;
+    }
+    foreach ([$docRoot . $web, dirname(__DIR__, 2) . $web] as $disk) {
+        if (is_file($disk) && filesize($disk) > 32) {
+            return true;
+        }
+    }
+    return false;
+};
 if ($conn && !$conn->connect_error) {
     $tableCheck = $conn->query("SHOW TABLES LIKE 'system_branding'");
     if ($tableCheck && $tableCheck->num_rows > 0) {
         $br = $conn->query("SELECT asset_key, file_path FROM system_branding");
         if ($br) {
             while ($row = $br->fetch_assoc()) {
-                if (isset($CONFIG[$row['asset_key']]) && !empty($row['file_path'])) {
-                    $CONFIG[$row['asset_key']] = $row['file_path'];
+                $key = (string)($row['asset_key'] ?? '');
+                $path = (string)($row['file_path'] ?? '');
+                if (isset($CONFIG[$key]) && $path !== '' && $assetOnDisk($path)) {
+                    $CONFIG[$key] = $path;
                 }
             }
         }
     }
+}
+if (!$assetOnDisk($CONFIG['logo'])) {
+    $themeLogo = defined('SCHOOL_LOGO_PATH') ? SCHOOL_LOGO_PATH : '/themes/fkss/assets/logos/school_logo.png';
+    $CONFIG['logo'] = $assetOnDisk($themeLogo) ? $themeLogo : '';
 }
 
 $member = [
@@ -72,7 +90,7 @@ $DISPLAY = [
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ID preview</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-<link rel="stylesheet" href="/admin/css/id_card.css?v=20260819e">
+<link rel="stylesheet" href="/admin/css/id_card.css?v=20260819f">
 <style>
 html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 </style>

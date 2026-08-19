@@ -100,10 +100,25 @@
     frame.contentWindow.postMessage({ type: 'id-layout', style: cssVars() }, window.location.origin);
   }
 
+  function fitFrame() {
+    if (!frame) return;
+    var box = frame.parentElement;
+    if (!box) return;
+    var w = box.clientWidth || 0;
+    if (w < 80) return;
+    var scale = Math.min(1, w / 1011);
+    frame.style.transform = 'scale(' + scale + ')';
+    box.style.height = Math.round(638 * scale) + 'px';
+  }
+
   function setFrame() {
     if (!frame) return;
     frame.src = '/admin/id_cards/preview.php?side=' + side + '&t=' + Date.now();
-    frame.onload = function () { pushPreview(); };
+    frame.onload = function () {
+      fitFrame();
+      pushPreview();
+    };
+    fitFrame();
   }
 
   function toast(msg, ok) {
@@ -146,12 +161,18 @@
           '<button type="button" class="idc-tab on" data-side="front">Front</button>' +
           '<button type="button" class="idc-tab" data-side="back">Back</button>' +
         '</div>' +
-        '<div class="idc-preview-wrap"><iframe id="idcFrame" title="ID card preview"></iframe></div>' +
+        '<div class="idc-preview-wrap"><div class="idc-frame-box"><iframe id="idcFrame" title="ID card preview"></iframe></div></div>' +
         '<p class="idc-note">This is the real card. Move the sliders and the print file will match after you save.</p>' +
       '</div>';
 
     frame = document.getElementById('idcFrame');
     setFrame();
+    if (!window.__idcResizeBound) {
+      window.__idcResizeBound = true;
+      window.addEventListener('resize', function () { fitFrame(); });
+    }
+    setTimeout(fitFrame, 80);
+    setTimeout(fitFrame, 400);
 
     root.querySelectorAll('input[data-k]').forEach(function (inp) {
       inp.addEventListener('input', function () {
@@ -217,4 +238,8 @@
   }
 
   window.bootIdDesigner = load;
+  window.reloadIdDesignerPreview = function (bg) {
+    if (bg) cfg.bg = bg;
+    if (frame) setFrame();
+  };
 })();

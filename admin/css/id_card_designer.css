@@ -1,5 +1,5 @@
-#idDesigner{display:grid;grid-template-columns:minmax(280px,340px) 1fr;gap:1rem;align-items:start}
-#idDesigner .idc-panel{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.85rem}
+#idDesigner{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:1rem;align-items:start;max-width:100%;min-width:0}
+#idDesigner .idc-panel{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.85rem;min-width:0;max-width:100%}
 #idDesigner .idc-group{margin-bottom:.85rem;padding-bottom:.75rem;border-bottom:1px solid rgba(255,255,255,.06)}
 #idDesigner .idc-group:last-child{border-bottom:none;margin-bottom:0}
 #idDesigner h4{margin:0 0 .55rem;font-size:.72rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#F0C000}
@@ -9,11 +9,11 @@
 #idDesigner .idc-row{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
 #idDesigner .idc-val{float:right;color:#e2e8f0;font-weight:700}
 #idDesigner .idc-actions{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.6rem}
-#idDesigner .idc-preview-wrap{background:repeating-conic-gradient(#1e293b 0% 25%,#0f172a 0% 50%) 50%/18px 18px;border-radius:12px;padding:.75rem;overflow:auto}
-#idDesigner .idc-frame-box{width:100%;max-width:560px;height:360px;overflow:hidden;margin:0 auto}
-#idDesigner iframe{width:1011px;height:638px;border:0;background:transparent;display:block;transform:scale(.54);transform-origin:top left}
+#idDesigner .idc-preview-wrap{background:repeating-conic-gradient(#1e293b 0% 25%,#0f172a 0% 50%) 50%/18px 18px;border-radius:12px;padding:.75rem;overflow:hidden;max-width:100%}
+#idDesigner .idc-frame-box{width:100%;overflow:hidden;position:relative;border-radius:10px;line-height:0}
+#idDesigner iframe{width:1011px;height:638px;border:0;background:transparent;display:block;transform-origin:top left}
 #idDesigner .idc-tabs{display:flex;gap:.4rem;margin-bottom:.65rem}
 #idDesigner .idc-tab{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;border-radius:8px;padding:.4rem .75rem;font-size:.75rem;font-weight:700;cursor:pointer}
 #idDesigner .idc-tab.on{background:#600000;border-color:#F0C000;color:#F0C000}
 #idDesigner .idc-note{font-size:.68rem;color:#94a3b8;margin:.55rem 0 0;line-height:1.4}
-@media(max-width:980px){#idDesigner{grid-template-columns:1fr}}
+@media(max-width:1100px){#idDesigner{grid-template-columns:1fr}}
