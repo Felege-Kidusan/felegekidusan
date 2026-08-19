@@ -1204,7 +1204,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             <section id="section-branding" class="section <?= $activeSection === 'branding' ? 'active' : '' ?>">
                 <div class="sec-header">
                     <h2 class="sec-title"><i class="fa-solid fa-palette"></i> Branding & ID Card Assets</h2>
-                    <p class="sec-desc">Upload logo, signatures, and seal — see changes live on the ID card preview</p>
+                    <p class="sec-desc">Upload pictures, then design the real front and back. Save applies to every member card.</p>
                 </div>
                 
                 <!-- Error banner placeholder -->
@@ -1219,6 +1219,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                         'seal'      => ['label' => 'Seal / Stamp',       'icon' => 'fa-certificate',    'gradient' => 'linear-gradient(135deg,#f59e0b,#d97706)', 'accent' => '#d97706'],
                         'sig_head'  => ['label' => 'Head Signature',     'icon' => 'fa-signature',      'gradient' => 'linear-gradient(135deg,#059669,#10b981)', 'accent' => '#10b981'],
                         'sig_admin' => ['label' => 'Director Signature', 'icon' => 'fa-file-signature', 'gradient' => 'linear-gradient(135deg,#0ea5e9,#3b82f6)', 'accent' => '#3b82f6'],
+                        'card_bg'   => ['label' => 'Card background',    'icon' => 'fa-image',          'gradient' => 'linear-gradient(135deg,#600000,#8B2030)', 'accent' => '#600000'],
                     ];
                     foreach ($brandCards as $key => $card): ?>
                     <div class="card" style="padding:0;overflow:hidden;border:2px solid transparent;transition:border-color .3s" id="brandCard_<?= $key ?>">
@@ -1242,108 +1243,11 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                     <?php endforeach; ?>
                 </div>
                 
-                <!-- ═══ ID CARD CONTROLS ═══ -->
-                <div class="card" style="margin-bottom:1rem;padding:1rem">
-                    <h3 style="font-weight:700;font-size:.85rem;color:#e2e8f0;margin-bottom:.85rem"><i class="fa-solid fa-sliders" style="color:var(--pl)"></i> ID Card Asset Controls</h3>
-                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem" id="brandControls">
-                        <?php
-                        $ctrlDefs = [
-                            'logo'      => ['color' => '#7c3aed', 'icon' => 'fa-image',          'label' => 'Logo',              'sizeLabel' => 'Size',  'sizeMin' => 40,  'sizeMax' => 200, 'sizeDef' => 100, 'opaDef' => 100],
-                            'seal'      => ['color' => '#d97706', 'icon' => 'fa-certificate',    'label' => 'Seal / Stamp',      'sizeLabel' => 'Size',  'sizeMin' => 60,  'sizeMax' => 300, 'sizeDef' => 150, 'opaDef' => 85],
-                            'sig_head'  => ['color' => '#10b981', 'icon' => 'fa-signature',      'label' => 'Head Signature',     'sizeLabel' => 'Width', 'sizeMin' => 60,  'sizeMax' => 250, 'sizeDef' => 140, 'opaDef' => 90],
-                            'sig_admin' => ['color' => '#3b82f6', 'icon' => 'fa-file-signature', 'label' => 'Director Signature', 'sizeLabel' => 'Width', 'sizeMin' => 60,  'sizeMax' => 250, 'sizeDef' => 140, 'opaDef' => 90],
-                        ];
-                        foreach ($ctrlDefs as $key => $c): ?>
-                        <div>
-                            <div style="font-size:.68rem;font-weight:700;color:<?= $c['color'] ?>;margin-bottom:.4rem"><i class="fa-solid <?= $c['icon'] ?>"></i> <?= $c['label'] ?></div>
-                            <label style="font-size:.6rem;color:#94a3b8;display:block;margin-bottom:.15rem"><?= $c['sizeLabel'] ?>: <span id="ctrlVal_<?= $key ?>_size"><?= $c['sizeDef'] ?></span>px</label>
-                            <input type="range" min="<?= $c['sizeMin'] ?>" max="<?= $c['sizeMax'] ?>" value="<?= $c['sizeDef'] ?>" style="width:100%;accent-color:<?= $c['color'] ?>" oninput="updateCtrl('<?= $key ?>','size',this.value)" id="ctrl_<?= $key ?>_size">
-                            <label style="font-size:.6rem;color:#94a3b8;display:block;margin-top:.3rem;margin-bottom:.15rem">Opacity: <span id="ctrlVal_<?= $key ?>_opacity"><?= $c['opaDef'] ?></span>%</label>
-                            <input type="range" min="10" max="100" value="<?= $c['opaDef'] ?>" style="width:100%;accent-color:<?= $c['color'] ?>" oninput="updateCtrl('<?= $key ?>','opacity',this.value)" id="ctrl_<?= $key ?>_opacity">
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <div style="display:flex;justify-content:flex-end;margin-top:.85rem;gap:.5rem">
-                        <button onclick="resetControls()" class="btn btn-outline" style="font-size:.72rem"><i class="fa-solid fa-rotate-left"></i> Reset</button>
-                        <button onclick="saveControls()" class="btn btn-primary" style="font-size:.72rem"><i class="fa-solid fa-save"></i> Save Settings</button>
-                    </div>
-                </div>
+                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260819d">
+                <script>window.ID_DESIGNER={csrf:<?= json_encode($csrfToken) ?>};</script>
+                <div id="idDesigner"></div>
+                <script src="/admin/js/id_card_designer.js?v=20260819d"></script>
 
-                <!-- ═══ LIVE ID CARD PREVIEW ═══ -->
-                <div class="card" style="padding:1rem">
-                    <h3 style="font-weight:700;font-size:.85rem;color:#e2e8f0;margin-bottom:.85rem"><i class="fa-solid fa-id-card" style="color:var(--pl)"></i> Live ID Card Preview</h3>
-                    <div style="background:repeating-conic-gradient(#1e293b 0% 25%, #0f172a 0% 50%) 50%/20px 20px;border-radius:14px;padding:1.5rem;display:flex;justify-content:center;overflow-x:auto">
-                        <!-- ID card at credit-card ratio (85.6mm × 54mm ≈ 1.585:1) scaled for preview -->
-                        <div id="idPreviewCard" style="width:510px;height:322px;background:#f3e6c4 url('<?= defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg' ?>') center/cover no-repeat;border-radius:16px;border:3px solid #600000;overflow:hidden;position:relative;font-family:'Noto Serif Ethiopic','Inter',sans-serif;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,.4)">
-                            
-                            <!-- Top header area -->
-                            <div style="text-align:center;padding:8px 10px 3px;position:relative;z-index:2">
-                                <div id="idPrev_logo_wrap" style="position:absolute;top:6px;left:8px;width:52px;height:52px;background:transparent;display:flex;align-items:center;justify-content:center">
-                                    <img id="idPrev_logo" src="" style="width:100%;height:100%;object-fit:contain;display:none">
-                                    <i class="fa-solid fa-image" style="color:#600000;font-size:.9rem;opacity:.35" id="idPrev_logo_ph"></i>
-                                </div>
-                                <p style="color:#600000;font-size:8px;font-weight:700;margin:0;line-height:1.3">በስመአብ ወወልድ ወመንፈስ ቅዱስ አሐዱ አምላክ</p>
-                                <h1 style="color:#600000;font-size:13px;font-weight:900;margin:2px 0 0;line-height:1.2"><?= PARISH_NAME_AM ?></h1>
-                                <h2 style="color:#600000;font-size:10.5px;font-weight:700;margin:1px 0 0;line-height:1.2"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት አባል መታወቂያ ካርድ</h2>
-                                <h3 style="color:#b8860b;font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:1px 0 0;line-height:1.2"><?= ID_CARD_TITLE_EN ?></h3>
-                            </div>
-                            
-                            <div style="width:95%;height:8px;background:#600000;border-bottom:3px solid #F0C000;border-radius:4px;margin:4px auto"></div>
-                            
-                            <!-- Body: Photo + Info -->
-                            <div style="display:flex;padding:4px 10px;flex:1;position:relative">
-                                <!-- Photo placeholder -->
-                                <div style="flex-shrink:0;padding-top:2px">
-                                    <div style="width:62px;height:76px;border:2px solid #600000;border-radius:8px;background:rgba(255,255,255,.5);display:flex;align-items:center;justify-content:center;overflow:hidden">
-                                        <i class="fa-solid fa-user" style="color:#600000;opacity:.35;font-size:1.4rem"></i>
-                                    </div>
-                                </div>
-                                
-                                <!-- Member info -->
-                                <div style="flex:1;font-size:8px;font-weight:700;color:#1a0a0a;padding-left:8px;position:relative;z-index:2">
-                                    <div style="display:flex;margin-bottom:3px"><span style="color:#600000;width:52px;flex-shrink:0">ሙሉ ስም</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">ዮሐንስ ተስፋዬ ገብረ</span></div>
-                                    <div style="display:flex;margin-bottom:3px"><span style="color:#600000;width:65px;flex-shrink:0">የክርስትና ስም</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">ገብረ ማርያም</span></div>
-                                    <div style="display:flex;gap:8px;margin-bottom:3px">
-                                        <div style="display:flex;flex:1"><span style="color:#600000;width:26px;flex-shrink:0">ጾታ</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">ወንድ</span></div>
-                                        <div style="display:flex;flex:1"><span style="color:#600000;width:32px;flex-shrink:0">ዕድሜ</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">24</span></div>
-                                    </div>
-                                    <div style="display:flex;margin-bottom:5px"><span style="color:#600000;width:65px;flex-shrink:0">የመታወቂያ ቁ.</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px;font-family:monospace;font-size:9px"><?= MEMBER_CODE_FORMAT ?>0042</span></div>
-                                    
-                                    <!-- Signatures row -->
-                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
-                                        <div style="text-align:center">
-                                            <div style="height:24px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
-                                                <img id="idPrev_sig_head" src="" style="max-height:24px;max-width:70px;display:none">
-                                            </div>
-                                            <div style="border-bottom:1px solid #600000;margin:1px 0"></div>
-                                            <p style="color:#600000;font-size:5px;margin:0;line-height:1.3"><?= ID_CARD_SIG_HEAD_AM ?></p>
-                                        </div>
-                                        <div style="text-align:center">
-                                            <div style="height:24px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
-                                                <img id="idPrev_sig_admin" src="" style="max-height:24px;max-width:70px;display:none">
-                                            </div>
-                                            <div style="border-bottom:1px solid #600000;margin:1px 0"></div>
-                                            <p style="color:#600000;font-size:5px;margin:0;line-height:1.3">የደብሩ አስተዳደር ፊርማ</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Seal overlay — bottom-right -->
-                                <div id="idPrev_seal_wrap" style="position:absolute;bottom:8px;right:12px;width:70px;height:70px;border-radius:50%;border:2px dashed #facc15;display:flex;align-items:center;justify-content:center;opacity:.85;z-index:1">
-                                    <img id="idPrev_seal" src="" style="width:100%;height:100%;object-fit:contain;border-radius:50%;display:none">
-                                    <i class="fa-solid fa-certificate" style="color:#e5e7eb;font-size:1.3rem" id="idPrev_seal_ph"></i>
-                                </div>
-                            </div>
-                            
-                            <!-- Footer -->
-                            <div style="text-align:center;padding:0 10px 5px;margin-top:auto">
-                                <div style="width:95%;height:2px;background:#600000;margin:0 auto 2px"></div>
-                                <p style="color:#600000;font-size:9px;font-weight:900;margin:0"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት</p>
-                            </div>
-                        </div>
-                    </div>
-                    <p style="font-size:.62rem;color:#475569;margin-top:.6rem;text-align:center"><i class="fa-solid fa-info-circle"></i> This is a live preview. Adjust sliders above to control size and opacity. Changes are saved and applied to all generated ID cards.</p>
-                </div>
             </section>
 
             <!-- LOGS -->
@@ -1700,7 +1604,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 
         // ═══ BRANDING MANAGEMENT — COMPLETE SYSTEM ═══
         const CSRF='<?= $csrfToken ?? '' ?>';
-        const BRAND_KEYS=['logo','seal','sig_head','sig_admin'];
+        const BRAND_KEYS=['logo','seal','sig_head','sig_admin','card_bg'];
         let brandSettings={logo_size:100,logo_opacity:100,seal_size:150,seal_opacity:85,sig_head_size:140,sig_head_opacity:90,sig_admin_size:140,sig_admin_opacity:90};
         let _brandLoaded=false, _brandBusy=false;
 
@@ -1912,8 +1816,12 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 
         // ── Boot ──
         const _origSwitch=switchSection;
-        switchSection=function(id){_origSwitch(id);if(id==='branding')loadBranding();};
-        if('<?= $activeSection ?>'==='branding')setTimeout(loadBranding,150);
+        switchSection=function(id){_origSwitch(id);if(id==='branding'){loadBranding();if(typeof bootIdDesigner==='function'&&!document.getElementById('idcFrame'))bootIdDesigner();}};
+        if('<?= $activeSection ?>'==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
+    </script>
+</body>
+</html>
+ctiveSection ?>'==='branding')setTimeout(loadBranding,150);
     </script>
 </body>
 </html>

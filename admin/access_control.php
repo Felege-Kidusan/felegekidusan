@@ -193,6 +193,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // ---- ID cards ----
             'view_id_card.php'     => ['super_admin', 'school_admin', 'hr_dept'],
             'generate_id_card.php' => ['super_admin', 'school_admin', 'hr_dept'],
+            'preview.php'          => ['super_admin', 'school_admin'],
 
             // ---- Dashboards (also protected by dashboards/.htaccess) ----
             'super-admin.php'   => ['super_admin'],

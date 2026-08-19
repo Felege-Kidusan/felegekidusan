@@ -2,6 +2,7 @@
 // FILE: /admin/id_cards/view_id_card.php
 require_once '../config.php';
 require_once 'libs/eth_date_helper.php';
+require_once __DIR__ . '/../backend/services/IdCardLayout.php';
 
 $member_id = isset($_GET['member_id']) ? intval($_GET['member_id']) : 0;
 $stmt = $conn->prepare("SELECT * FROM members WHERE id = ?");
@@ -55,6 +56,18 @@ if ($conn && !$conn->connect_error) {
     }
     // If table doesn't exist, $CONFIG and $DISPLAY keep their defaults — no crash
 }
+
+$layout = \App\Services\IdCardLayout::load($conn);
+$ID_CARD_STYLE = \App\Services\IdCardLayout::cssVars($layout);
+$idCardBg = \App\Services\IdCardLayout::background($conn);
+$DISPLAY['logo_size'] = (int)$layout['logo_size'];
+$DISPLAY['logo_opacity'] = (int)$layout['logo_opacity'];
+$DISPLAY['seal_size'] = (int)$layout['seal_size'];
+$DISPLAY['seal_opacity'] = (int)$layout['seal_opacity'];
+$DISPLAY['sig_head_size'] = (int)$layout['sig_head_size'];
+$DISPLAY['sig_head_opacity'] = (int)$layout['sig_head_opacity'];
+$DISPLAY['sig_admin_size'] = (int)$layout['sig_admin_size'];
+$DISPLAY['sig_admin_opacity'] = (int)$layout['sig_admin_opacity'];
 
 // --- ETHIOPIAN DATES ---
 $issueDateGregorian = $member['id_card_generated_at'] ?? date('Y-m-d');
@@ -198,82 +211,12 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
+    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260819d">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap');
+        /* page chrome only — card look lives in id_card.css */
         
         body { background: #374151; font-family: 'Noto Sans Ethiopic', 'Noto Serif Ethiopic', sans-serif; }
-        .id-card-template {
-            width: 1011px; height: 638px;
-            background-color: #f3e6c4;
-            border-radius: 22px;
-            overflow: hidden;
-            position: relative;
-            border: 3px solid #600000;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            padding: 18px 22px 14px;
-            color: #1a0a0a;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
-        .id-card-bg {
-            position: absolute; inset: 0;
-            background-size: cover; background-position: center; background-repeat: no-repeat;
-            z-index: 0; pointer-events: none;
-        }
-        .id-card-template > *:not(.id-card-bg) { position: relative; z-index: 1; }
-        .id-head { display: flex; align-items: center; gap: 14px; min-height: 108px; }
-        .id-head-simple { justify-content: center; min-height: 78px; }
-        .id-logo { flex-shrink: 0; background: transparent; border: none; }
-        .id-head-text { flex: 1; text-align: center; min-width: 0; }
-        .id-invoc { margin: 0; font-size: 15px; font-weight: 700; color: #600000; letter-spacing: .02em; }
-        .id-parish { margin: 2px 0 0; font-size: 26px; font-weight: 900; color: #600000; line-height: 1.2; }
-        .id-title { margin: 2px 0 0; font-size: 24px; font-weight: 800; color: #600000; line-height: 1.2; }
-        .id-title-en { margin: 3px 0 0; font-size: 16px; font-weight: 800; color: #b8860b; letter-spacing: .06em; text-transform: uppercase; }
-        .id-bar {
-            height: 38px; margin: 10px 0 12px;
-            background: #600000; border-radius: 8px;
-            border-bottom: 4px solid #F0C000;
-        }
-        .id-bar-label {
-            display: flex; align-items: center; justify-content: center;
-            color: #F0C000; font-size: 22px; font-weight: 800;
-        }
-        .id-body { flex: 1; display: flex; gap: 22px; min-height: 0; position: relative; }
-        .id-body-back { gap: 18px; }
-        .id-photo {
-            width: 210px; height: 260px; flex-shrink: 0;
-            border: 3px solid #600000; border-radius: 10px;
-            overflow: hidden; background: rgba(255,255,255,.55);
-        }
-        .id-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 2px 0 4px; }
-        .id-row { display: flex; align-items: flex-end; gap: 12px; border-bottom: 2px solid #600000; padding: 4px 0 6px; }
-        .id-row-split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; border-bottom: none; padding: 0; }
-        .id-row-split > div { display: flex; align-items: flex-end; gap: 10px; border-bottom: 2px solid #600000; padding: 4px 0 6px; }
-        .id-lbl { flex-shrink: 0; color: #600000; font-size: 20px; font-weight: 800; white-space: nowrap; }
-        .id-val { flex: 1; color: #1a0a0a; font-size: 24px; font-weight: 800; line-height: 1.2; min-width: 0; }
-        .id-code { font-size: 32px; letter-spacing: .04em; color: #600000; }
-        .id-subhead { margin: 8px 0 4px; font-size: 22px; font-weight: 900; color: #600000; border-bottom: 3px solid #F0C000; padding-bottom: 4px; }
-        .id-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 8px; }
-        .id-sign-img { height: 42px; display: flex; align-items: flex-end; justify-content: center; border-bottom: 2px solid #600000; }
-        .id-sign-img img { max-height: 40px; object-fit: contain; }
-        .id-sign-lbl { margin: 4px 0 0; text-align: center; font-size: 13px; font-weight: 800; color: #600000; line-height: 1.25; }
-        .id-seal { position: absolute; right: 8px; bottom: 4px; pointer-events: none; }
-        .id-seal img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
-        .id-qr-wrap { width: 250px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .id-qr {
-            width: 220px; height: 220px; background: #fff;
-            border: 3px solid #600000; border-radius: 10px;
-            display: flex; align-items: center; justify-content: center; overflow: hidden;
-        }
-        .id-qr img { width: 200px; height: 200px; object-fit: contain; }
-        .id-qr-miss { width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; text-align: center; font-weight: 800; color: #600000; font-size: 16px; }
-        .id-qr-hint { margin: 8px 0 0; text-align: center; font-size: 14px; font-weight: 800; color: #600000; line-height: 1.3; }
-        .id-foot { margin-top: 8px; padding-top: 8px; border-top: 3px solid #600000; text-align: center; }
-        .id-foot h2 { margin: 0; font-size: 22px; font-weight: 900; color: #600000; }
-        .id-foot p { margin: 0; font-size: 14px; font-weight: 700; color: #3b0000; line-height: 1.35; }
-
         /* PREVIEW ON SCREEN (Scaled Down CSS) */
         .preview-wrapper {
             transform: scale(0.6);

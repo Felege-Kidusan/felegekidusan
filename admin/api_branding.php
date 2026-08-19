@@ -12,6 +12,7 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/IdCardLayout.php';
 
 // ── Safety: verify DB connection is alive ──
 if (!$conn || $conn->connect_error) {
@@ -43,9 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ── Asset directories ──
 $baseDir = __DIR__ . '/id_cards/assets';
 $dirs = [
-    'logos'      => $baseDir . '/logos',
-    'seals'      => $baseDir . '/seals',
-    'signatures' => $baseDir . '/signatures',
+    'logos'        => $baseDir . '/logos',
+    'seals'        => $baseDir . '/seals',
+    'signatures'   => $baseDir . '/signatures',
+    'backgrounds'  => $baseDir . '/backgrounds',
 ];
 
 // Create directories if they don't exist
@@ -138,6 +140,7 @@ if (!$brandingTableReady) {
         ['seal',      'School Seal / Stamp',           '/admin/id_cards/assets/seals/school_seal.png'],
         ['sig_head',  'Head Teacher Signature',        '/admin/id_cards/assets/signatures/head_signature.png'],
         ['sig_admin', 'Director / Admin Signature',    '/admin/id_cards/assets/signatures/director_signature.png'],
+        ['card_bg',   'ID Card Background',            '/admin/id_cards/assets/backgrounds/id_card_bg.jpg'],
     ];
     $seedStmt = $conn->prepare("INSERT IGNORE INTO system_branding (asset_key, asset_label, file_path) VALUES (?, ?, ?)");
     if ($seedStmt) {
@@ -153,6 +156,11 @@ if (!$brandingTableReady) {
 if (!$brandingTableReady) {
     echo json_encode(['status' => 'error', 'message' => 'Branding system not ready. Please contact the administrator.']);
     exit;
+}
+
+try {
+    $conn->query("INSERT IGNORE INTO system_branding (asset_key, asset_label, file_path) VALUES ('card_bg', 'ID Card Background', '/admin/id_cards/assets/backgrounds/id_card_bg.jpg')");
+} catch (\Throwable $e) {
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -203,22 +211,7 @@ switch ($action) {
             }
         }
         
-        // Load display settings
-        $settings = null;
-        $sr = brandQuery($conn, "SELECT original_name FROM system_branding WHERE asset_key = '_id_card_settings'");
-        if ($sr && $s = $sr->fetch_assoc()) {
-            $decoded = json_decode($s['original_name'], true);
-            if (is_array($decoded)) {
-                // Sanitize: only allow known keys with numeric values
-                $allowedKeys = ['logo_size','logo_opacity','seal_size','seal_opacity',
-                                'sig_head_size','sig_head_opacity','sig_admin_size','sig_admin_opacity'];
-                foreach ($decoded as $k => $v) {
-                    if (in_array($k, $allowedKeys) && is_numeric($v)) {
-                        $settings[$k] = (int)$v;
-                    }
-                }
-            }
-        }
+        $settings = \App\Services\IdCardLayout::load($conn);
         
         echo json_encode(['status' => 'success', 'assets' => $assets, 'settings' => $settings]);
         break;
@@ -294,10 +287,11 @@ switch ($action) {
         
         // Determine target directory and filename based on asset key
         $assetFileMap = [
-            'logo'      => ['dir' => 'logos',      'name' => 'school_logo'],
-            'seal'      => ['dir' => 'seals',      'name' => 'school_seal'],
-            'sig_head'  => ['dir' => 'signatures',  'name' => 'head_signature'],
-            'sig_admin' => ['dir' => 'signatures',  'name' => 'director_signature'],
+            'logo'      => ['dir' => 'logos',        'name' => 'school_logo'],
+            'seal'      => ['dir' => 'seals',        'name' => 'school_seal'],
+            'sig_head'  => ['dir' => 'signatures',   'name' => 'head_signature'],
+            'sig_admin' => ['dir' => 'signatures',   'name' => 'director_signature'],
+            'card_bg'   => ['dir' => 'backgrounds',  'name' => 'id_card_bg'],
         ];
         
         if (isset($assetFileMap[$assetKey])) {
@@ -455,7 +449,7 @@ switch ($action) {
         }
         
         // Prevent reserved keys
-        $reserved = ['logo', 'seal', 'sig_head', 'sig_admin', '_id_card_settings'];
+        $reserved = ['logo', 'seal', 'sig_head', 'sig_admin', 'card_bg', '_id_card_settings'];
         if (in_array($assetKey, $reserved)) {
             echo json_encode(['status' => 'error', 'message' => 'That key is reserved']);
             exit;
@@ -485,7 +479,7 @@ switch ($action) {
     // ============================================================
     case 'remove_asset_slot':
         $assetKey = trim($_POST['asset_key'] ?? '');
-        $protected = ['logo', 'seal', 'sig_head', 'sig_admin', '_id_card_settings'];
+        $protected = ['logo', 'seal', 'sig_head', 'sig_admin', 'card_bg', '_id_card_settings'];
         
         if (!$assetKey) {
             echo json_encode(['status' => 'error', 'message' => 'Asset key required']);

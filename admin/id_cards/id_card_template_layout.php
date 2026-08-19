@@ -1,7 +1,9 @@
 <!-- FILE: /admin/id_cards/id_card_template_layout.php -->
 <?php
-$idCardBg = defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
-$idCardBg = htmlspecialchars($idCardBg, ENT_QUOTES, 'UTF-8');
+if (empty($idCardBg)) {
+    $idCardBg = defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
+}
+$idCardBgEsc = htmlspecialchars((string)$idCardBg, ENT_QUOTES, 'UTF-8');
 $genderLabel = '--';
 $g = strtolower(trim((string)($member['gender'] ?? '')));
 if ($g === 'male' || $g === 'm' || $g === 'ወንድ') {
@@ -9,16 +11,16 @@ if ($g === 'male' || $g === 'm' || $g === 'ወንድ') {
 } elseif ($g === 'female' || $g === 'f' || $g === 'ሴት') {
     $genderLabel = 'ሴት';
 }
-$logoSize = max(90, (int)round(((int)$DISPLAY['logo_size']) * 1.2));
-$sealSize = max(90, (int)$DISPLAY['seal_size']);
+$cardStyle = !empty($ID_CARD_STYLE) ? $ID_CARD_STYLE : '';
+$hideSide = $ID_CARD_SIDE ?? '';
 ?>
-<!-- FRONT SIDE -->
-<div class="id-card-template id-front">
-    <div class="id-card-bg" style="background-image:url('<?= $idCardBg ?>')"></div>
+<?php if ($hideSide !== 'back'): ?>
+<div class="id-card-template id-front" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
+    <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
+    <div class="id-logo">
+        <div style="width:100%;height:100%;background-image:url('<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>');background-size:contain;background-position:center;background-repeat:no-repeat;"></div>
+    </div>
     <header class="id-head">
-        <div class="id-logo" style="width:<?= $logoSize ?>px;height:<?= $logoSize ?>px;opacity:<?= $DISPLAY['logo_opacity'] / 100 ?>">
-            <div style="width:100%;height:100%;background-image:url('<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>');background-size:contain;background-position:center;background-repeat:no-repeat;"></div>
-        </div>
         <div class="id-head-text">
             <p class="id-invoc"><?= RELIGIOUS_INVOCATION ?></p>
             <h1 class="id-parish"><?= PARISH_NAME_AM ?></h1>
@@ -43,27 +45,28 @@ $sealSize = max(90, (int)$DISPLAY['seal_size']);
             <div class="id-row"><span class="id-lbl">የመታወቂያ ቁ.</span><span class="id-val id-code"><?php echo htmlspecialchars((string)$member['member_code']); ?></span></div>
             <div class="id-signs">
                 <div>
-                    <div class="id-sign-img"><img src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:<?= (int)$DISPLAY['sig_head_size'] ?>px;opacity:<?= $DISPLAY['sig_head_opacity'] / 100 ?>"></div>
+                    <div class="id-sign-img"><img class="id-sign-head" src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt=""></div>
                     <p class="id-sign-lbl"><?= ID_CARD_SIG_HEAD_AM ?></p>
                 </div>
                 <div>
-                    <div class="id-sign-img"><img src="<?php echo htmlspecialchars($CONFIG['sig_admin'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:<?= (int)$DISPLAY['sig_admin_size'] ?>px;opacity:<?= $DISPLAY['sig_admin_opacity'] / 100 ?>"></div>
+                    <div class="id-sign-img"><img class="id-sign-admin" src="<?php echo htmlspecialchars($CONFIG['sig_admin'], ENT_QUOTES, 'UTF-8'); ?>" alt=""></div>
                     <p class="id-sign-lbl"><?= ID_CARD_SIG_ADMIN_AM ?></p>
                 </div>
             </div>
         </div>
-        <div class="id-seal" style="width:<?= $sealSize ?>px;height:<?= $sealSize ?>px;opacity:<?= $DISPLAY['seal_opacity'] / 100 ?>">
-            <img src="<?php echo htmlspecialchars($CONFIG['seal'], ENT_QUOTES, 'UTF-8'); ?>" alt="">
-        </div>
+    </div>
+    <div class="id-seal">
+        <img src="<?php echo htmlspecialchars($CONFIG['seal'], ENT_QUOTES, 'UTF-8'); ?>" alt="">
     </div>
     <footer class="id-foot">
         <h2><?= SCHOOL_NAME_SHORT_AM ?> <?= SCHOOL_TYPE_AM ?></h2>
     </footer>
 </div>
+<?php endif; ?>
 
-<!-- BACK SIDE -->
-<div class="id-card-template id-back">
-    <div class="id-card-bg" style="background-image:url('<?= $idCardBg ?>')"></div>
+<?php if ($hideSide !== 'front'): ?>
+<div class="id-card-template id-back" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
+    <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
     <header class="id-head id-head-simple">
         <div class="id-head-text">
             <h2 class="id-title"><?= ID_CARD_TITLE_AM ?></h2>
@@ -102,3 +105,4 @@ $sealSize = max(90, (int)$DISPLAY['seal_size']);
         <p><?= ID_CARD_DISCLAIMER_AM ?></p>
     </footer>
 </div>
+<?php endif; ?>
