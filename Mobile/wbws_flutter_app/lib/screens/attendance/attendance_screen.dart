@@ -45,10 +45,15 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   String? _rosterNote;
   String _packetStatus = '';
   int _pendingCount = 0;
+  StreamSubscription<bool>? _netSub;
 
   @override
   void initState() {
     super.initState();
+    _isOffline = !ConnectivityService().hasLink;
+    _netSub = ConnectivityService().statusStream.listen((hasLink) {
+      if (mounted) setState(() => _isOffline = !hasLink);
+    });
     _loadClasses();
     _updatePendingCount();
 

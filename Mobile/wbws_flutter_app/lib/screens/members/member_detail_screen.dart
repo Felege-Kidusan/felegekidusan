@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../../widgets/loading_skeleton.dart';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/theme.dart';
