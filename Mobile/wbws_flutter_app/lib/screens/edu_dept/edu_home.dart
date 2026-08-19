@@ -100,6 +100,20 @@ class EduHomeScreenState extends State<EduHomeScreen> {
     );
   }
 
+  List<Widget> _eduTiles() {
+    const fallback = ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance'];
+    final ids = AppUpdateService().tilesFor('education', fallback);
+    final all = <String, FeatureTile>{
+      'classes': FeatureTile(label: 'Classes', icon: Icons.class_rounded, color: AppTheme.primary, onTap: () => _open(const EduClassesScreen())),
+      'teachers': FeatureTile(label: 'Teachers', icon: Icons.person_rounded, color: const Color(0xFF7C3AED), onTap: () => _open(const EduTeachersScreen())),
+      'subjects': FeatureTile(label: 'Subjects', icon: Icons.book_rounded, color: AppTheme.info, onTap: () => _open(const EduSubjectsScreen())),
+      'enrollment': FeatureTile(label: 'Enrollment', icon: Icons.person_add_rounded, color: AppTheme.success, onTap: () => _open(const EduEnrollmentScreen())),
+      'grades': FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () => _open(const TeacherGradesScreen())),
+      'attendance': FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.accent, onTap: () => _open(const AttendanceScreen())),
+    };
+    return [for (final id in ids) if (all[id] != null) all[id]!];
+  }
+
   List<Widget> _buildContent() {
     final members = _stats['members'] ?? {};
     final att = _stats['today_attendance'] ?? {};
