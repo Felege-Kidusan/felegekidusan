@@ -172,8 +172,9 @@ class ReportCardService
                 'absent_days' => $computed['attendance']['absent'],
                 'late_days' => $computed['attendance']['late'],
                 'total_days' => $computed['attendance']['total'],
-                'strongest_subject' => $computed['highlights']['strongest']['subject_name'] ?? null,
-                'weakest_subject' => $computed['highlights']['weakest']['subject_name'] ?? null,
+                'strongest_subject' => self::highlightName($computed['highlights'], 'strongest'),
+                'weakest_subject' => self::highlightName($computed['highlights'], 'weakest'),
+                'subjects' => self::slimSubjects($computed['subjects']),
                 'rank' => null,
                 'tied' => false,
             ];
@@ -510,7 +511,7 @@ class ReportCardService
 
         $strongest = null;
         $weakest = null;
-        if ($subjectPcts) {
+        if (count($subjectPcts) >= 2) {
             $strongest = $subjectPcts[0];
             $weakest = $subjectPcts[0];
             foreach ($subjectPcts as $p) {
@@ -520,6 +521,9 @@ class ReportCardService
                 if ($p['average'] < $weakest['average']) {
                     $weakest = $p;
                 }
+            }
+            if ((int)$strongest['id'] === (int)$weakest['id']) {
+                $weakest = null;
             }
         }
 
@@ -986,6 +990,255 @@ class ReportCardService
         } catch (\Throwable $e) {
             return date('j M Y');
         }
+    }
+
+    /**
+     * @return array<string,string>
+     */
+
+    /**
+     * @param list<array<string,mixed>> $subjects
+     * @return list<array<string,mixed>>
+     */
+    private static function slimSubjects(array $subjects): array
+    {
+        $out = [];
+        foreach ($subjects as $sub) {
+            $out[] = [
+                'id' => (int)($sub['id'] ?? 0),
+                'subject_name' => (string)($sub['subject_name'] ?? ''),
+                'obtained' => $sub['obtained'] ?? null,
+                'max' => $sub['max'] ?? null,
+                'average' => $sub['average'] ?? null,
+                'grade_letter' => $sub['grade_letter'] ?? null,
+                'assessments' => $sub['assessments'] ?? [],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * @param array<string,mixed> $highlights
+     */
+    private static function highlightName(array $highlights, string $key): ?string
+    {
+        $row = $highlights[$key] ?? null;
+        if (!is_array($row) || empty($row['subject_name'])) {
+            return null;
+        }
+        return (string)$row['subject_name'];
+    }
+
+    /**
+     * Branded class workbook: school header, per-subject totals, overall, attendance.
+     */
+    public static function streamExcel(\mysqli $conn, int $classId, int $subjectId = 0, int $yearId = 0, int $termId = 0): void
+    {
+        $pack = self::buildRankedClass($conn, $classId, $yearId, $termId, $subjectId);
+        if (($pack['status'] ?? '') !== 'success') {
+            throw new \RuntimeException($pack['message'] ?? 'Could not build the class report.');
+        }
+
+        $brand = self::brand();
+        $className = (string)($pack['class']['class_name'] ?? 'Class');
+        $yearName = (string)($pack['year']['year_name'] ?? '');
+        $termName = (string)($pack['term']['term_name'] ?? '');
+        $period = trim($yearName . ($termName !== '' ? ' · ' . $termName : ''));
+        $students = $pack['students'] ?? [];
+        $subjectCols = $pack['stats']['subjects'] ?? [];
+        $stats = $pack['stats'] ?? [];
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Class');
+
+        $headers = ['Rank', 'Name', 'Christian name', 'Code'];
+        foreach ($subjectCols as $sub) {
+            $nm = (string)$sub['subject_name'];
+            $headers[] = $nm . ' obtained';
+            $headers[] = $nm . ' max';
+            $headers[] = $nm . ' %';
+            $headers[] = $nm . ' grade';
+        }
+        $headers = array_merge($headers, [
+            'Overall obtained', 'Overall max', 'Overall %', 'Grade',
+            'Attendance %', 'Present', 'Absent', 'Late',
+        ]);
+        $lastCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers));
+
+        $title = $brand['school_am'] ?: $brand['school_en'];
+        $sheet->mergeCells("A1:{$lastCol}1");
+        $sheet->setCellValue('A1', $title);
+        $sheet->getRowDimension(1)->setRowHeight(28);
+        $sheet->getStyle("A1:{$lastCol}1")->applyFromArray([
+            'font' => ['name' => 'Calibri', 'bold' => true, 'size' => 16, 'color' => ['argb' => 'FFF0C000']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF600000']],
+            'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER, 'vertical' => \PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER],
+        ]);
+
+        $sheet->mergeCells("A2:{$lastCol}2");
+        $sheet->setCellValue('A2', trim('Student report · ' . $className . ($period !== '' ? ' · ' . $period : '')));
+        $sheet->getRowDimension(2)->setRowHeight(20);
+        $sheet->getStyle("A2:{$lastCol}2")->applyFromArray([
+            'font' => ['name' => 'Calibri', 'size' => 11, 'color' => ['argb' => 'FFF0C000']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF400000']],
+            'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER],
+        ]);
+
+        $col = 1;
+        foreach ($headers as $h) {
+            $sheet->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col) . '3', $h);
+            $col++;
+        }
+        $sheet->getRowDimension(3)->setRowHeight(20);
+        $sheet->getStyle("A3:{$lastCol}3")->applyFromArray([
+            'font' => ['name' => 'Calibri', 'bold' => true, 'size' => 10, 'color' => ['argb' => 'FFF0C000']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF600000']],
+        ]);
+
+        $rowNum = 4;
+        foreach ($students as $st) {
+            $byId = [];
+            foreach ($st['subjects'] ?? [] as $ss) {
+                $byId[(int)$ss['id']] = $ss;
+            }
+            $vals = [
+                $st['rank'] ?? '',
+                trim(($st['student_name'] ?? '') . ' ' . ($st['father_name'] ?? '')),
+                $st['christian_name'] ?? '',
+                $st['member_code'] ?? '',
+            ];
+            foreach ($subjectCols as $sub) {
+                $ss = $byId[(int)$sub['id']] ?? [];
+                $vals[] = $ss['obtained'] ?? '';
+                $vals[] = $ss['max'] ?? '';
+                $vals[] = $ss['average'] ?? '';
+                $vals[] = $ss['grade_letter'] ?? '';
+            }
+            $vals[] = $st['total_obtained'] ?? '';
+            $vals[] = $st['total_max'] ?? '';
+            $vals[] = $st['overall_average'] ?? '';
+            $vals[] = $st['grade_letter'] ?? '';
+            $vals[] = $st['attendance_rate'] ?? 0;
+            $vals[] = $st['present_days'] ?? 0;
+            $vals[] = $st['absent_days'] ?? 0;
+            $vals[] = $st['late_days'] ?? 0;
+            $c = 1;
+            foreach ($vals as $v) {
+                $sheet->setCellValueExplicit(
+                    \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c) . $rowNum,
+                    (string)$v,
+                    \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING
+                );
+                $c++;
+            }
+            $rowNum++;
+        }
+
+        $sheet->freezePane('A4');
+        for ($i = 1; $i <= count($headers); $i++) {
+            $letter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
+            $w = 14;
+            $h = strtolower($headers[$i - 1]);
+            if (strpos($h, 'name') !== false) {
+                $w = 28;
+            } elseif ($h === 'code' || $h === 'rank' || $h === 'grade' || strpos($h, 'grade') !== false) {
+                $w = 12;
+            }
+            $sheet->getColumnDimension($letter)->setWidth($w);
+        }
+
+        $sum = $spreadsheet->createSheet();
+        $sum->setTitle('Summary');
+        $sum->setCellValue('A1', $title);
+        $sum->setCellValue('A2', $className . ($period !== '' ? ' · ' . $period : ''));
+        $sum->setCellValue('A4', 'Students');
+        $sum->setCellValue('B4', (string)($stats['total_students'] ?? 0));
+        $sum->setCellValue('A5', 'With scores');
+        $sum->setCellValue('B5', (string)($stats['graded_students'] ?? 0));
+        $sum->setCellValue('A6', 'Class average');
+        $sum->setCellValue('B6', $stats['class_average'] !== null ? $stats['class_average'] . '%' : '—');
+        $sum->setCellValue('A7', 'Median');
+        $sum->setCellValue('B7', $stats['median'] !== null ? $stats['median'] . '%' : '—');
+        $sum->setCellValue('A8', 'Pass rate');
+        $sum->setCellValue('B8', $stats['pass_rate'] !== null ? $stats['pass_rate'] . '%' : '—');
+        $sum->setCellValue('A10', 'Subject');
+        $sum->setCellValue('B10', 'Class average %');
+        $sum->setCellValue('C10', 'Students graded');
+        $r = 11;
+        foreach ($subjectCols as $sub) {
+            $sum->setCellValue('A' . $r, $sub['subject_name']);
+            $sum->setCellValue('B' . $r, $sub['average'] !== null ? $sub['average'] . '%' : '—');
+            $sum->setCellValue('C' . $r, (string)($sub['graded'] ?? 0));
+            $r++;
+        }
+        $sum->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 16, 'color' => ['argb' => 'FF600000']],
+        ]);
+        $sum->getStyle('A10:C10')->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['argb' => 'FFF0C000']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF600000']],
+        ]);
+        $sum->getColumnDimension('A')->setWidth(28);
+        $sum->getColumnDimension('B')->setWidth(18);
+        $sum->getColumnDimension('C')->setWidth(18);
+
+        $marks = $spreadsheet->createSheet();
+        $marks->setTitle('Assessments');
+        $markHeads = ['Name', 'Christian name', 'Code', 'Subject', 'Assessment', 'Score', 'Max', '%'];
+        $c = 1;
+        foreach ($markHeads as $h) {
+            $marks->setCellValue(\PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($c) . '1', $h);
+            $c++;
+        }
+        $marks->getStyle('A1:H1')->applyFromArray([
+            'font' => ['bold' => true, 'color' => ['argb' => 'FFF0C000']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF600000']],
+        ]);
+        $mr = 2;
+        foreach ($students as $st) {
+            $full = trim(($st['student_name'] ?? '') . ' ' . ($st['father_name'] ?? ''));
+            foreach ($st['subjects'] ?? [] as $ss) {
+                $rows = $ss['assessments'] ?? [];
+                if (!$rows) {
+                    $marks->fromArray([
+                        $full, $st['christian_name'] ?? '', $st['member_code'] ?? '',
+                        $ss['subject_name'] ?? '', '', '', '', '',
+                    ], null, 'A' . $mr);
+                    $mr++;
+                    continue;
+                }
+                foreach ($rows as $a) {
+                    $marks->fromArray([
+                        $full,
+                        $st['christian_name'] ?? '',
+                        $st['member_code'] ?? '',
+                        $ss['subject_name'] ?? '',
+                        $a['assessment_name'] ?? '',
+                        $a['score'] ?? '',
+                        $a['max_score'] ?? '',
+                        $a['percentage'] ?? '',
+                    ], null, 'A' . $mr);
+                    $mr++;
+                }
+            }
+        }
+        foreach (['A' => 28, 'B' => 18, 'C' => 12, 'D' => 22, 'E' => 22, 'F' => 10, 'G' => 10, 'H' => 10] as $colLetter => $w) {
+            $marks->getColumnDimension($colLetter)->setWidth($w);
+        }
+
+        $spreadsheet->setActiveSheetIndex(0);
+        $safeClass = preg_replace('/[^\p{L}\p{N}_-]+/u', '_', $className) ?: 'class';
+        $prefix = defined('EXPORT_PREFIX') ? EXPORT_PREFIX : 'fkss';
+        $filename = $prefix . '_' . $safeClass . '_report.xlsx';
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
     }
 
     /**

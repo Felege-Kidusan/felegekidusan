@@ -640,7 +640,7 @@ $csrfToken = generateCsrfToken();
     </div>
     
     <div id="toastContainer"></div>
-    
+    <script src="/admin/js/report_card.js"></script>
     <script>
         let currentAssessment = null;
         
@@ -1237,18 +1237,10 @@ $csrfToken = generateCsrfToken();
         };
         
         function exportClassReport() {
+            const cid = document.getElementById('reportClassSelect')?.value;
+            if (!cid) return showToast('Select a class first', 'error');
             if (!classReportData.length) return showToast('No data to export', 'error');
-            if (typeof XLSX === 'undefined') return showToast('Export library not loaded', 'error');
-            const h = ['Rank','Name','Code','Average %','Grade','Attendance %'];
-            const rows = classReportData.map(s => [
-                s.rank, (s.student_name||'')+' '+(s.father_name||''),
-                s.member_code||'', s.avg_percentage?parseFloat(s.avg_percentage).toFixed(1):'',
-                s.grade_letter||'', s.attendance_rate||0
-            ]);
-            const ws = XLSX.utils.aoa_to_sheet([h,...rows]);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Report');
-            XLSX.writeFile(wb, 'Class_Report.xlsx');
+            window.location = '/admin/export_class_report.php?class_id=' + encodeURIComponent(cid);
         }
     </script>
 <!-- ADVANCED MOBILE BOTTOM NAV -->

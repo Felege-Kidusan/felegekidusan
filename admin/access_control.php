@@ -126,6 +126,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // ---- Marklists / report cards ----
             'api_communication.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
             'communication.php'     => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
+            'export_class_report.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
 
             // ---- Member management (Information department) ----
             // finance_dept included: the finance dashboard fetches the student
