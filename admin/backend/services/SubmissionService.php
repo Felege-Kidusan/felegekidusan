@@ -258,7 +258,7 @@ class SubmissionService
             return 0;
         }
         $ins->bind_param(
-            'iiiiiiddssi',
+            'iiiiiiiddsi',
             $memberId,
             $classId,
             $subjectId,
