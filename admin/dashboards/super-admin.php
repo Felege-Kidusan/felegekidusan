@@ -16,7 +16,11 @@ $calendarMode = wbws_get_calendar_mode($conn);
 $todayFormatted = wbws_format_date($today, 'long', $conn);
 
 // Track which section to show
+$saAllowedSections = ['overview','users','departments','health','settings','branding','logs','backup','syshealth'];
 $activeSection = $_GET['section'] ?? $_POST['section'] ?? 'overview';
+if (!in_array($activeSection, $saAllowedSections, true)) {
+    $activeSection = 'overview';
+}
 $csrfToken = generateCsrfToken();
 
 // Initialize variables
@@ -563,6 +567,10 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         'scoreLabel'      => $scoreLabel,
     ]));
 }
+if (!in_array($activeSection, $saAllowedSections, true)) {
+    $activeSection = 'overview';
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -573,162 +581,15 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600&family=Inter:wght@300;400;500;600;700&display=swap');
-        :root{--p:#16a34a;--pl:#22c55e}
-        *{box-sizing:border-box;margin:0;padding:0;font-family:'Inter',system-ui,sans-serif}
-        .eth{font-family:'Noto Serif Ethiopic',serif}
-        html,body{overflow-x:hidden}
-        body{min-height:100vh;display:flex;background:#0a0f1a;color:#e2e8f0}
-        
-        .sb{width:260px;min-width:260px;flex-shrink:0;background:linear-gradient(180deg,#0f172a,#1e293b);padding:1.25rem;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid rgba(255,255,255,.05);z-index:40;scrollbar-width:thin;scrollbar-color:#1e293b #0f172a}
-        .sb::-webkit-scrollbar{width:8px}
-        .sb::-webkit-scrollbar-thumb{background:#1e293b;border-radius:8px}
-        .sb::-webkit-scrollbar-track{background:#0f172a}
-        @media(min-width:769px){aside.sb,.sb{display:flex!important;width:260px!important;min-width:260px!important;flex-shrink:0}}
-        .main{min-width:0;overflow-x:hidden}
-        .brand{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem}
-        .brand-logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--p),var(--pl));display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;box-shadow:0 6px 20px rgba(34,197,94,.4)}
-        .brand-txt{font-size:.95rem;font-weight:700;color:#f8fafc}
-        .brand-sub{font-size:.65rem;color:#64748b;margin-top:2px}
-        
-        .nav-sec{margin-bottom:1.25rem}
-        .nav-title{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:.5rem;padding-left:.6rem}
-        .nav-list{list-style:none}
-        .nav-link{display:flex;align-items:center;gap:.65rem;padding:.65rem .75rem;border-radius:.6rem;color:#94a3b8;text-decoration:none;font-size:.8rem;transition:all .15s;cursor:pointer;border:none;background:none;width:100%;text-align:left}
-        .nav-link:hover{background:rgba(255,255,255,.05);color:#e2e8f0}
-        .nav-link.active{background:linear-gradient(135deg,var(--p),var(--pl));color:#fff;box-shadow:0 4px 12px rgba(34,197,94,.3)}
-        .nav-link i{width:18px;text-align:center;font-size:.85rem}
-        
-        .sb-footer{margin-top:auto;padding-top:1rem;border-top:1px solid rgba(255,255,255,.05)}
-        .user-card{display:flex;align-items:center;gap:.6rem;padding:.6rem;background:rgba(255,255,255,.03);border-radius:.6rem;margin-bottom:.6rem}
-        .user-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--p),var(--pl));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem}
-        .user-name{font-size:.8rem;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .user-role{font-size:.65rem;color:#64748b}
-        .logout-btn{display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;padding:.55rem;border-radius:.6rem;border:1px solid #ef4444;color:#fca5a5;background:transparent;font-size:.75rem;cursor:pointer;transition:all .15s;text-decoration:none}
-        .logout-btn:hover{background:#ef4444;color:#fff}
-        
-        .main{flex:1;display:flex;flex-direction:column;min-height:100vh}
-        .topbar{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;background:rgba(15,23,42,.8);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,.05);position:sticky;top:0;z-index:20;flex-wrap:wrap;gap:.75rem}
-        .topbar h1{font-size:1.15rem;font-weight:700;color:#f8fafc}
-        .topbar-sub{font-size:.75rem;color:#64748b;margin-top:2px}
-        .status-badge{display:flex;align-items:center;gap:.35rem;padding:.35rem .65rem;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:999px;font-size:.7rem;color:#4ade80}
-        .status-dot{width:7px;height:7px;border-radius:50%;background:#4ade80;antion:fadeIn .3s ease}
-        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideInBrand{from{opacity:0;transform:translateX(100px)}to{opacity:1;transform:translateX(0)}}
-        .brand-rm{background:rgba(239,68,68,.15);border:none;color:#ef4444;width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:.55rem;display:flex;align-items:center;justify-content:center;transition:all .15s}
-        .brand-rm:hover{background:#ef4444;color:#fff}
-        @media(max-width:900px){#brandAssetGrid{grid-template-columns:repeat(2,1fr)!important}#brandControls{grid-template-columns:repeat(2,1fr)!important}}
-        @media(max-width:500px){#brandAssetGrid{grid-template-columns:1fr!important}#brandControls{grid-template-columns:1fr!important}}
-        
-        .sec-header{margin-bottom:1.25rem}
-        .sec-title{font-size:1.3rem;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:.6rem}
-        .sec-title i{color:var(--pl)}
-        .sec-desc{font-size:.8rem;color:#64748b;margin-top:.2rem}
-        
-        .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
-        .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
-        .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
-        @media(max-width:1200px){.grid-4,.grid-3{grid-template-columns:repeat(2,1fr)}}
-        @media(max-width:640px){.grid-4,.grid-3,.grid-2{grid-template-columns:1fr}}
-        
-        .stat-card{background:linear-gradient(135deg,rgba(255,255,255,.03),rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.06);border-radius:.85rem;padding:1rem;transition:all .2s}
-        .stat-card:hover{transform:translateY(-2px);border-color:rgba(34,197,94,.3);box-shadow:0 6px 20px rgba(0,0,0,.3)}
-        .stat-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem}
-        .stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem}
-        .stat-title{font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em}
-        .stat-value{font-size:1.75rem;font-weight:700;color:#f8fafc;line-height:1}
-        .stat-label{font-size:.7rem;color:#64748b;margin-top:.4rem}
-        
-        .card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:.85rem;padding:1.25rem;margin-bottom:1rem}
-        .card-title{font-size:.95rem;font-weight:600;color:#f1f5f9;margin-bottom:.85rem;display:flex;align-items:center;gap:.45rem}
-        .card-title i{color:var(--pl)}
-        
-        .dept-card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:.85rem;padding:1rem;transition:all .2s}
-        .dept-card:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.3)}
-        .dept-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;margin-bottom:.75rem}
-        .dept-name{font-size:.9rem;font-weight:600;color:#f1f5f9}
-        .dept-amharic{font-size:.75rem;color:#64748b;margin-top:.2rem}
-        
-        .health-item{display:flex;align-items:center;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid rgba(255,255,255,.05)}
-        .health-item:last-child{border-bottom:none}
-        .health-name{font-size:.8rem;color:#e2e8f0}
-        .health-value{font-size:.8rem;color:#94a3b8}
-        .health-badge{padding:.2rem .5rem;border-radius:999px;font-size:.65rem;font-weight:600}
-        .health-good{background:rgba(34,197,94,.15);color:#4ade80}
-        .health-warning{background:rgba(245,158,11,.15);color:#fbbf24}
-        .health-error{background:rgba(239,68,68,.15);color:#f87171}
-        
-        .form-group{margin-bottom:.85rem}
-        .form-label{display:block;font-size:.75rem;color:#94a3b8;margin-bottom:.35rem}
-        .form-input,.form-select{width:100%;padding:.6rem .85rem;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:.6rem;color:#e2e8f0;font-size:.85rem;transition:all .15s}
-        .form-input:focus,.form-select:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(34,197,94,.2)}
-        .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1.25rem;border-radius:999px;font-size:.8rem;font-weight:600;cursor:pointer;transition:all .15s;text-decoration:none;border:none}
-        .btn-primary{background:linear-gradient(135deg,var(--p),var(--pl));color:#fff}
-        .btn-primary:hover{transform:translateY(-1px);box-shadow:0 5px 14px rgba(34,197,94,.4)}
-        .btn-sm{padding:.45rem .85rem;font-size:.7rem}
-        .btn-danger{background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff}
-        .btn-outline{background:transparent;border:1px solid rgba(255,255,255,.2);color:#94a3b8}
-        .btn-outline:hover{background:rgba(255,255,255,.05);color:#fff}
-        
-        .alert{padding:.85rem 1rem;border-radius:.6rem;margin-bottom:1rem;display:flex;align-items:center;gap:.6rem;font-size:.8rem}
-        .alert-success{background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:#4ade80}
-        .alert-error{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#f87171}
-        
-        .log-item{display:flex;gap:.75rem;padding:.6rem;background:rgba(0,0,0,.2);border-radius:.6rem;margin-bottom:.4rem}
-        .log-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(34,197,94,.15);color:#4ade80}
-        .log-action{font-size:.8rem;font-weight:500;color:#f1f5f9}
-        .log-details{font-size:.7rem;color:#64748b;margin-top:.15rem}
-        .log-meta{font-size:.65rem;color:#475569;margin-top:.2rem}
-        
-        .backup-item{display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:rgba(0,0,0,.2);border-radius:.6rem;margin-bottom:.4rem}
-        .backup-info{display:flex;align-items:center;gap:.6rem}
-        .backup-icon{width:36px;height:36px;border-radius:8px;background:rgba(59,130,246,.15);color:#60a5fa;display:flex;align-items:center;justify-content:center}
-        .backup-name{font-size:.8rem;font-weight:500;color:#f1f5f9}
-        .backup-meta{font-size:.7rem;color:#64748b}
-        
-        table{width:100%;border-collapse:collapse;font-size:.8rem}
-        th,td{padding:.6rem .5rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.05)}
-        th{color:#94a3b8;font-weight:500;font-size:.7rem;text-transform:uppercase}
-        .badge{display:inline-block;padding:.15rem .45rem;border-radius:999px;font-size:.65rem;font-weight:600}
-        .badge-active{background:rgba(34,197,94,.15);color:#4ade80}
-        .badge-inactive{background:rgba(239,68,68,.15);color:#f87171}
-        .actions a{color:var(--pl);text-decoration:none;font-size:.75rem;margin-right:.5rem}
-        .actions a:hover{text-decoration:underline}
-        .actions .delete-link{color:#f87171}
-        
-        .pw-wrap{position:relative}
-        .pw-wrap input{width:100%;padding-right:2.5rem}
-        .pw-toggle{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);background:none;border:none;color:#64748b;font-size:.7rem;cursor:pointer}
-        
-        @media(max-width:768px){
-            body{flex-direction:column}
-            .sb{display:none}
-            .topbar{padding:.85rem}
-            .content{padding:.85rem}
-            .mobile-nav{display:flex!important}
-        }
-        
-        .mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:linear-gradient(180deg,#1e293b,#0f172a);border-top:1px solid rgba(255,255,255,.1);padding:.4rem;z-index:50}
-        .mobile-nav-inner{display:flex;justify-content:space-around}
-        .mobile-nav-btn{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.4rem .6rem;color:#64748b;font-size:.6rem;background:none;border:none;cursor:pointer;border-radius:.6rem;transition:all .15s;text-decoration:none}
-        .mobile-nav-btn i{font-size:1rem}
-        .mobile-nav-btn.active{color:var(--pl);background:rgba(34,197,94,.1)}
-        @media(max-width:768px){body{padding-bottom:65px}}
-        
-        .health-panel{display:none}.health-panel.active{display:block;animation:fadeIn .3s ease}
-        .health-tab{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#94a3b8}
-        .health-tab:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
-        .health-tab.active{background:linear-gradient(135deg,var(--p),var(--pl));color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(34,197,94,.3)}
-        .sys-panel{display:none}.sys-panel.active{display:block;animation:fadeIn .3s ease}
-        .sys-tab{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#94a3b8}
-        .sys-tab:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
-        .sys-tab.active{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(99,102,241,.3)}
-        @media(max-width:640px){.health-panel .grid-2,.sys-panel .grid-2,.sys-panel .grid-3{grid-template-columns:1fr}#section-health>div:first-child{grid-template-columns:1fr}}
-    </style>
+    <link rel="stylesheet" href="/admin/css/super_admin.css?v=20260819g">
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
+    <style id="sa-section-lock">
+        /* Last in head so Tailwind/theme cannot stack every page. */
+        main.main .content > section.section{display:none!important}
+        main.main .content > section.section.active{display:block!important}
+    </style>
 </head>
 <body class="<?= $activeSection === 'branding' ? 'branding-on' : '' ?>">
 <?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
@@ -789,7 +650,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 
         <div class="content">
             <!-- OVERVIEW -->
-            <section id="section-overview" class="section <?= $activeSection === 'overview' ? 'active' : '' ?>">
+            <section id="section-overview" class="section <?= $activeSection === 'overview' ? 'active' : '' ?>"<?= $activeSection === 'overview' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-gauge-high"></i> Overview</h2><p class="sec-desc">System statistics and quick actions</p></div>
                 <div class="grid-4" style="margin-bottom:1rem">
                     <div class="stat-card"><div class="stat-header"><div class="stat-title">Users</div><div class="stat-icon" style="background:rgba(34,197,94,.15);color:#4ade80"><i class="fa-solid fa-user-shield"></i></div></div><div class="stat-value"><?= $totalUsers ?></div><div class="stat-label">Admin accounts</div></div>
@@ -813,7 +674,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- USERS MANAGEMENT -->
-            <section id="section-users" class="section <?= $activeSection === 'users' ? 'active' : '' ?>">
+            <section id="section-users" class="section <?= $activeSection === 'users' ? 'active' : '' ?>"<?= $activeSection === 'users' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-users"></i> User Management</h2><p class="sec-desc">Create and manage admin accounts</p></div>
                 
                 <?php if ($userMessage): ?>
@@ -899,7 +760,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- DEPARTMENTS -->
-            <section id="section-departments" class="section <?= $activeSection === 'departments' ? 'active' : '' ?>">
+            <section id="section-departments" class="section <?= $activeSection === 'departments' ? 'active' : '' ?>"<?= $activeSection === 'departments' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-building"></i> Departments</h2><p class="sec-desc">Department dashboards overview</p></div>
                 <div class="grid-4">
                     <?php foreach ($departments as $d): ?>
@@ -909,7 +770,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- SITE HEALTH - ADVANCED -->
-            <section id="section-health" class="section <?= $activeSection === 'health' ? 'active' : '' ?>">
+            <section id="section-health" class="section <?= $activeSection === 'health' ? 'active' : '' ?>"<?= $activeSection === 'health' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-heart-pulse"></i> System Health</h2><p class="sec-desc">Comprehensive system monitoring & diagnostics</p></div>
 
                 <!-- Overall Score + Quick Stats -->
@@ -1161,7 +1022,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- SETTINGS -->
-            <section id="section-settings" class="section <?= $activeSection === 'settings' ? 'active' : '' ?>">
+            <section id="section-settings" class="section <?= $activeSection === 'settings' ? 'active' : '' ?>"<?= $activeSection === 'settings' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-gear"></i> Settings</h2><p class="sec-desc">System configuration</p></div>
                 <div class="grid-2">
                     <!-- CALENDAR SYSTEM -->
@@ -1202,7 +1063,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- BRANDING -->
-            <section id="section-branding" class="section <?= $activeSection === 'branding' ? 'active' : '' ?>">
+            <section id="section-branding" class="section <?= $activeSection === 'branding' ? 'active' : '' ?>"<?= $activeSection === 'branding' ? '' : ' hidden' ?>>
                 <div class="sec-header">
                     <h2 class="sec-title"><i class="fa-solid fa-palette"></i> Branding & ID Card Assets</h2>
                     <p class="sec-desc">Upload pictures, then design the real front and back. Save applies to every member card.</p>
@@ -1252,7 +1113,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- LOGS -->
-            <section id="section-logs" class="section <?= $activeSection === 'logs' ? 'active' : '' ?>">
+            <section id="section-logs" class="section <?= $activeSection === 'logs' ? 'active' : '' ?>"<?= $activeSection === 'logs' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-clock-rotate-left"></i> Activity Logs</h2><p class="sec-desc"><?= count($activityLogs) ?> recent entries</p></div>
                 <div class="card">
                     <?php if (empty($activityLogs)): ?>
@@ -1264,7 +1125,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- BACKUP -->
-            <section id="section-backup" class="section <?= $activeSection === 'backup' ? 'active' : '' ?>">
+            <section id="section-backup" class="section <?= $activeSection === 'backup' ? 'active' : '' ?>"<?= $activeSection === 'backup' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-database"></i> Backup & Data</h2><p class="sec-desc">Database backup management</p></div>
                 
                 <?php if ($backupMessage): list($t, $m) = explode(':', $backupMessage, 2); ?>
@@ -1288,7 +1149,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             </section>
 
             <!-- SYSTEM HEALTH - DEEP ANALYSIS -->
-            <section id="section-syshealth" class="section <?= $activeSection === 'syshealth' ? 'active' : '' ?>">
+            <section id="section-syshealth" class="section <?= $activeSection === 'syshealth' ? 'active' : '' ?>"<?= $activeSection === 'syshealth' ? '' : ' hidden' ?>>
                 <div class="sec-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
                     <div><h2 class="sec-title"><i class="fa-solid fa-stethoscope"></i> System Health</h2><p class="sec-desc">Deep code analysis, data integrity, performance & diagnostics</p></div>
                     <div style="text-align:right">
@@ -1548,37 +1409,9 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
     })();
     </script>
 
+    <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
+    <script src="/admin/js/super_admin.js?v=20260819g"></script>
     <script>
-        function switchSection(id){
-            document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-            document.querySelectorAll('.nav-link,.mobile-nav-btn').forEach(b=>b.classList.remove('active'));
-            document.getElementById('section-'+id)?.classList.add('active');
-            document.querySelectorAll('[data-section="'+id+'"]').forEach(b=>b.classList.add('active'));
-            document.body.classList.toggle('branding-on', id==='branding');
-            history.replaceState(null,null,'?section='+id);
-        }
-        document.querySelectorAll('[data-section]').forEach(b=>b.addEventListener('click',()=>switchSection(b.dataset.section)));
-        document.querySelectorAll('[data-toggle]').forEach(b=>b.addEventListener('click',function(){
-            let inp=this.parentElement.querySelector('input');
-            inp.type=inp.type==='password'?'text':'password';
-            this.textContent=inp.type==='password'?'Show':'Hide';
-        }));
-        // Health sub-tab switching
-        document.querySelectorAll('.health-tab[data-htab]').forEach(b=>b.addEventListener('click',function(){
-            document.querySelectorAll('.health-tab').forEach(t=>t.classList.remove('active'));
-            document.querySelectorAll('.health-panel').forEach(p=>p.classList.remove('active'));
-            this.classList.add('active');
-            const panel=document.getElementById('htab-'+this.dataset.htab);
-            if(panel)panel.classList.add('active');
-        }));
-        // System Health sub-tab switching
-        document.querySelectorAll('.sys-tab[data-stab]').forEach(b=>b.addEventListener('click',function(){
-            document.querySelectorAll('.sys-tab').forEach(t=>t.classList.remove('active'));
-            document.querySelectorAll('.sys-panel').forEach(p=>p.classList.remove('active'));
-            this.classList.add('active');
-            const panel=document.getElementById('stab-'+this.dataset.stab);
-            if(panel)panel.classList.add('active');
-        }));
         // Calendar mode save
         async function saveCalendarMode(mode){
             try{
@@ -1820,7 +1653,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         // ── Boot ──
         const _origSwitch=switchSection;
         switchSection=function(id){_origSwitch(id);if(id==='branding'){loadBranding();if(typeof bootIdDesigner==='function'&&!document.getElementById('idcFrame'))bootIdDesigner();}};
-        if('<?= $activeSection ?>'==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
+        if(<?= json_encode($activeSection) ?>==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
     </script>
 </body>
 </html>
