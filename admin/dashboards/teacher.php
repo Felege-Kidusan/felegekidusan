@@ -147,7 +147,7 @@ $csrfToken = generateCsrfToken();
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
-<link rel="stylesheet" href="/admin/css/report_card.css">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20260819c">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
@@ -640,7 +640,7 @@ $csrfToken = generateCsrfToken();
     </div>
     
     <div id="toastContainer"></div>
-    <script src="/admin/js/report_card.js"></script>
+    <script src="/admin/js/report_card.js?v=20260819c"></script>
     <script>
         let currentAssessment = null;
         
@@ -1091,13 +1091,30 @@ $csrfToken = generateCsrfToken();
                         
                         // Stats cards
                         document.getElementById('classStatsArea').style.display='block';
+                        const sem=stats.semester||{};
                         document.getElementById('classStatsCards').innerHTML = `
-                            <div class="card p-3 text-center"><div class="text-2xl font-bold text-indigo-600">${stats.total_students||0}</div><div class="text-xs text-slate-500">Students</div></div>
-                            <div class="card p-3 text-center"><div class="text-2xl font-bold text-emerald-600">${stats.class_average||'—'}%</div><div class="text-xs text-slate-500">Class Average</div></div>
-                            <div class="card p-3 text-center"><div class="text-2xl font-bold text-sky-600">${stats.pass_rate||0}%</div><div class="text-xs text-slate-500">Pass Rate</div></div>
-                            <div class="card p-3 text-center"><div class="text-2xl font-bold text-green-600">${stats.highest||'—'}%</div><div class="text-xs text-slate-500">Highest</div></div>
-                            <div class="card p-3 text-center"><div class="text-2xl font-bold text-red-500">${stats.lowest||'—'}%</div><div class="text-xs text-slate-500">Lowest</div></div>
+                            <div class="rc-stat"><b>${stats.total_students||0}</b><span>Students</span></div>
+                            <div class="rc-stat"><b>${stats.class_average!=null?stats.class_average+'%':'—'}</b><span>Class average</span></div>
+                            <div class="rc-stat"><b>${stats.pass_rate!=null?stats.pass_rate+'%':'—'}</b><span>Pass rate</span></div>
+                            <div class="rc-stat"><b>${stats.highest!=null?stats.highest+'%':'—'}</b><span>Highest</span></div>
+                            <div class="rc-stat"><b>${stats.lowest!=null?stats.lowest+'%':'—'}</b><span>Lowest</span></div>
                         `;
+                        const box=document.getElementById('classSubjectDone');
+                        const subj=stats.subjects||[];
+                        if(box){
+                            const rec=Number(sem.recorded||0), left=Number(sem.remaining||0);
+                            box.innerHTML = `<div class="rc-sem"><div class="rc-sem-title">How much of this semester is recorded (each subject is 100%)</div>
+                                <div class="rc-sem-nums"><div><span class="done">${rec}%</span><small>Recorded</small></div><div><span class="left">${left}%</span><small>Still left</small></div></div>
+                                <div class="rc-donebar"><i style="width:${rec}%"></i><em></em></div>
+                                <div class="rc-done-lbl">${rec}% of the semester weight is recorded · <span class="left">${left}% still left</span></div></div>` +
+                                (subj.length?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.65rem;margin-top:.65rem">${subj.map(x=>{
+                                    const c=x.completion||{};
+                                    const r=Number(c.recorded||0), l=Number(c.remaining||0);
+                                    const items=c.items||[];
+                                    const list=items.length?`<ul class="rc-items">${items.map(it=>`<li class="${it.recorded?'ok':'wait'}"><span>${escapeHtml(it.name||'')}${it.weight!=null?' · '+it.weight+'%':''}</span><span>${it.recorded?'Recorded':'Still left'}</span></li>`).join('')}</ul>`:'';
+                                    return `<div class="rc-subj-card"><div class="nm amharic">${escapeHtml(x.subject_name||'')}</div><div class="av">${x.average!=null?x.average+'%':'—'}</div><div class="rc-donebar"><i style="width:${r}%"></i><em></em></div><div class="rc-done-lbl">${r}% recorded · <span class="left">${l}% still left</span></div>${list}</div>`;
+                                }).join('')}</div>`:'');
+                        }
                         
                         // Table
                         document.getElementById('classReportArea').style.display='block';

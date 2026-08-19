@@ -255,15 +255,34 @@ class ReportCardService
             if ($subjectId > 0 && (int)$subj['id'] !== $subjectId) {
                 continue;
             }
-            $vals = self::subjectAveragesForClass($bundle['scores'], (int)$subj['id']);
+            $sid = (int)$subj['id'];
+            $vals = self::subjectAveragesForClass($bundle['scores'], $sid);
+            $scoredIds = self::scoredAssessmentIds($bundle['scores'], $sid);
             $subjectStats[] = [
-                'id' => (int)$subj['id'],
+                'id' => $sid,
                 'subject_name' => $subj['subject_name'],
                 'subject_name_en' => $subj['subject_name_en'] ?? '',
                 'average' => $vals['average'],
                 'graded' => $vals['graded'],
+                'completion' => self::subjectCompletion($bundle['assessments'][$sid] ?? [], $scoredIds),
             ];
         }
+
+        $recSum = 0.0;
+        $recN = 0;
+        $leftSubjects = 0;
+        foreach ($subjectStats as $ss) {
+            $c = $ss['completion'] ?? null;
+            if (!is_array($c)) {
+                continue;
+            }
+            $recSum += (float)($c['recorded'] ?? 0);
+            $recN++;
+            if ((float)($c['remaining'] ?? 0) > 0) {
+                $leftSubjects++;
+            }
+        }
+        $semRec = $recN > 0 ? round($recSum / $recN, 1) : 0.0;
 
         $stats = [
             'total_students' => count($students),
@@ -272,6 +291,12 @@ class ReportCardService
             'highest' => $graded > 0 ? round(max($pcts), 1) : null,
             'lowest' => $graded > 0 ? round(min($pcts), 1) : null,
             'median' => $median,
+            'semester' => [
+                'recorded' => $semRec,
+                'remaining' => max(0.0, round(100.0 - $semRec, 1)),
+                'subjects_left' => $leftSubjects,
+                'subjects_count' => $recN,
+            ],
             'pass_rate' => $graded > 0
                 ? round(count(array_filter($pcts, static function ($v) {
                     return $v >= self::PASS_MARK;
@@ -361,17 +386,17 @@ class ReportCardService
      */
     public static function getClassCards(\mysqli $conn, int $classId, int $yearId = 0, int $termId = 0): array
     {
-        $report = self::getClassReport($conn, $classId, 0, $yearId, $termId);
-        if (($report['status'] ?? '') !== 'success') {
-            return $report;
+        $pack = self::buildRankedClass($conn, $classId, $yearId, $termId);
+        if (($pack['status'] ?? '') !== 'success') {
+            return $pack;
         }
         $cards = [];
         $n = 0;
-        foreach ($report['students'] as $row) {
+        foreach ($pack['students'] as $row) {
             if ($n >= self::MAX_CLASS_SIZE) {
                 break;
             }
-            $card = self::getCard($conn, (int)$row['id'], $classId, $yearId, $termId);
+            $card = self::cardFromPack($conn, $pack, (int)$row['id']);
             if (($card['status'] ?? '') === 'success') {
                 $cards[] = $card;
                 $n++;
@@ -380,10 +405,10 @@ class ReportCardService
         return [
             'status' => 'success',
             'cards' => $cards,
-            'truncated' => count($report['students']) > self::MAX_CLASS_SIZE,
-            'class' => $report['class'],
-            'year' => $report['year'],
-            'term' => $report['term'],
+            'truncated' => count($pack['students']) > self::MAX_CLASS_SIZE,
+            'class' => $pack['class'],
+            'year' => $pack['year'],
+            'term' => $pack['term'],
         ];
     }
 
@@ -1090,21 +1115,41 @@ class ReportCardService
         $plannedWeight = 0.0;
         $recorded = 0.0;
         $missing = [];
+        $items = [];
         foreach ($planned as $a) {
             $w = (float)($a['weight'] ?? 0);
             if ($w <= 0) {
                 continue;
             }
             $plannedWeight += $w;
-            if (!empty($scored[(int)$a['id']])) {
+            $isRecorded = !empty($scored[(int)$a['id']]);
+            $label = trim(($a['name'] ?? 'Assessment') . ' (' . rtrim(rtrim(number_format($w, 1), '0'), '.') . '%)');
+            if ($isRecorded) {
                 $recorded += $w;
             } else {
-                $missing[] = trim(($a['name'] ?? 'Assessment') . ' (' . rtrim(rtrim(number_format($w, 1), '0'), '.') . '%)');
+                $missing[] = $label;
             }
+            $items[] = [
+                'id' => (int)($a['id'] ?? 0),
+                'name' => (string)($a['name'] ?? 'Assessment'),
+                'weight' => round($w, 1),
+                'recorded' => $isRecorded,
+            ];
         }
         if ($plannedWeight <= 0 && $scored) {
             $recorded = 100.0;
             $plannedWeight = 100.0;
+        } elseif ($plannedWeight > 0 && $plannedWeight < 100) {
+            $gap = round(100.0 - $plannedWeight, 1);
+            if ($gap > 0) {
+                $missing[] = 'Not yet set (' . rtrim(rtrim(number_format($gap, 1), '0'), '.') . '%)';
+                $items[] = [
+                    'id' => 0,
+                    'name' => 'Not yet set',
+                    'weight' => $gap,
+                    'recorded' => false,
+                ];
+            }
         }
         $recorded = min(100.0, round($recorded, 1));
         $remaining = max(0.0, round(100.0 - $recorded, 1));
@@ -1113,6 +1158,7 @@ class ReportCardService
             'recorded' => $recorded,
             'remaining' => $remaining,
             'missing' => $missing,
+            'items' => $items,
         ];
     }
 

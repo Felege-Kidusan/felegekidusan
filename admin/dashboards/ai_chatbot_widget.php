@@ -92,7 +92,10 @@ $_aiCsrf = generateCsrfToken();
 .aip-send:hover{opacity:.88}.aip-send:disabled{opacity:.3;cursor:not-allowed}
 .aip-hint{font-size:.6rem;color:#4b5b73;text-align:center;margin-top:.3rem}
 @media print{
-  #ai-fab,#ai-win{display:none!important;visibility:hidden!important}
+  #ai-fab,#ai-win,#ai-fab *,#ai-win *,#impersonateBar{
+    display:none!important;visibility:hidden!important;opacity:0!important;
+    width:0!important;height:0!important;overflow:hidden!important;
+  }
 }
 </style>
 

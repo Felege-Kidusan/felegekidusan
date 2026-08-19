@@ -20,6 +20,26 @@
     return suffix ? v + suffix : String(v);
   }
 
+  function doneBar(c) {
+    if (!c || typeof c !== 'object') return '';
+    const rec = Number(c.recorded || 0);
+    const left = Number(c.remaining || 0);
+    const items = Array.isArray(c.items) ? c.items : [];
+    const list = items.length
+      ? '<ul class="rc-items">' + items.map(function (it) {
+          const w = it.weight != null ? it.weight + '%' : '';
+          const cls = it.recorded ? 'ok' : 'wait';
+          const st = it.recorded ? 'Recorded' : 'Still left';
+          return '<li class="' + cls + '"><span>' + esc(it.name || '') + (w ? ' · ' + w : '') + '</span><span>' + st + '</span></li>';
+        }).join('') + '</ul>'
+      : ((c.missing || []).length ? '<div class="rc-done-miss">Still left: ' + esc((c.missing || []).join(', ')) + '</div>' : '');
+    return '<div class="rc-done">' +
+      '<div class="rc-donebar"><i style="width:' + rec + '%"></i><em></em></div>' +
+      '<div class="rc-done-lbl">' + rec + '% of this semester recorded · <span class="left">' + left + '% still left</span></div>' +
+      list +
+      '</div>';
+  }
+
   function renderSheet(data) {
     if (!data || data.status !== 'success') {
       return '<div class="rc-sheet"><div class="rc-empty">This report card could not be opened.</div></div>';
@@ -153,13 +173,26 @@
     return root;
   }
 
+  function hideAiForPrint() {
+    const fab = document.getElementById('ai-fab');
+    const win = document.getElementById('ai-win');
+    if (fab) fab.style.display = 'none';
+    if (win) win.style.display = 'none';
+    return function () {
+      if (fab) fab.style.display = '';
+      if (win) win.style.display = '';
+    };
+  }
+
   function printSheets(cards) {
     const list = Array.isArray(cards) ? cards : [cards];
     const root = ensurePrintRoot();
     root.innerHTML = list.map(renderSheet).join('');
     document.body.classList.add('rc-print-mode');
+    const restoreAi = hideAiForPrint();
     const done = function () {
       document.body.classList.remove('rc-print-mode');
+      restoreAi();
       window.removeEventListener('afterprint', done);
     };
     window.addEventListener('afterprint', done);
@@ -194,6 +227,7 @@
     renderSheet: renderSheet,
     fillModal: fillModal,
     printSheets: printSheets,
+    doneBar: doneBar,
     letterColor: letterColor,
     esc: esc,
     dash: dash

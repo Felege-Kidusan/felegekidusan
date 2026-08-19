@@ -104,11 +104,16 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 .t-hit{padding:.5rem .7rem;cursor:pointer;font-size:.8rem;border-bottom:1px solid #f1f5f9}
 .t-hit:hover{background:#faf5ff}
 @media(max-width:768px){.sb{display:none}main{padding:1rem 1rem 5rem!important}.bn{display:block}}
-@media print{.sb,.bn,.no-print{display:none!important}main{padding:0!important}}
+@media print{
+.sb,.bn,.no-print,.wbws-bnav,.wbws-mob-header,#ai-fab,#ai-win,#impersonateBar,aside,header,nav,.mo{display:none!important;visibility:hidden!important}
+main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
+#sec-reportcards .sc,#sec-reportcards .rc-stat{background:#fff!important;color:#1a0a0a!important;border:2px solid #600000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+#sec-reportcards .sc div,#sec-reportcards .sc span{color:#1a0a0a!important;opacity:1!important}
+}
 </style>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
-<link rel="stylesheet" href="/admin/css/report_card.css">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20260819c">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
@@ -373,6 +378,11 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 
 <!-- ═══ REPORT CARDS ═══ -->
 <div id="sec-reportcards" class="sec">
+<div class="rc-print-banner" id="rcPrintBanner">
+<div class="am">ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት</div>
+<div class="en">Felege Kidusan Sunday School · Class report</div>
+<div class="en" id="rcPrintBannerMeta"></div>
+</div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
 <div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-file-lines" style="color:#600000"></i> Report Cards</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የተማሪ ሪፖርት ካርድ — totals, average, rank, print</p></div>
 </div>
@@ -388,7 +398,8 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <select id="rcFilter" class="inp" style="max-width:150px" onchange="renderRcTable()"><option value="">All students</option><option value="graded">Has scores</option><option value="blank">No scores yet</option><option value="A">Grade A</option><option value="B">Grade B</option><option value="C">Grade C</option><option value="D">Grade D</option><option value="F">Grade F</option></select>
 <select id="rcSort" class="inp" style="max-width:160px" onchange="renderRcTable()"><option value="rank">Sort: Rank</option><option value="name">Sort: Name</option><option value="average">Sort: Average</option><option value="attendance">Sort: Attendance</option></select>
 <button class="btn btn-o" type="button" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button>
-<button class="btn btn-s" type="button" onclick="generateBulkReports()"><i class="fa-solid fa-print"></i> Print class</button>
+<button class="btn btn-o" type="button" onclick="printClassList()"><i class="fa-solid fa-print"></i> Print list</button>
+<button class="btn btn-s" type="button" onclick="generateBulkReports()"><i class="fa-solid fa-print"></i> Print cards</button>
 </div>
 </div>
 <div id="rcStatsArea" style="display:none">
@@ -586,7 +597,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div>
-<script src="/admin/js/report_card.js"></script>
+<script src="/admin/js/report_card.js?v=20260819c"></script>
 <script>
 let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
 const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {
@@ -1028,7 +1039,7 @@ async function loadRoster(page){
             </tr></thead><tbody>${rows.map(x=>`<tr>
                 <td><input type="checkbox" class="roster-cb" value="${x.id}"></td>
                 <td><div style="font-weight:600">${esc(x.student_name||'')} ${x.baptismal_name?'<span style="font-size:.65rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div></td>
-       ��')}</span></td>
+                <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
                 <td class="amharic">${x.class_name?esc(x.class_name)+' <span style="font-size:.6rem;color:#94a3b8">'+esc(x.class_code||'')+'</span>':'<span style="color:#f59e0b">Unassigned</span>'}</td>
                 <td>${mtBadge(x.member_type)}</td>
                 <td>${x.gender==='male'?'♂':'♀'}</td>
@@ -1819,13 +1830,30 @@ async function loadClassPerformance(){
         rcStats=d.stats||{};
         const st=rcStats;
         document.getElementById('rcStatsArea').style.display='block';
+        const sem=st.semester||{};
+        const semRec=Number(sem.recorded||0);
+        const semLeft=Number(sem.remaining||0);
+        const clsName=document.getElementById('rcClass')?.selectedOptions?.[0]?.text||'';
+        const yrName=document.getElementById('rcYear')?.selectedOptions?.[0]?.text||'';
+        const tmName=document.getElementById('rcTerm')?.selectedOptions?.[0]?.text||'';
+        const banner=document.getElementById('rcPrintBannerMeta');
+        if(banner) banner.textContent=[clsName,yrName,tmName].filter(Boolean).join(' · ');
         document.getElementById('rcStatsCards').innerHTML=`
-            <div class="sc" style="background:linear-gradient(135deg,#600000,#8B2030);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.total_students||0}</div><div style="font-size:.6rem;opacity:.8">Students</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#047857,#10b981);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.class_average!=null?st.class_average+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Class average</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#0369a1,#0ea5e9);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.median!=null?st.median+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Median</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#b45309,#d97706);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.pass_rate!=null?st.pass_rate+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Pass rate</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#047857,#34d399);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.highest!=null?st.highest+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Highest</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#b91c1c,#ef4444);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.lowest!=null?st.lowest+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Lowest</div></div></div>`;
+            <div class="rc-sem" style="grid-column:1/-1">
+                <div class="rc-sem-title">How much of this semester the teacher has recorded (each subject is 100%)</div>
+                <div class="rc-sem-nums">
+                    <div><span class="done">${semRec}%</span><small>Recorded</small></div>
+                    <div><span class="left">${semLeft}%</span><small>Still left</small></div>
+                </div>
+                <div class="rc-donebar"><i style="width:${semRec}%"></i><em></em></div>
+                <div class="rc-done-lbl">${semRec}% of the semester weight is recorded · <span class="left">${semLeft}% still left</span>${sem.subjects_left?` · ${sem.subjects_left} subject(s) not finished`:''}</div>
+            </div>
+            <div class="rc-stat"><b>${st.total_students||0}</b><span>Students</span></div>
+            <div class="rc-stat"><b>${st.class_average!=null?st.class_average+'%':'—'}</b><span>Class average</span></div>
+            <div class="rc-stat"><b>${st.median!=null?st.median+'%':'—'}</b><span>Median</span></div>
+            <div class="rc-stat"><b>${st.pass_rate!=null?st.pass_rate+'%':'—'}</b><span>Pass rate</span></div>
+            <div class="rc-stat"><b>${st.highest!=null?st.highest+'%':'—'}</b><span>Highest</span></div>
+            <div class="rc-stat"><b>${st.lowest!=null?st.lowest+'%':'—'}</b><span>Lowest</span></div>`;
         const gd=st.grade_distribution||{A:0,B:0,C:0,D:0,F:0};
         const parts=[{l:'A',c:'#047857',n:gd.A},{l:'B',c:'#0369a1',n:gd.B},{l:'C',c:'#b45309',n:gd.C},{l:'D',c:'#c2410c',n:gd.D},{l:'F',c:'#b91c1c',n:gd.F}].filter(x=>x.n>0);
         document.getElementById('rcDistBar').innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Grade distribution · ${st.graded_students||0} with scores</div>
@@ -1837,18 +1865,19 @@ async function loadClassPerformance(){
         if(box){
             if(subj.length){
                 box.style.display='block';
-                box.innerHTML=`<div style="font-size:.8rem;font-weight:800;color:#3b0000;margin-bottom:.55rem">Average and semester completion per subject</div>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.65rem">${subj.map(x=>{
+                box.innerHTML=`<div style="font-size:.8rem;font-weight:800;color:#3b0000;margin-bottom:.55rem">Each subject is out of 100% this semester — recorded vs still left</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.65rem">${subj.map(x=>{
                         const c=x.completion||{};
                         const rec=Number(c.recorded||0);
                         const left=Number(c.remaining||0);
-                        const miss=(c.missing||[]).length?'<div style="font-size:.65rem;color:#8a1a1a;margin-top:.25rem;font-weight:700">Still to enter: '+esc(c.missing.join(', '))+'</div>':'';
+                        const items=c.items||[];
+                        const list=items.length?`<ul class="rc-items">${items.map(it=>`<li class="${it.recorded?'ok':'wait'}"><span>${esc(it.name||'')}${it.weight!=null?' · '+it.weight+'%':''}</span><span>${it.recorded?'Recorded':'Still left'}</span></li>`).join('')}</ul>`:((c.missing||[]).length?`<div class="rc-done-miss">Still left: ${esc(c.missing.join(', '))}</div>`:'');
                         return `<div class="rc-subj-card">
                             <div class="nm amharic">${esc(x.subject_name)}</div>
-                            <div class="av">${x.average!=null?x.average+'%':'—'}</div>
+                            <div class="av">${x.average!=null?x.average+'%':'—'}<small>Class average · ${x.graded||0} graded</small></div>
                             <div class="rc-donebar"><i style="width:${rec}%"></i><em></em></div>
                             <div class="rc-done-lbl">${rec}% of this semester recorded · <span class="left">${left}% still left</span></div>
-                            ${miss}
+                            ${list}
                         </div>`;
                     }).join('')}</div>`;
             }else box.style.display='none';
@@ -1908,16 +1937,27 @@ async function viewStudentReport(memberId){
     }
 }
 function exportPerformance(){
+    const cid=document.getElementById('rcClass')?.value;
+    if(!cid) return toast('Select a class first.','err');
     if(!rcData.length) return toast('No data to export.','err');
-    const h=['Rank','Name','Christian name','Code','Obtained','Max','Average %','Grade','Attendance %','Strongest','Needs attention'];
-    const r=rcData.map(s=>[
-        s.rank||'', (s.student_name||'')+' '+(s.father_name||''), s.christian_name||'',
-        s.member_code||'', s.total_obtained??'', s.total_max??'',
-        s.overall_average??s.avg_percentage??'', s.grade_letter||'', s.attendance_rate||0,
-        s.strongest_subject||'', s.weakest_subject||''
-    ]);
-    const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Performance');
-    XLSX.writeFile(wb,'FKSS_Class_Report.xlsx');
+    window.location='/admin/export_class_report.php?class_id='+encodeURIComponent(cid)+rcQs();
+}
+function printClassList(){
+    if(!rcData.length) return toast('Load a class first.','err');
+    const fab=document.getElementById('ai-fab');
+    const win=document.getElementById('ai-win');
+    if(fab) fab.style.display='none';
+    if(win) win.style.display='none';
+    document.body.classList.add('rc-print-list');
+    const done=function(){
+        document.body.classList.remove('rc-print-list');
+        if(fab) fab.style.display='';
+        if(win) win.style.display='';
+        window.removeEventListener('afterprint', done);
+    };
+    window.addEventListener('afterprint', done);
+    window.print();
+    setTimeout(done, 2000);
 }
 async function generateBulkReports(){
     const cid=document.getElementById('rcClass')?.value;
