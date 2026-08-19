@@ -1030,24 +1030,28 @@ class ReportCardService
             $types .= 'i';
         }
         $sql .= " ORDER BY id";
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
+        try {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                return [];
+            }
+            $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $r = $stmt->get_result();
+            $out = [];
+            while ($row = $r->fetch_assoc()) {
+                $sid = (int)($row['subject_id'] ?? 0);
+                $out[$sid][] = [
+                    'id' => (int)$row['id'],
+                    'name' => (string)($row['assessment_name'] ?? 'Assessment'),
+                    'weight' => (float)($row['weight_percentage'] ?? 0),
+                ];
+            }
+            $stmt->close();
+            return $out;
+        } catch (\Throwable $e) {
             return [];
         }
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $r = $stmt->get_result();
-        $out = [];
-        while ($row = $r->fetch_assoc()) {
-            $sid = (int)($row['subject_id'] ?? 0);
-            $out[$sid][] = [
-                'id' => (int)$row['id'],
-                'name' => (string)($row['assessment_name'] ?? 'Assessment'),
-                'weight' => (float)($row['weight_percentage'] ?? 0),
-            ];
-        }
-        $stmt->close();
-        return $out;
     }
 
     /**
