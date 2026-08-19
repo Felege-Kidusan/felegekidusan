@@ -1,4 +1,5 @@
 import 'api_service.dart';
+import 'catalog_service.dart';
 import 'local_db.dart';
 import 'sync_service.dart';
 
@@ -7,6 +8,7 @@ import 'sync_service.dart';
 class SessionService {
   static Future<void> signOut() async {
     SyncService().stopAutoSync();
+    CatalogService().clear();
     await LocalDb().clearAllUserData();
     await ApiService().logout();
   }

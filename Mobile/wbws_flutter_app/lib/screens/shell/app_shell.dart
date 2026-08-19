@@ -48,6 +48,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _materialHomeKey = GlobalKey<MaterialHomeScreenState>();
   final _attendanceKey = GlobalKey<AttendanceScreenState>();
   final _gradesKey = GlobalKey<TeacherGradesScreenState>();
+  final Map<String, Widget> _openedTabs = {};
 
   @override
   void initState() {
@@ -174,6 +175,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  Widget _tabChild(int index) {
+    final id = _tabs[index].id;
+    if (_openedTabs.containsKey(id) || index == _currentIndex) {
+      return _openedTabs.putIfAbsent(id, () => _buildScreen(id));
+    }
+    return const SizedBox.shrink();
+  }
+
   Widget _buildScreen(String tabId) {
     switch (tabId) {
       case 'home':
@@ -281,7 +290,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           Expanded(
             child: IndexedStack(
               index: _currentIndex,
-              children: _tabs.map((tab) => _buildScreen(tab.id)).toList(),
+              children: List.generate(_tabs.length, _tabChild),
             ),
           ),
         ],

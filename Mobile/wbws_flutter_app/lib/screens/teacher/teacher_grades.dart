@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import 'package:flutter/services.dart';
 import '../../services/api_service.dart';
+import '../../services/catalog_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/theme.dart';
@@ -24,6 +25,8 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   List<dynamic> _classes = [];
   List<dynamic> _subjects = [];
   List<dynamic> _assessments = [];
+  List<dynamic> _bootAssessments = [];
+  bool _didBootstrap = false;
 
   int? _selectedClassId;
   int? _selectedSubjectId;
@@ -56,63 +59,78 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     if (mounted) setState(() => _pendingGrades = c);
   }
 
-  // ---- LOAD CLASSES (API → cache fallback) ----
   Future<void> _loadClasses() async {
-    setState(() { _loadingClasses = true; _error = null; });
-    final res = await _api.getClasses();
-    if (!mounted) return;
-
-    if (res.success && res.data != null) {
-      final classes = res.data['classes'] ?? [];
-      await _db.cacheClasses(classes);
-      setState(() { _classes = classes; _loadingClasses = false; _isOffline = false; });
-      if (classes.length == 1) {
-        _selectedClassId = classes[0]['id'];
-        _selectedClassName = classes[0]['class_name'];
-        _loadSubjects();
-      }
+    setState(() { _error = null; });
+    final warm = CatalogService().cached;
+    if (warm.isNotEmpty && mounted) {
+      setState(() { _classes = warm; _loadingClasses = false; _isOffline = true; });
     } else {
-      final cached = await _db.getCachedClasses();
-      setState(() {
-        if (cached.isNotEmpty) { _classes = cached; _isOffline = true; }
-        else { _error = res.message; }
-        _loadingClasses = false;
-      });
-      if (cached.length == 1) {
-        _selectedClassId = cached[0]['id'] as int;
-        _selectedClassName = cached[0]['class_name'] as String;
-        _loadSubjects();
-      }
+      setState(() => _loadingClasses = true);
+    }
+
+    final classes = await CatalogService().classes();
+    if (!mounted) return;
+    setState(() {
+      _classes = classes;
+      _loadingClasses = false;
+      _isOffline = false;
+    });
+    if (classes.length == 1) {
+      final id = classes[0]['id'] is int ? classes[0]['id'] as int : int.tryParse('${classes[0]['id']}');
+      _selectedClassId = id;
+      _selectedClassName = classes[0]['class_name'];
+      _loadSubjects();
     }
   }
 
-  // ---- LOAD SUBJECTS (API → cache fallback) ----
   Future<void> _loadSubjects() async {
     if (_selectedClassId == null) return;
-    setState(() { _loadingSubjects = true; _subjects = []; _assessments = []; _selectedSubjectId = null; });
+    setState(() {
+      _loadingSubjects = true;
+      _subjects = [];
+      _assessments = [];
+      _bootAssessments = [];
+      _didBootstrap = false;
+      _selectedSubjectId = null;
+    });
 
-    final res = await _api.getClassSubjects(_selectedClassId!);
+    final res = await _api.getGradeBootstrap(_selectedClassId!);
     if (!mounted) return;
 
     if (res.success && res.data != null) {
       final subjects = res.data['subjects'] ?? [];
+      final allA = res.data['assessments'] ?? [];
       await _db.cacheSubjects(_selectedClassId!, subjects);
-      setState(() { _subjects = subjects; _loadingSubjects = false; _isOffline = false; });
-    } else {
-      final cached = await _db.getCachedSubjects(_selectedClassId!);
       setState(() {
-        _subjects = cached.isNotEmpty ? cached : [];
+        _subjects = subjects;
+        _bootAssessments = allA;
+        _didBootstrap = true;
         _loadingSubjects = false;
-        if (cached.isNotEmpty) _isOffline = true;
+        _isOffline = false;
       });
+      return;
     }
+
+    final cached = await _db.getCachedSubjects(_selectedClassId!);
+    setState(() {
+      _subjects = cached.isNotEmpty ? cached : [];
+      _loadingSubjects = false;
+      if (cached.isNotEmpty) _isOffline = true;
+    });
   }
 
-  // ---- LOAD ASSESSMENTS (API → cache fallback) ----
   Future<void> _loadAssessments() async {
     if (_selectedClassId == null || _selectedSubjectId == null) return;
-    setState(() { _loadingAssessments = true; _assessments = []; });
+    final sid = _selectedSubjectId;
+    final fromBoot = _bootAssessments.where((a) =>
+      (a['subject_id'] is int ? a['subject_id'] : int.tryParse('${a['subject_id']}')) == sid
+    ).toList();
+    if (_didBootstrap) {
+      setState(() { _assessments = fromBoot; _loadingAssessments = false; });
+      return;
+    }
 
+    setState(() { _loadingAssessments = true; _assessments = []; });
     final res = await _api.getAssessments(_selectedClassId!, _selectedSubjectId!);
     if (!mounted) return;
 

@@ -35,53 +35,59 @@ if ($method === 'GET' && $id === null) {
         $yearId = $year ? (int)$year['id'] : 0;
         
         if ($isRestricted) {
-            // TEACHER: Only their assigned classes (deduplicated)
-            // A teacher can have multiple assignments to the same class
-            // (e.g. teaching 2 subjects in grade 1) — GROUP BY ensures 
-            // each class appears only once
             $sql = "SELECT c.id, c.class_name, c.class_name_en, c.section,
                            c.level_order, c.age_group,
                            MAX(ta.is_class_teacher) as is_class_teacher,
                            COUNT(DISTINCT ta.subject_id) as subject_count,
-                           (SELECT COUNT(*) FROM class_enrollments ce 
-                            WHERE ce.class_id = c.id AND ce.status = 'active'
-                            " . ($year ? " AND ce.academic_year_id = {$yearId}" : "") . "
-                           ) as student_count,
-                           (SELECT COUNT(*) FROM attendance a 
-                            WHERE a.class_id = c.id AND a.attendance_date = ?
-                           ) as attendance_count
+                           COALESCE(enr.cnt, 0) as student_count,
+                           COALESCE(att.cnt, 0) as attendance_count
                     FROM teacher_assignments ta
                     JOIN classes c ON ta.class_id = c.id
-                    WHERE ta.teacher_id = ? 
+                    LEFT JOIN (
+                        SELECT class_id, COUNT(*) AS cnt
+                        FROM class_enrollments
+                        WHERE status = 'active'" . ($year ? " AND academic_year_id = {$yearId}" : "") . "
+                        GROUP BY class_id
+                    ) enr ON enr.class_id = c.id
+                    LEFT JOIN (
+                        SELECT class_id, COUNT(*) AS cnt
+                        FROM attendance
+                        WHERE attendance_date = ?
+                        GROUP BY class_id
+                    ) att ON att.class_id = c.id
+                    WHERE ta.teacher_id = ?
                       AND ta.is_active = 1
                       AND (ta.academic_year_id IS NULL OR ta.academic_year_id = ?)
                     GROUP BY c.id, c.class_name, c.class_name_en, c.section,
                              c.level_order, c.age_group
                     ORDER BY c.level_order, c.class_name";
-            
             $stmt = $conn->prepare($sql);
             $stmt->bind_param('sii', $today, $userId, $yearId);
             $stmt->execute();
             $r = $stmt->get_result();
-            
         } else {
-            // ADMIN: See all classes
-            $yearJoin = $year ? " AND ce.academic_year_id = {$yearId}" : "";
-            
+            $yearJoin = $year ? " AND academic_year_id = {$yearId}" : "";
             $sql = "SELECT c.id, c.class_name, c.class_name_en, c.section,
                            c.level_order, c.age_group,
                            0 as is_class_teacher,
                            NULL as subject_id,
-                           (SELECT COUNT(*) FROM class_enrollments ce 
-                            WHERE ce.class_id = c.id AND ce.status = 'active' {$yearJoin}
-                           ) as student_count,
-                           (SELECT COUNT(*) FROM attendance a 
-                            WHERE a.class_id = c.id AND a.attendance_date = ?
-                           ) as attendance_count
+                           COALESCE(enr.cnt, 0) as student_count,
+                           COALESCE(att.cnt, 0) as attendance_count
                     FROM classes c
+                    LEFT JOIN (
+                        SELECT class_id, COUNT(*) AS cnt
+                        FROM class_enrollments
+                        WHERE status = 'active' {$yearJoin}
+                        GROUP BY class_id
+                    ) enr ON enr.class_id = c.id
+                    LEFT JOIN (
+                        SELECT class_id, COUNT(*) AS cnt
+                        FROM attendance
+                        WHERE attendance_date = ?
+                        GROUP BY class_id
+                    ) att ON att.class_id = c.id
                     WHERE c.is_active = 1
                     ORDER BY c.level_order, c.class_name";
-            
             $stmt = $conn->prepare($sql);
             $stmt->bind_param('s', $today);
             $stmt->execute();

@@ -321,6 +321,9 @@ class ApiService {
   // GRADES
   // ============================================================
 
+  Future<ApiResponse> getGradeBootstrap(int classId) =>
+      get('/grades/bootstrap', params: {'class_id': '$classId'});
+
   Future<ApiResponse> getClassSubjects(int classId) =>
       get('/grades/subjects', params: {'class_id': '$classId'});
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
+import '../../services/catalog_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
@@ -58,24 +59,21 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _loadClasses() async {
-    // Try cache first
-    final cached = await _db.getCachedClasses();
-    if (cached.isNotEmpty) {
-      if (mounted) setState(() { _classes = cached; _isOffline = true; _loadingClasses = false; });
-    } else {
-      if (mounted) setState(() => _loadingClasses = true);
+    final warm = CatalogService().cached;
+    if (warm.isNotEmpty && mounted) {
+      setState(() { _classes = warm; _loadingClasses = false; _isOffline = true; });
+    } else if (mounted) {
+      setState(() => _loadingClasses = true);
     }
 
-    final res = await _api.getClasses();
+    final classes = await CatalogService().classes();
     if (!mounted) return;
-
-    if (res.success && res.data != null) {
-      final classes = res.data['classes'] ?? [];
-      setState(() { _classes = classes; _loadingClasses = false; _isOffline = false; });
-      await _db.cacheClasses(classes);
-    } else if (cached.isEmpty) {
-      setState(() { _error = res.message; _loadingClasses = false; });
-    }
+    setState(() {
+      _classes = classes;
+      _loadingClasses = false;
+      _isOffline = false;
+      if (classes.isEmpty) _error = _error ?? 'No classes assigned';
+    });
 
     if (_classes.isNotEmpty && _selectedClassId == null) {
       int? pick;
@@ -251,7 +249,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Attendance'),
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
           // Pending sync badge
           if (_pendingCount > 0)

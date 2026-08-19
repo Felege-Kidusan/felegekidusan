@@ -64,6 +64,90 @@ function checkTeacherSubjectAccess($conn, $userId, $userRole, $classId, $subject
 }
 
 // ============================================================
+// GET /grades/bootstrap?class_id=X
+// One round-trip: subjects the teacher may see + their assessments.
+// ============================================================
+if ($action === 'bootstrap' && $method === 'GET') {
+    $classId = (int)($_GET['class_id'] ?? 0);
+    if (!$classId) err('class_id is required');
+    checkTeacherClassAccess($conn, $userId, $userRole, $classId, $yearId);
+
+    $subjects = [];
+    if ($isRestricted) {
+        $stmt = $conn->prepare(
+            "SELECT DISTINCT s.id, s.subject_name, s.subject_name_en, s.subject_code
+             FROM teacher_assignments ta
+             JOIN subjects s ON ta.subject_id = s.id
+             WHERE ta.teacher_id = ? AND ta.class_id = ?
+               AND (ta.academic_year_id IS NULL OR ta.academic_year_id = ?)
+               AND ta.is_active = 1 AND s.is_active = 1
+             ORDER BY s.subject_name"
+        );
+        $stmt->bind_param('iii', $userId, $classId, $yearId);
+    } else {
+        $stmt = $conn->prepare(
+            "SELECT s.id, s.subject_name, s.subject_name_en, s.subject_code
+             FROM class_subjects cs
+             JOIN subjects s ON cs.subject_id = s.id
+             WHERE cs.class_id = ? AND s.is_active = 1
+             ORDER BY s.subject_name"
+        );
+        $stmt->bind_param('i', $classId);
+    }
+    $stmt->execute();
+    $r = $stmt->get_result();
+    while ($row = $r->fetch_assoc()) {
+        $row['id'] = (int)$row['id'];
+        $subjects[] = $row;
+    }
+    $stmt->close();
+
+    $assessments = [];
+    $ids = array_map(static fn($s) => (int)$s['id'], $subjects);
+    if ($ids) {
+        $in = implode(',', $ids);
+        $stmt = $conn->prepare(
+            "SELECT a.id, a.subject_id, a.assessment_name, a.assessment_type,
+                    a.weight_percentage, a.max_score, a.assessment_order, a.is_published,
+                    COALESCE(g.cnt, 0) AS grades_entered
+             FROM assessments a
+             LEFT JOIN (
+                SELECT assessment_id, COUNT(*) AS cnt
+                FROM academic_records
+                WHERE class_id = ? AND academic_year_id = ?
+                GROUP BY assessment_id
+             ) g ON g.assessment_id = a.id
+             WHERE a.class_id = ? AND a.academic_year_id = ?
+               AND a.subject_id IN ($in)
+             ORDER BY a.subject_id, a.assessment_order, a.created_at"
+        );
+        $stmt->bind_param('iiii', $classId, $yearId, $classId, $yearId);
+        $stmt->execute();
+        $r = $stmt->get_result();
+        while ($row = $r->fetch_assoc()) {
+            $assessments[] = [
+                'id' => (int)$row['id'],
+                'subject_id' => (int)$row['subject_id'],
+                'assessment_name' => $row['assessment_name'],
+                'assessment_type' => $row['assessment_type'],
+                'weight_percentage' => (float)$row['weight_percentage'],
+                'max_score' => (float)$row['max_score'],
+                'assessment_order' => (int)$row['assessment_order'],
+                'is_published' => (bool)$row['is_published'],
+                'grades_entered' => (int)$row['grades_entered'],
+            ];
+        }
+        $stmt->close();
+    }
+
+    ok([
+        'subjects' => $subjects,
+        'assessments' => $assessments,
+        'class_id' => $classId,
+    ]);
+}
+
+// ============================================================
 // GET /grades/subjects?class_id=X
 // ============================================================
 if ($action === 'subjects' && $method === 'GET') {

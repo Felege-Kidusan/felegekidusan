@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/catalog_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/config.dart';
@@ -37,10 +38,13 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; _isOffline = false; });
-    final results = await Future.wait([_api.getDashboardStats(), _api.getClasses()]);
+    late ApiResponse statsRes;
+    late List<dynamic> classList;
+    await Future.wait([
+      _api.getDashboardStats().then((v) => statsRes = v),
+      CatalogService().classes().then((v) => classList = v),
+    ]);
     if (!mounted) return;
-    final statsRes = results[0];
-    final classRes = results[1];
     bool gotData = false;
 
     if (statsRes.success && statsRes.data != null) {
@@ -48,10 +52,9 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
       gotData = true;
       _db.cacheDashboardStats(statsRes.data, _api.userRole);
     }
-    if (classRes.success && classRes.data != null) {
-      _classes = classRes.data['classes'] ?? [];
+    if (classList.isNotEmpty) {
+      _classes = classList;
       gotData = true;
-      _db.cacheClasses(_classes);
     }
 
     if (!gotData) {

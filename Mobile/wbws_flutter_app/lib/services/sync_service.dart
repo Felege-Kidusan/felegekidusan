@@ -1,6 +1,7 @@
 import 'dart:async';
-import '../services/api_service.dart';
-import '../services/local_db.dart';
+import 'api_service.dart';
+import 'catalog_service.dart';
+import 'local_db.dart';
 
 /// Syncs offline data (attendance + grades) to server.
 /// Also caches data for offline use.
@@ -130,37 +131,10 @@ class SyncService {
       }
     } catch (_) {}
 
-    // Never download the whole school onto the phone.
-    // Teachers only get the classes they are assigned.
-
-    // Cache classes and their students/subjects
+    // Class list only. Rosters and subjects load when the teacher
+    // opens that class — otherwise a TECNO on slow data waits for every room.
     try {
-      final classRes = await _api.getClasses();
-      if (!classRes.success || classRes.data == null) return;
-      final classes = classRes.data['classes'] ?? [];
-      await _db.cacheClasses(classes);
-
-      for (final c in classes) {
-        final classId =
-            c['id'] is int ? c['id'] : int.tryParse('${c['id']}') ?? 0;
-        if (classId <= 0) continue;
-
-        // Cache students
-        try {
-          final sRes = await _api.getClassStudents(classId);
-          if (sRes.success && sRes.data != null) {
-            await _db.cacheStudents(classId, sRes.data['students'] ?? []);
-          }
-        } catch (_) {}
-
-        // Cache subjects
-        try {
-          final subRes = await _api.getClassSubjects(classId);
-          if (subRes.success && subRes.data != null) {
-            await _db.cacheSubjects(classId, subRes.data['subjects'] ?? []);
-          }
-        } catch (_) {}
-      }
+      await CatalogService().classes(force: true);
     } catch (_) {}
   }
 

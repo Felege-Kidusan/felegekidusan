@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
+import '../../services/catalog_service.dart';
 import '../../services/local_db.dart';
 import '../../services/session_service.dart';
 import '../../utils/config.dart';
@@ -70,11 +71,13 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     }
 
     // 2. Fetch fresh data silently
-    final results = await Future.wait([ _api.getDashboardStats(), _api.getClasses() ]);
+    late ApiResponse statsRes;
+    late List<dynamic> classList;
+    await Future.wait([
+      _api.getDashboardStats().then((v) => statsRes = v),
+      CatalogService().classes().then((v) => classList = v),
+    ]);
     if (!mounted) return;
-
-    final statsRes = results[0];
-    final classesRes = results[1];
 
     if (statsRes.success && statsRes.data != null) {
       setState(() {
@@ -87,12 +90,11 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
       _db.cacheDashboardStats(statsRes.data, _api.userRole);
     }
 
-    if (classesRes.success && classesRes.data != null) {
-      setState(() { _myClasses = classesRes.data['classes'] ?? []; });
-      _db.cacheClasses(_myClasses);
+    if (classList.isNotEmpty) {
+      setState(() { _myClasses = classList; });
     }
 
-    if (!statsRes.success && !classesRes.success && cached == null && cachedClasses.isEmpty) {
+    if (!statsRes.success && classList.isEmpty && cached == null && cachedClasses.isEmpty) {
       setState(() { _error = statsRes.message ?? 'Failed to load dashboard'; _loading = false; });
     }
   }
