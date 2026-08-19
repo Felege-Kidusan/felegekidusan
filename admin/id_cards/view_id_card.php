@@ -206,10 +206,26 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
         /* THE REAL CARD STYLE (Used for Export) */
         .id-card-template {
             width: 1011px; height: 638px;
-            background: white; border-radius: 35px; overflow: hidden;
+            background-color: #f3e6c4;
+            border-radius: 28px;
+            overflow: hidden;
             position: relative;
-            /* Force white background for PNG export */
-            background-color: #ffffff; 
+            border: 2px solid #c9a227;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .id-card-bg {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .id-card-template > *:not(.id-card-bg) {
+            position: relative;
+            z-index: 1;
         }
 
         /* UTILS */
@@ -330,7 +346,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
             const backEl = getExportElement('back');
 
             try {
-                const opts = { scale: 2, useCORS: true, allowTaint: false, backgroundColor: "#ffffff", width: 1011, height: 638, logging: false };
+                const opts = { scale: 2, useCORS: true, allowTaint: false, backgroundColor: "#f3e6c4", width: 1011, height: 638, logging: false };
 
                 const frontCanvas = await html2canvas(frontEl, opts);
                 pdf.addImage(frontCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 85.6, 54);

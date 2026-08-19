@@ -1274,7 +1274,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                     <h3 style="font-weight:700;font-size:.85rem;color:#e2e8f0;margin-bottom:.85rem"><i class="fa-solid fa-id-card" style="color:var(--pl)"></i> Live ID Card Preview</h3>
                     <div style="background:repeating-conic-gradient(#1e293b 0% 25%, #0f172a 0% 50%) 50%/20px 20px;border-radius:14px;padding:1.5rem;display:flex;justify-content:center;overflow-x:auto">
                         <!-- ID card at credit-card ratio (85.6mm × 54mm ≈ 1.585:1) scaled for preview -->
-                        <div id="idPreviewCard" style="width:510px;height:322px;background:#ffffff;border-radius:16px;border:3px solid #059669;overflow:hidden;position:relative;font-family:'Noto Serif Ethiopic','Inter',sans-serif;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,.4)">
+                        <div id="idPreviewCard" style="width:510px;height:322px;background:#f3e6c4 url('<?= defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg' ?>') center/cover no-repeat;border-radius:16px;border:2px solid #c9a227;overflow:hidden;position:relative;font-family:'Noto Serif Ethiopic','Inter',sans-serif;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,.4)">
                             
                             <!-- Top header area -->
                             <div style="text-align:center;padding:8px 10px 3px;position:relative;z-index:2">

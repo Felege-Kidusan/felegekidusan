@@ -89,6 +89,9 @@ define('ID_CARD_SIG_ADMIN_AM', 'የደብሩ አስተዳደር ስምና ፊር
 // Card disclaimer (bottom of back side)
 define('ID_CARD_DISCLAIMER_AM', 'ማስታወሻ: ይህ መታወቂያ ካርድ እስከ የሚያበቃበት ቀን ብቻ ዋጋ አለው። ከጠፋ ለአስተዳደሩ ያሳውቁ።');
 
+// Shared church artwork used on the front and the back of every card
+define('ID_CARD_BACKGROUND', '/admin/id_cards/assets/backgrounds/id_card_bg.jpg');
+
 
 // ┌─────────────────────────────────────────────────────────────┐
 // │  SECTION 5: MEMBER CODE                                     │

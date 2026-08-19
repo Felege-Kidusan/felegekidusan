@@ -1,6 +1,10 @@
 <!-- FILE: /admin/id_cards/id_card_template_layout.php -->
+<?php
+$idCardBg = defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
+?>
 <!-- FRONT SIDE -->
-<div class="id-card-template flex flex-col p-8 border-8 border-green-600 mb-10">
+<div class="id-card-template flex flex-col p-8 mb-10">
+    <div class="id-card-bg" style="background-image:url('<?= htmlspecialchars($idCardBg, ENT_QUOTES, 'UTF-8') ?>')"></div>
     <div class="text-center relative z-10">
         <div class="absolute top-0 left-0 rounded-full dashed-box flex items-center justify-center overflow-hidden bg-white" style="width:<?= $DISPLAY['logo_size'] * 112 / 100 ?>px;height:<?= $DISPLAY['logo_size'] * 112 / 100 ?>px;opacity:<?= $DISPLAY['logo_opacity'] / 100 ?>">
             <!-- Logo: use background-image for html2canvas compatibility -->
@@ -14,7 +18,7 @@
     <div class="w-full h-10 bg-wbws-green-gradient rounded-full my-4 mx-auto shadow-sm" style="width: 98%;"></div>
     <div class="flex flex-1 px-4 relative">
         <div class="w-1/3 flex flex-col items-center pt-2">
-            <div class="w-60 h-72 dashed-box rounded-xl bg-gray-50 overflow-hidden" style="position:relative">
+            <div class="w-60 h-72 dashed-box rounded-xl overflow-hidden" style="position:relative;background:#fff">
                 <?php if(!empty($member['student_photo_path'])): ?>
                     <!--
                         CRITICAL FIX: html2canvas does NOT support object-fit: cover on <img> tags.
@@ -63,7 +67,8 @@
 </div>
 
 <!-- BACK SIDE -->
-<div class="id-card-template flex flex-col p-8 border-8 border-green-600">
+<div class="id-card-template flex flex-col p-8">
+    <div class="id-card-bg" style="background-image:url('<?= htmlspecialchars($idCardBg, ENT_QUOTES, 'UTF-8') ?>')"></div>
     <div class="text-center">
         <h2 class="text-wbws-green text-3xl font-bold"><?= ID_CARD_TITLE_AM ?></h2>
         <h3 class="text-wbws-orange text-xl font-bold"><?= ID_CARD_TITLE_EN ?></h3>
