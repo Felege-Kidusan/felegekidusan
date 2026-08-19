@@ -69,32 +69,27 @@ class SubmissionService
         self::ensureColumn($conn, 'grade_submissions', 'absent_count', "INT UNSIGNED DEFAULT 0 AFTER `present_count`");
         self::ensureColumn($conn, 'grade_submissions', 'late_count', "INT UNSIGNED DEFAULT 0 AFTER `absent_count`");
         self::ensureColumn($conn, 'grade_submissions', 'excused_count', "INT UNSIGNED DEFAULT 0 AFTER `late_count`");
-
-        // Widen status so Save can be "incomplete" (not draft).
-        try {
-            $conn->query("ALTER TABLE `grade_submissions`
-                MODIFY `status` ENUM('draft','incomplete','submitted','approved','rejected','revision_needed')
-                NOT NULL DEFAULT 'incomplete'");
-        } catch (\Throwable $e) { /* already widened */ }
-
-        try {
-            $conn->query("ALTER TABLE `grade_submissions` MODIFY `subject_id` INT UNSIGNED DEFAULT 0");
-        } catch (\Throwable $e) { /* ok */ }
-
-        $r = $conn->query("SHOW COLUMNS FROM `academic_records` LIKE 'submission_id'");
-        if ($r && $r->num_rows === 0) {
-            try {
-                $conn->query("ALTER TABLE `academic_records` ADD COLUMN `submission_id` INT UNSIGNED DEFAULT NULL AFTER `assessment_id`");
-            } catch (\Throwable $e) { /* ok */ }
-        }
-
-        self::hardenUniques($conn);
+        self::ensureColumn($conn, 'academic_records', 'submission_id', "INT UNSIGNED DEFAULT NULL AFTER `assessment_id`");
+        // Never ALTER / DELETE the whole school on a read. Unique keys are added on write.
     }
 
     /**
      * One score per student per test. One mark per student per class per day.
      * Cleans leftover duplicates, then adds unique keys so they cannot return.
      */
+    private static function hasIndex(\mysqli $conn, string $table, string $name): bool
+    {
+        try {
+            $t = $conn->real_escape_string($table);
+            $n = $conn->real_escape_string($name);
+            $r = $conn->query("SHOW INDEX FROM `{$t}` WHERE Key_name = '{$n}'");
+            return $r && $r->num_rows > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /** Run only from a Save/Submit — never from opening a modal. */
     public static function hardenUniques(\mysqli $conn): void
     {
         static $done = false;
@@ -102,49 +97,38 @@ class SubmissionService
             return;
         }
         $done = true;
-        try {
-            $conn->query(
-                "DELETE ar FROM academic_records ar
-                 INNER JOIN academic_records keep
-                    ON keep.assessment_id = ar.assessment_id
-                   AND keep.member_id = ar.member_id
-                   AND keep.id > ar.id
-                 WHERE ar.assessment_id IS NOT NULL"
-            );
-        } catch (\Throwable $e) { /* ok */ }
-        try {
-            $conn->query(
-                "ALTER TABLE academic_records
-                 ADD UNIQUE KEY uq_ar_assessment_member (assessment_id, member_id)"
-            );
-        } catch (\Throwable $e) { /* already there */ }
-        try {
-            $conn->query(
-                "DELETE a FROM attendance a
-                 INNER JOIN attendance keep
-                    ON keep.member_id = a.member_id
-                   AND keep.class_id = a.class_id
-                   AND keep.attendance_date = a.attendance_date
-                   AND keep.id > a.id"
-            );
-        } catch (\Throwable $e) { /* ok */ }
-        try {
-            $conn->query(
-                "ALTER TABLE attendance
-                 ADD UNIQUE KEY uq_att_member_class_date (member_id, class_id, attendance_date)"
-            );
-        } catch (\Throwable $e) { /* already there */ }
-        try {
-            $conn->query(
-                "DELETE gs FROM grade_submissions gs
-                 INNER JOIN grade_submissions keep
-                    ON keep.assessment_id = gs.assessment_id
-                   AND keep.submission_type = 'marklist'
-                   AND gs.submission_type = 'marklist'
-                   AND keep.id > gs.id
-                 WHERE gs.assessment_id IS NOT NULL"
-            );
-        } catch (\Throwable $e) { /* ok */ }
+        if (!self::hasIndex($conn, 'academic_records', 'uq_ar_assessment_member')) {
+            try {
+                $conn->query(
+                    "DELETE ar FROM academic_records ar
+                     INNER JOIN academic_records keep
+                        ON keep.assessment_id = ar.assessment_id
+                       AND keep.member_id = ar.member_id
+                       AND keep.id > ar.id
+                     WHERE ar.assessment_id IS NOT NULL"
+                );
+                $conn->query(
+                    "ALTER TABLE academic_records
+                     ADD UNIQUE KEY uq_ar_assessment_member (assessment_id, member_id)"
+                );
+            } catch (\Throwable $e) { /* ok */ }
+        }
+        if (!self::hasIndex($conn, 'attendance', 'uq_att_member_class_date')) {
+            try {
+                $conn->query(
+                    "DELETE a FROM attendance a
+                     INNER JOIN attendance keep
+                        ON keep.member_id = a.member_id
+                       AND keep.class_id = a.class_id
+                       AND keep.attendance_date = a.attendance_date
+                       AND keep.id > a.id"
+                );
+                $conn->query(
+                    "ALTER TABLE attendance
+                     ADD UNIQUE KEY uq_att_member_class_date (member_id, class_id, attendance_date)"
+                );
+            } catch (\Throwable $e) { /* ok */ }
+        }
     }
 
     public static function staffCanOverride(array $auth): bool
@@ -224,6 +208,7 @@ class SubmissionService
     /** One score per student per test. Always update the existing row. */
     public static function upsertScore(\mysqli $conn, array $row): int
     {
+        self::hardenUniques($conn);
         $assessmentId = (int)($row['assessment_id'] ?? 0);
         $memberId = (int)($row['member_id'] ?? 0);
         if ($assessmentId <= 0 || $memberId <= 0) {
@@ -837,28 +822,23 @@ class SubmissionService
             return [];
         }
         $stmt = $conn->prepare(
-            "SELECT a.member_id, a.status, a.notes, m.student_name, m.father_name, m.member_code
+            "SELECT a.id, a.member_id, a.status, a.notes, m.student_name, m.father_name, m.member_code
              FROM attendance a
              JOIN members m ON m.id = a.member_id
-             INNER JOIN (
-                SELECT member_id, MAX(id) AS max_id
-                FROM attendance
-                WHERE class_id = ? AND attendance_date = ?
-                GROUP BY member_id
-             ) latest ON latest.max_id = a.id
              WHERE a.class_id = ? AND a.attendance_date = ?
-             ORDER BY m.student_name"
+             ORDER BY a.id ASC"
         );
         if (!$stmt) {
             return [];
         }
-        $stmt->bind_param('isis', $classId, $date, $classId, $date);
+        $stmt->bind_param('is', $classId, $date);
         $stmt->execute();
-        $rows = [];
+        $byMember = [];
         $r = $stmt->get_result();
         while ($row = $r->fetch_assoc()) {
-            $rows[] = [
-                'member_id' => (int)$row['member_id'],
+            $mid = (int)$row['member_id'];
+            $byMember[$mid] = [
+                'member_id' => $mid,
                 'student_name' => $row['student_name'] ?? '',
                 'father_name' => $row['father_name'] ?? '',
                 'member_code' => $row['member_code'] ?? '',
@@ -867,6 +847,10 @@ class SubmissionService
             ];
         }
         $stmt->close();
+        $rows = array_values($byMember);
+        usort($rows, static function ($a, $b) {
+            return strcasecmp((string)$a['student_name'], (string)$b['student_name']);
+        });
         return $rows;
     }
 
@@ -876,25 +860,26 @@ class SubmissionService
             return [];
         }
         $stmt = $conn->prepare(
-            "SELECT ar.member_id, ar.score, ar.max_score, ar.remarks,
+            "SELECT ar.id, ar.member_id, ar.score, ar.max_score, ar.remarks,
                     m.student_name, m.father_name, m.member_code
              FROM academic_records ar
              JOIN members m ON m.id = ar.member_id
              WHERE ar.assessment_id = ?
-             ORDER BY m.student_name"
+             ORDER BY ar.id ASC"
         );
         if (!$stmt) {
             return [];
         }
-        $stmt->bind_param('ii', $assessmentId, $assessmentId);
+        $stmt->bind_param('i', $assessmentId);
         $stmt->execute();
-        $rows = [];
+        $byMember = [];
         $r = $stmt->get_result();
         while ($row = $r->fetch_assoc()) {
+            $mid = (int)$row['member_id'];
             $score = $row['score'] !== null ? (float)$row['score'] : null;
             $max = $row['max_score'] !== null ? (float)$row['max_score'] : null;
-            $rows[] = [
-                'member_id' => (int)$row['member_id'],
+            $byMember[$mid] = [
+                'member_id' => $mid,
                 'student_name' => $row['student_name'] ?? '',
                 'father_name' => $row['father_name'] ?? '',
                 'member_code' => $row['member_code'] ?? '',
@@ -904,6 +889,10 @@ class SubmissionService
             ];
         }
         $stmt->close();
+        $rows = array_values($byMember);
+        usort($rows, static function ($a, $b) {
+            return strcasecmp((string)$a['student_name'], (string)$b['student_name']);
+        });
         return $rows;
     }
 

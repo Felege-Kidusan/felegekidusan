@@ -32,31 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ── Auto-create / widen submissions table ──
+// Cheap table check only. Never ALTER / DROP on a read — that locked the mark-list modal.
 try {
     \App\Services\SubmissionService::ensureTable($conn);
-    
-    // Add assessment_id column if missing
-    $r = $conn->query("SHOW COLUMNS FROM `academic_records` LIKE 'assessment_id'");
-    if ($r && $r->num_rows === 0) {
-        $conn->query("ALTER TABLE `academic_records` ADD COLUMN `assessment_id` INT UNSIGNED DEFAULT NULL AFTER `term_id`");
-    }
-    // Add submission_id to academic_records
-    $r = $conn->query("SHOW COLUMNS FROM `academic_records` LIKE 'submission_id'");
-    if ($r && $r->num_rows === 0) {
-        $conn->query("ALTER TABLE `academic_records` ADD COLUMN `submission_id` INT UNSIGNED DEFAULT NULL AFTER `assessment_id`");
-    }
-    // Make academic_year_id nullable in academic_records  
-    try { $conn->query("ALTER TABLE `academic_records` MODIFY `academic_year_id` INT UNSIGNED DEFAULT NULL"); } catch(Exception $e) {}
-    // Drop FKs from academic_records that might block inserts
-    try {
-        $fks = $conn->query("SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS 
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'academic_records' 
-            AND CONSTRAINT_TYPE = 'FOREIGN KEY'");
-        if ($fks) while ($fk = $fks->fetch_assoc()) {
-            try { $conn->query("ALTER TABLE `academic_records` DROP FOREIGN KEY `{$fk['CONSTRAINT_NAME']}`"); } catch(Exception $e) {}
-        }
-    } catch(Exception $e) {}
 } catch (Exception $e) { /* non-critical */ }
 
 // Get current academic year

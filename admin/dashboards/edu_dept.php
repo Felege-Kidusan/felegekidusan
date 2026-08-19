@@ -1667,22 +1667,12 @@ async function loadSubInsights(){
             <div style="margin-top:.85rem;text-align:right"><button class="btn btn-o btn-xs" type="button" onclick="exportSubmissions()"><i class="fa-solid fa-download"></i> Export Excel</button></div>`;
     }catch(e){ box.innerHTML=`<p style="color:#dc2626">${esc(friendlyNetError(e))}</p>`; }
 }
-async function reviewSubmission(id){
-    const local=allSubmissions.find(x=>Number(x.id)===Number(id))||{};
-    document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${esc(local.submission_type==='attendance'?'Attendance':'Mark list')}`;
-    document.getElementById('reviewModalContent').innerHTML='<p style="text-align:center;color:#94a3b8;padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening…</p>';
-    document.getElementById('reviewModal').classList.add('show');
-    let s=local;
-    try{
-        const d=await getAPI(`/admin/api_communication.php?action=get_submission_detail&id=${id}`);
-        if(d.status==='success' && d.submission) s=d.submission;
-    }catch(e){}
+function paintReviewShell(s){
     const sc={incomplete:'#2563eb',draft:'#2563eb',submitted:'#f59e0b',approved:'#059669',rejected:'#ef4444',revision_needed:'#f97316'};
     const rows=s.rows||[];
     const isAtt=s.submission_type==='attendance';
     window._reviewRows=rows;
     window._reviewIsAtt=isAtt;
-    
     document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${isAtt?'Attendance':'Mark list'} · ${esc(s.class_name||'')}`;
     document.getElementById('reviewModalContent').innerHTML=`
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;font-size:.82rem;margin-bottom:1rem;background:#f8fafc;padding:.85rem;border-radius:12px">
@@ -1697,8 +1687,15 @@ async function reviewSubmission(id){
             ${s.reviewer_name?`<div><strong style="color:#64748b">Reviewed by:</strong> ${esc(s.reviewer_name)}</div>`:''}
             ${s.review_notes?`<div style="grid-column:1/-1"><strong style="color:#64748b">Notes:</strong> ${esc(s.review_notes)}</div>`:''}
         </div>
-        <h4 style="font-weight:700;font-size:.85rem;margin-bottom:.5rem"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
-        ${bodyHtml}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+            <h4 style="font-weight:700;font-size:.85rem;margin:0"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                <input id="reviewSearch" class="inp" style="max-width:180px;padding:.35rem .6rem;font-size:.75rem" placeholder="Search name or code…" oninput="renderReviewRows()">
+                <select id="reviewFilter" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()">${isAtt?'<option value="">All marks</option><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="excused">Excused</option>':'<option value="">All scores</option><option value="scored">Has score</option><option value="blank">No score</option><option value="high">8 and above</option><option value="low">Below 5</option>'}</select>
+                <select id="reviewSort" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()"><option value="name">Sort: Name</option><option value="code">Sort: Code</option>${isAtt?'<option value="mark">Sort: Mark</option>':'<option value="score">Sort: Score</option>'}</select>
+            </div>
+        </div>
+        <div id="reviewRowsBox">${rows.length?'':'<p style="text-align:center;color:#94a3b8">Loading students…</p>'}</div>
         ${s.status==='submitted'?`
         <div style="border-top:1px solid #f1f5f9;padding-top:1rem;margin-top:1rem">
             <label class="lbl">Review Notes</label>
@@ -1709,8 +1706,23 @@ async function reviewSubmission(id){
                 <button class="btn btn-s" onclick="doReview(${s.id},'approved')"><i class="fa-solid fa-check"></i> Approve</button>
             </div>
         </div>`:''}`;
+    if(rows.length) renderReviewRows();
+}
+async function reviewSubmission(id){
+    const local=allSubmissions.find(x=>Number(x.id)===Number(id))||{};
     document.getElementById('reviewModal').classList.add('show');
-    renderReviewRows();
+    paintReviewShell(local);
+    try{
+        const d=await getAPI(`/admin/api_communication.php?action=get_submission_detail&id=${id}`);
+        if(d.status==='success' && d.submission) paintReviewShell(d.submission);
+        else if(!(local.rows||[]).length){
+            const box=document.getElementById('reviewRowsBox');
+            if(box) box.innerHTML='<p style="text-align:center;color:#dc2626">Could not load students. Close and try again.</p>';
+        }
+    }catch(e){
+        const box=document.getElementById('reviewRowsBox');
+        if(box && !(local.rows||[]).length) box.innerHTML=`<p style="text-align:center;color:#dc2626">${esc(friendlyNetError(e))}</p>`;
+    }
 }
 function renderReviewRows(){
     const box=document.getElementById('reviewRowsBox');
