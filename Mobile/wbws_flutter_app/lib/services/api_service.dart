@@ -33,12 +33,12 @@ class ApiResponse {
     );
   }
 
-  factory ApiResponse.error(String msg, [int code = 0]) {
+  factory ApiResponse.error(String msg, [int code = 0, bool network = false]) {
     return ApiResponse(
       success: false,
       message: msg,
       statusCode: code,
-      isNetworkError: code == 0,
+      isNetworkError: network,
       isAuthError: code == 401 || code == 403,
     );
   }
@@ -115,19 +115,35 @@ class ApiService {
     return h;
   }
 
-  /// Core GET request
+  /// Core GET request. Reuses one TLS session (Telegram keeps a socket open)
+  /// and collapses identical in-flight reads so Home + WarmStore + Sync
+  /// do not open three handshakes on 4G.
   Future<ApiResponse> get(String path,
       {Map<String, String>? params, bool auth = true}) async {
-    try {
-      var uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
-      if (params != null && params.isNotEmpty) {
-        uri = uri.replace(queryParameters: params);
-      }
+    var uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
+    if (params != null && params.isNotEmpty) {
+      uri = uri.replace(queryParameters: params);
+    }
+    final key = uri.toString();
+    final existing = _getInflight[key];
+    if (existing != null) return existing;
 
-      final response = await http
+    final future = _doGet(uri, auth);
+    _getInflight[key] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_getInflight[key], future)) {
+        _getInflight.remove(key);
+      }
+    }
+  }
+
+  Future<ApiResponse> _doGet(Uri uri, bool auth) async {
+    try {
+      final response = await _http
           .get(uri, headers: _headers(withAuth: auth))
           .timeout(Duration(seconds: AppConfig.connectionTimeout));
-
       return _handleResponse(response);
     } catch (e) {
       return _handleError(e);
@@ -139,14 +155,13 @@ class ApiService {
       {Map<String, dynamic>? body, bool auth = true}) async {
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
-      final response = await http
+      final response = await _http
           .post(
             uri,
             headers: _headers(withAuth: auth),
             body: body != null ? jsonEncode(body) : null,
           )
-          .timeout(Duration(seconds: AppConfig.connectionTimeout));
-
+          .timeout(Duration(seconds: AppConfig.postTimeout));
       return _handleResponse(response);
     } catch (e) {
       return _handleError(e);
@@ -157,14 +172,13 @@ class ApiService {
   Future<ApiResponse> put(String path, {Map<String, dynamic>? body}) async {
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
-      final response = await http
+      final response = await _http
           .put(
             uri,
             headers: _headers(),
             body: body != null ? jsonEncode(body) : null,
           )
-          .timeout(Duration(seconds: AppConfig.connectionTimeout));
-
+          .timeout(Duration(seconds: AppConfig.postTimeout));
       return _handleResponse(response);
     } catch (e) {
       return _handleError(e);
@@ -193,20 +207,26 @@ class ApiService {
   }
 
   /// Handle network errors.
-  /// A slow 4G blip is not "no internet" — never flip the global banner
-  /// from a single timed-out read.
+  /// Timeout ≠ offline. Only a missing radio is a network error.
   ApiResponse _handleError(dynamic error) {
     final msg = error.toString();
     if (msg.contains('TimeoutException')) {
-      return ApiResponse.error('Server is taking too long. Please try again.');
+      return ApiResponse.error(
+          'The school is taking longer than usual. Try again.');
     }
     if (msg.contains('SocketException') ||
         msg.contains('HandshakeException') ||
         msg.contains('OS Error')) {
+      final noRadio = !_connectivity.hasLink;
       return ApiResponse.error(
-          'Could not reach the server. Your work is still on this phone.');
+        noRadio
+            ? 'Waiting for network. Your work is still on this phone.'
+            : 'Could not reach the school right now. Your work is still on this phone.',
+        0,
+        noRadio,
+      );
     }
-    return ApiResponse.error('Connection error. Please try again.');
+    return ApiResponse.error('Could not finish this request. Please try again.');
   }
 
   /// Handle token expiry

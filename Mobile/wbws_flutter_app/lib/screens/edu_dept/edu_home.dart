@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/app_update_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../utils/theme.dart';
 import '../../utils/transitions.dart';
@@ -38,7 +39,7 @@ class EduHomeScreenState extends State<EduHomeScreen> {
     setState(() { _error = null; });
     final cached = await _db.getCachedDashboardStats();
     if (cached != null) {
-      if (mounted) setState(() { _stats = cached['stats'] ?? {}; _loading = false; _isOffline = true; });
+      if (mounted) setState(() { _stats = cached['stats'] ?? {}; _loading = false; _isOffline = !ConnectivityService().hasLink; });
     } else {
       if (mounted) setState(() { _loading = true; });
     }
@@ -94,7 +95,7 @@ class EduHomeScreenState extends State<EduHomeScreen> {
       decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
       child: Row(children: [
         Icon(Icons.cloud_off, size: 16, color: AppTheme.warning), const SizedBox(width: 8),
-        Expanded(child: Text('Offline — showing cached data. Pull to refresh.',
+        Expanded(child: Text('Waiting for network — showing the last numbers saved on this phone.',
             style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
       ]),
     );

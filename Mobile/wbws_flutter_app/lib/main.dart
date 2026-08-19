@@ -34,10 +34,13 @@ void main() async {
   runApp(const FKSSApp());
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    // OS radio only — no HTTP ping. Warm and sync wait so Home can use 4G first.
     ConnectivityService().startMonitoring();
     if (ApiService().isLoggedIn) {
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        WarmStore().afterLogin();
+      });
       SyncService().startAutoSync();
-      WarmStore().afterLogin();
     }
   });
 }

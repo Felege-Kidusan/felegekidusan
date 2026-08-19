@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../utils/theme.dart';
 import 'member_detail_screen.dart';
@@ -97,12 +98,12 @@ class _MemberListScreenState extends State<MemberListScreen> {
           _members = cached;
           _loading = false;
           _loadingMore = false;
-          _isOffline = true;
+          _isOffline = !ConnectivityService().hasLink;
         });
       } else {
         setState(() {
           _error = res.isNetworkError
-              ? 'No internet and no cached members'
+              ? 'Waiting for network and no members saved on this phone'
               : res.message;
           _loading = false;
           _loadingMore = false;
@@ -145,7 +146,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Showing cached members — pull to refresh when online',
+                      'Waiting for network — showing members saved on this phone',
                       style: TextStyle(
                           fontSize: 11,
                           color: AppTheme.warning,

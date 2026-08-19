@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import 'package:flutter/services.dart';
@@ -43,15 +44,26 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   bool _isOffline = false;
   String? _error;
   int _pendingGrades = 0;
+  StreamSubscription<bool>? _netSub;
 
   @override
   void initState() {
     super.initState();
+    _isOffline = !ConnectivityService().hasLink;
+    _netSub = ConnectivityService().statusStream.listen((hasLink) {
+      if (mounted) setState(() => _isOffline = !hasLink);
+    });
     _loadClasses();
     _updatePendingCount();
     _sync.syncStream.listen((s) {
       if (mounted) setState(() => _pendingGrades = s.pendingGrades);
     });
+  }
+
+  @override
+  void dispose() {
+    _netSub?.cancel();
+    super.dispose();
   }
 
   void refresh() {
@@ -68,7 +80,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     setState(() { _error = null; });
     final warm = CatalogService().cached;
     if (warm.isNotEmpty && mounted) {
-      setState(() { _classes = warm; _loadingClasses = false; _isOffline = !ConnectivityService().isOnline; });
+      setState(() { _classes = warm; _loadingClasses = false; _isOffline = !ConnectivityService().hasLink; });
     } else {
       setState(() => _loadingClasses = true);
     }
@@ -78,7 +90,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     setState(() {
       _classes = classes.isNotEmpty ? classes : _classes;
       _loadingClasses = false;
-      _isOffline = !ConnectivityService().isOnline;
+      _isOffline = !ConnectivityService().hasLink;
     });
     AppNav().markGradesLoaded();
     if (classes.length == 1) {
@@ -128,7 +140,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       if (_subjects.isEmpty) _subjects = cached;
       _loadingSubjects = false;
       if (_subjects.isNotEmpty) {
-        _isOffline = !ConnectivityService().isOnline;
+        _isOffline = !ConnectivityService().hasLink;
       } else if (!res.success) {
         _error = res.message ?? 'Could not load subjects. Pull to refresh.';
       }
@@ -159,7 +171,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       setState(() {
         _assessments = cached.isNotEmpty ? cached : [];
         _loadingAssessments = false;
-        if (cached.isNotEmpty) _isOffline = true;
+        if (cached.isNotEmpty) _isOffline = !ConnectivityService().hasLink;
       });
     }
   }
@@ -227,7 +239,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       child: Row(children: [
         Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
         const SizedBox(width: 8),
-        Expanded(child: Text('Offline — using cached data. Grades will sync when online.',
+        Expanded(child: Text('Waiting for network — grades stay on this phone until you are back online.',
             style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
       ]),
     );
@@ -492,15 +504,21 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   String? _error;
   String? _rosterNote;
   int _gradedCount = 0;
+  StreamSubscription<bool>? _netSub;
 
   @override
   void initState() {
     super.initState();
+    _isOffline = !ConnectivityService().hasLink;
+    _netSub = ConnectivityService().statusStream.listen((hasLink) {
+      if (mounted) setState(() => _isOffline = !hasLink);
+    });
     _loadStudents();
   }
 
   @override
   void dispose() {
+    _netSub?.cancel();
     _scoreCtrl.values.forEach((c) => c.dispose());
     _remarkCtrl.values.forEach((c) => c.dispose());
     super.dispose();
@@ -529,7 +547,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
             ? 'Showing students from a previous year.'
             : 'Showing the $year roster.';
       }
-      setState(() { _isOffline = !ConnectivityService().isOnline; _loading = false; _rosterNote = note; });
+      setState(() { _isOffline = !ConnectivityService().hasLink; _loading = false; _rosterNote = note; });
       _recountGraded();
       return;
     }
@@ -560,7 +578,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         });
       }
       _setupStudents(students);
-      setState(() { _isOffline = true; _loading = false; });
+      setState(() { _isOffline = !ConnectivityService().hasLink; _loading = false; });
     } else {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';
@@ -779,7 +797,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                           child: Row(children: [
                             Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
                             const SizedBox(width: 8),
-                            Expanded(child: Text('No internet — scores stay on this phone until you are back online',
+                            Expanded(child: Text('Waiting for network — scores stay on this phone until you are back online',
                                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
                           ])),
                       if (_rosterNote != null)

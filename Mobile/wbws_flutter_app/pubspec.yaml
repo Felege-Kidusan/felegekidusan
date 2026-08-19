@@ -1,7 +1,7 @@
 name: fkss_app
 description: FKSS Sunday School Management System — Mobile App
 publish_to: 'none'
-version: 1.1.4+6
+version: 1.1.5+7
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -12,6 +12,9 @@ dependencies:
   
   # HTTP & API
   http: ^1.2.0
+
+  # Phone radio (Wi‑Fi / 4G / none) — Telegram-style "Waiting for network"
+  connectivity_plus: ^6.1.4
   
   # Local storage (for JWT token — encrypted)
   shared_preferences: ^2.2.0

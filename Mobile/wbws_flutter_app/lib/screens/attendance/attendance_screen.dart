@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
@@ -59,6 +60,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _netSub?.cancel();
+    super.dispose();
+  }
+
   void refresh() {
     _loadClasses();
     _updatePendingCount();
@@ -79,7 +86,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
     final classes = await CatalogService().classes();
     if (!mounted) return;
-    final online = ConnectivityService().isOnline;
+    final online = ConnectivityService().hasLink;
     setState(() {
       if (classes.isNotEmpty) {
         _classes = classes;
@@ -87,7 +94,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       } else if (_classes.isEmpty) {
         _error = online
             ? 'No classes assigned'
-            : 'Could not load classes. Check your connection and try again.';
+            : 'Could not load classes. Waiting for network.';
       }
       _loadingClasses = false;
       _isOffline = !online;
@@ -220,7 +227,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _students = students;
         _loadingStudents = false;
         _rosterReady = true;
-        _isOffline = !ConnectivityService().isOnline;
+        _isOffline = !ConnectivityService().hasLink;
         _loadFailed = false;
         _rosterNote = note;
       });
@@ -437,7 +444,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'No internet — kept on this phone until you are back online',
+                      'Waiting for network — kept on this phone until you are back online',
                       style: TextStyle(
                           fontSize: 11,
                           color: AppTheme.warning,

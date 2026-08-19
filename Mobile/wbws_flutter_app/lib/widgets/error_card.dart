@@ -23,8 +23,8 @@ class AppError {
   // ── Error factory methods ──
   static AppError network([String? msg]) => AppError(
     code: 'E-NET',
-    title: 'No Connection',
-    detail: msg ?? 'Check your internet and try again',
+    title: 'Waiting for network',
+    detail: msg ?? 'Turn on mobile data or Wi‑Fi, then try again',
     icon: Icons.cloud_off_rounded,
     color: AppTheme.warning,
   );

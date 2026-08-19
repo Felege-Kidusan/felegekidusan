@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
@@ -35,11 +36,22 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
   List<dynamic> _myClasses = [];
   Map<String, dynamic> _todayAttendance = {};
   List<dynamic> _recentActivity = [];
+  StreamSubscription<bool>? _netSub;
 
   @override
   void initState() {
     super.initState();
+    _isOffline = !ConnectivityService().hasLink;
+    _netSub = ConnectivityService().statusStream.listen((hasLink) {
+      if (mounted) setState(() => _isOffline = !hasLink);
+    });
     _loadDashboard();
+  }
+
+  @override
+  void dispose() {
+    _netSub?.cancel();
+    super.dispose();
   }
 
   /// Called by AppShell when tab is switched to
@@ -65,7 +77,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
           _myClasses = cachedClasses;
         }
         _loading = false;
-        _isOffline = !ConnectivityService().isOnline;
+        _isOffline = !ConnectivityService().hasLink;
       });
     } else {
       if (mounted) setState(() => _loading = true);
@@ -86,7 +98,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
         _todayAttendance = _stats['today_attendance'] ?? {};
         _recentActivity = (statsRes.data['recent_activity'] as List?) ?? [];
         _loading = false;
-        _isOffline = !ConnectivityService().isOnline;
+        _isOffline = !ConnectivityService().hasLink;
       });
       _db.cacheDashboardStats(statsRes.data, _api.userRole);
     }
@@ -219,7 +231,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
           child: Row(children: [
             Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
             const SizedBox(width: 8),
-            Expanded(child: Text('No internet — showing the last list saved on this phone',
+            Expanded(child: Text('Waiting for network — showing the last list saved on this phone',
                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
           ]),
         ),

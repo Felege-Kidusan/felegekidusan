@@ -20,6 +20,35 @@ if (!headers_sent() && extension_loaded('zlib')) {
     ini_set('zlib.output_compression_level', '5');
 }
 
+// Cheap liveness — no MariaDB, no auth. A 4G phone must not wait on
+// the school database just to know the site is up.
+$__fkssRoute = '';
+if (!empty($_GET['_route'])) {
+    $__fkssRoute = $_GET['_route'];
+} elseif (!empty($_GET['path'])) {
+    $__fkssRoute = $_GET['path'];
+} elseif (!empty($_SERVER['PATH_INFO'])) {
+    $__fkssRoute = $_SERVER['PATH_INFO'];
+}
+$__fkssRoute = trim($__fkssRoute, '/');
+if ($__fkssRoute === 'ping') {
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        header('Access-Control-Allow-Origin: *');
+    }
+    echo json_encode([
+        'status' => 'success',
+        'data' => [
+            'api' => 'FKSS',
+            'version' => '1.0',
+            'status' => 'running',
+            'time' => date('c'),
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // Load core modules
 require_once __DIR__ . '/core/response.php';
 require_once __DIR__ . '/core/database.php';

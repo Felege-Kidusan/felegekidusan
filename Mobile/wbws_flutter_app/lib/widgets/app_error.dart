@@ -49,8 +49,8 @@ class AppError {
 
   static const noConnection = AppError(
     code: 'WBSS-N01',
-    title: 'No Connection',
-    message: 'Check your internet and try again',
+    title: 'Waiting for network',
+    message: 'Turn on mobile data or Wi‑Fi, then try again',
     icon: Icons.cloud_off_rounded,
     color: AppTheme.warning,
   );

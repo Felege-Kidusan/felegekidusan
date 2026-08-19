@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/catalog_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/config.dart';
@@ -64,7 +65,7 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
       if (cached != null || cachedClasses.isNotEmpty) {
         if (cached != null) _stats = cached['stats'] ?? {};
         if (cachedClasses.isNotEmpty) _classes = cachedClasses;
-        setState(() { _loading = false; _isOffline = true; });
+        setState(() { _loading = false; _isOffline = !ConnectivityService().hasLink; });
         return;
       }
       setState(() { _loading = false; _error = statsRes.message; _isOffline = statsRes.isNetworkError; });
@@ -190,7 +191,7 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
       decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
       child: Row(children: [
         Icon(Icons.cloud_off, size: 16, color: AppTheme.warning), const SizedBox(width: 8),
-        Expanded(child: Text('Offline — showing cached data. Pull to refresh.',
+        Expanded(child: Text('Waiting for network — showing the last numbers saved on this phone.',
             style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
       ]),
     );

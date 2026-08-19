@@ -65,15 +65,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // Handle auth expiry — redirect to login
     _api.onAuthExpired = _handleAuthExpired;
 
-    // When coming back online, refresh current tab
+    // Radio came back — refresh the open tab after the link settles.
+    // Do not pile cacheForOffline + ping + sync on the same 4G radio.
     _connectivity.statusStream.listen((online) {
       if (online && mounted) {
-        // Small delay to let network stabilize
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) _refreshCurrentTab();
         });
-        // Re-cache offline data
-        SyncService().cacheForOffline();
       }
     });
 
@@ -95,7 +93,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _connectivity.startMonitoring();
       SyncService().startAutoSync();
       _refreshCurrentTab();
-      _connectivity.checkNow();
       AppUpdateService().check().then((_) {
         if (mounted) setState(() {});
       });

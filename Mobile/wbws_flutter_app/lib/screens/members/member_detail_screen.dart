@@ -40,7 +40,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       final cached = await _db.getCachedMembers();
       final match = cached.where((m) => m['id'] == widget.memberId).toList();
       if (match.isNotEmpty) {
-        setState(() { _member = match.first; _loading = false; _isOffline = true; });
+        setState(() { _member = match.first; _loading = false; _isOffline = !ConnectivityService().hasLink; });
       } else {
         setState(() { _error = res.message ?? 'Member not found'; _loading = false; _isOffline = res.isNetworkError; });
       }

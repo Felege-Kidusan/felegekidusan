@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'api_service.dart';
 import 'catalog_service.dart';
+import 'connectivity_service.dart';
 import 'local_db.dart';
 
 /// Syncs offline data (attendance + grades) to server.
@@ -24,9 +25,12 @@ class SyncService {
 
   void startAutoSync() {
     _syncTimer?.cancel();
+    // Telegram does not hammer the radio. First send waits so Home can paint.
     _syncTimer =
-        Timer.periodic(const Duration(seconds: 30), (_) => syncAll());
-    syncAll();
+        Timer.periodic(const Duration(seconds: 90), (_) => syncAll());
+    Future<void>.delayed(const Duration(seconds: 8), () {
+      if (_syncTimer != null) syncAll();
+    });
   }
 
   void stopAutoSync() {
@@ -37,6 +41,9 @@ class SyncService {
   Future<SyncResult> syncAll() async {
     if (!_api.isLoggedIn) {
       return SyncResult(synced: 0, failed: 0, message: 'Not logged in');
+    }
+    if (!ConnectivityService().hasLink) {
+      return SyncResult(synced: 0, failed: 0, message: 'Waiting for network');
     }
     if (_syncing) {
       _queued = true;

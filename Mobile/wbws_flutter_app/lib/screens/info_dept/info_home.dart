@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
@@ -40,7 +41,7 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
     } else {
       final cached = await _db.getCachedDashboardStats();
       if (cached != null) {
-        setState(() { _stats = cached['stats'] ?? {}; _loading = false; _isOffline = true; });
+        setState(() { _stats = cached['stats'] ?? {}; _loading = false; _isOffline = !ConnectivityService().hasLink; });
       } else {
         setState(() { _error = res.message; _loading = false; _isOffline = res.isNetworkError; });
       }
@@ -81,7 +82,7 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
       decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
       child: Row(children: [
         Icon(Icons.cloud_off, size: 16, color: AppTheme.warning), const SizedBox(width: 8),
-        Expanded(child: Text('Offline — showing cached data. Pull to refresh.',
+        Expanded(child: Text('Waiting for network — showing the last numbers saved on this phone.',
             style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
       ]),
     );

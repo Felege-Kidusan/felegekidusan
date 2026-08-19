@@ -5,8 +5,9 @@ import '../services/local_db.dart';
 import '../services/sync_service.dart';
 import '../utils/theme.dart';
 
-/// Global offline banner — sits at the top of the app when offline.
-/// Shows pending sync count and manual sync button.
+/// Top bar — Telegram wording.
+/// Shown only when the phone radio is off (airplane / data off / no SIM).
+/// A slow 4G reply must never appear here as "No internet connection".
 class OfflineBanner extends StatefulWidget {
   const OfflineBanner({super.key});
 
@@ -25,7 +26,7 @@ class _OfflineBannerState extends State<OfflineBanner>
   StreamSubscription<bool>? _connectSub;
   StreamSubscription<SyncStatus>? _syncSub;
 
-  bool _isOffline = false;
+  bool _waiting = false;
   int _pendingCount = 0;
   bool _syncing = false;
   bool _justCameOnline = false;
@@ -33,7 +34,7 @@ class _OfflineBannerState extends State<OfflineBanner>
   @override
   void initState() {
     super.initState();
-    _isOffline = !_connectivity.isOnline;
+    _waiting = !_connectivity.hasLink;
 
     _animCtrl = AnimationController(
       vsync: this,
@@ -41,24 +42,20 @@ class _OfflineBannerState extends State<OfflineBanner>
     );
     _slideAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
 
-    if (_isOffline) _animCtrl.value = 1.0;
+    if (_waiting) _animCtrl.value = 1.0;
 
-    _connectSub = _connectivity.statusStream.listen((online) {
+    _connectSub = _connectivity.statusStream.listen((hasLink) {
       if (!mounted) return;
-      if (!online && !_isOffline) {
-        // Went offline
-        setState(() => _isOffline = true);
+      if (!hasLink && !_waiting) {
+        setState(() => _waiting = true);
         _animCtrl.forward();
         _loadPendingCount();
-      } else if (online && _isOffline) {
-        // Came back online — show green briefly, then hide
+      } else if (hasLink && _waiting) {
         setState(() {
-          _isOffline = false;
+          _waiting = false;
           _justCameOnline = true;
         });
-        // Auto-sync pending data
         _sync.syncAll();
-        // Hide banner after 2 seconds
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
             _animCtrl.reverse();
@@ -97,7 +94,7 @@ class _OfflineBannerState extends State<OfflineBanner>
 
   @override
   Widget build(BuildContext context) {
-    if (!_isOffline && !_justCameOnline) return const SizedBox.shrink();
+    if (!_waiting && !_justCameOnline) return const SizedBox.shrink();
 
     return SizeTransition(
       sizeFactor: _slideAnim,
@@ -131,10 +128,10 @@ class _OfflineBannerState extends State<OfflineBanner>
               Expanded(
                 child: Text(
                   _justCameOnline
-                      ? 'Back online — syncing data...'
+                      ? 'Back online — sending…'
                       : _pendingCount > 0
-                          ? 'Offline — $_pendingCount unsaved changes will sync when connected'
-                          : 'No internet connection',
+                          ? 'Waiting for network — $_pendingCount unsaved changes will send when connected'
+                          : 'Waiting for network',
                   style: TextStyle(
                     fontSize: 11,
                     color:
@@ -148,7 +145,7 @@ class _OfflineBannerState extends State<OfflineBanner>
                   onTap: _syncing
                       ? null
                       : () async {
-                          final result = await _sync.syncAll();
+                          await _sync.syncAll();
                           _loadPendingCount();
                         },
                   child: Container(
@@ -159,7 +156,7 @@ class _OfflineBannerState extends State<OfflineBanner>
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      _syncing ? 'Syncing...' : 'Retry',
+                      _syncing ? 'Sending...' : 'Retry',
                       style: TextStyle(
                         fontSize: 10,
                         color: AppTheme.warning,
