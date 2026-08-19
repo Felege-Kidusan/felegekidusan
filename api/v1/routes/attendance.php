@@ -189,6 +189,84 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 }
 
 // ============================================================
+// POST /attendance/submit — save + mark sent to Education
+// ============================================================
+if ($method === 'POST' && $action === 'submit') {
+    if (isApiRateLimited('attendance_submit', 20)) {
+        err('Too many submits. Please wait a moment.', 429);
+    }
+
+    $input = getBody();
+    $classId = (int)($input['class_id'] ?? 0);
+    $date = validateDate($input['date'] ?? '', date('Y-m-d'));
+    $records = $input['records'] ?? [];
+
+    if (!$classId || empty($records)) err('class_id and records array are required');
+    if (!is_array($records)) err('records must be an array');
+    if (count($records) > 500) err('Too many records in one save (max 500).');
+
+    apiRequireClassAccess($conn, $auth, $classId, $yearId);
+
+    $yearIdOrNull = $year ? $year['id'] : null;
+    $userId = (int)$auth['uid'];
+    $saved = 0;
+
+    $conn->begin_transaction();
+    try {
+        $stmt = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ?");
+        if (!$stmt) throw new Exception($conn->error);
+        $stmt->bind_param('is', $classId, $date);
+        $stmt->execute();
+        $stmt->close();
+
+        $ins = $conn->prepare(
+            "INSERT INTO attendance
+                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        );
+        if (!$ins) throw new Exception($conn->error);
+
+        foreach ($records as $rec) {
+            $memberId = (int)($rec['member_id'] ?? 0);
+            $status = validateEnum($rec['status'] ?? '', ['present', 'absent', 'late', 'excused'], 'present');
+            $note = trim($rec['note'] ?? $rec['notes'] ?? '');
+            if (!$memberId) continue;
+            $ins->bind_param('iiisssi', $memberId, $classId, $yearIdOrNull, $date, $status, $note, $userId);
+            $ins->execute();
+            $saved++;
+        }
+        $ins->close();
+
+        apiEnsureSubmissionsTable();
+        $zero = 0;
+        $st = $conn->prepare(
+            "INSERT INTO grade_submissions
+                (teacher_id, class_id, subject_id, academic_year_id, submission_type, status, student_count, submitted_at)
+             VALUES (?, ?, ?, ?, 'attendance', 'submitted', ?, NOW())"
+        );
+        if ($st) {
+            $st->bind_param('iiiii', $userId, $classId, $zero, $yearIdOrNull, $saved);
+            $st->execute();
+            $st->close();
+        }
+
+        $conn->commit();
+    } catch (Exception $e) {
+        $conn->rollback();
+        err('Could not submit attendance. Nothing was changed. Please try again.', 500);
+    }
+
+    logApiAction($auth['uid'], $auth['usr'], 'Attendance Submitted', "Class: {$classId}, Date: {$date}, Records: {$saved}");
+
+    ok([
+        'message' => "{$saved} attendance records sent to Education",
+        'saved' => $saved,
+        'class_id' => $classId,
+        'date' => $date,
+    ], 201);
+}
+
+// ============================================================
 // GET /attendance/daily-stats
 // ============================================================
 if ($action === 'daily-stats' && $method === 'GET') {

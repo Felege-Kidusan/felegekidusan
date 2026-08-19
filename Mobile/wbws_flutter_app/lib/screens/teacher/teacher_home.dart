@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
+import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/session_service.dart';
 import '../../utils/config.dart';
@@ -13,7 +14,6 @@ import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../auth/login_screen.dart';
-import '../attendance/attendance_screen.dart';
 
 class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
@@ -64,7 +64,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
           _myClasses = cachedClasses;
         }
         _loading = false;
-        _isOffline = true;
+        _isOffline = !ConnectivityService().isOnline;
       });
     } else {
       if (mounted) setState(() => _loading = true);
@@ -85,7 +85,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
         _todayAttendance = _stats['today_attendance'] ?? {};
         _recentActivity = (statsRes.data['recent_activity'] as List?) ?? [];
         _loading = false;
-        _isOffline = false;
+        _isOffline = !ConnectivityService().isOnline;
       });
       _db.cacheDashboardStats(statsRes.data, _api.userRole);
     }
@@ -216,7 +216,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
           child: Row(children: [
             Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
             const SizedBox(width: 8),
-            Expanded(child: Text('Showing cached data — pull to refresh when online',
+            Expanded(child: Text('No internet — showing the last list saved on this phone',
                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
           ]),
         ),
@@ -264,9 +264,9 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
         children: [
           Text(
             _greetingAmharic(),
-            style: TextStyle(
+            style: const TextStyle(
                 fontSize: 13,
-                color: AppTheme.textSecondary,
+                color: Colors.white70,
                 fontFamily: 'NotoSansEthiopic'),
           ),
           const SizedBox(height: 2),
@@ -327,7 +327,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     final present = _todayAttendance['present'] ?? 0;
     final recorded = _todayAttendance['recorded'] ?? 0;
     final rate =
-        recorded > 0 ? (present / recorded * 100).toStringAsFixed(0) : '--';
+        recorded > 0 ? '${(present / recorded * 100).toStringAsFixed(0)}%' : '—';
 
     return Row(
       children: [
@@ -352,7 +352,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
         Expanded(
           child: StatCard(
             label: 'Today',
-            value: '$rate%',
+            value: rate,
             icon: Icons.trending_up_rounded,
             color: AppTheme.success,
           ),
@@ -371,7 +371,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
             const Text('My Classes',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             Text('${_myClasses.length} total',
-                style: TextStyle(fontSize: 12, color: Colors.white70)),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
           ],
         ),
         const SizedBox(height: 10),
@@ -399,11 +399,10 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
-          Navigator.of(context).push(SmoothPageRoute(
-            page: AttendanceScreen(initialClassId: classData['id'] is int
-                ? classData['id'] as int
-                : int.tryParse('${classData['id']}')),
-          ));
+          final id = classData['id'] is int
+              ? classData['id'] as int
+              : int.tryParse('${classData['id']}');
+          AppNav().openAttendance(classId: id);
         },
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -437,16 +436,16 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                           Text(section,
                               style: TextStyle(
                                   fontSize: 11,
-                                  color: Colors.white70)),
+                                  color: AppTheme.textSecondary)),
                           const SizedBox(width: 8),
                         ],
                         Icon(Icons.people_outline,
-                            size: 12, color: Colors.white70),
+                            size: 12, color: AppTheme.textSecondary),
                         const SizedBox(width: 3),
-                        Text('$studentCount',
+                        Text('$studentCount students',
                             style: TextStyle(
                                 fontSize: 11,
-                                color: Colors.white70)),
+                                color: AppTheme.textSecondary)),
                       ],
                     ),
                   ],
@@ -477,7 +476,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      attendanceTaken ? 'Done' : 'Pending',
+                      attendanceTaken ? 'Taken today' : 'Not taken today',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -501,8 +500,9 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     final absent = _todayAttendance['absent'] ?? 0;
     final late_ = _todayAttendance['late'] ?? 0;
     final recorded = _todayAttendance['recorded'] ?? 0;
-    final rate =
-        recorded > 0 ? (present / recorded * 100).toStringAsFixed(0) : '0';
+    final rate = recorded > 0
+        ? '${(present / recorded * 100).toStringAsFixed(0)}%'
+        : 'Not taken';
 
     return Card(
       child: Padding(
@@ -523,9 +523,9 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                     color: AppTheme.success.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text('$rate%',
-                      style: const TextStyle(
-                          color: AppTheme.success,
+                  child: Text(rate,
+                      style: TextStyle(
+                          color: recorded > 0 ? AppTheme.success : AppTheme.textSecondary,
                           fontWeight: FontWeight.w600,
                           fontSize: 13)),
                 ),
@@ -555,7 +555,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                   fontSize: 18, fontWeight: FontWeight.w700, color: color)),
           const SizedBox(height: 2),
           Text(label,
-              style: TextStyle(fontSize: 10, color: Colors.white70)),
+              style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
         ],
       ),
     );
@@ -592,12 +592,12 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                 subtitle: Text(
                   detail.isNotEmpty ? detail : _formatTime(time),
                   style:
-                      TextStyle(fontSize: 11, color: Colors.white70),
+                      TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                 ),
                 trailing: Text(
                   _formatTime(time),
                   style:
-                      TextStyle(fontSize: 10, color: Colors.white70),
+                      TextStyle(fontSize: 10, color: AppTheme.textSecondary),
                 ),
               );
             }).toList(),

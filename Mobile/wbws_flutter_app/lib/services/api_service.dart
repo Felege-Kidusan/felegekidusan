@@ -344,6 +344,13 @@ class ApiService {
         'grades': grades,
       });
 
+  Future<ApiResponse> submitGrades(
+          int assessmentId, List<Map<String, dynamic>> grades) =>
+      post('/grades/submit', body: {
+        'assessment_id': assessmentId,
+        'grades': grades,
+      });
+
   Future<ApiResponse> getGradeSummary(int classId, {int? subjectId}) {
     final params = <String, String>{'class_id': '$classId'};
     if (subjectId != null) params['subject_id'] = '$subjectId';

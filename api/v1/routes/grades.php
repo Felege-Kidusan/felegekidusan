@@ -488,6 +488,102 @@ if ($action === 'save' && $method === 'POST') {
 }
 
 // ============================================================
+// POST /grades/submit — save scores + send marklist to Education
+// ============================================================
+if ($action === 'submit' && $method === 'POST') {
+    if (isApiRateLimited('grades_submit', 20)) {
+        err('Too many submits. Please wait a moment.', 429);
+    }
+
+    $body = getBody();
+    $assessmentId = (int)($body['assessment_id'] ?? 0);
+    $grades = $body['grades'] ?? [];
+    if (!$assessmentId || empty($grades)) {
+        err('assessment_id and grades array are required');
+    }
+
+    $stmt = $conn->prepare("SELECT * FROM assessments WHERE id = ?");
+    $stmt->bind_param('i', $assessmentId);
+    $stmt->execute();
+    $assessment = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$assessment) err('Assessment not found', 404);
+
+    $aClassId = (int)$assessment['class_id'];
+    $aSubjectId = (int)$assessment['subject_id'];
+    if ($isRestricted) {
+        checkTeacherSubjectAccess($conn, $userId, $userRole, $aClassId, $aSubjectId, $yearId);
+    }
+
+    apiEnsureSubmissionsTable();
+    $termId = $assessment['term_id'] ? (int)$assessment['term_id'] : null;
+    $ayId = (int)($assessment['academic_year_id'] ?: $yearId);
+    $saved = 0;
+    $totalScore = 0;
+    $scoreCount = 0;
+    $submissionId = 0;
+
+    $conn->begin_transaction();
+    try {
+        $insSub = $conn->prepare(
+            "INSERT INTO grade_submissions
+                (teacher_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_type, status, submitted_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'marklist', 'submitted', NOW())"
+        );
+        $insSub->bind_param('iiiiii', $userId, $aClassId, $aSubjectId, $ayId, $termId, $assessmentId);
+        $insSub->execute();
+        $submissionId = (int)$insSub->insert_id;
+        $insSub->close();
+
+        foreach ($grades as $grade) {
+            $memberId = (int)($grade['member_id'] ?? 0);
+            $score = isset($grade['score']) && $grade['score'] !== '' && $grade['score'] !== null ? (float)$grade['score'] : null;
+            $remarks = trim($grade['remarks'] ?? $grade['remark'] ?? '');
+            $recordId = isset($grade['record_id']) && $grade['record_id'] ? (int)$grade['record_id'] : 0;
+            if (!$memberId) continue;
+            if ($score !== null && ($score < 0 || $score > (float)$assessment['max_score'])) continue;
+
+            if ($recordId > 0) {
+                $up = $conn->prepare("UPDATE academic_records SET score = ?, remarks = ?, recorded_by = ?, submission_id = ? WHERE id = ?");
+                $up->bind_param('dsiii', $score, $remarks, $userId, $submissionId, $recordId);
+                $up->execute();
+                $up->close();
+            } elseif ($score !== null) {
+                $maxScore = (float)$assessment['max_score'];
+                $ins = $conn->prepare(
+                    "INSERT INTO academic_records
+                        (member_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_id, score, max_score, remarks, recorded_by)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                );
+                $ins->bind_param('iiiiiiiddsi', $memberId, $aClassId, $aSubjectId, $ayId, $termId, $assessmentId, $submissionId, $score, $maxScore, $remarks, $userId);
+                $ins->execute();
+                $ins->close();
+            }
+            $saved++;
+            if ($score !== null) { $totalScore += $score; $scoreCount++; }
+        }
+
+        $avg = $scoreCount > 0 ? $totalScore / $scoreCount : null;
+        $st = $conn->prepare("UPDATE grade_submissions SET student_count = ?, average_score = ? WHERE id = ?");
+        $st->bind_param('idi', $saved, $avg, $submissionId);
+        $st->execute();
+        $st->close();
+        $conn->commit();
+    } catch (Exception $e) {
+        $conn->rollback();
+        err('Could not submit the mark list. Nothing was changed.', 500);
+    }
+
+    logApiAction($userId, $auth['usr'], 'submit_grades', "Submitted $saved grades for assessment #{$assessmentId}");
+
+    ok([
+        'message' => "$saved grade(s) sent to Education",
+        'saved' => $saved,
+        'submission_id' => $submissionId,
+    ]);
+}
+
+// ============================================================
 // GET /grades/summary?class_id=X&subject_id=Y — Grade report
 // ============================================================
 if ($action === 'summary' && $method === 'GET') {

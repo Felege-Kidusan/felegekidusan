@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
+import '../../services/app_nav.dart';
 import '../../services/sync_service.dart';
 import '../../services/session_service.dart';
 import '../../services/connectivity_service.dart';
@@ -55,6 +56,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.initState();
     _tabs = getTabsForRole(_api.userRole);
     WidgetsBinding.instance.addObserver(this);
+    AppNav().tabStream.listen((id) {
+      if (!mounted) return;
+      final i = _tabs.indexWhere((t) => t.id == id);
+      if (i >= 0) _onTabChanged(i);
+    });
 
     // Handle auth expiry — redirect to login
     _api.onAuthExpired = _handleAuthExpired;
@@ -140,10 +146,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _refreshHome();
         break;
       case 'attendance':
-        _attendanceKey.currentState?.refresh();
+        if (AppNav().shouldReload('attendance') || AppNav().attendanceClassId != null) {
+          _attendanceKey.currentState?.refresh();
+        }
         break;
       case 'grades':
-        _gradesKey.currentState?.refresh();
+        if (AppNav().shouldReload('grades')) {
+          _gradesKey.currentState?.refresh();
+        }
         break;
     }
   }

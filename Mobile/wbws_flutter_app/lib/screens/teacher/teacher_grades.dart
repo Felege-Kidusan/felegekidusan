@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import 'package:flutter/services.dart';
 import '../../services/api_service.dart';
+import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/roster.dart';
 import '../../utils/theme.dart';
+import '../../widgets/action_bar.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
@@ -65,7 +68,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     setState(() { _error = null; });
     final warm = CatalogService().cached;
     if (warm.isNotEmpty && mounted) {
-      setState(() { _classes = warm; _loadingClasses = false; _isOffline = true; });
+      setState(() { _classes = warm; _loadingClasses = false; _isOffline = !ConnectivityService().isOnline; });
     } else {
       setState(() => _loadingClasses = true);
     }
@@ -73,10 +76,11 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     final classes = await CatalogService().classes();
     if (!mounted) return;
     setState(() {
-      _classes = classes;
+      _classes = classes.isNotEmpty ? classes : _classes;
       _loadingClasses = false;
-      _isOffline = false;
+      _isOffline = !ConnectivityService().isOnline;
     });
+    AppNav().markGradesLoaded();
     if (classes.length == 1) {
       final id = classes[0]['id'] is int ? classes[0]['id'] as int : int.tryParse('${classes[0]['id']}');
       _selectedClassId = id;
@@ -519,7 +523,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
             ? 'Showing students from a previous year.'
             : 'Showing the $year roster.';
       }
-      setState(() { _isOffline = false; _loading = false; _rosterNote = note; });
+      setState(() { _isOffline = !ConnectivityService().isOnline; _loading = false; _rosterNote = note; });
+      _recountGraded();
       return;
     }
 
@@ -579,6 +584,42 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     _gradedCount = graded;
   }
 
+  void _recountGraded() {
+    int n = 0;
+    for (final s in _students) {
+      final mid = RosterParse.asInt(s['member_id']);
+      if (mid == null) continue;
+      if ((_scoreCtrl[mid]?.text.trim() ?? '').isNotEmpty) n++;
+    }
+    if (n != _gradedCount) setState(() => _gradedCount = n);
+  }
+
+  Future<void> _persistLocal() async {
+    final grades = <Map<String, dynamic>>[];
+    for (final s in _students) {
+      final mid = RosterParse.asInt(s['member_id']);
+      if (mid == null) continue;
+      final text = _scoreCtrl[mid]?.text.trim() ?? '';
+      if (text.isEmpty) continue;
+      final score = double.tryParse(text);
+      if (score == null) continue;
+      grades.add({
+        'member_id': mid,
+        'score': score,
+        'remark': _remarkCtrl[mid]?.text.trim() ?? '',
+        'record_id': s['record_id'],
+        'student_name': s['student_name'],
+      });
+    }
+    if (grades.isEmpty) return;
+    await _db.saveGradesLocal(
+      widget.assessmentId, widget.assessmentName,
+      widget.classId, widget.className,
+      widget.subjectId, widget.subjectName,
+      widget.maxScore, grades,
+    );
+  }
+
   Future<void> _saveGrades() async {
     setState(() => _saving = true);
 
@@ -625,7 +666,65 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved locally — will sync when online'), backgroundColor: AppTheme.warning));
+        const SnackBar(content: Text('Saved on this phone — will send when online'), backgroundColor: AppTheme.warning));
+    }
+  }
+
+  Future<void> _submitGrades() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Submit mark list?'),
+        content: Text('Send ${widget.assessmentName} for ${widget.className} to Education?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _saving = true);
+    final grades = <Map<String, dynamic>>[];
+    for (final s in _students) {
+      final mid = RosterParse.asInt(s['member_id']);
+      if (mid == null) continue;
+      final text = _scoreCtrl[mid]?.text.trim() ?? '';
+      if (text.isEmpty) continue;
+      final score = double.tryParse(text);
+      if (score == null || score < 0 || score > widget.maxScore) continue;
+      grades.add({
+        'member_id': mid,
+        'score': score,
+        'remark': _remarkCtrl[mid]?.text.trim() ?? '',
+        'record_id': s['record_id'],
+        'student_name': s['student_name'],
+      });
+    }
+    if (grades.isEmpty) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter at least one valid score first'), backgroundColor: AppTheme.warning));
+      return;
+    }
+    await _db.saveGradesLocal(
+      widget.assessmentId, widget.assessmentName,
+      widget.classId, widget.className,
+      widget.subjectId, widget.subjectName,
+      widget.maxScore, grades,
+    );
+    final res = await _api.submitGrades(widget.assessmentId, grades);
+    if (!mounted) return;
+    if (res.success) {
+      await _db.markGradesSynced(widget.assessmentId);
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(res.message ?? 'Sent to Education'), backgroundColor: AppTheme.success));
+      _loadStudents();
+    } else {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Saved on this phone — will send when online'), backgroundColor: AppTheme.warning));
     }
   }
 
@@ -636,19 +735,27 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(widget.assessmentName, style: const TextStyle(fontSize: 16)),
           Text('${widget.className} · Max: ${widget.maxScore.toStringAsFixed(0)}',
-              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+              style: const TextStyle(fontSize: 11, color: Colors.white70)),
         ]),
         actions: [
           if (_students.isNotEmpty)
-            TextButton.icon(
+            TextButton(
               onPressed: _saving ? null : _saveGrades,
-              icon: _saving
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.save_rounded, size: 18),
-              label: Text(_saving ? 'Saving...' : 'Save'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: Text(_saving ? 'Saving…' : 'Save', style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
         ],
       ),
+      bottomNavigationBar: _students.isEmpty
+          ? null
+          : TeacherActionBar(
+              saveLabel: 'Save',
+              submitLabel: 'Submit to Education',
+              onSave: _saveGrades,
+              onSubmit: _submitGrades,
+              busy: _saving,
+              hint: 'Save keeps scores. Submit sends the mark list to Education.',
+            ),
       body: _loading
           ? const StudentListSkeleton()
           : _error != null
@@ -671,7 +778,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                           child: Row(children: [
                             Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
                             const SizedBox(width: 8),
-                            Expanded(child: Text('Offline — grades save locally and sync later',
+                            Expanded(child: Text('No internet — scores stay on this phone until you are back online',
                                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
                           ])),
                       if (_rosterNote != null)
@@ -680,7 +787,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                         child: Row(children: [
                           Text('${_students.length} students', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                           const Spacer(),
-                          Text('$_gradedCount graded', style: TextStyle(fontSize: 12,
+                          Text('$_gradedCount of ${_students.length} graded', style: TextStyle(fontSize: 12,
                               color: _gradedCount > 0 ? AppTheme.success : AppTheme.textSecondary, fontWeight: FontWeight.w600)),
                         ])),
                       Expanded(child: ListView.builder(
@@ -724,9 +831,16 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                 enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(color: hasScore ? AppTheme.primary.withOpacity(0.3) : AppTheme.borderLight)),
               ),
-              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.next,
+              onChanged: (_) {
+                _recountGraded();
+                _persistLocal();
+              },
             ),
           ),
+          const SizedBox(width: 6),
+          Text('/ ${widget.maxScore.toStringAsFixed(0)}',
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
         ]),
       ),
     );

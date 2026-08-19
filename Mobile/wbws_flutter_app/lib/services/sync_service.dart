@@ -58,8 +58,11 @@ class SyncService {
               await _db.getPendingAttendanceRecords(classId, date);
           if (records.isEmpty) continue;
           final apiRecords = records
-              .map((r) =>
-                  {'member_id': r['member_id'], 'status': r['status']})
+              .map((r) => {
+                    'member_id': r['member_id'],
+                    'status': r['status'],
+                    'notes': r['notes'] ?? r['note'] ?? '',
+                  })
               .toList();
           final res = await _api.saveAttendance(classId, date, apiRecords);
           if (res.success) {

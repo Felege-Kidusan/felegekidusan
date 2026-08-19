@@ -24,7 +24,7 @@ class LocalDb {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -65,6 +65,11 @@ class LocalDb {
             )
           ''');
         }
+        if (oldVersion < 4) {
+          try {
+            await db.execute('ALTER TABLE pending_attendance ADD COLUMN notes TEXT');
+          } catch (_) {}
+        }
       },
     );
   }
@@ -82,6 +87,7 @@ class LocalDb {
         father_name TEXT,
         member_code TEXT,
         status TEXT NOT NULL DEFAULT 'present',
+        notes TEXT,
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
@@ -472,6 +478,7 @@ class LocalDb {
         'father_name': r['father_name'] ?? '',
         'member_code': r['member_code'] ?? '',
         'status': r['status'] ?? 'present',
+        'notes': r['notes'] ?? r['note'] ?? '',
         'synced': 0,
         'created_at': now,
       });

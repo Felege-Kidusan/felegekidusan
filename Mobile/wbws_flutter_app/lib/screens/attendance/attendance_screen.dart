@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
+import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/roster.dart';
 import '../../utils/theme.dart';
+import '../../widgets/action_bar.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
@@ -67,26 +70,35 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _loadClasses() async {
     final warm = CatalogService().cached;
     if (warm.isNotEmpty && mounted) {
-      setState(() { _classes = warm; _loadingClasses = false; _isOffline = true; });
+      setState(() { _classes = warm; _loadingClasses = false; });
     } else if (mounted) {
       setState(() => _loadingClasses = true);
     }
 
     final classes = await CatalogService().classes();
     if (!mounted) return;
+    final online = ConnectivityService().isOnline;
     setState(() {
-      _classes = classes;
+      if (classes.isNotEmpty) {
+        _classes = classes;
+        _error = null;
+      } else if (_classes.isEmpty) {
+        _error = online
+            ? 'No classes assigned'
+            : 'Could not load classes. Check your connection and try again.';
+      }
       _loadingClasses = false;
-      _isOffline = false;
-      if (classes.isEmpty) _error = _error ?? 'No classes assigned';
+      _isOffline = !online;
     });
+    AppNav().markAttendanceLoaded();
 
     if (_classes.isNotEmpty && _selectedClassId == null) {
       int? pick;
-      if (widget.initialClassId != null) {
+      final wanted = AppNav().attendanceClassId ?? widget.initialClassId;
+      if (wanted != null) {
         for (final c in _classes) {
           final id = c['id'] is int ? c['id'] as int : int.tryParse('${c['id']}');
-          if (id == widget.initialClassId) pick = id;
+          if (id == wanted) pick = id;
         }
       }
       pick ??= _classes.first['id'] is int
@@ -131,7 +143,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'status': pendingMap[mid] ?? s['status'] ?? 'present',
         });
       }
-      if (mounted) setState(() { _students = students; _loadingStudents = false; _isOffline = true; });
+      if (mounted) setState(() { _students = students; _loadingStudents = false; });
     } else {
       final cachedStudents = await _db.getCachedStudents(_selectedClassId!);
       if (cachedStudents.isNotEmpty) {
@@ -148,7 +160,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             'status': pendingMap[mid] ?? 'present',
           });
         }
-        if (mounted) setState(() { _students = students; _loadingStudents = false; _isOffline = true; });
+        if (mounted) setState(() { _students = students; _loadingStudents = false; });
       } else {
         if (mounted) setState(() => _loadingStudents = true);
       }
@@ -191,7 +203,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       setState(() {
         _students = students;
         _loadingStudents = false;
-        _isOffline = pendingMap.isNotEmpty;
+        _isOffline = !ConnectivityService().isOnline;
         _loadFailed = false;
         _rosterNote = note;
       });
@@ -258,10 +270,41 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
     await _updatePendingCount();
 
-    // Auto-hide success message
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted) setState(() => _successMsg = null);
     });
+  }
+
+  Future<void> _submitAttendance() async {
+    if (_selectedClassId == null || _students.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Submit attendance?'),
+        content: Text('Send ${_students.length} records for $_selectedClassName to Education?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() { _saving = true; _error = null; _successMsg = null; });
+    final records = _records();
+    await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records);
+    final apiRecords = records
+        .map((r) => {'member_id': r['member_id'], 'status': r['status'], 'notes': r['notes'] ?? ''})
+        .toList();
+    final res = await _api.submitAttendance(_selectedClassId!, _selectedDate, apiRecords);
+    if (!mounted) return;
+    if (res.success) {
+      await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
+      setState(() { _saving = false; _successMsg = 'Sent to Education'; });
+    } else {
+      setState(() { _saving = false; _successMsg = 'Saved on this phone — will send when online'; });
+    }
+    await _updatePendingCount();
   }
 
   void _markAll(String status) {
@@ -270,6 +313,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         s['status'] = status;
       }
     });
+    _persistLocal();
   }
 
   Future<void> _pickDate() async {
@@ -323,18 +367,24 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
           // Save button
           if (_students.isNotEmpty)
-            TextButton.icon(
+            TextButton(
               onPressed: _saving ? null : _saveAttendance,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.save_rounded, size: 18),
-              label: Text(_saving ? 'Saving...' : 'Save'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: Text(_saving ? 'Saving…' : 'Save',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
         ],
       ),
+      bottomNavigationBar: _students.isEmpty
+          ? null
+          : TeacherActionBar(
+              saveLabel: 'Save',
+              submitLabel: 'Submit to Education',
+              onSave: _saveAttendance,
+              onSubmit: _submitAttendance,
+              busy: _saving,
+              hint: 'Save keeps it. Submit sends it to Education.',
+            ),
       body: Column(
         children: [
           // Offline indicator
@@ -349,7 +399,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Offline mode — changes will sync when connected',
+                      'No internet — kept on this phone until you are back online',
                       style: TextStyle(
                           fontSize: 11,
                           color: AppTheme.warning,
@@ -519,6 +569,29 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  Future<void> _editNote(int index) async {
+    final ctrl = TextEditingController(text: '${_students[index]['notes'] ?? ''}');
+    final note = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Note'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: 'Optional note'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Keep')),
+        ],
+      ),
+    );
+    if (note == null) return;
+    setState(() => _students[index]['notes'] = note);
+    _persistLocal();
+  }
+
   Widget _quickBtn(String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
@@ -585,7 +658,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       String label, String value, String current, Color color, int index) {
     final selected = current == value;
     return InkWell(
-      onTap: () => setState(() => _students[index]['status'] = value),
+      onTap: () {
+        setState(() => _students[index]['status'] = value);
+        _persistLocal();
+      },
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: 34,

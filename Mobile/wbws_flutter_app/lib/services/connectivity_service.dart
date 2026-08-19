@@ -52,7 +52,7 @@ class ConnectivityService {
     } catch (_) {
       // Try a simpler DNS lookup as fallback
       try {
-        final result = await InternetAddress.lookup('wbws.pro.et')
+        final result = await InternetAddress.lookup('felegekidusan.arkeonethiopia.com')
             .timeout(const Duration(seconds: 3));
         _setOnline(result.isNotEmpty && result[0].rawAddress.isNotEmpty);
       } catch (_) {
