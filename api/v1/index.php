@@ -55,7 +55,6 @@ if ($route === '' || $route === 'ping') {
         'version' => '1.0',
         'status' => 'running',
         'time' => date('c'),
-        'php' => PHP_VERSION,
         'database' => isset($conn) && !$conn->connect_error ? 'connected' : 'error'
     ]);
 }
@@ -74,6 +73,7 @@ $routeMap = [
     'subjects'      => 'subjects.php',
     'users'         => 'users.php',
     'grades'        => 'grades.php',
+    'app'           => 'app.php',
 ];
 
 // Check if resource exists

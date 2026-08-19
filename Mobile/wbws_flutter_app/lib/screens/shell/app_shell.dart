@@ -4,10 +4,12 @@ import '../../services/api_service.dart';
 import '../../services/sync_service.dart';
 import '../../services/session_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/app_update_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/offline_banner.dart';
 import '../auth/login_screen.dart';
+import '../update/update_screen.dart';
 // Role home screens
 import '../teacher/teacher_home.dart';
 import '../teacher/teacher_grades.dart';
@@ -83,11 +85,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App came to foreground — restart monitoring and refresh
       _connectivity.startMonitoring();
       SyncService().startAutoSync();
       _refreshCurrentTab();
       _connectivity.checkNow();
+      AppUpdateService().check().then((_) {
+        if (mounted) setState(() {});
+      });
     } else if (state == AppLifecycleState.paused) {
       // App went to background — stop timers to save battery
       _connectivity.stopMonitoring();
@@ -109,8 +113,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   void _forceLogout() async {
-    SyncService().stopAutoSync();
-    await _api.logout();
+    await SessionService.signOut();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
         SmoothPageRoute(page: const LoginScreen()),
@@ -208,6 +211,41 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       default:
         return TeacherHomeScreen(key: _teacherHomeKey);
     }
+  }
+
+  Widget _serverBanner() {
+    final text = AppUpdateService().config?.bannerText ?? '';
+    if (text.isEmpty) return const SizedBox.shrink();
+    final warn = AppUpdateService().config?.bannerKind == 'warn';
+    return Material(
+      color: warn ? AppTheme.warning.withOpacity(0.15) : AppTheme.info.withOpacity(0.12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Text(text, style: TextStyle(fontSize: 12, color: warn ? AppTheme.warning : AppTheme.info)),
+      ),
+    );
+  }
+
+  Widget _updateBanner() {
+    if (!AppUpdateService().decision.optional) return const SizedBox.shrink();
+    return Material(
+      color: AppTheme.primary.withOpacity(0.08),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(SmoothPageRoute(page: const UpdateScreen()));
+        },
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(children: [
+            Icon(Icons.system_update_alt_rounded, size: 18, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Expanded(child: Text('A newer FKSS app is ready — tap to update',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primary))),
+            Icon(Icons.chevron_right, size: 18, color: AppTheme.primary),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _buildPlaceholder(String tabId) {

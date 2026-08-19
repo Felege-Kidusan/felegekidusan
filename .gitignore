@@ -9,6 +9,13 @@
 .wbws_env.php
 *_env.php
 .env
+.fkss_app_release.php
+api/v1/app_release.local.php
+
+# --- Phone app packages (never commit APKs — they are large and not source) ---
+*.apk
+releases/
+fkss_releases/
 
 # --- Database backups (contain password hashes + full student PII) ---
 admin/uploads/backups/

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/app_update_service.dart';
 import '../../services/local_db.dart';
 import '../../utils/theme.dart';
 import '../../utils/transitions.dart';
@@ -129,14 +130,7 @@ class EduHomeScreenState extends State<EduHomeScreen> {
       GridView.count(
         crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.95,
-        children: [
-          FeatureTile(label: 'Classes', icon: Icons.class_rounded, color: AppTheme.primary, onTap: () => _open(const EduClassesScreen())),
-          FeatureTile(label: 'Teachers', icon: Icons.person_rounded, color: const Color(0xFF7C3AED), onTap: () => _open(const EduTeachersScreen())),
-          FeatureTile(label: 'Subjects', icon: Icons.book_rounded, color: AppTheme.info, onTap: () => _open(const EduSubjectsScreen())),
-          FeatureTile(label: 'Enrollment', icon: Icons.person_add_rounded, color: AppTheme.success, onTap: () => _open(const EduEnrollmentScreen())),
-          FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () => _open(const TeacherGradesScreen())),
-          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.accent, onTap: () => _open(const AttendanceScreen())),
-        ],
+        children: _eduTiles(),
       ),
       const SizedBox(height: 16),
       const UseWebsiteNote(

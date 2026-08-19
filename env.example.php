@@ -50,3 +50,7 @@ define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password
 // saving keys, or the saved AI keys can no longer be decrypted (just re-enter
 // them). Generate with:  php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
 // define('AI_ENC_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_5');
+
+// ---- Phone app updates (OPTIONAL) ----
+// Do NOT put the APK in this file. See Mobile/HOW_TO_SHIP_AN_UPDATE.md
+// and api/v1/app_release.example.php  →  /home/USER/.fkss_app_release.php

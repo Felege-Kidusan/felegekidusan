@@ -302,7 +302,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           // App info
           _buildSection('App', [
-            _infoTile(Icons.info_outline, 'Version', AppConfig.appVersion),
+            _infoTile(Icons.info_outline, 'Version', '${AppConfig.appVersion} (${AppConfig.appBuild})'),
             _infoTile(Icons.cloud_outlined, 'Server', AppConfig.apiBaseUrl),
           ]),
           const SizedBox(height: 20),
