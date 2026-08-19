@@ -126,9 +126,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     // 1. Try cache first
     final pending = await _db.getPendingAttendanceRecords(_selectedClassId!, _selectedDate);
     final pendingMap = <int, String>{};
+    final pendingNotes = <int, String>{};
     for (final p in pending) {
       final mid = RosterParse.asInt(p['member_id']);
-      if (mid != null) pendingMap[mid] = '${p['status'] ?? 'present'}';
+      if (mid == null) continue;
+      pendingMap[mid] = '${p['status'] ?? 'present'}';
+      pendingNotes[mid] = '${p['notes'] ?? p['note'] ?? ''}';
     }
 
     final cachedAtt = await _db.getCachedAttendanceResponse(_selectedClassId!, _selectedDate);
@@ -140,7 +143,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         students.add({
           ...s,
           'member_id': mid,
-          'status': pendingMap[mid] ?? s['status'] ?? 'present',
+          'status': pendingMap[mid] ?? s['status'] ?? s['att_status'] ?? 'present',
+          'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
         });
       }
       if (mounted) setState(() { _students = students; _loadingStudents = false; });
@@ -158,6 +162,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             'member_code': s['member_code'] ?? '',
             'gender': s['gender'] ?? '',
             'status': pendingMap[mid] ?? 'present',
+            'notes': pendingNotes[mid] ?? '',
           });
         }
         if (mounted) setState(() { _students = students; _loadingStudents = false; });
@@ -189,6 +194,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'member_code': s['member_code'] ?? '',
           'gender': s['gender'] ?? '',
           'status': pendingMap[mid] ?? s['att_status'] ?? 'present',
+          'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
         };
       }).toList();
 
@@ -304,6 +310,30 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     } else {
       setState(() { _saving = false; _successMsg = 'Saved on this phone — will send when online'; });
     }
+    await _updatePendingCount();
+  }
+
+  List<Map<String, dynamic>> _records() {
+    return _students
+        .map((s) => <String, dynamic>{
+              'member_id': s['member_id'],
+              'student_name': s['student_name'],
+              'father_name': s['father_name'],
+              'member_code': s['member_code'],
+              'status': s['status'] ?? 'present',
+              'notes': s['notes'] ?? s['note'] ?? '',
+            })
+        .toList();
+  }
+
+  Future<void> _persistLocal() async {
+    if (_selectedClassId == null || _students.isEmpty) return;
+    await _db.saveAttendanceLocal(
+      _selectedClassId!,
+      _selectedClassName ?? '',
+      _selectedDate,
+      _records(),
+    );
     await _updatePendingCount();
   }
 
@@ -627,20 +657,30 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                       TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
             ),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${s['student_name']} ${s['father_name']}',
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w500),
+              child: InkWell(
+                onTap: () => _editNote(index),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${s['student_name']} ${s['father_name']}',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      (s['notes'] != null && '${s['notes']}'.trim().isNotEmpty)
+                          ? '${s['notes']}'
+                          : (s['member_code'] != null &&
+                                  s['member_code'].toString().isNotEmpty)
+                              ? '${s['member_code']}'
+                              : 'Tap for note',
+                      style: TextStyle(
+                          fontSize: 10, color: AppTheme.textSecondary),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  if (s['member_code'] != null &&
-                      s['member_code'].toString().isNotEmpty)
-                    Text(s['member_code'],
-                        style: TextStyle(
-                            fontSize: 10, color: AppTheme.textSecondary)),
-                ],
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
             ),
             _statusBtn('P', 'present', status, AppTheme.success, index),
@@ -648,6 +688,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             _statusBtn('A', 'absent', status, AppTheme.danger, index),
             const SizedBox(width: 4),
             _statusBtn('L', 'late', status, AppTheme.warning, index),
+            const SizedBox(width: 4),
+            _statusBtn('E', 'excused', status, AppTheme.info, index),
           ],
         ),
       ),

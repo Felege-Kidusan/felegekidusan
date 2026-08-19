@@ -809,39 +809,57 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       margin: const EdgeInsets.only(bottom: 6),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(children: [
-          SizedBox(width: 28, child: Text('${index + 1}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600))),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${s['student_name'] ?? ''} ${s['father_name'] ?? ''}',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
-            if (s['member_code'] != null && s['member_code'].toString().isNotEmpty)
-              Text(s['member_code'], style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-          ])),
-          SizedBox(width: 72, height: 38,
-            child: TextField(
-              controller: _scoreCtrl[mid],
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: hasScore ? AppTheme.primary : null),
-              decoration: InputDecoration(
-                hintText: '—', hintStyle: TextStyle(color: AppTheme.textSecondary),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: hasScore ? AppTheme.primary.withOpacity(0.3) : AppTheme.borderLight)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              SizedBox(width: 28, child: Text('${index + 1}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600))),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${s['student_name'] ?? ''} ${s['father_name'] ?? ''}',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (s['member_code'] != null && s['member_code'].toString().isNotEmpty)
+                  Text(s['member_code'], style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+              ])),
+              SizedBox(width: 72, height: 38,
+                child: TextField(
+                  controller: _scoreCtrl[mid],
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: hasScore ? AppTheme.primary : null),
+                  decoration: InputDecoration(
+                    hintText: '—', hintStyle: TextStyle(color: AppTheme.textSecondary),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: hasScore ? AppTheme.primary.withOpacity(0.3) : AppTheme.borderLight)),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) {
+                    _recountGraded();
+                    _persistLocal();
+                  },
+                ),
               ),
-              textInputAction: TextInputAction.next,
-              onChanged: (_) {
-                _recountGraded();
-                _persistLocal();
-              },
+              const SizedBox(width: 6),
+              Text('/ ${widget.maxScore.toStringAsFixed(0)}',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+            ]),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _remarkCtrl[mid],
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                hintText: 'Remark (optional)',
+                hintStyle: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+              ),
+              onChanged: (_) => _persistLocal(),
             ),
-          ),
-          const SizedBox(width: 6),
-          Text('/ ${widget.maxScore.toStringAsFixed(0)}',
-              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
-        ]),
+          ],
+        ),
       ),
     );
   }

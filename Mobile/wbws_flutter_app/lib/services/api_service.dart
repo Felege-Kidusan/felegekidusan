@@ -311,6 +311,14 @@ class ApiService {
         'records': records,
       });
 
+  Future<ApiResponse> submitAttendance(
+          int classId, String date, List<Map<String, dynamic>> records) =>
+      post('/attendance/submit', body: {
+        'class_id': classId,
+        'date': date,
+        'records': records,
+      });
+
   Future<ApiResponse> getDailyStats({String? date}) {
     final params = <String, String>{};
     if (date != null) params['date'] = date;
