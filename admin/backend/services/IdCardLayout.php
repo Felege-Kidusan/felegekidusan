@@ -139,7 +139,11 @@ class IdCardLayout
             $row = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if ($row && !empty($row['file_path'])) {
-                return (string)$row['file_path'];
+                $path = (string)$row['file_path'];
+                $disk = dirname(__DIR__, 2) . $path;
+                if (is_file($disk) || is_file(($_SERVER['DOCUMENT_ROOT'] ?? '') . $path)) {
+                    return $path;
+                }
             }
         } catch (\Throwable $e) {
             return $fallback;
@@ -150,10 +154,17 @@ class IdCardLayout
     /**
      * @param array<string,int|string> $s
      */
-    public static function cssVars(array $s): string
+    public static function cssVars(array $s, string $background = ''): string
     {
         $s = self::sanitize($s);
+        if ($background === '') {
+            $background = defined('ID_CARD_BACKGROUND')
+                ? ID_CARD_BACKGROUND
+                : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
+        }
+        $bgUrl = 'url(\'' . str_replace(["'", '\\'], '', $background) . '\')';
         $parts = [
+            '--id-bg:' . $bgUrl,
             '--id-logo-x:' . (int)$s['logo_x'] . 'px',
             '--id-logo-y:' . (int)$s['logo_y'] . 'px',
             '--id-logo-size:' . (int)$s['logo_size'] . 'px',

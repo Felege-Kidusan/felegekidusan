@@ -580,7 +580,9 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         .eth{font-family:'Noto Serif Ethiopic',serif}
         body{min-height:100vh;display:flex;background:#0a0f1a;color:#e2e8f0}
         
-        .sb{width:260px;background:linear-gradient(180deg,#0f172a,#1e293b);padding:1.25rem;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid rgba(255,255,255,.05)}
+        .sb{width:260px;min-width:260px;flex-shrink:0;background:linear-gradient(180deg,#0f172a,#1e293b);padding:1.25rem;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid rgba(255,255,255,.05);z-index:40}
+        @media(min-width:769px){aside.sb,.sb{display:flex!important;width:260px!important;min-width:260px!important;flex-shrink:0}}
+        .main{min-width:0;overflow-x:hidden}
         .brand{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem}
         .brand-logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--p),var(--pl));display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;box-shadow:0 6px 20px rgba(34,197,94,.4)}
         .brand-txt{font-size:.95rem;font-weight:700;color:#f8fafc}
@@ -729,7 +731,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
 <link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
-<body>
+<body class="<?= $activeSection === 'branding' ? 'branding-on' : '' ?>">
 <?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
     <aside class="sb">
         <div class="brand">
@@ -1244,7 +1246,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                 </div>
                 
                 <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260819d">
-                <script>window.ID_DESIGNER={csrf:<?= json_encode($csrfToken) ?>};</script>
+                <script>window.ID_DESIGNER={csrf:<?= json_encode($csrfToken) ?>,bg:<?= json_encode(defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg') ?>};</script>
                 <div id="idDesigner"></div>
                 <script src="/admin/js/id_card_designer.js?v=20260819d"></script>
 
@@ -1553,6 +1555,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
             document.querySelectorAll('.nav-link,.mobile-nav-btn').forEach(b=>b.classList.remove('active'));
             document.getElementById('section-'+id)?.classList.add('active');
             document.querySelectorAll('[data-section="'+id+'"]').forEach(b=>b.classList.add('active'));
+            document.body.classList.toggle('branding-on', id==='branding');
             history.replaceState(null,null,'?section='+id);
         }
         document.querySelectorAll('[data-section]').forEach(b=>b.addEventListener('click',()=>switchSection(b.dataset.section)));

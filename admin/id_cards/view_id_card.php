@@ -58,8 +58,8 @@ if ($conn && !$conn->connect_error) {
 }
 
 $layout = \App\Services\IdCardLayout::load($conn);
-$ID_CARD_STYLE = \App\Services\IdCardLayout::cssVars($layout);
 $idCardBg = \App\Services\IdCardLayout::background($conn);
+$ID_CARD_STYLE = \App\Services\IdCardLayout::cssVars($layout, $idCardBg);
 $DISPLAY['logo_size'] = (int)$layout['logo_size'];
 $DISPLAY['logo_opacity'] = (int)$layout['logo_opacity'];
 $DISPLAY['seal_size'] = (int)$layout['seal_size'];
@@ -212,7 +212,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260819d">
+    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260819e">
     <style>
         /* page chrome only — card look lives in id_card.css */
         

@@ -1,7 +1,11 @@
-/* Shared CR80 ID card. Sizes and colours come from --id-* variables. */
+/* Shared CR80 ID card. Sizes and colours come from --id-* variables. v=20260819e */
 .id-card-template {
     width: 1011px; height: 638px;
     background-color: #f3e6c4;
+    background-image: var(--id-bg, none);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     border-radius: 22px;
     overflow: hidden;
     position: relative;

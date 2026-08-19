@@ -90,7 +90,8 @@
       '--id-title-color:' + state.title_color,
       '--id-gold-color:' + state.gold_color,
       '--id-bar-color:' + state.bar_color,
-      '--id-value-color:' + state.value_color
+      '--id-value-color:' + state.value_color,
+      '--id-bg:url(\'' + (cfg.bg || '/admin/id_cards/assets/backgrounds/id_card_bg.jpg') + '\')'
     ].join(';');
   }
 
@@ -207,6 +208,10 @@
           }
         });
       }
+      (d.assets || []).forEach(function (a) {
+        if (a.asset_key === 'card_bg' && a.web_url) cfg.bg = a.web_url;
+      });
+      if (!cfg.bg) cfg.bg = '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
     } catch (e) {}
     render();
   }

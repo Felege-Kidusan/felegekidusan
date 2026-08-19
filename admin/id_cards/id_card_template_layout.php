@@ -18,7 +18,7 @@ $hideSide = $ID_CARD_SIDE ?? '';
 <div class="id-card-template id-front" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
     <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
     <div class="id-logo">
-        <div style="width:100%;height:100%;background-image:url('<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>');background-size:contain;background-position:center;background-repeat:no-repeat;"></div>
+        <img src="<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:100%;height:100%;object-fit:contain;background:transparent;">
     </div>
     <header class="id-head">
         <div class="id-head-text">

@@ -15,8 +15,8 @@ if (!in_array($role, ['super_admin', 'school_admin'], true)) {
 
 $side = ($_GET['side'] ?? 'front') === 'back' ? 'back' : 'front';
 $layout = \App\Services\IdCardLayout::load($conn);
-$ID_CARD_STYLE = \App\Services\IdCardLayout::cssVars($layout);
 $idCardBg = \App\Services\IdCardLayout::background($conn);
+$ID_CARD_STYLE = \App\Services\IdCardLayout::cssVars($layout, $idCardBg);
 $ID_CARD_SIDE = $side;
 
 $CONFIG = [
@@ -72,16 +72,13 @@ $DISPLAY = [
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ID preview</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-<link rel="stylesheet" href="/admin/css/id_card.css?v=20260819d">
+<link rel="stylesheet" href="/admin/css/id_card.css?v=20260819e">
 <style>
-html,body{margin:0;padding:0;background:#1e293b;overflow:hidden}
-#stage{transform:scale(.52);transform-origin:top left}
+html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 </style>
 </head>
 <body>
-<div id="stage">
 <?php include __DIR__ . '/id_card_template_layout.php'; ?>
-</div>
 <script>
 window.addEventListener('message', function (e) {
     if (e.origin !== window.location.origin) return;

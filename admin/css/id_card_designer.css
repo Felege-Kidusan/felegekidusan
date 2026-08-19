@@ -10,7 +10,8 @@
 #idDesigner .idc-val{float:right;color:#e2e8f0;font-weight:700}
 #idDesigner .idc-actions{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.6rem}
 #idDesigner .idc-preview-wrap{background:repeating-conic-gradient(#1e293b 0% 25%,#0f172a 0% 50%) 50%/18px 18px;border-radius:12px;padding:.75rem;overflow:auto}
-#idDesigner iframe{width:530px;height:340px;border:0;background:transparent;display:block;margin:0 auto}
+#idDesigner .idc-frame-box{width:100%;max-width:560px;height:360px;overflow:hidden;margin:0 auto}
+#idDesigner iframe{width:1011px;height:638px;border:0;background:transparent;display:block;transform:scale(.54);transform-origin:top left}
 #idDesigner .idc-tabs{display:flex;gap:.4rem;margin-bottom:.65rem}
 #idDesigner .idc-tab{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;border-radius:8px;padding:.4rem .75rem;font-size:.75rem;font-weight:700;cursor:pointer}
 #idDesigner .idc-tab.on{background:#600000;border-color:#F0C000;color:#F0C000}
