@@ -7,8 +7,10 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/AssignmentService.php';
+require_once __DIR__ . '/backend/services/EnrollmentService.php';
 
 use App\Services\AssignmentService;
+use App\Services\EnrollmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -484,35 +486,55 @@ switch ($action) {
             exit;
         }
         
-        // Get enrolled students with their existing grades
-        $stmt = $conn->prepare("
-            SELECT 
-                ce.member_id,
-                m.student_name, m.father_name, m.member_code, m.gender,
-                ar.id as record_id, ar.score, ar.remarks
-            FROM class_enrollments ce
-            JOIN members m ON ce.member_id = m.id
-            LEFT JOIN academic_records ar ON ar.member_id = ce.member_id 
-                AND ar.assessment_id = ?
-            WHERE ce.class_id = ? 
-                AND ce.academic_year_id = ?
-                AND ce.status = 'active'
-            ORDER BY m.student_name
-        ");
-        $stmt->bind_param("iii", $assessmentId, $assessment['class_id'], $assessment['academic_year_id']);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
+        $classId = (int)$assessment['class_id'];
+        $preferYear = (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0));
+        $scope = class_exists('\\App\\Services\\EnrollmentService')
+            ? \App\Services\EnrollmentService::resolveRosterYear($conn, $classId, $preferYear ?: null)
+            : ['year_id' => $preferYear ?: null, 'fallback' => false, 'year_name' => null];
+        $roster = class_exists('\\App\\Services\\EnrollmentService')
+            ? \App\Services\EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null)
+            : [];
+
+        $gradesByMember = [];
+        $gstmt = $conn->prepare("SELECT id, member_id, score, remarks FROM academic_records WHERE assessment_id = ?");
+        if ($gstmt) {
+            $gstmt->bind_param('i', $assessmentId);
+            $gstmt->execute();
+            $gr = $gstmt->get_result();
+            while ($grow = $gr->fetch_assoc()) {
+                $gradesByMember[(int)$grow['member_id']] = $grow;
+            }
+            $gstmt->close();
+        }
+
         $students = [];
-        while ($row = $result->fetch_assoc()) {
-            $students[] = $row;
+        foreach ($roster as $row) {
+            $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
+            if ($mid <= 0) continue;
+            $g = $gradesByMember[$mid] ?? null;
+            $students[] = [
+                'member_id' => $mid,
+                'id' => $mid,
+                'student_name' => $row['student_name'] ?? '',
+                'father_name' => $row['father_name'] ?? '',
+                'member_code' => $row['member_code'] ?? '',
+                'gender' => $row['gender'] ?? '',
+                'record_id' => $g && !empty($g['id']) ? (int)$g['id'] : null,
+                'score' => $g && $g['score'] !== null ? (float)$g['score'] : null,
+                'remarks' => $g['remarks'] ?? ($g['remark'] ?? ''),
+                'remark' => $g['remarks'] ?? ($g['remark'] ?? ''),
+            ];
         }
         
         echo json_encode([
             'status' => 'success',
             'assessment' => $assessment,
-            'students' => $students
-        ]);
+            'students' => $students,
+            'count' => count($students),
+            'roster_year_id' => $scope['year_id'] ?? null,
+            'roster_year_name' => $scope['year_name'] ?? null,
+            'roster_fallback' => !empty($scope['fallback']),
+        ], JSON_UNESCAPED_UNICODE);
         break;
     
     case 'save_grades':

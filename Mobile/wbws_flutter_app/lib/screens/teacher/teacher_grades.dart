@@ -5,10 +5,12 @@ import '../../services/api_service.dart';
 import '../../services/catalog_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
+import '../../utils/roster.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../../widgets/status_banner.dart';
 
 class TeacherGradesScreen extends StatefulWidget {
   const TeacherGradesScreen({super.key});
@@ -115,7 +117,11 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     setState(() {
       _subjects = cached.isNotEmpty ? cached : [];
       _loadingSubjects = false;
-      if (cached.isNotEmpty) _isOffline = true;
+      if (cached.isNotEmpty) {
+        _isOffline = true;
+      } else if (!res.success) {
+        _error = res.message ?? 'Could not load subjects. Pull to refresh.';
+      }
     });
   }
 
@@ -474,6 +480,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   bool _saving = false;
   bool _isOffline = false;
   String? _error;
+  String? _rosterNote;
   int _gradedCount = 0;
 
   @override
@@ -490,52 +497,85 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   }
 
   Future<void> _loadStudents() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() { _loading = true; _error = null; _rosterNote = null; });
 
     final res = await _api.getGradeStudents(widget.assessmentId);
     if (!mounted) return;
 
     if (res.success && res.data != null) {
-      _setupStudents((res.data['students'] as List?)?.cast<Map<String, dynamic>>() ?? []);
-      setState(() { _isOffline = false; _loading = false; });
-    } else {
-      // Fallback: load cached students for this class
-      final cached = await _db.getCachedStudents(widget.classId);
-      if (cached.isNotEmpty) {
-        // Check pending grades
-        final pending = await _db.getPendingGradeRecords(widget.assessmentId);
-        final pendingMap = <int, Map<String, dynamic>>{};
-        for (final p in pending) { pendingMap[p['member_id'] as int] = p; }
-
-        final students = cached.map((s) {
-          final mid = s['member_id'] as int;
-          final pg = pendingMap[mid];
-          return <String, dynamic>{
-            'member_id': mid, 'student_name': s['student_name'] ?? '',
-            'father_name': s['father_name'] ?? '', 'member_code': s['member_code'] ?? '',
-            'gender': s['gender'] ?? '', 'score': pg?['score'], 'record_id': pg?['record_id'],
-            'remarks': pg?['remark'] ?? '',
-          };
-        }).toList();
-        _setupStudents(students);
-        setState(() { _isOffline = true; _loading = false; });
-      } else {
-        setState(() { _error = 'No internet and no cached students.'; _loading = false; _isOffline = true; });
+      final parsed = RosterParse.students(res.data);
+      if (parsed.isEmpty && RosterParse.reportedCount(res.data) > 0) {
+        setState(() {
+          _error = 'The server sent students but this phone could not read them.';
+          _loading = false;
+        });
+        return;
       }
+      _setupStudents(parsed);
+      String? note;
+      if (RosterParse.fallback(res.data)) {
+        final year = RosterParse.yearName(res.data);
+        note = year == null
+            ? 'Showing students from a previous year.'
+            : 'Showing the $year roster.';
+      }
+      setState(() { _isOffline = false; _loading = false; _rosterNote = note; });
+      return;
+    }
+
+    final cached = await _db.getCachedStudents(widget.classId);
+    if (cached.isNotEmpty) {
+      final pending = await _db.getPendingGradeRecords(widget.assessmentId);
+      final pendingMap = <int, Map<String, dynamic>>{};
+      for (final p in pending) {
+        final mid = RosterParse.asInt(p['member_id']);
+        if (mid != null) pendingMap[mid] = p;
+      }
+
+      final students = <Map<String, dynamic>>[];
+      for (final s in cached) {
+        final mid = RosterParse.asInt(s['member_id']) ?? RosterParse.asInt(s['id']);
+        if (mid == null) continue;
+        final pg = pendingMap[mid];
+        students.add({
+          'member_id': mid,
+          'student_name': s['student_name'] ?? '',
+          'father_name': s['father_name'] ?? '',
+          'member_code': s['member_code'] ?? '',
+          'gender': s['gender'] ?? '',
+          'score': pg?['score'],
+          'record_id': pg?['record_id'],
+          'remarks': pg?['remark'] ?? '',
+        });
+      }
+      _setupStudents(students);
+      setState(() { _isOffline = true; _loading = false; });
+    } else {
+      setState(() {
+        _error = res.message ?? 'Could not load students. Check your connection and try again.';
+        _loading = false;
+        _isOffline = res.isNetworkError;
+      });
     }
   }
 
   void _setupStudents(List<Map<String, dynamic>> students) {
-    _scoreCtrl.clear(); _remarkCtrl.clear();
+    _scoreCtrl.values.forEach((c) => c.dispose());
+    _remarkCtrl.values.forEach((c) => c.dispose());
+    _scoreCtrl.clear();
+    _remarkCtrl.clear();
     int graded = 0;
+    final clean = <Map<String, dynamic>>[];
     for (final s in students) {
-      final mid = s['member_id'] as int;
+      final mid = RosterParse.asInt(s['member_id']) ?? RosterParse.asInt(s['id']);
+      if (mid == null) continue;
       final score = s['score'];
       _scoreCtrl[mid] = TextEditingController(text: score != null ? '$score' : '');
-      _remarkCtrl[mid] = TextEditingController(text: s['remarks'] ?? '');
+      _remarkCtrl[mid] = TextEditingController(text: '${s['remarks'] ?? s['remark'] ?? ''}');
       if (score != null) graded++;
+      clean.add({...s, 'member_id': mid});
     }
-    _students = students;
+    _students = clean;
     _gradedCount = graded;
   }
 
@@ -614,8 +654,16 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
           : _error != null
               ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error), onRetry: _loadStudents, autoRetry: true))
               : _students.isEmpty
-                  ? const EmptyState(icon: Icons.people_outline, title: 'No students enrolled',
-                      subtitle: 'This class has no students for the current year.')
+                  ? EmptyState(
+                      icon: Icons.people_outline,
+                      title: 'No students in this class yet',
+                      subtitle: 'If they were enrolled on the website, tap Refresh. Education can add them under Enrollment.',
+                      action: TextButton.icon(
+                        onPressed: _loadStudents,
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Refresh'),
+                      ),
+                    )
                   : Column(children: [
                       if (_isOffline)
                         Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -626,6 +674,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                             Expanded(child: Text('Offline — grades save locally and sync later',
                                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
                           ])),
+                      if (_rosterNote != null)
+                        StatusBanner.warning(_rosterNote!),
                       Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), color: AppTheme.surfaceLight,
                         child: Row(children: [
                           Text('${_students.length} students', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
@@ -644,7 +694,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
 
   Widget _studentRow(int index) {
     final s = _students[index];
-    final mid = s['member_id'] as int;
+    final mid = RosterParse.asInt(s['member_id']);
+    if (mid == null) return const SizedBox.shrink();
     final hasScore = _scoreCtrl[mid]?.text.isNotEmpty ?? false;
 
     return Card(

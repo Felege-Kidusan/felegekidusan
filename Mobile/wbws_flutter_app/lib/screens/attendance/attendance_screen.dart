@@ -5,8 +5,12 @@ import '../../services/catalog_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
+import '../../utils/roster.dart';
 import '../../utils/theme.dart';
+import '../../widgets/app_error.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../../widgets/status_banner.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int? initialClassId;
@@ -30,8 +34,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   bool _loadingStudents = false;
   bool _saving = false;
   bool _isOffline = false;
+  bool _loadFailed = false;
   String? _error;
   String? _successMsg;
+  String? _rosterNote;
   int _pendingCount = 0;
 
   @override
@@ -98,31 +104,50 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _loadAttendance() async {
     if (_selectedClassId == null) return;
-    setState(() { _error = null; _successMsg = null; });
+    setState(() {
+      _error = null;
+      _successMsg = null;
+      _loadFailed = false;
+      _rosterNote = null;
+    });
 
     // 1. Try cache first
     final pending = await _db.getPendingAttendanceRecords(_selectedClassId!, _selectedDate);
     final pendingMap = <int, String>{};
-    for (final p in pending) { pendingMap[p['member_id'] as int] = p['status'] as String; }
+    for (final p in pending) {
+      final mid = RosterParse.asInt(p['member_id']);
+      if (mid != null) pendingMap[mid] = '${p['status'] ?? 'present'}';
+    }
 
     final cachedAtt = await _db.getCachedAttendanceResponse(_selectedClassId!, _selectedDate);
     if (cachedAtt != null && cachedAtt.isNotEmpty) {
-      final students = cachedAtt.map((s) => <String, dynamic>{
-        ...s,
-        'status': pendingMap[s['member_id'] as int] ?? s['status'] ?? 'present',
-      }).toList();
+      final students = <Map<String, dynamic>>[];
+      for (final s in cachedAtt) {
+        final mid = RosterParse.asInt(s['member_id']) ?? RosterParse.asInt(s['id']);
+        if (mid == null) continue;
+        students.add({
+          ...s,
+          'member_id': mid,
+          'status': pendingMap[mid] ?? s['status'] ?? 'present',
+        });
+      }
       if (mounted) setState(() { _students = students; _loadingStudents = false; _isOffline = true; });
     } else {
       final cachedStudents = await _db.getCachedStudents(_selectedClassId!);
       if (cachedStudents.isNotEmpty) {
-        final students = cachedStudents.map((s) => <String, dynamic>{
-          'member_id': s['member_id'],
-          'student_name': s['student_name'] ?? '',
-          'father_name': s['father_name'] ?? '',
-          'member_code': s['member_code'] ?? '',
-          'gender': s['gender'] ?? '',
-          'status': pendingMap[s['member_id'] as int] ?? 'present',
-        }).toList();
+        final students = <Map<String, dynamic>>[];
+        for (final s in cachedStudents) {
+          final mid = RosterParse.asInt(s['member_id']) ?? RosterParse.asInt(s['id']);
+          if (mid == null) continue;
+          students.add({
+            'member_id': mid,
+            'student_name': s['student_name'] ?? '',
+            'father_name': s['father_name'] ?? '',
+            'member_code': s['member_code'] ?? '',
+            'gender': s['gender'] ?? '',
+            'status': pendingMap[mid] ?? 'present',
+          });
+        }
         if (mounted) setState(() { _students = students; _loadingStudents = false; _isOffline = true; });
       } else {
         if (mounted) setState(() => _loadingStudents = true);
@@ -134,20 +159,50 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
 
     if (res.success && res.data != null) {
-      final students = (res.data['students'] as List? ?? []).map((s) => <String, dynamic>{
-        'member_id': s['member_id'] ?? s['id'],
-        'student_name': s['student_name'] ?? '',
-        'father_name': s['father_name'] ?? '',
-        'member_code': s['member_code'] ?? '',
-        'gender': s['gender'] ?? '',
-        'status': pendingMap[s['member_id'] ?? s['id']] ?? s['att_status'] ?? 'present',
+      final parsed = RosterParse.students(res.data);
+      if (parsed.isEmpty && RosterParse.reportedCount(res.data) > 0) {
+        setState(() {
+          _error = 'The server sent students but this phone could not read them. Pull to refresh.';
+          _loadFailed = true;
+          _loadingStudents = false;
+        });
+        return;
+      }
+      final students = parsed.map((s) {
+        final mid = s['member_id'] as int;
+        return <String, dynamic>{
+          'member_id': mid,
+          'student_name': s['student_name'] ?? '',
+          'father_name': s['father_name'] ?? '',
+          'member_code': s['member_code'] ?? '',
+          'gender': s['gender'] ?? '',
+          'status': pendingMap[mid] ?? s['att_status'] ?? 'present',
+        };
       }).toList();
 
-      setState(() { _students = students; _loadingStudents = false; _isOffline = pendingMap.isNotEmpty; });
+      String? note;
+      if (RosterParse.fallback(res.data)) {
+        final year = RosterParse.yearName(res.data);
+        note = year == null
+            ? 'Showing students from a previous year. Ask Education to enroll them for this year too.'
+            : 'Showing the $year roster. Ask Education to enroll them for this year too.';
+      }
+
+      setState(() {
+        _students = students;
+        _loadingStudents = false;
+        _isOffline = pendingMap.isNotEmpty;
+        _loadFailed = false;
+        _rosterNote = note;
+      });
       await _db.cacheStudents(_selectedClassId!, students);
       await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, students);
     } else if (cachedAtt == null || cachedAtt.isEmpty) {
-      setState(() { _error = res.message; _loadingStudents = false; });
+      setState(() {
+        _error = res.message ?? 'Could not load students. Check your connection and try again.';
+        _loadingStudents = false;
+        _loadFailed = true;
+      });
     }
   }
 
@@ -379,40 +434,14 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
 
-          // Messages
           if (_error != null)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                  color: AppTheme.danger.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Row(children: [
-                const Icon(Icons.error, size: 16, color: AppTheme.danger),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: Text(_error!,
-                        style: const TextStyle(
-                            color: AppTheme.danger, fontSize: 12))),
-              ]),
-            ),
+            StatusBanner.error(_error!, onRetry: _loadAttendance),
           if (_successMsg != null)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                  color: AppTheme.success.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Row(children: [
-                const Icon(Icons.check_circle,
-                    size: 16, color: AppTheme.success),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: Text(_successMsg!,
-                        style: const TextStyle(
-                            color: AppTheme.success, fontSize: 12))),
-              ]),
-            ),
+            StatusBanner.success(_successMsg!, onDismiss: () {
+              if (mounted) setState(() => _successMsg = null);
+            }),
+          if (_rosterNote != null && _error == null)
+            StatusBanner.warning(_rosterNote!),
 
           // Quick mark all
           if (_students.isNotEmpty)
@@ -437,20 +466,53 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           Expanded(
             child: _loadingStudents
                 ? const StudentListSkeleton()
-                : _students.isEmpty
-                    ? Center(
-                        child: Text(
-                          _selectedClassId == null
-                              ? 'Select a class to begin'
-                              : 'No students enrolled',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _students.length,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemBuilder: (_, i) => _studentRow(i),
-                      ),
+                : RefreshIndicator(
+                    onRefresh: _loadAttendance,
+                    child: _loadFailed && _students.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: AppErrorCard(
+                                  error: AppError.fromMessage(_error,
+                                      isNetwork: (_error ?? '').toLowerCase().contains('internet') ||
+                                          (_error ?? '').toLowerCase().contains('connection')),
+                                  onRetry: _loadAttendance,
+                                ),
+                              ),
+                            ],
+                          )
+                        : _students.isEmpty
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  const SizedBox(height: 40),
+                                  EmptyState(
+                                    icon: Icons.people_outline,
+                                    title: _selectedClassId == null
+                                        ? 'Select a class'
+                                        : 'No students in this class yet',
+                                    subtitle: _selectedClassId == null
+                                        ? 'Pick a class above to take attendance.'
+                                        : 'If they were enrolled on the website, pull down to refresh. Education can also add them under Enrollment.',
+                                    action: _selectedClassId == null
+                                        ? null
+                                        : TextButton.icon(
+                                            onPressed: _loadAttendance,
+                                            icon: const Icon(Icons.refresh, size: 18),
+                                            label: const Text('Refresh'),
+                                          ),
+                                  ),
+                                ],
+                              )
+                            : ListView.builder(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                itemCount: _students.length,
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                                itemBuilder: (_, i) => _studentRow(i),
+                              ),
+                  ),
           ),
         ],
       ),

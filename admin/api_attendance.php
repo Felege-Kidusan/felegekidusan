@@ -6,6 +6,9 @@
 
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/EnrollmentService.php';
+
+use App\Services\EnrollmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -54,61 +57,51 @@ switch ($action) {
         $classRow = $stmt->get_result()->fetch_assoc();
         $className = $classRow ? $classRow['class_name'] : 'Unknown';
         
-        // Get enrolled students with any existing attendance for this date
-        if ($currentYear) {
-            $stmt = $conn->prepare("
-                SELECT 
-                    ce.member_id,
-                    m.student_name, m.father_name, m.member_code, m.gender,
-                    a.id as attendance_id, a.status, a.notes as note
-                FROM class_enrollments ce
-                JOIN members m ON ce.member_id = m.id
-                LEFT JOIN attendance a ON a.member_id = ce.member_id 
-                    AND a.class_id = ce.class_id 
-                    AND a.attendance_date = ?
-                WHERE ce.class_id = ? 
-                    AND ce.academic_year_id = ?
-                    AND ce.status = 'active'
-                ORDER BY m.student_name
-            ");
-            $stmt->bind_param("sii", $date, $classId, $currentYear['id']);
-        } else {
-            // Fallback without academic year
-            $stmt = $conn->prepare("
-                SELECT 
-                    ce.member_id,
-                    m.student_name, m.father_name, m.member_code, m.gender,
-                    a.id as attendance_id, a.status, a.notes as note
-                FROM class_enrollments ce
-                JOIN members m ON ce.member_id = m.id
-                LEFT JOIN attendance a ON a.member_id = ce.member_id 
-                    AND a.class_id = ce.class_id 
-                    AND a.attendance_date = ?
-                WHERE ce.class_id = ? 
-                    AND ce.status = 'active'
-                ORDER BY m.student_name
-            ");
-            $stmt->bind_param("si", $date, $classId);
-        }
-        
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $students = [];
-        while ($row = $result->fetch_assoc()) {
-            // Default to present if no record exists
-            if (!$row['status']) {
-                $row['status'] = 'present';
+        $preferYear = $currentYear ? (int)$currentYear['id'] : null;
+        $scope = EnrollmentService::resolveRosterYear($conn, $classId, $preferYear);
+        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+
+        $attByMember = [];
+        $attStmt = $conn->prepare(
+            "SELECT id, member_id, status, notes FROM attendance WHERE class_id = ? AND attendance_date = ?"
+        );
+        if ($attStmt) {
+            $attStmt->bind_param('is', $classId, $date);
+            $attStmt->execute();
+            $ar = $attStmt->get_result();
+            while ($row = $ar->fetch_assoc()) {
+                $attByMember[(int)$row['member_id']] = $row;
             }
-            $students[] = $row;
+            $attStmt->close();
+        }
+
+        $students = [];
+        foreach ($roster as $row) {
+            $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
+            if ($mid <= 0) continue;
+            $att = $attByMember[$mid] ?? null;
+            $students[] = [
+                'member_id' => $mid,
+                'student_name' => $row['student_name'] ?? '',
+                'father_name' => $row['father_name'] ?? '',
+                'member_code' => $row['member_code'] ?? '',
+                'gender' => $row['gender'] ?? '',
+                'attendance_id' => $att && !empty($att['id']) ? (int)$att['id'] : null,
+                'status' => $att['status'] ?? 'present',
+                'note' => $att['notes'] ?? '',
+            ];
         }
         
         echo json_encode([
             'status' => 'success',
             'class_name' => $className,
             'date' => $date,
-            'students' => $students
-        ]);
+            'students' => $students,
+            'count' => count($students),
+            'roster_year_id' => $scope['year_id'] ?? null,
+            'roster_year_name' => $scope['year_name'] ?? null,
+            'roster_fallback' => !empty($scope['fallback']),
+        ], JSON_UNESCAPED_UNICODE);
         break;
     
     case 'save_attendance':

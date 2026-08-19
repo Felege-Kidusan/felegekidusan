@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../utils/roster.dart';
 import '../../utils/theme.dart';
+import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/loading_skeleton.dart';
+import '../../widgets/status_banner.dart';
 
 /// Class list + roster (name and code only). Same data as the website.
 class EduClassesScreen extends StatefulWidget {
@@ -18,6 +22,8 @@ class _EduClassesScreenState extends State<EduClassesScreen> {
   int? _openId;
   List<dynamic> _students = [];
   bool _loadingStudents = false;
+  String? _studentError;
+  String? _rosterNote;
 
   @override
   void initState() {
@@ -40,14 +46,39 @@ class _EduClassesScreenState extends State<EduClassesScreen> {
   }
 
   Future<void> _openClass(dynamic c) async {
-    final id = c['id'] is int ? c['id'] as int : int.tryParse('${c['id']}');
+    final id = RosterParse.asInt(c['id']);
     if (id == null) return;
-    setState(() { _openId = id; _loadingStudents = true; _students = []; });
+    setState(() {
+      _openId = id;
+      _loadingStudents = true;
+      _students = [];
+      _studentError = null;
+      _rosterNote = null;
+    });
     final res = await _api.getClassStudents(id);
     if (!mounted) return;
+    if (!res.success || res.data == null) {
+      setState(() {
+        _loadingStudents = false;
+        _studentError = res.message ?? 'Could not load students. Try again.';
+      });
+      return;
+    }
+    final parsed = RosterParse.students(res.data);
+    String? note;
+    if (RosterParse.fallback(res.data)) {
+      final year = RosterParse.yearName(res.data);
+      note = year == null
+          ? 'Showing students from a previous year.'
+          : 'Showing the $year roster.';
+    }
     setState(() {
       _loadingStudents = false;
-      _students = res.success ? (res.data['students'] ?? []) : [];
+      _students = parsed;
+      _rosterNote = note;
+      if (parsed.isEmpty && RosterParse.reportedCount(res.data) > 0) {
+        _studentError = 'The server sent students but this phone could not read them.';
+      }
     });
   }
 
@@ -56,22 +87,29 @@ class _EduClassesScreenState extends State<EduClassesScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Classes')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const MemberListSkeleton()
           : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: AppTheme.danger)))
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: AppErrorCard(
+                    error: AppError.fromMessage(_error),
+                    onRetry: _load,
+                  ),
+                )
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(16),
                     children: [
                       if (_classes.isEmpty)
                         const EmptyState(
                           icon: Icons.class_rounded,
                           title: 'No classes yet',
-                          subtitle: 'Create classes on the website.',
+                          subtitle: 'Create classes on the website under Education.',
                         ),
                       ..._classes.map((c) {
-                        final id = c['id'] is int ? c['id'] as int : int.tryParse('${c['id']}');
+                        final id = RosterParse.asInt(c['id']);
                         final open = id == _openId;
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
@@ -88,24 +126,42 @@ class _EduClassesScreenState extends State<EduClassesScreen> {
                                 _loadingStudents
                                     ? const Padding(
                                         padding: EdgeInsets.all(16),
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: StudentListSkeleton(count: 3),
                                       )
-                                    : _students.isEmpty
-                                        ? const Padding(
-                                            padding: EdgeInsets.all(16),
-                                            child: Text('No students enrolled',
-                                                style: TextStyle(color: Colors.grey)),
+                                    : _studentError != null
+                                        ? Padding(
+                                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                                            child: StatusBanner.error(
+                                              _studentError!,
+                                              onRetry: () => _openClass(c),
+                                            ),
                                           )
-                                        : Column(
-                                            children: _students
-                                                .map((s) => ListTile(
-                                                      dense: true,
-                                                      title: Text(
-                                                          '${s['student_name'] ?? ''} ${s['father_name'] ?? ''}'),
-                                                      subtitle: Text(s['member_code'] ?? ''),
-                                                    ))
-                                                .toList(),
-                                          ),
+                                        : _students.isEmpty
+                                            ? Padding(
+                                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                                                child: EmptyState(
+                                                  icon: Icons.people_outline,
+                                                  title: 'No students in this class yet',
+                                                  subtitle: 'If they were enrolled on the website, tap Refresh.',
+                                                  action: TextButton.icon(
+                                                    onPressed: () => _openClass(c),
+                                                    icon: const Icon(Icons.refresh, size: 18),
+                                                    label: const Text('Refresh'),
+                                                  ),
+                                                ),
+                                              )
+                                            : Column(
+                                                children: [
+                                                  if (_rosterNote != null)
+                                                    StatusBanner.warning(_rosterNote!),
+                                                  ..._students.map((s) => ListTile(
+                                                        dense: true,
+                                                        title: Text(
+                                                            '${s['student_name'] ?? ''} ${s['father_name'] ?? ''}'),
+                                                        subtitle: Text('${s['member_code'] ?? ''}'),
+                                                      )),
+                                                ],
+                                              ),
                             ],
                           ),
                         );

@@ -451,7 +451,7 @@ $csrfToken = generateCsrfToken();
         function renderAttendanceTable(students) {
             const tbody = document.getElementById('attendanceBody');
             if (students.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-400 py-8">No students enrolled</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8"><div class="font-medium text-slate-600">No students in this class yet</div><div class="text-xs text-slate-400 mt-1">If they were enrolled on the Education page, refresh. Otherwise add them under Enrollment.</div></td></tr>';
                 return;
             }
             

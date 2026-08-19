@@ -33,6 +33,11 @@ if ($method === 'GET' && $id === null) {
     try {
         $today = date('Y-m-d');
         $yearId = $year ? (int)$year['id'] : 0;
+        $enrSql = class_exists('\\App\\Services\\EnrollmentService')
+            ? \App\Services\EnrollmentService::rosterCountJoinSql($yearId)
+            : ("SELECT class_id, COUNT(*) AS cnt FROM class_enrollments WHERE status = 'active'"
+                . ($year ? " AND academic_year_id = {$yearId}" : "")
+                . " GROUP BY class_id");
         
         if ($isRestricted) {
             $sql = "SELECT c.id, c.class_name, c.class_name_en, c.section,
@@ -44,10 +49,7 @@ if ($method === 'GET' && $id === null) {
                     FROM teacher_assignments ta
                     JOIN classes c ON ta.class_id = c.id
                     LEFT JOIN (
-                        SELECT class_id, COUNT(*) AS cnt
-                        FROM class_enrollments
-                        WHERE status = 'active'" . ($year ? " AND academic_year_id = {$yearId}" : "") . "
-                        GROUP BY class_id
+                        {$enrSql}
                     ) enr ON enr.class_id = c.id
                     LEFT JOIN (
                         SELECT class_id, COUNT(*) AS cnt
@@ -66,7 +68,6 @@ if ($method === 'GET' && $id === null) {
             $stmt->execute();
             $r = $stmt->get_result();
         } else {
-            $yearJoin = $year ? " AND academic_year_id = {$yearId}" : "";
             $sql = "SELECT c.id, c.class_name, c.class_name_en, c.section,
                            c.level_order, c.age_group,
                            0 as is_class_teacher,
@@ -75,10 +76,7 @@ if ($method === 'GET' && $id === null) {
                            COALESCE(att.cnt, 0) as attendance_count
                     FROM classes c
                     LEFT JOIN (
-                        SELECT class_id, COUNT(*) AS cnt
-                        FROM class_enrollments
-                        WHERE status = 'active' {$yearJoin}
-                        GROUP BY class_id
+                        {$enrSql}
                     ) enr ON enr.class_id = c.id
                     LEFT JOIN (
                         SELECT class_id, COUNT(*) AS cnt
@@ -197,42 +195,60 @@ if ($method === 'GET' && $id !== null && $sub === 'students') {
     
     $year = getCurrentAcademicYear();
     $students = [];
-    
+    $scope = ['year_id' => $year ? (int)$year['id'] : null, 'fallback' => false, 'year_name' => $year['year_name'] ?? null];
+
     try {
-        if ($year) {
-            $stmt = $conn->prepare("SELECT m.id, m.member_code, m.student_name, m.father_name, 
-                                           m.gender, m.age_group,
-                                           m.student_photo_path, m.status
-                                    FROM class_enrollments ce 
-                                    JOIN members m ON ce.member_id = m.id 
-                                    WHERE ce.class_id = ? 
-                                      AND ce.academic_year_id = ? 
-                                      AND ce.status = 'active'
-                                    ORDER BY m.student_name");
-            $stmt->bind_param('ii', $id, $year['id']);
+        if (class_exists('\\App\\Services\\EnrollmentService')) {
+            $scope = \App\Services\EnrollmentService::resolveRosterYear($conn, $id, $year ? (int)$year['id'] : null);
+            $rows = \App\Services\EnrollmentService::fetchRoster($conn, $id, $scope['year_id'] ?? null);
+            foreach ($rows as $row) {
+                $row['photo_url'] = apiPhotoUrl($row['student_photo_path'] ?? null);
+                unset($row['student_photo_path']);
+                $students[] = apiRosterStudentRow($row);
+            }
         } else {
-            $stmt = $conn->prepare("SELECT m.id, m.member_code, m.student_name, m.father_name, 
-                                           m.gender, m.age_group,
-                                           m.student_photo_path, m.status
-                                    FROM class_enrollments ce 
-                                    JOIN members m ON ce.member_id = m.id 
-                                    WHERE ce.class_id = ? AND ce.status = 'active'
-                                    ORDER BY m.student_name");
-            $stmt->bind_param('i', $id);
+            if ($year) {
+                $stmt = $conn->prepare("SELECT m.id, m.member_code, m.student_name, m.father_name, 
+                                               m.gender, m.age_group,
+                                               m.student_photo_path, m.status
+                                        FROM class_enrollments ce 
+                                        JOIN members m ON ce.member_id = m.id 
+                                        WHERE ce.class_id = ? 
+                                          AND ce.academic_year_id = ? 
+                                          AND ce.status = 'active'
+                                        ORDER BY m.student_name");
+                $stmt->bind_param('ii', $id, $year['id']);
+            } else {
+                $stmt = $conn->prepare("SELECT m.id, m.member_code, m.student_name, m.father_name, 
+                                               m.gender, m.age_group,
+                                               m.student_photo_path, m.status
+                                        FROM class_enrollments ce 
+                                        JOIN members m ON ce.member_id = m.id 
+                                        WHERE ce.class_id = ? AND ce.status = 'active'
+                                        ORDER BY m.student_name");
+                $stmt->bind_param('i', $id);
+            }
+            $stmt->execute();
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $row['photo_url'] = apiPhotoUrl($row['student_photo_path'] ?? null);
+                unset($row['student_photo_path']);
+                $students[] = apiRosterStudentRow($row);
+            }
+            $stmt->close();
         }
-        $stmt->execute();
-        $r = $stmt->get_result();
-        while ($row = $r->fetch_assoc()) {
-            $row['photo_url'] = apiPhotoUrl($row['student_photo_path'] ?? null);
-            unset($row['student_photo_path']);
-            $students[] = apiRosterStudentRow($row);
-        }
-        $stmt->close();
     } catch (Exception $e) {
         err('Failed to load students: ' . $e->getMessage(), 500);
     }
     
-    ok(['class_id' => $id, 'students' => $students, 'count' => count($students)]);
+    ok([
+        'class_id' => $id,
+        'students' => $students,
+        'count' => count($students),
+        'roster_year_id' => $scope['year_id'] ?? null,
+        'roster_year_name' => $scope['year_name'] ?? null,
+        'roster_fallback' => !empty($scope['fallback']),
+    ]);
 }
 
 err("No handler for {$method} /classes" . ($id ? "/{$id}" : '') . ($sub ? "/{$sub}" : ''), 404);

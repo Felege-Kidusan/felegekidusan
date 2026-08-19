@@ -375,28 +375,23 @@ switch ($action) {
     case 'get_class_students':
         $classId = (int)($_GET['class_id'] ?? 0);
         
-        if (!$classId || !$currentYear) {
+        if (!$classId) {
             echo json_encode(['status' => 'error', 'message' => 'Class ID required']);
             exit;
         }
+
+        $preferYear = $currentYear ? (int)$currentYear['id'] : null;
+        $scope = EnrollmentService::resolveRosterYear($conn, $classId, $preferYear);
+        $students = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
         
-        $stmt = $conn->prepare("
-            SELECT ce.*, m.id as member_id, m.student_name, m.father_name, m.member_code, m.gender
-            FROM class_enrollments ce
-            JOIN members m ON ce.member_id = m.id
-            WHERE ce.class_id = ? AND ce.academic_year_id = ? AND ce.status = 'active'
-            ORDER BY m.student_name
-        ");
-        $stmt->bind_param("ii", $classId, $currentYear['id']);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $students = [];
-        while ($row = $result->fetch_assoc()) {
-            $students[] = $row;
-        }
-        
-        echo json_encode(['status' => 'success', 'students' => $students]);
+        echo json_encode([
+            'status' => 'success',
+            'students' => $students,
+            'count' => count($students),
+            'roster_year_id' => $scope['year_id'] ?? null,
+            'roster_year_name' => $scope['year_name'] ?? null,
+            'roster_fallback' => !empty($scope['fallback']),
+        ], JSON_UNESCAPED_UNICODE);
         break;
     
     // ============================================================
@@ -454,60 +449,35 @@ switch ($action) {
         $memberTypeFilter = trim($_GET['member_type'] ?? '');
         $sortBy = trim($_GET['sort'] ?? 'name');
         if (!$classId) {
-            echo json_encode(['status' => 'error', 'message' => 'Class ID required']);
+            echo json_encode(['status' => 'error', 'message' => 'Please pick a class first.']);
             exit;
         }
         try {
-            $yearFilter = '';
-            $params = [$classId];
-            $types = 'i';
-            if ($currentYear) {
-                $yearFilter = ' AND ce.academic_year_id = ?';
-                $params[] = $currentYear['id'];
-                $types .= 'i';
-            }
-            $searchFilter = '';
-            if ($search !== '') {
-                $searchFilter = " AND (m.student_name LIKE ? OR m.father_name LIKE ? OR m.member_code LIKE ?)";
-                $st = "%$search%"; $params[] = $st; $params[] = $st; $params[] = $st; $types .= 'sss';
-            }
-            $genderFilterSql = '';
-            if ($genderFilter !== '' && in_array($genderFilter, ['male', 'female'])) {
-                $genderFilterSql = " AND m.gender = ?"; $params[] = $genderFilter; $types .= 's';
-            }
-            $memberTypeFilterSql = '';
-            if ($memberTypeFilter !== '' && in_array($memberTypeFilter, ['regular', 'special_regular', 'honorary'])) {
-                $memberTypeFilterSql = " AND m.member_type = ?"; $params[] = $memberTypeFilter; $types .= 's';
-            }
-            $orderBy = 'm.student_name';
-            switch ($sortBy) { case 'code': $orderBy='m.member_code'; break; case 'date': $orderBy='ce.enrolled_at DESC'; break; case 'gender': $orderBy='m.gender,m.student_name'; break; }
-            $stmt = $conn->prepare("
-                SELECT ce.id as enrollment_id, ce.enrolled_at, ce.status as enrollment_status, ce.notes as enrollment_notes,
-                       m.id as member_id, m.student_name, m.father_name, m.grandfather_name,
-                       m.member_code, m.gender, m.phone_number, m.phone_primary,
-                       m.age_group, m.current_section, m.date_of_birth, m.age,
-                       m.baptismal_name, m.education_level,
-                       m.member_type, m.is_teacher, m.is_staff, m.is_committee, m.is_volunteer
-                FROM class_enrollments ce
-                JOIN members m ON ce.member_id = m.id
-                WHERE ce.class_id = ? {$yearFilter} AND ce.status = 'active' {$searchFilter} {$genderFilterSql} {$memberTypeFilterSql}
-                ORDER BY {$orderBy}
-            ");
-            $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $students = [];
-            while ($row = $result->fetch_assoc()) $students[] = $row;
+            $preferYear = $currentYear ? (int)$currentYear['id'] : null;
+            $scope = EnrollmentService::resolveRosterYear($conn, $classId, $preferYear);
+            $students = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null, [
+                'search' => $search,
+                'gender' => $genderFilter,
+                'member_type' => $memberTypeFilter,
+                'sort' => $sortBy,
+            ]);
             $stats = ['total' => count($students), 'male' => 0, 'female' => 0, 'regular' => 0, 'special_regular' => 0, 'honorary' => 0, 'teachers' => 0];
             foreach ($students as $s) {
-                if ($s['gender'] === 'male') $stats['male']++; else $stats['female']++;
+                if (($s['gender'] ?? '') === 'male') $stats['male']++; else $stats['female']++;
                 $mt = $s['member_type'] ?? 'regular';
                 if (isset($stats[$mt])) $stats[$mt]++; else $stats['regular']++;
                 if (!empty($s['is_teacher'])) $stats['teachers']++;
             }
-            echo json_encode(['status' => 'success', 'students' => $students, 'stats' => $stats]);
+            echo json_encode([
+                'status' => 'success',
+                'students' => $students,
+                'stats' => $stats,
+                'roster_year_id' => $scope['year_id'] ?? null,
+                'roster_year_name' => $scope['year_name'] ?? null,
+                'roster_fallback' => !empty($scope['fallback']),
+            ], JSON_UNESCAPED_UNICODE);
         } catch (Exception $e) {
-            echo json_encode(['status' => 'success', 'students' => [], 'stats' => ['total'=>0,'male'=>0,'female'=>0], 'note' => 'Tables may need setup']);
+            echo json_encode(['status' => 'error', 'message' => 'Could not load enrolled students. Please try again.']);
         }
         break;
 

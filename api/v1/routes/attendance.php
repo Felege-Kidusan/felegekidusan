@@ -34,53 +34,85 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
 
     if (!$class) err('Class not found', 404);
 
-    if ($year) {
-        $stmt = $conn->prepare(
-            "SELECT ce.member_id, m.student_name, m.father_name, m.member_code, m.gender,
-                    a.id as attendance_id, a.status as att_status, a.notes, a.check_in_time
-             FROM class_enrollments ce
-             JOIN members m ON ce.member_id = m.id
-             LEFT JOIN attendance a ON a.member_id = ce.member_id AND a.attendance_date = ? AND a.class_id = ?
-             WHERE ce.class_id = ? AND ce.academic_year_id = ? AND ce.status = 'active'
-             ORDER BY m.student_name"
-        );
-        $stmt->bind_param('siii', $date, $classId, $classId, $year['id']);
-    } else {
-        $stmt = $conn->prepare(
-            "SELECT ce.member_id, m.student_name, m.father_name, m.member_code, m.gender,
-                    a.id as attendance_id, a.status as att_status, a.notes, a.check_in_time
-             FROM class_enrollments ce
-             JOIN members m ON ce.member_id = m.id
-             LEFT JOIN attendance a ON a.member_id = ce.member_id AND a.attendance_date = ? AND a.class_id = ?
-             WHERE ce.class_id = ? AND ce.status = 'active'
-             ORDER BY m.student_name"
-        );
-        $stmt->bind_param('sii', $date, $classId, $classId);
+    $scope = class_exists('\\App\\Services\\EnrollmentService')
+        ? \App\Services\EnrollmentService::resolveRosterYear($conn, $classId, $yearId ?: null)
+        : ['year_id' => $yearId ?: null, 'fallback' => false, 'year_name' => null];
+    $rosterYearId = !empty($scope['year_id']) ? (int)$scope['year_id'] : 0;
+
+    $attByMember = [];
+    $attStmt = $conn->prepare(
+        "SELECT id, member_id, status, notes, check_in_time
+         FROM attendance WHERE class_id = ? AND attendance_date = ?"
+    );
+    if ($attStmt) {
+        $attStmt->bind_param('is', $classId, $date);
+        $attStmt->execute();
+        $ar = $attStmt->get_result();
+        while ($row = $ar->fetch_assoc()) {
+            $attByMember[(int)$row['member_id']] = $row;
+        }
+        $attStmt->close();
     }
 
-    $stmt->execute();
+    $roster = class_exists('\\App\\Services\\EnrollmentService')
+        ? \App\Services\EnrollmentService::fetchRoster($conn, $classId, $rosterYearId ?: null)
+        : [];
+
+    // Fallback if the service is missing on an older deploy
+    if (!$roster && !class_exists('\\App\\Services\\EnrollmentService')) {
+        if ($year) {
+            $stmt = $conn->prepare(
+                "SELECT ce.member_id, m.student_name, m.father_name, m.member_code, m.gender
+                 FROM class_enrollments ce
+                 JOIN members m ON ce.member_id = m.id
+                 WHERE ce.class_id = ? AND ce.academic_year_id = ? AND ce.status = 'active'
+                 ORDER BY m.student_name"
+            );
+            $stmt->bind_param('ii', $classId, $year['id']);
+        } else {
+            $stmt = $conn->prepare(
+                "SELECT ce.member_id, m.student_name, m.father_name, m.member_code, m.gender
+                 FROM class_enrollments ce
+                 JOIN members m ON ce.member_id = m.id
+                 WHERE ce.class_id = ? AND ce.status = 'active'
+                 ORDER BY m.student_name"
+            );
+            $stmt->bind_param('i', $classId);
+        }
+        $stmt->execute();
+        $r = $stmt->get_result();
+        while ($row = $r->fetch_assoc()) {
+            $roster[] = $row;
+        }
+        $stmt->close();
+    }
+
     $students = [];
-    $r = $stmt->get_result();
-    while ($row = $r->fetch_assoc()) {
+    foreach ($roster as $row) {
+        $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
+        if ($mid <= 0) continue;
+        $att = $attByMember[$mid] ?? null;
         $students[] = [
-            'member_id' => (int)$row['member_id'],
-            'student_name' => $row['student_name'],
-            'father_name' => $row['father_name'],
-            'member_code' => $row['member_code'],
-            'gender' => $row['gender'],
-            'attendance_id' => $row['attendance_id'] ? (int)$row['attendance_id'] : null,
-            'att_status' => $row['att_status'],
-            'notes' => $row['notes'],
-            'check_in_time' => $row['check_in_time'],
+            'member_id' => $mid,
+            'student_name' => $row['student_name'] ?? '',
+            'father_name' => $row['father_name'] ?? '',
+            'member_code' => $row['member_code'] ?? '',
+            'gender' => $row['gender'] ?? '',
+            'attendance_id' => $att && !empty($att['id']) ? (int)$att['id'] : null,
+            'att_status' => $att['status'] ?? null,
+            'notes' => $att['notes'] ?? null,
+            'check_in_time' => $att['check_in_time'] ?? null,
         ];
     }
-    $stmt->close();
 
     ok([
         'class' => $class,
         'date' => $date,
         'students' => $students,
-        'count' => count($students)
+        'count' => count($students),
+        'roster_year_id' => $rosterYearId ?: null,
+        'roster_year_name' => $scope['year_name'] ?? null,
+        'roster_fallback' => !empty($scope['fallback']),
     ]);
 }
 

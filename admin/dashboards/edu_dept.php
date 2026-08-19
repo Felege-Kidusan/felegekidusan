@@ -1111,9 +1111,10 @@ async function enrollFromSearch() {
 
 // --- Load Enrolled Students (with search/filter/sort) ---
 async function loadEnrolled() {
+    const area=document.getElementById('enrollArea');
     const cid=document.getElementById('enrollClass').value;
-    if(!cid) { document.getElementById('enrollArea').innerHTML=''; return; }
-    document.getElementById('enrollArea').innerHTML='<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+    if(!cid) { if(area) area.innerHTML=''; return; }
+    if(area) area.innerHTML='<div class="crd" style="padding:1.75rem;text-align:center;color:#64748b"><i class="fa-solid fa-spinner fa-spin" style="color:#7c3aed"></i><div style="margin-top:.55rem;font-size:.8rem">Loading students…</div></div>';
     const search=document.getElementById('enrollFilterSearch')?.value||'';
     const gender=document.getElementById('enrollFilterGender')?.value||'';
     const memberType=document.getElementById('enrollFilterMType')?.value||'';
@@ -1123,18 +1124,28 @@ async function loadEnrolled() {
     if(gender) url+=`&gender=${gender}`;
     if(memberType) url+=`&member_type=${memberType}`;
     if(sort) url+=`&sort=${sort}`;
-    try { const d=await getAPI(url);
-    if(d.status==='success') {
+    try {
+        const d=await getAPI(url);
+        if(d.status!=='success'){
+            if(area) area.innerHTML=`<div class="crd" style="padding:1.5rem;text-align:center"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load this class</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(d.message||'Please try again.')}</div><button class="btn btn-p btn-xs" type="button" onclick="loadEnrolled()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
+            toast(d.message||'Could not load enrolled students.','err');
+            return;
+        }
         const s=d.students||[], st=d.stats||{};
-        const memberType=document.getElementById('enrollFilterMType')?.value||'';
-        document.getElementById('enrollArea').innerHTML=`
+        const yearNote=d.roster_fallback?`<div style="margin:.65rem 1rem 0;padding:.55rem .75rem;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:.75rem;color:#92400e"><i class="fa-solid fa-circle-info"></i> Showing students from <b class="amharic">${esc(d.roster_year_name||'a previous year')}</b>. They are not yet enrolled in the current year — use Bulk Enroll if this year should have them too.</div>`:'';
+        const empty=s.length?'':`<div style="padding:2rem 1.25rem;text-align:center">
+            <i class="fa-solid fa-user-graduate" style="font-size:1.8rem;color:#c4b5fd;display:block;margin-bottom:.55rem"></i>
+            <div style="font-weight:600;color:#334155">No students in this class yet</div>
+            <div style="font-size:.78rem;color:#64748b;margin-top:.35rem;max-width:360px;margin-left:auto;margin-right:auto">Search a name or code above to add one student, or use <b>Bulk Enroll</b> / <b>All Students</b> to add many at once.</div>
+        </div>`;
+        if(area) area.innerHTML=`
         <div class="crd">
             <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
                 <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
-                    <span style="font-weight:700;font-size:.95rem">${st.total||0} students</span>
+                    <span style="font-weight:700;font-size:.95rem">${st.total||0} student${(st.total||0)===1?'':'s'}</span>
                     <span class="ch ch-i" style="font-size:.6rem">♂ ${st.male||0}</span>
                     <span class="ch ch-p" style="font-size:.6rem">♀ ${st.female||0}</span>
-                    <span style="font-size:.55rem;color:#64748b;border-left:1px solid #e2e8f0;padding-left:.5rem">Regular: ${st.regular||0} | Special: ${st.special_regular||0}${st.honorary?' | Honorary: '+st.honorary:''}${st.teachers?' | 👨‍🏫 '+st.teachers:''}</span>
+                    <span style="font-size:.55rem;color:#64748b;border-left:1px solid #e2e8f0;padding-left:.5rem">Regular: ${st.regular||0} | Special: ${st.special_regular||0}${st.honorary?' | Honorary: '+st.honorary:''}${st.teachers?' | Teachers: '+st.teachers:''}</span>
                 </div>
                 <div style="display:flex;gap:.4rem;flex-wrap:wrap">
                     <input type="text" id="enrollFilterSearch" class="inp" style="max-width:140px;padding:.35rem .6rem;font-size:.75rem" placeholder="Filter..." value="${esc(search)}" oninput="loadEnrolled()">
@@ -1144,6 +1155,7 @@ async function loadEnrolled() {
                     <button class="btn btn-o btn-xs" onclick="exportEnrolled()"><i class="fa-solid fa-download"></i></button>
                 </div>
             </div>
+            ${yearNote}
             ${s.length?`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student Name</th><th>Code</th><th>Type</th><th>Gender</th><th>Age</th><th>Enrolled</th><th style="text-align:center">Actions</th></tr></thead><tbody>${s.map((x,i)=>`<tr>
                 <td>${i+1}</td>
                 <td><div style="font-weight:600">${esc(x.student_name)}${x.baptismal_name?' <span style="font-size:.6rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div><div style="margin-top:2px">${roleTags(x)}</div></td>
@@ -1156,9 +1168,13 @@ async function loadEnrolled() {
                     <button class="ab" style="background:#dbeafe;color:#2563eb" onclick="openTransfer(${x.enrollment_id},'${esc(x.student_name)} ${esc(x.father_name)}','${esc(x.member_code||'')}')" title="Transfer"><i class="fa-solid fa-exchange-alt"></i></button>
                     <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="unenroll(${x.enrollment_id})" title="Remove"><i class="fa-solid fa-user-minus"></i></button>
                 </td>
-            </tr>`).join('')}</tbody></table></div>`:'<div style="padding:1.5rem;text-align:center;color:#94a3b8">No students enrolled</div>'}
+            </tr>`).join('')}</tbody></table></div>`:empty}
         </div>`;
-    }} catch(e){ toast('Error loading','err'); }
+    } catch(e){
+        const msg=friendlyNetError(e);
+        if(area) area.innerHTML=`<div class="crd" style="padding:1.5rem;text-align:center"><div style="color:#dc2626;font-weight:600;margin-bottom:.35rem">Could not load this class</div><div style="color:#64748b;font-size:.8rem;margin-bottom:.85rem">${esc(msg)}</div><button class="btn btn-p btn-xs" type="button" onclick="loadEnrolled()"><i class="fa-solid fa-rotate-right"></i> Retry</button></div>`;
+        toast(msg,'err');
+    }
 }
 
 async function enrollStudent(){const cid=document.getElementById('enrollClass').value,mid=document.getElementById('enrollMember')?.value;if(!cid||!mid)return toast('Select class and student','err');const fd=new FormData();fd.append('action','enroll');fd.append('class_id',cid);fd.append('member_id',mid);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success'){loadEnrolled();loadEnrollOverview();}}catch(e){toast('Error','err');}}
@@ -1704,6 +1720,14 @@ if(!document.querySelector('.sec.act')){
 document.addEventListener('DOMContentLoaded',()=>{loadTeachers();
 document.addEventListener('click',e=>{
     const sr=document.getElementById('enrollSearchResults');
+    if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
+    const mh=document.getElementById('teacherMemberHits');
+    if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';
+});
+});
+</script>
+</body></html>
+document.getElementById('enrollSearchResults');
     if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
     const mh=document.getElementById('teacherMemberHits');
     if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';

@@ -12,6 +12,11 @@ $_SERVER['SCRIPT_NAME'] = $_SERVER['SCRIPT_NAME'] ?? '/api/v1/index.php';
 // Load main config (2 levels up from /api/v1/core/)
 require_once __DIR__ . '/../../../config.php';
 
+$__enrollService = __DIR__ . '/../../../admin/backend/services/EnrollmentService.php';
+if (is_file($__enrollService)) {
+    require_once $__enrollService;
+}
+
 // Verify connection
 if (!isset($conn) || !$conn || $conn->connect_error) {
     http_response_code(500);

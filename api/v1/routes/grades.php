@@ -336,24 +336,53 @@ if ($action === 'students' && $method === 'GET') {
     }
     
     $students = [];
+    $scope = ['year_id' => (int)$assessment['academic_year_id'], 'fallback' => false, 'year_name' => null];
     try {
-        $stmt = $conn->prepare("SELECT ce.member_id, m.student_name, m.father_name, m.member_code, m.gender,
-                                       ar.id as record_id, ar.score, ar.remarks
-                                FROM class_enrollments ce
-                                JOIN members m ON ce.member_id = m.id
-                                LEFT JOIN academic_records ar ON ar.member_id = ce.member_id AND ar.assessment_id = ?
-                                WHERE ce.class_id = ? AND ce.academic_year_id = ? AND ce.status = 'active'
-                                ORDER BY m.student_name");
-        $stmt->bind_param('iii', $assessmentId, $aClassId, $assessment['academic_year_id']);
-        $stmt->execute();
-        $r = $stmt->get_result();
-        while ($row = $r->fetch_assoc()) {
-            $row['member_id'] = (int)$row['member_id'];
-            $row['record_id'] = $row['record_id'] ? (int)$row['record_id'] : null;
-            $row['score'] = $row['score'] !== null ? (float)$row['score'] : null;
-            $students[] = $row;
+        $preferYear = (int)$assessment['academic_year_id'] ?: $yearId;
+        if (class_exists('\\App\\Services\\EnrollmentService')) {
+            $scope = \App\Services\EnrollmentService::resolveRosterYear($conn, $aClassId, $preferYear);
+            $roster = \App\Services\EnrollmentService::fetchRoster($conn, $aClassId, $scope['year_id'] ?? null);
+        } else {
+            $roster = [];
+            $stmt = $conn->prepare("SELECT ce.member_id, m.student_name, m.father_name, m.member_code, m.gender
+                                    FROM class_enrollments ce
+                                    JOIN members m ON ce.member_id = m.id
+                                    WHERE ce.class_id = ? AND ce.academic_year_id = ? AND ce.status = 'active'
+                                    ORDER BY m.student_name");
+            $stmt->bind_param('ii', $aClassId, $preferYear);
+            $stmt->execute();
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) $roster[] = $row;
+            $stmt->close();
         }
-        $stmt->close();
+
+        $gradesByMember = [];
+        $gstmt = $conn->prepare("SELECT id, member_id, score, remarks FROM academic_records WHERE assessment_id = ?");
+        if ($gstmt) {
+            $gstmt->bind_param('i', $assessmentId);
+            $gstmt->execute();
+            $gr = $gstmt->get_result();
+            while ($grow = $gr->fetch_assoc()) {
+                $gradesByMember[(int)$grow['member_id']] = $grow;
+            }
+            $gstmt->close();
+        }
+
+        foreach ($roster as $row) {
+            $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
+            if ($mid <= 0) continue;
+            $g = $gradesByMember[$mid] ?? null;
+            $students[] = [
+                'member_id' => $mid,
+                'student_name' => $row['student_name'] ?? '',
+                'father_name' => $row['father_name'] ?? '',
+                'member_code' => $row['member_code'] ?? '',
+                'gender' => $row['gender'] ?? '',
+                'record_id' => $g && !empty($g['id']) ? (int)$g['id'] : null,
+                'score' => $g && $g['score'] !== null ? (float)$g['score'] : null,
+                'remarks' => $g['remarks'] ?? null,
+            ];
+        }
     } catch (Exception $e) {
         err('Failed to load students: ' . $e->getMessage(), 500);
     }
@@ -367,6 +396,9 @@ if ($action === 'students' && $method === 'GET') {
         ],
         'students' => $students,
         'count' => count($students),
+        'roster_year_id' => $scope['year_id'] ?? null,
+        'roster_year_name' => $scope['year_name'] ?? null,
+        'roster_fallback' => !empty($scope['fallback']),
     ]);
 }
 
