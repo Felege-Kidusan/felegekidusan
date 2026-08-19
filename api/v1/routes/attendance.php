@@ -139,6 +139,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     $userId = (int)$auth['uid'];
     $saved = 0;
     $errors = [];
+    apiEnsureSubmissionsTable();
 
     $conn->begin_transaction();
     try {
@@ -237,17 +238,26 @@ if ($method === 'POST' && $action === 'submit') {
         }
         $ins->close();
 
-        apiEnsureSubmissionsTable();
-        $zero = 0;
-        $st = $conn->prepare(
-            "INSERT INTO grade_submissions
-                (teacher_id, class_id, subject_id, academic_year_id, submission_type, status, student_count, submitted_at)
-             VALUES (?, ?, ?, ?, 'attendance', 'submitted', ?, NOW())"
-        );
-        if ($st) {
-            $st->bind_param('iiiii', $userId, $classId, $zero, $yearIdOrNull, $saved);
-            $st->execute();
-            $st->close();
+        $counts = class_exists('\\App\\Services\\SubmissionService')
+            ? \App\Services\SubmissionService::countsFromRecords($records)
+            : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
+        $packet = ['ok' => true, 'id' => 0, 'status' => 'submitted'];
+        if (class_exists('\\App\\Services\\SubmissionService')) {
+            $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
+                'teacher_id' => $userId,
+                'class_id' => $classId,
+                'date' => $date,
+                'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
+                'student_count' => $counts['student_count'] ?: $saved,
+                'year_id' => $yearIdOrNull,
+                'present' => $counts['present'],
+                'absent' => $counts['absent'],
+                'late' => $counts['late'],
+                'excused' => $counts['excused'],
+            ]);
+            if (empty($packet['ok'])) {
+                throw new Exception($packet['message'] ?? 'Could not mark attendance complete.');
+            }
         }
 
         $conn->commit();
@@ -259,10 +269,12 @@ if ($method === 'POST' && $action === 'submit') {
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Submitted', "Class: {$classId}, Date: {$date}, Records: {$saved}");
 
     ok([
-        'message' => "{$saved} attendance records sent to Education",
+        'message' => $packet['message'] ?? "{$saved} attendance records marked complete for Education",
         'saved' => $saved,
         'class_id' => $classId,
         'date' => $date,
+        'submission_id' => $packet['id'] ?? 0,
+        'submission_status' => $packet['status'] ?? 'submitted',
     ], 201);
 }
 

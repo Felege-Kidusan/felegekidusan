@@ -35,12 +35,14 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   List<Map<String, dynamic>> _students = [];
   bool _loadingClasses = true;
   bool _loadingStudents = false;
+  bool _rosterReady = false;
   bool _saving = false;
   bool _isOffline = false;
   bool _loadFailed = false;
   String? _error;
   String? _successMsg;
   String? _rosterNote;
+  String _packetStatus = '';
   int _pendingCount = 0;
 
   @override
@@ -109,6 +111,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _selectedClassName = _classes.firstWhere(
             (c) => (c['id'] is int ? c['id'] : int.tryParse('${c['id']}')) == pick,
             orElse: () => _classes.first)['class_name'];
+        _rosterReady = false;
+        _loadingStudents = true;
       });
       _loadAttendance();
     }
@@ -121,6 +125,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       _successMsg = null;
       _loadFailed = false;
       _rosterNote = null;
+      _rosterReady = false;
+      if (_students.isEmpty) _loadingStudents = true;
     });
 
     // 1. Try cache first
@@ -147,7 +153,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
         });
       }
-      if (mounted) setState(() { _students = students; _loadingStudents = false; });
+      if (mounted) setState(() { _students = students; _loadingStudents = false; _rosterReady = true; });
     } else {
       final cachedStudents = await _db.getCachedStudents(_selectedClassId!);
       if (cachedStudents.isNotEmpty) {
@@ -165,9 +171,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             'notes': pendingNotes[mid] ?? '',
           });
         }
-        if (mounted) setState(() { _students = students; _loadingStudents = false; });
+        if (mounted) setState(() { _students = students; _loadingStudents = false; _rosterReady = true; });
       } else {
-        if (mounted) setState(() => _loadingStudents = true);
+        if (mounted) setState(() { _loadingStudents = true; _rosterReady = false; });
       }
     }
 
@@ -182,6 +188,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           _error = 'The server sent students but this phone could not read them. Pull to refresh.';
           _loadFailed = true;
           _loadingStudents = false;
+          _rosterReady = true;
         });
         return;
       }
@@ -209,6 +216,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       setState(() {
         _students = students;
         _loadingStudents = false;
+        _rosterReady = true;
         _isOffline = !ConnectivityService().isOnline;
         _loadFailed = false;
         _rosterNote = note;
@@ -219,6 +227,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';
         _loadingStudents = false;
+        _rosterReady = true;
         _loadFailed = true;
       });
     }
@@ -260,17 +269,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
 
     if (res.success) {
-      // Synced successfully — mark local records as synced
       await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
       setState(() {
         _saving = false;
-        _successMsg = '${_students.length} records saved and synced';
+        _packetStatus = 'incomplete';
+        _successMsg = 'Education can see this as incomplete';
       });
     } else {
-      // Saved locally but couldn't sync — that's OK
       setState(() {
         _saving = false;
-        _successMsg = 'Saved locally — will sync when online';
+        _successMsg = 'Kept on this phone — tap the sync icon when you are online';
       });
     }
 
@@ -286,11 +294,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Submit attendance?'),
-        content: Text('Send ${_students.length} records for $_selectedClassName to Education?'),
+        title: const Text('Mark this class complete?'),
+        content: Text('Education will treat attendance for $_selectedClassName as finished. You can still send an update later if something changes.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark complete')),
         ],
       ),
     );
@@ -306,9 +314,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
     if (res.success) {
       await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
-      setState(() { _saving = false; _successMsg = 'Sent to Education'; });
+      setState(() { _saving = false; _packetStatus = 'complete'; _successMsg = 'Marked complete for Education'; });
     } else {
-      setState(() { _saving = false; _successMsg = 'Saved on this phone — will send when online'; });
+      setState(() { _saving = false; _successMsg = 'Kept on this phone — tap the sync icon when you are online'; });
     }
     await _updatePendingCount();
   }
@@ -328,13 +336,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _persistLocal() async {
     if (_selectedClassId == null || _students.isEmpty) return;
-    await _db.saveAttendanceLocal(
-      _selectedClassId!,
-      _selectedClassName ?? '',
-      _selectedDate,
-      _records(),
-    );
-    await _updatePendingCount();
+    // Keep the sheet on this phone only. Education sees it after Send incomplete / Mark complete.
+    await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, _students);
   }
 
   void _markAll(String status) {
@@ -395,25 +398,27 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               ),
             ),
-          // Save button
-          if (_students.isNotEmpty)
-            TextButton(
-              onPressed: _saving ? null : _saveAttendance,
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              child: Text(_saving ? 'Saving…' : 'Save',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
+          if (_packetStatus.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(
+                child: Text(
+                  _packetStatus == 'complete' ? 'Complete' : 'Incomplete',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                ),
+              ),
             ),
         ],
       ),
       bottomNavigationBar: _students.isEmpty
           ? null
           : TeacherActionBar(
-              saveLabel: 'Save',
-              submitLabel: 'Submit to Education',
+              saveLabel: 'Send incomplete',
+              submitLabel: 'Mark complete',
               onSave: _saveAttendance,
               onSubmit: _submitAttendance,
               busy: _saving,
-              hint: 'Save keeps it. Submit sends it to Education.',
+              hint: 'Taps stay on this phone. Send incomplete so Education can watch. Mark complete when the class is done.',
             ),
       body: Column(
         children: [
@@ -464,12 +469,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                               style: TextStyle(fontSize: 13)),
                           isExpanded: true,
                           decoration: InputDecoration(
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                          ),
-                          items: _classes
+                              items: _classes
                               .map<DropdownMenuItem<int>>((c) =>
                                   DropdownMenuItem(
                                     value: c['id'] is int
@@ -544,7 +544,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
           // Student list
           Expanded(
-            child: _loadingStudents
+            child: (_loadingStudents || (!_rosterReady && _selectedClassId != null))
                 ? const StudentListSkeleton()
                 : RefreshIndicator(
                     onRefresh: _loadAttendance,
@@ -705,6 +705,27 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _persistLocal();
       },
       borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? color : color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: selected ? color : color.withOpacity(0.2)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : color,
+            )),
+      ),
+    );
+  }
+}
+
+derRadius.circular(8),
       child: Container(
         width: 34,
         height: 34,

@@ -340,10 +340,12 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- ═══ SUBMISSIONS REVIEW ═══ -->
 <div id="sec-submissions" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-inbox" style="color:#7c3aed"></i> Teacher Submissions</h2><p style="font-size:.75rem;color:#64748b" class="amharic">ከመምህራን የመጡ ውጤቶች</p></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-inbox" style="color:#7c3aed"></i> Teacher Submissions</h2><p style="font-size:.75rem;color:#64748b">Attendance and mark lists from teachers — incomplete while they still work, complete when they are done.</p></div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-<select id="subFilterStatus" class="inp" style="max-width:160px" onchange="loadSubmissions()"><option value="">All Statuses</option><option value="submitted" selected>Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="revision_needed">Needs Revision</option></select>
+<select id="subFilterType" class="inp" style="max-width:150px" onchange="loadSubmissions()"><option value="">All types</option><option value="attendance">Attendance</option><option value="marklist">Mark lists</option></select>
+<select id="subFilterStatus" class="inp" style="max-width:180px" onchange="loadSubmissions()"><option value="attention" selected>Needs attention</option><option value="incomplete">Incomplete</option><option value="submitted">Complete</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="revision_needed">Needs revision</option><option value="all">All</option></select>
 <select id="subFilterClass" class="inp" style="max-width:180px" onchange="loadSubmissions()"><option value="">All Classes</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select>
+<button class="btn btn-o btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-sync"></i> Refresh</button>
 </div></div>
 <!-- Stats Row -->
 <div id="subStatsRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1rem"></div>
@@ -1556,35 +1558,42 @@ async function loadSubmissions(){
     }}catch(e){toast('Error loading submissions','err');}
 }
 async function reviewSubmission(id){
-    const s=allSubmissions.find(x=>x.id===id);
-    if(!s)return;
-    document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> Review: ${esc(s.assessment_name||'Marklist')}`;
-    const sc={submitted:'#f59e0b',approved:'#059669',rejected:'#ef4444',revision_needed:'#f97316'};
-    // Load grades for this submission
-    let gradesHtml='<p style="text-align:center;color:#94a3b8;padding:1rem">Loading grades...</p>';
+    const local=allSubmissions.find(x=>Number(x.id)===Number(id))||{};
+    document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${esc(local.submission_type==='attendance'?'Attendance':'Mark list')}`;
+    document.getElementById('reviewModalContent').innerHTML='<p style="text-align:center;color:#94a3b8;padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening…</p>';
+    document.getElementById('reviewModal').classList.add('show');
+    let s=local;
     try{
-        const gd=await getAPI(`/admin/api_communication.php?action=get_class_report&class_id=${s.class_id}&subject_id=${s.subject_id}`);
-        if(gd.status==='success'){
-            const students=gd.students||[];
-            gradesHtml=students.length?`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Average</th><th>Grade</th></tr></thead><tbody>${students.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td style="font-weight:700">${st.avg_percentage?parseFloat(st.avg_percentage).toFixed(1)+'%':'—'}</td><td><span style="display:inline-flex;width:24px;height:24px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${{A:'#059669',B:'#0284c7',C:'#d97706',D:'#ea580c',F:'#dc2626'}[st.grade_letter]||'#94a3b8'}">${st.grade_letter||'—'}</span></td></tr>`).join('')}</tbody></table></div>`:'<p style="text-align:center;color:#94a3b8">No grade data found</p>';
-        }
-    }catch(e){gradesHtml='<p style="color:#ef4444">Error loading grades</p>';}
+        const d=await getAPI(`/admin/api_communication.php?action=get_submission_detail&id=${id}`);
+        if(d.status==='success' && d.submission) s=d.submission;
+    }catch(e){}
+    const sc={incomplete:'#2563eb',draft:'#2563eb',submitted:'#f59e0b',approved:'#059669',rejected:'#ef4444',revision_needed:'#f97316'};
+    const rows=s.rows||[];
+    const isAtt=s.submission_type==='attendance';
+    let bodyHtml;
+    if(isAtt){
+        const color={present:'#059669',absent:'#dc2626',late:'#d97706',excused:'#2563eb'};
+        bodyHtml=rows.length?`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Mark</th><th>Note</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td><span style="font-weight:700;color:${color[st.status]||'#64748b'};text-transform:capitalize">${esc(st.status||'—')}</span></td><td style="font-size:.75rem;color:#64748b">${esc(st.notes||'')}</td></tr>`).join('')}</tbody></table></div>`:'<p style="text-align:center;color:#94a3b8">No attendance rows for this date yet.</p>';
+    }else{
+        bodyHtml=rows.length?`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):'—'}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`:'<p style="text-align:center;color:#94a3b8">No scores on this mark list yet.</p>';
+    }
     
+    document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${isAtt?'Attendance':'Mark list'} · ${esc(s.class_name||'')}`;
     document.getElementById('reviewModalContent').innerHTML=`
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;font-size:.82rem;margin-bottom:1rem;background:#f8fafc;padding:.85rem;border-radius:12px">
             <div><strong style="color:#64748b">Teacher:</strong> ${esc(s.teacher_name||'—')}</div>
             <div><strong style="color:#64748b">Class:</strong> <span class="amharic">${esc(s.class_name||'—')}</span></div>
-            <div><strong style="color:#64748b">Subject:</strong> <span class="amharic">${esc(s.subject_name||'—')}</span></div>
-            <div><strong style="color:#64748b">Assessment:</strong> ${esc(s.assessment_name||'—')}</div>
-            <div><strong style="color:#64748b">Students:</strong> ${s.student_count||0}</div>
-            <div><strong style="color:#64748b">Average:</strong> <span style="font-weight:700;color:#7c3aed">${s.average_score?parseFloat(s.average_score).toFixed(1):'—'}</span></div>
-            <div><strong style="color:#64748b">Status:</strong> <span style="padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;color:#fff;background:${sc[s.status]||'#94a3b8'}">${(s.status||'').replace(/_/g,' ')}</span></div>
-            <div><strong style="color:#64748b">Submitted:</strong> ${s.submitted_at?fD(s.submitted_at):'—'}</div>
+            <div><strong style="color:#64748b">${isAtt?'Date':'Subject'}:</strong> <span class="amharic">${esc(isAtt?(s.attendance_date?fD(s.attendance_date):'—'):(s.subject_name||'—'))}</span></div>
+            <div><strong style="color:#64748b">${isAtt?'Marks':'Assessment'}:</strong> ${esc(isAtt?((s.present_count||0)+' P · '+(s.absent_count||0)+' A · '+(s.late_count||0)+' L'):(s.assessment_name||'—'))}</div>
+            <div><strong style="color:#64748b">Students:</strong> ${s.student_count||rows.length||0}</div>
+            <div><strong style="color:#64748b">${isAtt?'Status':'Average'}:</strong> ${isAtt?subStatusChip(s.status):`<span style="font-weight:700;color:#7c3aed">${s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—'}</span>`}</div>
+            <div><strong style="color:#64748b">Progress:</strong> <span style="padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;color:#fff;background:${sc[s.status]||'#94a3b8'}">${esc(s.status_label||s.status||'')}</span></div>
+            <div><strong style="color:#64748b">Updated:</strong> ${s.updated_at?fD(s.updated_at):(s.submitted_at?fD(s.submitted_at):'—')}</div>
             ${s.reviewer_name?`<div><strong style="color:#64748b">Reviewed by:</strong> ${esc(s.reviewer_name)}</div>`:''}
             ${s.review_notes?`<div style="grid-column:1/-1"><strong style="color:#64748b">Notes:</strong> ${esc(s.review_notes)}</div>`:''}
         </div>
-        <h4 style="font-weight:700;font-size:.85rem;margin-bottom:.5rem"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> Student Grades</h4>
-        ${gradesHtml}
+        <h4 style="font-weight:700;font-size:.85rem;margin-bottom:.5rem"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
+        ${bodyHtml}
         ${s.status==='submitted'?`
         <div style="border-top:1px solid #f1f5f9;padding-top:1rem;margin-top:1rem">
             <label class="lbl">Review Notes</label>
@@ -1720,14 +1729,6 @@ if(!document.querySelector('.sec.act')){
 document.addEventListener('DOMContentLoaded',()=>{loadTeachers();
 document.addEventListener('click',e=>{
     const sr=document.getElementById('enrollSearchResults');
-    if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
-    const mh=document.getElementById('teacherMemberHits');
-    if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';
-});
-});
-</script>
-</body></html>
-document.getElementById('enrollSearchResults');
     if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
     const mh=document.getElementById('teacherMemberHits');
     if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';

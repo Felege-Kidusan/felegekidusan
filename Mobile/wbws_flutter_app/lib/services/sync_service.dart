@@ -14,6 +14,7 @@ class SyncService {
   final _db = LocalDb();
   Timer? _syncTimer;
   bool _syncing = false;
+  bool _queued = false;
 
   final _syncController = StreamController<SyncStatus>.broadcast();
   Stream<SyncStatus> get syncStream => _syncController.stream;
@@ -34,11 +35,12 @@ class SyncService {
   }
 
   Future<SyncResult> syncAll() async {
-    if (_syncing || !_api.isLoggedIn) {
-      return SyncResult(
-          synced: 0,
-          failed: 0,
-          message: _syncing ? 'Already syncing' : 'Not logged in');
+    if (!_api.isLoggedIn) {
+      return SyncResult(synced: 0, failed: 0, message: 'Not logged in');
+    }
+    if (_syncing) {
+      _queued = true;
+      return SyncResult(synced: 0, failed: 0, message: 'Sending…');
     }
 
     _syncing = true;
@@ -47,78 +49,85 @@ class SyncService {
     int synced = 0;
     int failed = 0;
 
-    // --- SYNC ATTENDANCE ---
     try {
-      final pendingAtt = await _db.getPendingAttendance();
-      for (final batch in pendingAtt) {
-        final classId = batch['class_id'] as int;
-        final date = batch['date'] as String;
-        try {
-          final records =
-              await _db.getPendingAttendanceRecords(classId, date);
-          if (records.isEmpty) continue;
-          final apiRecords = records
-              .map((r) => {
-                    'member_id': r['member_id'],
-                    'status': r['status'],
-                    'notes': r['notes'] ?? r['note'] ?? '',
-                  })
-              .toList();
-          final res = await _api.saveAttendance(classId, date, apiRecords);
-          if (res.success) {
-            await _db.markAttendanceSynced(classId, date);
-            synced++;
-          } else {
-            failed++;
-          }
-        } catch (_) {
-          failed++;
-        }
-      }
-    } catch (_) {}
+      do {
+        _queued = false;
 
-    // --- SYNC GRADES ---
-    try {
-      final pendingGrades = await _db.getPendingGrades();
-      for (final batch in pendingGrades) {
-        final assessmentId = batch['assessment_id'] as int;
         try {
-          final records =
-              await _db.getPendingGradeRecords(assessmentId);
-          if (records.isEmpty) continue;
-          final apiGrades = records.map((r) {
-            return <String, dynamic>{
-              'member_id': r['member_id'],
-              'score': r['score'],
-              'remark': r['remark'] ?? '',
-              'record_id': r['record_id'],
-            };
-          }).toList();
-          final res = await _api.saveGrades(assessmentId, apiGrades);
-          if (res.success) {
-            await _db.markGradesSynced(assessmentId);
-            synced++;
-          } else {
-            failed++;
+          final pendingAtt = await _db.getPendingAttendance();
+          for (final batch in pendingAtt) {
+            final classId = batch['class_id'] as int;
+            final date = batch['date'] as String;
+            try {
+              final records =
+                  await _db.getPendingAttendanceRecords(classId, date);
+              if (records.isEmpty) continue;
+              final apiRecords = records
+                  .map((r) => {
+                        'member_id': r['member_id'],
+                        'status': r['status'],
+                        'notes': r['notes'] ?? r['note'] ?? '',
+                      })
+                  .toList();
+              final res = await _api.saveAttendance(classId, date, apiRecords);
+              if (res.success) {
+                await _db.markAttendanceSynced(classId, date);
+                synced++;
+              } else {
+                failed++;
+              }
+            } catch (_) {
+              failed++;
+            }
           }
-        } catch (_) {
-          failed++;
-        }
-      }
-    } catch (_) {}
+        } catch (_) {}
 
-    await _db.cleanupSynced();
-    _syncing = false;
-    _emitStatus();
+        try {
+          final pendingGrades = await _db.getPendingGrades();
+          for (final batch in pendingGrades) {
+            final assessmentId = batch['assessment_id'] as int;
+            try {
+              final records =
+                  await _db.getPendingGradeRecords(assessmentId);
+              if (records.isEmpty) continue;
+              final apiGrades = records.map((r) {
+                return <String, dynamic>{
+                  'member_id': r['member_id'],
+                  'score': r['score'],
+                  'remark': r['remark'] ?? '',
+                  'record_id': r['record_id'],
+                };
+              }).toList();
+              final res = await _api.saveGrades(assessmentId, apiGrades);
+              if (res.success) {
+                await _db.markGradesSynced(assessmentId);
+                synced++;
+              } else {
+                failed++;
+              }
+            } catch (_) {
+              failed++;
+            }
+          }
+        } catch (_) {}
+      } while (_queued);
+
+      await _db.cleanupSynced();
+    } finally {
+      _syncing = false;
+      _emitStatus();
+    }
 
     return SyncResult(
       synced: synced,
       failed: failed,
       message: synced > 0
-          ? '$synced synced${failed > 0 ? ', $failed failed' : ''}'
+          ? (failed > 0
+              ? 'Sent $synced. $failed still waiting — try again.'
+              : 'Sent to Education')
           : failed > 0
-              ? '$failed failed to sync'
-              : 'All synced',
+              ? 'Could not send yet. Check your connection and try again.'
+              : 'Nothing waiting to send',
     );
   }
 

@@ -40,43 +40,17 @@ function getCurrentAcademicYear() {
 /**
  * Log API activity
  */
-/** Create grade_submissions if Education has not opened that page yet. */
+/** Create / widen grade_submissions. Single source: SubmissionService. */
 function apiEnsureSubmissionsTable(): void
 {
-    static $done = false;
-    if ($done) return;
-    $done = true;
+    $path = __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
+    if (is_file($path)) {
+        require_once $path;
+    }
     global $conn;
-    if (!$conn) return;
-    try {
-        $conn->query("CREATE TABLE IF NOT EXISTS `grade_submissions` (
-            `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-            `teacher_id` INT UNSIGNED NOT NULL,
-            `class_id` INT UNSIGNED NOT NULL,
-            `subject_id` INT UNSIGNED NOT NULL DEFAULT 0,
-            `academic_year_id` INT UNSIGNED DEFAULT NULL,
-            `term_id` INT UNSIGNED DEFAULT NULL,
-            `assessment_id` INT UNSIGNED DEFAULT NULL,
-            `submission_type` ENUM('marklist','attendance','report') NOT NULL DEFAULT 'marklist',
-            `status` ENUM('draft','submitted','approved','rejected','revision_needed') NOT NULL DEFAULT 'draft',
-            `student_count` INT UNSIGNED DEFAULT 0,
-            `average_score` DECIMAL(5,2) DEFAULT NULL,
-            `submitted_at` TIMESTAMP NULL DEFAULT NULL,
-            `reviewed_by` INT UNSIGNED DEFAULT NULL,
-            `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
-            `review_notes` TEXT DEFAULT NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            KEY `teacher_id` (`teacher_id`),
-            KEY `class_id` (`class_id`),
-            KEY `status` (`status`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        $r = $conn->query("SHOW COLUMNS FROM `academic_records` LIKE 'submission_id'");
-        if ($r && $r->num_rows === 0) {
-            $conn->query("ALTER TABLE `academic_records` ADD COLUMN `submission_id` INT UNSIGNED DEFAULT NULL AFTER `assessment_id`");
-        }
-    } catch (Throwable $e) { /* table may already exist */ }
+    if ($conn && class_exists('\\App\\Services\\SubmissionService')) {
+        \App\Services\SubmissionService::ensureTable($conn);
+    }
 }
 
 function logApiAction($userId, $username, $action, $details = '') {

@@ -477,13 +477,44 @@ if ($action === 'save' && $method === 'POST') {
         }
     }
     
+    $avg = null;
+    $scoreSum = 0;
+    $scoreN = 0;
+    foreach ($grades as $g) {
+        if (isset($g['score']) && $g['score'] !== '' && $g['score'] !== null) {
+            $scoreSum += (float)$g['score'];
+            $scoreN++;
+        }
+    }
+    if ($scoreN > 0) {
+        $avg = $scoreSum / $scoreN;
+    }
+
+    apiEnsureSubmissionsTable();
+    $packet = ['id' => 0, 'status' => 'incomplete', 'message' => "$successCount grade(s) saved"];
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $packet = \App\Services\SubmissionService::upsertMarklist($conn, [
+            'teacher_id' => $userId,
+            'class_id' => $aClassId,
+            'subject_id' => $aSubjectId,
+            'assessment_id' => $assessmentId,
+            'status' => \App\Services\SubmissionService::STATUS_INCOMPLETE,
+            'student_count' => $successCount,
+            'average' => $avg,
+            'year_id' => (int)($assessment['academic_year_id'] ?? $yearId),
+            'term_id' => $assessment['term_id'] ?? null,
+        ]);
+    }
+
     logApiAction($userId, $auth['usr'], 'save_grades', 
         "Saved $successCount grades for assessment #{$assessmentId}");
     
     ok([
-        'message' => "$successCount grade(s) saved",
+        'message' => $packet['message'] ?? "$successCount grade(s) saved — Education can see this as incomplete",
         'saved' => $successCount,
         'errors' => $errors,
+        'submission_id' => $packet['id'] ?? 0,
+        'submission_status' => $packet['status'] ?? 'incomplete',
     ]);
 }
 

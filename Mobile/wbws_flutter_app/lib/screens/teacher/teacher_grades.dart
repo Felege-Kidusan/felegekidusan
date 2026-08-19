@@ -661,7 +661,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       await _db.markGradesSynced(widget.assessmentId);
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${grades.length} grades saved and synced'), backgroundColor: AppTheme.success));
+        SnackBar(content: Text('Education can see this as incomplete'), backgroundColor: AppTheme.success));
       _loadStudents(); // Refresh to get record_ids
     } else {
       setState(() => _saving = false);
@@ -674,11 +674,11 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Submit mark list?'),
-        content: Text('Send ${widget.assessmentName} for ${widget.className} to Education?'),
+        title: const Text('Mark this list complete?'),
+        content: Text('Education will treat ${widget.assessmentName} for ${widget.className} as finished.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark complete')),
         ],
       ),
     );
@@ -738,23 +738,18 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
               style: const TextStyle(fontSize: 11, color: Colors.white70)),
         ]),
         actions: [
-          if (_students.isNotEmpty)
-            TextButton(
-              onPressed: _saving ? null : _saveGrades,
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              child: Text(_saving ? 'Saving…' : 'Save', style: const TextStyle(fontWeight: FontWeight.w700)),
-            ),
+
         ],
       ),
       bottomNavigationBar: _students.isEmpty
           ? null
           : TeacherActionBar(
-              saveLabel: 'Save',
-              submitLabel: 'Submit to Education',
+              saveLabel: 'Send incomplete',
+              submitLabel: 'Mark complete',
               onSave: _saveGrades,
               onSubmit: _submitGrades,
               busy: _saving,
-              hint: 'Save keeps scores. Submit sends the mark list to Education.',
+              hint: 'Scores stay on this phone. Send incomplete so Education can watch. Mark complete when the list is done.',
             ),
       body: _loading
           ? const StudentListSkeleton()

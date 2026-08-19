@@ -14,6 +14,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
+require_once __DIR__ . '/backend/services/SubmissionService.php';
 
 if (empty($_SESSION['admin_id'])) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
@@ -31,31 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ── Auto-create submissions tracking table ──
+// ── Auto-create / widen submissions table ──
 try {
-    $conn->query("CREATE TABLE IF NOT EXISTS `grade_submissions` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `teacher_id` INT UNSIGNED NOT NULL,
-        `class_id` INT UNSIGNED NOT NULL,
-        `subject_id` INT UNSIGNED NOT NULL,
-        `academic_year_id` INT UNSIGNED DEFAULT NULL,
-        `term_id` INT UNSIGNED DEFAULT NULL,
-        `assessment_id` INT UNSIGNED DEFAULT NULL,
-        `submission_type` ENUM('marklist','attendance','report') NOT NULL DEFAULT 'marklist',
-        `status` ENUM('draft','submitted','approved','rejected','revision_needed') NOT NULL DEFAULT 'draft',
-        `student_count` INT UNSIGNED DEFAULT 0,
-        `average_score` DECIMAL(5,2) DEFAULT NULL,
-        `submitted_at` TIMESTAMP NULL DEFAULT NULL,
-        `reviewed_by` INT UNSIGNED DEFAULT NULL,
-        `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
-        `review_notes` TEXT DEFAULT NULL,
-        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        KEY `teacher_id` (`teacher_id`),
-        KEY `class_id` (`class_id`),
-        KEY `status` (`status`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    \App\Services\SubmissionService::ensureTable($conn);
     
     // Add assessment_id column if missing
     $r = $conn->query("SHOW COLUMNS FROM `academic_records` LIKE 'assessment_id'");
@@ -210,52 +189,58 @@ switch ($action) {
     // GET SUBMISSIONS (Edu Dept sees all, Teacher sees own)
     // ============================================================
     case 'get_submissions':
-        $classId = (int)($_GET['class_id'] ?? 0);
-        $statusFilter = $_GET['status_filter'] ?? '';
-        
-        $where = "1=1";
-        $params = []; $types = '';
-        
-        if ($userRole === 'teacher') {
-            $where .= " AND gs.teacher_id = ?";
-            $params[] = $userId; $types .= 'i';
+        try {
+            $filters = [
+                'class_id' => (int)($_GET['class_id'] ?? 0),
+                'status' => $_GET['status_filter'] ?? 'attention',
+                'type' => $_GET['type'] ?? '',
+            ];
+            if ($userRole === 'teacher') {
+                $filters['teacher_id'] = $userId;
+            }
+            $submissions = \App\Services\SubmissionService::list($conn, $filters);
+            $stats = \App\Services\SubmissionService::stats($conn, $userRole === 'teacher' ? ['teacher_id' => $userId] : []);
+            echo json_encode([
+                'status' => 'success',
+                'submissions' => $submissions,
+                'stats' => $stats,
+            ]);
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not load submissions. Please try again.']);
         }
-        if ($classId) {
-            $where .= " AND gs.class_id = ?";
-            $params[] = $classId; $types .= 'i';
+        break;
+
+    case 'get_submission_detail':
+        try {
+            $sid = (int)($_GET['id'] ?? $_GET['submission_id'] ?? 0);
+            $detail = \App\Services\SubmissionService::detail($conn, $sid);
+            if (!$detail) {
+                echo json_encode(['status' => 'error', 'message' => 'Submission not found']);
+                break;
+            }
+            if ($userRole === 'teacher' && (int)$detail['teacher_id'] !== (int)$userId) {
+                echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+                break;
+            }
+            echo json_encode(['status' => 'success', 'submission' => $detail]);
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not open this submission.']);
         }
-        if ($statusFilter && in_array($statusFilter, ['draft','submitted','approved','rejected','revision_needed'])) {
-            $where .= " AND gs.status = ?";
-            $params[] = $statusFilter; $types .= 's';
+        break;
+
+    case 'get_submission_stats':
+        try {
+            $filters = [];
+            if ($userRole === 'teacher') {
+                $filters['teacher_id'] = $userId;
+            }
+            echo json_encode([
+                'status' => 'success',
+                'stats' => \App\Services\SubmissionService::stats($conn, $filters),
+            ]);
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not load summary.']);
         }
-        
-        $sql = "SELECT gs.*, 
-                    u.full_name as teacher_name,
-                    c.class_name, c.class_name_en,
-                    s.subject_name, s.subject_name_en,
-                    a.assessment_name, a.max_score,
-                    ay.year_name,
-                    rv.full_name as reviewer_name
-                FROM grade_submissions gs
-                LEFT JOIN users u ON gs.teacher_id = u.id
-                LEFT JOIN classes c ON gs.class_id = c.id
-                LEFT JOIN subjects s ON gs.subject_id = s.id
-                LEFT JOIN assessments a ON gs.assessment_id = a.id
-                LEFT JOIN academic_years ay ON gs.academic_year_id = ay.id
-                LEFT JOIN users rv ON gs.reviewed_by = rv.id
-                WHERE $where
-                ORDER BY gs.created_at DESC
-                LIMIT 100";
-        
-        $stmt = $conn->prepare($sql);
-        if (!empty($params)) $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $submissions = [];
-        while ($row = $result->fetch_assoc()) $submissions[] = $row;
-        
-        echo json_encode(['status' => 'success', 'submissions' => $submissions]);
         break;
 
     // ============================================================
