@@ -1274,42 +1274,40 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                     <h3 style="font-weight:700;font-size:.85rem;color:#e2e8f0;margin-bottom:.85rem"><i class="fa-solid fa-id-card" style="color:var(--pl)"></i> Live ID Card Preview</h3>
                     <div style="background:repeating-conic-gradient(#1e293b 0% 25%, #0f172a 0% 50%) 50%/20px 20px;border-radius:14px;padding:1.5rem;display:flex;justify-content:center;overflow-x:auto">
                         <!-- ID card at credit-card ratio (85.6mm × 54mm ≈ 1.585:1) scaled for preview -->
-                        <div id="idPreviewCard" style="width:510px;height:322px;background:#f3e6c4 url('<?= defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg' ?>') center/cover no-repeat;border-radius:16px;border:2px solid #c9a227;overflow:hidden;position:relative;font-family:'Noto Serif Ethiopic','Inter',sans-serif;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,.4)">
+                        <div id="idPreviewCard" style="width:510px;height:322px;background:#f3e6c4 url('<?= defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg' ?>') center/cover no-repeat;border-radius:16px;border:3px solid #600000;overflow:hidden;position:relative;font-family:'Noto Serif Ethiopic','Inter',sans-serif;flex-shrink:0;box-shadow:0 8px 32px rgba(0,0,0,.4)">
                             
                             <!-- Top header area -->
                             <div style="text-align:center;padding:8px 10px 3px;position:relative;z-index:2">
-                                <!-- Logo circle — top-left absolute -->
-                                <div id="idPrev_logo_wrap" style="position:absolute;top:6px;left:8px;width:52px;height:52px;border-radius:50%;border:2px dashed #facc15;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center">
-                                    <img id="idPrev_logo" src="" style="width:100%;height:100%;object-fit:cover;display:none">
-                                    <i class="fa-solid fa-image" style="color:#d1d5db;font-size:.9rem" id="idPrev_logo_ph"></i>
+                                <div id="idPrev_logo_wrap" style="position:absolute;top:6px;left:8px;width:52px;height:52px;background:transparent;display:flex;align-items:center;justify-content:center">
+                                    <img id="idPrev_logo" src="" style="width:100%;height:100%;object-fit:contain;display:none">
+                                    <i class="fa-solid fa-image" style="color:#600000;font-size:.9rem;opacity:.35" id="idPrev_logo_ph"></i>
                                 </div>
-                                <p style="color:#6b7280;font-size:8px;font-weight:700;margin:0;line-height:1.3">በስመአብ ወወልድ ወመንፈስ ቅዱስ አሐዱ አምላክ</p>
-                                <h1 style="color:#047857;font-size:13px;font-weight:900;margin:2px 0 0;line-height:1.2"><?= PARISH_NAME_AM ?></h1>
-                                <h2 style="color:#047857;font-size:10.5px;font-weight:700;margin:1px 0 0;line-height:1.2"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት አባል መታወቂያ ካርድ</h2>
-                                <h3 style="color:#f59e0b;font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:1px 0 0;line-height:1.2"><?= ID_CARD_TITLE_EN ?></h3>
+                                <p style="color:#600000;font-size:8px;font-weight:700;margin:0;line-height:1.3">በስመአብ ወወልድ ወመንፈስ ቅዱስ አሐዱ አምላክ</p>
+                                <h1 style="color:#600000;font-size:13px;font-weight:900;margin:2px 0 0;line-height:1.2"><?= PARISH_NAME_AM ?></h1>
+                                <h2 style="color:#600000;font-size:10.5px;font-weight:700;margin:1px 0 0;line-height:1.2"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት አባል መታወቂያ ካርድ</h2>
+                                <h3 style="color:#b8860b;font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:1px 0 0;line-height:1.2"><?= ID_CARD_TITLE_EN ?></h3>
                             </div>
                             
-                            <!-- Green divider -->
-                            <div style="width:95%;height:4px;background:linear-gradient(90deg,#10b981,#15803d);border-radius:99px;margin:4px auto"></div>
+                            <div style="width:95%;height:8px;background:#600000;border-bottom:3px solid #F0C000;border-radius:4px;margin:4px auto"></div>
                             
                             <!-- Body: Photo + Info -->
                             <div style="display:flex;padding:4px 10px;flex:1;position:relative">
                                 <!-- Photo placeholder -->
                                 <div style="flex-shrink:0;padding-top:2px">
-                                    <div style="width:62px;height:76px;border:2px dashed #facc15;border-radius:8px;background:#f9fafb;display:flex;align-items:center;justify-content:center;overflow:hidden">
-                                        <i class="fa-solid fa-user" style="color:#d1d5db;font-size:1.4rem"></i>
+                                    <div style="width:62px;height:76px;border:2px solid #600000;border-radius:8px;background:rgba(255,255,255,.5);display:flex;align-items:center;justify-content:center;overflow:hidden">
+                                        <i class="fa-solid fa-user" style="color:#600000;opacity:.35;font-size:1.4rem"></i>
                                     </div>
                                 </div>
                                 
                                 <!-- Member info -->
-                                <div style="flex:1;font-size:8px;font-weight:700;color:#374151;padding-left:8px;position:relative;z-index:2">
-                                    <div style="display:flex;margin-bottom:3px"><span style="color:#047857;width:52px;flex-shrink:0">ሙሉ ስም:</span><span style="flex:1;border-bottom:1px dashed #9ca3af;padding-left:2px">ዮሐንስ ተስፋዬ ገብረ</span></div>
-                                    <div style="display:flex;margin-bottom:3px"><span style="color:#047857;width:65px;flex-shrink:0">የክርስትና ስም:</span><span style="flex:1;border-bottom:1px dashed #9ca3af;padding-left:2px">ገብረ ማርያም</span></div>
+                                <div style="flex:1;font-size:8px;font-weight:700;color:#1a0a0a;padding-left:8px;position:relative;z-index:2">
+                                    <div style="display:flex;margin-bottom:3px"><span style="color:#600000;width:52px;flex-shrink:0">ሙሉ ስም</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">ዮሐንስ ተስፋዬ ገብረ</span></div>
+                                    <div style="display:flex;margin-bottom:3px"><span style="color:#600000;width:65px;flex-shrink:0">የክርስትና ስም</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">ገብረ ማርያም</span></div>
                                     <div style="display:flex;gap:8px;margin-bottom:3px">
-                                        <div style="display:flex;flex:1"><span style="color:#047857;width:26px;flex-shrink:0">ጾታ:</span><span style="flex:1;border-bottom:1px dashed #9ca3af;padding-left:2px">ወንድ</span></div>
-                                        <div style="display:flex;flex:1"><span style="color:#047857;width:32px;flex-shrink:0">ዕድሜ:</span><span style="flex:1;border-bottom:1px dashed #9ca3af;padding-left:2px">24</span></div>
+                                        <div style="display:flex;flex:1"><span style="color:#600000;width:26px;flex-shrink:0">ጾታ</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">ወንድ</span></div>
+                                        <div style="display:flex;flex:1"><span style="color:#600000;width:32px;flex-shrink:0">ዕድሜ</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px">24</span></div>
                                     </div>
-                                    <div style="display:flex;margin-bottom:5px"><span style="color:#047857;width:65px;flex-shrink:0">የመታወቂያ ቁ.:</span><span style="flex:1;border-bottom:1px dashed #9ca3af;padding-left:2px;font-family:monospace;font-size:9px"><?= MEMBER_CODE_FORMAT ?>0042</span></div>
+                                    <div style="display:flex;margin-bottom:5px"><span style="color:#600000;width:65px;flex-shrink:0">የመታወቂያ ቁ.</span><span style="flex:1;border-bottom:1px solid #600000;padding-left:2px;font-family:monospace;font-size:9px"><?= MEMBER_CODE_FORMAT ?>0042</span></div>
                                     
                                     <!-- Signatures row -->
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
@@ -1317,15 +1315,15 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                                             <div style="height:24px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
                                                 <img id="idPrev_sig_head" src="" style="max-height:24px;max-width:70px;display:none">
                                             </div>
-                                            <div style="border-bottom:1px dashed #4b5563;margin:1px 0"></div>
-                                            <p style="color:#047857;font-size:5px;margin:0;line-height:1.3"><?= ID_CARD_SIG_HEAD_AM ?></p>
+                                            <div style="border-bottom:1px solid #600000;margin:1px 0"></div>
+                                            <p style="color:#600000;font-size:5px;margin:0;line-height:1.3"><?= ID_CARD_SIG_HEAD_AM ?></p>
                                         </div>
                                         <div style="text-align:center">
                                             <div style="height:24px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
                                                 <img id="idPrev_sig_admin" src="" style="max-height:24px;max-width:70px;display:none">
                                             </div>
-                                            <div style="border-bottom:1px dashed #4b5563;margin:1px 0"></div>
-                                            <p style="color:#047857;font-size:5px;margin:0;line-height:1.3">የደብሩ አስተዳደር ፊርማ</p>
+                                            <div style="border-bottom:1px solid #600000;margin:1px 0"></div>
+                                            <p style="color:#600000;font-size:5px;margin:0;line-height:1.3">የደብሩ አስተዳደር ፊርማ</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1339,8 +1337,8 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
                             
                             <!-- Footer -->
                             <div style="text-align:center;padding:0 10px 5px;margin-top:auto">
-                                <div style="width:95%;height:2px;background:#111;border-radius:99px;margin:0 auto 2px"></div>
-                                <p style="color:#111827;font-size:9px;font-weight:900;margin:0"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት</p>
+                                <div style="width:95%;height:2px;background:#600000;margin:0 auto 2px"></div>
+                                <p style="color:#600000;font-size:9px;font-weight:900;margin:0"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት</p>
                             </div>
                         </div>
                     </div>
