@@ -149,29 +149,39 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
 
   Future<void> _loadAssessments() async {
     if (_selectedClassId == null || _selectedSubjectId == null) return;
-    final sid = _selectedSubjectId;
+    final sid = _selectedSubjectId!;
+    final cached = await _db.getCachedAssessments(_selectedClassId!, sid);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() { _assessments = cached; _loadingAssessments = false; });
+    }
+
     final fromBoot = _bootAssessments.where((a) =>
       (a['subject_id'] is int ? a['subject_id'] : int.tryParse('${a['subject_id']}')) == sid
     ).toList();
     if (_didBootstrap) {
       setState(() { _assessments = fromBoot; _loadingAssessments = false; });
+      if (fromBoot.isNotEmpty) {
+        await _db.cacheAssessments(_selectedClassId!, sid, fromBoot);
+      }
       return;
     }
 
-    setState(() { _loadingAssessments = true; _assessments = []; });
-    final res = await _api.getAssessments(_selectedClassId!, _selectedSubjectId!);
+    if (cached.isEmpty) {
+      setState(() => _loadingAssessments = true);
+    }
+    final res = await _api.getAssessments(_selectedClassId!, sid);
     if (!mounted) return;
 
     if (res.success && res.data != null) {
       final assessments = res.data['assessments'] ?? [];
-      await _db.cacheAssessments(_selectedClassId!, _selectedSubjectId!, assessments);
+      await _db.cacheAssessments(_selectedClassId!, sid, assessments);
       setState(() { _assessments = assessments; _loadingAssessments = false; _isOffline = false; });
     } else {
-      final cached = await _db.getCachedAssessments(_selectedClassId!, _selectedSubjectId!);
       setState(() {
-        _assessments = cached.isNotEmpty ? cached : [];
+        if (_assessments.isEmpty) _assessments = cached;
         _loadingAssessments = false;
-        if (cached.isNotEmpty) _isOffline = !ConnectivityService().hasLink;
+        if (_assessments.isNotEmpty) _isOffline = !ConnectivityService().hasLink;
       });
     }
   }
@@ -524,8 +534,11 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     super.dispose();
   }
 
-  Future<void> _loadStudents() async {
-    setState(() { _loading = true; _error = null; _rosterNote = null; });
+  Future<void> _loadStudents({bool silent = false}) async {
+    if (!silent) {
+      setState(() { _error = null; _rosterNote = null; });
+      await _paintCache();
+    }
 
     final res = await _api.getGradeStudents(widget.assessmentId);
     if (!mounted) return;
@@ -533,13 +546,20 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (res.success && res.data != null) {
       final parsed = RosterParse.students(res.data);
       if (parsed.isEmpty && RosterParse.reportedCount(res.data) > 0) {
-        setState(() {
-          _error = 'The server sent students but this phone could not read them.';
-          _loading = false;
-        });
+        if (_students.isEmpty) {
+          setState(() {
+            _error = 'The server sent students but this phone could not read them.';
+            _loading = false;
+          });
+        }
         return;
       }
-      _setupStudents(parsed);
+      final merged = await _applyPending(parsed);
+      if (_students.isEmpty) {
+        _setupStudents(merged);
+      } else {
+        _mergeServer(merged);
+      }
       String? note;
       if (RosterParse.fallback(res.data)) {
         final year = RosterParse.yearName(res.data);
@@ -547,44 +567,105 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
             ? 'Showing students from a previous year.'
             : 'Showing the $year roster.';
       }
-      setState(() { _isOffline = !ConnectivityService().hasLink; _loading = false; _rosterNote = note; });
+      setState(() {
+        _isOffline = !ConnectivityService().hasLink;
+        _loading = false;
+        _rosterNote = note;
+      });
       _recountGraded();
+      await _db.cacheGradeSheet(widget.assessmentId, widget.classId, merged);
+      await _db.cacheStudents(widget.classId, merged);
       return;
     }
 
-    final cached = await _db.getCachedStudents(widget.classId);
-    if (cached.isNotEmpty) {
-      final pending = await _db.getPendingGradeRecords(widget.assessmentId);
-      final pendingMap = <int, Map<String, dynamic>>{};
-      for (final p in pending) {
-        final mid = RosterParse.asInt(p['member_id']);
-        if (mid != null) pendingMap[mid] = p;
-      }
-
-      final students = <Map<String, dynamic>>[];
-      for (final s in cached) {
-        final mid = RosterParse.asInt(s['member_id']) ?? RosterParse.asInt(s['id']);
-        if (mid == null) continue;
-        final pg = pendingMap[mid];
-        students.add({
-          'member_id': mid,
-          'student_name': s['student_name'] ?? '',
-          'father_name': s['father_name'] ?? '',
-          'member_code': s['member_code'] ?? '',
-          'gender': s['gender'] ?? '',
-          'score': pg?['score'],
-          'record_id': pg?['record_id'],
-          'remarks': pg?['remark'] ?? '',
-        });
-      }
-      _setupStudents(students);
-      setState(() { _isOffline = !ConnectivityService().hasLink; _loading = false; });
-    } else {
+    if (_students.isEmpty) {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';
         _loading = false;
         _isOffline = res.isNetworkError;
       });
+    }
+  }
+
+  Future<void> _paintCache() async {
+    final pending = await _pendingByMember();
+    final sheet = await _db.getCachedGradeSheet(widget.assessmentId);
+    List<Map<String, dynamic>> source = const [];
+    if (sheet != null && sheet.isNotEmpty) {
+      source = sheet;
+    } else {
+      source = await _db.getCachedStudents(widget.classId);
+    }
+    if (source.isEmpty) return;
+    final students = <Map<String, dynamic>>[];
+    for (final s in source) {
+      final mid = RosterParse.asInt(s['member_id']) ?? RosterParse.asInt(s['id']);
+      if (mid == null) continue;
+      final pg = pending[mid];
+      students.add({
+        'member_id': mid,
+        'student_name': s['student_name'] ?? '',
+        'father_name': s['father_name'] ?? '',
+        'member_code': s['member_code'] ?? '',
+        'gender': s['gender'] ?? '',
+        'score': pg?['score'] ?? s['score'],
+        'record_id': pg?['record_id'] ?? s['record_id'],
+        'remarks': pg?['remark'] ?? s['remarks'] ?? s['remark'] ?? '',
+      });
+    }
+    if (students.isEmpty) return;
+    _setupStudents(students);
+    if (mounted) setState(() { _loading = false; });
+  }
+
+  Future<Map<int, Map<String, dynamic>>> _pendingByMember() async {
+    final pending = await _db.getPendingGradeRecords(widget.assessmentId);
+    final map = <int, Map<String, dynamic>>{};
+    for (final p in pending) {
+      final mid = RosterParse.asInt(p['member_id']);
+      if (mid != null) map[mid] = p;
+    }
+    return map;
+  }
+
+  Future<List<Map<String, dynamic>>> _applyPending(List<Map<String, dynamic>> parsed) async {
+    final pending = await _pendingByMember();
+    return parsed.map((s) {
+      final mid = s['member_id'] as int;
+      final pg = pending[mid];
+      return <String, dynamic>{
+        ...s,
+        'member_id': mid,
+        'score': pg?['score'] ?? s['score'],
+        'record_id': pg?['record_id'] ?? s['record_id'],
+        'remarks': pg?['remark'] ?? s['remarks'] ?? s['remark'] ?? '',
+      };
+    }).toList();
+  }
+
+  void _mergeServer(List<Map<String, dynamic>> incoming) {
+    final seen = <int>{};
+    for (final s in incoming) {
+      final mid = RosterParse.asInt(s['member_id']);
+      if (mid == null) continue;
+      seen.add(mid);
+      final existing = _students.indexWhere((e) => RosterParse.asInt(e['member_id']) == mid);
+      if (existing >= 0) {
+        _students[existing]['record_id'] = s['record_id'] ?? _students[existing]['record_id'];
+        final ctrl = _scoreCtrl[mid];
+        if (ctrl != null && ctrl.text.trim().isEmpty && s['score'] != null) {
+          ctrl.text = '${s['score']}';
+        }
+        final remark = _remarkCtrl[mid];
+        if (remark != null && remark.text.trim().isEmpty) {
+          final text = '${s['remarks'] ?? s['remark'] ?? ''}';
+          if (text.isNotEmpty) remark.text = text;
+        }
+      } else {
+        _scoreCtrl[mid] = TextEditingController(text: s['score'] != null ? '${s['score']}' : '');
+        _remarkCtrl[mid] = TextEditingController(text: '${s['remarks'] ?? s['remark'] ?? ''}');
+        _students.add({...s, 'member_id': mid});
+      }
     }
   }
 
@@ -687,7 +768,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Saved as a draft for Education'), backgroundColor: AppTheme.success));
-      _loadStudents(); // Refresh to get record_ids
+      _loadStudents(silent: true);
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -747,7 +828,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(res.message ?? 'Sent to Education'), backgroundColor: AppTheme.success));
-      _loadStudents();
+      _loadStudents(silent: true);
     } else {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

@@ -24,7 +24,7 @@ class LocalDb {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -86,6 +86,18 @@ class LocalDb {
           try {
             await db.execute(
                 "UPDATE pending_grades SET packet_kind = 'draft' WHERE packet_kind IS NULL");
+          } catch (_) {}
+        }
+        if (oldVersion < 6) {
+          try {
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS cached_grade_sheets (
+                assessment_id INTEGER PRIMARY KEY,
+                class_id INTEGER,
+                response_json TEXT NOT NULL,
+                updated_at TEXT
+              )
+            ''');
           } catch (_) {}
         }
       },
@@ -626,6 +638,36 @@ class LocalDb {
     );
   }
 
+  Future<void> cacheGradeSheet(int assessmentId, int classId, List<Map<String, dynamic>> students) async {
+    final db = await database;
+    await db.insert(
+      'cached_grade_sheets',
+      {
+        'assessment_id': assessmentId,
+        'class_id': classId,
+        'response_json': jsonEncode(students),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>?> getCachedGradeSheet(int assessmentId) async {
+    final db = await database;
+    try {
+      final rows = await db.query(
+        'cached_grade_sheets',
+        where: 'assessment_id = ?',
+        whereArgs: [assessmentId],
+      );
+      if (rows.isEmpty) return null;
+      final list = jsonDecode(rows.first['response_json'] as String) as List;
+      return list.map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<Map<String, dynamic>>?> getCachedAttendanceResponse(int classId, String date) async {
     final db = await database;
     try {
@@ -699,6 +741,7 @@ class LocalDb {
     await db.delete('cached_dashboard');
     await db.delete('cached_members');
     try { await db.delete('cached_attendance'); } catch (_) {}
+    try { await db.delete('cached_grade_sheets'); } catch (_) {}
   }
 
   /// Full wipe for this device user — cache + unsynced rows.
