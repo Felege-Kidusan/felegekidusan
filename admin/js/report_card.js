@@ -50,7 +50,7 @@
             return '<span class="rc-chip">' + esc(a.assessment_name || '') + ': ' + esc(sc) + (mx !== '' ? '/' + esc(mx) : '') + '</span>';
           }).join('');
           return '<tr>' +
-            '<td class="am">' + esc(sub.subject_name || '') + (sub.subject_name_en ? '<div style="font-size:.58rem;color:#8a7260;font-weight:400">' + esc(sub.subject_name_en) + '</div>' : '') + '</td>' +
+            '<td class="am">' + esc(sub.subject_name || '') + (sub.subject_name_en ? '<div style="font-size:.58rem;color:#3b0000;font-weight:400">' + esc(sub.subject_name_en) + '</div>' : '') + doneBar(sub.completion) + '</td>' +
             '<td><div class="rc-chips">' + (chips || '<span class="rc-chip">No scores yet</span>') + '</div></td>' +
             '<td class="num">' + dash(sub.obtained) + '</td>' +
             '<td class="num">' + dash(sub.max) + '</td>' +

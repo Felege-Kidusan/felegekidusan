@@ -148,7 +148,8 @@ class ReportCardService
                 $bundle['subjects'],
                 $bundle['scores'][$memberId] ?? [],
                 $bundle['attendance'][$memberId] ?? self::emptyAttendance(),
-                $subjectId
+                $subjectId,
+                $bundle['assessments'] ?? []
             );
             $computedByMember[$memberId] = $computed;
             $avg = $computed['totals']['average'];
@@ -341,6 +342,7 @@ class ReportCardService
             'highlights' => $computed['highlights'],
             'overall_average' => $computed['totals']['average'],
             'overall_grade' => $computed['totals']['grade_letter'],
+            'completion' => $pack['stats']['subjects'] ?? [],
             'rank' => $studentRow['rank'],
             'total_in_class' => (int)$pack['stats']['total_students'],
             'rank_tied' => !empty($studentRow['tied']),
@@ -418,6 +420,7 @@ class ReportCardService
         $scoreYearId = self::resolveScoreYear($conn, $classId, (int)($yearInfo['id'] ?? 0));
         $scores = self::fetchScores($conn, $classId, $scoreYearId, $effectiveTermId);
         $attendance = self::fetchAttendance($conn, $classId, array_keys($roster), (int)($yearInfo['id'] ?? 0));
+        $assessments = self::fetchAssessments($conn, $classId, $scoreYearId, $effectiveTermId);
 
         // Subjects that only exist as scores (subject_id 0 or a new subject).
         foreach ($scores as $memberScores) {
@@ -445,6 +448,7 @@ class ReportCardService
             'subjects' => $subjects,
             'scores' => $scores,
             'attendance' => $attendance,
+            'assessments' => $assessments,
         ];
     }
 
@@ -459,7 +463,8 @@ class ReportCardService
         array $subjects,
         array $memberScores,
         array $attendance,
-        int $onlySubjectId = 0
+        int $onlySubjectId = 0,
+        array $plannedBySubject = []
     ): array {
         unset($memberId);
         $outSubjects = [];
@@ -485,6 +490,12 @@ class ReportCardService
                     'average' => $agg['average'],
                 ];
             }
+            $scoredIds = [];
+            foreach ($agg['assessments'] as $a) {
+                if (($a['score'] ?? null) !== null && (int)($a['id'] ?? 0) > 0) {
+                    $scoredIds[] = (int)$a['id'];
+                }
+            }
             $outSubjects[] = [
                 'id' => $sid,
                 'subject_name' => $subj['subject_name'],
@@ -495,6 +506,7 @@ class ReportCardService
                 'average' => $agg['average'],
                 'final_percentage' => $agg['average'],
                 'grade_letter' => $agg['average'] !== null ? self::letter($agg['average']) : null,
+                'completion' => self::subjectCompletion($plannedBySubject[$sid] ?? [], $scoredIds),
             ];
         }
 
@@ -997,6 +1009,110 @@ class ReportCardService
      */
 
     /**
+     * Planned assessments for this class / year / term, grouped by subject.
+     *
+     * @return array<int,list<array{id:int,name:string,weight:float}>>
+     */
+    private static function fetchAssessments(\mysqli $conn, int $classId, int $yearId, int $termId): array
+    {
+        $sql = "SELECT id, subject_id, assessment_name, weight_percentage, term_id
+                FROM assessments WHERE class_id = ?";
+        $params = [$classId];
+        $types = 'i';
+        if ($yearId > 0) {
+            $sql .= " AND (academic_year_id = ? OR academic_year_id IS NULL OR academic_year_id = 0)";
+            $params[] = $yearId;
+            $types .= 'i';
+        }
+        if ($termId > 0) {
+            $sql .= " AND (term_id = ? OR term_id IS NULL OR term_id = 0)";
+            $params[] = $termId;
+            $types .= 'i';
+        }
+        $sql .= " ORDER BY id";
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $r = $stmt->get_result();
+        $out = [];
+        while ($row = $r->fetch_assoc()) {
+            $sid = (int)($row['subject_id'] ?? 0);
+            $out[$sid][] = [
+                'id' => (int)$row['id'],
+                'name' => (string)($row['assessment_name'] ?? 'Assessment'),
+                'weight' => (float)($row['weight_percentage'] ?? 0),
+            ];
+        }
+        $stmt->close();
+        return $out;
+    }
+
+    /**
+     * Assessment ids that have at least one score in this class for a subject.
+     *
+     * @param array<int,array<int,list<array<string,mixed>>>> $allScores
+     * @return list<int>
+     */
+    private static function scoredAssessmentIds(array $allScores, int $subjectId): array
+    {
+        $ids = [];
+        foreach ($allScores as $memberScores) {
+            foreach ($memberScores[$subjectId] ?? [] as $rec) {
+                $aid = (int)($rec['assessment_id'] ?? 0);
+                if ($aid > 0 && $rec['score'] !== null && $rec['score'] !== '') {
+                    $ids[$aid] = $aid;
+                }
+            }
+        }
+        return array_values($ids);
+    }
+
+    /**
+     * How much of this subject's 100% semester weight is already recorded.
+     *
+     * @param list<array{id:int,name:string,weight:float}> $planned
+     * @param list<int> $scoredIds
+     * @return array{planned:float,recorded:float,remaining:float,missing:list<string>}
+     */
+    private static function subjectCompletion(array $planned, array $scoredIds): array
+    {
+        $scored = [];
+        foreach ($scoredIds as $id) {
+            $scored[(int)$id] = true;
+        }
+        $plannedWeight = 0.0;
+        $recorded = 0.0;
+        $missing = [];
+        foreach ($planned as $a) {
+            $w = (float)($a['weight'] ?? 0);
+            if ($w <= 0) {
+                continue;
+            }
+            $plannedWeight += $w;
+            if (!empty($scored[(int)$a['id']])) {
+                $recorded += $w;
+            } else {
+                $missing[] = trim(($a['name'] ?? 'Assessment') . ' (' . rtrim(rtrim(number_format($w, 1), '0'), '.') . '%)');
+            }
+        }
+        if ($plannedWeight <= 0 && $scored) {
+            $recorded = 100.0;
+            $plannedWeight = 100.0;
+        }
+        $recorded = min(100.0, round($recorded, 1));
+        $remaining = max(0.0, round(100.0 - $recorded, 1));
+        return [
+            'planned' => round($plannedWeight, 1),
+            'recorded' => $recorded,
+            'remaining' => $remaining,
+            'missing' => $missing,
+        ];
+    }
+
+    /**
      * @param list<array<string,mixed>> $subjects
      * @return list<array<string,mixed>>
      */
@@ -1165,17 +1281,24 @@ class ReportCardService
         $sum->setCellValue('A10', 'Subject');
         $sum->setCellValue('B10', 'Class average %');
         $sum->setCellValue('C10', 'Students graded');
+        $sum->setCellValue('D10', 'Semester recorded %');
+        $sum->setCellValue('E10', 'Still left %');
+        $sum->setCellValue('F10', 'Still to enter');
         $r = 11;
         foreach ($subjectCols as $sub) {
+            $c = $sub['completion'] ?? [];
             $sum->setCellValue('A' . $r, $sub['subject_name']);
             $sum->setCellValue('B' . $r, $sub['average'] !== null ? $sub['average'] . '%' : '—');
             $sum->setCellValue('C' . $r, (string)($sub['graded'] ?? 0));
+            $sum->setCellValue('D' . $r, isset($c['recorded']) ? $c['recorded'] . '%' : '—');
+            $sum->setCellValue('E' . $r, isset($c['remaining']) ? $c['remaining'] . '%' : '—');
+            $sum->setCellValue('F' . $r, !empty($c['missing']) ? implode(', ', $c['missing']) : '');
             $r++;
         }
         $sum->getStyle('A1')->applyFromArray([
             'font' => ['bold' => true, 'size' => 16, 'color' => ['argb' => 'FF600000']],
         ]);
-        $sum->getStyle('A10:C10')->applyFromArray([
+        $sum->getStyle('A10:F10')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFF0C000']],
             'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF600000']],
         ]);

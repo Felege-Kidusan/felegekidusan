@@ -91,6 +91,9 @@ $_aiCsrf = generateCsrfToken();
 .aip-send{width:34px;height:34px;border-radius:.45rem;border:none;background:linear-gradient(135deg,#10b981,#3b82f6);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.82rem;flex-shrink:0;transition:opacity .15s}
 .aip-send:hover{opacity:.88}.aip-send:disabled{opacity:.3;cursor:not-allowed}
 .aip-hint{font-size:.6rem;color:#4b5b73;text-align:center;margin-top:.3rem}
+@media print{
+  #ai-fab,#ai-win{display:none!important;visibility:hidden!important}
+}
 </style>
 
 <button id="ai-fab" onclick="aipToggle()" title="AI Assistant"><i class="fa-solid fa-robot"></i><span class="fab-badge"></span></button>

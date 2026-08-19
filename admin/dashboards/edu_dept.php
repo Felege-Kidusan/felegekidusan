@@ -1028,7 +1028,7 @@ async function loadRoster(page){
             </tr></thead><tbody>${rows.map(x=>`<tr>
                 <td><input type="checkbox" class="roster-cb" value="${x.id}"></td>
                 <td><div style="font-weight:600">${esc(x.student_name||'')} ${x.baptismal_name?'<span style="font-size:.65rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div></td>
-       ��')}</span></td>
+       ��')}</span></td>
                 <td class="amharic">${x.class_name?esc(x.class_name)+' <span style="font-size:.6rem;color:#94a3b8">'+esc(x.class_code||'')+'</span>':'<span style="color:#f59e0b">Unassigned</span>'}</td>
                 <td>${mtBadge(x.member_type)}</td>
                 <td>${x.gender==='male'?'♂':'♀'}</td>
@@ -1837,13 +1837,20 @@ async function loadClassPerformance(){
         if(box){
             if(subj.length){
                 box.style.display='block';
-                box.innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Average per subject</div>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.5rem">${subj.map(x=>`
-                        <div style="border:1px solid #efe3c8;border-radius:8px;padding:.5rem .65rem">
-                            <div class="amharic" style="font-weight:600;font-size:.78rem">${esc(x.subject_name)}</div>
-                            <div style="font-size:1.05rem;font-weight:700;color:#600000">${x.average!=null?x.average+'%':'—'}</div>
-                            <div style="font-size:.6rem;color:#94a3b8">${x.graded||0} graded</div>
-                        </div>`).join('')}</div>`;
+                box.innerHTML=`<div style="font-size:.8rem;font-weight:800;color:#3b0000;margin-bottom:.55rem">Average and semester completion per subject</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.65rem">${subj.map(x=>{
+                        const c=x.completion||{};
+                        const rec=Number(c.recorded||0);
+                        const left=Number(c.remaining||0);
+                        const miss=(c.missing||[]).length?'<div style="font-size:.65rem;color:#8a1a1a;margin-top:.25rem;font-weight:700">Still to enter: '+esc(c.missing.join(', '))+'</div>':'';
+                        return `<div class="rc-subj-card">
+                            <div class="nm amharic">${esc(x.subject_name)}</div>
+                            <div class="av">${x.average!=null?x.average+'%':'—'}</div>
+                            <div class="rc-donebar"><i style="width:${rec}%"></i><em></em></div>
+                            <div class="rc-done-lbl">${rec}% of this semester recorded · <span class="left">${left}% still left</span></div>
+                            ${miss}
+                        </div>`;
+                    }).join('')}</div>`;
             }else box.style.display='none';
         }
         renderRcTable();
