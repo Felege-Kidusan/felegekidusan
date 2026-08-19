@@ -21,7 +21,7 @@ $now = new DateTime('now', new DateTimeZone('Africa/Addis_Ababa'));
 $todayFormatted = wbws_format_date($now, 'long', $conn);
 $greeting = ((int)$now->format('H') < 12) ? 'Good Morning' : (((int)$now->format('H') < 17) ? 'Good Afternoon' : 'Good Evening');
 
-$currentYear = null; $currentTerm = null; $classes = []; $subjects = [];
+$currentYear = null; $currentTerm = null; $classes = []; $subjects = []; $years = []; $terms = [];
 if ($tablesExist) {
     $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
     try { $r = $conn->query("SELECT * FROM academic_terms WHERE is_current = 1 LIMIT 1");
@@ -30,6 +30,12 @@ if ($tablesExist) {
     if ($r) while ($row = $r->fetch_assoc()) $classes[] = $row;
     $r = $conn->query("SELECT * FROM subjects WHERE is_active = 1 ORDER BY subject_name");
     if ($r) while ($row = $r->fetch_assoc()) $subjects[] = $row;
+    try {
+        $r = $conn->query("SELECT id, year_name, is_current FROM academic_years ORDER BY is_current DESC, id DESC");
+        if ($r) while ($row = $r->fetch_assoc()) $years[] = $row;
+        $r = $conn->query("SELECT id, academic_year_id, term_name, term_number, is_current FROM academic_terms ORDER BY term_number");
+        if ($r) while ($row = $r->fetch_assoc()) $terms[] = $row;
+    } catch (Exception $e) {}
 }
 
 $totalStudents = 0; $r = $conn->query("SELECT COUNT(*) c FROM members WHERE status='active'");
@@ -367,33 +373,32 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 <!-- ═══ REPORT CARDS ═══ -->
 <div id="sec-reportcards" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-file-lines" style="color:#059669"></i> Report Cards</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የተማሪ ሪፖርት ካርድ</p></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-file-lines" style="color:#600000"></i> Report Cards</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የተማሪ ሪፖርት ካርድ — totals, average, rank, print</p></div>
 </div>
-<div class="crd" style="padding:1rem;margin-bottom:1rem">
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.75rem;align-items:end">
-<div><label class="lbl">Class</label><select id="rcClass" class="inp" onchange="loadClassPerformance()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?> (<?= e($c['class_name_en'] ?? '') ?>)</option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject (Optional)</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All Subjects</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Export</label><button class="btn btn-o" style="width:100%" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button></div>
-<button class="btn btn-s" onclick="generateBulkReports()" title="Generate all student report cards"><i class="fa-solid fa-file-lines"></i> Bulk Generate</button>
-</div></div>
-<!-- Class Performance Stats -->
+<div class="crd no-print" style="padding:1rem;margin-bottom:1rem">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.65rem;align-items:end">
+<div><label class="lbl">Class</label><select id="rcClass" class="inp" onchange="loadClassPerformance()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Year</label><select id="rcYear" class="inp" onchange="filterRcTerms();loadClassPerformance()"><option value="">Current year</option><?php foreach ($years as $y): ?><option value="<?= (int)$y['id'] ?>"<?= !empty($y['is_current'])?' selected':''; ?>><?= e($y['year_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Term</label><select id="rcTerm" class="inp" onchange="loadClassPerformance()"><option value="">All / current</option><?php foreach ($terms as $tm): ?><option value="<?= (int)$tm['id'] ?>" data-year="<?= (int)$tm['academic_year_id'] ?>"><?= e($tm['term_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Subject</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All subjects</option><?php foreach ($subjects as $s): ?><option value="<?= (int)$s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-top:.65rem">
+<input type="text" id="rcSearch" class="inp" style="max-width:220px" placeholder="Search name or code…" oninput="renderRcTable()">
+<select id="rcFilter" class="inp" style="max-width:150px" onchange="renderRcTable()"><option value="">All students</option><option value="graded">Has scores</option><option value="blank">No scores yet</option><option value="A">Grade A</option><option value="B">Grade B</option><option value="C">Grade C</option><option value="D">Grade D</option><option value="F">Grade F</option></select>
+<select id="rcSort" class="inp" style="max-width:160px" onchange="renderRcTable()"><option value="rank">Sort: Rank</option><option value="name">Sort: Name</option><option value="average">Sort: Average</option><option value="attendance">Sort: Attendance</option></select>
+<button class="btn btn-o" type="button" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button>
+<button class="btn btn-s" type="button" onclick="generateBulkReports()"><i class="fa-solid fa-print"></i> Print class</button>
+</div>
+</div>
 <div id="rcStatsArea" style="display:none">
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem;margin-bottom:1rem" id="rcStatsCards"></div>
-<!-- Grade Distribution Bar -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.75rem;margin-bottom:1rem" id="rcStatsCards"></div>
 <div class="crd" style="padding:1rem;margin-bottom:1rem" id="rcDistBar"></div>
+<div class="crd" style="padding:1rem;margin-bottom:1rem;display:none" id="rcSubjectAvg"></div>
 </div>
-<!-- Performance Table -->
-<div id="rcTableArea" style="display:none" class="crd"><div class="tw"><table class="dt"><thead><tr><th>Rank</th><th>Student</th><th>Code</th><th>Average</th><th>Grade</th><th>Attendance</th><th>Actions</th></tr></thead><tbody id="rcTableBody"></tbody></table></div></div>
-<div id="rcEmptyMsg" class="crd" style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-chart-bar" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>Select a class to view performance and generate report cards</div>
-
-<!-- Single Report Card Modal -->
-<div class="mo" id="rcModal"><div class="mc" style="max-width:720px">
-<div id="rcModalHeader" style="background:linear-gradient(135deg,#1e293b,#334155);color:#fff;padding:1.25rem;text-align:center;border-radius:20px 20px 0 0">
-<div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.15em;opacity:.6;margin-bottom:.2rem"><?= SCHOOL_NAME_SHORT_AM ?> የቅዱስ ቁርባን ሰንበት ትምህርት ቤት</div>
-<h2 style="font-size:1.1rem;font-weight:700;margin:0">Student Report Card</h2>
-<div style="font-size:.7rem;opacity:.7;margin-top:.2rem" id="rcModalYear"></div>
-</div>
-<div id="rcModalBody" style="padding:1.25rem"><p style="text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</p></div>
+<div id="rcTableArea" style="display:none" class="crd"><div class="tw"><table class="dt"><thead><tr><th>Rank</th><th>Student</th><th>Code</th><th>Obtained</th><th>Average</th><th>Grade</th><th>Attendance</th><th class="no-print">Actions</th></tr></thead><tbody id="rcTableBody"></tbody></table></div></div>
+<div id="rcEmptyMsg" class="crd" style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-chart-bar" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>Select a class to view performance and open report cards</div>
+<div class="mo" id="rcModal" onclick="if(event.target===this)closeModal('rcModal')"><div class="mc" style="max-width:920px;padding:0;background:transparent;box-shadow:none">
+<div id="rcModalBody" style="background:#fff;border-radius:8px;padding:0 0 .85rem"><p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report card…</p></div>
 </div></div>
 </div>
 
@@ -579,7 +584,9 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 </div></nav>
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
-<div id="toastC"></div><script>
+<div id="toastC"></div>
+<script src="/admin/js/report_card.js"></script>
+<script>
 let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
 const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {
     return ['id' => (int)$c['id'], 'name' => (string)$c['class_name']];
@@ -1765,98 +1772,159 @@ async function doReview(id,status){
 }
 
 // ═══ REPORT CARDS (Edu Dept) ═══
-let rcData=[];
+let rcData=[], rcStats={};
+function rcQs(){
+    const y=document.getElementById('rcYear')?.value||'';
+    const t=document.getElementById('rcTerm')?.value||'';
+    const s=document.getElementById('rcSubject')?.value||'';
+    let q='';
+    if(y) q+=`&year_id=${encodeURIComponent(y)}`;
+    if(t) q+=`&term_id=${encodeURIComponent(t)}`;
+    if(s) q+=`&subject_id=${encodeURIComponent(s)}`;
+    return q;
+}
+function filterRcTerms(){
+    const y=document.getElementById('rcYear')?.value||'';
+    const sel=document.getElementById('rcTerm');
+    if(!sel) return;
+    const cur=sel.value;
+    Array.from(sel.options).forEach(opt=>{
+        if(!opt.value){opt.hidden=false;return;}
+        opt.hidden=!!(y && opt.dataset.year && opt.dataset.year!==y);
+    });
+    const vis=Array.from(sel.options).find(o=>o.value===cur && !o.hidden);
+    if(!vis) sel.value='';
+}
 async function loadClassPerformance(){
     const cid=document.getElementById('rcClass')?.value;
-    const sid=document.getElementById('rcSubject')?.value||'';
-    if(!cid){document.getElementById('rcStatsArea').style.display='none';document.getElementById('rcTableArea').style.display='none';document.getElementById('rcEmptyMsg').style.display='block';return;}
+    if(!cid){
+        document.getElementById('rcStatsArea').style.display='none';
+        document.getElementById('rcTableArea').style.display='none';
+        document.getElementById('rcEmptyMsg').style.display='block';
+        rcData=[];
+        return;
+    }
     document.getElementById('rcEmptyMsg').style.display='none';
-    try{let url=`/admin/api_communication.php?action=get_class_report&class_id=${cid}`;
-    if(sid)url+=`&subject_id=${sid}`;
-    const d=await getAPI(url);
-    if(d.status==='success'){
+    document.getElementById('rcTableArea').style.display='block';
+    document.getElementById('rcTableBody').innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading class…</td></tr>';
+    try{
+        const d=await getAPI(`/admin/api_communication.php?action=get_class_report&class_id=${cid}${rcQs()}`);
+        if(d.status!=='success'){
+            document.getElementById('rcTableBody').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#dc2626">${esc(d.message||'Could not load this class.')}</td></tr>`;
+            toast(d.message||'Could not load this class.','err');
+            return;
+        }
         rcData=d.students||[];
-        const st=d.stats||{};
+        rcStats=d.stats||{};
+        const st=rcStats;
         document.getElementById('rcStatsArea').style.display='block';
         document.getElementById('rcStatsCards').innerHTML=`
-            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.total_students||0}</div><div style="font-size:.6rem;opacity:.8">Total Students</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.class_average||'—'}%</div><div style="font-size:.6rem;opacity:.8">Class Average</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#0ea5e9,#3b82f6);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.pass_rate||0}%</div><div style="font-size:.6rem;opacity:.8">Pass Rate</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#10b981,#34d399);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.highest||'—'}%</div><div style="font-size:.6rem;opacity:.8">Highest</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#ef4444,#f87171);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.lowest||'—'}%</div><div style="font-size:.6rem;opacity:.8">Lowest</div></div></div>`;
-        // Distribution bar
+            <div class="sc" style="background:linear-gradient(135deg,#600000,#8B2030);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.total_students||0}</div><div style="font-size:.6rem;opacity:.8">Students</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#047857,#10b981);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.class_average!=null?st.class_average+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Class average</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#0369a1,#0ea5e9);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.median!=null?st.median+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Median</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#b45309,#d97706);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.pass_rate!=null?st.pass_rate+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Pass rate</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#047857,#34d399);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.highest!=null?st.highest+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Highest</div></div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#b91c1c,#ef4444);padding:.85rem"><div><div style="font-size:1.4rem;font-weight:700">${st.lowest!=null?st.lowest+'%':'—'}</div><div style="font-size:.6rem;opacity:.8">Lowest</div></div></div>`;
         const gd=st.grade_distribution||{A:0,B:0,C:0,D:0,F:0};
-        const total=Math.max(st.graded_students||1,1);
-        document.getElementById('rcDistBar').innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Grade Distribution</div>
+        const parts=[{l:'A',c:'#047857',n:gd.A},{l:'B',c:'#0369a1',n:gd.B},{l:'C',c:'#b45309',n:gd.C},{l:'D',c:'#c2410c',n:gd.D},{l:'F',c:'#b91c1c',n:gd.F}].filter(x=>x.n>0);
+        document.getElementById('rcDistBar').innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Grade distribution · ${st.graded_students||0} with scores</div>
             <div style="display:flex;height:32px;border-radius:10px;overflow:hidden;font-size:.65rem;font-weight:700;color:#fff">${
-                [{l:'A',c:'#059669',n:gd.A},{l:'B',c:'#0284c7',n:gd.B},{l:'C',c:'#d97706',n:gd.C},{l:'D',c:'#ea580c',n:gd.D},{l:'F',c:'#dc2626',n:gd.F}]
-                .filter(x=>x.n>0).map(x=>`<div style="flex:${x.n};background:${x.c};display:flex;align-items:center;justify-content:center;min-width:30px">${x.l}: ${x.n}</div>`).join('')
+                parts.length?parts.map(x=>`<div style="flex:${x.n};background:${x.c};display:flex;align-items:center;justify-content:center;min-width:30px">${x.l}: ${x.n}</div>`).join(''):'<div style="flex:1;background:#e2e8f0;color:#64748b;display:flex;align-items:center;justify-content:center">No scores yet</div>'
             }</div>`;
-        // Table
-        document.getElementById('rcTableArea').style.display='block';
-        const gc={A:'#059669',B:'#0284c7',C:'#d97706',D:'#ea580c',F:'#dc2626'};
-        document.getElementById('rcTableBody').innerHTML=rcData.length?rcData.map(s=>{
-            const pct=s.avg_percentage?parseFloat(s.avg_percentage).toFixed(1):'—';
-            const attR=s.attendance_rate||0;
-            return `<tr>
-                <td><span style="display:inline-flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.7rem;${s.rank<=3?'background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff':'background:#f1f5f9;color:#64748b'}">${s.rank}</span></td>
-                <td style="font-weight:600;font-size:.82rem">${esc(s.student_name||'')} ${esc(s.father_name||'')}</td>
-                <td><span class="ch ch-i" style="font-size:.65rem">${esc(s.member_code||'')}</span></td>
-                <td style="font-weight:700;font-size:.9rem">${pct}%</td>
-                <td><span style="display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${gc[s.grade_letter]||'#94a3b8'}">${s.grade_letter||'—'}</span></td>
-                <td><div style="display:flex;align-items:center;gap:.4rem"><div style="width:50px;height:6px;background:#e2e8f0;border-radius:99px"><div style="height:100%;border-radius:99px;background:${attR>=80?'#059669':attR>=60?'#f59e0b':'#ef4444'};width:${attR}%"></div></div><span style="font-size:.7rem;color:#64748b">${attR}%</span></div></td>
-                <td><button class="btn btn-o btn-xs" onclick="viewStudentReport(${s.id})"><i class="fa-solid fa-file-lines"></i> Report</button></td></tr>`;
-        }).join(''):'<tr><td colspan="7" style="text-align:center;padding:2rem;color:#94a3b8">No grade data available</td></tr>';
-    }}catch(e){toast('Error loading report','err');}
+        const subj=st.subjects||[];
+        const box=document.getElementById('rcSubjectAvg');
+        if(box){
+            if(subj.length){
+                box.style.display='block';
+                box.innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Average per subject</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.5rem">${subj.map(x=>`
+                        <div style="border:1px solid #efe3c8;border-radius:8px;padding:.5rem .65rem">
+                            <div class="amharic" style="font-weight:600;font-size:.78rem">${esc(x.subject_name)}</div>
+                            <div style="font-size:1.05rem;font-weight:700;color:#600000">${x.average!=null?x.average+'%':'—'}</div>
+                            <div style="font-size:.6rem;color:#94a3b8">${x.graded||0} graded</div>
+                        </div>`).join('')}</div>`;
+            }else box.style.display='none';
+        }
+        renderRcTable();
+    }catch(e){
+        document.getElementById('rcTableBody').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#dc2626">${esc(friendlyNetError(e))}</td></tr>`;
+        toast(friendlyNetError(e),'err');
+    }
+}
+function renderRcTable(){
+    const q=(document.getElementById('rcSearch')?.value||'').toLowerCase().trim();
+    const f=document.getElementById('rcFilter')?.value||'';
+    const sort=document.getElementById('rcSort')?.value||'rank';
+    let list=rcData.slice();
+    if(q) list=list.filter(s=>[s.student_name,s.father_name,s.member_code,s.christian_name].filter(Boolean).join(' ').toLowerCase().includes(q));
+    if(f==='graded') list=list.filter(s=>s.overall_average!=null||s.avg_percentage!=null);
+    if(f==='blank') list=list.filter(s=>s.overall_average==null&&s.avg_percentage==null);
+    if(['A','B','C','D','F'].includes(f)) list=list.filter(s=>(s.grade_letter||s.overall_grade)===f);
+    list.sort((a,b)=>{
+        if(sort==='name') return String(a.student_name||'').localeCompare(String(b.student_name||''));
+        if(sort==='average') return (Number(b.overall_average??b.avg_percentage)||-1)-(Number(a.overall_average??a.avg_percentage)||-1);
+        if(sort==='attendance') return (Number(b.attendance_rate)||0)-(Number(a.attendance_rate)||0);
+        const ra=a.rank==null?9999:a.rank, rb=b.rank==null?9999:b.rank;
+        return ra-rb;
+    });
+    const gc={A:'#047857',B:'#0369a1',C:'#b45309',D:'#c2410c',F:'#b91c1c'};
+    document.getElementById('rcTableBody').innerHTML=list.length?list.map(s=>{
+        const pct=s.overall_average??s.avg_percentage;
+        const attR=s.attendance_rate||0;
+        const obt=(s.total_obtained!=null&&s.total_max!=null)?(`${s.total_obtained} / ${s.total_max}`):'—';
+        return `<tr>
+            <td><span style="display:inline-flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.7rem;${s.rank&&s.rank<=3?'background:#F0C000;color:#600000':'background:#f1f5f9;color:#64748b'}">${s.rank||'—'}${s.tied?'=':''}</span></td>
+            <td style="font-weight:600;font-size:.82rem">${esc(s.student_name||'')} ${esc(s.father_name||'')}${s.christian_name?`<div style="font-size:.62rem;color:#94a3b8">Christian name: ${esc(s.christian_name)}</div>`:''}</td>
+            <td><span class="ch ch-i" style="font-size:.65rem">${esc(s.member_code||'')}</span></td>
+            <td style="font-size:.8rem">${esc(obt)}</td>
+            <td style="font-weight:700;font-size:.9rem">${pct!=null?Number(pct).toFixed(1)+'%':'—'}</td>
+            <td><span style="display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${gc[s.grade_letter]||'#94a3b8'}">${s.grade_letter||'—'}</span></td>
+            <td><div style="display:flex;align-items:center;gap:.4rem"><div style="width:50px;height:6px;background:#e2e8f0;border-radius:99px"><div style="height:100%;border-radius:99px;background:${attR>=80?'#047857':attR>=60?'#d97706':'#b91c1c'};width:${Math.min(100,attR)}%"></div></div><span style="font-size:.7rem;color:#64748b">${attR}%</span></div></td>
+            <td class="no-print"><button class="btn btn-o btn-xs" type="button" onclick="viewStudentReport(${s.id})"><i class="fa-solid fa-file-lines"></i> Report</button></td></tr>`;
+    }).join(''):'<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8">No matching students</td></tr>';
 }
 async function viewStudentReport(memberId){
     const cid=document.getElementById('rcClass')?.value||0;
     document.getElementById('rcModal').classList.add('show');
-    document.getElementById('rcModalBody').innerHTML='<p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Generating report card...</p>';
-    try{const d=await getAPI(`/admin/api_communication.php?action=get_report_card&member_id=${memberId}&class_id=${cid}`);
-    if(d.status!=='success'){document.getElementById('rcModalBody').innerHTML=`<p style="text-align:center;color:#ef4444;padding:2rem">${d.message||'Error'}</p>`;return;}
-    const s=d.student,cl=d.class,yr=d.year,tm=d.term,att=d.attendance,subjects=d.subjects||[];
-    const oa=d.overall_average,og=d.overall_grade,rank=d.rank,total=d.total_in_class;
-    const gc={A:'#059669',B:'#0284c7',C:'#d97706',D:'#ea580c',F:'#dc2626'};
-    document.getElementById('rcModalYear').textContent=(yr?.year_name||'')+(tm?' • '+tm.term_name:'');
-    document.getElementById('rcModalBody').innerHTML=`
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .75rem;font-size:.8rem;margin-bottom:1rem;background:#f8fafc;padding:.85rem;border-radius:12px">
-            <div><strong style="color:#64748b">Name:</strong> ${esc(s?.student_name||'')}</div>
-            <div><strong style="color:#64748b">Father:</strong> ${esc(s?.father_name||'')}</div>
-            <div><strong style="color:#64748b">Class:</strong> <span class="amharic">${esc(cl?.class_name||'')}</span></div>
-            <div><strong style="color:#64748b">ID:</strong> ${esc(s?.member_code||'')}</div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:1rem">
-            <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;padding:.7rem;border-radius:12px;text-align:center"><div style="font-size:1.2rem;font-weight:700">${oa?oa+'%':'—'}</div><div style="font-size:.55rem;opacity:.8">Overall</div></div>
-            <div style="background:${gc[og]||'#64748b'};color:#fff;padding:.7rem;border-radius:12px;text-align:center"><div style="font-size:1.2rem;font-weight:700">${og||'—'}</div><div style="font-size:.55rem;opacity:.8">Grade</div></div>
-            <div style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:.7rem;border-radius:12px;text-align:center"><div style="font-size:1.2rem;font-weight:700">${rank||'—'}${rank?'<span style="font-size:.55rem">/'+total+'</span>':''}</div><div style="font-size:.55rem;opacity:.8">Rank</div></div>
-            <div style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;padding:.7rem;border-radius:12px;text-align:center"><div style="font-size:1.2rem;font-weight:700">${att.rate}%</div><div style="font-size:.55rem;opacity:.8">Attendance</div></div>
-        </div>
-        <table style="width:100%;font-size:.78rem;border-collapse:collapse;margin-bottom:1rem">
-            <thead><tr style="background:#f1f5f9"><th style="padding:.5rem .6rem;text-align:left;font-weight:600;color:#64748b;font-size:.6rem;text-transform:uppercase">Subject</th><th style="padding:.5rem .6rem;text-align:center;font-weight:600;color:#64748b;font-size:.6rem">Assessments</th><th style="padding:.5rem .6rem;text-align:center;font-weight:600;color:#64748b;font-size:.6rem">Average</th><th style="padding:.5rem .6rem;text-align:center;font-weight:600;color:#64748b;font-size:.6rem">Grade</th></tr></thead>
-            <tbody>${subjects.map(sub=>{
-                const fp=sub.final_percentage;const gl=sub.grade_letter;
-                return `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:.5rem .6rem;font-weight:600" class="amharic">${esc(sub.subject_name)}</td><td style="padding:.5rem .6rem;text-align:center">${(sub.assessments||[]).map(a=>`<span style="display:inline-block;background:#ede9fe;color:#5b21b6;padding:1px 5px;border-radius:4px;margin:1px;font-size:.55rem">${esc(a.assessment_name||'')}: ${a.score!==null?a.score:'—'}/${a.max_score}</span>`).join(' ')}</td><td style="padding:.5rem .6rem;text-align:center;font-weight:700">${fp!==null?fp.toFixed(1)+'%':'—'}</td><td style="padding:.5rem .6rem;text-align:center"><span style="display:inline-flex;width:24px;height:24px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${gc[gl]||'#94a3b8'}">${gl||'—'}</span></td></tr>`;
-            }).join('')}</tbody>
-        </table>
-        <div style="background:#f8fafc;padding:.65rem;border-radius:10px;margin-bottom:1rem">
-            <div style="font-size:.65rem;font-weight:600;color:#64748b;margin-bottom:.3rem">Attendance: ${att.present} present, ${att.absent} absent, ${att.late} late / ${att.total} days</div>
-            <div style="display:flex;height:6px;border-radius:99px;overflow:hidden;background:#e2e8f0">${att.total>0?`<div style="width:${att.present/att.total*100}%;background:#059669"></div><div style="width:${att.late/att.total*100}%;background:#f59e0b"></div><div style="width:${att.absent/att.total*100}%;background:#ef4444"></div>`:''}</div>
-        </div>
-        <div style="display:flex;gap:.5rem;justify-content:flex-end"><button class="btn btn-o" onclick="closeModal('rcModal')">Close</button><button class="btn btn-p" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button></div>`;
-    }catch(e){document.getElementById('rcModalBody').innerHTML='<p style="color:#ef4444;text-align:center;padding:2rem">Error generating report</p>';}
+    document.getElementById('rcModalBody').innerHTML='<p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report card…</p>';
+    try{
+        const d=await getAPI(`/admin/api_communication.php?action=get_report_card&member_id=${memberId}&class_id=${cid}${rcQs()}`);
+        if(d.status!=='success'){
+            document.getElementById('rcModalBody').innerHTML=`<p style="text-align:center;color:#ef4444;padding:2rem">${esc(d.message||'Could not open this report card.')}</p>`;
+            return;
+        }
+        if(window.FKSSReportCard) FKSSReportCard.fillModal(document.getElementById('rcModalBody'), d);
+        else document.getElementById('rcModalBody').innerHTML='<p style="text-align:center;color:#ef4444;padding:2rem">Report card view failed to load. Refresh the page.</p>';
+    }catch(e){
+        document.getElementById('rcModalBody').innerHTML=`<p style="color:#ef4444;text-align:center;padding:2rem">${esc(friendlyNetError(e))}</p>`;
+    }
 }
 function exportPerformance(){
-    if(!rcData.length)return toast('No data','err');
-    const h=['Rank','Name','Code','Average %','Grade','Attendance %'];
-    const r=rcData.map(s=>[s.rank,(s.student_name||'')+' '+(s.father_name||''),s.member_code||'',s.avg_percentage?parseFloat(s.avg_percentage).toFixed(1):'',s.grade_letter||'',s.attendance_rate||0]);
-    const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Performance');XLSX.writeFile(wb,'Class_Performance.xlsx');
+    if(!rcData.length) return toast('No data to export.','err');
+    const h=['Rank','Name','Christian name','Code','Obtained','Max','Average %','Grade','Attendance %','Strongest','Needs attention'];
+    const r=rcData.map(s=>[
+        s.rank||'', (s.student_name||'')+' '+(s.father_name||''), s.christian_name||'',
+        s.member_code||'', s.total_obtained??'', s.total_max??'',
+        s.overall_average??s.avg_percentage??'', s.grade_letter||'', s.attendance_rate||0,
+        s.strongest_subject||'', s.weakest_subject||''
+    ]);
+    const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Performance');
+    XLSX.writeFile(wb,'FKSS_Class_Report.xlsx');
 }
-function generateBulkReports(){
+async function generateBulkReports(){
     const cid=document.getElementById('rcClass')?.value;
-    if(!cid)return toast('Select a class first','err');
-    if(!rcData.length)return toast('No student data. Load class first.','err');
-    toast('Bulk report generation: Open each student report individually for now. PDF batch coming soon!','ok');
+    if(!cid) return toast('Select a class first.','err');
+    if(!rcData.length) return toast('Load the class first.','err');
+    toast('Preparing class report cards…','ok');
+    try{
+        const d=await getAPI(`/admin/api_communication.php?action=get_class_cards&class_id=${cid}${rcQs()}`);
+        if(d.status!=='success' || !(d.cards||[]).length){
+            toast(d.message||'No report cards to print.','err');
+            return;
+        }
+        if(window.FKSSReportCard) FKSSReportCard.printSheets(d.cards);
+        if(d.truncated) toast('Printed the first 200 students in this class.','w');
+    }catch(e){ toast(friendlyNetError(e),'err'); }
 }
 
 // ═══ NAV EXTENSION ═══
@@ -1872,7 +1940,7 @@ if(!document.querySelector('.sec.act')){
 }
 
 // ═══ INIT ═══
-document.addEventListener('DOMContentLoaded',()=>{loadTeachers();
+document.addEventListener('DOMContentLoaded',()=>{loadTeachers();try{filterRcTerms();}catch(e){}
 document.addEventListener('click',e=>{
     const sr=document.getElementById('enrollSearchResults');
     if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';

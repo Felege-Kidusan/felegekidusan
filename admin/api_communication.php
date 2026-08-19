@@ -15,6 +15,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
+require_once __DIR__ . '/backend/services/ReportCardService.php';
 
 if (empty($_SESSION['admin_id'])) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
@@ -270,247 +271,68 @@ switch ($action) {
     case 'get_report_card':
         $memberId = (int)($_GET['member_id'] ?? 0);
         $classId = (int)($_GET['class_id'] ?? 0);
-        $yearId = (int)($_GET['year_id'] ?? ($currentYear ? $currentYear['id'] : 0));
-        $termId = (int)($_GET['term_id'] ?? ($currentTerm ? $currentTerm['id'] : 0));
-        
+        $yearId = (int)($_GET['year_id'] ?? 0);
+        $termId = (int)($_GET['term_id'] ?? 0);
         if (!$memberId) {
-            echo json_encode(['status' => 'error', 'message' => 'Student ID required']); exit;
+            echo json_encode(['status' => 'error', 'message' => 'Student is required']);
+            exit;
         }
-        
-        // Get student info
-        $stmt = $conn->prepare("SELECT m.*, ce.class_id FROM members m 
-            LEFT JOIN class_enrollments ce ON ce.member_id = m.id AND ce.status = 'active'
-            WHERE m.id = ?");
-        $stmt->bind_param("i", $memberId);
-        $stmt->execute();
-        $student = $stmt->get_result()->fetch_assoc();
-        if (!$student) { echo json_encode(['status' => 'error', 'message' => 'Student not found']); exit; }
-        
-        if (!$classId) $classId = (int)($student['class_id'] ?? 0);
-        
-        // Get class info
-        $classInfo = null;
-        if ($classId) {
-            $stmt = $conn->prepare("SELECT * FROM classes WHERE id = ?");
-            $stmt->bind_param("i", $classId);
-            $stmt->execute();
-            $classInfo = $stmt->get_result()->fetch_assoc();
+        if ($classId && !\App\Services\ReportCardService::canViewClass($conn, (int)$userId, (string)$userRole, $classId)) {
+            echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+            exit;
         }
-        
-        // Get all subjects for this class
-        $subjects = [];
         try {
-            $stmt = $conn->prepare("SELECT DISTINCT s.id, s.subject_name, s.subject_name_en 
-                FROM subjects s 
-                JOIN class_subjects cs ON cs.subject_id = s.id 
-                WHERE cs.class_id = ? AND s.is_active = 1 
-                ORDER BY s.subject_name");
-            $stmt->bind_param("i", $classId);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            while ($row = $result->fetch_assoc()) $subjects[] = $row;
-        } catch (Exception $e) {
-            // class_subjects might not exist, try from academic_records
-            $stmt = $conn->prepare("SELECT DISTINCT s.id, s.subject_name, s.subject_name_en 
-                FROM academic_records ar 
-                JOIN subjects s ON ar.subject_id = s.id 
-                WHERE ar.member_id = ? AND ar.class_id = ? 
-                ORDER BY s.subject_name");
-            $stmt->bind_param("ii", $memberId, $classId);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            while ($row = $result->fetch_assoc()) $subjects[] = $row;
-        }
-        
-        // Get grades for each subject
-        $subjectGrades = [];
-        foreach ($subjects as &$subj) {
-            $where = "ar.member_id = ? AND ar.class_id = ? AND ar.subject_id = ?";
-            $params = [$memberId, $classId, $subj['id']]; $types = 'iii';
-            
-            if ($yearId) { $where .= " AND ar.academic_year_id = ?"; $params[] = $yearId; $types .= 'i'; }
-            if ($termId) { $where .= " AND ar.term_id = ?"; $params[] = $termId; $types .= 'i'; }
-            
-            $stmt = $conn->prepare("SELECT ar.*, a.assessment_name, a.weight_percentage, a.max_score as assess_max
-                FROM academic_records ar 
-                LEFT JOIN assessments a ON ar.assessment_id = a.id
-                WHERE $where ORDER BY a.assessment_order, ar.recorded_at");
-            $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            
-            $assessments = [];
-            $totalWeighted = 0; $totalWeight = 0;
-            while ($rec = $result->fetch_assoc()) {
-                $assessments[] = $rec;
-                if ($rec['score'] !== null && $rec['max_score'] > 0) {
-                    $pct = ($rec['score'] / $rec['max_score']) * 100;
-                    $weight = (float)($rec['weight_percentage'] ?? 100);
-                    $totalWeighted += $pct * ($weight / 100);
-                    $totalWeight += $weight;
+            $card = \App\Services\ReportCardService::getCard($conn, $memberId, $classId, $yearId, $termId);
+            if (($card['status'] ?? '') === 'success' && $classId <= 0) {
+                $resolvedClass = (int)($card['class']['id'] ?? 0);
+                if ($resolvedClass && !\App\Services\ReportCardService::canViewClass($conn, (int)$userId, (string)$userRole, $resolvedClass)) {
+                    echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+                    exit;
                 }
             }
-            
-            $finalPct = $totalWeight > 0 ? ($totalWeighted / $totalWeight) * 100 : null;
-            $subj['assessments'] = $assessments;
-            $subj['final_percentage'] = $finalPct;
-            $subj['grade_letter'] = $finalPct !== null ? getGradeLetter($finalPct) : null;
-            $subjectGrades[] = $subj;
+            echo json_encode($card);
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not build this report card.']);
         }
-        
-        // Attendance summary
-        $attendance = ['total' => 0, 'present' => 0, 'absent' => 0, 'late' => 0, 'rate' => 0];
-        try {
-            $where = "a.member_id = ?";
-            $params = [$memberId]; $types = 'i';
-            if ($classId) { $where .= " AND a.class_id = ?"; $params[] = $classId; $types .= 'i'; }
-            
-            $stmt = $conn->prepare("SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END) as present_count,
-                SUM(CASE WHEN a.status='absent' THEN 1 ELSE 0 END) as absent_count,
-                SUM(CASE WHEN a.status='late' THEN 1 ELSE 0 END) as late_count
-                FROM attendance a WHERE $where");
-            $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $att = $stmt->get_result()->fetch_assoc();
-            $attendance['total'] = (int)($att['total'] ?? 0);
-            $attendance['present'] = (int)($att['present_count'] ?? 0);
-            $attendance['absent'] = (int)($att['absent_count'] ?? 0);
-            $attendance['late'] = (int)($att['late_count'] ?? 0);
-            $attendance['rate'] = $attendance['total'] > 0 
-                ? round(($attendance['present'] + $attendance['late']) / $attendance['total'] * 100, 1) : 0;
-        } catch (Exception $e) {}
-        
-        // Calculate overall GPA
-        $overallPct = 0; $subjectCount = 0;
-        foreach ($subjectGrades as $sg) {
-            if ($sg['final_percentage'] !== null) {
-                $overallPct += $sg['final_percentage'];
-                $subjectCount++;
-            }
-        }
-        $overallAvg = $subjectCount > 0 ? $overallPct / $subjectCount : null;
-        
-        // Get rank in class
-        $rank = null; $totalInClass = 0;
-        if ($classId && $overallAvg !== null) {
-            try {
-                // Get all students' averages
-                $sql = "SELECT ar.member_id, AVG(ar.score / ar.max_score * 100) as avg_pct
-                    FROM academic_records ar
-                    JOIN class_enrollments ce ON ce.member_id = ar.member_id AND ce.class_id = ? AND ce.status = 'active'
-                    WHERE ar.class_id = ?" . ($yearId ? " AND ar.academic_year_id = $yearId" : "") .
-                    " GROUP BY ar.member_id ORDER BY avg_pct DESC";
-                $stmt = $conn->prepare($sql);
-                $stmt->bind_param("ii", $classId, $classId);
-                $stmt->execute();
-                $ranks = $stmt->get_result();
-                $pos = 0;
-                while ($rk = $ranks->fetch_assoc()) {
-                    $pos++;
-                    $totalInClass = $pos;
-                    if ((int)$rk['member_id'] === $memberId) $rank = $pos;
-                }
-            } catch (Exception $e) {}
-        }
-        
-        // Year info
-        $yearInfo = null;
-        if ($yearId) {
-            $stmt = $conn->prepare("SELECT * FROM academic_years WHERE id = ?");
-            $stmt->bind_param("i", $yearId);
-            $stmt->execute();
-            $yearInfo = $stmt->get_result()->fetch_assoc();
-        }
-        
-        $termInfo = null;
-        if ($termId) {
-            $stmt = $conn->prepare("SELECT * FROM academic_terms WHERE id = ?");
-            $stmt->bind_param("i", $termId);
-            $stmt->execute();
-            $termInfo = $stmt->get_result()->fetch_assoc();
-        }
-        
-        echo json_encode([
-            'status' => 'success',
-            'student' => $student,
-            'class' => $classInfo,
-            'year' => $yearInfo,
-            'term' => $termInfo,
-            'subjects' => $subjectGrades,
-            'attendance' => $attendance,
-            'overall_average' => $overallAvg ? round($overallAvg, 1) : null,
-            'overall_grade' => $overallAvg ? getGradeLetter($overallAvg) : null,
-            'rank' => $rank,
-            'total_in_class' => $totalInClass
-        ]);
         break;
 
-    // ============================================================
-    // GET CLASS PERFORMANCE REPORT
-    // ============================================================
+    case 'get_class_cards':
+        $classId = (int)($_GET['class_id'] ?? 0);
+        $yearId = (int)($_GET['year_id'] ?? 0);
+        $termId = (int)($_GET['term_id'] ?? 0);
+        if (!$classId) {
+            echo json_encode(['status' => 'error', 'message' => 'Class is required']);
+            exit;
+        }
+        if (!\App\Services\ReportCardService::canViewClass($conn, (int)$userId, (string)$userRole, $classId)) {
+            echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+            exit;
+        }
+        try {
+            echo json_encode(\App\Services\ReportCardService::getClassCards($conn, $classId, $yearId, $termId));
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not build class report cards.']);
+        }
+        break;
+
     case 'get_class_report':
         $classId = (int)($_GET['class_id'] ?? 0);
         $subjectId = (int)($_GET['subject_id'] ?? 0);
-        $yearId = (int)($_GET['year_id'] ?? ($currentYear ? $currentYear['id'] : 0));
-        
-        if (!$classId) { echo json_encode(['status' => 'error', 'message' => 'Class required']); exit; }
-        
-        // Get all students in class with their averages
-        $sql = "SELECT m.id, m.student_name, m.father_name, m.member_code, m.gender,
-                    AVG(ar.score) as avg_score,
-                    AVG(ar.score / ar.max_score * 100) as avg_percentage,
-                    COUNT(ar.id) as grade_count,
-                    (SELECT COUNT(*) FROM attendance att WHERE att.member_id = m.id 
-                     AND att.status = 'present'" . ($classId ? " AND att.class_id = $classId" : "") . ") as present_days,
-                    (SELECT COUNT(*) FROM attendance att WHERE att.member_id = m.id" . 
-                     ($classId ? " AND att.class_id = $classId" : "") . ") as total_days
-                FROM members m
-                JOIN class_enrollments ce ON ce.member_id = m.id AND ce.class_id = ? AND ce.status = 'active'
-                LEFT JOIN academic_records ar ON ar.member_id = m.id AND ar.class_id = ?";
-        
-        $params = [$classId, $classId]; $types = 'ii';
-        if ($subjectId) { $sql .= " AND ar.subject_id = ?"; $params[] = $subjectId; $types .= 'i'; }
-        if ($yearId) { $sql .= " AND ar.academic_year_id = ?"; $params[] = $yearId; $types .= 'i'; }
-        
-        $sql .= " GROUP BY m.id ORDER BY avg_percentage DESC";
-        
-        $stmt = $conn->prepare($sql);
-        if (!empty($params)) $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $students = []; $pos = 0;
-        while ($row = $result->fetch_assoc()) {
-            $pos++;
-            $row['rank'] = $pos;
-            $pct = $row['avg_percentage'];
-            $row['grade_letter'] = $pct !== null ? getGradeLetter((float)$pct) : null;
-            $row['attendance_rate'] = $row['total_days'] > 0 
-                ? round($row['present_days'] / $row['total_days'] * 100, 1) : 0;
-            $students[] = $row;
+        $yearId = (int)($_GET['year_id'] ?? 0);
+        $termId = (int)($_GET['term_id'] ?? 0);
+        if (!$classId) {
+            echo json_encode(['status' => 'error', 'message' => 'Class is required']);
+            exit;
         }
-        
-        // Class stats
-        $pcts = array_filter(array_column($students, 'avg_percentage'), fn($v) => $v !== null);
-        $stats = [
-            'total_students' => count($students),
-            'graded_students' => count($pcts),
-            'class_average' => !empty($pcts) ? round(array_sum($pcts) / count($pcts), 1) : null,
-            'highest' => !empty($pcts) ? round(max($pcts), 1) : null,
-            'lowest' => !empty($pcts) ? round(min($pcts), 1) : null,
-            'pass_rate' => !empty($pcts) ? round(count(array_filter($pcts, fn($v) => $v >= 50)) / count($pcts) * 100, 1) : null,
-            'grade_distribution' => [
-                'A' => count(array_filter($pcts, fn($v) => $v >= 90)),
-                'B' => count(array_filter($pcts, fn($v) => $v >= 80 && $v < 90)),
-                'C' => count(array_filter($pcts, fn($v) => $v >= 70 && $v < 80)),
-                'D' => count(array_filter($pcts, fn($v) => $v >= 60 && $v < 70)),
-                'F' => count(array_filter($pcts, fn($v) => $v < 60)),
-            ]
-        ];
-        
-        echo json_encode(['status' => 'success', 'students' => $students, 'stats' => $stats]);
+        if (!\App\Services\ReportCardService::canViewClass($conn, (int)$userId, (string)$userRole, $classId)) {
+            echo json_encode(['status' => 'error', 'message' => 'Access denied']);
+            exit;
+        }
+        try {
+            echo json_encode(\App\Services\ReportCardService::getClassReport($conn, $classId, $subjectId, $yearId, $termId));
+        } catch (Throwable $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Could not load class performance.']);
+        }
         break;
 
     // ============================================================

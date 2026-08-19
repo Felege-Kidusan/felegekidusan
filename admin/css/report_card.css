@@ -1,0 +1,111 @@
+/* FKSS report card — screen + print. Brand colors from school_config. */
+.rc-sheet{
+  --rc-maroon:#600000;
+  --rc-maroon-dark:#400000;
+  --rc-gold:#F0C000;
+  --rc-ink:#1e140f;
+  --rc-muted:#6b5344;
+  background:#fff;
+  color:var(--rc-ink);
+  border:1px solid #e8dcc4;
+  border-radius:4px;
+  overflow:hidden;
+  font-family:'Poppins','Noto Serif Ethiopic',serif;
+}
+.rc-head{
+  background:linear-gradient(180deg,#500000 0%,#600000 70%,#400000 100%);
+  color:#fff;
+  padding:1.05rem 1.25rem 1rem;
+  display:flex;
+  gap:1rem;
+  align-items:center;
+  border-bottom:4px solid var(--rc-gold);
+}
+.rc-logo{
+  width:68px;height:68px;object-fit:contain;flex-shrink:0;
+  background:#fff;border-radius:50%;padding:4px;border:2px solid var(--rc-gold);
+}
+.rc-head-text{flex:1;text-align:center;min-width:0}
+.rc-invoc{font-size:.62rem;letter-spacing:.04em;opacity:.85;margin-bottom:.15rem}
+.rc-school-am{font-family:'Noto Serif Ethiopic',serif;font-weight:700;font-size:1.05rem;line-height:1.3}
+.rc-school-en{font-size:.68rem;opacity:.85;margin-top:.1rem}
+.rc-parish{font-size:.6rem;opacity:.7;margin-top:.15rem}
+.rc-title-row{
+  margin-top:.55rem;padding-top:.45rem;border-top:1px solid rgba(240,192,0,.45);
+  font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:.72rem;color:var(--rc-gold);
+}
+.rc-subhead{font-size:.68rem;opacity:.85;margin-top:.2rem}
+.rc-body{padding:1rem 1.15rem 1.15rem}
+.rc-meta{
+  display:grid;grid-template-columns:1fr 1fr;gap:.35rem .9rem;
+  font-size:.78rem;background:#faf6ee;border:1px solid #efe3c8;
+  border-radius:8px;padding:.75rem .9rem;margin-bottom:.85rem;
+}
+.rc-meta strong{color:var(--rc-muted);font-weight:600;font-size:.65rem;display:block;text-transform:uppercase;letter-spacing:.04em}
+.rc-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:.9rem}
+.rc-kpi{border:1px solid #efe3c8;border-radius:8px;padding:.55rem .4rem;text-align:center;background:#fff}
+.rc-kpi b{display:block;font-size:1.15rem;font-weight:700;color:var(--rc-maroon);line-height:1.2}
+.rc-kpi span{display:block;font-size:.58rem;color:var(--rc-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:.15rem}
+.rc-kpi.grade-A b{color:#047857}.rc-kpi.grade-B b{color:#0369a1}
+.rc-kpi.grade-C b{color:#b45309}.rc-kpi.grade-D b{color:#c2410c}.rc-kpi.grade-F b{color:#b91c1c}
+.rc-table{width:100%;border-collapse:collapse;font-size:.74rem;margin-bottom:.75rem}
+.rc-table th{
+  background:#600000;color:#f0c000;font-size:.58rem;letter-spacing:.06em;text-transform:uppercase;
+  font-weight:600;padding:.45rem .5rem;text-align:left;
+}
+.rc-table th.num,.rc-table td.num{text-align:center}
+.rc-table td{padding:.42rem .5rem;border-bottom:1px solid #efe3c8;vertical-align:top}
+.rc-table tbody tr:nth-child(even){background:#fdfaf3}
+.rc-table .am{font-family:'Noto Serif Ethiopic',serif;font-weight:600}
+.rc-chips{display:flex;flex-wrap:wrap;gap:3px}
+.rc-chip{display:inline-block;background:#f4ead0;color:#5a3d12;padding:1px 6px;border-radius:4px;font-size:.58rem}
+.rc-letter{
+  display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;
+  font-weight:700;font-size:.65rem;color:#fff;background:#94a3b8;
+}
+.rc-letter.A{background:#047857}.rc-letter.B{background:#0369a1}
+.rc-letter.C{background:#b45309}.rc-letter.D{background:#c2410c}.rc-letter.F{background:#b91c1c}
+.rc-total td{background:#f7efe0;font-weight:700;border-top:2px solid #600000;border-bottom:none}
+.rc-att{background:#faf6ee;border:1px solid #efe3c8;border-radius:8px;padding:.65rem .75rem;margin-bottom:.75rem}
+.rc-att-label{font-size:.65rem;font-weight:600;color:var(--rc-muted);margin-bottom:.3rem}
+.rc-att-bar{display:flex;height:7px;border-radius:99px;overflow:hidden;background:#e8dcc4}
+.rc-hl{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.75rem;font-size:.72rem}
+.rc-hl div{border:1px solid #efe3c8;border-radius:8px;padding:.5rem .65rem}
+.rc-hl strong{display:block;font-size:.58rem;color:var(--rc-muted);text-transform:uppercase;letter-spacing:.04em}
+.rc-scale{font-size:.6rem;color:var(--rc-muted);margin-bottom:.85rem}
+.rc-signs{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1.1rem;padding-top:.4rem}
+.rc-sign{text-align:center;font-size:.65rem;color:var(--rc-muted)}
+.rc-sign-line{border-top:1px solid #5a3d12;margin:2.1rem 1rem .35rem}
+.rc-foot{margin-top:.85rem;padding-top:.5rem;border-top:1px solid #efe3c8;font-size:.58rem;color:#8a7260;text-align:center}
+.rc-empty{text-align:center;color:#8a7260;padding:1.2rem .5rem;font-size:.8rem}
+.rc-actions{display:flex;justify-content:flex-end;gap:.5rem;padding:.15rem 0 0}
+#rcPrintRoot{position:absolute;left:-9999px;top:0;width:210mm}
+
+@media print{
+  body.rc-print-mode .sb,
+  body.rc-print-mode .bn,
+  body.rc-print-mode .wbws-bnav,
+  body.rc-print-mode .wbws-mob-header,
+  body.rc-print-mode .no-print,
+  body.rc-print-mode aside,
+  body.rc-print-mode header,
+  body.rc-print-mode nav,
+  body.rc-print-mode .mo{display:none!important}
+  body.rc-print-mode main{padding:0!important;overflow:visible!important}
+  body.rc-print-mode #rcPrintRoot{
+    position:static;left:auto;width:auto;
+  }
+  body.rc-print-mode #rcPrintRoot .rc-sheet{
+    border:none;border-radius:0;box-shadow:none;
+    page-break-after:always;break-after:page;
+  }
+  body.rc-print-mode #rcPrintRoot .rc-sheet:last-child{page-break-after:auto;break-after:auto}
+  .rc-actions{display:none!important}
+  @page{size:A4;margin:10mm}
+}
+
+@media(max-width:640px){
+  .rc-kpis{grid-template-columns:1fr 1fr}
+  .rc-meta,.rc-hl,.rc-signs{grid-template-columns:1fr}
+  .rc-head{flex-direction:column;text-align:center}
+}

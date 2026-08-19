@@ -147,6 +147,7 @@ $csrfToken = generateCsrfToken();
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/report_card.css">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
@@ -1128,12 +1129,17 @@ $csrfToken = generateCsrfToken();
             const modal = document.getElementById('reportCardModal');
             const content = document.getElementById('reportCardContent');
             modal.style.display = 'block';
-            content.innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl"></i><p class="mt-2">Generating report card...</p></div>';
+            modal.classList.add('show');
+            content.innerHTML = '<div class="p-8 text-center text-slate-400" style="background:#fff;border-radius:8px"><i class="fa-solid fa-spinner fa-spin text-2xl"></i><p class="mt-2">Opening report card…</p></div>';
             
             fetch(`/admin/api_communication.php?action=get_report_card&member_id=${memberId}&class_id=${classId}`)
                 .then(r => r.json())
                 .then(d => {
-                    if (d.status !== 'success') { content.innerHTML = `<div class="p-8 text-center text-red-500">${d.message}</div>`; return; }
+                    if (d.status !== 'success') { content.innerHTML = `<div class="p-8 text-center text-red-500" style="background:#fff;border-radius:8px">${escapeHtml(d.message||'Could not open this report card.')}</div>`; return; }
+                    if (window.FKSSReportCard) {
+                        FKSSReportCard.fillModal(content, d);
+                        return;
+                    }
                     
                     const s = d.student, cl = d.class, yr = d.year, tm = d.term, att = d.attendance;
                     const subjects = d.subjects || [];
