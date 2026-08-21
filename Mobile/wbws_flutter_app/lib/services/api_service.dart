@@ -155,7 +155,7 @@ class ApiService {
       {Map<String, dynamic>? body, bool auth = true, String? idempotencyKey}) async {
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
-      final headers = _headers(withAuth: auth);
+      var headers = _headers(withAuth: auth);
       final key = (idempotencyKey ?? '').trim();
       if (key.isNotEmpty) {
         headers['Idempotency-Key'] = key;
