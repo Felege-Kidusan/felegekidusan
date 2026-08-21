@@ -16,6 +16,60 @@ $action = $ROUTE['id'] ?? '';
 $year = getCurrentAcademicYear();
 $yearId = $year ? (int)$year['id'] : 0;
 
+/**
+ * UPSERT one student per class per day (Google/Stripe: last write wins on the unique key).
+ * Returns saved count, or -1 on failure.
+ */
+function apiUpsertAttendanceRows(\mysqli $conn, int $classId, string $date, $yearIdOrNull, int $userId, array $records): int {
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        \\App\\Services\\SubmissionService::hardenUniques($conn);
+    }
+    $saved = 0;
+    $ids = [];
+    $conn->begin_transaction();
+    try {
+        $ins = $conn->prepare(
+            "INSERT INTO attendance
+                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                notes = VALUES(notes),
+                recorded_by = VALUES(recorded_by)"
+        );
+        if (!$ins) {
+            throw new Exception($conn->error);
+        }
+        foreach ($records as $rec) {
+            $memberId = (int)($rec['member_id'] ?? 0);
+            $status = validateEnum($rec['status'] ?? '', ['present', 'absent', 'late', 'excused'], 'present');
+            $note = trim($rec['note'] ?? $rec['notes'] ?? '');
+            if (!$memberId) {
+                continue;
+            }
+            $ins->bind_param('iiisssi', $memberId, $classId, $yearIdOrNull, $date, $status, $note, $userId);
+            $ins->execute();
+            $ids[] = $memberId;
+            $saved++;
+        }
+        $ins->close();
+        if ($ids) {
+            $in = implode(',', array_map('intval', $ids));
+            $del = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ? AND member_id NOT IN ($in)");
+            if ($del) {
+                $del->bind_param('is', $classId, $date);
+                $del->execute();
+                $del->close();
+            }
+        }
+        $conn->commit();
+        return $saved;
+    } catch (Exception $e) {
+        $conn->rollback();
+        return -1;
+    }
+}
+
 // ============================================================
 // GET /attendance?class_id=X&date=Y
 // ============================================================
@@ -130,10 +184,6 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
 // POST /attendance — Save (one transaction)
 // ============================================================
 if ($method === 'POST' && ($action === '' || $action === null)) {
-    if (isApiRateLimited('attendance_save', 30)) {
-        err('Too many attendance saves. Please wait a moment.', 429);
-    }
-
     $input = getBody();
     $classId = (int)($input['class_id'] ?? 0);
     $date = validateDate($input['date'] ?? '', date('Y-m-d'));
@@ -145,51 +195,23 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
 
+    $userId = (int)$auth['uid'];
+    apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));
+    if (isApiRateLimited('attendance_save', 30)) {
+        err('Too many attendance saves. Please wait a moment.', 429);
+    }
+
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\\App\\Services\\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
         err('This day’s attendance is already submitted. Only Education can change it.', 409);
     }
 
     $yearIdOrNull = $year ? $year['id'] : null;
-    $userId = (int)$auth['uid'];
     $saved = 0;
     $errors = [];
     apiEnsureSubmissionsTable();
-
-    $conn->begin_transaction();
-    try {
-        $stmt = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ?");
-        if (!$stmt) {
-            throw new Exception($conn->error);
-        }
-        $stmt->bind_param('is', $classId, $date);
-        $stmt->execute();
-        $stmt->close();
-
-        $ins = $conn->prepare(
-            "INSERT INTO attendance
-                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
-        );
-        if (!$ins) {
-            throw new Exception($conn->error);
-        }
-
-        foreach ($records as $rec) {
-            $memberId = (int)($rec['member_id'] ?? 0);
-            $status = validateEnum($rec['status'] ?? '', ['present', 'absent', 'late', 'excused'], 'present');
-            $note = trim($rec['note'] ?? $rec['notes'] ?? '');
-            if (!$memberId) {
-                continue;
-            }
-            $ins->bind_param('iiisssi', $memberId, $classId, $yearIdOrNull, $date, $status, $note, $userId);
-            $ins->execute();
-            $saved++;
-        }
-        $ins->close();
-        $conn->commit();
-    } catch (Exception $e) {
-        $conn->rollback();
+    $saved = apiUpsertAttendanceRows($conn, $classId, $date, $yearIdOrNull, $userId, $records);
+    if ($saved < 0) {
         err('Could not save attendance. Nothing was changed. Please try again.', 500);
     }
 
@@ -246,60 +268,34 @@ if ($method === 'POST' && $action === 'submit') {
 
     $yearIdOrNull = $year ? $year['id'] : null;
     $userId = (int)$auth['uid'];
-    $saved = 0;
-
-    $conn->begin_transaction();
-    try {
-        $stmt = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ?");
-        if (!$stmt) throw new Exception($conn->error);
-        $stmt->bind_param('is', $classId, $date);
-        $stmt->execute();
-        $stmt->close();
-
-        $ins = $conn->prepare(
-            "INSERT INTO attendance
-                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
-        );
-        if (!$ins) throw new Exception($conn->error);
-
-        foreach ($records as $rec) {
-            $memberId = (int)($rec['member_id'] ?? 0);
-            $status = validateEnum($rec['status'] ?? '', ['present', 'absent', 'late', 'excused'], 'present');
-            $note = trim($rec['note'] ?? $rec['notes'] ?? '');
-            if (!$memberId) continue;
-            $ins->bind_param('iiisssi', $memberId, $classId, $yearIdOrNull, $date, $status, $note, $userId);
-            $ins->execute();
-            $saved++;
-        }
-        $ins->close();
-
-        $counts = class_exists('\\App\\Services\\SubmissionService')
-            ? \App\Services\SubmissionService::countsFromRecords($records)
-            : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
-        $packet = ['ok' => true, 'id' => 0, 'status' => 'submitted'];
-        if (class_exists('\\App\\Services\\SubmissionService')) {
-            $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
-                'teacher_id' => $userId,
-                'class_id' => $classId,
-                'date' => $date,
-                'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
-                'student_count' => $counts['student_count'] ?: $saved,
-                'year_id' => $yearIdOrNull,
-                'present' => $counts['present'],
-                'absent' => $counts['absent'],
-                'late' => $counts['late'],
-                'excused' => $counts['excused'],
-            ]);
-            if (empty($packet['ok'])) {
-                throw new Exception($packet['message'] ?? 'Could not mark attendance complete.');
-            }
-        }
-
-        $conn->commit();
-    } catch (Exception $e) {
-        $conn->rollback();
+    apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));
+    if (isApiRateLimited('attendance_submit', 20)) {
+        err('Too many submits. Please wait a moment.', 429);
+    }
+    $saved = apiUpsertAttendanceRows($conn, $classId, $date, $yearIdOrNull, $userId, $records);
+    if ($saved < 0) {
         err('Could not submit attendance. Nothing was changed. Please try again.', 500);
+    }
+    $counts = class_exists('\\App\\Services\\SubmissionService')
+        ? \\App\\Services\\SubmissionService::countsFromRecords($records)
+        : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
+    $packet = ['ok' => true, 'id' => 0, 'status' => 'submitted'];
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $packet = \\App\\Services\\SubmissionService::upsertAttendance($conn, [
+            'teacher_id' => $userId,
+            'class_id' => $classId,
+            'date' => $date,
+            'status' => \\App\\Services\\SubmissionService::STATUS_SUBMITTED,
+            'student_count' => $counts['student_count'] ?: $saved,
+            'year_id' => $yearIdOrNull,
+            'present' => $counts['present'],
+            'absent' => $counts['absent'],
+            'late' => $counts['late'],
+            'excused' => $counts['excused'],
+        ]);
+        if (empty($packet['ok'])) {
+            err($packet['message'] ?? 'Could not mark attendance complete.', 409);
+        }
     }
 
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Submitted', "Class: {$classId}, Date: {$date}, Records: {$saved}");

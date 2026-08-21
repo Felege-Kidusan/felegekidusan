@@ -159,11 +159,9 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     final fromBoot = _bootAssessments.where((a) =>
       (a['subject_id'] is int ? a['subject_id'] : int.tryParse('${a['subject_id']}')) == sid
     ).toList();
-    if (_didBootstrap) {
+    if (_didBootstrap && fromBoot.isNotEmpty) {
       setState(() { _assessments = fromBoot; _loadingAssessments = false; });
-      if (fromBoot.isNotEmpty) {
-        await _db.cacheAssessments(_selectedClassId!, sid, fromBoot);
-      }
+      await _db.cacheAssessments(_selectedClassId!, sid, fromBoot);
       return;
     }
 
@@ -196,7 +194,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
           if (_pendingGrades > 0)
             IconButton(
               onPressed: () async {
-                final r = await _sync.syncAll();
+                final r = await _sync.syncAll(force: true);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(r.message), backgroundColor: r.failed > 0 ? AppTheme.warning : AppTheme.success));
@@ -768,17 +766,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (!mounted) return;
     setState(() => _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
-
-    final res = await _api.saveGrades(widget.assessmentId, grades);
-    if (!mounted) return;
-    if (res.success) {
-      await _db.markGradesSynced(widget.assessmentId);
-    } else if ((res.message ?? '').toLowerCase().contains('already submitted')) {
-      setState(() => _packetStatus = 'submitted');
-    } else {
-      SyncService().nudge();
-    }
+      const SnackBar(content: Text('Saved on this phone. Sending to Education…'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
+    SyncService().nudge();
   }
 
   Future<void> _submitGrades() async {
@@ -832,14 +821,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (!mounted) return;
     setState(() => _packetStatus = 'submitted');
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Submitted'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
-    final res = await _api.submitGrades(widget.assessmentId, grades);
-    if (!mounted) return;
-    if (res.success) {
-      await _db.markGradesSynced(widget.assessmentId);
-    } else {
-      SyncService().nudge();
-    }
+        content: Text('Submitted. Sending to Education…'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
+    SyncService().nudge();
   }
 
   @override

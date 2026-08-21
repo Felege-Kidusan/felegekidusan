@@ -1,6 +1,16 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+
+String newClientOpId() {
+  final r = Random.secure();
+  final b = List<int>.generate(16, (_) => r.nextInt(256));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  String h(int i) => b[i].toRadixString(16).padLeft(2, '0');
+  return '${h(0)}${h(1)}${h(2)}${h(3)}-${h(4)}${h(5)}-${h(6)}${h(7)}-${h(8)}${h(9)}-${h(10)}${h(11)}${h(12)}${h(13)}${h(14)}${h(15)}';
+}
 
 /// Local SQLite database for offline-first features.
 /// Caches classes, students, subjects, assessments, dashboard stats, members.
@@ -24,7 +34,7 @@ class LocalDb {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -100,6 +110,16 @@ class LocalDb {
             ''');
           } catch (_) {}
         }
+        if (oldVersion < 7) {
+          try {
+            await db.execute(
+                "ALTER TABLE pending_attendance ADD COLUMN client_op_id TEXT");
+          } catch (_) {}
+          try {
+            await db.execute(
+                "ALTER TABLE pending_grades ADD COLUMN client_op_id TEXT");
+          } catch (_) {}
+        }
       },
     );
   }
@@ -119,6 +139,7 @@ class LocalDb {
         status TEXT NOT NULL DEFAULT 'present',
         notes TEXT,
         packet_kind TEXT NOT NULL DEFAULT 'draft',
+        client_op_id TEXT,
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
@@ -143,6 +164,7 @@ class LocalDb {
         remark TEXT,
         max_score REAL DEFAULT 100,
         packet_kind TEXT NOT NULL DEFAULT 'draft',
+        client_op_id TEXT,
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
@@ -501,6 +523,7 @@ class LocalDb {
         where: 'class_id = ? AND date = ? AND synced = 0',
         whereArgs: [classId, date]);
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
+    final opId = newClientOpId();
     final batch = db.batch();
     for (final r in records) {
       batch.insert('pending_attendance', {
@@ -514,6 +537,7 @@ class LocalDb {
         'status': r['status'] ?? 'present',
         'notes': r['notes'] ?? r['note'] ?? '',
         'packet_kind': kind,
+        'client_op_id': opId,
         'synced': 0,
         'created_at': now,
       });
@@ -527,6 +551,7 @@ class LocalDb {
       SELECT class_id, class_name, date,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
+             MAX(client_op_id) as client_op_id,
              COUNT(*) as student_count, MIN(created_at) as created_at
       FROM pending_attendance WHERE synced = 0
       GROUP BY class_id, date ORDER BY date DESC
@@ -569,6 +594,7 @@ class LocalDb {
     await db.delete('pending_grades',
         where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
+    final opId = newClientOpId();
     final batch = db.batch();
     for (final g in grades) {
       batch.insert('pending_grades', {
@@ -585,6 +611,7 @@ class LocalDb {
         'remark': g['remark'] ?? '',
         'max_score': maxScore,
         'packet_kind': kind,
+        'client_op_id': opId,
         'synced': 0,
         'created_at': now,
       });

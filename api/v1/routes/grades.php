@@ -420,7 +420,8 @@ if ($action === 'save' && $method === 'POST') {
     if (!$assessmentId || empty($grades)) {
         err('assessment_id and grades array are required');
     }
-    
+    apiIdempotencyBegin((int)$userId, (string)($body['client_op_id'] ?? ''));
+
     // Get assessment
     $assessment = null;
     try {
@@ -539,6 +540,7 @@ if ($action === 'submit' && $method === 'POST') {
     if (!$assessmentId || empty($grades)) {
         err('assessment_id and grades array are required');
     }
+    apiIdempotencyBegin((int)$userId, (string)($body['client_op_id'] ?? ''));
 
     $stmt = $conn->prepare("SELECT * FROM assessments WHERE id = ?");
     $stmt->bind_param('i', $assessmentId);
@@ -684,3 +686,4 @@ if ($action === 'summary' && $method === 'GET') {
 }
 
 err("No handler for {$method} /grades" . ($action ? "/{$action}" : ''), 404);
+4);

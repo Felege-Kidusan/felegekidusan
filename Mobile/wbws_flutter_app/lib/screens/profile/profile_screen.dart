@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
@@ -20,16 +21,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _db = LocalDb();
   final _sync = SyncService();
   int _pendingSync = 0;
+  StreamSubscription<SyncStatus>? _syncSub;
 
   @override
   void initState() {
     super.initState();
     _loadPendingCount();
+    _syncSub = _sync.syncStream.listen((s) {
+      if (!mounted) return;
+      setState(() {
+        _pendingSync = s.totalPending;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPendingCount() async {
-    final count = await _db.getTotalPendingCount();
-    if (mounted) setState(() => _pendingSync = count);
+    await _sync.emitCurrentStatus();
+    final s = _sync.lastStatus;
+    if (mounted) {
+      setState(() {
+        _pendingSync = s.totalPending;
+      });
+    }
   }
 
   Future<void> _logout() async {
@@ -40,7 +59,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text('Unsaved Data'),
           content: Text(
-              'You have $_pendingSync attendance record(s) not yet synced. '
+              'You still have ${_sync.lastStatus.breakdown} not yet sent. '
               'If you logout, they will be lost. Sync first?'),
           actions: [
             TextButton(
@@ -50,7 +69,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ElevatedButton(
                 onPressed: () async {
                   Navigator.pop(ctx);
-                  final result = await _sync.syncAll();
+                  final result = await _sync.syncAll(force: true);
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(result.message)),
@@ -272,7 +291,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _infoTile(
               _pendingSync > 0 ? Icons.sync_problem : Icons.cloud_done,
               'Pending Sync',
-              _pendingSync > 0 ? '$_pendingSync record(s) waiting' : 'All synced',
+              _pendingSync > 0
+                  ? '${_sync.lastStatus.breakdown} waiting'
+                  : 'All synced',
             ),
             if (_pendingSync > 0)
               Padding(

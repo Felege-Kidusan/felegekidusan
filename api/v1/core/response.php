@@ -10,7 +10,6 @@
  * @param int $code HTTP status code
  */
 function ok($data = null, $code = 200) {
-    http_response_code($code);
     $response = ['status' => 'success'];
     if ($data !== null) {
         if (is_array($data) && isset($data['message'])) {
@@ -21,8 +20,7 @@ function ok($data = null, $code = 200) {
             $response['data'] = $data;
         }
     }
-    echo json_encode($response, JSON_UNESCAPED_UNICODE);
-    exit;
+    apiSendJson($response, $code);
 }
 
 /**
@@ -32,19 +30,35 @@ function ok($data = null, $code = 200) {
  * @param array $extra Additional error data
  */
 function err($message, $code = 400, $extra = []) {
-    http_response_code($code);
     $response = ['status' => 'error', 'message' => $message];
     if (!empty($extra)) $response = array_merge($response, $extra);
-    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    apiSendJson($response, $code);
+}
+
+function apiSendJson(array $response, int $code = 200) {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    if (!headers_sent()) {
+        http_response_code($code);
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+    }
+    $json = json_encode($response, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        $json = '{"status":"error","message":"Could not encode response."}';
+        $code = 500;
+        if (!headers_sent()) http_response_code($code);
+    }
+    if (function_exists('apiIdempotencyStore')) {
+        apiIdempotencyStore($json, $code);
+    }
+    echo $json;
     exit;
 }
 
 /**
  * Send paginated list response
- * @param array $items The data items
- * @param int $total Total count (before pagination)
- * @param int $page Current page
- * @param int $limit Items per page
  */
 function paginated($items, $total, $page, $limit) {
     ok([
@@ -59,10 +73,6 @@ function paginated($items, $total, $page, $limit) {
     ]);
 }
 
-/**
- * Parse pagination params from request
- * Returns [page, limit, offset]
- */
 function getPagination($maxLimit = 100) {
     $page = max(1, (int)($_GET['page'] ?? 1));
     $limit = min($maxLimit, max(1, (int)($_GET['limit'] ?? 20)));
@@ -70,9 +80,6 @@ function getPagination($maxLimit = 100) {
     return [$page, $limit, $offset];
 }
 
-/**
- * Get JSON body from POST/PUT request
- */
 function getBody() {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw, true);

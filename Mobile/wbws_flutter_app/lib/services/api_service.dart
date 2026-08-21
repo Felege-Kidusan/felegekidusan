@@ -152,13 +152,19 @@ class ApiService {
 
   /// Core POST request
   Future<ApiResponse> post(String path,
-      {Map<String, dynamic>? body, bool auth = true}) async {
+      {Map<String, dynamic>? body, bool auth = true, String? idempotencyKey}) async {
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
+      final headers = _headers(withAuth: auth);
+      final key = (idempotencyKey ?? '').trim();
+      if (key.isNotEmpty) {
+        headers['Idempotency-Key'] = key;
+        body = {...?body, 'client_op_id': key};
+      }
       final response = await _http
           .post(
             uri,
-            headers: _headers(withAuth: auth),
+            headers: headers,
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
@@ -196,14 +202,41 @@ class ApiService {
     }
 
     try {
-      final json = jsonDecode(response.body);
+      final json = _decodeJson(response.body);
       if (json is Map<String, dynamic>) {
         return ApiResponse.fromJson(json, response.statusCode);
       }
-      return ApiResponse.error('Invalid response format', response.statusCode);
+      return ApiResponse.error(
+          _httpErrorLabel(response.statusCode), response.statusCode);
     } catch (e) {
-      return ApiResponse.error('Failed to parse response', response.statusCode);
+      return ApiResponse.error(
+          _httpErrorLabel(response.statusCode), response.statusCode);
     }
+  }
+
+  /// WhatsApp/Gmail: never show "parse failed". Pull JSON out of mixed HTML.
+  dynamic _decodeJson(String body) {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return null;
+    try {
+      return jsonDecode(trimmed);
+    } catch (_) {}
+    final start = trimmed.indexOf('{');
+    final end = trimmed.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return jsonDecode(trimmed.substring(start, end + 1));
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  String _httpErrorLabel(int code) {
+    if (code == 429) return 'School is busy. Will retry on its own.';
+    if (code == 409) return 'Already submitted. Only Education can change it.';
+    if (code >= 500) return 'School is busy. Your work is still on this phone.';
+    if (code == 401 || code == 403) return 'Please sign in again.';
+    return 'Could not finish this request. Your work is still on this phone.';
   }
 
   /// Handle network errors.
@@ -327,20 +360,26 @@ class ApiService {
   }
 
   Future<ApiResponse> saveAttendance(
-          int classId, String date, List<Map<String, dynamic>> records) =>
-      post('/attendance', body: {
-        'class_id': classId,
-        'date': date,
-        'records': records,
-      });
+          int classId, String date, List<Map<String, dynamic>> records,
+          {String? clientOpId}) =>
+      post('/attendance',
+          body: {
+            'class_id': classId,
+            'date': date,
+            'records': records,
+          },
+          idempotencyKey: clientOpId);
 
   Future<ApiResponse> submitAttendance(
-          int classId, String date, List<Map<String, dynamic>> records) =>
-      post('/attendance/submit', body: {
-        'class_id': classId,
-        'date': date,
-        'records': records,
-      });
+          int classId, String date, List<Map<String, dynamic>> records,
+          {String? clientOpId}) =>
+      post('/attendance/submit',
+          body: {
+            'class_id': classId,
+            'date': date,
+            'records': records,
+          },
+          idempotencyKey: clientOpId);
 
   Future<ApiResponse> getDailyStats({String? date}) {
     final params = <String, String>{};

@@ -14,6 +14,10 @@
  * ============================================================
  */
 
+if (!defined('WBWS_API_REQUEST')) {
+    define('WBWS_API_REQUEST', true);
+}
+
 // Smaller JSON on 2G/3G. Harmless if zlib is missing.
 if (!headers_sent() && extension_loaded('zlib')) {
     ini_set('zlib.output_compression', 'On');

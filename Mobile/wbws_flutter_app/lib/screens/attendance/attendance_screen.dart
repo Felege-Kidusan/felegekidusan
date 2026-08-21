@@ -60,7 +60,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     // Listen for sync updates
     _sync.syncStream.listen((status) {
       if (mounted) {
-        setState(() => _pendingCount = status.totalPending);
+        setState(() => _pendingCount = status.pendingAttendance);
       }
     });
   }
@@ -77,7 +77,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _updatePendingCount() async {
-    final count = await _db.getTotalPendingCount();
+    final count = await _db.getPendingAttendanceCount();
     if (mounted) setState(() => _pendingCount = count);
   }
 
@@ -244,12 +244,18 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       });
       await _db.cacheStudents(_selectedClassId!, students);
       await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, students);
-    } else if (cachedAtt == null || cachedAtt.isEmpty) {
+    } else if (_students.isEmpty && (cachedAtt == null || cachedAtt.isEmpty)) {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';
         _loadingStudents = false;
         _rosterReady = true;
         _loadFailed = true;
+      });
+    } else {
+      setState(() {
+        _loadingStudents = false;
+        _rosterReady = true;
+        _error = null;
       });
     }
   }
@@ -268,17 +274,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       _successMsg = null;
     });
 
-    final records = _students
-        .map((s) => <String, dynamic>{
-              'member_id': s['member_id'],
-              'student_name': s['student_name'],
-              'father_name': s['father_name'],
-              'member_code': s['member_code'],
-              'status': s['status'],
-            })
-        .toList();
+    final records = _records();
 
-    // ALWAYS save locally first (offline-first)
     await _db.saveAttendanceLocal(
       _selectedClassId!,
       _selectedClassName ?? '',
@@ -287,34 +284,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       packetKind: 'draft',
     );
 
-    // Try to sync immediately
-    final apiRecords = records
-        .map((r) => {'member_id': r['member_id'], 'status': r['status']})
-        .toList();
     if (!mounted) return;
     setState(() {
       _packetStatus = 'draft';
-      _successMsg = 'Saved';
+      _successMsg = 'Saved on this phone. Sending to Education…';
     });
     await _updatePendingCount();
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _successMsg = null);
     });
-
-    final res =
-        await _api.saveAttendance(_selectedClassId!, _selectedDate, apiRecords);
-    if (!mounted) return;
-    if (res.success) {
-      await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
-      await _updatePendingCount();
-    } else if ((res.message ?? '').toLowerCase().contains('already submitted')) {
-      setState(() {
-        _packetStatus = 'submitted';
-        _successMsg = 'Already submitted. Only Education can change this.';
-      });
-    } else {
-      _sync.nudge();
-    }
+    _sync.nudge();
   }
 
   Future<void> _submitAttendance() async {
@@ -340,19 +319,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final records = _records();
     await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records, packetKind: 'submitted');
     if (!mounted) return;
-    setState(() { _packetStatus = 'submitted'; _successMsg = 'Submitted'; });
+    setState(() { _packetStatus = 'submitted'; _successMsg = 'Submitted. Sending to Education…'; });
     await _updatePendingCount();
-    final apiRecords = records
-        .map((r) => {'member_id': r['member_id'], 'status': r['status'], 'notes': r['notes'] ?? ''})
-        .toList();
-    final res = await _api.submitAttendance(_selectedClassId!, _selectedDate, apiRecords);
-    if (!mounted) return;
-    if (res.success) {
-      await _db.markAttendanceSynced(_selectedClassId!, _selectedDate);
-    } else {
-      _sync.nudge();
-    }
-    await _updatePendingCount();
+    _sync.nudge();
   }
 
   List<Map<String, dynamic>> _records() {

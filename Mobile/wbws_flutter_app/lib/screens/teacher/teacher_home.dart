@@ -111,7 +111,53 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
       setState(() { _error = statsRes.message ?? 'Failed to load dashboard'; _loading = false; });
     }
 
+    await _overlayLocalToday();
     WarmStore().afterLogin();
+  }
+
+  /// Local-first: a sheet sitting in the outbox already counts as taken today.
+  Future<void> _overlayLocalToday() async {
+    final today = DateTime.now();
+    final todayStr =
+        '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    final pending = await _db.getPendingAttendance();
+    final mine = pending.where((b) => '${b['date']}' == todayStr).toList();
+    if (mine.isEmpty || !mounted) return;
+
+    var present = 0, absent = 0, late = 0, recorded = 0;
+    final takenIds = <int>{};
+    for (final b in mine) {
+      final cid = b['class_id'] is int ? b['class_id'] as int : int.tryParse('${b['class_id']}');
+      if (cid != null) takenIds.add(cid);
+      final rows = await _db.getPendingAttendanceRecords(cid ?? 0, todayStr);
+      for (final r in rows) {
+        recorded++;
+        final st = '${r['status'] ?? ''}';
+        if (st == 'present') present++;
+        if (st == 'absent') absent++;
+        if (st == 'late') late++;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      if (recorded > 0) {
+        _todayAttendance = {
+          'present': present,
+          'absent': absent,
+          'late': late,
+          'recorded': recorded,
+        };
+      }
+      _myClasses = _myClasses.map((c) {
+        final id = c['id'] is int ? c['id'] : int.tryParse('${c['id']}');
+        if (id != null && takenIds.contains(id)) {
+          final copy = Map<String, dynamic>.from(c as Map);
+          copy['attendance_taken_today'] = true;
+          return copy;
+        }
+        return c;
+      }).toList();
+    });
   }
 
   String _greeting() {

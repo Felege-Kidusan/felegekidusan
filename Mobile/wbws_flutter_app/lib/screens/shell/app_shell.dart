@@ -94,6 +94,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _connectivity.startMonitoring();
       // Drain the outbox immediately — do not wait 90s or a tap.
       SyncService().startAutoSync();
+      SyncService().syncAll(force: true);
       _refreshCurrentTab();
       AppUpdateService().check().then((_) {
         if (mounted) setState(() {});
