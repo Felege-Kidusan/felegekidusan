@@ -408,18 +408,24 @@ class ApiService {
       get('/grades/students', params: {'assessment_id': '$assessmentId'});
 
   Future<ApiResponse> saveGrades(
-          int assessmentId, List<Map<String, dynamic>> grades) =>
-      post('/grades/save', body: {
-        'assessment_id': assessmentId,
-        'grades': grades,
-      });
+          int assessmentId, List<Map<String, dynamic>> grades,
+          {String? clientOpId}) =>
+      post('/grades/save',
+          body: {
+            'assessment_id': assessmentId,
+            'grades': grades,
+          },
+          idempotencyKey: clientOpId);
 
   Future<ApiResponse> submitGrades(
-          int assessmentId, List<Map<String, dynamic>> grades) =>
-      post('/grades/submit', body: {
-        'assessment_id': assessmentId,
-        'grades': grades,
-      });
+          int assessmentId, List<Map<String, dynamic>> grades,
+          {String? clientOpId}) =>
+      post('/grades/submit',
+          body: {
+            'assessment_id': assessmentId,
+            'grades': grades,
+          },
+          idempotencyKey: clientOpId);
 
   Future<ApiResponse> getGradeSummary(int classId, {int? subjectId}) {
     final params = <String, String>{'class_id': '$classId'};
