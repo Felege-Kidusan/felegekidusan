@@ -275,25 +275,38 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     });
 
     final records = _records();
+    setState(() => _saving = true);
+    try {
+      await _db.saveAttendanceLocal(
+        _selectedClassId!,
+        _selectedClassName ?? '',
+        _selectedDate,
+        records,
+        packetKind: 'draft',
+      );
 
-    await _db.saveAttendanceLocal(
-      _selectedClassId!,
-      _selectedClassName ?? '',
-      _selectedDate,
-      records,
-      packetKind: 'draft',
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _packetStatus = 'draft';
-      _successMsg = 'Saved on this phone. Sending to Education…';
-    });
-    await _updatePendingCount();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _successMsg = null);
-    });
-    _sync.nudge();
+      if (!mounted) return;
+      setState(() {
+        _packetStatus = 'draft';
+        _successMsg = 'Sending to Education…';
+      });
+      await _updatePendingCount();
+      final result = await _sync.syncAll(force: true);
+      if (!mounted) return;
+      setState(() {
+        if (result.synced > 0 && result.failed == 0) {
+          _successMsg = 'Sent to Education';
+        } else {
+          _successMsg = result.message;
+        }
+      });
+      await _updatePendingCount();
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _successMsg = null);
+      });
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _submitAttendance() async {
@@ -315,13 +328,27 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     );
     if (ok != true) return;
 
-    setState(() { _error = null; _successMsg = null; });
+    setState(() { _error = null; _successMsg = null; _saving = true; });
     final records = _records();
-    await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records, packetKind: 'submitted');
-    if (!mounted) return;
-    setState(() { _packetStatus = 'submitted'; _successMsg = 'Submitted. Sending to Education…'; });
-    await _updatePendingCount();
-    _sync.nudge();
+    try {
+      await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records, packetKind: 'submitted');
+      if (!mounted) return;
+      setState(() { _successMsg = 'Sending to Education…'; });
+      await _updatePendingCount();
+      final result = await _sync.syncAll(force: true);
+      if (!mounted) return;
+      setState(() {
+        if (result.synced > 0 && result.failed == 0) {
+          _packetStatus = 'submitted';
+          _successMsg = 'Submitted to Education';
+        } else {
+          _successMsg = result.message;
+        }
+      });
+      await _updatePendingCount();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   List<Map<String, dynamic>> _records() {
@@ -466,12 +493,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                   flex: 3,
                   child: _loadingClasses
                       ? const LinearProgressIndicator()
-                      : DropdownButtonFormField<int>(
-                          value: _selectedClassId,
-                          hint: const Text('Select class',
-                              style: TextStyle(fontSize: 13)),
-                          isExpanded: true,
-                          decoration: InputDecoration(
+   InputDecoration(
                             contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 10),
                             border: OutlineInputBorder(
@@ -729,6 +751,18 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           color: selected ? color : color.withOpacity(0.08),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: selected ? color : color.withOpacity(0.2)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : color,
+            )),
+      ),
+    );
+  }
+}
+     border: Border.all(color: selected ? color : color.withOpacity(0.2)),
         ),
         child: Text(label,
             style: TextStyle(

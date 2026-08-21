@@ -764,10 +764,23 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       packetKind: 'draft',
     );
     if (!mounted) return;
-    setState(() => _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved on this phone. Sending to Education…'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
-    SyncService().nudge();
+    setState(() {
+      _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus;
+      _saving = true;
+    });
+    try {
+      final result = await SyncService().syncAll(force: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.synced > 0 && result.failed == 0
+            ? 'Sent to Education'
+            : result.message),
+        backgroundColor: result.failed > 0 ? AppTheme.warning : AppTheme.success,
+        duration: const Duration(seconds: 3),
+      ));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _submitGrades() async {
@@ -819,10 +832,24 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       packetKind: 'submitted',
     );
     if (!mounted) return;
-    setState(() => _packetStatus = 'submitted');
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Submitted. Sending to Education…'), backgroundColor: AppTheme.success, duration: Duration(seconds: 2)));
-    SyncService().nudge();
+    setState(() => _saving = true);
+    try {
+      final result = await SyncService().syncAll(force: true);
+      if (!mounted) return;
+      setState(() {
+        if (result.synced > 0 && result.failed == 0) {
+          _packetStatus = 'submitted';
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.synced > 0 && result.failed == 0
+            ? 'Submitted to Education'
+            : result.message),
+        backgroundColor: result.failed > 0 ? AppTheme.warning : AppTheme.success,
+      ));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override

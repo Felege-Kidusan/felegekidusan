@@ -19,6 +19,8 @@ class SyncService {
   StreamSubscription<bool>? _radioSub;
   bool _started = false;
   Completer<SyncResult>? _inflight;
+  bool _queued = false;
+  bool _forceNext = false;
   int _failStreak = 0;
 
   final _syncController = StreamController<SyncStatus>.broadcast();
@@ -64,13 +66,29 @@ class SyncService {
     if (!_api.isLoggedIn) {
       return SyncResult(synced: 0, failed: 0, message: 'Not logged in');
     }
+    if (force) _forceNext = true;
+    // Gmail outbox: if a drain is already running, mark "run again"
+    // after it. Joining the in-flight future without that flag swallows
+    // any Save that landed while the first drain was already reading.
     if (_inflight != null) {
+      _queued = true;
       return _inflight!.future;
     }
     final c = Completer<SyncResult>();
     _inflight = c;
     try {
-      final r = await _drain(force: force);
+      var r = SyncResult(synced: 0, failed: 0, message: 'Nothing waiting to send');
+      do {
+        _queued = false;
+        final useForce = force || _forceNext;
+        _forceNext = false;
+        final next = await _drain(force: useForce);
+        r = SyncResult(
+          synced: r.synced + next.synced,
+          failed: next.failed,
+          message: next.message,
+        );
+      } while (_queued);
       if (!c.isCompleted) c.complete(r);
       return r;
     } catch (e) {
@@ -85,11 +103,15 @@ class SyncService {
     }
   }
 
+  int _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse('$v') ?? 0;
+  }
+
   Future<SyncResult> _drain({required bool force}) async {
-    if (!force && !ConnectivityService().hasLink) {
-      await _emitStatus();
-      return SyncResult(synced: 0, failed: 0, message: 'Waiting for network');
-    }
+    // User tap (force) always tries the school. The OS radio is only a
+    // banner — Tecno phones often report "none" while 4G is working.
 
     await _emitStatus(syncing: true);
     int synced = 0;
@@ -102,8 +124,9 @@ class SyncService {
 
       final pendingAtt = await _db.getPendingAttendance();
       for (final batch in pendingAtt) {
-        final classId = batch['class_id'] as int;
-        final date = batch['date'] as String;
+        final classId = _asInt(batch['class_id']);
+        final date = '${batch['date'] ?? ''}';
+        if (classId <= 0 || date.isEmpty) continue;
         final kind = '${batch['packet_kind'] ?? 'draft'}';
         final opId = '${batch['client_op_id'] ?? ''}';
         try {
