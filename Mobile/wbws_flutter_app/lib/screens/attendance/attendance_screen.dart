@@ -393,7 +393,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _manualSync() async {
-    final result = await _sync.syncAll();
+    final result = await _sync.syncAll(force: true);
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -493,7 +493,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                   flex: 3,
                   child: _loadingClasses
                       ? const LinearProgressIndicator()
-   InputDecoration(
+                      : DropdownButtonFormField<int>(
+                          value: _selectedClassId,
+                          hint: const Text('Select class',
+                              style: TextStyle(fontSize: 13)),
+                          isExpanded: true,
+                          decoration: InputDecoration(
                             contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 10),
                             border: OutlineInputBorder(
@@ -751,18 +756,6 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           color: selected ? color : color.withOpacity(0.08),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: selected ? color : color.withOpacity(0.2)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: selected ? Colors.white : color,
-            )),
-      ),
-    );
-  }
-}
-     border: Border.all(color: selected ? color : color.withOpacity(0.2)),
         ),
         child: Text(label,
             style: TextStyle(
