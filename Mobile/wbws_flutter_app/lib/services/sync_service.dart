@@ -28,6 +28,7 @@ class SyncService {
   SyncStatus _lastStatus =
       SyncStatus(pendingAttendance: 0, pendingGrades: 0, syncing: false);
   SyncStatus get lastStatus => _lastStatus;
+  String lastError = '';
 
   static const _backoff = <int>[2, 5, 12, 30, 60];
 
@@ -153,9 +154,11 @@ class SyncService {
             await _db.markAttendanceSynced(classId, date);
             synced++;
             didWork = true;
+            lastError = '';
           } else {
             failed++;
-            await _db.logSync('attendance', res.message ?? 'fail', 'error');
+            lastError = res.message ?? 'Attendance did not save.';
+            await _db.logSync('attendance', lastError, 'error');
           }
         } catch (e) {
           failed++;
@@ -187,9 +190,11 @@ class SyncService {
             await _db.markGradesSynced(assessmentId);
             synced++;
             didWork = true;
+            lastError = '';
           } else {
             failed++;
-            await _db.logSync('grades', res.message ?? 'fail', 'error');
+            lastError = res.message ?? 'Grades did not save.';
+            await _db.logSync('grades', lastError, 'error');
           }
         } catch (e) {
           failed++;

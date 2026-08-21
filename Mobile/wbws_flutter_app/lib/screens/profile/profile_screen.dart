@@ -21,6 +21,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _db = LocalDb();
   final _sync = SyncService();
   int _pendingSync = 0;
+  bool _syncing = false;
   StreamSubscription<SyncStatus>? _syncSub;
 
   @override

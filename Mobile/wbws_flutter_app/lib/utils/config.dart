@@ -5,8 +5,8 @@ class AppConfig {
   static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
   static const String appName = 'FKSS';
   static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
-  static const String appVersion = '1.1.10';
-  static const int appBuild = 12;
+  static const String appVersion = '1.1.11';
+  static const int appBuild = 13;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';
@@ -14,9 +14,10 @@ class AppConfig {
   static const int maxPageSize = 100;
   /// Slow Ethiopian 4G (≈18 KB/s) needs TLS + PHP room. 5s made the app
   /// lie about "no internet". Telegram keeps sockets open; Apple uses 60s.
-  static const int connectionTimeout = 15;
-  static const int receiveTimeout = 15;
-  static const int postTimeout = 20;
+  /// Screenshot showed ~8 KB/s. TLS + PHP on that radio needs a full minute.
+  static const int connectionTimeout = 45;
+  static const int receiveTimeout = 45;
+  static const int postTimeout = 60;
 }
 
 /// User roles

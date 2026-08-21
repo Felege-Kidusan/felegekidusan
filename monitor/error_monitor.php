@@ -305,9 +305,16 @@ class ArkeonErrorMonitor {
         $errorId = $this->saveError($context);
         $this->sendTelegramAlert($context, $errorId);
         
-        // For API endpoints, return JSON error instead of HTML page
+        // For API endpoints, return JSON error instead of HTML page.
+        // /api/v1/index.php does NOT contain "api_" (slash), so the phone
+        // was getting the Amharic HTML crash page and never marking synced.
         $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-        $isApi = (strpos($scriptName, 'api_') !== false || strpos($scriptName, '/backend/') !== false);
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        $isApi = defined('WBWS_API_REQUEST')
+            || strpos($scriptName, 'api_') !== false
+            || strpos($scriptName, '/api/') !== false
+            || strpos($uri, '/api/') !== false
+            || strpos($scriptName, '/backend/') !== false;
         
         if ($isApi && !headers_sent()) {
             http_response_code(500);
@@ -347,6 +354,22 @@ class ArkeonErrorMonitor {
             
             $errorId = $this->saveError($context);
             $this->sendTelegramAlert($context, $errorId);
+
+            $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+            $uri = $_SERVER['REQUEST_URI'] ?? '';
+            $isApi = defined('WBWS_API_REQUEST')
+                || strpos($scriptName, '/api/') !== false
+                || strpos($uri, '/api/') !== false
+                || strpos($scriptName, 'api_') !== false;
+            if ($isApi && !headers_sent()) {
+                http_response_code(500);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'Server error. Please try again.',
+                    'ref' => $errorId ? "#$errorId" : null,
+                ], JSON_UNESCAPED_UNICODE);
+            }
         }
     }
     

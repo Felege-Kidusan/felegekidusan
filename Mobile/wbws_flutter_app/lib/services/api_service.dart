@@ -161,13 +161,27 @@ class ApiService {
         headers['Idempotency-Key'] = key;
         body = {...?body, 'client_op_id': key};
       }
-      final response = await _http
+      var response = await _http
           .post(
             uri,
             headers: headers,
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
+      if (response.statusCode == 401 && auth) {
+        final ok = await refreshAccessToken();
+        if (ok) {
+          headers = _headers(withAuth: true);
+          if (key.isNotEmpty) headers['Idempotency-Key'] = key;
+          response = await _http
+              .post(
+                uri,
+                headers: headers,
+                body: body != null ? jsonEncode(body) : null,
+              )
+              .timeout(Duration(seconds: AppConfig.postTimeout));
+        }
+      }
       return _handleResponse(response);
     } catch (e) {
       return _handleError(e);
