@@ -651,35 +651,68 @@ class LocalDb {
   // CACHED ATTENDANCE RESPONSES
   // ============================================================
 
-  Future<void> cacheAttendanceResponse(int classId, String date, List<Map<String, dynamic>> students) async {
+  Future<void> cacheAttendanceResponse(int classId, String date, List<Map<String, dynamic>> students,
+      {String? submissionStatus, bool locked = false}) async {
     final db = await database;
     await db.insert(
       'cached_attendance',
       {
         'class_id': classId,
         'date': date,
-        'response_json': jsonEncode(students),
+        'response_json': jsonEncode({
+          'students': students,
+          'submission_status': submissionStatus ?? '',
+          'locked': locked,
+        }),
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  Future<void> cacheGradeSheet(int assessmentId, int classId, List<Map<String, dynamic>> students) async {
+  Future<void> cacheGradeSheet(int assessmentId, int classId, List<Map<String, dynamic>> students,
+      {String? submissionStatus, bool locked = false}) async {
     final db = await database;
     await db.insert(
       'cached_grade_sheets',
       {
         'assessment_id': assessmentId,
         'class_id': classId,
-        'response_json': jsonEncode(students),
+        'response_json': jsonEncode({
+          'students': students,
+          'submission_status': submissionStatus ?? '',
+          'locked': locked,
+        }),
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  Future<List<Map<String, dynamic>>?> getCachedGradeSheet(int assessmentId) async {
+  Map<String, dynamic> _decodeSheet(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is List) {
+      return {
+        'students': decoded.map((e) => Map<String, dynamic>.from(e)).toList(),
+        'submission_status': '',
+        'locked': false,
+      };
+    }
+    if (decoded is Map) {
+      final map = Map<String, dynamic>.from(decoded);
+      final list = map['students'];
+      return {
+        'students': list is List
+            ? list.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+            : <Map<String, dynamic>>[],
+        'submission_status': '${map['submission_status'] ?? ''}',
+        'locked': map['locked'] == true,
+      };
+    }
+    return {'students': <Map<String, dynamic>>[], 'submission_status': '', 'locked': false};
+  }
+
+  Future<Map<String, dynamic>?> getCachedGradeSheetMeta(int assessmentId) async {
     final db = await database;
     try {
       final rows = await db.query(
@@ -688,14 +721,19 @@ class LocalDb {
         whereArgs: [assessmentId],
       );
       if (rows.isEmpty) return null;
-      final list = jsonDecode(rows.first['response_json'] as String) as List;
-      return list.map((e) => Map<String, dynamic>.from(e)).toList();
+      return _decodeSheet(rows.first['response_json'] as String);
     } catch (_) {
       return null;
     }
   }
 
-  Future<List<Map<String, dynamic>>?> getCachedAttendanceResponse(int classId, String date) async {
+  Future<List<Map<String, dynamic>>?> getCachedGradeSheet(int assessmentId) async {
+    final meta = await getCachedGradeSheetMeta(assessmentId);
+    if (meta == null) return null;
+    return List<Map<String, dynamic>>.from(meta['students'] as List);
+  }
+
+  Future<Map<String, dynamic>?> getCachedAttendanceSheet(int classId, String date) async {
     final db = await database;
     try {
       final rows = await db.query(
@@ -704,11 +742,29 @@ class LocalDb {
         whereArgs: [classId, date],
       );
       if (rows.isEmpty) return null;
-      final list = jsonDecode(rows.first['response_json'] as String) as List;
-      return list.map((e) => Map<String, dynamic>.from(e)).toList();
+      return _decodeSheet(rows.first['response_json'] as String);
     } catch (_) {
       return null;
     }
+  }
+
+  Future<List<Map<String, dynamic>>?> getCachedAttendanceResponse(int classId, String date) async {
+    final meta = await getCachedAttendanceSheet(classId, date);
+    if (meta == null) return null;
+    return List<Map<String, dynamic>>.from(meta['students'] as List);
+  }
+
+  Future<void> dropPendingAttendance(int classId, String date) async {
+    final db = await database;
+    await db.delete('pending_attendance',
+        where: 'class_id = ? AND date = ? AND synced = 0',
+        whereArgs: [classId, date]);
+  }
+
+  Future<void> dropPendingGrades(int assessmentId) async {
+    final db = await database;
+    await db.delete('pending_grades',
+        where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
   }
 
   // ============================================================

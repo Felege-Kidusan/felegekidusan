@@ -109,7 +109,10 @@ if ($action === 'bootstrap' && $method === 'GET') {
         $stmt = $conn->prepare(
             "SELECT a.id, a.subject_id, a.assessment_name, a.assessment_type,
                     a.weight_percentage, a.max_score, a.assessment_order, a.is_published,
-                    COALESCE(g.cnt, 0) AS grades_entered
+                    COALESCE(g.cnt, 0) AS grades_entered,
+                    (SELECT gs.status FROM grade_submissions gs
+                      WHERE gs.assessment_id = a.id AND gs.submission_type = 'marklist'
+                      ORDER BY gs.id DESC LIMIT 1) AS submission_status
              FROM assessments a
              LEFT JOIN (
                 SELECT assessment_id, COUNT(*) AS cnt
@@ -135,6 +138,9 @@ if ($action === 'bootstrap' && $method === 'GET') {
                 'assessment_order' => (int)$row['assessment_order'],
                 'is_published' => (bool)$row['is_published'],
                 'grades_entered' => (int)$row['grades_entered'],
+                'submission_status' => $row['submission_status'] ?? null,
+                'locked' => class_exists('\\App\\Services\\SubmissionService')
+                    && \App\Services\SubmissionService::isLockedForTeacher($row['submission_status'] ?? null, $auth),
             ];
         }
         $stmt->close();
@@ -388,8 +394,10 @@ if ($action === 'students' && $method === 'GET') {
     }
     
     $packetStatus = null;
+    $locked = false;
     if (class_exists('\\App\\Services\\SubmissionService')) {
-        $packetStatus = \App\Services\SubmissionService::marklistPacketStatus($conn, $assessmentId);
+        $packetStatus = \App\Services\SubmissionService::resolvedMarklistStatus($conn, $assessmentId);
+        $locked = \App\Services\SubmissionService::isLockedForTeacher($packetStatus, $auth);
     }
     ok([
         'assessment' => [
@@ -404,8 +412,7 @@ if ($action === 'students' && $method === 'GET') {
         'roster_year_name' => $scope['year_name'] ?? null,
         'roster_fallback' => !empty($scope['fallback']),
         'submission_status' => $packetStatus,
-        'locked' => $packetStatus && !\App\Services\SubmissionService::statusIsOpen($packetStatus)
-            && !(class_exists('\\App\\Services\\SubmissionService') && \App\Services\SubmissionService::staffCanOverride($auth)),
+        'locked' => $locked,
     ]);
 }
 
@@ -555,76 +562,75 @@ if ($action === 'submit' && $method === 'POST') {
         checkTeacherSubjectAccess($conn, $userId, $userRole, $aClassId, $aSubjectId, $yearId);
     }
 
+    if (class_exists('\\App\\Services\\SubmissionService')
+        && !\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
+        err('This test is already submitted. Only Education can change scores now.', 409);
+    }
+
     apiEnsureSubmissionsTable();
     $termId = $assessment['term_id'] ? (int)$assessment['term_id'] : null;
     $ayId = (int)($assessment['academic_year_id'] ?: $yearId);
     $saved = 0;
     $totalScore = 0;
     $scoreCount = 0;
-    $submissionId = 0;
 
-    $conn->begin_transaction();
-    try {
-        $insSub = $conn->prepare(
-            "INSERT INTO grade_submissions
-                (teacher_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_type, status, submitted_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'marklist', 'submitted', NOW())"
-        );
-        $insSub->bind_param('iiiiii', $userId, $aClassId, $aSubjectId, $ayId, $termId, $assessmentId);
-        $insSub->execute();
-        $submissionId = (int)$insSub->insert_id;
-        $insSub->close();
-
-        foreach ($grades as $grade) {
-            $memberId = (int)($grade['member_id'] ?? 0);
-            $score = isset($grade['score']) && $grade['score'] !== '' && $grade['score'] !== null ? (float)$grade['score'] : null;
-            $remarks = trim($grade['remarks'] ?? $grade['remark'] ?? '');
-            $recordId = isset($grade['record_id']) && $grade['record_id'] ? (int)$grade['record_id'] : 0;
-            if (!$memberId) continue;
-            if ($score !== null && ($score < 0 || $score > (float)$assessment['max_score'])) continue;
-
-            if ($recordId > 0) {
-                $up = $conn->prepare("UPDATE academic_records SET score = ?, remarks = ?, recorded_by = ?, submission_id = ? WHERE id = ?");
-                $up->bind_param('dsiii', $score, $remarks, $userId, $submissionId, $recordId);
-                $up->execute();
-                $up->close();
-            } elseif ($score !== null) {
-                $maxScore = (float)$assessment['max_score'];
-                $ins = $conn->prepare(
-                    "INSERT INTO academic_records
-                        (member_id, class_id, subject_id, academic_year_id, term_id, assessment_id, submission_id, score, max_score, remarks, recorded_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                );
-                $ins->bind_param('iiiiiiiddsi', $memberId, $aClassId, $aSubjectId, $ayId, $termId, $assessmentId, $submissionId, $score, $maxScore, $remarks, $userId);
-                $ins->execute();
-                $ins->close();
-            }
+    foreach ($grades as $grade) {
+        $memberId = (int)($grade['member_id'] ?? 0);
+        $score = isset($grade['score']) && $grade['score'] !== '' && $grade['score'] !== null ? (float)$grade['score'] : null;
+        $remarks = trim($grade['remarks'] ?? $grade['remark'] ?? '');
+        if (!$memberId) continue;
+        if ($score !== null && ($score < 0 || $score > (float)$assessment['max_score'])) continue;
+        if (class_exists('\\App\\Services\\SubmissionService')) {
+            $rid = \App\Services\SubmissionService::upsertScore($conn, [
+                'assessment_id' => $assessmentId,
+                'member_id' => $memberId,
+                'score' => $score,
+                'remarks' => $remarks,
+                'recorded_by' => $userId,
+                'class_id' => $aClassId,
+                'subject_id' => $aSubjectId,
+                'year_id' => $ayId,
+                'term_id' => $termId,
+                'max_score' => (float)$assessment['max_score'],
+            ]);
+            if ($rid) $saved++;
+        } else {
             $saved++;
-            if ($score !== null) { $totalScore += $score; $scoreCount++; }
         }
+        if ($score !== null) { $totalScore += $score; $scoreCount++; }
+    }
 
-        $avg = $scoreCount > 0 ? $totalScore / $scoreCount : null;
-        $st = $conn->prepare("UPDATE grade_submissions SET student_count = ?, average_score = ? WHERE id = ?");
-        $st->bind_param('idi', $saved, $avg, $submissionId);
-        $st->execute();
-        $st->close();
-        $conn->commit();
-    } catch (Exception $e) {
-        $conn->rollback();
-        err('Could not submit the mark list. Nothing was changed.', 500);
+    $avg = $scoreCount > 0 ? $totalScore / $scoreCount : null;
+    $packet = ['ok' => true, 'id' => 0, 'status' => 'submitted'];
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $packet = \App\Services\SubmissionService::upsertMarklist($conn, [
+            'teacher_id' => $userId,
+            'class_id' => $aClassId,
+            'subject_id' => $aSubjectId,
+            'assessment_id' => $assessmentId,
+            'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
+            'student_count' => $saved,
+            'average' => $avg,
+            'year_id' => $ayId,
+            'term_id' => $termId,
+        ]);
+        if (empty($packet['ok'])) {
+            err($packet['message'] ?? 'This test is already submitted. Only Education can change scores now.', 409);
+        }
     }
 
     logApiAction($userId, $auth['usr'], 'submit_grades', "Submitted $saved grades for assessment #{$assessmentId}");
 
     ok([
-        'message' => "$saved grade(s) sent to Education",
+        'message' => $packet['message'] ?? "$saved grade(s) sent to Education",
         'saved' => $saved,
-        'submission_id' => $submissionId,
+        'submission_id' => $packet['id'] ?? 0,
+        'submission_status' => $packet['status'] ?? 'submitted',
     ]);
 }
 
 // ============================================================
-// GET /grades/summary?class_id=X&subject_id=Y — Grade report
+// // GET /grades/summary?class_id=X&subject_id=Y — Grade report
 // ============================================================
 if ($action === 'summary' && $method === 'GET') {
     $classId = (int)($_GET['class_id'] ?? 0);

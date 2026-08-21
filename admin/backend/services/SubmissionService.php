@@ -187,12 +187,71 @@ class SubmissionService
         return $row ? self::normalizeStatus($row['status'] ?? '') : null;
     }
 
+    public static function attendanceHasRows(\mysqli $conn, int $classId, string $date): bool
+    {
+        if ($classId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return false;
+        }
+        $stmt = $conn->prepare(
+            "SELECT 1 FROM attendance WHERE class_id = ? AND attendance_date = ? LIMIT 1"
+        );
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('is', $classId, $date);
+        $stmt->execute();
+        $ok = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
+        return $ok;
+    }
+
+    public static function marklistHasRows(\mysqli $conn, int $assessmentId): bool
+    {
+        if ($assessmentId <= 0) {
+            return false;
+        }
+        $stmt = $conn->prepare(
+            "SELECT 1 FROM academic_records WHERE assessment_id = ? LIMIT 1"
+        );
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param('i', $assessmentId);
+        $stmt->execute();
+        $ok = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
+        return $ok;
+    }
+
+    /**
+     * Packet status, or "submitted" for older sheets that already have
+     * marks but never got a packet. Empty days stay open so a teacher
+     * can still take a missed Sunday.
+     */
+    public static function resolvedAttendanceStatus(\mysqli $conn, int $classId, string $date): ?string
+    {
+        $status = self::attendancePacketStatus($conn, $classId, $date);
+        if ($status !== null) {
+            return $status;
+        }
+        return self::attendanceHasRows($conn, $classId, $date) ? self::STATUS_SUBMITTED : null;
+    }
+
+    public static function resolvedMarklistStatus(\mysqli $conn, int $assessmentId): ?string
+    {
+        $status = self::marklistPacketStatus($conn, $assessmentId);
+        if ($status !== null) {
+            return $status;
+        }
+        return self::marklistHasRows($conn, $assessmentId) ? self::STATUS_SUBMITTED : null;
+    }
+
     public static function teacherMayWriteAttendance(\mysqli $conn, array $auth, int $classId, string $date): bool
     {
         if (self::staffCanOverride($auth)) {
             return true;
         }
-        $status = self::attendancePacketStatus($conn, $classId, $date);
+        $status = self::resolvedAttendanceStatus($conn, $classId, $date);
         return $status === null || self::statusIsOpen($status);
     }
 
@@ -201,8 +260,16 @@ class SubmissionService
         if (self::staffCanOverride($auth)) {
             return true;
         }
-        $status = self::marklistPacketStatus($conn, $assessmentId);
+        $status = self::resolvedMarklistStatus($conn, $assessmentId);
         return $status === null || self::statusIsOpen($status);
+    }
+
+    public static function isLockedForTeacher(?string $status, array $auth): bool
+    {
+        if (self::staffCanOverride($auth)) {
+            return false;
+        }
+        return $status !== null && $status !== '' && !self::statusIsOpen($status);
     }
 
     /** One score per student per test. Always update the existing row. */
@@ -332,11 +399,11 @@ class SubmissionService
         $existingId = 0;
         $stmt = $conn->prepare(
             "SELECT id FROM grade_submissions
-             WHERE teacher_id = ? AND class_id = ? AND submission_type = 'attendance' AND attendance_date = ?
+             WHERE class_id = ? AND submission_type = 'attendance' AND attendance_date = ?
              ORDER BY id DESC LIMIT 1"
         );
         if ($stmt) {
-            $stmt->bind_param('iis', $teacherId, $classId, $date);
+            $stmt->bind_param('is', $classId, $date);
             $stmt->execute();
             $row = $stmt->get_result()->fetch_assoc();
             $stmt->close();

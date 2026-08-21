@@ -8,6 +8,7 @@ import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
+import '../../utils/packet.dart';
 import '../../utils/roster.dart';
 import '../../utils/theme.dart';
 import '../../widgets/action_bar.dart';
@@ -394,9 +395,14 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
               decoration: BoxDecoration(
                 color: gradesEntered > 0 ? AppTheme.success.withOpacity(0.12) : AppTheme.surfaceLight,
                 borderRadius: BorderRadius.circular(8)),
-              child: Text(gradesEntered > 0 ? '$gradesEntered graded' : 'Enter',
+              child: Text(
+                PacketLock.isLocked('${a['submission_status'] ?? ''}', flagged: a['locked'] == true)
+                    ? 'Submitted'
+                    : (gradesEntered > 0 ? '$gradesEntered graded' : 'Enter'),
                 style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
-                  color: gradesEntered > 0 ? AppTheme.success : AppTheme.textSecondary))),
+                  color: PacketLock.isLocked('${a['submission_status'] ?? ''}', flagged: a['locked'] == true)
+                      ? AppTheme.primary
+                      : (gradesEntered > 0 ? AppTheme.success : AppTheme.textSecondary)))),
             const SizedBox(width: 4),
             Icon(Icons.chevron_right, size: 18, color: AppTheme.textSecondary),
           ]),
@@ -472,6 +478,8 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
         classId: _selectedClassId ?? 0,
         subjectId: _selectedSubjectId ?? 0,
         subjectName: subjectName,
+        initialStatus: '${assessment['submission_status'] ?? ''}',
+        initialLocked: assessment['locked'] == true,
       ),
     )).then((_) { _loadAssessments(); _updatePendingCount(); });
   }
@@ -519,6 +527,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   void initState() {
     super.initState();
     _isOffline = !ConnectivityService().hasLink;
+    _packetStatus = widget.initialStatus;
+    if (widget.initialLocked && _packetStatus.isEmpty) _packetStatus = 'submitted';
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
       if (mounted) setState(() => _isOffline = !hasLink);
     });
@@ -553,7 +563,9 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         }
         return;
       }
-      final merged = await _applyPending(parsed);
+      final packetNow = '${res.data['submission_status'] ?? ''}';
+      final lockedNow = PacketLock.isLocked(packetNow, flagged: res.data['locked'] == true);
+      final merged = lockedNow ? parsed : await _applyPending(parsed);
       if (_students.isEmpty) {
         _setupStudents(merged);
       } else {
@@ -567,14 +579,24 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
             : 'Showing the $year roster.';
       }
       final packet = '${res.data['submission_status'] ?? ''}';
+      final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
+      if (locked) {
+        await _db.dropPendingGrades(widget.assessmentId);
+      }
       setState(() {
         _isOffline = !ConnectivityService().hasLink;
         _loading = false;
         _rosterNote = note;
-        if (packet.isNotEmpty) _packetStatus = packet;
+        _packetStatus = locked && packet.isEmpty ? 'submitted' : (packet.isNotEmpty ? packet : _packetStatus);
       });
       _recountGraded();
-      await _db.cacheGradeSheet(widget.assessmentId, widget.classId, merged);
+      await _db.cacheGradeSheet(
+        widget.assessmentId,
+        widget.classId,
+        merged,
+        submissionStatus: _packetStatus,
+        locked: locked,
+      );
       await _db.cacheStudents(widget.classId, merged);
       return;
     }
@@ -589,8 +611,18 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   }
 
   Future<void> _paintCache() async {
-    final pending = await _pendingByMember();
-    final sheet = await _db.getCachedGradeSheet(widget.assessmentId);
+    final meta = await _db.getCachedGradeSheetMeta(widget.assessmentId);
+    final cacheLocked = PacketLock.isLocked(
+      '${meta?['submission_status'] ?? widget.initialStatus}',
+      flagged: meta?['locked'] == true || widget.initialLocked,
+    );
+    if (cacheLocked) {
+      _packetStatus = '${meta?['submission_status'] ?? widget.initialStatus}';
+      if (_packetStatus.isEmpty) _packetStatus = 'submitted';
+      await _db.dropPendingGrades(widget.assessmentId);
+    }
+    final pending = cacheLocked ? <int, Map<String, dynamic>>{} : await _pendingByMember();
+    final sheet = meta == null ? null : List<Map<String, dynamic>>.from(meta['students'] as List);
     List<Map<String, dynamic>> source = const [];
     if (sheet != null && sheet.isNotEmpty) {
       source = sheet;
@@ -724,8 +756,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     );
   }
 
-  bool get _locked =>
-      _packetStatus == 'submitted' || _packetStatus == 'approved';
+  bool get _locked => PacketLock.isLocked(_packetStatus, flagged: widget.initialLocked && _packetStatus.isEmpty);
 
   Future<void> _saveGrades() async {
     if (_locked) {
@@ -865,7 +896,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
 
         ],
       ),
-      bottomNavigationBar: _students.isEmpty
+      bottomNavigationBar: _students.isEmpty || _locked
           ? null
           : TeacherActionBar(
               saveLabel: 'Save',

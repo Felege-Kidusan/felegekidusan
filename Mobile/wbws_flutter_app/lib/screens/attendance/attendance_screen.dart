@@ -8,6 +8,7 @@ import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
+import '../../utils/packet.dart';
 import '../../utils/roster.dart';
 import '../../utils/theme.dart';
 import '../../widgets/action_bar.dart';
@@ -145,7 +146,26 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     });
 
     // 1. Try cache first
-    final pending = await _db.getPendingAttendanceRecords(_selectedClassId!, _selectedDate);
+    final cachedSheet = await _db.getCachedAttendanceSheet(_selectedClassId!, _selectedDate);
+    final cachedAtt = cachedSheet == null
+        ? null
+        : List<Map<String, dynamic>>.from(cachedSheet['students'] as List);
+    final cacheLocked = PacketLock.isLocked(
+      '${cachedSheet?['submission_status'] ?? ''}',
+      flagged: cachedSheet?['locked'] == true,
+    );
+    if (cacheLocked && mounted) {
+      setState(() {
+        _packetStatus = PacketLock.label('${cachedSheet?['submission_status'] ?? ''}').isEmpty
+            ? 'submitted'
+            : '${cachedSheet?['submission_status']}';
+      });
+      await _db.dropPendingAttendance(_selectedClassId!, _selectedDate);
+    }
+
+    final pending = cacheLocked
+        ? <Map<String, dynamic>>[]
+        : await _db.getPendingAttendanceRecords(_selectedClassId!, _selectedDate);
     final pendingMap = <int, String>{};
     final pendingNotes = <int, String>{};
     for (final p in pending) {
@@ -155,7 +175,6 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       pendingNotes[mid] = '${p['notes'] ?? p['note'] ?? ''}';
     }
 
-    final cachedAtt = await _db.getCachedAttendanceResponse(_selectedClassId!, _selectedDate);
     if (cachedAtt != null && cachedAtt.isNotEmpty) {
       final students = <Map<String, dynamic>>[];
       for (final s in cachedAtt) {
@@ -207,6 +226,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         });
         return;
       }
+      final packetEarly = '${res.data['submission_status'] ?? ''}';
+      final lockedEarly = PacketLock.isLocked(packetEarly, flagged: res.data['locked'] == true);
       final students = parsed.map((s) {
         final mid = s['member_id'] as int;
         return <String, dynamic>{
@@ -215,8 +236,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'father_name': s['father_name'] ?? '',
           'member_code': s['member_code'] ?? '',
           'gender': s['gender'] ?? '',
-          'status': pendingMap[mid] ?? s['att_status'] ?? 'present',
-          'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
+          'status': lockedEarly ? (s['att_status'] ?? 'present') : (pendingMap[mid] ?? s['att_status'] ?? 'present'),
+          'notes': lockedEarly ? (s['notes'] ?? s['note'] ?? '') : (pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? ''),
         };
       }).toList();
 
@@ -229,9 +250,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       }
 
       final packet = '${res.data['submission_status'] ?? ''}';
-      final locked = res.data['locked'] == true ||
-          packet == 'submitted' ||
-          packet == 'approved';
+      final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
+      if (locked) {
+        await _db.dropPendingAttendance(_selectedClassId!, _selectedDate);
+      }
       setState(() {
         _students = students;
         _loadingStudents = false;
@@ -239,11 +261,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _isOffline = !ConnectivityService().hasLink;
         _loadFailed = false;
         _rosterNote = note;
-        _packetStatus = packet;
-        if (locked) _packetStatus = packet.isEmpty ? 'submitted' : packet;
+        _packetStatus = locked && packet.isEmpty ? 'submitted' : packet;
       });
       await _db.cacheStudents(_selectedClassId!, students);
-      await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, students);
+      await _db.cacheAttendanceResponse(
+        _selectedClassId!,
+        _selectedDate,
+        students,
+        submissionStatus: _packetStatus,
+        locked: locked,
+      );
     } else if (_students.isEmpty && (cachedAtt == null || cachedAtt.isEmpty)) {
       setState(() {
         _error = res.message ?? 'Could not load students. Check your connection and try again.';
@@ -260,8 +287,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  bool get _locked =>
-      _packetStatus == 'submitted' || _packetStatus == 'approved';
+  bool get _locked => PacketLock.isLocked(_packetStatus);
 
   Future<void> _saveAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
@@ -365,12 +391,18 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _persistLocal() async {
-    if (_selectedClassId == null || _students.isEmpty) return;
-    // Taps stay on this phone. Save / Submit send the draft or the finished sheet.
-    await _db.cacheAttendanceResponse(_selectedClassId!, _selectedDate, _students);
+    if (_selectedClassId == null || _students.isEmpty || _locked) return;
+    await _db.cacheAttendanceResponse(
+      _selectedClassId!,
+      _selectedDate,
+      _students,
+      submissionStatus: _packetStatus,
+      locked: false,
+    );
   }
 
   void _markAll(String status) {
+    if (_locked) return;
     setState(() {
       for (var s in _students) {
         s['status'] = status;
@@ -433,14 +465,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               padding: const EdgeInsets.only(right: 12),
               child: Center(
                 child: Text(
-                  _packetStatus == 'submitted' ? 'Submitted' : 'Draft',
+                  PacketLock.label(_packetStatus).isEmpty
+                      ? _packetStatus
+                      : PacketLock.label(_packetStatus),
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                 ),
               ),
             ),
         ],
       ),
-      bottomNavigationBar: _students.isEmpty
+      bottomNavigationBar: _students.isEmpty || _locked
           ? null
           : TeacherActionBar(
               saveLabel: 'Save',
@@ -563,6 +597,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             }),
           if (_rosterNote != null && _error == null)
             StatusBanner.warning(_rosterNote!),
+          if (_locked && _students.isNotEmpty && _error == null)
+            StatusBanner.warning(PacketLock.viewOnlyHint(_packetStatus)),
 
           // Quick mark all
           if (_students.isNotEmpty)
@@ -574,11 +610,13 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                       style: TextStyle(
                           fontSize: 12, color: AppTheme.textSecondary)),
                   const Spacer(),
-                  _quickBtn(
-                      'All Present', AppTheme.success, () => _markAll('present')),
-                  const SizedBox(width: 6),
-                  _quickBtn(
-                      'All Absent', AppTheme.danger, () => _markAll('absent')),
+                  if (!_locked) ...[
+                    _quickBtn(
+                        'All Present', AppTheme.success, () => _markAll('present')),
+                    const SizedBox(width: 6),
+                    _quickBtn(
+                        'All Absent', AppTheme.danger, () => _markAll('absent')),
+                  ],
                 ],
               ),
             ),

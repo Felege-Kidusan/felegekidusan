@@ -142,8 +142,10 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
     }
 
     $packetStatus = null;
+    $locked = false;
     if (class_exists('\\App\\Services\\SubmissionService')) {
-        $packetStatus = \App\Services\SubmissionService::attendancePacketStatus($conn, $classId, $date);
+        $packetStatus = \App\Services\SubmissionService::resolvedAttendanceStatus($conn, $classId, $date);
+        $locked = \App\Services\SubmissionService::isLockedForTeacher($packetStatus, $auth);
     }
 
     $students = [];
@@ -173,10 +175,7 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
         'roster_year_name' => $scope['year_name'] ?? null,
         'roster_fallback' => !empty($scope['fallback']),
         'submission_status' => $packetStatus,
-        'locked' => $packetStatus
-            && class_exists('\\App\\Services\\SubmissionService')
-            && !\App\Services\SubmissionService::statusIsOpen($packetStatus)
-            && !\App\Services\SubmissionService::staffCanOverride($auth),
+        'locked' => $locked,
     ]);
 }
 
@@ -271,6 +270,10 @@ if ($method === 'POST' && $action === 'submit') {
     apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));
     if (isApiRateLimited('attendance_submit', 20)) {
         err('Too many submits. Please wait a moment.', 429);
+    }
+    if (class_exists('\\App\\Services\\SubmissionService')
+        && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
+        err('This day’s attendance is already submitted. Only Education can change it.', 409);
     }
     $saved = apiUpsertAttendanceRows($conn, $classId, $date, $yearIdOrNull, $userId, $records);
     if ($saved < 0) {
