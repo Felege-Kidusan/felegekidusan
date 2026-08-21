@@ -22,7 +22,7 @@ $yearId = $year ? (int)$year['id'] : 0;
  */
 function apiUpsertAttendanceRows(\mysqli $conn, int $classId, string $date, $yearIdOrNull, int $userId, array $records): int {
     if (class_exists('\\App\\Services\\SubmissionService')) {
-        \\App\\Services\\SubmissionService::hardenUniques($conn);
+        \App\Services\SubmissionService::hardenUniques($conn);
     }
     $saved = 0;
     $ids = [];
@@ -143,7 +143,7 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
 
     $packetStatus = null;
     if (class_exists('\\App\\Services\\SubmissionService')) {
-        $packetStatus = \\App\\Services\\SubmissionService::attendancePacketStatus($conn, $classId, $date);
+        $packetStatus = \App\Services\SubmissionService::attendancePacketStatus($conn, $classId, $date);
     }
 
     $students = [];
@@ -175,8 +175,8 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
         'submission_status' => $packetStatus,
         'locked' => $packetStatus
             && class_exists('\\App\\Services\\SubmissionService')
-            && !\\App\\Services\\SubmissionService::statusIsOpen($packetStatus)
-            && !\\App\\Services\\SubmissionService::staffCanOverride($auth),
+            && !\App\Services\SubmissionService::statusIsOpen($packetStatus)
+            && !\App\Services\SubmissionService::staffCanOverride($auth),
     ]);
 }
 
@@ -202,7 +202,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     }
 
     if (class_exists('\\App\\Services\\SubmissionService')
-        && !\\App\\Services\\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
+        && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
         err('This day’s attendance is already submitted. Only Education can change it.', 409);
     }
 
@@ -277,15 +277,15 @@ if ($method === 'POST' && $action === 'submit') {
         err('Could not submit attendance. Nothing was changed. Please try again.', 500);
     }
     $counts = class_exists('\\App\\Services\\SubmissionService')
-        ? \\App\\Services\\SubmissionService::countsFromRecords($records)
+        ? \App\Services\SubmissionService::countsFromRecords($records)
         : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
     $packet = ['ok' => true, 'id' => 0, 'status' => 'submitted'];
     if (class_exists('\\App\\Services\\SubmissionService')) {
-        $packet = \\App\\Services\\SubmissionService::upsertAttendance($conn, [
+        $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
             'teacher_id' => $userId,
             'class_id' => $classId,
             'date' => $date,
-            'status' => \\App\\Services\\SubmissionService::STATUS_SUBMITTED,
+            'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
             'student_count' => $counts['student_count'] ?: $saved,
             'year_id' => $yearIdOrNull,
             'present' => $counts['present'],

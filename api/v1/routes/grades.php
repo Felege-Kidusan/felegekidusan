@@ -389,7 +389,7 @@ if ($action === 'students' && $method === 'GET') {
     
     $packetStatus = null;
     if (class_exists('\\App\\Services\\SubmissionService')) {
-        $packetStatus = \\App\\Services\\SubmissionService::marklistPacketStatus($conn, $assessmentId);
+        $packetStatus = \App\Services\SubmissionService::marklistPacketStatus($conn, $assessmentId);
     }
     ok([
         'assessment' => [
@@ -404,8 +404,8 @@ if ($action === 'students' && $method === 'GET') {
         'roster_year_name' => $scope['year_name'] ?? null,
         'roster_fallback' => !empty($scope['fallback']),
         'submission_status' => $packetStatus,
-        'locked' => $packetStatus && !\\App\\Services\\SubmissionService::statusIsOpen($packetStatus)
-            && !(class_exists('\\App\\Services\\SubmissionService') && \\App\\Services\\SubmissionService::staffCanOverride($auth)),
+        'locked' => $packetStatus && !\App\Services\SubmissionService::statusIsOpen($packetStatus)
+            && !(class_exists('\\App\\Services\\SubmissionService') && \App\Services\SubmissionService::staffCanOverride($auth)),
     ]);
 }
 
@@ -443,7 +443,7 @@ if ($action === 'save' && $method === 'POST') {
     }
 
     if (class_exists('\\App\\Services\\SubmissionService')
-        && !\\App\\Services\\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
+        && !\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
         err('This test is already submitted. Only Education can change scores now.', 409);
     }
     
@@ -464,7 +464,7 @@ if ($action === 'save' && $method === 'POST') {
         
         try {
             if (class_exists('\\App\\Services\\SubmissionService')) {
-                $rid = \\App\\Services\\SubmissionService::upsertScore($conn, [
+                $rid = \App\Services\SubmissionService::upsertScore($conn, [
                     'assessment_id' => $assessmentId,
                     'member_id' => $memberId,
                     'score' => $score,
@@ -686,4 +686,3 @@ if ($action === 'summary' && $method === 'GET') {
 }
 
 err("No handler for {$method} /grades" . ($action ? "/{$action}" : ''), 404);
-4);

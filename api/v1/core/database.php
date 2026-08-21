@@ -16,6 +16,10 @@ $__enrollService = __DIR__ . '/../../../admin/backend/services/EnrollmentService
 if (is_file($__enrollService)) {
     require_once $__enrollService;
 }
+$__submissionService = __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
+if (is_file($__submissionService)) {
+    require_once $__submissionService;
+}
 
 // Verify connection
 if (!isset($conn) || !$conn || $conn->connect_error) {
