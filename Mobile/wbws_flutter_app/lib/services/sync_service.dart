@@ -72,7 +72,12 @@ class SyncService {
     // any Save that landed while the first drain was already reading.
     if (_inflight != null) {
       _queued = true;
-      return _inflight!.future;
+      final r = await _inflight!.future;
+      if (_inflight == null) {
+        final left = await _db.getTotalPendingCount();
+        if (left > 0) return syncAll(force: force);
+      }
+      return r;
     }
     final c = Completer<SyncResult>();
     _inflight = c;
