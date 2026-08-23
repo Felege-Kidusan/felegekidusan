@@ -497,11 +497,15 @@ class _GradeEntryScreen extends StatefulWidget {
   final int classId;
   final int subjectId;
   final String subjectName;
+  final String initialStatus;
+  final bool initialLocked;
 
   const _GradeEntryScreen({
     required this.assessmentId, required this.assessmentName,
     required this.maxScore, required this.className,
     required this.classId, required this.subjectId, required this.subjectName,
+    this.initialStatus = '',
+    this.initialLocked = false,
   });
 
   @override
