@@ -1105,10 +1105,10 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <?php endforeach; ?>
                 </div>
                 
-                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260823a">
+                <link rel="stylesheet" href="/admin/css/id_card_designer.css?v=20260823b">
                 <script>window.ID_DESIGNER={csrf:<?= json_encode($csrfToken) ?>,bg:<?= json_encode(defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg') ?>};</script>
                 <div id="idDesigner"></div>
-                <script src="/admin/js/id_card_designer.js?v=20260819h"></script>
+                <script src="/admin/js/id_card_designer.js?v=20260823b"></script>
 
             </section>
 

@@ -1,15 +1,17 @@
-#idDesigner{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:1rem;align-items:start;max-width:100%;min-width:0}
+#idDesigner{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:1rem;align-items:start;max-width:100%;min-width:0}
 #idDesigner .idc-panel{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:.85rem;min-width:0;max-width:100%}
 #idDesigner .idc-preview{position:sticky;top:0;align-self:start;z-index:2}
-#idDesigner .idc-group{margin-bottom:.85rem;padding-bottom:.75rem;border-bottom:1px solid rgba(255,255,255,.06)}
-#idDesigner .idc-group:last-child{border-bottom:none;margin-bottom:0}
+#idDesigner .idc-tools{max-height:calc(100vh - 140px);overflow:auto}
 #idDesigner h4{margin:0 0 .55rem;font-size:.72rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#F0C000}
 #idDesigner label{display:block;font-size:.68rem;color:#94a3b8;margin:.35rem 0 .1rem}
 #idDesigner input[type=range]{width:100%;accent-color:#F0C000}
 #idDesigner input[type=color]{width:100%;height:28px;border:0;background:transparent;padding:0;cursor:pointer}
-#idDesigner .idc-row{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
 #idDesigner .idc-val{float:right;color:#e2e8f0;font-weight:700}
-#idDesigner .idc-actions{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.6rem}
+#idDesigner .idc-list{display:flex;flex-wrap:wrap;gap:.35rem;margin:.45rem 0 .75rem}
+#idDesigner .idc-item{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;border-radius:8px;padding:.32rem .55rem;font-size:.68rem;font-weight:700;cursor:pointer}
+#idDesigner .idc-item.on{background:#600000;border-color:#F0C000;color:#F0C000}
+#idDesigner .idc-inspect{border-top:1px solid rgba(255,255,255,.06);padding-top:.65rem}
+#idDesigner .idc-actions{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.75rem}
 #idDesigner .idc-preview-wrap{background:repeating-conic-gradient(#1e293b 0% 25%,#0f172a 0% 50%) 50%/18px 18px;border-radius:12px;padding:.75rem;overflow:hidden;max-width:100%}
 #idDesigner .idc-frame-box{width:100%;overflow:hidden;position:relative;border-radius:10px;line-height:0}
 #idDesigner iframe{width:1011px;height:638px;border:0;background:transparent;display:block;transform-origin:top left}
@@ -17,4 +19,4 @@
 #idDesigner .idc-tab{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;border-radius:8px;padding:.4rem .75rem;font-size:.75rem;font-weight:700;cursor:pointer}
 #idDesigner .idc-tab.on{background:#600000;border-color:#F0C000;color:#F0C000}
 #idDesigner .idc-note{font-size:.68rem;color:#94a3b8;margin:.55rem 0 0;line-height:1.4}
-@media(max-width:1100px){#idDesigner{grid-template-columns:1fr}#idDesigner .idc-preview{position:static}}
+@media(max-width:1100px){#idDesigner{grid-template-columns:1fr}#idDesigner .idc-preview{position:static}#idDesigner .idc-tools{max-height:none}}

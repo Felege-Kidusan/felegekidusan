@@ -90,7 +90,7 @@ $DISPLAY = [
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ID preview</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-<link rel="stylesheet" href="/admin/css/id_card.css?v=20260823a">
+<link rel="stylesheet" href="/admin/css/id_card.css?v=20260823b">
 <style>
 html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 </style>
@@ -98,19 +98,42 @@ html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 <body>
 <?php include __DIR__ . '/id_card_template_layout.php'; ?>
 <script>
-window.addEventListener('message', function (e) {
-    if (e.origin !== window.location.origin) return;
-    if (!e.data || e.data.type !== 'id-layout') return;
-    var style = e.data.style || '';
-    document.querySelectorAll('.id-card-template').forEach(function (el) {
-        el.setAttribute('style', style);
-    });
-    if (e.data.bg) {
-        document.querySelectorAll('.id-card-bg').forEach(function (el) {
-            el.style.backgroundImage = 'url(' + e.data.bg + ')';
+(function () {
+    var edit = <?= json_encode(($_GET['edit'] ?? '') === '1') ?>;
+    if (edit) {
+        document.querySelectorAll('.id-card-template').forEach(function (el) {
+            el.classList.add('idc-edit');
+        });
+        document.body.addEventListener('click', function (e) {
+            var hit = e.target.closest('[data-idc]');
+            if (!hit) return;
+            e.preventDefault();
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: 'id-pick', id: hit.getAttribute('data-idc') }, window.location.origin);
+            }
         });
     }
-});
+    function mark(id) {
+        document.querySelectorAll('[data-idc]').forEach(function (el) {
+            el.classList.toggle('idc-on', id && el.getAttribute('data-idc') === id);
+        });
+    }
+    window.addEventListener('message', function (e) {
+        if (e.origin !== window.location.origin) return;
+        if (!e.data || e.data.type !== 'id-layout') return;
+        var style = e.data.style || '';
+        document.querySelectorAll('.id-card-template').forEach(function (el) {
+            el.setAttribute('style', style);
+            if (edit) el.classList.add('idc-edit');
+        });
+        if (e.data.bg) {
+            document.querySelectorAll('.id-card-bg').forEach(function (el) {
+                el.style.backgroundImage = 'url(' + e.data.bg + ')';
+            });
+        }
+        if (e.data.pick) mark(e.data.pick);
+    });
+})();
 </script>
 </body>
 </html>

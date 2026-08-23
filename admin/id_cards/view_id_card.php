@@ -224,7 +224,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260823a">
+    <link rel="stylesheet" href="/admin/css/id_card.css?v=20260823b">
     <style>
         /* page chrome only — card look lives in id_card.css */
         

@@ -17,50 +17,50 @@ $hideSide = $ID_CARD_SIDE ?? '';
 <?php if ($hideSide !== 'back'): ?>
 <div class="id-card-template id-front" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
     <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
-    <div class="id-logo">
+    <div class="id-logo" data-idc="logo">
         <?php if (!empty($CONFIG['logo'])): ?>
         <img src="<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:100%;height:100%;object-fit:contain;background:transparent;" onerror="this.style.display='none'">
         <?php endif; ?>
     </div>
-    <header class="id-head">
+    <header class="id-head" data-idc="header">
         <div class="id-head-text">
-            <p class="id-invoc"><?= RELIGIOUS_INVOCATION ?></p>
-            <h1 class="id-parish"><?= PARISH_NAME_AM ?></h1>
-            <h2 class="id-title"><?= ID_CARD_TITLE_AM ?></h2>
-            <h3 class="id-title-en"><?= ID_CARD_TITLE_EN ?></h3>
+            <p class="id-invoc" data-idc="invoc"><?= RELIGIOUS_INVOCATION ?></p>
+            <h1 class="id-parish" data-idc="parish"><?= PARISH_NAME_AM ?></h1>
+            <h2 class="id-title" data-idc="title"><?= ID_CARD_TITLE_AM ?></h2>
+            <h3 class="id-title-en" data-idc="title_en"><?= ID_CARD_TITLE_EN ?></h3>
         </div>
     </header>
-    <div class="id-bar"></div>
+    <div class="id-bar" data-idc="bar"></div>
     <div class="id-body">
-        <div class="id-photo">
+        <div class="id-photo" data-idc="photo">
             <?php if (!empty($member['student_photo_path'])): ?>
             <div style="width:100%;height:100%;background-image:url('<?php echo htmlspecialchars($member['student_photo_path'], ENT_QUOTES, 'UTF-8'); ?>');background-size:cover;background-position:center top;background-repeat:no-repeat;"></div>
             <?php endif; ?>
         </div>
         <div class="id-fields">
-            <div class="id-row"><span class="id-lbl">ሙሉ ስም</span><span class="id-val"><?php echo htmlspecialchars($full_name); ?></span></div>
-            <div class="id-row"><span class="id-lbl">የክርስትና ስም</span><span class="id-val"><?php echo htmlspecialchars($christian_name); ?></span></div>
+            <div class="id-row id-el-name" data-idc="name"><span class="id-lbl">ሙሉ ስም</span><span class="id-val"><?php echo htmlspecialchars($full_name); ?></span></div>
+            <div class="id-row id-el-christian" data-idc="christian"><span class="id-lbl">የክርስትና ስም</span><span class="id-val"><?php echo htmlspecialchars($christian_name); ?></span></div>
             <div class="id-row id-row-split">
-                <div><span class="id-lbl">ጾታ</span><span class="id-val"><?php echo htmlspecialchars($genderLabel); ?></span></div>
-                <div><span class="id-lbl">ዕድሜ</span><span class="id-val"><?php echo htmlspecialchars((string)$age); ?></span></div>
+                <div class="id-el-gender" data-idc="gender"><span class="id-lbl">ጾታ</span><span class="id-val"><?php echo htmlspecialchars($genderLabel); ?></span></div>
+                <div class="id-el-age" data-idc="age"><span class="id-lbl">ዕድሜ</span><span class="id-val"><?php echo htmlspecialchars((string)$age); ?></span></div>
             </div>
-            <div class="id-row"><span class="id-lbl">የመታወቂያ ቁ.</span><span class="id-val id-code"><?php echo htmlspecialchars((string)$member['member_code']); ?></span></div>
+            <div class="id-row id-el-code" data-idc="code"><span class="id-lbl">የመታወቂያ ቁ.</span><span class="id-val id-code"><?php echo htmlspecialchars((string)$member['member_code']); ?></span></div>
             <div class="id-signs">
-                <div>
+                <div data-idc="sig_head">
                     <div class="id-sign-img"><?php if (!empty($CONFIG['sig_head'])): ?><img class="id-sign-head" src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>
-                    <p class="id-sign-lbl"><?= ID_CARD_SIG_HEAD_AM ?></p>
+                    <p class="id-sign-lbl id-sign-head-cap"><?= ID_CARD_SIG_HEAD_AM ?></p>
                 </div>
-                <div>
+                <div data-idc="sig_admin">
                     <div class="id-sign-img"><?php if (!empty($CONFIG['sig_admin'])): ?><img class="id-sign-admin" src="<?php echo htmlspecialchars($CONFIG['sig_admin'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>
-                    <p class="id-sign-lbl"><?= ID_CARD_SIG_ADMIN_AM ?></p>
+                    <p class="id-sign-lbl id-sign-admin-cap"><?= ID_CARD_SIG_ADMIN_AM ?></p>
                 </div>
             </div>
         </div>
     </div>
-    <div class="id-seal">
+    <div class="id-seal" data-idc="seal">
         <img src="<?php echo htmlspecialchars($CONFIG['seal'], ENT_QUOTES, 'UTF-8'); ?>" alt="">
     </div>
-    <footer class="id-foot">
+    <footer class="id-foot" data-idc="foot_front">
         <h2><?= SCHOOL_NAME_SHORT_AM ?> <?= SCHOOL_TYPE_AM ?></h2>
     </footer>
 </div>
@@ -69,26 +69,26 @@ $hideSide = $ID_CARD_SIDE ?? '';
 <?php if ($hideSide !== 'front'): ?>
 <div class="id-card-template id-back" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
     <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
-    <header class="id-head id-head-simple">
+    <header class="id-head id-head-simple" data-idc="header">
         <div class="id-head-text">
-            <h2 class="id-title"><?= ID_CARD_TITLE_AM ?></h2>
-            <h3 class="id-title-en"><?= ID_CARD_TITLE_EN ?></h3>
+            <h2 class="id-title" data-idc="title"><?= ID_CARD_TITLE_AM ?></h2>
+            <h3 class="id-title-en" data-idc="title_en"><?= ID_CARD_TITLE_EN ?></h3>
         </div>
     </header>
-    <div class="id-bar id-bar-label">የአባል መረጃና የአደጋ ጊዜ ተጠሪ</div>
+    <div class="id-bar id-bar-label" data-idc="bar">የአባል መረጃና የአደጋ ጊዜ ተጠሪ</div>
     <div class="id-body id-body-back">
         <div class="id-fields">
-            <div class="id-row"><span class="id-lbl">ስልክ ቁጥር</span><span class="id-val"><?php echo htmlspecialchars((string)($member['phone_number'] ?? '')); ?></span></div>
-            <div class="id-row"><span class="id-lbl">የመኖሪያ አድራሻ</span><span class="id-val"><?php echo htmlspecialchars((string)($member['address'] ?? '')); ?></span></div>
-            <h4 class="id-subhead">የአደጋ ጊዜ ተጠሪ መረጃ</h4>
-            <div class="id-row"><span class="id-lbl">ሙሉ ስም</span><span class="id-val"><?php echo htmlspecialchars((string)$member['emergency_name']); ?></span></div>
-            <div class="id-row"><span class="id-lbl">ስልክ ቁጥር</span><span class="id-val"><?php echo htmlspecialchars((string)$member['emergency_phone']); ?></span></div>
+            <div class="id-row id-el-phone" data-idc="phone"><span class="id-lbl">ስልክ ቁጥር</span><span class="id-val"><?php echo htmlspecialchars((string)($member['phone_number'] ?? '')); ?></span></div>
+            <div class="id-row id-el-address" data-idc="address"><span class="id-lbl">የመኖሪያ አድራሻ</span><span class="id-val"><?php echo htmlspecialchars((string)($member['address'] ?? '')); ?></span></div>
+            <h4 class="id-subhead" data-idc="em_head">የአደጋ ጊዜ ተጠሪ መረጃ</h4>
+            <div class="id-row id-el-em-name" data-idc="em_name"><span class="id-lbl">ሙሉ ስም</span><span class="id-val"><?php echo htmlspecialchars((string)$member['emergency_name']); ?></span></div>
+            <div class="id-row id-el-em-phone" data-idc="em_phone"><span class="id-lbl">ስልክ ቁጥር</span><span class="id-val"><?php echo htmlspecialchars((string)$member['emergency_phone']); ?></span></div>
             <div class="id-row id-row-split">
-                <div><span class="id-lbl">የተሰጠበት ቀን</span><span class="id-val"><?php echo htmlspecialchars($issueDateEth); ?></span></div>
-                <div><span class="id-lbl">የሚያበቃበት ቀን</span><span class="id-val"><?php echo htmlspecialchars($expiryDateEth); ?></span></div>
+                <div class="id-el-issue" data-idc="issue"><span class="id-lbl">የተሰጠበት ቀን</span><span class="id-val"><?php echo htmlspecialchars($issueDateEth); ?></span></div>
+                <div class="id-el-expiry" data-idc="expiry"><span class="id-lbl">የሚያበቃበት ቀን</span><span class="id-val"><?php echo htmlspecialchars($expiryDateEth); ?></span></div>
             </div>
         </div>
-        <div class="id-qr-wrap">
+        <div class="id-qr-wrap" data-idc="qr">
             <div class="id-qr">
                 <?php if (!empty($member['qr_code_path'])): ?>
                     <img src="<?php echo htmlspecialchars($member['qr_code_path'], ENT_QUOTES, 'UTF-8'); ?>"

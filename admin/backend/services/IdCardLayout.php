@@ -1,6 +1,6 @@
 <?php
 /**
- * ID card layout — one place for sizes, positions, and colours.
+ * ID card layout — one place for sizes, colours, and underlines.
  * Super Admin Branding saves here. Printed cards read the same values.
  */
 namespace App\Services;
@@ -10,34 +10,167 @@ class IdCardLayout
     public const CANVAS_W = 1011;
     public const CANVAS_H = 638;
 
-    /** @return array<string,int|string> */
-    public static function defaults(): array
+    /** @return list<array<string,mixed>> */
+    public static function elements(): array
+    {
+        $text = static function (string $id, string $label, string $side, int $size, string $colorKey = 'title_color'): array {
+            return [
+                'id' => $id,
+                'label' => $label,
+                'side' => $side,
+                'controls' => [
+                    ['k' => $id . '_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 56, 'def' => $size],
+                    ['k' => $id . '_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => $colorKey],
+                ],
+            ];
+        };
+        $row = static function (string $id, string $label, string $side, bool $isCode = false): array {
+            return [
+                'id' => $id,
+                'label' => $label,
+                'side' => $side,
+                'controls' => [
+                    ['k' => $id . '_lbl_size', 'label' => 'Label size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def_from' => 'label_size'],
+                    ['k' => $id . '_lbl_color', 'label' => 'Label colour', 'type' => 'color', 'def_from' => 'label_color'],
+                    ['k' => $id . '_val_size', 'label' => $isCode ? 'Number size' : 'Value size', 'type' => 'int', 'min' => 12, 'max' => 56, 'def_from' => $isCode ? 'code_size' : 'value_size'],
+                    ['k' => $id . '_val_color', 'label' => $isCode ? 'Number colour' : 'Value colour', 'type' => 'color', 'def_from' => $isCode ? 'title_color' : 'value_color'],
+                    ['k' => $id . '_line', 'label' => 'Underline thickness', 'type' => 'int', 'min' => 0, 'max' => 10, 'def' => 2],
+                    ['k' => $id . '_line_color', 'label' => 'Underline colour', 'type' => 'color', 'def_from' => 'title_color'],
+                ],
+            ];
+        };
+
+        return [
+            [
+                'id' => 'logo', 'label' => 'Logo', 'side' => 'front',
+                'controls' => [
+                    ['k' => 'logo_x', 'label' => 'Left', 'type' => 'int', 'min' => 0, 'max' => 900, 'def' => 22],
+                    ['k' => 'logo_y', 'label' => 'Top', 'type' => 'int', 'min' => 0, 'max' => 500, 'def' => 14],
+                    ['k' => 'logo_size', 'label' => 'Size', 'type' => 'int', 'min' => 48, 'max' => 260, 'def' => 118],
+                    ['k' => 'logo_opacity', 'label' => 'Opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 100],
+                ],
+            ],
+            $text('invoc', 'Invocation', 'front', 15),
+            $text('parish', 'Parish name', 'front', 26),
+            $text('title', 'Amharic title', 'both', 24),
+            [
+                'id' => 'title_en', 'label' => 'English title', 'side' => 'both',
+                'controls' => [
+                    ['k' => 'title_en_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 16],
+                    ['k' => 'title_en_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'gold_color'],
+                ],
+            ],
+            [
+                'id' => 'header', 'label' => 'Header space', 'side' => 'both',
+                'controls' => [
+                    ['k' => 'header_top', 'label' => 'Top space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 8],
+                    ['k' => 'header_bottom', 'label' => 'Bottom space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 6],
+                    ['k' => 'header_left', 'label' => 'Left space', 'type' => 'int', 'min' => 0, 'max' => 280, 'def' => 0],
+                ],
+            ],
+            [
+                'id' => 'bar', 'label' => 'Maroon bar', 'side' => 'both',
+                'controls' => [
+                    ['k' => 'bar_height', 'label' => 'Height', 'type' => 'int', 'min' => 8, 'max' => 80, 'def' => 38],
+                    ['k' => 'bar_color', 'label' => 'Bar colour', 'type' => 'color', 'def' => '#600000'],
+                    ['k' => 'bar_gold', 'label' => 'Gold line', 'type' => 'int', 'min' => 0, 'max' => 12, 'def' => 4],
+                    ['k' => 'gold_color', 'label' => 'Gold colour', 'type' => 'color', 'def' => '#B8860B'],
+                    ['k' => 'bar_label_size', 'label' => 'Back label size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 22],
+                    ['k' => 'bar_label_color', 'label' => 'Back label colour', 'type' => 'color', 'def' => '#F0C000'],
+                ],
+            ],
+            [
+                'id' => 'photo', 'label' => 'Photo', 'side' => 'front',
+                'controls' => [
+                    ['k' => 'photo_w', 'label' => 'Width', 'type' => 'int', 'min' => 100, 'max' => 340, 'def' => 210],
+                    ['k' => 'photo_h', 'label' => 'Height', 'type' => 'int', 'min' => 120, 'max' => 380, 'def' => 260],
+                    ['k' => 'photo_border', 'label' => 'Border', 'type' => 'int', 'min' => 0, 'max' => 10, 'def' => 3],
+                    ['k' => 'photo_border_color', 'label' => 'Border colour', 'type' => 'color', 'def_from' => 'title_color'],
+                ],
+            ],
+            $row('name', 'Full name', 'front'),
+            $row('christian', 'Christian name', 'front'),
+            $row('gender', 'Gender', 'front'),
+            $row('age', 'Age', 'front'),
+            $row('code', 'ID number', 'front', true),
+            [
+                'id' => 'sig_head', 'label' => 'Head signature', 'side' => 'front',
+                'controls' => [
+                    ['k' => 'sig_head_size', 'label' => 'Width', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 140],
+                    ['k' => 'sig_head_opacity', 'label' => 'Opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 90],
+                    ['k' => 'sig_head_lbl_size', 'label' => 'Caption size', 'type' => 'int', 'min' => 8, 'max' => 24, 'def' => 13],
+                    ['k' => 'sig_head_lbl_color', 'label' => 'Caption colour', 'type' => 'color', 'def_from' => 'label_color'],
+                ],
+            ],
+            [
+                'id' => 'sig_admin', 'label' => 'Director signature', 'side' => 'front',
+                'controls' => [
+                    ['k' => 'sig_admin_size', 'label' => 'Width', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 140],
+                    ['k' => 'sig_admin_opacity', 'label' => 'Opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 90],
+                    ['k' => 'sig_admin_lbl_size', 'label' => 'Caption size', 'type' => 'int', 'min' => 8, 'max' => 24, 'def' => 13],
+                    ['k' => 'sig_admin_lbl_color', 'label' => 'Caption colour', 'type' => 'color', 'def_from' => 'label_color'],
+                ],
+            ],
+            [
+                'id' => 'seal', 'label' => 'Seal', 'side' => 'front',
+                'controls' => [
+                    ['k' => 'seal_x', 'label' => 'Left', 'type' => 'int', 'min' => 0, 'max' => 940, 'def' => 830],
+                    ['k' => 'seal_y', 'label' => 'Top', 'type' => 'int', 'min' => 0, 'max' => 560, 'def' => 390],
+                    ['k' => 'seal_size', 'label' => 'Size', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 150],
+                    ['k' => 'seal_opacity', 'label' => 'Opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 85],
+                ],
+            ],
+            [
+                'id' => 'foot_front', 'label' => 'Front footer', 'side' => 'front',
+                'controls' => [
+                    ['k' => 'foot_front_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 36, 'def' => 22],
+                    ['k' => 'foot_front_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'title_color'],
+                ],
+            ],
+            $row('phone', 'Phone', 'back'),
+            $row('address', 'Address', 'back'),
+            [
+                'id' => 'em_head', 'label' => 'Emergency heading', 'side' => 'back',
+                'controls' => [
+                    ['k' => 'em_head_size', 'label' => 'Size', 'type' => 'int', 'min' => 12, 'max' => 36, 'def' => 22],
+                    ['k' => 'em_head_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'title_color'],
+                    ['k' => 'em_head_line', 'label' => 'Underline', 'type' => 'int', 'min' => 0, 'max' => 10, 'def' => 3],
+                    ['k' => 'em_head_line_color', 'label' => 'Underline colour', 'type' => 'color', 'def_from' => 'gold_color'],
+                ],
+            ],
+            $row('em_name', 'Emergency name', 'back'),
+            $row('em_phone', 'Emergency phone', 'back'),
+            $row('issue', 'Issue date', 'back'),
+            $row('expiry', 'Expiry date', 'back'),
+            [
+                'id' => 'qr', 'label' => 'QR code', 'side' => 'back',
+                'controls' => [
+                    ['k' => 'qr_size', 'label' => 'Size', 'type' => 'int', 'min' => 100, 'max' => 320, 'def' => 220],
+                    ['k' => 'qr_border', 'label' => 'Border', 'type' => 'int', 'min' => 0, 'max' => 10, 'def' => 3],
+                    ['k' => 'qr_border_color', 'label' => 'Border colour', 'type' => 'color', 'def_from' => 'title_color'],
+                    ['k' => 'qr_hint_size', 'label' => 'Hint size', 'type' => 'int', 'min' => 8, 'max' => 24, 'def' => 14],
+                    ['k' => 'qr_hint_color', 'label' => 'Hint colour', 'type' => 'color', 'def_from' => 'label_color'],
+                ],
+            ],
+            [
+                'id' => 'foot_back', 'label' => 'Back disclaimer', 'side' => 'back',
+                'controls' => [
+                    ['k' => 'foot_back_size', 'label' => 'Size', 'type' => 'int', 'min' => 8, 'max' => 28, 'def' => 14],
+                    ['k' => 'foot_back_color', 'label' => 'Colour', 'type' => 'color', 'def' => '#3B0000'],
+                ],
+            ],
+        ];
+    }
+
+    /** Shared fallbacks so old cards keep looking the same. */
+    private static function baseDefaults(): array
     {
         return [
-            'logo_x' => 22,
-            'logo_y' => 14,
-            'logo_size' => 118,
-            'logo_opacity' => 100,
-            'header_top' => 8,
-            'header_bottom' => 6,
-            'header_left' => 0,
-            'seal_x' => 830,
-            'seal_y' => 390,
-            'seal_size' => 150,
-            'seal_opacity' => 85,
-            'sig_head_size' => 140,
-            'sig_head_opacity' => 90,
-            'sig_admin_size' => 140,
-            'sig_admin_opacity' => 90,
-            'title_size' => 24,
-            'parish_size' => 26,
             'label_size' => 20,
             'value_size' => 24,
             'code_size' => 32,
-            'bar_height' => 38,
-            'photo_w' => 210,
-            'photo_h' => 260,
-            'qr_size' => 220,
+            'title_size' => 24,
+            'parish_size' => 26,
             'label_color' => '#600000',
             'title_color' => '#600000',
             'gold_color' => '#B8860B',
@@ -46,23 +179,75 @@ class IdCardLayout
         ];
     }
 
+    /** @return array<string,int|string> */
+    public static function defaults(): array
+    {
+        $out = self::baseDefaults();
+        foreach (self::elements() as $el) {
+            foreach ($el['controls'] as $c) {
+                if (array_key_exists('def', $c)) {
+                    $out[$c['k']] = $c['def'];
+                    continue;
+                }
+                if (!empty($c['def_from']) && array_key_exists($c['def_from'], $out)) {
+                    $out[$c['k']] = $out[$c['def_from']];
+                    continue;
+                }
+                $out[$c['k']] = ($c['type'] ?? '') === 'color' ? '#600000' : 0;
+            }
+        }
+        // Keep legacy keys used by older CSS / preview helpers
+        $out['title_size'] = (int)$out['title_size'];
+        $out['parish_size'] = (int)($out['parish_size'] ?? $out['parish_size']);
+        return $out;
+    }
+
     /** @return list<string> */
     public static function intKeys(): array
     {
-        return [
-            'logo_x', 'logo_y', 'logo_size', 'logo_opacity',
-            'header_top', 'header_bottom', 'header_left',
-            'seal_x', 'seal_y', 'seal_size', 'seal_opacity',
-            'sig_head_size', 'sig_head_opacity', 'sig_admin_size', 'sig_admin_opacity',
-            'title_size', 'parish_size', 'label_size', 'value_size', 'code_size',
-            'bar_height', 'photo_w', 'photo_h', 'qr_size',
-        ];
+        $keys = ['label_size', 'value_size', 'code_size', 'title_size', 'parish_size'];
+        foreach (self::elements() as $el) {
+            foreach ($el['controls'] as $c) {
+                if (($c['type'] ?? '') === 'int') {
+                    $keys[] = $c['k'];
+                }
+            }
+        }
+        return array_values(array_unique($keys));
     }
 
     /** @return list<string> */
     public static function colorKeys(): array
     {
-        return ['label_color', 'title_color', 'gold_color', 'bar_color', 'value_color'];
+        $keys = ['label_color', 'title_color', 'gold_color', 'bar_color', 'value_color'];
+        foreach (self::elements() as $el) {
+            foreach ($el['controls'] as $c) {
+                if (($c['type'] ?? '') === 'color') {
+                    $keys[] = $c['k'];
+                }
+            }
+        }
+        return array_values(array_unique($keys));
+    }
+
+    /** @return array<string,array{0:int,1:int}> */
+    private static function ranges(): array
+    {
+        $out = [
+            'label_size' => [10, 40],
+            'value_size' => [12, 56],
+            'code_size' => [14, 56],
+            'title_size' => [10, 56],
+            'parish_size' => [10, 56],
+        ];
+        foreach (self::elements() as $el) {
+            foreach ($el['controls'] as $c) {
+                if (($c['type'] ?? '') === 'int') {
+                    $out[$c['k']] = [(int)($c['min'] ?? 0), (int)($c['max'] ?? 1000)];
+                }
+            }
+        }
+        return $out;
     }
 
     /**
@@ -72,16 +257,7 @@ class IdCardLayout
     public static function sanitize(array $in): array
     {
         $out = self::defaults();
-        $ranges = [
-            'logo_x' => [0, 900], 'logo_y' => [0, 500], 'logo_size' => [48, 260], 'logo_opacity' => [10, 100],
-            'header_top' => [0, 80], 'header_bottom' => [0, 80], 'header_left' => [0, 280],
-            'seal_x' => [0, 940], 'seal_y' => [0, 560], 'seal_size' => [40, 280], 'seal_opacity' => [10, 100],
-            'sig_head_size' => [40, 280], 'sig_head_opacity' => [10, 100],
-            'sig_admin_size' => [40, 280], 'sig_admin_opacity' => [10, 100],
-            'title_size' => [14, 40], 'parish_size' => [14, 40],
-            'label_size' => [12, 32], 'value_size' => [14, 40], 'code_size' => [18, 48],
-            'bar_height' => [16, 64], 'photo_w' => [120, 320], 'photo_h' => [140, 360], 'qr_size' => [120, 300],
-        ];
+        $ranges = self::ranges();
         foreach (self::intKeys() as $k) {
             if (!isset($in[$k]) || !is_numeric($in[$k])) {
                 continue;
@@ -101,11 +277,21 @@ class IdCardLayout
         return $out;
     }
 
+    public static function ensureStorage(\mysqli $conn): void
+    {
+        try {
+            $conn->query("ALTER TABLE `system_branding` MODIFY `original_name` MEDIUMTEXT NULL");
+        } catch (\Throwable $e) {
+            /* already wide, or no table yet */
+        }
+    }
+
     /** @return array<string,int|string> */
     public static function load(\mysqli $conn): array
     {
         $out = self::defaults();
         try {
+            self::ensureStorage($conn);
             $chk = $conn->query("SHOW TABLES LIKE 'system_branding'");
             if (!$chk || $chk->num_rows === 0) {
                 return $out;
@@ -168,38 +354,38 @@ class IdCardLayout
                 : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
         }
         $bgUrl = 'url(\'' . str_replace(["'", '\\'], '', $background) . '\')';
-        $parts = [
-            '--id-bg:' . $bgUrl,
-            '--id-logo-x:' . (int)$s['logo_x'] . 'px',
-            '--id-logo-y:' . (int)$s['logo_y'] . 'px',
-            '--id-logo-size:' . (int)$s['logo_size'] . 'px',
-            '--id-logo-opacity:' . (max(10, (int)$s['logo_opacity']) / 100),
-            '--id-header-top:' . (int)$s['header_top'] . 'px',
-            '--id-header-bottom:' . (int)$s['header_bottom'] . 'px',
-            '--id-header-left:' . (int)$s['header_left'] . 'px',
-            '--id-seal-x:' . (int)$s['seal_x'] . 'px',
-            '--id-seal-y:' . (int)$s['seal_y'] . 'px',
-            '--id-seal-size:' . (int)$s['seal_size'] . 'px',
-            '--id-seal-opacity:' . (max(10, (int)$s['seal_opacity']) / 100),
-            '--id-sig-head:' . (int)$s['sig_head_size'] . 'px',
-            '--id-sig-head-op:' . (max(10, (int)$s['sig_head_opacity']) / 100),
-            '--id-sig-admin:' . (int)$s['sig_admin_size'] . 'px',
-            '--id-sig-admin-op:' . (max(10, (int)$s['sig_admin_opacity']) / 100),
-            '--id-title-size:' . (int)$s['title_size'] . 'px',
-            '--id-parish-size:' . (int)$s['parish_size'] . 'px',
-            '--id-label-size:' . (int)$s['label_size'] . 'px',
-            '--id-value-size:' . (int)$s['value_size'] . 'px',
-            '--id-code-size:' . (int)$s['code_size'] . 'px',
-            '--id-bar-height:' . (int)$s['bar_height'] . 'px',
-            '--id-photo-w:' . (int)$s['photo_w'] . 'px',
-            '--id-photo-h:' . (int)$s['photo_h'] . 'px',
-            '--id-qr-size:' . (int)$s['qr_size'] . 'px',
-            '--id-label-color:' . $s['label_color'],
-            '--id-title-color:' . $s['title_color'],
-            '--id-gold-color:' . $s['gold_color'],
-            '--id-bar-color:' . $s['bar_color'],
-            '--id-value-color:' . $s['value_color'],
+        $parts = ['--id-bg:' . $bgUrl];
+
+        $opacityKeys = [
+            'logo_opacity', 'seal_opacity', 'sig_head_opacity', 'sig_admin_opacity',
         ];
+        foreach (self::intKeys() as $k) {
+            $css = '--id-' . str_replace('_', '-', $k);
+            if (in_array($k, $opacityKeys, true)) {
+                $parts[] = $css . ':' . (max(10, (int)$s[$k]) / 100);
+            } else {
+                $parts[] = $css . ':' . (int)$s[$k] . 'px';
+            }
+        }
+        foreach (self::colorKeys() as $k) {
+            $parts[] = '--id-' . str_replace('_', '-', $k) . ':' . $s[$k];
+        }
+        // Aliases the existing CSS already understands
+        $parts[] = '--id-title-size:' . (int)$s['title_size'] . 'px';
+        $parts[] = '--id-parish-size:' . (int)$s['parish_size'] . 'px';
+        $parts[] = '--id-sig-head:' . (int)$s['sig_head_size'] . 'px';
+        $parts[] = '--id-sig-head-op:' . (max(10, (int)$s['sig_head_opacity']) / 100);
+        $parts[] = '--id-sig-admin:' . (int)$s['sig_admin_size'] . 'px';
+        $parts[] = '--id-sig-admin-op:' . (max(10, (int)$s['sig_admin_opacity']) / 100);
         return implode(';', $parts);
+    }
+
+    /** @return array{elements:list<array<string,mixed>>,defaults:array<string,int|string>} */
+    public static function designerSchema(): array
+    {
+        return [
+            'elements' => self::elements(),
+            'defaults' => self::defaults(),
+        ];
     }
 }

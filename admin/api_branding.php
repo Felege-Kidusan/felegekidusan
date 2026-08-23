@@ -260,8 +260,14 @@ switch ($action) {
         }
         
         $settings = \App\Services\IdCardLayout::load($conn);
-        
-        echo json_encode(['status' => 'success', 'assets' => $assets, 'settings' => $settings]);
+        $schema = \App\Services\IdCardLayout::designerSchema();
+
+        echo json_encode([
+            'status' => 'success',
+            'assets' => $assets,
+            'settings' => $settings,
+            'schema' => $schema,
+        ], JSON_UNESCAPED_UNICODE);
         break;
 
     // ============================================================
