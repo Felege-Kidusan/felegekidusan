@@ -7,6 +7,7 @@
 
   var DEFAULTS = {
     logo_x: 22, logo_y: 14, logo_size: 118, logo_opacity: 100,
+    header_top: 8, header_bottom: 6, header_left: 0,
     seal_x: 830, seal_y: 390, seal_size: 150, seal_opacity: 85,
     sig_head_size: 140, sig_head_opacity: 90,
     sig_admin_size: 140, sig_admin_opacity: 90,
@@ -22,6 +23,11 @@
       { k: 'logo_y', label: 'Top', min: 0, max: 500 },
       { k: 'logo_size', label: 'Size', min: 48, max: 260 },
       { k: 'logo_opacity', label: 'Opacity', min: 10, max: 100 }
+    ]},
+    { title: 'Header text', fields: [
+      { k: 'header_top', label: 'Top space', min: 0, max: 80 },
+      { k: 'header_bottom', label: 'Bottom space', min: 0, max: 80 },
+      { k: 'header_left', label: 'Left space', min: 0, max: 280 }
     ]},
     { title: 'Seal', fields: [
       { k: 'seal_x', label: 'Left', min: 0, max: 940 },
@@ -69,6 +75,9 @@
       '--id-logo-y:' + state.logo_y + 'px',
       '--id-logo-size:' + state.logo_size + 'px',
       '--id-logo-opacity:' + (state.logo_opacity / 100),
+      '--id-header-top:' + state.header_top + 'px',
+      '--id-header-bottom:' + state.header_bottom + 'px',
+      '--id-header-left:' + state.header_left + 'px',
       '--id-seal-x:' + state.seal_x + 'px',
       '--id-seal-y:' + state.seal_y + 'px',
       '--id-seal-size:' + state.seal_size + 'px',

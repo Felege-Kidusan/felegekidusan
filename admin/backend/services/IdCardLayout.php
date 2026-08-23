@@ -18,6 +18,9 @@ class IdCardLayout
             'logo_y' => 14,
             'logo_size' => 118,
             'logo_opacity' => 100,
+            'header_top' => 8,
+            'header_bottom' => 6,
+            'header_left' => 0,
             'seal_x' => 830,
             'seal_y' => 390,
             'seal_size' => 150,
@@ -48,6 +51,7 @@ class IdCardLayout
     {
         return [
             'logo_x', 'logo_y', 'logo_size', 'logo_opacity',
+            'header_top', 'header_bottom', 'header_left',
             'seal_x', 'seal_y', 'seal_size', 'seal_opacity',
             'sig_head_size', 'sig_head_opacity', 'sig_admin_size', 'sig_admin_opacity',
             'title_size', 'parish_size', 'label_size', 'value_size', 'code_size',
@@ -70,6 +74,7 @@ class IdCardLayout
         $out = self::defaults();
         $ranges = [
             'logo_x' => [0, 900], 'logo_y' => [0, 500], 'logo_size' => [48, 260], 'logo_opacity' => [10, 100],
+            'header_top' => [0, 80], 'header_bottom' => [0, 80], 'header_left' => [0, 280],
             'seal_x' => [0, 940], 'seal_y' => [0, 560], 'seal_size' => [40, 280], 'seal_opacity' => [10, 100],
             'sig_head_size' => [40, 280], 'sig_head_opacity' => [10, 100],
             'sig_admin_size' => [40, 280], 'sig_admin_opacity' => [10, 100],
@@ -169,6 +174,9 @@ class IdCardLayout
             '--id-logo-y:' . (int)$s['logo_y'] . 'px',
             '--id-logo-size:' . (int)$s['logo_size'] . 'px',
             '--id-logo-opacity:' . (max(10, (int)$s['logo_opacity']) / 100),
+            '--id-header-top:' . (int)$s['header_top'] . 'px',
+            '--id-header-bottom:' . (int)$s['header_bottom'] . 'px',
+            '--id-header-left:' . (int)$s['header_left'] . 'px',
             '--id-seal-x:' . (int)$s['seal_x'] . 'px',
             '--id-seal-y:' . (int)$s['seal_y'] . 'px',
             '--id-seal-size:' . (int)$s['seal_size'] . 'px',

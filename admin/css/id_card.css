@@ -1,4 +1,4 @@
-/* Shared CR80 ID card. Sizes and colours come from --id-* variables. v=20260819e */
+/* Shared CR80 ID card. Sizes and colours come from --id-* variables. v=20260823a */
 .id-card-template {
     width: 1011px; height: 638px;
     background-color: #f3e6c4;
@@ -13,7 +13,7 @@
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    padding: 18px 22px 14px;
+    padding: 0 22px 14px;
     color: var(--id-value-color, #1a0a0a);
     font-family: 'Noto Sans Ethiopic', 'Noto Serif Ethiopic', sans-serif;
     -webkit-print-color-adjust: exact;
@@ -24,9 +24,19 @@
     background-size: cover; background-position: center; background-repeat: no-repeat;
     z-index: 0; pointer-events: none;
 }
-.id-card-template > *:not(.id-card-bg) { position: relative; z-index: 1; }
-.id-head { display: flex; align-items: center; gap: 14px; min-height: 108px; padding-left: calc(var(--id-logo-size, 118px) + 8px); }
-.id-head-simple { justify-content: center; min-height: 78px; padding-left: 0; }
+.id-card-template > *:not(.id-card-bg):not(.id-logo) { position: relative; z-index: 3; }
+.id-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    min-height: 0;
+    padding-top: var(--id-header-top, 8px);
+    padding-bottom: var(--id-header-bottom, 6px);
+    padding-left: var(--id-header-left, 0px);
+    z-index: 4;
+}
+.id-head-simple { justify-content: center; min-height: 0; }
 .id-logo {
     position: absolute;
     left: var(--id-logo-x, 22px);
@@ -36,7 +46,8 @@
     opacity: var(--id-logo-opacity, 1);
     background: transparent;
     border: none;
-    z-index: 3;
+    z-index: 2;
+    pointer-events: none;
 }
 .id-head-text { flex: 1; text-align: center; min-width: 0; }
 .id-invoc { margin: 0; font-size: 15px; font-weight: 700; color: var(--id-title-color, #600000); letter-spacing: .02em; }
