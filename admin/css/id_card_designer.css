@@ -6,6 +6,7 @@
 #idDesigner label{display:block;font-size:.68rem;color:#94a3b8;margin:.35rem 0 .1rem}
 #idDesigner input[type=range]{width:100%;accent-color:#F0C000}
 #idDesigner input[type=color]{width:100%;height:28px;border:0;background:transparent;padding:0;cursor:pointer}
+#idDesigner .idc-text{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.25);color:#f8fafc;border-radius:8px;padding:.4rem .5rem;font-size:.78rem;font-family:inherit}
 #idDesigner .idc-val{float:right;color:#e2e8f0;font-weight:700}
 #idDesigner .idc-list{display:flex;flex-wrap:wrap;gap:.35rem;margin:.45rem 0 .75rem}
 #idDesigner .idc-item{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;border-radius:8px;padding:.32rem .55rem;font-size:.68rem;font-weight:700;cursor:pointer}

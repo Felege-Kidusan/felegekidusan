@@ -52,31 +52,29 @@ class IdCardLayout
             ],
             $text('invoc', 'Invocation', 'front', 15),
             $text('parish', 'Parish name', 'front', 26),
-            $text('title', 'Amharic title', 'both', 24),
+            $text('title_front', 'Front Amharic title', 'front', 24),
             [
-                'id' => 'title_en', 'label' => 'English title', 'side' => 'both',
+                'id' => 'title_en_front', 'label' => 'Front English title', 'side' => 'front',
                 'controls' => [
-                    ['k' => 'title_en_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 16],
-                    ['k' => 'title_en_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'gold_color'],
+                    ['k' => 'title_en_front_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 16],
+                    ['k' => 'title_en_front_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'gold_color'],
                 ],
             ],
             [
-                'id' => 'header', 'label' => 'Header space', 'side' => 'both',
+                'id' => 'header_front', 'label' => 'Front header space', 'side' => 'front',
                 'controls' => [
-                    ['k' => 'header_top', 'label' => 'Top space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 8],
-                    ['k' => 'header_bottom', 'label' => 'Bottom space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 6],
-                    ['k' => 'header_left', 'label' => 'Left space', 'type' => 'int', 'min' => 0, 'max' => 280, 'def' => 0],
+                    ['k' => 'header_front_top', 'label' => 'Top space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 8],
+                    ['k' => 'header_front_bottom', 'label' => 'Bottom space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 6],
+                    ['k' => 'header_front_left', 'label' => 'Left space', 'type' => 'int', 'min' => 0, 'max' => 280, 'def' => 0],
                 ],
             ],
             [
-                'id' => 'bar', 'label' => 'Maroon bar', 'side' => 'both',
+                'id' => 'bar_front', 'label' => 'Front maroon bar', 'side' => 'front',
                 'controls' => [
-                    ['k' => 'bar_height', 'label' => 'Height', 'type' => 'int', 'min' => 8, 'max' => 80, 'def' => 38],
-                    ['k' => 'bar_color', 'label' => 'Bar colour', 'type' => 'color', 'def' => '#600000'],
-                    ['k' => 'bar_gold', 'label' => 'Gold line', 'type' => 'int', 'min' => 0, 'max' => 12, 'def' => 4],
-                    ['k' => 'gold_color', 'label' => 'Gold colour', 'type' => 'color', 'def' => '#B8860B'],
-                    ['k' => 'bar_label_size', 'label' => 'Back label size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 22],
-                    ['k' => 'bar_label_color', 'label' => 'Back label colour', 'type' => 'color', 'def' => '#F0C000'],
+                    ['k' => 'bar_front_height', 'label' => 'Height', 'type' => 'int', 'min' => 8, 'max' => 80, 'def' => 38],
+                    ['k' => 'bar_front_color', 'label' => 'Bar colour', 'type' => 'color', 'def' => '#600000'],
+                    ['k' => 'bar_front_gold', 'label' => 'Gold line', 'type' => 'int', 'min' => 0, 'max' => 12, 'def' => 4],
+                    ['k' => 'bar_front_gold_color', 'label' => 'Gold colour', 'type' => 'color', 'def' => '#B8860B'],
                 ],
             ],
             [
@@ -94,21 +92,23 @@ class IdCardLayout
             $row('age', 'Age', 'front'),
             $row('code', 'ID number', 'front', true),
             [
-                'id' => 'sig_head', 'label' => 'Head signature', 'side' => 'front',
+                'id' => 'sig_head', 'label' => 'የሰንበት ት/ቤትቱ ሃላፊ ስምና ፊርማ', 'side' => 'front',
                 'controls' => [
-                    ['k' => 'sig_head_size', 'label' => 'Width', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 140],
-                    ['k' => 'sig_head_opacity', 'label' => 'Opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 90],
-                    ['k' => 'sig_head_lbl_size', 'label' => 'Caption size', 'type' => 'int', 'min' => 8, 'max' => 24, 'def' => 13],
+                    ['k' => 'sig_head_text', 'label' => 'Caption text', 'type' => 'text', 'def' => 'የሰንበት ት/ቤትቱ ሃላፊ ስምና ፊርማ'],
+                    ['k' => 'sig_head_lbl_size', 'label' => 'Caption size', 'type' => 'int', 'min' => 8, 'max' => 40, 'def' => 13],
                     ['k' => 'sig_head_lbl_color', 'label' => 'Caption colour', 'type' => 'color', 'def_from' => 'label_color'],
+                    ['k' => 'sig_head_size', 'label' => 'Signature width', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 140],
+                    ['k' => 'sig_head_opacity', 'label' => 'Signature opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 90],
                 ],
             ],
             [
-                'id' => 'sig_admin', 'label' => 'Director signature', 'side' => 'front',
+                'id' => 'sig_admin', 'label' => 'የደብሩ አስተዳደር ስምና ፊርማ', 'side' => 'front',
                 'controls' => [
-                    ['k' => 'sig_admin_size', 'label' => 'Width', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 140],
-                    ['k' => 'sig_admin_opacity', 'label' => 'Opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 90],
-                    ['k' => 'sig_admin_lbl_size', 'label' => 'Caption size', 'type' => 'int', 'min' => 8, 'max' => 24, 'def' => 13],
+                    ['k' => 'sig_admin_text', 'label' => 'Caption text', 'type' => 'text', 'def' => 'የደብሩ አስተዳደር ስምና ፊርማ'],
+                    ['k' => 'sig_admin_lbl_size', 'label' => 'Caption size', 'type' => 'int', 'min' => 8, 'max' => 40, 'def' => 13],
                     ['k' => 'sig_admin_lbl_color', 'label' => 'Caption colour', 'type' => 'color', 'def_from' => 'label_color'],
+                    ['k' => 'sig_admin_size', 'label' => 'Signature width', 'type' => 'int', 'min' => 40, 'max' => 280, 'def' => 140],
+                    ['k' => 'sig_admin_opacity', 'label' => 'Signature opacity', 'type' => 'int', 'min' => 10, 'max' => 100, 'def' => 90],
                 ],
             ],
             [
@@ -123,8 +123,37 @@ class IdCardLayout
             [
                 'id' => 'foot_front', 'label' => 'Front footer', 'side' => 'front',
                 'controls' => [
+                    ['k' => 'foot_front_text', 'label' => 'Footer text', 'type' => 'text', 'def' => ''],
                     ['k' => 'foot_front_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 36, 'def' => 22],
                     ['k' => 'foot_front_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'title_color'],
+                ],
+            ],
+            $text('title_back', 'Back Amharic title', 'back', 24),
+            [
+                'id' => 'title_en_back', 'label' => 'Back English title', 'side' => 'back',
+                'controls' => [
+                    ['k' => 'title_en_back_size', 'label' => 'Size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 16],
+                    ['k' => 'title_en_back_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'gold_color'],
+                ],
+            ],
+            [
+                'id' => 'header_back', 'label' => 'Back header space', 'side' => 'back',
+                'controls' => [
+                    ['k' => 'header_back_top', 'label' => 'Top space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 8],
+                    ['k' => 'header_back_bottom', 'label' => 'Bottom space', 'type' => 'int', 'min' => 0, 'max' => 80, 'def' => 6],
+                    ['k' => 'header_back_left', 'label' => 'Left space', 'type' => 'int', 'min' => 0, 'max' => 280, 'def' => 0],
+                ],
+            ],
+            [
+                'id' => 'bar_back', 'label' => 'Back maroon bar', 'side' => 'back',
+                'controls' => [
+                    ['k' => 'bar_back_text', 'label' => 'Bar text', 'type' => 'text', 'def' => 'የአባል መረጃና የአደጋ ጊዜ ተጠሪ'],
+                    ['k' => 'bar_back_height', 'label' => 'Height', 'type' => 'int', 'min' => 8, 'max' => 80, 'def' => 38],
+                    ['k' => 'bar_back_color', 'label' => 'Bar colour', 'type' => 'color', 'def' => '#600000'],
+                    ['k' => 'bar_back_gold', 'label' => 'Gold line', 'type' => 'int', 'min' => 0, 'max' => 12, 'def' => 4],
+                    ['k' => 'bar_back_gold_color', 'label' => 'Gold colour', 'type' => 'color', 'def' => '#B8860B'],
+                    ['k' => 'bar_back_label_size', 'label' => 'Bar text size', 'type' => 'int', 'min' => 10, 'max' => 40, 'def' => 22],
+                    ['k' => 'bar_back_label_color', 'label' => 'Bar text colour', 'type' => 'color', 'def' => '#F0C000'],
                 ],
             ],
             $row('phone', 'Phone', 'back'),
@@ -132,6 +161,7 @@ class IdCardLayout
             [
                 'id' => 'em_head', 'label' => 'Emergency heading', 'side' => 'back',
                 'controls' => [
+                    ['k' => 'em_head_text', 'label' => 'Heading text', 'type' => 'text', 'def' => 'የአደጋ ጊዜ ተጠሪ መረጃ'],
                     ['k' => 'em_head_size', 'label' => 'Size', 'type' => 'int', 'min' => 12, 'max' => 36, 'def' => 22],
                     ['k' => 'em_head_color', 'label' => 'Colour', 'type' => 'color', 'def_from' => 'title_color'],
                     ['k' => 'em_head_line', 'label' => 'Underline', 'type' => 'int', 'min' => 0, 'max' => 10, 'def' => 3],
@@ -155,6 +185,7 @@ class IdCardLayout
             [
                 'id' => 'foot_back', 'label' => 'Back disclaimer', 'side' => 'back',
                 'controls' => [
+                    ['k' => 'foot_back_text', 'label' => 'Disclaimer text', 'type' => 'text', 'def' => ''],
                     ['k' => 'foot_back_size', 'label' => 'Size', 'type' => 'int', 'min' => 8, 'max' => 28, 'def' => 14],
                     ['k' => 'foot_back_color', 'label' => 'Colour', 'type' => 'color', 'def' => '#3B0000'],
                 ],
@@ -209,6 +240,20 @@ class IdCardLayout
         foreach (self::elements() as $el) {
             foreach ($el['controls'] as $c) {
                 if (($c['type'] ?? '') === 'int') {
+                    $keys[] = $c['k'];
+                }
+            }
+        }
+        return array_values(array_unique($keys));
+    }
+
+    /** @return list<string> */
+    public static function textKeys(): array
+    {
+        $keys = [];
+        foreach (self::elements() as $el) {
+            foreach ($el['controls'] as $c) {
+                if (($c['type'] ?? '') === 'text') {
                     $keys[] = $c['k'];
                 }
             }
@@ -272,6 +317,49 @@ class IdCardLayout
             }
             if (preg_match('/^#[0-9A-Fa-f]{6}$/', $in[$k])) {
                 $out[$k] = strtoupper($in[$k]);
+            }
+        }
+        foreach (self::textKeys() as $k) {
+            if (!isset($in[$k]) || !is_string($in[$k])) {
+                continue;
+            }
+            $out[$k] = trim(preg_replace('/\s+/u', ' ', strip_tags($in[$k])));
+            if (function_exists('mb_substr')) {
+                $out[$k] = mb_substr($out[$k], 0, 180);
+            } else {
+                $out[$k] = substr($out[$k], 0, 180);
+            }
+        }
+        // Old saves used one size for both sides — copy if the new keys are missing.
+        $legacy = [
+            'title_size' => ['title_front_size', 'title_back_size'],
+            'title_color' => ['title_front_color', 'title_back_color'],
+            'title_en_size' => ['title_en_front_size', 'title_en_back_size'],
+            'title_en_color' => ['title_en_front_color', 'title_en_back_color'],
+            'header_top' => ['header_front_top', 'header_back_top'],
+            'header_bottom' => ['header_front_bottom', 'header_back_bottom'],
+            'header_left' => ['header_front_left', 'header_back_left'],
+            'bar_height' => ['bar_front_height', 'bar_back_height'],
+            'bar_color' => ['bar_front_color', 'bar_back_color'],
+            'bar_gold' => ['bar_front_gold', 'bar_back_gold'],
+            'gold_color' => ['bar_front_gold_color', 'bar_back_gold_color'],
+            'bar_label_size' => ['bar_back_label_size'],
+            'bar_label_color' => ['bar_back_label_color'],
+        ];
+        foreach ($legacy as $old => $news) {
+            if (!array_key_exists($old, $in)) {
+                continue;
+            }
+            foreach ($news as $n) {
+                if (array_key_exists($n, $in)) {
+                    continue;
+                }
+                if (isset($ranges[$n]) && is_numeric($in[$old])) {
+                    $r = $ranges[$n];
+                    $out[$n] = max($r[0], min($r[1], (int)$in[$old]));
+                } elseif (is_string($in[$old]) && preg_match('/^#[0-9A-Fa-f]{6}$/', $in[$old])) {
+                    $out[$n] = strtoupper($in[$old]);
+                }
             }
         }
         return $out;

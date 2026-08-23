@@ -30,7 +30,7 @@
         parts.push(cssName(k) + ':' + v);
       } else if (opacityKey(k)) {
         parts.push(cssName(k) + ':' + (Math.max(10, parseInt(v, 10) || 10) / 100));
-      } else if (typeof v === 'number' || (typeof v === 'string' && v !== '' && !isNaN(v))) {
+      } else if (typeof v === 'number' || (typeof v === 'string' && v !== '' && /^-?\d+$/.test(String(v)))) {
         parts.push(cssName(k) + ':' + parseInt(v, 10) + 'px');
       }
     });
@@ -42,10 +42,18 @@
     return parts.join(';');
   }
 
+  function textBag() {
+    var bag = {};
+    Object.keys(state).forEach(function (k) {
+      if (typeof state[k] === 'string' && state[k].charAt(0) !== '#') bag[k] = state[k];
+    });
+    return bag;
+  }
+
   function pushPreview() {
     if (!frame || !frame.contentWindow) return;
     frame.contentWindow.postMessage(
-      { type: 'id-layout', style: cssVars(), pick: selected },
+      { type: 'id-layout', style: cssVars(), pick: selected, texts: textBag() },
       window.location.origin
     );
   }
@@ -90,10 +98,16 @@
   }
 
   function bindInputs(scope) {
-    (scope || root).querySelectorAll('input[data-k]').forEach(function (inp) {
+    (scope || root).querySelectorAll('[data-k]').forEach(function (inp) {
       inp.addEventListener('input', function () {
         var k = inp.getAttribute('data-k');
-        state[k] = inp.type === 'color' ? inp.value.toUpperCase() : parseInt(inp.value, 10);
+        if (inp.getAttribute('data-type') === 'text' || inp.tagName === 'TEXTAREA') {
+          state[k] = inp.value;
+        } else if (inp.type === 'color') {
+          state[k] = inp.value.toUpperCase();
+        } else {
+          state[k] = parseInt(inp.value, 10);
+        }
         var lab = root.querySelector('[data-val="' + k + '"]');
         if (lab) lab.textContent = state[k];
         pushPreview();
@@ -116,6 +130,9 @@
       if (val === undefined || val === null) val = c.def;
       if (c.type === 'color') {
         html += '<label>' + c.label + '</label><input type="color" value="' + val + '" data-k="' + c.k + '">';
+      } else if (c.type === 'text') {
+        var safe = String(val == null ? '' : val).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        html += '<label>' + c.label + '</label><input type="text" class="idc-text" value="' + safe + '" data-k="' + c.k + '" data-type="text">';
       } else {
         html += '<label>' + c.label + ' <span class="idc-val" data-val="' + c.k + '">' + val + '</span></label>' +
           '<input type="range" min="' + c.min + '" max="' + c.max + '" value="' + val + '" data-k="' + c.k + '">';

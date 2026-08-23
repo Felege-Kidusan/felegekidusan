@@ -13,6 +13,17 @@ if ($g === 'male' || $g === 'm' || $g === 'ወንድ') {
 }
 $cardStyle = !empty($ID_CARD_STYLE) ? $ID_CARD_STYLE : '';
 $hideSide = $ID_CARD_SIDE ?? '';
+$ID_CARD_LAYOUT = is_array($ID_CARD_LAYOUT ?? null) ? $ID_CARD_LAYOUT : [];
+$idCardTxt = static function (string $key, string $fallback) use ($ID_CARD_LAYOUT): string {
+    $v = trim((string)($ID_CARD_LAYOUT[$key] ?? ''));
+    return $v !== '' ? $v : $fallback;
+};
+$sigHeadText = $idCardTxt('sig_head_text', defined('ID_CARD_SIG_HEAD_AM') ? ID_CARD_SIG_HEAD_AM : 'የሰንበት ት/ቤትቱ ሃላፊ ስምና ፊርማ');
+$sigAdminText = $idCardTxt('sig_admin_text', defined('ID_CARD_SIG_ADMIN_AM') ? ID_CARD_SIG_ADMIN_AM : 'የደብሩ አስተዳደር ስምና ፊርማ');
+$barBackText = $idCardTxt('bar_back_text', 'የአባል መረጃና የአደጋ ጊዜ ተጠሪ');
+$emHeadText = $idCardTxt('em_head_text', 'የአደጋ ጊዜ ተጠሪ መረጃ');
+$footFrontText = $idCardTxt('foot_front_text', (defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : '') . ' ' . (defined('SCHOOL_TYPE_AM') ? SCHOOL_TYPE_AM : ''));
+$footBackText = $idCardTxt('foot_back_text', defined('ID_CARD_DISCLAIMER_AM') ? ID_CARD_DISCLAIMER_AM : '');
 ?>
 <?php if ($hideSide !== 'back'): ?>
 <div class="id-card-template id-front" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
@@ -22,15 +33,15 @@ $hideSide = $ID_CARD_SIDE ?? '';
         <img src="<?php echo htmlspecialchars($CONFIG['logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="" style="width:100%;height:100%;object-fit:contain;background:transparent;" onerror="this.style.display='none'">
         <?php endif; ?>
     </div>
-    <header class="id-head" data-idc="header">
+    <header class="id-head" data-idc="header_front">
         <div class="id-head-text">
             <p class="id-invoc" data-idc="invoc"><?= RELIGIOUS_INVOCATION ?></p>
             <h1 class="id-parish" data-idc="parish"><?= PARISH_NAME_AM ?></h1>
-            <h2 class="id-title" data-idc="title"><?= ID_CARD_TITLE_AM ?></h2>
-            <h3 class="id-title-en" data-idc="title_en"><?= ID_CARD_TITLE_EN ?></h3>
+            <h2 class="id-title" data-idc="title_front"><?= ID_CARD_TITLE_AM ?></h2>
+            <h3 class="id-title-en" data-idc="title_en_front"><?= ID_CARD_TITLE_EN ?></h3>
         </div>
     </header>
-    <div class="id-bar" data-idc="bar"></div>
+    <div class="id-bar" data-idc="bar_front"></div>
     <div class="id-body">
         <div class="id-photo" data-idc="photo">
             <?php if (!empty($member['student_photo_path'])): ?>
@@ -48,11 +59,11 @@ $hideSide = $ID_CARD_SIDE ?? '';
             <div class="id-signs">
                 <div data-idc="sig_head">
                     <div class="id-sign-img"><?php if (!empty($CONFIG['sig_head'])): ?><img class="id-sign-head" src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>
-                    <p class="id-sign-lbl id-sign-head-cap"><?= ID_CARD_SIG_HEAD_AM ?></p>
+                    <p class="id-sign-lbl id-sign-head-cap" data-idc-text="sig_head_text"><?php echo htmlspecialchars($sigHeadText); ?></p>
                 </div>
                 <div data-idc="sig_admin">
                     <div class="id-sign-img"><?php if (!empty($CONFIG['sig_admin'])): ?><img class="id-sign-admin" src="<?php echo htmlspecialchars($CONFIG['sig_admin'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>
-                    <p class="id-sign-lbl id-sign-admin-cap"><?= ID_CARD_SIG_ADMIN_AM ?></p>
+                    <p class="id-sign-lbl id-sign-admin-cap" data-idc-text="sig_admin_text"><?php echo htmlspecialchars($sigAdminText); ?></p>
                 </div>
             </div>
         </div>
@@ -61,7 +72,7 @@ $hideSide = $ID_CARD_SIDE ?? '';
         <img src="<?php echo htmlspecialchars($CONFIG['seal'], ENT_QUOTES, 'UTF-8'); ?>" alt="">
     </div>
     <footer class="id-foot" data-idc="foot_front">
-        <h2><?= SCHOOL_NAME_SHORT_AM ?> <?= SCHOOL_TYPE_AM ?></h2>
+        <h2 data-idc-text="foot_front_text"><?php echo htmlspecialchars($footFrontText); ?></h2>
     </footer>
 </div>
 <?php endif; ?>
@@ -69,18 +80,18 @@ $hideSide = $ID_CARD_SIDE ?? '';
 <?php if ($hideSide !== 'front'): ?>
 <div class="id-card-template id-back" style="<?= htmlspecialchars($cardStyle, ENT_QUOTES, 'UTF-8') ?>">
     <div class="id-card-bg" style="background-image:url('<?= $idCardBgEsc ?>')"></div>
-    <header class="id-head id-head-simple" data-idc="header">
+    <header class="id-head id-head-simple" data-idc="header_back">
         <div class="id-head-text">
-            <h2 class="id-title" data-idc="title"><?= ID_CARD_TITLE_AM ?></h2>
-            <h3 class="id-title-en" data-idc="title_en"><?= ID_CARD_TITLE_EN ?></h3>
+            <h2 class="id-title" data-idc="title_back"><?= ID_CARD_TITLE_AM ?></h2>
+            <h3 class="id-title-en" data-idc="title_en_back"><?= ID_CARD_TITLE_EN ?></h3>
         </div>
     </header>
-    <div class="id-bar id-bar-label" data-idc="bar">የአባል መረጃና የአደጋ ጊዜ ተጠሪ</div>
+    <div class="id-bar id-bar-label" data-idc="bar_back" data-idc-text="bar_back_text"><?php echo htmlspecialchars($barBackText); ?></div>
     <div class="id-body id-body-back">
         <div class="id-fields">
             <div class="id-row id-el-phone" data-idc="phone"><span class="id-lbl">ስልክ ቁጥር</span><span class="id-val"><?php echo htmlspecialchars((string)($member['phone_number'] ?? '')); ?></span></div>
             <div class="id-row id-el-address" data-idc="address"><span class="id-lbl">የመኖሪያ አድራሻ</span><span class="id-val"><?php echo htmlspecialchars((string)($member['address'] ?? '')); ?></span></div>
-            <h4 class="id-subhead" data-idc="em_head">የአደጋ ጊዜ ተጠሪ መረጃ</h4>
+            <h4 class="id-subhead" data-idc="em_head" data-idc-text="em_head_text"><?php echo htmlspecialchars($emHeadText); ?></h4>
             <div class="id-row id-el-em-name" data-idc="em_name"><span class="id-lbl">ሙሉ ስም</span><span class="id-val"><?php echo htmlspecialchars((string)$member['emergency_name']); ?></span></div>
             <div class="id-row id-el-em-phone" data-idc="em_phone"><span class="id-lbl">ስልክ ቁጥር</span><span class="id-val"><?php echo htmlspecialchars((string)$member['emergency_phone']); ?></span></div>
             <div class="id-row id-row-split">
@@ -103,8 +114,8 @@ $hideSide = $ID_CARD_SIDE ?? '';
             <p class="id-qr-hint">የመታወቂያውን ትክክለኛነት<br>ለማረጋገጥ ስካን ያድርጉ</p>
         </div>
     </div>
-    <footer class="id-foot">
-        <p><?= ID_CARD_DISCLAIMER_AM ?></p>
+    <footer class="id-foot" data-idc="foot_back">
+        <p data-idc-text="foot_back_text"><?php echo htmlspecialchars($footBackText); ?></p>
     </footer>
 </div>
 <?php endif; ?>

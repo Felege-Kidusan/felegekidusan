@@ -17,6 +17,7 @@ $side = ($_GET['side'] ?? 'front') === 'back' ? 'back' : 'front';
 $layout = \App\Services\IdCardLayout::load($conn);
 $idCardBg = \App\Services\IdCardLayout::background($conn);
 $ID_CARD_STYLE = \App\Services\IdCardLayout::cssVars($layout, $idCardBg);
+$ID_CARD_LAYOUT = $layout;
 $ID_CARD_SIDE = $side;
 
 $CONFIG = [
@@ -90,7 +91,7 @@ $DISPLAY = [
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ID preview</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Ethiopic:wght@400;700;900&display=swap">
-<link rel="stylesheet" href="/admin/css/id_card.css?v=20260823b">
+<link rel="stylesheet" href="/admin/css/id_card.css?v=20260823c">
 <style>
 html,body{margin:0;padding:0;background:transparent;overflow:hidden}
 </style>
@@ -132,6 +133,13 @@ html,body{margin:0;padding:0;background:transparent;overflow:hidden}
             });
         }
         if (e.data.pick) mark(e.data.pick);
+        if (e.data.texts && typeof e.data.texts === 'object') {
+            Object.keys(e.data.texts).forEach(function (k) {
+                document.querySelectorAll('[data-idc-text="' + k + '"]').forEach(function (el) {
+                    el.textContent = e.data.texts[k];
+                });
+            });
+        }
     });
 })();
 </script>

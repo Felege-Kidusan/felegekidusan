@@ -1,4 +1,4 @@
-/* Shared CR80 ID card. Sizes and colours come from --id-* variables. v=20260823b */
+/* Shared CR80 ID card. Sizes and colours come from --id-* variables. v=20260823c */
 .id-card-template {
     width: 1011px; height: 638px;
     background-color: #f3e6c4;
@@ -36,6 +36,16 @@
     padding-left: var(--id-header-left, 0px);
     z-index: 4;
 }
+.id-front .id-head {
+    padding-top: var(--id-header-front-top, var(--id-header-top, 8px));
+    padding-bottom: var(--id-header-front-bottom, var(--id-header-bottom, 6px));
+    padding-left: var(--id-header-front-left, var(--id-header-left, 0px));
+}
+.id-back .id-head {
+    padding-top: var(--id-header-back-top, var(--id-header-top, 8px));
+    padding-bottom: var(--id-header-back-bottom, var(--id-header-bottom, 6px));
+    padding-left: var(--id-header-back-left, var(--id-header-left, 0px));
+}
 .id-head-simple { justify-content: center; min-height: 0; }
 .id-logo {
     position: absolute;
@@ -53,15 +63,33 @@
 .id-invoc { margin: 0; font-size: var(--id-invoc-size, 15px); font-weight: 700; color: var(--id-invoc-color, var(--id-title-color, #600000)); letter-spacing: .02em; }
 .id-parish { margin: 2px 0 0; font-size: var(--id-parish-size, 26px); font-weight: 900; color: var(--id-parish-color, var(--id-title-color, #600000)); line-height: 1.2; }
 .id-title { margin: 2px 0 0; font-size: var(--id-title-size, 24px); font-weight: 800; color: var(--id-title-color, #600000); line-height: 1.2; }
+.id-front .id-title { font-size: var(--id-title-front-size, var(--id-title-size, 24px)); color: var(--id-title-front-color, var(--id-title-color, #600000)); }
+.id-back .id-title { font-size: var(--id-title-back-size, var(--id-title-size, 24px)); color: var(--id-title-back-color, var(--id-title-color, #600000)); }
 .id-title-en { margin: 3px 0 0; font-size: var(--id-title-en-size, 16px); font-weight: 800; color: var(--id-title-en-color, var(--id-gold-color, #b8860b)); letter-spacing: .06em; text-transform: uppercase; }
+.id-front .id-title-en { font-size: var(--id-title-en-front-size, var(--id-title-en-size, 16px)); color: var(--id-title-en-front-color, var(--id-title-en-color, var(--id-gold-color, #b8860b))); }
+.id-back .id-title-en { font-size: var(--id-title-en-back-size, var(--id-title-en-size, 16px)); color: var(--id-title-en-back-color, var(--id-title-en-color, var(--id-gold-color, #b8860b))); }
 .id-bar {
     height: var(--id-bar-height, 38px); margin: 10px 0 12px;
     background: var(--id-bar-color, #600000); border-radius: 8px;
     border-bottom: var(--id-bar-gold, 4px) solid var(--id-gold-color, #F0C000);
 }
+.id-front .id-bar {
+    height: var(--id-bar-front-height, var(--id-bar-height, 38px));
+    background: var(--id-bar-front-color, var(--id-bar-color, #600000));
+    border-bottom-width: var(--id-bar-front-gold, var(--id-bar-gold, 4px));
+    border-bottom-color: var(--id-bar-front-gold-color, var(--id-gold-color, #F0C000));
+}
+.id-back .id-bar {
+    height: var(--id-bar-back-height, var(--id-bar-height, 38px));
+    background: var(--id-bar-back-color, var(--id-bar-color, #600000));
+    border-bottom-width: var(--id-bar-back-gold, var(--id-bar-gold, 4px));
+    border-bottom-color: var(--id-bar-back-gold-color, var(--id-gold-color, #F0C000));
+}
 .id-bar-label {
     display: flex; align-items: center; justify-content: center;
-    color: var(--id-bar-label-color, #F0C000); font-size: var(--id-bar-label-size, 22px); font-weight: 800;
+    color: var(--id-bar-back-label-color, var(--id-bar-label-color, #F0C000));
+    font-size: var(--id-bar-back-label-size, var(--id-bar-label-size, 22px));
+    font-weight: 800;
 }
 .id-body { flex: 1; display: flex; gap: 22px; min-height: 0; position: relative; }
 .id-body-back { gap: 18px; }
@@ -75,15 +103,18 @@
 .id-row-split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; border-bottom: none; padding: 0; }
 .id-row-split > div { display: flex; align-items: flex-end; gap: 10px; border-bottom: 2px solid var(--id-title-color, #600000); padding: 4px 0 6px; }
 .id-lbl { flex-shrink: 0; color: var(--id-label-color, #600000); font-size: var(--id-label-size, 20px); font-weight: 800; white-space: nowrap; }
+.id-lbl::after { content: ':'; margin: 0 .18em 0 .05em; }
 .id-val { flex: 1; color: var(--id-value-color, #1a0a0a); font-size: var(--id-value-size, 24px); font-weight: 800; line-height: 1.2; min-width: 0; }
 .id-code { font-size: var(--id-code-size, 32px); letter-spacing: .04em; color: var(--id-title-color, #600000); }
-.id-subhead { margin: 8px 0 4px; font-size: 22px; font-weight: 900; color: var(--id-title-color, #600000); border-bottom: 3px solid #F0C000; padding-bottom: 4px; }
+.id-subhead { margin: 8px 0 4px; font-size: var(--id-em-head-size, 22px); font-weight: 900; color: var(--id-em-head-color, var(--id-title-color, #600000)); border-bottom: var(--id-em-head-line, 3px) solid var(--id-em-head-line-color, var(--id-gold-color, #F0C000)); padding-bottom: 4px; }
 .id-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 8px; }
 .id-sign-img { height: 42px; display: flex; align-items: flex-end; justify-content: center; border-bottom: 2px solid var(--id-title-color, #600000); }
 .id-sign-img img { max-height: 40px; object-fit: contain; }
 .id-sign-head { width: var(--id-sig-head, 140px); opacity: var(--id-sig-head-op, .9); }
 .id-sign-admin { width: var(--id-sig-admin, 140px); opacity: var(--id-sig-admin-op, .9); }
-.id-sign-lbl { margin: 4px 0 0; text-align: center; font-size: 13px; font-weight: 800; color: var(--id-label-color, #600000); line-height: 1.25; }
+.id-sign-lbl { margin: 4px 0 0; text-align: center; font-weight: 800; line-height: 1.25; }
+.id-sign-head-cap { font-size: var(--id-sig-head-lbl-size, 13px); color: var(--id-sig-head-lbl-color, var(--id-label-color, #600000)); }
+.id-sign-admin-cap { font-size: var(--id-sig-admin-lbl-size, 13px); color: var(--id-sig-admin-lbl-color, var(--id-label-color, #600000)); }
 .id-seal {
     position: absolute;
     left: var(--id-seal-x, 830px);
