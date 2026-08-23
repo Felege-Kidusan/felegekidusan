@@ -55,22 +55,13 @@ class TestMemberSeed
     }
 
     /**
-     * First Super Admin / Education visit after deploy: load once.
-     * Never auto-loads again after a manual clear.
+     * Disabled on purpose. Loading 224 rows on a GET used to freeze
+     * the whole site (one PHP worker + session lock). Use load() from
+     * the Super Admin button (POST) only.
      */
     public static function maybeAutoLoad(\mysqli $conn, int $adminId = 0): ?array
     {
-        $state = self::readFlag($conn);
-        if (($state['status'] ?? '') === 'cleared') {
-            return null;
-        }
-        if (self::countLoaded($conn) > 0) {
-            return null;
-        }
-        if (($state['status'] ?? '') === 'loaded') {
-            return null;
-        }
-        return self::load($conn, $adminId);
+        return null;
     }
 
     public static function load(\mysqli $conn, int $adminId = 0): array
@@ -78,6 +69,7 @@ class TestMemberSeed
         @set_time_limit(90);
         $roster = self::roster();
         if (!$roster) {
+            if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
             return ['ok' => false, 'message' => 'Practice list is missing from the website files.'];
         }
 
@@ -86,6 +78,7 @@ class TestMemberSeed
         $classes = self::ensureClasses($conn);
         $year = self::ensureYear($conn);
         if (!$year) {
+            if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
             return ['ok' => false, 'message' => 'Could not create or find an academic year. Open Education and set the year first.'];
         }
 
@@ -173,6 +166,7 @@ class TestMemberSeed
         if ($stats['errors']) {
             $stats['message'] .= " {$stats['errors']} row(s) had a problem.";
         }
+        if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
         return $stats;
     }
 

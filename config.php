@@ -635,7 +635,11 @@ Available roles:
 // ============================================================
 // AUTO-FIX CRITICAL DATABASE TABLES (runs once per session)
 // ============================================================
-if (isset($conn) && $conn && !$conn->connect_error) {
+$_scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$_healSchema = (strpos($_scriptName, '/admin/') !== false)
+    || (strpos($_scriptName, '/api/') !== false)
+    || defined('WBWS_API_REQUEST');
+if ($_healSchema && isset($conn) && $conn && !$conn->connect_error) {
     if (!isset($_SESSION['_db_checked'])) {
         
         // Safe column check helper (works even in MySQLi exception mode)

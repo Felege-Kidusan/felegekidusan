@@ -8,12 +8,9 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
 
-try {
-    require_once __DIR__ . '/../backend/services/TestMemberSeed.php';
-    \App\Services\TestMemberSeed::maybeAutoLoad($conn, (int)($_SESSION['admin_id'] ?? 0));
-} catch (Throwable $e) {
-    error_log('edu test seed: ' . $e->getMessage());
-}
+// Practice members are loaded only from Super Admin → Load button.
+// Never write on a GET. That used to hold the only PHP worker and
+// make /admin/ time out for everyone.
 
 $tablesExist = true;
 try { $conn->query("SELECT 1 FROM academic_years LIMIT 1"); } catch (Exception $e) { $tablesExist = false; }

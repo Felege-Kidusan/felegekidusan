@@ -27,15 +27,15 @@ $testSeedInfo = ['loaded' => 0, 'expected' => 224, 'by_grade' => [], 'auto' => n
 try {
     require_once __DIR__ . '/../backend/services/TestMemberSeed.php';
     $testSeedInfo = \App\Services\TestMemberSeed::status($conn);
-    if ((int)($testSeedInfo['loaded'] ?? 0) === 0) {
-        $auto = \App\Services\TestMemberSeed::maybeAutoLoad($conn, (int)$adminId);
-        if (is_array($auto)) {
-            $testSeedInfo = \App\Services\TestMemberSeed::status($conn);
-            $testSeedInfo['auto'] = $auto;
-        }
-    }
 } catch (Throwable $e) {
     error_log('test seed status: ' . $e->getMessage());
+}
+
+// Never hold the session file during a long page. One Super Admin tab
+// used to lock every other request from the same browser (and the
+// public site) until PHP finished.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
 }
 
 // Initialize variables
@@ -84,8 +84,9 @@ if (isset($conn)) {
         $pendingRegistrations = (int)($row['pending'] ?? 0);
     }
     
-    $r = $conn->query("SELECT ROUND(SUM(data_length + index_length) / 1024, 2) AS size_kb FROM information_schema.tables WHERE table_schema = DATABASE()");
-    if ($r) $dbSize = ($r->fetch_assoc()['size_kb'] ?? 0) . ' KB';
+    // information_schema on shared hosting can take seconds. Overview
+    // does not need the exact DB size on every visit.
+    $dbSize = '—';
     
     // Activity logs table
     $conn->query("CREATE TABLE IF NOT EXISTS activity_logs (
@@ -213,6 +214,12 @@ $checks = [
     ['name' => 'Memory', 'status' => 'good', 'value' => round(memory_get_usage(true) / 1024 / 1024, 1) . ' MB'],
 ];
 
+// Health / System Health tabs are the only place that need disk scans,
+// information_schema, and reading every PHP file. Overview must stay cheap
+// so one Super Admin visit cannot stall the public site.
+$saNeedHealth = in_array($activeSection, ['health', 'syshealth'], true)
+    || !empty($_GET['refresh_health']);
+
 // ============================================================
 // ADVANCED SYSTEM HEALTH DATA (for Health section)
 // ============================================================
@@ -226,8 +233,8 @@ $sHealth = [
     'max_post' => ini_get('post_max_size'),
     'max_exec' => ini_get('max_execution_time').'s',
     'timezone' => date_default_timezone_get(),
-    'disk_free' => @disk_free_space('/') ? round(disk_free_space('/') / 1024/1024/1024,2) : 0,
-    'disk_total' => @disk_total_space('/') ? round(disk_total_space('/') / 1024/1024/1024,2) : 0,
+    'disk_free' => 0,
+    'disk_total' => 0,
     'disk_percent' => 0,
     'session_timeout' => defined('SESSION_TIMEOUT') ? SESSION_TIMEOUT : 1800,
     'db_version' => 'N/A',
@@ -250,8 +257,27 @@ $memberGrowth = [];
 $securityScore = 0;
 $securityChecks = [];
 $recentLogs = [];
+$apiEndpoints = [];
+$dbIntegrity = [];
+$orphanedMembers = 0;
+$orphanedLeaders = 0;
+$userAnalytics = ['total'=>0,'active'=>0,'inactive'=>0,'roles'=>[],'last_login'=>'N/A'];
+$memberQuality = ['total'=>0,'with_phone'=>0,'with_photo'=>0,'with_email'=>0,'male'=>0,'female'=>0,'missing_gender'=>0,'duplicates'=>0];
+$benchmarks = ['db_read'=>0,'db_ping'=>0,'page_load'=>0];
+$codeIssues = [];
+$cronTasks = [];
+$healthScore = 0;
+$healthTotal = 0;
+$overallScore = 0;
+$scoreColor = '#94a3b8';
+$scoreLabel = 'Open Health to scan';
+$healthCacheFromCache = false;
+$healthCacheAge = 0;
 
-if (isset($conn) && !$conn->connect_error) {
+if ($saNeedHealth && isset($conn) && !$conn->connect_error) {
+    if (@disk_free_space('/')) $sHealth['disk_free'] = round(disk_free_space('/') / 1024/1024/1024, 2);
+    if (@disk_total_space('/')) $sHealth['disk_total'] = round(disk_total_space('/') / 1024/1024/1024, 2);
+    if ($sHealth['disk_total'] > 0) $sHealth['disk_percent'] = round(($sHealth['disk_total'] - $sHealth['disk_free']) / $sHealth['disk_total'] * 100, 1);
     // DB version & uptime
     try {
         $r = $conn->query("SELECT VERSION() as v"); 
@@ -338,6 +364,8 @@ if (!is_dir($backupDirCheck)) { @mkdir($backupDirCheck, 0755, true); }
 // ============================================================
 // DEEP SYSTEM ANALYSIS DATA (for System Health section)
 // ============================================================
+if ($saNeedHealth) {
+// (gated: Overview / Users / Branding must not scan the codebase)
 // PERFORMANCE FIX: everything below (file_get_contents + regex scans of
 // every api_*.php file and its includes, plus ~10 extra SQL queries) is
 // EXPENSIVE and is only shown on the Site Health / System Health tabs — but
@@ -582,6 +610,7 @@ $scoreLabel = $overallScore >= 80 ? 'Excellent' : ($overallScore >= 60 ? 'Good' 
         'scoreLabel'      => $scoreLabel,
     ]));
 }
+} // end $saNeedHealth
 if (!in_array($activeSection, $saAllowedSections, true)) {
     $activeSection = 'overview';
 }
@@ -1685,6 +1714,10 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
         const _origSwitch=switchSection;
         switchSection=function(id){_origSwitch(id);if(id==='branding'){loadBranding();if(typeof bootIdDesigner==='function'&&!document.getElementById('idcFrame'))bootIdDesigner();}};
         if(<?= json_encode($activeSection) ?>==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
+    </script>
+</body>
+</html>
+ bootIdDesigner==='function')bootIdDesigner();},150);
     </script>
 </body>
 </html>
