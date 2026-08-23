@@ -1714,10 +1714,28 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
         const _origSwitch=switchSection;
         switchSection=function(id){_origSwitch(id);if(id==='branding'){loadBranding();if(typeof bootIdDesigner==='function'&&!document.getElementById('idcFrame'))bootIdDesigner();}};
         if(<?= json_encode($activeSection) ?>==='branding')setTimeout(function(){loadBranding();if(typeof bootIdDesigner==='function')bootIdDesigner();},150);
-    </script>
-</body>
-</html>
- bootIdDesigner==='function')bootIdDesigner();},150);
+
+        async function runTestSeed(action){
+            const msg=document.getElementById('testSeedMsg');
+            const loadBtn=document.getElementById('testSeedLoadBtn');
+            const clearBtn=document.getElementById('testSeedClearBtn');
+            if(msg)msg.textContent=action==='load'?'Loading 224 children… this can take up to a minute.':'Removing practice members…';
+            if(loadBtn)loadBtn.disabled=true;
+            if(clearBtn)clearBtn.disabled=true;
+            try{
+                const fd=new FormData();
+                fd.append('action',action);
+                fd.append('csrf_token','<?= $csrfToken ?>');
+                const r=await fetch('/admin/api_test_seed.php',{method:'POST',body:fd,credentials:'same-origin'});
+                const d=await r.json();
+                if(msg)msg.textContent=d.message||'Done';
+                setTimeout(function(){location.reload();},800);
+            }catch(e){
+                if(msg)msg.textContent='Could not reach the server. Refresh and try again.';
+                if(loadBtn)loadBtn.disabled=false;
+                if(clearBtn)clearBtn.disabled=false;
+            }
+        }
     </script>
 </body>
 </html>
