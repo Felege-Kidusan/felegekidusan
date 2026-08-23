@@ -23,6 +23,21 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
 }
 $csrfToken = generateCsrfToken();
 
+$testSeedInfo = ['loaded' => 0, 'expected' => 224, 'by_grade' => [], 'auto' => null];
+try {
+    require_once __DIR__ . '/../backend/services/TestMemberSeed.php';
+    $testSeedInfo = \App\Services\TestMemberSeed::status($conn);
+    if ((int)($testSeedInfo['loaded'] ?? 0) === 0) {
+        $auto = \App\Services\TestMemberSeed::maybeAutoLoad($conn, (int)$adminId);
+        if (is_array($auto)) {
+            $testSeedInfo = \App\Services\TestMemberSeed::status($conn);
+            $testSeedInfo['auto'] = $auto;
+        }
+    }
+} catch (Throwable $e) {
+    error_log('test seed status: ' . $e->getMessage());
+}
+
 // Initialize variables
 $totalUsers = $totalMembers = $activeMembers = $pendingRegistrations = 0;
 $dbStatus = 'Unknown';
@@ -657,6 +672,22 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <div class="stat-card"><div class="stat-header"><div class="stat-title">Members</div><div class="stat-icon" style="background:rgba(59,130,246,.15);color:#60a5fa"><i class="fa-solid fa-users"></i></div></div><div class="stat-value"><?= $totalMembers ?></div><div class="stat-label">Students</div></div>
                     <div class="stat-card"><div class="stat-header"><div class="stat-title">Active</div><div class="stat-icon" style="background:rgba(16,185,129,.15);color:#34d399"><i class="fa-solid fa-user-check"></i></div></div><div class="stat-value"><?= $activeMembers ?></div><div class="stat-label">Active now</div></div>
                     <div class="stat-card"><div class="stat-header"><div class="stat-title">Pending</div><div class="stat-icon" style="background:rgba(245,158,11,.15);color:#fbbf24"><i class="fa-solid fa-hourglass-half"></i></div></div><div class="stat-value"><?= $pendingRegistrations ?></div><div class="stat-label">Waiting</div></div>
+                </div>
+                <div class="card" id="testSeedCard" style="margin-bottom:1rem;border:1px solid rgba(240,192,0,.35);background:rgba(96,0,0,.18)">
+                    <h3 class="card-title"><i class="fa-solid fa-vial" style="color:#F0C000"></i> Practice members (full system test)</h3>
+                    <p style="font-size:.8rem;color:#cbd5e1;margin:.35rem 0 .75rem">
+                        <?= (int)($testSeedInfo['loaded'] ?? 0) ?> of <?= (int)($testSeedInfo['expected'] ?? 224) ?> practice children are on the website.
+                        They are marked <strong>TEST-FKSS</strong> so we can delete only them when you finish.
+                        Real members (including 32779 and 69711) stay.
+                    </p>
+                    <?php if (!empty($testSeedInfo['auto']['message'])): ?>
+                    <p style="font-size:.78rem;color:#86efac;margin:0 0 .75rem"><?= e($testSeedInfo['auto']['message']) ?></p>
+                    <?php endif; ?>
+                    <div id="testSeedMsg" style="font-size:.78rem;color:#F0C000;margin:0 0 .75rem;min-height:1.1em"></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:.6rem">
+                        <button type="button" class="btn btn-primary" id="testSeedLoadBtn" onclick="runTestSeed('load')"><i class="fa-solid fa-cloud-arrow-up"></i> Load all 224 now</button>
+                        <button type="button" class="btn btn-outline" id="testSeedClearBtn" onclick="if(confirm('Remove every TEST-FKSS practice member? Real members stay.'))runTestSeed('clear')"><i class="fa-solid fa-trash"></i> Remove practice members</button>
+                    </div>
                 </div>
                 <div class="grid-2">
                     <div class="card"><h3 class="card-title"><i class="fa-solid fa-server"></i> System Info</h3>

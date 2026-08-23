@@ -159,6 +159,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_export_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_import_members.php' => ['super_admin', 'school_admin', 'hr_dept'],
+            'api_test_seed.php'      => ['super_admin', 'school_admin', 'edu_dept'],
 
             // ---- CMS (public website content) ----
             'api_cms.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'content_editor'],
