@@ -25,110 +25,14 @@ class SubmissionService
     public const TYPE_MARKLIST = 'marklist';
     public const TYPE_REPORT = 'report';
 
+    /** Compatibility hook; schema is deployment-managed by migration 013. */
     public static function ensureTable(\mysqli $conn): void
     {
-        static $done = false;
-        if ($done) {
-            return;
-        }
-        $done = true;
-
-        $conn->query("CREATE TABLE IF NOT EXISTS `grade_submissions` (
-            `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-            `teacher_id` INT UNSIGNED NOT NULL,
-            `class_id` INT UNSIGNED NOT NULL,
-            `subject_id` INT UNSIGNED DEFAULT 0,
-            `academic_year_id` INT UNSIGNED DEFAULT NULL,
-            `term_id` INT UNSIGNED DEFAULT NULL,
-            `assessment_id` INT UNSIGNED DEFAULT NULL,
-            `attendance_date` DATE DEFAULT NULL,
-            `submission_type` ENUM('marklist','attendance','report') NOT NULL DEFAULT 'marklist',
-            `status` ENUM('draft','incomplete','submitted','approved','rejected','revision_needed') NOT NULL DEFAULT 'incomplete',
-            `student_count` INT UNSIGNED DEFAULT 0,
-            `average_score` DECIMAL(5,2) DEFAULT NULL,
-            `present_count` INT UNSIGNED DEFAULT 0,
-            `absent_count` INT UNSIGNED DEFAULT 0,
-            `late_count` INT UNSIGNED DEFAULT 0,
-            `excused_count` INT UNSIGNED DEFAULT 0,
-            `submitted_at` TIMESTAMP NULL DEFAULT NULL,
-            `reviewed_by` INT UNSIGNED DEFAULT NULL,
-            `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
-            `review_notes` TEXT DEFAULT NULL,
-            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            KEY `teacher_id` (`teacher_id`),
-            KEY `class_id` (`class_id`),
-            KEY `status` (`status`),
-            KEY `sub_att_lookup` (`teacher_id`, `class_id`, `submission_type`, `attendance_date`),
-            KEY `sub_mark_lookup` (`teacher_id`, `assessment_id`, `submission_type`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-        self::ensureColumn($conn, 'grade_submissions', 'attendance_date', "DATE DEFAULT NULL AFTER `assessment_id`");
-        self::ensureColumn($conn, 'grade_submissions', 'present_count', "INT UNSIGNED DEFAULT 0 AFTER `average_score`");
-        self::ensureColumn($conn, 'grade_submissions', 'absent_count', "INT UNSIGNED DEFAULT 0 AFTER `present_count`");
-        self::ensureColumn($conn, 'grade_submissions', 'late_count', "INT UNSIGNED DEFAULT 0 AFTER `absent_count`");
-        self::ensureColumn($conn, 'grade_submissions', 'excused_count', "INT UNSIGNED DEFAULT 0 AFTER `late_count`");
-        self::ensureColumn($conn, 'academic_records', 'submission_id', "INT UNSIGNED DEFAULT NULL AFTER `assessment_id`");
-        // Never ALTER / DELETE the whole school on a read. Unique keys are added on write.
     }
 
-    /**
-     * One score per student per test. One mark per student per class per day.
-     * Cleans leftover duplicates, then adds unique keys so they cannot return.
-     */
-    private static function hasIndex(\mysqli $conn, string $table, string $name): bool
-    {
-        try {
-            $t = $conn->real_escape_string($table);
-            $n = $conn->real_escape_string($name);
-            $r = $conn->query("SHOW INDEX FROM `{$t}` WHERE Key_name = '{$n}'");
-            return $r && $r->num_rows > 0;
-        } catch (\Throwable $e) {
-            return false;
-        }
-    }
-
-    /** Run only from a Save/Submit — never from opening a modal. */
+    /** Compatibility hook; unique keys are deployment-managed by migration 013. */
     public static function hardenUniques(\mysqli $conn): void
     {
-        static $done = false;
-        if ($done) {
-            return;
-        }
-        $done = true;
-        if (!self::hasIndex($conn, 'academic_records', 'uq_ar_assessment_member')) {
-            try {
-                $conn->query(
-                    "DELETE ar FROM academic_records ar
-                     INNER JOIN academic_records keep
-                        ON keep.assessment_id = ar.assessment_id
-                       AND keep.member_id = ar.member_id
-                       AND keep.id > ar.id
-                     WHERE ar.assessment_id IS NOT NULL"
-                );
-                $conn->query(
-                    "ALTER TABLE academic_records
-                     ADD UNIQUE KEY uq_ar_assessment_member (assessment_id, member_id)"
-                );
-            } catch (\Throwable $e) { /* ok */ }
-        }
-        if (!self::hasIndex($conn, 'attendance', 'uq_att_member_class_date')) {
-            try {
-                $conn->query(
-                    "DELETE a FROM attendance a
-                     INNER JOIN attendance keep
-                        ON keep.member_id = a.member_id
-                       AND keep.class_id = a.class_id
-                       AND keep.attendance_date = a.attendance_date
-                       AND keep.id > a.id"
-                );
-                $conn->query(
-                    "ALTER TABLE attendance
-                     ADD UNIQUE KEY uq_att_member_class_date (member_id, class_id, attendance_date)"
-                );
-            } catch (\Throwable $e) { /* ok */ }
-        }
     }
 
     public static function staffCanOverride(array $auth): bool
@@ -342,16 +246,6 @@ class SubmissionService
         $id = (int)$ins->insert_id;
         $ins->close();
         return $id;
-    }
-
-    private static function ensureColumn(\mysqli $conn, string $table, string $column, string $definition): void
-    {
-        try {
-            $r = $conn->query("SHOW COLUMNS FROM `{$table}` LIKE '" . $conn->real_escape_string($column) . "'");
-            if ($r && $r->num_rows === 0) {
-                $conn->query("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
-            }
-        } catch (\Throwable $e) { /* non-critical */ }
     }
 
     public static function normalizeStatus(?string $status): string
@@ -970,10 +864,10 @@ class SubmissionService
             if (!is_array($rec)) {
                 continue;
             }
-            $out['student_count']++;
-            $st = strtolower((string)($rec['status'] ?? 'present'));
+            $st = strtolower(trim((string)($rec['status'] ?? '')));
             if (isset($out[$st])) {
                 $out[$st]++;
+                $out['student_count']++;
             }
         }
         return $out;

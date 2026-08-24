@@ -22,62 +22,9 @@ class AssignmentService
     private static $cols = [];
     private static $schemaReady = false;
 
+    /** Compatibility hook; schema is deployment-managed by migration 006. */
     public static function ensureSchema(\mysqli $conn): void
     {
-        if (self::$schemaReady) {
-            return;
-        }
-        self::$schemaReady = true;
-        try {
-            $r = $conn->query("SHOW TABLES LIKE 'teacher_assignments'");
-            if (!$r || $r->num_rows === 0) {
-                $conn->query(
-                    "CREATE TABLE IF NOT EXISTS `teacher_assignments` (
-                        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                        `teacher_id` INT UNSIGNED NOT NULL,
-                        `class_id` INT UNSIGNED NOT NULL,
-                        `subject_id` INT UNSIGNED DEFAULT NULL,
-                        `academic_year_id` INT UNSIGNED DEFAULT NULL,
-                        `is_class_teacher` TINYINT(1) NOT NULL DEFAULT 0,
-                        `is_primary` TINYINT(1) NOT NULL DEFAULT 0,
-                        `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-                        `assignment_role` ENUM('primary','assistant','homeroom') NOT NULL DEFAULT 'primary',
-                        `assigned_by` INT UNSIGNED DEFAULT NULL,
-                        `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (`id`),
-                        KEY `teacher_id` (`teacher_id`),
-                        KEY `class_id` (`class_id`),
-                        KEY `subject_id` (`subject_id`),
-                        KEY `academic_year_id` (`academic_year_id`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-                );
-            }
-            self::addColumnIfMissing($conn, 'teacher_assignments', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1');
-            self::addColumnIfMissing($conn, 'teacher_assignments', 'is_primary', 'TINYINT(1) NOT NULL DEFAULT 0');
-            self::addColumnIfMissing($conn, 'teacher_assignments', 'is_class_teacher', 'TINYINT(1) NOT NULL DEFAULT 0');
-            self::addColumnIfMissing($conn, 'teacher_assignments', 'assignment_role', "ENUM('primary','assistant','homeroom') NOT NULL DEFAULT 'primary'");
-            self::addColumnIfMissing($conn, 'teacher_assignments', 'assigned_by', 'INT UNSIGNED DEFAULT NULL');
-            try {
-                $conn->query("ALTER TABLE `teacher_assignments` MODIFY `subject_id` INT UNSIGNED DEFAULT NULL");
-            } catch (\Throwable $e) { /* already nullable or no table */ }
-
-            $r = $conn->query("SHOW TABLES LIKE 'class_subjects'");
-            if (!$r || $r->num_rows === 0) {
-                $conn->query(
-                    "CREATE TABLE IF NOT EXISTS `class_subjects` (
-                        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                        `class_id` INT UNSIGNED NOT NULL,
-                        `subject_id` INT UNSIGNED NOT NULL,
-                        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (`id`),
-                        UNIQUE KEY `unique_class_subject` (`class_id`, `subject_id`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-                );
-            }
-        } catch (\Throwable $e) {
-            error_log('AssignmentService::ensureSchema: ' . $e->getMessage());
-        }
-        self::$cols = [];
     }
 
     public static function effectiveYear(\mysqli $conn): ?array
@@ -1282,29 +1229,13 @@ class AssignmentService
 
     private static function hasColumn(\mysqli $conn, string $table, string $col): bool
     {
-        $key = $table . '.' . $col;
-        if (array_key_exists($key, self::$cols)) {
-            return self::$cols[$key];
-        }
-        try {
-            $r = $conn->query("SHOW COLUMNS FROM `" . str_replace('`', '', $table) . "` LIKE '" . $conn->real_escape_string($col) . "'");
-            self::$cols[$key] = $r && $r->num_rows > 0;
-        } catch (\Throwable $e) {
-            self::$cols[$key] = false;
-        }
-        return self::$cols[$key];
+        // Migration 006 is now a deployment prerequisite. Keep this method as a
+        // compatibility adapter for existing query builders without per-request
+        // INFORMATION_SCHEMA/SHOW traffic.
+        return $table === 'teacher_assignments' && in_array($col, [
+            'assignment_role', 'is_primary', 'is_active',
+            'is_class_teacher', 'assigned_by',
+        ], true);
     }
 
-    private static function addColumnIfMissing(\mysqli $conn, string $table, string $col, string $def): void
-    {
-        if (self::hasColumn($conn, $table, $col)) {
-            return;
-        }
-        try {
-            $conn->query("ALTER TABLE `" . str_replace('`', '', $table) . "` ADD COLUMN `" . str_replace('`', '', $col) . "` " . $def);
-            unset(self::$cols[$table . '.' . $col]);
-        } catch (\Throwable $e) {
-            /* ignore */
-        }
-    }
 }

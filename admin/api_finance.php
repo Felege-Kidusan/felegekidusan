@@ -249,5 +249,6 @@ default:
     echo json_encode(['status'=>'error','message'=>'Unknown action: '.$action]);
 }
 } catch (Exception $e) {
-    echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+    reportInternalError('Finance API request failed', $e);
+    echo json_encode(['status'=>'error','message'=>'Unable to complete the finance request.']);
 }

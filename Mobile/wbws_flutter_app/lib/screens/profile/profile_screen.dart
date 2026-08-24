@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
@@ -163,8 +164,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               TextField(
                 controller: newCtrl,
                 obscureText: obscureNew,
+                maxLength: 72,
                 decoration: InputDecoration(
                   hintText: 'New password',
+                  helperText: 'At least 12 characters',
                   prefixIcon: const Icon(Icons.lock_rounded, size: 18),
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -180,6 +183,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               TextField(
                 controller: confirmCtrl,
                 obscureText: true,
+                maxLength: 72,
                 decoration: const InputDecoration(
                   hintText: 'Confirm new password',
                   prefixIcon: Icon(Icons.lock_rounded, size: 18),
@@ -204,6 +208,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               const SnackBar(
                                   content: Text('Fill in all fields'),
                                   backgroundColor: AppTheme.warning),
+                            );
+                            return;
+                          }
+
+                          if (newPwd.runes.length < 12 || utf8.encode(newPwd).length > 72) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Use a password of at least 12 characters and at most 72 UTF-8 bytes'),
+                                  backgroundColor: AppTheme.danger),
                             );
                             return;
                           }

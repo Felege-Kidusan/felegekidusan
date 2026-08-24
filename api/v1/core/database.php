@@ -20,6 +20,10 @@ $__submissionService = __DIR__ . '/../../../admin/backend/services/SubmissionSer
 if (is_file($__submissionService)) {
     require_once $__submissionService;
 }
+$__attendanceRecordService = __DIR__ . '/../../../admin/backend/services/AttendanceRecordService.php';
+if (is_file($__attendanceRecordService)) {
+    require_once $__attendanceRecordService;
+}
 
 // Verify connection
 if (!isset($conn) || !$conn || $conn->connect_error) {

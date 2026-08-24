@@ -1,17 +1,18 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * ============================================================
  * School Management DATABASE AUTO-FIXER
  * ============================================================
  * 
  * This file automatically fixes ALL database issues.
- * 
- * HOW TO USE:
- * Option 1: Visit this URL in your browser:
- *           {SITE_URL}/admin/migrations/auto_fix_database.php
- * 
- * Option 2: Include at the top of config.php (one-time):
- *           require_once __DIR__ . '/admin/migrations/auto_fix_database.php';
  * 
  * SAFE TO RUN MULTIPLE TIMES - it only adds what's missing
  * ============================================================

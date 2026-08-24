@@ -47,10 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $action = $_REQUEST['action'] ?? '';
 
-// Safe column check helper
+// Migration-backed compatibility helper; avoids per-request schema inspection.
 function _teacherSafeColExists($conn, $table, $col) {
-    try { $r = $conn->query("SHOW COLUMNS FROM `$table` LIKE '$col'"); return $r && $r->num_rows > 0; }
-    catch (Exception $e) { return false; }
+    return $table === 'users' && in_array($col, ['member_id', 'last_login'], true);
 }
 
 // Effective academic year — single source of truth (resolver, time-travel aware)
@@ -73,12 +72,8 @@ switch ($action) {
         
         $includeInactive = isset($_GET['include_inactive']) && $_GET['include_inactive'] === '1';
         
-        // Check if teacher_assignments table exists
-        $hasTaTable = false;
-        try {
-            $r = $conn->query("SHOW TABLES LIKE 'teacher_assignments'");
-            $hasTaTable = $r && $r->num_rows > 0;
-        } catch (Exception $e) {}
+        // Migration 006 guarantees assignment storage.
+        $hasTaTable = true;
         
         // Check if member_id and last_login columns exist
         $hasMemberId = _teacherSafeColExists($conn, 'users', 'member_id');
@@ -149,7 +144,8 @@ switch ($action) {
             }
             echo json_encode(['status' => 'success', 'teachers' => $teachers]);
         } catch (Exception $e) {
-            echo json_encode(['status' => 'error', 'message' => 'Query failed: ' . $e->getMessage()]);
+            reportInternalError('Teacher list failed', $e);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to load teachers.']);
         }
         break;
 
@@ -248,8 +244,9 @@ switch ($action) {
             exit;
         }
         
-        if (strlen($password) < 4) {
-            echo json_encode(['status' => 'error', 'message' => 'Password must be at least 4 characters']);
+        $passwordErrors = validatePassword($password);
+        if ($passwordErrors !== []) {
+            echo json_encode(['status' => 'error', 'message' => implode(' ', $passwordErrors)]);
             exit;
         }
         
@@ -298,7 +295,8 @@ switch ($action) {
                 'teacher_id' => $newTeacherId
             ]);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            reportInternalError('Teacher account creation failed', $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to create the teacher account.']);
         }
         break;
 
@@ -360,8 +358,9 @@ switch ($action) {
         $emailDb = !empty($email) ? $email : null;
         
         if (!empty($newPassword)) {
-            if (strlen($newPassword) < 4) {
-                echo json_encode(['status' => 'error', 'message' => 'Password must be at least 4 characters']);
+            $passwordErrors = validatePassword($newPassword);
+            if ($passwordErrors !== []) {
+                echo json_encode(['status' => 'error', 'message' => implode(' ', $passwordErrors)]);
                 exit;
             }
             $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
@@ -783,13 +782,16 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Please enter the full name and a username.', 'field' => $fullName === '' ? 'full_name' : 'username']);
             exit;
         }
-        if ($teacherId <= 0 && strlen($password) < 4) {
-            echo json_encode(['status' => 'error', 'message' => 'Set a password of at least 4 characters so the teacher can log in.', 'field' => 'password']);
-            exit;
-        }
-        if ($teacherId > 0 && $password !== '' && strlen($password) < 4) {
-            echo json_encode(['status' => 'error', 'message' => 'New password must be at least 4 characters.', 'field' => 'password']);
-            exit;
+        if ($teacherId <= 0 || $password !== '') {
+            $passwordErrors = validatePassword($password);
+            if ($passwordErrors !== []) {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => implode(' ', $passwordErrors),
+                    'field' => 'password',
+                ]);
+                exit;
+            }
         }
 
         if ($memberId) {

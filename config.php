@@ -85,6 +85,14 @@ define('ROOT_PATH', __DIR__);
 define('ADMIN_PATH', __DIR__ . '/admin');
 define('UPLOADS_PATH', __DIR__ . '/admin/uploads');
 
+require_once ADMIN_PATH . '/backend/services/FeatureGate.php';
+
+if (!function_exists('feature_enabled')) {
+    function feature_enabled(string $feature): bool {
+        return \App\Services\FeatureGate::isEnabled($feature);
+    }
+}
+
 // ============================================================
 // JWT / API TOKEN SECRET
 // ============================================================
@@ -102,6 +110,10 @@ if (session_status() === PHP_SESSION_NONE) {
     // Security settings for sessions
     ini_set('session.cookie_httponly', 1);
     ini_set('session.use_only_cookies', 1);
+    ini_set('session.use_strict_mode', 1);
+    ini_set('session.use_trans_sid', 0);
+    ini_set('session.sid_length', 48);
+    ini_set('session.sid_bits_per_character', 6);
     // Auto-detect HTTPS - ONLY enable cookie_secure when HTTPS is available
     // Setting cookie_secure=1 on HTTP hosting KILLS sessions completely!
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') 
@@ -207,14 +219,25 @@ ini_set('error_log', ROOT_PATH . '/error.log');
 // SECURITY HEADERS
 // ============================================================
 if (!headers_sent()) {
-    // Prevent clickjacking
     header('X-Frame-Options: SAMEORIGIN');
-    // XSS Protection
-    header('X-XSS-Protection: 1; mode=block');
-    // Prevent MIME type sniffing
+    // Disable the obsolete browser XSS auditor; context-aware encoding and CSP
+    // are reliable, while legacy auditors could create their own bypasses.
+    header('X-XSS-Protection: 0');
     header('X-Content-Type-Options: nosniff');
-    // Referrer Policy
     header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header('X-Permitted-Cross-Domain-Policies: none');
+    header('Cross-Origin-Opener-Policy: same-origin');
+
+    // This initial enforceable policy blocks plugin content, hostile base tags,
+    // cross-site framing, and off-site form posts without breaking the legacy
+    // inline scripts/styles. Script/style nonces can be tightened page by page.
+    $contentSecurityPolicy = "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'";
+    if (!empty($isHttps)) {
+        $contentSecurityPolicy .= '; upgrade-insecure-requests';
+        header('Strict-Transport-Security: max-age=31536000');
+    }
+    header('Content-Security-Policy: ' . $contentSecurityPolicy);
 }
 
 // ============================================================
@@ -255,6 +278,83 @@ try {
 } catch (PDOException $e) {
     error_log("PDO connection failed: " . $e->getMessage());
     // Don't die here - let individual pages handle errors
+}
+
+/** End a privileged browser session and expire its cookie. */
+function _invalidateAdminSession() {
+    $_SESSION = [];
+    if (ini_get('session.use_cookies') && !headers_sent()) {
+        $params = session_get_cookie_params();
+        setcookie(session_name(), '', [
+            'expires' => time() - 42000,
+            'path' => $params['path'],
+            'domain' => $params['domain'],
+            'secure' => (bool)$params['secure'],
+            'httponly' => (bool)$params['httponly'],
+            'samesite' => $params['samesite'] ?: 'Lax',
+        ]);
+    }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_destroy();
+        session_id('');
+    }
+}
+
+/** True for routes that must stop after an invalid admin session is cleared. */
+function _isPrivilegedBrowserArea() {
+    $script = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? ''));
+    return strpos($script, '/admin/') !== false || strpos($script, '/monitor/') !== false;
+}
+
+// Reconcile privileged session claims with the current database account at a
+// bounded interval. Public requests merely lose a stale admin cookie; admin and
+// monitor requests fail closed with the response format they expect.
+if (!defined('WBWS_API_REQUEST') && !empty($_SESSION['admin_logged_in'])) {
+    $guardResult = ['valid' => false, 'reason' => 'revalidation_unavailable'];
+    if ($pdo instanceof PDO) {
+        try {
+            require_once ROOT_PATH . '/admin/backend/services/AdminSessionGuard.php';
+            $guard = new \App\Services\AdminSessionGuard($pdo);
+            $guardResult = $guard->revalidate($_SESSION);
+        } catch (Throwable $error) {
+            error_log('Admin session revalidation failed.');
+        }
+    }
+
+    if (empty($guardResult['valid'])) {
+        $isPrivilegedArea = _isPrivilegedBrowserArea();
+        $isJsonRequest = function_exists('_isAjaxRequest') && _isAjaxRequest();
+        $unavailable = ($guardResult['reason'] ?? '') === 'revalidation_unavailable';
+        _invalidateAdminSession();
+
+        if ($isPrivilegedArea) {
+            if ($isJsonRequest) {
+                if (!headers_sent()) {
+                    http_response_code($unavailable ? 503 : 401);
+                    header('Content-Type: application/json; charset=utf-8');
+                }
+                echo json_encode([
+                    'status' => $unavailable ? 'error' : 'session_expired',
+                    'message' => $unavailable
+                        ? 'Authentication verification is temporarily unavailable.'
+                        : 'Your session is no longer valid. Please sign in again.',
+                    'action' => 'reload',
+                ]);
+                exit;
+            }
+            header('Location: ' . ADMIN_URL . '/index.php?error=' . rawurlencode(
+                $unavailable
+                    ? 'Authentication verification is temporarily unavailable.'
+                    : 'Your session changed or expired. Please sign in again.'
+            ));
+            exit;
+        }
+
+        // Public pages may still need a fresh anonymous CSRF session.
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            session_start();
+        }
+    }
 }
 
 // ============================================================
@@ -383,18 +483,12 @@ function validateAmount($input) {
 }
 
 /**
- * Validate password strength
- * Returns array of error messages (empty = valid)
+ * Validate password strength through the shared account-domain policy.
+ * Returns array of error messages (empty = valid).
  */
 function validatePassword($password) {
-    $errors = [];
-    if (strlen($password) < 6) {
-        $errors[] = 'Password must be at least 6 characters.';
-    }
-    if (strlen($password) > 128) {
-        $errors[] = 'Password is too long.';
-    }
-    return $errors;
+    require_once ROOT_PATH . '/admin/backend/services/PasswordPolicy.php';
+    return \App\Services\PasswordPolicy::errors($password);
 }
 
 /**
@@ -607,6 +701,29 @@ function jsonResponse($data, $statusCode = 200) {
 }
 
 /**
+ * Record diagnostic detail server-side without exposing it in HTTP responses.
+ * Returns a short correlation ID suitable for support logs.
+ *
+ * @param mixed $error Throwable, database error string, or null
+ */
+function reportInternalError($context, $error = null) {
+    try {
+        $reference = bin2hex(random_bytes(6));
+    } catch (Throwable $ignored) {
+        $reference = substr(hash('sha256', uniqid('', true)), 0, 12);
+    }
+
+    $context = preg_replace('/[\r\n]+/', ' ', (string)$context);
+    $detail = $error instanceof Throwable ? $error->getMessage() : (string)$error;
+    $detail = preg_replace('/[\r\n]+/', ' ', $detail);
+    if (strlen($detail) > 2000) {
+        $detail = substr($detail, 0, 2000) . '…';
+    }
+    error_log('[SSMS:' . $reference . '] ' . $context . ($detail !== '' ? ': ' . $detail : ''));
+    return $reference;
+}
+
+/**
  * Get user-friendly error message
  */
 function getErrorMessage($code) {
@@ -633,220 +750,11 @@ Available roles:
 */
 
 // ============================================================
-// AUTO-FIX CRITICAL DATABASE TABLES (runs once per session)
+// DATABASE SCHEMA OWNERSHIP
 // ============================================================
-$_scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-$_healSchema = (strpos($_scriptName, '/admin/') !== false)
-    || (strpos($_scriptName, '/api/') !== false)
-    || defined('WBWS_API_REQUEST');
-if ($_healSchema && isset($conn) && $conn && !$conn->connect_error) {
-    if (!isset($_SESSION['_db_checked'])) {
-        
-        // Safe column check helper (works even in MySQLi exception mode)
-        $_safeColCheck = function($conn, $table, $column) {
-            try {
-                $r = $conn->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
-                return $r && $r->num_rows > 0;
-            } catch (Exception $e) { return false; }
-        };
-        
-        // Safe query helper (never throws)
-        $_safeQuery = function($conn, $sql) {
-            try { $conn->query($sql); } catch (Exception $e) { /* skip */ }
-        };
-        
-        // Check for critical tables and create if missing
-        $criticalTables = [
-            'notifications' => "
-                CREATE TABLE IF NOT EXISTS `notifications` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `type` VARCHAR(50) NOT NULL,
-                    `title` VARCHAR(255) NOT NULL,
-                    `message` TEXT NOT NULL,
-                    `data` JSON DEFAULT NULL,
-                    `priority` ENUM('low', 'normal', 'high', 'urgent') NOT NULL DEFAULT 'normal',
-                    `source_dept` VARCHAR(50) DEFAULT NULL,
-                    `source_user_id` INT UNSIGNED DEFAULT NULL,
-                    `target_roles` VARCHAR(255) DEFAULT NULL,
-                    `target_user_id` INT UNSIGNED DEFAULT NULL,
-                    `is_read` TINYINT(1) NOT NULL DEFAULT 0,
-                    `read_at` DATETIME DEFAULT NULL,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    KEY `type` (`type`),
-                    KEY `target_roles` (`target_roles`),
-                    KEY `target_user_id` (`target_user_id`),
-                    KEY `is_read` (`is_read`),
-                    KEY `created_at` (`created_at`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            'activity_logs' => "
-                CREATE TABLE IF NOT EXISTS `activity_logs` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `user_id` INT UNSIGNED DEFAULT NULL,
-                    `username` VARCHAR(100) DEFAULT NULL,
-                    `action` VARCHAR(100) NOT NULL,
-                    `details` TEXT DEFAULT NULL,
-                    `entity_type` VARCHAR(50) DEFAULT NULL,
-                    `entity_id` INT UNSIGNED DEFAULT NULL,
-                    `ip_address` VARCHAR(45) DEFAULT NULL,
-                    `user_agent` VARCHAR(255) DEFAULT NULL,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    KEY `user_id` (`user_id`),
-                    KEY `action` (`action`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            'system_branding' => "
-                CREATE TABLE IF NOT EXISTS `system_branding` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `asset_key` VARCHAR(50) NOT NULL,
-                    `asset_label` VARCHAR(100) NOT NULL DEFAULT '',
-                    `file_path` VARCHAR(500) DEFAULT NULL,
-                    `original_name` VARCHAR(255) DEFAULT NULL,
-                    `mime_type` VARCHAR(100) DEFAULT NULL,
-                    `file_size` INT UNSIGNED DEFAULT 0,
-                    `uploaded_by` INT UNSIGNED DEFAULT NULL,
-                    `uploaded_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    UNIQUE KEY `uk_asset_key` (`asset_key`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            'academic_years' => "
-                CREATE TABLE IF NOT EXISTS `academic_years` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `year_name` VARCHAR(100) NOT NULL,
-                    `year_gc` VARCHAR(20) DEFAULT NULL,
-                    `ec_year` SMALLINT UNSIGNED DEFAULT NULL,
-                    `start_date` DATE DEFAULT NULL,
-                    `end_date` DATE DEFAULT NULL,
-                    `is_current` TINYINT(1) NOT NULL DEFAULT 0,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            'classes' => "
-                CREATE TABLE IF NOT EXISTS `classes` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `class_name` VARCHAR(150) NOT NULL,
-                    `class_name_en` VARCHAR(150) DEFAULT NULL,
-                    `class_code` VARCHAR(30) NOT NULL,
-                    `level_order` INT NOT NULL DEFAULT 0,
-                    `section` VARCHAR(50) DEFAULT NULL,
-                    `age_group` VARCHAR(20) DEFAULT NULL,
-                    `description` TEXT DEFAULT NULL,
-                    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-        ];
-        
-        foreach ($criticalTables as $tableName => $createSQL) {
-            try {
-                $check = $conn->query("SHOW TABLES LIKE '$tableName'");
-                if (!$check || $check->num_rows === 0) {
-                    $_safeQuery($conn, $createSQL);
-                }
-            } catch (Exception $e) { /* skip */ }
-        }
-        
-        // --- Fix users table: add all missing columns ---
-        if (!$_safeColCheck($conn, 'users', 'last_login')) {
-            $_safeQuery($conn, "ALTER TABLE `users` ADD COLUMN `last_login` DATETIME DEFAULT NULL AFTER `is_active`");
-        }
-        if (!$_safeColCheck($conn, 'users', 'member_id')) {
-            $_safeQuery($conn, "ALTER TABLE `users` ADD COLUMN `member_id` INT UNSIGNED DEFAULT NULL AFTER `is_active`");
-        }
-        
-        // Expand users.role ENUM to include 'teacher' and other roles
-        $_safeQuery($conn, "ALTER TABLE `users` MODIFY COLUMN `role` VARCHAR(50) NOT NULL DEFAULT 'info_dept'");
-        
-        // --- Fix members table: add all missing columns ---
-        if (!$_safeColCheck($conn, 'members', 'spiritual_education')) {
-            $_safeQuery($conn, "ALTER TABLE `members` ADD COLUMN `spiritual_education` VARCHAR(100) DEFAULT NULL AFTER `education_level`");
-        }
-        
-        // Fix age_group ENUM to accept all possible values
-        $_safeQuery($conn, "ALTER TABLE `members` MODIFY COLUMN `age_group` VARCHAR(20) DEFAULT NULL");
-        
-        // Fix classes.age_group ENUM → VARCHAR (prevents data truncation)
-        try {
-            $check = $conn->query("SHOW TABLES LIKE 'classes'");
-            if ($check && $check->num_rows > 0) {
-                $_safeQuery($conn, "ALTER TABLE `classes` MODIFY COLUMN `age_group` VARCHAR(20) DEFAULT NULL");
-            }
-        } catch (Exception $e) { /* skip */ }
-        
-        // --- Fix members table: add columns used by education/workflow system ---
-        if (!$_safeColCheck($conn, 'members', 'current_class_id')) {
-            $_safeQuery($conn, "ALTER TABLE `members` ADD COLUMN `current_class_id` INT UNSIGNED DEFAULT NULL");
-        }
-        if (!$_safeColCheck($conn, 'members', 'promoted_at')) {
-            $_safeQuery($conn, "ALTER TABLE `members` ADD COLUMN `promoted_at` DATE DEFAULT NULL");
-        }
-        if (!$_safeColCheck($conn, 'members', 'academic_status')) {
-            $_safeQuery($conn, "ALTER TABLE `members` ADD COLUMN `academic_status` VARCHAR(20) DEFAULT 'active'");
-        }
-        
-        // --- Fix wbws_groups table ---
-        try {
-            $check = $conn->query("SHOW TABLES LIKE 'wbws_groups'");
-            if ($check && $check->num_rows > 0) {
-                if (!$_safeColCheck($conn, 'wbws_groups', 'group_name_en'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_groups` ADD COLUMN `group_name_en` VARCHAR(200) DEFAULT NULL AFTER `group_name`");
-                if (!$_safeColCheck($conn, 'wbws_groups', 'established_year_gc'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_groups` ADD COLUMN `established_year_gc` VARCHAR(20) DEFAULT NULL AFTER `established_year`");
-                if (!$_safeColCheck($conn, 'wbws_groups', 'description'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_groups` ADD COLUMN `description` TEXT DEFAULT NULL");
-                if (!$_safeColCheck($conn, 'wbws_groups', 'status'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_groups` ADD COLUMN `status` ENUM('active','inactive') NOT NULL DEFAULT 'active'");
-                if (!$_safeColCheck($conn, 'wbws_groups', 'updated_by'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_groups` ADD COLUMN `updated_by` VARCHAR(100) DEFAULT NULL");
-                if (!$_safeColCheck($conn, 'wbws_groups', 'updated_at'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_groups` ADD COLUMN `updated_at` DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP");
-            }
-        } catch (Exception $e) { /* skip */ }
-        
-        // --- Fix wbws_group_leaders table ---
-        try {
-            $check = $conn->query("SHOW TABLES LIKE 'wbws_group_leaders'");
-            if ($check && $check->num_rows > 0) {
-                if (!$_safeColCheck($conn, 'wbws_group_leaders', 'leader_full_name_en'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_group_leaders` ADD COLUMN `leader_full_name_en` VARCHAR(200) DEFAULT NULL AFTER `leader_full_name`");
-                if (!$_safeColCheck($conn, 'wbws_group_leaders', 'email'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_group_leaders` ADD COLUMN `email` VARCHAR(100) DEFAULT NULL AFTER `phone`");
-                if (!$_safeColCheck($conn, 'wbws_group_leaders', 'start_date'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_group_leaders` ADD COLUMN `start_date` DATE DEFAULT NULL AFTER `responsibility`");
-                if (!$_safeColCheck($conn, 'wbws_group_leaders', 'end_date'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_group_leaders` ADD COLUMN `end_date` DATE DEFAULT NULL AFTER `start_date`");
-                if (!$_safeColCheck($conn, 'wbws_group_leaders', 'is_active'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_group_leaders` ADD COLUMN `is_active` TINYINT(1) NOT NULL DEFAULT 1");
-                if (!$_safeColCheck($conn, 'wbws_group_leaders', 'updated_by'))
-                    $_safeQuery($conn, "ALTER TABLE `wbws_group_leaders` ADD COLUMN `updated_by` VARCHAR(100) DEFAULT NULL");
-            }
-        } catch (Exception $e) { /* skip */ }
-        
-        $_SESSION['_db_checked'] = true;
-        
-        // Seed system_branding defaults if table exists but is empty
-        try {
-            $check = $conn->query("SELECT COUNT(*) as cnt FROM system_branding");
-            if ($check && (int)$check->fetch_assoc()['cnt'] === 0) {
-                $brandDefaults = [
-                    ['logo',      'School Logo',               '/admin/id_cards/assets/logos/school_logo.png'],
-                    ['seal',      'School Seal / Stamp',        '/admin/id_cards/assets/seals/school_seal.png'],
-                    ['sig_head',  'Head Teacher Signature',     '/admin/id_cards/assets/signatures/head_signature.png'],
-                    ['sig_admin', 'Director / Admin Signature', '/admin/id_cards/assets/signatures/director_signature.png'],
-                ];
-                $seedStmt = $conn->prepare("INSERT IGNORE INTO system_branding (asset_key, asset_label, file_path) VALUES (?, ?, ?)");
-                if ($seedStmt) {
-                    foreach ($brandDefaults as $d) {
-                        $seedStmt->bind_param("sss", $d[0], $d[1], $d[2]);
-                        $seedStmt->execute();
-                    }
-                    $seedStmt->close();
-                }
-            }
-        } catch (Exception $e) { /* ignore if table doesn't exist yet */ }
-    }
-}
+// Runtime requests never inspect or mutate schema. Apply the versioned SQL
+// migrations during deployment (including sql/012_runtime_schema_baseline.sql)
+// before serving the updated application.
 
 // ============================================================
 // OUTPUT COMPRESSION (for slow internet connections)
@@ -878,7 +786,7 @@ if (!$_isApiRequest) {
 // Catches all PHP errors, logs to DB, sends Telegram alerts
 // Dashboard: {SITE_URL}/monitor/
 $_monitorPath = ROOT_PATH . '/monitor/error_monitor.php';
-if (file_exists($_monitorPath)) {
+if (feature_enabled('monitor') && file_exists($_monitorPath)) {
     require_once $_monitorPath;
 }
 

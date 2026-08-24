@@ -17,57 +17,59 @@ $year = getCurrentAcademicYear();
 $yearId = $year ? (int)$year['id'] : 0;
 
 /**
- * UPSERT one student per class per day (Google/Stripe: last write wins on the unique key).
- * Returns saved count, or -1 on failure.
+ * Resolve and validate a complete, explicit sheet against the current server
+ * roster. This protects mobile and future integrations from stale/partial
+ * payloads and keeps the HTTP adapter separate from domain validation.
+ *
+ * @param array<int,mixed> $records
+ * @return array<int,array{member_id:int,status:string,note:string}>
  */
-function apiUpsertAttendanceRows(\mysqli $conn, int $classId, string $date, $yearIdOrNull, int $userId, array $records): int {
-    if (class_exists('\\App\\Services\\SubmissionService')) {
-        \App\Services\SubmissionService::hardenUniques($conn);
+function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records): array {
+    if (!class_exists('\\App\\Services\\AttendanceRecordService')
+        || !class_exists('\\App\\Services\\EnrollmentService')) {
+        err('Attendance validation is temporarily unavailable.', 503);
     }
-    $saved = 0;
-    $ids = [];
-    $conn->begin_transaction();
+
+    $scope = \App\Services\EnrollmentService::resolveRosterYear(
+        $conn,
+        $classId,
+        $yearId > 0 ? $yearId : null
+    );
+    $roster = \App\Services\EnrollmentService::fetchRoster(
+        $conn,
+        $classId,
+        $scope['year_id'] ?? null
+    );
     try {
-        $ins = $conn->prepare(
-            "INSERT INTO attendance
-                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                status = VALUES(status),
-                notes = VALUES(notes),
-                recorded_by = VALUES(recorded_by)"
-        );
-        if (!$ins) {
-            throw new Exception($conn->error);
-        }
-        foreach ($records as $rec) {
-            $memberId = (int)($rec['member_id'] ?? 0);
-            $status = validateEnum($rec['status'] ?? '', ['present', 'absent', 'late', 'excused'], 'present');
-            $note = trim($rec['note'] ?? $rec['notes'] ?? '');
-            if (!$memberId) {
-                continue;
-            }
-            $ins->bind_param('iiisssi', $memberId, $classId, $yearIdOrNull, $date, $status, $note, $userId);
-            $ins->execute();
-            $ids[] = $memberId;
-            $saved++;
-        }
-        $ins->close();
-        if ($ids) {
-            $in = implode(',', array_map('intval', $ids));
-            $del = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ? AND member_id NOT IN ($in)");
-            if ($del) {
-                $del->bind_param('is', $classId, $date);
-                $del->execute();
-                $del->close();
-            }
-        }
-        $conn->commit();
-        return $saved;
-    } catch (Exception $e) {
-        $conn->rollback();
-        return -1;
+        return \App\Services\AttendanceRecordService::normalizeCompleteSheet($records, $roster);
+    } catch (\DomainException $error) {
+        $safeMessage = $error->getMessage();
+        err($safeMessage, 422);
     }
+}
+
+/**
+ * Persist a validated sheet. The route owns the transaction so the attendance
+ * rows and Education workflow packet commit or roll back as one unit.
+ *
+ * @param array<int,array{member_id:int,status:string,note:string}> $records
+ */
+function apiReplaceAttendanceRows(
+    \mysqli $conn,
+    int $classId,
+    string $date,
+    ?int $yearId,
+    int $userId,
+    array $records
+): int {
+    return \App\Services\AttendanceRecordService::replaceSheet(
+        $conn,
+        $classId,
+        $date,
+        $yearId,
+        $userId,
+        $records
+    );
 }
 
 // ============================================================
@@ -190,47 +192,64 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
-    if (count($records) > 500) err('Too many records in one save (max 500).');
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
-
     $userId = (int)$auth['uid'];
     apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));
     if (isApiRateLimited('attendance_save', 30)) {
         err('Too many attendance saves. Please wait a moment.', 429);
     }
+    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records);
 
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
         err('This day’s attendance is already submitted. Only Education can change it.', 409);
     }
 
-    $yearIdOrNull = $year ? $year['id'] : null;
-    $saved = 0;
-    $errors = [];
-    apiEnsureSubmissionsTable();
-    $saved = apiUpsertAttendanceRows($conn, $classId, $date, $yearIdOrNull, $userId, $records);
-    if ($saved < 0) {
-        err('Could not save attendance. Nothing was changed. Please try again.', 500);
+    if (!class_exists('\\App\\Services\\SubmissionService')) {
+        err('Attendance workflow is temporarily unavailable.', 503);
     }
 
-    $counts = class_exists('\\App\\Services\\SubmissionService')
-        ? \App\Services\SubmissionService::countsFromRecords($records)
-        : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
-    $packet = ['ok' => true, 'id' => 0, 'status' => 'draft', 'message' => 'Saved as a draft for Education.'];
-    if (class_exists('\\App\\Services\\SubmissionService')) {
+    $yearIdOrNull = $year ? (int)$year['id'] : null;
+    $counts = \App\Services\SubmissionService::countsFromRecords($records);
+    $saved = 0;
+    $packet = [];
+    $conn->begin_transaction();
+    try {
+        $saved = apiReplaceAttendanceRows(
+            $conn,
+            $classId,
+            $date,
+            $yearIdOrNull,
+            $userId,
+            $records
+        );
         $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
             'teacher_id' => $userId,
             'class_id' => $classId,
             'date' => $date,
             'status' => \App\Services\SubmissionService::STATUS_DRAFT,
-            'student_count' => $counts['student_count'] ?: $saved,
+            'student_count' => $saved,
             'year_id' => $yearIdOrNull,
             'present' => $counts['present'],
             'absent' => $counts['absent'],
             'late' => $counts['late'],
             'excused' => $counts['excused'],
         ]);
+        if (empty($packet['ok'])) {
+            throw new \DomainException(
+                $packet['message'] ?? 'Could not update the attendance workflow.'
+            );
+        }
+        $conn->commit();
+    } catch (\DomainException $error) {
+        $conn->rollback();
+        $safeMessage = $error->getMessage();
+        err($safeMessage, 409);
+    } catch (\Throwable $error) {
+        $conn->rollback();
+        error_log('API attendance draft failed: ' . $error->getMessage());
+        err('Could not save attendance. Nothing was changed. Please try again.', 500);
     }
 
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Saved', "Class: {$classId}, Date: {$date}, Records: {$saved}");
@@ -238,7 +257,6 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     ok([
         'message' => $packet['message'] ?? "{$saved} records saved as a draft for Education",
         'saved' => $saved,
-        'errors' => $errors,
         'class_id' => $classId,
         'date' => $date,
         'submission_id' => $packet['id'] ?? 0,
@@ -250,10 +268,6 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 // POST /attendance/submit — save + mark sent to Education
 // ============================================================
 if ($method === 'POST' && $action === 'submit') {
-    if (isApiRateLimited('attendance_submit', 20)) {
-        err('Too many submits. Please wait a moment.', 429);
-    }
-
     $input = getBody();
     $classId = (int)($input['class_id'] ?? 0);
     $date = validateDate($input['date'] ?? '', date('Y-m-d'));
@@ -261,35 +275,42 @@ if ($method === 'POST' && $action === 'submit') {
 
     if (!$classId || empty($records)) err('class_id and records array are required');
     if (!is_array($records)) err('records must be an array');
-    if (count($records) > 500) err('Too many records in one save (max 500).');
 
     apiRequireClassAccess($conn, $auth, $classId, $yearId);
-
-    $yearIdOrNull = $year ? $year['id'] : null;
+    $yearIdOrNull = $year ? (int)$year['id'] : null;
     $userId = (int)$auth['uid'];
     apiIdempotencyBegin($userId, (string)($input['client_op_id'] ?? ''));
     if (isApiRateLimited('attendance_submit', 20)) {
         err('Too many submits. Please wait a moment.', 429);
     }
+    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records);
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
         err('This day’s attendance is already submitted. Only Education can change it.', 409);
     }
-    $saved = apiUpsertAttendanceRows($conn, $classId, $date, $yearIdOrNull, $userId, $records);
-    if ($saved < 0) {
-        err('Could not submit attendance. Nothing was changed. Please try again.', 500);
+    if (!class_exists('\\App\\Services\\SubmissionService')) {
+        err('Attendance workflow is temporarily unavailable.', 503);
     }
-    $counts = class_exists('\\App\\Services\\SubmissionService')
-        ? \App\Services\SubmissionService::countsFromRecords($records)
-        : ['present' => 0, 'absent' => 0, 'late' => 0, 'excused' => 0, 'student_count' => $saved];
-    $packet = ['ok' => true, 'id' => 0, 'status' => 'submitted'];
-    if (class_exists('\\App\\Services\\SubmissionService')) {
+
+    $counts = \App\Services\SubmissionService::countsFromRecords($records);
+    $saved = 0;
+    $packet = [];
+    $conn->begin_transaction();
+    try {
+        $saved = apiReplaceAttendanceRows(
+            $conn,
+            $classId,
+            $date,
+            $yearIdOrNull,
+            $userId,
+            $records
+        );
         $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
             'teacher_id' => $userId,
             'class_id' => $classId,
             'date' => $date,
             'status' => \App\Services\SubmissionService::STATUS_SUBMITTED,
-            'student_count' => $counts['student_count'] ?: $saved,
+            'student_count' => $saved,
             'year_id' => $yearIdOrNull,
             'present' => $counts['present'],
             'absent' => $counts['absent'],
@@ -297,8 +318,19 @@ if ($method === 'POST' && $action === 'submit') {
             'excused' => $counts['excused'],
         ]);
         if (empty($packet['ok'])) {
-            err($packet['message'] ?? 'Could not mark attendance complete.', 409);
+            throw new \DomainException(
+                $packet['message'] ?? 'Could not mark attendance complete.'
+            );
         }
+        $conn->commit();
+    } catch (\DomainException $error) {
+        $conn->rollback();
+        $safeMessage = $error->getMessage();
+        err($safeMessage, 409);
+    } catch (\Throwable $error) {
+        $conn->rollback();
+        error_log('API attendance submission failed: ' . $error->getMessage());
+        err('Could not submit attendance. Nothing was changed. Please try again.', 500);
     }
 
     logApiAction($auth['uid'], $auth['usr'], 'Attendance Submitted', "Class: {$classId}, Date: {$date}, Records: {$saved}");

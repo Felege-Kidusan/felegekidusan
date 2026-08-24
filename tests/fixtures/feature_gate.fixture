@@ -1,0 +1,29 @@
+<?php
+$root = rtrim($argv[1] ?? dirname(__DIR__, 2), '/\\');
+
+define('FEATURE_FINANCE', false);
+define('FEATURE_ATTENDANCE', false);
+define('FEATURE_GRADES', true);
+define('FEATURE_AI_CHATBOT', 'true');
+require_once $root . '/school_config.php';
+require_once $root . '/admin/backend/services/FeatureGate.php';
+
+use App\Services\FeatureGate;
+
+$tiles = FeatureGate::filterMobileTiles([
+    'education' => ['classes', 'attendance', 'grades', 'grades'],
+    'invalid' => ['reports', ['bad']],
+]);
+
+echo json_encode([
+    'finance' => FeatureGate::isEnabled('finance'),
+    'attendance' => FeatureGate::isEnabled('attendance'),
+    'grades' => FeatureGate::isEnabled('grades'),
+    'ambiguous_string' => FeatureGate::isEnabled('ai'),
+    'unknown' => FeatureGate::isEnabled('does_not_exist'),
+    'finance_route' => FeatureGate::forAdminRequest('/admin/api_finance.php'),
+    'id_route' => FeatureGate::forAdminRequest('/admin/id_cards/view_id_card.php'),
+    'attendance_api' => FeatureGate::forApiResource('attendance'),
+    'role_feature' => FeatureGate::forRoleDashboard('material_dept'),
+    'tiles' => $tiles,
+], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), PHP_EOL;

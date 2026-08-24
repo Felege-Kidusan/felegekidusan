@@ -28,7 +28,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$action = $_REQUEST['action'] ?? '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$__gradeActions = [
+    'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment',
+    'get_students_for_grading', 'save_grades', 'get_grade_summary',
+];
+if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Grades are not enabled for this deployment.']);
+    exit;
+}
 
 // ── Action-level authorization ──
 // Teachers are allowed in to grade (get_students_for_grading, save_grades,
@@ -124,7 +133,8 @@ switch ($action) {
                 'subject_id' => $conn->insert_id
             ]);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            reportInternalError('Subject creation failed', $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to save the record.']);
         }
         break;
     
@@ -372,7 +382,8 @@ switch ($action) {
                 'new_total' => $newTotal
             ]);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            reportInternalError('Assessment creation failed', $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to save the record.']);
         }
         break;
     
@@ -608,7 +619,8 @@ switch ($action) {
                 }
                 $successCount++;
             } catch (Exception $e) {
-                $errors[] = "Error for member $memberId: " . $e->getMessage();
+                reportInternalError('Grade save failed for member ' . $memberId, $e);
+                $errors[] = "Could not save the grade for member $memberId.";
             }
         }
         

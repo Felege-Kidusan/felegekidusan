@@ -1,0 +1,64 @@
+<?php
+$root = $argv[1] ?? dirname(__DIR__, 2);
+require_once rtrim($root, '/\\') . '/admin/backend/services/AttendanceRecordService.php';
+
+use App\Services\AttendanceRecordService;
+
+$roster = [
+    ['member_id' => 10],
+    ['member_id' => 20],
+];
+$valid = AttendanceRecordService::normalizeCompleteSheet([
+    ['member_id' => '10', 'status' => ' PRESENT ', 'notes' => '  Arrived early  '],
+    ['member_id' => 20, 'status' => 'excused', 'note' => 'Family'],
+], $roster);
+
+$rejected = [];
+$cases = [
+    'missing_status' => [
+        [['member_id' => 10], ['member_id' => 20, 'status' => 'absent']],
+        $roster,
+    ],
+    'partial_roster' => [
+        [['member_id' => 10, 'status' => 'present']],
+        $roster,
+    ],
+    'foreign_student' => [
+        [
+            ['member_id' => 10, 'status' => 'present'],
+            ['member_id' => 20, 'status' => 'present'],
+            ['member_id' => 30, 'status' => 'present'],
+        ],
+        $roster,
+    ],
+    'duplicate_student' => [
+        [
+            ['member_id' => 10, 'status' => 'present'],
+            ['member_id' => 10, 'status' => 'late'],
+        ],
+        [['member_id' => 10]],
+    ],
+    'unknown_status' => [
+        [
+            ['member_id' => 10, 'status' => 'unknown'],
+            ['member_id' => 20, 'status' => 'present'],
+        ],
+        $roster,
+    ],
+];
+
+foreach ($cases as $name => [$records, $caseRoster]) {
+    try {
+        AttendanceRecordService::normalizeCompleteSheet($records, $caseRoster);
+        $rejected[$name] = false;
+    } catch (DomainException $error) {
+        $rejected[$name] = true;
+    }
+}
+
+echo json_encode([
+    'valid_count' => count($valid),
+    'normalized_status' => $valid[0]['status'] ?? null,
+    'trimmed_note' => $valid[0]['note'] ?? null,
+    'rejected' => $rejected,
+], JSON_UNESCAPED_SLASHES) . PHP_EOL;

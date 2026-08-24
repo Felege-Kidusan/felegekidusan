@@ -237,25 +237,30 @@ Verified: `session.cookie_httponly=1`, `session.use_only_cookies=1`, `session.co
 ---
 
 # 4. HEALTH CHECK FILE — ✅ delivered: `admin/tools/health_check.php`
-Complete, syntax-valid, self-contained. Key points:
-- **Does NOT use the main login** (has its own `HEALTH_KEY`) and **does NOT load `config.php`**, so it still works when the app is broken — which is when you need it.
-- Open at: `SITE/admin/tools/health_check.php?key=YOUR_HEALTH_KEY`.
-- Reports: PHP version, secret + branding constants present, **DB connection**, counts of users/members/attendance/years, **exactly-one-current-year check**, disk free %, **last error-log line + time**, and **last backup file + age + size**.
-- If the secrets file is missing it says so plainly (that's the #1 thing to know).
+The health check remains independent of the normal app session and uses its own `HEALTH_KEY`. The key is accepted only as an HTTP Basic password or `X-Health-Key` header—never in a URL. Responses are no-store and do not expose database diagnostics or raw error-log lines. Example:
+```
+curl -u health:YOUR_HEALTH_KEY https://SITE/admin/tools/health_check.php
+```
 
-# 5. BACKUP SCRIPT — ✅ delivered: `admin/tools/backup.php`
-Complete, syntax-valid, self-contained. Key points:
-- Own key (`BACKUP_KEY`), runs from browser **or** cron; refuses to run if the key is unset/placeholder.
-- **Streams row-by-row to disk** (unbuffered `MYSQLI_USE_RESULT`) so it does **not** run out of memory on a large database — this fixes the old `cron_backup.php` weakness.
-- Saves to a folder **outside the web root** if writable, else the `.htaccess`-protected `admin/uploads/backups/` (and writes that `.htaccess` if missing).
-- Keeps the **newest 7**, deletes older, logs to `activity_logs`, and the health page reads its output.
-- Deletes a half-written file on error (never leaves a corrupt backup).
+# 5. ENCRYPTED BACKUP PIPELINE — ✅ delivered
+`admin/backend/services/BackupService.php` owns backup serialization, compression, authenticated encryption, private storage, bounded retention, and safe lookup. `admin/tools/backup.php`, the Super Admin UI, the download controller, and the legacy CLI cron adapter delegate to it.
+
+- Uses a consistent database snapshot and unbuffered `MYSQLI_USE_RESULT`; memory stays bounded as data grows.
+- Compresses and encrypts every new backup with libsodium using `BACKUP_ENCRYPTION_KEY` when set, otherwise `BACKUP_KEY`.
+- Writes 0600 files atomically to 0700 storage outside public_html and fails closed rather than falling back to web storage.
+- Keeps the newest seven encrypted backups and retains read-only download compatibility for existing plaintext backups.
+- Browser creation requires a Super Admin session, POST, and CSRF. Cron creation is CLI-only; secrets are never passed in URLs or command arguments.
 
 **cPanel cron line (daily at 2 AM):**
 ```
-0 2 * * * /usr/local/bin/php /home/USERNAME/public_html/admin/tools/backup.php key=YOUR_BACKUP_KEY >/dev/null 2>&1
+0 2 * * * /usr/local/bin/php /home/USERNAME/public_html/admin/tools/backup.php >/dev/null 2>&1
 ```
-*(Replace `USERNAME` and `YOUR_BACKUP_KEY`. If `/usr/local/bin/php` doesn't exist on your host, try `/usr/bin/php`.)*
+
+**Controlled restore preparation (always test in staging):**
+```
+php admin/tools/backup.php --decrypt=BACKUP_NAME --output=/home/USERNAME/restore-test.sql
+```
+Preserve the encryption key separately; without it the backup cannot be restored.
 
 ---
 
@@ -310,4 +315,4 @@ The security and reliability foundation is now sound: access control is centrali
 
 **Why it's safe to refactor now:** refactoring (splitting god-files, unifying the five layers, proper autoloading) is exactly the Phase-2 work in `PRODUCTION_HARDENING_PLAN.md`. It's safe to begin because the behavior is now pinned down by a clear access-control map and transactional writes — you have a correctness baseline to refactor *against*. The one caution for Phase B: the `/backend/` shim tree is **live**, not dead, so the refactor must treat "finish or retire the frontend/backend migration" as an explicit decision, not silently delete those shims (that mistake was already made once this round and caught).
 
-**Not blockers, but carry into Phase B** (from earlier audits, still open by design/timeline): member-list server-side paging, the mobile-API rate limit, and swapping the old in-memory `cron_backup.php` for the new streaming `admin/tools/backup.php`.
+**Not blockers, but carry into Phase B** (from earlier audits, still open by design/timeline): member-list server-side paging and continued mobile-API load/rate-limit verification. The old in-memory cron backup has now been replaced by the shared encrypted streaming service.

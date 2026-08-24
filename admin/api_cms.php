@@ -494,6 +494,6 @@ try {
         out(['status' => 'error', 'message' => 'Unknown action: ' . $action]);
     }
 } catch (Throwable $e) {
-    error_log("CMS API error [$action]: " . $e->getMessage());
-    out(['status' => 'error', 'message' => 'Server error: ' . $e->getMessage()]);
+    reportInternalError('CMS API request failed: ' . $action, $e);
+    out(['status' => 'error', 'message' => 'Unable to complete the content request.']);
 }

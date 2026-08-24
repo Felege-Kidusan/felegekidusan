@@ -1,0 +1,87 @@
+<?php
+$root = rtrim($argv[1] ?? dirname(__DIR__, 2), '/\\');
+$format = $argv[2] ?? 'pdf';
+require_once $root . '/admin/backend/services/MemberReportService.php';
+require_once $root . '/admin/backend/services/MemberReportRenderer.php';
+
+use App\Services\MemberReportRenderer;
+use App\Services\MemberReportService;
+
+$pdo = new PDO('sqlite::memory:');
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$pdo->exec(<<<'SQL'
+CREATE TABLE members (
+    id INTEGER PRIMARY KEY,
+    member_code TEXT,
+    student_name TEXT,
+    father_name TEXT,
+    grandfather_name TEXT,
+    baptismal_name TEXT,
+    gender TEXT,
+    age_group TEXT,
+    current_section TEXT,
+    phone_number TEXT,
+    alt_phone_number TEXT,
+    guardian_name TEXT,
+    guardian_phone1 TEXT,
+    guardian_phone2 TEXT,
+    city TEXT,
+    sub_city TEXT,
+    woreda TEXT,
+    work_profession TEXT,
+    education_level TEXT,
+    registration_type TEXT,
+    member_type TEXT,
+    status TEXT,
+    id_card_status TEXT,
+    created_at TEXT
+);
+SQL);
+$insert = $pdo->prepare(
+    'INSERT INTO members VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+);
+$insert->execute([
+    1,
+    '=HYPERLINK("https://invalid.example")',
+    '<script>alert(1)</script>',
+    'Father & Co',
+    'Grandfather',
+    'Baptismal',
+    'male',
+    '18_plus',
+    'Section',
+    '0900000000',
+    '',
+    'Guardian',
+    '',
+    '',
+    'Addis Ababa',
+    'Sub City',
+    '1',
+    'Student',
+    'College',
+    'direct',
+    'regular',
+    'active',
+    'generated',
+    '2026-01-01 10:00:00',
+]);
+
+$report = new MemberReportService($pdo, ['filter' => 'all', 'format' => $format]);
+$summary = $report->summary();
+$rows = $report->openRows($format);
+if ($format === 'csv') {
+    MemberReportRenderer::streamCsv($rows, $summary, 'test.csv', false);
+    exit;
+}
+MemberReportRenderer::streamPrintPage(
+    $rows,
+    $summary,
+    'Test <Report>',
+    '2026-08-24',
+    '/admin/export_pdf.php?format=csv',
+    'Test School',
+    'Private report',
+    false,
+    false
+);

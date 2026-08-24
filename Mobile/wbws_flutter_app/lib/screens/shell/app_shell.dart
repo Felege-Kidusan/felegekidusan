@@ -54,7 +54,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _tabs = getTabsForRole(_api.userRole);
+    _tabs = _configuredTabs();
     WidgetsBinding.instance.addObserver(this);
     AppNav().tabStream.listen((id) {
       if (!mounted) return;
@@ -79,6 +79,32 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (_tabs.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _forceLogout());
     }
+    AppUpdateService().check().then((_) => _applyFeatureTabs());
+  }
+
+  List<NavTab> _configuredTabs() {
+    final config = AppUpdateService();
+    return getTabsForRole(
+      _api.userRole,
+      attendanceEnabled: config.featureEnabled('attendance'),
+      gradesEnabled: config.featureEnabled('grades'),
+    );
+  }
+
+  void _applyFeatureTabs() {
+    if (!mounted) return;
+    final currentId = _tabs.isNotEmpty && _currentIndex < _tabs.length
+        ? _tabs[_currentIndex].id
+        : 'home';
+    final next = _configuredTabs();
+    final nextIndex = next.indexWhere((tab) => tab.id == currentId);
+    final allowed = next.map((tab) => tab.id).toSet();
+    setState(() {
+      _tabs = next;
+      _currentIndex = nextIndex >= 0 ? nextIndex : 0;
+      _openedTabs.remove('home');
+      _openedTabs.removeWhere((id, _) => !allowed.contains(id));
+    });
   }
 
   @override
@@ -96,9 +122,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       SyncService().startAutoSync();
       SyncService().syncAll(force: true);
       _refreshCurrentTab();
-      AppUpdateService().check().then((_) {
-        if (mounted) setState(() {});
-      });
+      AppUpdateService().check().then((_) => _applyFeatureTabs());
     } else if (state == AppLifecycleState.paused) {
       // Keep the outbox. Android freezes timers in the background anyway;
       // killing it here meant a failed Save sat until the teacher tapped Sync.
@@ -211,6 +235,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   Widget _buildHomeForRole() {
+    final roleFeature = <String, String>{
+      UserRoles.attendanceTaker: 'attendance',
+      UserRoles.financeDept: 'finance',
+      UserRoles.materialDept: 'material',
+    }[_api.userRole];
+    if (roleFeature != null
+        && !AppUpdateService().featureEnabled(roleFeature)) {
+      return _buildDisabledFeature(roleFeature);
+    }
     switch (_api.userRole) {
       case UserRoles.teacher:
         return TeacherHomeScreen(key: _teacherHomeKey);
@@ -230,6 +263,28 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       default:
         return TeacherHomeScreen(key: _teacherHomeKey);
     }
+  }
+
+  Widget _buildDisabledFeature(String feature) {
+    final label = feature[0].toUpperCase() + feature.substring(1);
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.lock_outline_rounded,
+                size: 52, color: AppTheme.textSecondary),
+            const SizedBox(height: 14),
+            Text('$label is not enabled',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text('This module is unavailable for this school deployment.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _serverBanner() {

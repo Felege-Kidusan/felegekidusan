@@ -104,7 +104,8 @@ if ($method === 'GET' && $id === null) {
         $stmt->close();
         
     } catch (Exception $e) {
-        err('Failed to load classes: ' . $e->getMessage(), 500);
+        reportInternalError('API class list failed', $e);
+        err('Unable to load classes.', 500);
     }
     
     ok(['classes' => $classes, 'count' => count($classes)]);
@@ -238,7 +239,8 @@ if ($method === 'GET' && $id !== null && $sub === 'students') {
             $stmt->close();
         }
     } catch (Exception $e) {
-        err('Failed to load students: ' . $e->getMessage(), 500);
+        reportInternalError('API class roster failed', $e);
+        err('Unable to load students.', 500);
     }
     
     ok([

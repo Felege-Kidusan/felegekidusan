@@ -10,9 +10,11 @@ require_once __DIR__ . '/backend/workflow.php';
 require_once __DIR__ . '/backend/member_sync.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/AssignmentService.php';
+require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 
-use App\Services\EnrollmentService;
 use App\Services\AssignmentService;
+use App\Services\AttendanceRecordService;
+use App\Services\EnrollmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -29,7 +31,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$action = $_REQUEST['action'] ?? '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$__featureActions = [
+    'grades' => ['record_grade'],
+    'attendance' => ['record_attendance', 'batch_attendance'],
+];
+foreach ($__featureActions as $__feature => $__actions) {
+    if (in_array($action, $__actions, true) && !feature_enabled($__feature)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'This feature is not enabled for this deployment.']);
+        exit;
+    }
+}
 
 // ── Action-level authorization (two tiers) ──
 // Teachers and attendance-takers are allowed in to READ classes and record
@@ -70,61 +83,7 @@ if (in_array($action, $__manageActions, true)) {
 // Effective academic year — single source of truth (resolver, time-travel aware)
 $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
-// Ensure ec_year column exists (added after migration 002)
-try {
-    $r = $conn->query("SHOW COLUMNS FROM `academic_years` LIKE 'ec_year'");
-    if ($r && $r->num_rows === 0) {
-        $conn->query("ALTER TABLE `academic_years` ADD COLUMN `ec_year` SMALLINT UNSIGNED DEFAULT NULL AFTER `year_gc`");
-    }
-} catch (Exception $e) { /* table may not exist yet */ }
-
-// Ensure year_gc column exists
-try {
-    $r = $conn->query("SHOW COLUMNS FROM `academic_years` LIKE 'year_gc'");
-    if ($r && $r->num_rows === 0) {
-        $conn->query("ALTER TABLE `academic_years` ADD COLUMN `year_gc` VARCHAR(20) DEFAULT NULL AFTER `year_name`");
-    }
-} catch (Exception $e) { /* table may not exist yet */ }
-
-// Ensure academic_terms table exists (critical for semesters)
-try {
-    $conn->query("SELECT 1 FROM academic_terms LIMIT 0");
-} catch (Exception $e) {
-    $conn->query("CREATE TABLE IF NOT EXISTS `academic_terms` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `academic_year_id` INT UNSIGNED NOT NULL,
-        `term_name` VARCHAR(50) NOT NULL,
-        `term_number` TINYINT UNSIGNED NOT NULL DEFAULT 1,
-        `start_date` DATE DEFAULT NULL,
-        `end_date` DATE DEFAULT NULL,
-        `is_current` TINYINT(1) NOT NULL DEFAULT 0,
-        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        KEY `academic_year_id` (`academic_year_id`),
-        KEY `is_current` (`is_current`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-}
-
-// Ensure class_enrollments table exists (critical for classes)
-try {
-    $conn->query("SELECT 1 FROM class_enrollments LIMIT 0");
-} catch (Exception $e) {
-    $conn->query("CREATE TABLE IF NOT EXISTS `class_enrollments` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `member_id` INT UNSIGNED NOT NULL,
-        `class_id` INT UNSIGNED NOT NULL,
-        `academic_year_id` INT UNSIGNED NOT NULL,
-        `enrolled_at` DATE DEFAULT NULL,
-        `status` ENUM('active','withdrawn','completed','transferred') NOT NULL DEFAULT 'active',
-        `notes` TEXT DEFAULT NULL,
-        `enrolled_by` INT UNSIGNED DEFAULT NULL,
-        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `unique_enrollment` (`member_id`,`class_id`,`academic_year_id`),
-        KEY `class_id` (`class_id`),
-        KEY `academic_year_id` (`academic_year_id`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-}
+// Education schema is deployment-managed by migrations 004, 006, and 013.
 
 // ── STEP 3: write-protection ────────────────────────────────────────────────
 // Year-scoped writes stamp the ACTIVE year and are refused while time-travelling
@@ -272,7 +231,8 @@ switch ($action) {
                 'grade_letter' => $gradeLetter
             ]);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            reportInternalError('Grade record failed', $stmt->error ?: $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to record the grade.']);
         }
         break;
     
@@ -282,25 +242,49 @@ switch ($action) {
     case 'record_attendance':
         $memberId = (int)($_POST['member_id'] ?? 0);
         $classId = (int)($_POST['class_id'] ?? 0);
-        $attendanceDate = $_POST['attendance_date'] ?? date('Y-m-d');
-        $status = $_POST['status'] ?? 'present';
+        $attendanceDate = validateDate($_POST['attendance_date'] ?? '', date('Y-m-d'));
+        $statusValue = $_POST['status'] ?? null;
+        $status = is_string($statusValue) ? strtolower(trim($statusValue)) : '';
         $checkInTime = $_POST['check_in_time'] ?? null;
-        $notes = trim($_POST['notes'] ?? '');
+        $checkInTime = is_string($checkInTime) && preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/', $checkInTime)
+            ? $checkInTime
+            : null;
+        $noteValue = $_POST['notes'] ?? '';
+        $notes = is_string($noteValue) ? trim($noteValue) : '';
         
-        if (!$memberId) {
-            echo json_encode(['status' => 'error', 'message' => 'Member ID required']);
+        if (!$memberId || !$classId) {
+            echo json_encode(['status' => 'error', 'message' => 'Member ID and class ID are required']);
             exit;
         }
         
-        if (!in_array($status, ['present', 'absent', 'late', 'excused', 'holiday'])) {
+        if (!in_array($status, ['present', 'absent', 'late', 'excused', 'holiday'], true)) {
             echo json_encode(['status' => 'error', 'message' => 'Invalid attendance status']);
             exit;
         }
         
-        $yearId = $currentYear ? $currentYear['id'] : null;
-        $recordedBy = $_SESSION['admin_id'];
+        if ((function_exists('mb_strlen') ? mb_strlen($notes, 'UTF-8') : strlen($notes)) > AttendanceRecordService::MAX_NOTE_LENGTH) {
+            echo json_encode(['status' => 'error', 'message' => 'Attendance notes are too long.']);
+            exit;
+        }
+
+        $yearId = $currentYear ? (int)$currentYear['id'] : null;
+        $recordedBy = (int)$_SESSION['admin_id'];
+        $enrollment = $conn->prepare(
+            "SELECT 1 FROM class_enrollments
+             WHERE member_id = ? AND class_id = ? AND status = 'active'
+               AND (? IS NULL OR academic_year_id = ?)
+             LIMIT 1"
+        );
+        $enrollment->bind_param('iiii', $memberId, $classId, $yearId, $yearId);
+        $enrollment->execute();
+        $isEnrolled = $enrollment->get_result()->num_rows > 0;
+        $enrollment->close();
+        if (!$isEnrolled) {
+            echo json_encode(['status' => 'error', 'message' => 'The member is not actively enrolled in this class.']);
+            exit;
+        }
         
-        // Upsert attendance record
+        // Upsert one explicitly selected attendance record.
         $stmt = $conn->prepare("
             INSERT INTO attendance 
             (member_id, class_id, academic_year_id, attendance_date, status, check_in_time, notes, recorded_by)
@@ -311,7 +295,7 @@ switch ($action) {
                 notes = VALUES(notes),
                 recorded_by = VALUES(recorded_by)
         ");
-        $stmt->bind_param("iiisssis", 
+        $stmt->bind_param("iiissssi",
             $memberId, $classId, $yearId, $attendanceDate, 
             $status, $checkInTime, $notes, $recordedBy
         );
@@ -322,7 +306,8 @@ switch ($action) {
             
             echo json_encode(['status' => 'success', 'message' => 'Attendance recorded!']);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            reportInternalError('Attendance record failed', $stmt->error ?: $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to record attendance.']);
         }
         break;
     
@@ -331,36 +316,51 @@ switch ($action) {
     // ============================================================
     case 'batch_attendance':
         $classId = (int)($_POST['class_id'] ?? 0);
-        $attendanceDate = $_POST['attendance_date'] ?? date('Y-m-d');
+        $attendanceDate = validateDate($_POST['attendance_date'] ?? '', date('Y-m-d'));
         $records = json_decode($_POST['records'] ?? '[]', true);
         
-        if (!$classId || empty($records)) {
+        if (!$classId || !is_array($records) || empty($records)) {
             echo json_encode(['status' => 'error', 'message' => 'Missing class or records']);
             exit;
         }
         
-        $yearId = $currentYear ? $currentYear['id'] : null;
-        $recordedBy = $_SESSION['admin_id'];
-        $successCount = 0;
-        
-        $stmt = $conn->prepare("
-            INSERT INTO attendance 
-            (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
-            VALUES (?, ?, ?, ?, ?, '', ?)
-            ON DUPLICATE KEY UPDATE status = VALUES(status), recorded_by = VALUES(recorded_by)
-        ");
-        
+        $yearId = $currentYear ? (int)$currentYear['id'] : null;
+        $recordedBy = (int)$_SESSION['admin_id'];
+        $scope = EnrollmentService::resolveRosterYear($conn, $classId, $yearId);
+        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+        try {
+            $records = AttendanceRecordService::normalizeCompleteSheet($records, $roster);
+        } catch (DomainException $error) {
+            http_response_code(422);
+            $safeMessage = $error->getMessage();
+            echo json_encode(['status' => 'error', 'message' => $safeMessage]);
+            exit;
+        }
+
+        $conn->begin_transaction();
+        try {
+            $successCount = AttendanceRecordService::replaceSheet(
+                $conn,
+                $classId,
+                $attendanceDate,
+                $yearId,
+                $recordedBy,
+                $records
+            );
+            $conn->commit();
+        } catch (Throwable $error) {
+            $conn->rollback();
+            error_log('batch_attendance failed: ' . $error->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Attendance was not saved. The previous sheet is unchanged.',
+            ]);
+            exit;
+        }
+
         foreach ($records as $record) {
-            $memberId = (int)($record['member_id'] ?? 0);
-            $status = $record['status'] ?? 'present';
-            
-            if ($memberId && in_array($status, ['present', 'absent', 'late', 'excused'])) {
-                $stmt->bind_param("iiissi", $memberId, $classId, $yearId, $attendanceDate, $status, $recordedBy);
-                if ($stmt->execute()) {
-                    $successCount++;
-                    updateAttendanceSummary($conn, $memberId, $yearId);
-                }
-            }
+            updateAttendanceSummary($conn, (int)$record['member_id'], $yearId);
         }
         
         echo json_encode([
@@ -578,7 +578,8 @@ switch ($action) {
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'message' => 'Class saved', 'id' => $id ?: $conn->insert_id]);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Failed: ' . $conn->error]);
+            reportInternalError('Class save failed', $stmt->error ?: $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to save the class.']);
         }
         break;
 
@@ -648,19 +649,6 @@ switch ($action) {
         // single source of truth and makes two-active-years impossible.
         $isCurrent = 0; // ignored for lifecycle; kept for backward-compat only.
 
-        // Ensure year_gc and ec_year columns exist
-        try {
-            $cols = [];
-            $r = $conn->query("SHOW COLUMNS FROM academic_years");
-            while ($row = $r->fetch_assoc()) $cols[] = $row['Field'];
-            if (!in_array('year_gc', $cols)) {
-                $conn->query("ALTER TABLE academic_years ADD COLUMN `year_gc` VARCHAR(20) DEFAULT NULL AFTER `year_name`");
-            }
-            if (!in_array('ec_year', $cols)) {
-                $conn->query("ALTER TABLE academic_years ADD COLUMN `ec_year` SMALLINT UNSIGNED DEFAULT NULL AFTER `year_gc`");
-            }
-        } catch (Exception $e) { /* ignore */ }
-        
         try {
             if ($id > 0) {
                 // UPDATE existing — descriptive fields only. The active-year
@@ -669,17 +657,20 @@ switch ($action) {
                 $sql = "UPDATE academic_years SET year_name=?, ec_year=?, year_gc=?, start_date=?, end_date=? WHERE id=?";
                 $stmt = $conn->prepare($sql);
                 if (!$stmt) {
-                    echo json_encode(['status'=>'error','message'=>'SQL Error: '.$conn->error]);
+                    reportInternalError('Academic year update prepare failed', $conn->error);
+                    echo json_encode(['status'=>'error','message'=>'Academic year storage is temporarily unavailable.']);
                     exit;
                 }
                 $stmt->bind_param("sisssi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $id);
                 if ($stmt->execute()) {
                     echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id]);
                 } else {
-                    $msg = ($stmt->errno == 1062)
-                        ? 'An academic year with this name already exists — please choose a different year name.'
-                        : 'Update failed: ' . $stmt->error;
-                    echo json_encode(['status'=>'error','message'=>$msg]);
+                    if ($stmt->errno == 1062) {
+                        echo json_encode(['status'=>'error','message'=>'An academic year with this name already exists — please choose a different year name.']);
+                    } else {
+                        reportInternalError('Academic year update failed', $stmt->error);
+                        echo json_encode(['status'=>'error','message'=>'Unable to update the academic year.']);
+                    }
                 }
             } else {
                 // INSERT new — always starts as 'upcoming' (is_current=0). It
@@ -687,7 +678,8 @@ switch ($action) {
                 $sql = "INSERT INTO academic_years (year_name, ec_year, year_gc, start_date, end_date, is_current) VALUES (?,?,?,?,?,0)";
                 $stmt = $conn->prepare($sql);
                 if (!$stmt) {
-                    echo json_encode(['status'=>'error','message'=>'SQL Error: '.$conn->error]);
+                    reportInternalError('Academic year insert prepare failed', $conn->error);
+                    echo json_encode(['status'=>'error','message'=>'Academic year storage is temporarily unavailable.']);
                     exit;
                 }
                 $stmt->bind_param("sisss", $name, $ecYearVal, $yearGcVal, $startDate, $endDate);
@@ -733,14 +725,17 @@ switch ($action) {
                         : 'Academic year created with 2 semesters. Use "Set Active" to make it the current year.';
                     echo json_encode(['status'=>'success','message'=>$msg,'id'=>$newId,'activated'=>$activated]);
                 } else {
-                    $msg = ($stmt->errno == 1062)
-                        ? 'An academic year with this name already exists — please choose a different year name.'
-                        : 'Insert failed: ' . $stmt->error;
-                    echo json_encode(['status'=>'error','message'=>$msg]);
+                    if ($stmt->errno == 1062) {
+                        echo json_encode(['status'=>'error','message'=>'An academic year with this name already exists — please choose a different year name.']);
+                    } else {
+                        reportInternalError('Academic year insert failed', $stmt->error);
+                        echo json_encode(['status'=>'error','message'=>'Unable to create the academic year.']);
+                    }
                 }
             }
         } catch (Exception $e) {
-            echo json_encode(['status'=>'error','message'=>'Error: '.$e->getMessage()]);
+            reportInternalError('Academic year save failed', $e);
+            echo json_encode(['status'=>'error','message'=>'Unable to save the academic year.']);
         }
         break;
 
@@ -870,9 +865,10 @@ switch ($action) {
                 if ($stmt) {
                     $stmt->bind_param("sissi", $tname, $tnum, $tstartVal, $tendVal, $tid);
                     if ($stmt->execute()) echo json_encode(['status'=>'success','message'=>'Semester updated']);
-                    else echo json_encode(['status'=>'error','message'=>'Failed: '.$stmt->error]);
+                    else { reportInternalError('Academic term update failed', $stmt->error); echo json_encode(['status'=>'error','message'=>'Unable to update the semester.']); }
                 } else {
-                    echo json_encode(['status'=>'error','message'=>'SQL Error: '.$conn->error]);
+                    reportInternalError('Academic term update prepare failed', $conn->error);
+                    echo json_encode(['status'=>'error','message'=>'Semester storage is temporarily unavailable.']);
                 }
             } else {
                 // INSERT new term
@@ -881,13 +877,15 @@ switch ($action) {
                 if ($stmt) {
                     $stmt->bind_param("isiss", $ayid, $tname, $tnum, $tstartVal, $tendVal);
                     if ($stmt->execute()) echo json_encode(['status'=>'success','message'=>'Semester added']);
-                    else echo json_encode(['status'=>'error','message'=>'Failed: '.$stmt->error]);
+                    else { reportInternalError('Academic term insert failed', $stmt->error); echo json_encode(['status'=>'error','message'=>'Unable to add the semester.']); }
                 } else {
-                    echo json_encode(['status'=>'error','message'=>'SQL Error: '.$conn->error]);
+                    reportInternalError('Academic term insert prepare failed', $conn->error);
+                    echo json_encode(['status'=>'error','message'=>'Semester storage is temporarily unavailable.']);
                 }
             }
         } catch (Exception $e) {
-            echo json_encode(['status'=>'error','message'=>'Error: '.$e->getMessage()]);
+            reportInternalError('Academic term save failed', $e);
+            echo json_encode(['status'=>'error','message'=>'Unable to save the semester.']);
         }
         break;
 
@@ -974,14 +972,15 @@ switch ($action) {
         $stmt->bind_param("si", $reason, $enrollmentId); $stmt->execute();
         $by = $_SESSION['admin_id']; $dt = date('Y-m-d'); $from = $enr['class_id'];
         $tnote = "Transferred from class #$from".($reason ? ": $reason" : '');
-        // Ensure promoted_from column exists
-        try { $r = $conn->query("SHOW COLUMNS FROM `class_enrollments` LIKE 'promoted_from'"); if ($r && $r->num_rows === 0) $conn->query("ALTER TABLE `class_enrollments` ADD COLUMN `promoted_from` INT UNSIGNED DEFAULT NULL AFTER `notes`"); } catch (Exception $e) {}
         $stmt = $conn->prepare("INSERT INTO class_enrollments (member_id,class_id,academic_year_id,enrolled_at,status,notes,promoted_from,enrolled_by) VALUES (?,?,?,?,'active',?,?,?)");
         $stmt->bind_param("iiissii", $enr['member_id'], $toClassId, $currentYear['id'], $dt, $tnote, $from, $by);
         if ($stmt->execute()) {
             if (function_exists('autoUpdateMemberClass')) autoUpdateMemberClass($conn, $enr['member_id'], $toClassId, $currentYear['id']);
             echo json_encode(['status'=>'success','message'=>$enr['student_name'].' '.$enr['father_name'].' transferred!']);
-        } else echo json_encode(['status'=>'error','message'=>'Transfer failed: '.$conn->error]);
+        } else {
+            reportInternalError('Enrollment transfer failed', $stmt->error ?: $conn->error);
+            echo json_encode(['status'=>'error','message'=>'Unable to transfer the enrollment.']);
+        }
         break;
 
     // ============================================================

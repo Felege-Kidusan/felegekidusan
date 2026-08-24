@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
+require_once __DIR__ . '/../backend/services/BackupService.php';
 
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'Super Admin';
 $username = $_SESSION['admin_username'] ?? '';
@@ -23,12 +24,15 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
 }
 $csrfToken = generateCsrfToken();
 
+$testSeedEnabled = defined('ENABLE_TEST_DATA_TOOLS') && ENABLE_TEST_DATA_TOOLS === true;
 $testSeedInfo = ['loaded' => 0, 'expected' => 224, 'by_grade' => [], 'auto' => null];
-try {
-    require_once __DIR__ . '/../backend/services/TestMemberSeed.php';
-    $testSeedInfo = \App\Services\TestMemberSeed::status($conn);
-} catch (Throwable $e) {
-    error_log('test seed status: ' . $e->getMessage());
+if ($testSeedEnabled) {
+    try {
+        require_once __DIR__ . '/../backend/services/TestMemberSeed.php';
+        $testSeedInfo = \App\Services\TestMemberSeed::status($conn);
+    } catch (Throwable $e) {
+        error_log('test seed status: ' . $e->getMessage());
+    }
 }
 
 // Never hold the session file during a long page. One Super Admin tab
@@ -88,11 +92,7 @@ if (isset($conn)) {
     // does not need the exact DB size on every visit.
     $dbSize = '—';
     
-    // Activity logs table
-    $conn->query("CREATE TABLE IF NOT EXISTS activity_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, username VARCHAR(100), action VARCHAR(255) NOT NULL,
-        details TEXT, ip_address VARCHAR(45), user_agent TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    // Activity-log schema is deployment-managed by migration 012.
     
     // Get activity logs
     $r = $conn->query("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 20");
@@ -137,55 +137,31 @@ if (isset($_POST['clear_error_log_inline'])) {
     }
 }
 
-// Handle backup request
-if (isset($_POST['create_backup']) && isset($conn)) {
-    // CSRF validation for backup
-    if (!validateCsrf()) {
-        $backupMessage = 'error:Security token expired. Please refresh and try again.';
-    } else {
+// Backup creation is handled by a dedicated controller/service so this UI
+// never buffers a full database dump in memory.
+if (($_GET['backup_status'] ?? '') === 'created') {
+    $backupMessage = 'success:Encrypted backup created successfully.';
     $activeSection = 'backup';
-    $backupDir = __DIR__ . '/../uploads/backups';
-    if (!is_dir($backupDir)) mkdir($backupDir, 0755, true);
-    
-    $filename = 'backup_' . date('Y-m-d_H-i-s') . '.sql';
-    $filepath = $backupDir . '/' . $filename;
-    
-    $tables = [];
-    $result = $conn->query("SHOW TABLES");
-    while ($row = $result->fetch_row()) $tables[] = $row[0];
-    
-    $sql = "-- " . SCHOOL_NAME_SHORT . " Backup - " . date('Y-m-d H:i:s') . "\n\n";
-    foreach ($tables as $table) {
-        $result = $conn->query("SHOW CREATE TABLE `$table`");
-        $row = $result->fetch_row();
-        $sql .= "DROP TABLE IF EXISTS `$table`;\n" . $row[1] . ";\n\n";
-        $result = $conn->query("SELECT * FROM `$table`");
-        while ($row = $result->fetch_assoc()) {
-            $values = array_map(fn($v) => $v === null ? 'NULL' : "'" . $conn->real_escape_string($v) . "'", array_values($row));
-            $sql .= "INSERT INTO `$table` VALUES (" . implode(', ', $values) . ");\n";
-        }
-        $sql .= "\n";
-    }
-    
-    if (file_put_contents($filepath, $sql)) {
-        $backupMessage = 'success:Backup created: ' . $filename;
-        $stmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address) VALUES (?, ?, 'Backup Created', ?, ?)");
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-        $stmt->bind_param("isss", $adminId, $username, $filename, $ip);
-        $stmt->execute();
-    } else {
-        $backupMessage = 'error:Failed to create backup';
-    }
-    } // end CSRF else
+} elseif (($_GET['backup_status'] ?? '') === 'failed') {
+    $backupMessage = 'error:The encrypted backup could not be created. Review the protected server log or contact the system administrator.';
+    $activeSection = 'backup';
 }
 
-// Get backup files
-$backupDir = __DIR__ . '/../uploads/backups';
-if (is_dir($backupDir)) {
-    foreach (glob($backupDir . '/*.sql') as $file) {
-        $backupFiles[] = ['name' => basename($file), 'size' => round(filesize($file) / 1024, 2) . ' KB', 'date' => date('Y-m-d H:i', filemtime($file))];
+try {
+    foreach (\App\Services\BackupService::listBackups(ROOT_PATH, 50) as $file) {
+        $bytes = (int)$file['size'];
+        $backupFiles[] = [
+            'name' => $file['name'],
+            'size' => $bytes >= 1048576
+                ? round($bytes / 1048576, 2) . ' MB'
+                : round($bytes / 1024, 2) . ' KB',
+            'date' => date('Y-m-d H:i', (int)$file['modified']),
+            'encrypted' => !empty($file['encrypted']),
+            'legacy' => !empty($file['legacy']),
+        ];
     }
-    usort($backupFiles, fn($a, $b) => strtotime($b['date']) - strtotime($a['date']));
+} catch (Throwable $error) {
+    reportInternalError('Backup listing failed', $error);
 }
 
 // Helper for form values
@@ -702,6 +678,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <div class="stat-card"><div class="stat-header"><div class="stat-title">Active</div><div class="stat-icon" style="background:rgba(16,185,129,.15);color:#34d399"><i class="fa-solid fa-user-check"></i></div></div><div class="stat-value"><?= $activeMembers ?></div><div class="stat-label">Active now</div></div>
                     <div class="stat-card"><div class="stat-header"><div class="stat-title">Pending</div><div class="stat-icon" style="background:rgba(245,158,11,.15);color:#fbbf24"><i class="fa-solid fa-hourglass-half"></i></div></div><div class="stat-value"><?= $pendingRegistrations ?></div><div class="stat-label">Waiting</div></div>
                 </div>
+                <?php if ($testSeedEnabled): ?>
                 <div class="card" id="testSeedCard" style="margin-bottom:1rem;border:1px solid rgba(240,192,0,.35);background:rgba(96,0,0,.18)">
                     <h3 class="card-title"><i class="fa-solid fa-vial" style="color:#F0C000"></i> Practice members (full system test)</h3>
                     <p style="font-size:.8rem;color:#cbd5e1;margin:.35rem 0 .75rem">
@@ -718,6 +695,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                         <button type="button" class="btn btn-outline" id="testSeedClearBtn" onclick="if(confirm('Remove every TEST-FKSS practice member? Real members stay.'))runTestSeed('clear')"><i class="fa-solid fa-trash"></i> Remove practice members</button>
                     </div>
                 </div>
+                <?php endif; ?>
                 <div class="grid-2">
                     <div class="card"><h3 class="card-title"><i class="fa-solid fa-server"></i> System Info</h3>
                         <div class="health-item"><span class="health-name">PHP</span><span class="health-value"><?= $phpVersion ?></span></div>
@@ -775,7 +753,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 </select>
                             </div>
                             <div class="form-group"><label class="form-label">Password <?= $editUser ? '(leave blank to keep)' : '' ?></label>
-                                <div class="pw-wrap"><input type="password" name="password" class="form-input" placeholder="<?= $editUser ? 'New password (optional)' : 'Set password' ?>"><button type="button" class="pw-toggle" data-toggle>Show</button></div>
+                                <div class="pw-wrap"><input type="password" name="password" class="form-input" minlength="12" maxlength="72" autocomplete="new-password" placeholder="<?= $editUser ? 'New password (optional, 12+ characters)' : 'Set password (12+ characters)' ?>"><button type="button" class="pw-toggle" data-toggle>Show</button></div>
                             </div>
                             <div class="form-group"><label class="form-label">Confirm Password</label>
                                 <div class="pw-wrap"><input type="password" name="confirm_password" class="form-input" placeholder="Confirm password"><button type="button" class="pw-toggle" data-toggle>Show</button></div>
@@ -1194,15 +1172,15 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 
                 <div class="grid-2">
                     <div class="card"><h3 class="card-title"><i class="fa-solid fa-download"></i> Create Backup</h3>
-                        <p style="font-size:.8rem;color:#94a3b8;margin-bottom:.85rem">Export all database tables to SQL file</p>
+                        <p style="font-size:.8rem;color:#94a3b8;margin-bottom:.85rem">Stream a consistent, compressed and encrypted database backup to private storage.</p>
                         <div class="health-item"><span class="health-name">DB Size</span><span class="health-value"><?= $dbSize ?></span></div>
-                        <form method="POST"><?= csrfField() ?><input type="hidden" name="section" value="backup"><button type="submit" name="create_backup" class="btn btn-primary" style="margin-top:.85rem"><i class="fa-solid fa-download"></i> Create Backup</button></form>
+                        <form method="POST" action="/admin/tools/backup.php"><?= csrfField() ?><button type="submit" class="btn btn-primary" style="margin-top:.85rem"><i class="fa-solid fa-download"></i> Create Encrypted Backup</button></form>
                     </div>
                     <div class="card"><h3 class="card-title"><i class="fa-solid fa-folder-open"></i> Backups (<?= count($backupFiles) ?>)</h3>
                         <?php if (empty($backupFiles)): ?>
                         <p style="color:#64748b;font-size:.8rem">No backups yet</p>
                         <?php else: foreach (array_slice($backupFiles, 0, 5) as $f): ?>
-                        <div class="backup-item"><div class="backup-info"><div class="backup-icon"><i class="fa-solid fa-file-code"></i></div><div><div class="backup-name"><?= e($f['name']) ?></div><div class="backup-meta"><?= $f['size'] ?> • <?= $f['date'] ?></div></div></div><a href="/admin/tools/download_backup.php?file=<?= urlencode($f['name']) ?>" class="btn btn-primary btn-sm" title="Download backup"><i class="fa-solid fa-download"></i></a></div>
+                        <div class="backup-item"><div class="backup-info"><div class="backup-icon"><i class="fa-solid fa-file-code"></i></div><div><div class="backup-name"><?= e($f['name']) ?></div><div class="backup-meta"><?= e($f['size']) ?> • <?= e($f['date']) ?> • <?= !empty($f['encrypted']) ? 'Encrypted' : 'Legacy plaintext' ?></div></div></div><a href="/admin/tools/download_backup.php?file=<?= urlencode($f['name']) ?>" class="btn btn-primary btn-sm" title="Download backup"><i class="fa-solid fa-download"></i></a></div>
                         <?php endforeach; endif; ?>
                     </div>
                 </div>
@@ -1514,7 +1492,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 let d;
                 try{d=JSON.parse(txt);}catch(e){
                     console.error('Branding API non-JSON:',txt.substring(0,300));
-                    _showBrandError('Branding API returned invalid response. The system_branding table may need setup. <a href="/admin/migrations/005_create_system_branding.php" style="color:#60a5fa;text-decoration:underline" target="_blank">Run Migration</a>');
+                    _showBrandError('Branding API returned an invalid response. Ask the deployment administrator to verify the versioned SQL migrations.');
                     _brandBusy=false;return;
                 }
                 if(d.status==='error'){

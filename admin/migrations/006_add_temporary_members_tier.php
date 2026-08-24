@@ -1,5 +1,13 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * Database Migration: Add Temporary Members Tier & Archive Type
  * Run this once to add new columns to the members table
  */

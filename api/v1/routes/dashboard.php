@@ -108,7 +108,9 @@ if ($action === 'stats' && $method === 'GET') {
     // --------------------------------------------------
     // 4. Today's attendance
     // --------------------------------------------------
-    if ($isRestricted && !empty($classIds)) {
+    if (!\App\Services\FeatureGate::isEnabled('attendance')) {
+        $data['today_attendance'] = ['recorded'=>0,'present'=>0,'absent'=>0,'late'=>0];
+    } elseif ($isRestricted && !empty($classIds)) {
         $placeholders = implode(',', array_fill(0, count($classIds), '?'));
         $types = str_repeat('i', count($classIds));
         
@@ -186,6 +188,7 @@ if ($action === 'stats' && $method === 'GET') {
     
     ok([
         'stats' => $data,
+        'features' => \App\Services\FeatureGate::mobileCapabilities(),
         'server_time' => date('c'),
         'role' => $userRole
     ]);

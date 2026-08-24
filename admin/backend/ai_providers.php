@@ -129,18 +129,7 @@ function ai_ensure_schema($conn) {
     if ($done) return;
     $done = true;
     if (!$conn || (isset($conn->connect_error) && $conn->connect_error)) return;
-    try {
-        $conn->query("CREATE TABLE IF NOT EXISTS `ai_provider_configs` (
-            `provider` VARCHAR(40) NOT NULL,
-            `api_key_enc` TEXT DEFAULT NULL,
-            `model` VARCHAR(160) DEFAULT NULL,
-            `base_url` VARCHAR(255) DEFAULT NULL,
-            `is_active` TINYINT(1) NOT NULL DEFAULT 0,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`provider`),
-            KEY `is_active` (`is_active`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    } catch (Throwable $e) {}
+    // Schema is deployment-managed by migration 013.
 
     // One-time migration: import a legacy plaintext Gemini key (system_settings)
     // into the new encrypted store, and make it active if nothing else is.

@@ -1,0 +1,15 @@
+<?php
+$root = rtrim($argv[1] ?? dirname(__DIR__, 2), '/\\');
+require_once $root . '/admin/backend/services/MemberDuplicateService.php';
+
+use App\Services\MemberDuplicateService;
+
+$result = [
+    'name_spaces' => MemberDuplicateService::normalizeName("  Abebe\t  Kebede  "),
+    'name_unicode' => MemberDuplicateService::normalizeName("  አበበ   ከበደ "),
+    'phone_local' => MemberDuplicateService::normalizePhoneSuffix('0911-234-567'),
+    'phone_country' => MemberDuplicateService::normalizePhoneSuffix('+251 911 234 567'),
+    'phone_short' => MemberDuplicateService::normalizePhoneSuffix('12345'),
+];
+
+echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), PHP_EOL;

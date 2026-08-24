@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/config.dart';
 import '../utils/version.dart';
 import 'api_service.dart';
@@ -20,6 +22,7 @@ class AppRemoteConfig {
   final String apkSha256;
   final String? bannerText;
   final String? bannerKind;
+  final Map<String, bool> features;
   final Map<String, List<String>> tiles;
 
   const AppRemoteConfig({
@@ -34,11 +37,19 @@ class AppRemoteConfig {
     required this.apkSha256,
     this.bannerText,
     this.bannerKind,
+    this.features = const {},
     this.tiles = const {},
   });
 
   factory AppRemoteConfig.fromJson(Map<String, dynamic> json) {
     final banner = json['banner'];
+    final featureRaw = json['features'];
+    final features = <String, bool>{};
+    if (featureRaw is Map) {
+      featureRaw.forEach((k, v) {
+        if (v is bool) features[k.toString()] = v;
+      });
+    }
     final tilesRaw = json['tiles'];
     final tiles = <String, List<String>>{};
     if (tilesRaw is Map) {
@@ -60,6 +71,7 @@ class AppRemoteConfig {
       apkSha256: '${json['apk_sha256'] ?? ''}'.toLowerCase(),
       bannerText: banner is Map ? '${banner['text'] ?? ''}' : null,
       bannerKind: banner is Map ? '${banner['kind'] ?? 'info'}' : null,
+      features: features,
       tiles: tiles,
     );
   }
@@ -73,13 +85,20 @@ class AppUpdateService {
 
   static const _channel = MethodChannel('fkss.app/updater');
 
+  static const _featureCacheKey = 'fkss_remote_features_v1';
+  static const _tileCacheKey = 'fkss_remote_tiles_v1';
+
   AppRemoteConfig? config;
   UpdateDecision decision = const UpdateDecision(force: false, optional: false);
+  Map<String, bool> _cachedFeatures = const {};
+  Map<String, List<String>> _cachedTiles = const {};
+  Future<void>? _cacheFuture;
 
   final _progress = StreamController<double>.broadcast();
   Stream<double> get progressStream => _progress.stream;
 
   Future<void> check() async {
+    await _loadCapabilityCache();
     try {
       final res = await ApiService().get('/app/config', auth: false);
       if (!res.success || res.data == null) return;
@@ -87,6 +106,7 @@ class AppUpdateService {
           ? res.data as Map<String, dynamic>
           : Map<String, dynamic>.from(res.data);
       config = AppRemoteConfig.fromJson(data);
+      await _saveCapabilityCache(config!);
       decision = decideUpdate(
         currentVersion: AppConfig.appVersion,
         currentBuild: AppConfig.appBuild,
@@ -101,9 +121,63 @@ class AppUpdateService {
     }
   }
 
+  Future<void> _loadCapabilityCache() {
+    return _cacheFuture ??= _readCapabilityCache();
+  }
+
+  Future<void> _readCapabilityCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final featureJson = prefs.getString(_featureCacheKey);
+      final tileJson = prefs.getString(_tileCacheKey);
+      if (featureJson != null) {
+        final raw = jsonDecode(featureJson);
+        if (raw is Map) {
+          _cachedFeatures = {
+            for (final entry in raw.entries)
+              if (entry.value is bool) entry.key.toString(): entry.value as bool,
+          };
+        }
+      }
+      if (tileJson != null) {
+        final raw = jsonDecode(tileJson);
+        if (raw is Map) {
+          _cachedTiles = {
+            for (final entry in raw.entries)
+              if (entry.value is List)
+                entry.key.toString(): (entry.value as List)
+                    .map((item) => item.toString()).toList(growable: false),
+          };
+        }
+      }
+    } catch (_) {
+      _cachedFeatures = const {};
+      _cachedTiles = const {};
+    }
+  }
+
+  Future<void> _saveCapabilityCache(AppRemoteConfig value) async {
+    _cachedFeatures = Map<String, bool>.from(value.features);
+    _cachedTiles = {
+      for (final entry in value.tiles.entries)
+        entry.key: List<String>.from(entry.value),
+    };
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_featureCacheKey, jsonEncode(_cachedFeatures));
+      await prefs.setString(_tileCacheKey, jsonEncode(_cachedTiles));
+    } catch (_) {
+      // Server enforcement remains authoritative if local preferences fail.
+    }
+  }
+
+  bool featureEnabled(String feature, {bool fallback = true}) {
+    return config?.features[feature] ?? _cachedFeatures[feature] ?? fallback;
+  }
+
   List<String> tilesFor(String area, List<String> fallback) {
-    final list = config?.tiles[area];
-    if (list == null || list.isEmpty) return fallback;
+    final list = config?.tiles[area] ?? _cachedTiles[area];
+    if (list == null) return fallback;
     return list;
   }
 

@@ -5,8 +5,25 @@
  */
 
 define('API_TOKEN_SECRET', defined('JWT_SECRET') ? JWT_SECRET : EXPORT_PREFIX . '_api_v1_' . DB_NAME . '_' . md5(DB_PASS));
-define('API_TOKEN_EXPIRY', 86400 * 30);       // 30 days
-define('API_REFRESH_EXPIRY', 86400 * 90);     // 90 days for refresh
+define('API_TOKEN_EXPIRY', 900);              // 15-minute access token
+define('API_REFRESH_EXPIRY', 86400 * 90);     // 90-day rotating refresh session
+define('API_LEGACY_TOKEN_EXPIRY', 86400 * 30);
+define('API_ROTATION_CLIENT_BUILD', 16);
+define('API_LEGACY_CLIENT_COMPAT_UNTIL', strtotime('2026-09-24 23:59:59'));
+
+/**
+ * Temporary compatibility adapter for already-installed app builds that can
+ * race refresh requests. Build 16+ is single-flight and receives short access
+ * tokens immediately; older builds get their former lifetime only until the
+ * explicit migration deadline.
+ */
+function apiAccessTokenExpiryForClient(): int {
+    $build = (int)($_SERVER['HTTP_X_APP_BUILD'] ?? 0);
+    if ($build >= API_ROTATION_CLIENT_BUILD || time() > API_LEGACY_CLIENT_COMPAT_UNTIL) {
+        return API_TOKEN_EXPIRY;
+    }
+    return API_LEGACY_TOKEN_EXPIRY;
+}
 
 /**
  * Create a JWT token
@@ -20,24 +37,35 @@ function createToken($userId, $username, $role, $fullName, $expiry = null) {
         'nam' => $fullName,
         'iat' => time(),
         'exp' => time() + $exp,
-        'typ' => 'access'
+        'typ' => 'access',
+        'jti' => bin2hex(random_bytes(16))
     ];
     $b64 = base64_encode(json_encode($payload));
     return $b64 . '.' . hash_hmac('sha256', $b64, API_TOKEN_SECRET);
 }
 
 /**
- * Create a refresh token (longer expiry, type=refresh)
+ * Create a refresh token bound to a persistent one-time session.
  */
-function createRefreshToken($userId, $username, $role, $fullName) {
+function createRefreshToken(
+    $userId,
+    $username,
+    $role,
+    $fullName,
+    $sessionId,
+    $familyId,
+    $expiresAt
+) {
     $payload = [
         'uid' => (int)$userId,
         'usr' => $username,
         'rol' => $role,
         'nam' => $fullName,
         'iat' => time(),
-        'exp' => time() + API_REFRESH_EXPIRY,
-        'typ' => 'refresh'
+        'exp' => (int)$expiresAt,
+        'typ' => 'refresh',
+        'jti' => (string)$sessionId,
+        'fid' => (string)$familyId,
     ];
     $b64 = base64_encode(json_encode($payload));
     return $b64 . '.' . hash_hmac('sha256', $b64, API_TOKEN_SECRET);
@@ -47,12 +75,19 @@ function createRefreshToken($userId, $username, $role, $fullName) {
  * Verify a token and return payload, or null if invalid
  */
 function verifyToken($token) {
-    if (!$token || strpos($token, '.') === false) return null;
+    if (!is_string($token) || $token === '' || strlen($token) > 8192 || strpos($token, '.') === false) return null;
     $parts = explode('.', $token, 2);
-    if (count($parts) !== 2) return null;
+    if (count($parts) !== 2 || !preg_match('/^[a-f0-9]{64}$/', $parts[1])) return null;
     if (!hash_equals(hash_hmac('sha256', $parts[0], API_TOKEN_SECRET), $parts[1])) return null;
-    $payload = json_decode(base64_decode($parts[0]), true);
-    if (!$payload || !isset($payload['exp']) || $payload['exp'] < time()) return null;
+    $decoded = base64_decode($parts[0], true);
+    if ($decoded === false) return null;
+    $payload = json_decode($decoded, true);
+    $now = time();
+    if (!is_array($payload)
+        || !isset($payload['uid'], $payload['exp'], $payload['iat'], $payload['typ'])
+        || (int)$payload['uid'] <= 0
+        || (int)$payload['exp'] < $now
+        || (int)$payload['iat'] > ($now + 60)) return null;
     return $payload;
 }
 
@@ -93,7 +128,10 @@ function apiRequireAuth() {
     if (($payload['typ'] ?? 'access') !== 'access') {
         err('Invalid token type. Use access token, not refresh token.', 401);
     }
-    
+    if (time() > API_LEGACY_CLIENT_COMPAT_UNTIL
+        && ((int)$payload['exp'] - (int)$payload['iat']) > (API_TOKEN_EXPIRY + 60)) {
+        err('Access token must be refreshed. Please try again.', 401);
+    }
     return $payload;
 }
 

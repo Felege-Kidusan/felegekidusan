@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
+import '../../services/app_update_service.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
@@ -290,13 +291,15 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
       _buildQuickStats(),
       const SizedBox(height: 16),
 
-      // My classes — attendance status per class
-      _buildMyClasses(),
-      const SizedBox(height: 16),
+      if (AppUpdateService().featureEnabled('attendance')) ...[
+        // My classes — attendance status per class
+        _buildMyClasses(),
+        const SizedBox(height: 16),
 
-      // Today's attendance overview
-      _buildAttendanceOverview(),
-      const SizedBox(height: 16),
+        // Today's attendance overview
+        _buildAttendanceOverview(),
+        const SizedBox(height: 16),
+      ],
 
       // Recent activity
       if (_recentActivity.isNotEmpty) ...[

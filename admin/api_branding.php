@@ -50,118 +50,7 @@ $dirs = [
     'backgrounds'  => $baseDir . '/backgrounds',
 ];
 
-// Create directories if they don't exist
-foreach ($dirs as $dir) {
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-}
-
-// ══════════════════════════════════════════════════════════════
-// BULLETPROOF TABLE CREATION — The #1 crash source was here
-// The old code used try/catch, but MySQLi was NOT in exception 
-// mode, so $conn->query() returned FALSE silently and the catch
-// never fired. Then later queries crashed with "table doesn't exist".
-// 
-// FIX: Check return value explicitly + verify table exists after.
-// Also suppress MySQLi exceptions during CREATE TABLE to avoid
-// fatal errors on hosts with strict SQL modes.
-// ══════════════════════════════════════════════════════════════
-$brandingTableReady = false;
-
-// ── Bulletproof table initialization ──
-// Wrapped in Throwable catch for PHP 8.1+ where MySQLi throws exceptions by default
-try {
-    // Step 1: Check if table already exists (fast path)
-    $tableCheck = $conn->query("SHOW TABLES LIKE 'system_branding'");
-    if ($tableCheck && $tableCheck->num_rows > 0) {
-        $brandingTableReady = true;
-    }
-} catch (\Throwable $e) {
-    // Connection issue or other DB error — try to continue with table creation
-    error_log("BRANDING TABLE CHECK ERROR: " . $e->getMessage());
-}
-
-if (!$brandingTableReady) {
-    // Step 2: Table doesn't exist — create it
-    $createSql = "CREATE TABLE IF NOT EXISTS `system_branding` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `asset_key` VARCHAR(50) NOT NULL,
-        `asset_label` VARCHAR(100) NOT NULL DEFAULT '',
-        `file_path` VARCHAR(500) DEFAULT NULL,
-        `original_name` VARCHAR(255) DEFAULT NULL,
-        `mime_type` VARCHAR(100) DEFAULT NULL,
-        `file_size` INT UNSIGNED DEFAULT 0,
-        `uploaded_by` INT UNSIGNED DEFAULT NULL,
-        `uploaded_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_asset_key` (`asset_key`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-    
-    // Use Throwable catch for PHP 8.1+ mysqli exception mode
-    $createResult = false;
-    try {
-        $createResult = $conn->query($createSql);
-    } catch (\Throwable $e) {
-        error_log("BRANDING TABLE CREATE EXCEPTION: " . $e->getMessage());
-        $createResult = false;
-    }
-    
-    if ($createResult === false) {
-        error_log("BRANDING TABLE CREATE FAILED: " . $conn->error);
-        echo json_encode([
-            'status' => 'error', 
-            'message' => 'System setup required. Could not create branding table. Please run the migration SQL manually.',
-            'migration_url' => '/admin/migrations/005_create_system_branding.php'
-        ]);
-        exit;
-    }
-    
-    // Verify table now exists
-    try {
-        $verifyCheck = $conn->query("SHOW TABLES LIKE 'system_branding'");
-        if ($verifyCheck && $verifyCheck->num_rows > 0) {
-            $brandingTableReady = true;
-        }
-    } catch (\Throwable $e) {
-        error_log("BRANDING TABLE VERIFY ERROR: " . $e->getMessage());
-    }
-    
-    if (!$brandingTableReady) {
-        error_log("BRANDING TABLE: Created without error but table still missing. Possible permissions issue.");
-        echo json_encode(['status' => 'error', 'message' => 'Table creation succeeded but table not found. Check database permissions.']);
-        exit;
-    }
-    
-    // Step 3: Seed default entries (only runs once when table is first created)
-    $defaults = [
-        ['logo',      'School Logo',                  '/admin/id_cards/assets/logos/school_logo.png'],
-        ['seal',      'School Seal / Stamp',           '/admin/id_cards/assets/seals/school_seal.png'],
-        ['sig_head',  'Head Teacher Signature',        '/admin/id_cards/assets/signatures/head_signature.png'],
-        ['sig_admin', 'Director / Admin Signature',    '/admin/id_cards/assets/signatures/director_signature.png'],
-        ['card_bg',   'ID Card Background',            '/admin/id_cards/assets/backgrounds/id_card_bg.jpg'],
-    ];
-    $seedStmt = $conn->prepare("INSERT IGNORE INTO system_branding (asset_key, asset_label, file_path) VALUES (?, ?, ?)");
-    if ($seedStmt) {
-        foreach ($defaults as $d) {
-            $seedStmt->bind_param("sss", $d[0], $d[1], $d[2]);
-            $seedStmt->execute();
-        }
-        $seedStmt->close();
-    }
-}
-
-// ── Final safety gate ──
-if (!$brandingTableReady) {
-    echo json_encode(['status' => 'error', 'message' => 'Branding system not ready. Please contact the administrator.']);
-    exit;
-}
-
-try {
-    $conn->query("INSERT IGNORE INTO system_branding (asset_key, asset_label, file_path) VALUES ('card_bg', 'ID Card Background', '/admin/id_cards/assets/backgrounds/id_card_bg.jpg')");
-} catch (\Throwable $e) {
-}
+// Branding schema/defaults are deployment-managed by migrations 012/013.
 
 // ══════════════════════════════════════════════════════════════
 // HELPER: Safe query that returns empty result instead of crash
@@ -170,12 +59,12 @@ function brandQuery($conn, $sql) {
     try {
         $result = $conn->query($sql);
         if ($result === false) {
-            error_log("BRANDING QUERY ERROR: " . $conn->error . " | SQL: " . $sql);
+            reportInternalError('Branding query failed', $conn->error);
             return null;
         }
         return $result;
     } catch (\Throwable $e) {
-        error_log("BRANDING QUERY EXCEPTION: " . $e->getMessage() . " | SQL: " . $sql);
+        reportInternalError('Branding query failed', $e);
         return null;
     }
     return $result;
@@ -285,7 +174,8 @@ switch ($action) {
         // Get asset record
         $stmt = $conn->prepare("SELECT * FROM system_branding WHERE asset_key = ?");
         if (!$stmt) {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            reportInternalError('Branding asset lookup prepare failed', $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Branding storage is temporarily unavailable.']);
             exit;
         }
         $stmt->bind_param("s", $assetKey);
@@ -314,21 +204,27 @@ switch ($action) {
         }
         
         $file = $_FILES['file'];
+        $tmpPath = (string)($file['tmp_name'] ?? '');
+        $actualSize = $tmpPath !== '' ? @filesize($tmpPath) : false;
         $allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
         $maxSize = 5 * 1024 * 1024; // 5MB
-        
-        // Check MIME type using finfo (not the browser-reported type)
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
-        
-        if (!in_array($mimeType, $allowedTypes)) {
-            echo json_encode(['status' => 'error', 'message' => 'Invalid file type (' . $mimeType . '). Allowed: PNG, JPG, GIF, WebP']);
+        if ($tmpPath === '' || !is_uploaded_file($tmpPath) || $actualSize === false || $actualSize <= 0) {
+            echo json_encode(['status' => 'error', 'message' => 'The uploaded image could not be verified.']);
             exit;
         }
         
-        if ($file['size'] > $maxSize) {
-            echo json_encode(['status' => 'error', 'message' => 'File too large (' . round($file['size']/1024/1024, 1) . 'MB). Maximum 5MB.']);
+        // Check MIME type using finfo (not the browser-reported type)
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $tmpPath);
+        finfo_close($finfo);
+        
+        if (!in_array($mimeType, $allowedTypes, true) || @getimagesize($tmpPath) === false) {
+            echo json_encode(['status' => 'error', 'message' => 'Use a valid PNG, JPG, GIF, or WebP image.']);
+            exit;
+        }
+        
+        if ($actualSize > $maxSize) {
+            echo json_encode(['status' => 'error', 'message' => 'File too large (' . round($actualSize/1024/1024, 1) . 'MB). Maximum 5MB.']);
             exit;
         }
         
@@ -357,54 +253,94 @@ switch ($action) {
             $targetFile = preg_replace('/[^a-z0-9_]/', '', $assetKey) . '.' . $ext;
         }
         
+        if (!is_dir($targetDir) && !mkdir($targetDir, 0755, true) && !is_dir($targetDir)) {
+            echo json_encode(['status' => 'error', 'message' => 'Upload storage is unavailable.']);
+            exit;
+        }
         $targetPath = $targetDir . '/' . $targetFile;
         $subDir = basename($targetDir); // 'logos', 'seals', or 'signatures'
         $webPath = '/admin/id_cards/assets/' . $subDir . '/' . $targetFile;
         
-        // Delete old file if exists and has different extension
-        if (!empty($asset['file_path'])) {
-            $oldFile = ($_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__, 2)) . $asset['file_path'];
-            if (file_exists($oldFile) && realpath($oldFile) !== realpath($targetPath)) {
-                @unlink($oldFile);
-            }
-        }
-        
-        // Ensure target directory is writable
+        // Stage the upload under a non-executable random name. The database and
+        // visible asset are switched together; failures restore the old file.
         if (!is_writable($targetDir)) {
-            echo json_encode(['status' => 'error', 'message' => 'Upload directory is not writable. Please chmod 755 the assets folder.']);
+            echo json_encode(['status' => 'error', 'message' => 'Upload storage is unavailable.']);
             exit;
         }
-        
-        // Move uploaded file
-        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
-            echo json_encode(['status' => 'error', 'message' => 'Failed to save file. Check directory permissions on: ' . $subDir . '/']);
+        $tempPath = $targetDir . '/.' . bin2hex(random_bytes(16)) . '.tmp';
+        if (!move_uploaded_file($tmpPath, $tempPath)) {
+            echo json_encode(['status' => 'error', 'message' => 'Unable to stage the uploaded image.']);
             exit;
         }
-        
-        // Make file readable
-        @chmod($targetPath, 0644);
-        
-        // Update database
-        $stmt = $conn->prepare("UPDATE system_branding 
+        @chmod($tempPath, 0600);
+
+        $stmt = $conn->prepare("UPDATE system_branding
             SET file_path = ?, original_name = ?, mime_type = ?, file_size = ?, uploaded_by = ?, uploaded_at = NOW()
             WHERE asset_key = ?");
         if (!$stmt) {
-            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
+            @unlink($tempPath);
+            reportInternalError('Branding asset update prepare failed', $conn->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to save the branding asset.']);
             exit;
         }
-        $fileSize = (int)$file['size'];
+
+        $originalName = basename(str_replace('\\', '/', (string)($file['name'] ?? 'image')));
+        $originalName = mb_substr(preg_replace('/[\x00-\x1F\x7F]+/u', '', $originalName), 0, 255);
+        $fileSize = (int)$actualSize;
         $uploader = (int)($_SESSION['admin_id'] ?? 0);
-        $stmt->bind_param("sssisi", $webPath, $file['name'], $mimeType, $fileSize, $uploader, $assetKey);
-        
-        if ($stmt->execute()) {
+        $stmt->bind_param("sssiis", $webPath, $originalName, $mimeType, $fileSize, $uploader, $assetKey);
+
+        $backups = [];
+        $activated = false;
+        try {
+            $conn->begin_transaction();
+            if (!$stmt->execute()) {
+                throw new RuntimeException($stmt->error ?: 'branding update failed');
+            }
+
+            $replaceFiles = [$targetPath];
+            $oldResolved = brandResolveAssetFile((string)($asset['file_path'] ?? ''));
+            $assetRoot = realpath($baseDir);
+            if ($oldResolved['exists'] && $assetRoot !== false) {
+                $oldReal = realpath($oldResolved['disk']);
+                if ($oldReal !== false && strpos($oldReal, $assetRoot . DIRECTORY_SEPARATOR) === 0) {
+                    $replaceFiles[] = $oldReal;
+                }
+            }
+            foreach (array_unique($replaceFiles) as $replaceFile) {
+                if (!is_file($replaceFile)) continue;
+                $backup = $replaceFile . '.rollback-' . bin2hex(random_bytes(6));
+                if (!rename($replaceFile, $backup)) {
+                    throw new RuntimeException('could not stage existing branding file');
+                }
+                $backups[$replaceFile] = $backup;
+            }
+
+            if (!rename($tempPath, $targetPath)) {
+                throw new RuntimeException('could not activate branding file');
+            }
+            $activated = true;
+            @chmod($targetPath, 0644);
+            if (!$conn->commit()) {
+                throw new RuntimeException('could not commit branding update');
+            }
+            foreach ($backups as $backup) @unlink($backup);
+
             echo json_encode([
                 'status' => 'success',
                 'message' => $asset['asset_label'] . ' uploaded successfully!',
                 'file_path' => $webPath,
                 'web_url' => $webPath . '?v=' . time()
             ]);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'File saved but database update failed: ' . $stmt->error]);
+        } catch (Throwable $error) {
+            try { $conn->rollback(); } catch (Throwable $ignored) {}
+            if ($activated && is_file($targetPath)) @unlink($targetPath);
+            foreach ($backups as $original => $backup) {
+                if (is_file($backup)) @rename($backup, $original);
+            }
+            if (is_file($tempPath)) @unlink($tempPath);
+            reportInternalError('Branding asset activation failed', $error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to activate the branding image.']);
         }
         $stmt->close();
         break;
@@ -487,7 +423,8 @@ switch ($action) {
         if ($stmt->execute() && $stmt->affected_rows >= 0) {
             echo json_encode(['status' => 'success', 'message' => 'Label updated']);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Error updating label: ' . $stmt->error]);
+            reportInternalError('Branding label update failed', $stmt->error);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to update the label.']);
         }
         $stmt->close();
         break;
@@ -529,7 +466,8 @@ switch ($action) {
             if ($conn->errno === 1062) {
                 echo json_encode(['status' => 'error', 'message' => 'An asset with that key already exists']);
             } else {
-                echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $stmt->error]);
+                reportInternalError('Branding asset slot insert failed', $stmt->error);
+                echo json_encode(['status' => 'error', 'message' => 'Unable to add the asset slot.']);
             }
         }
         $stmt->close();
@@ -603,7 +541,8 @@ switch ($action) {
             if ($stmt->execute()) {
                 echo json_encode(['status' => 'success', 'message' => 'Saved. Every member ID card will use this layout.']);
             } else {
-                echo json_encode(['status' => 'error', 'message' => 'Failed to save: ' . $stmt->error]);
+                reportInternalError('ID card layout save failed', $stmt->error);
+                echo json_encode(['status' => 'error', 'message' => 'Unable to save the ID card layout.']);
             }
             $stmt->close();
         } else {

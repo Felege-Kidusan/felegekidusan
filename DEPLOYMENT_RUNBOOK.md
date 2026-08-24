@@ -68,10 +68,14 @@ In cPanel → Terminal, from inside `public_html`:
 find . -type d -exec chmod 755 {} \;
 find . -type f -exec chmod 644 {} \;
 
-# Writable folders stay 755 (never 777)
-chmod 755 admin/uploads admin/uploads/members admin/uploads/members/docs \
-          admin/uploads/members/photos admin/uploads/cache admin/uploads/backups \
-          admin/id_cards/assets/qr uploads uploads/gallery uploads/teachers
+# Public generated-QR directory is deployment-owned; requests never create it.
+install -d -m 755 admin/id_cards/assets/qr
+
+# Public asset/upload folders stay 755 (never 777). Private member files and
+# encrypted backups are created with 0700/0600 outside public_html by the app.
+chmod 755 admin/uploads admin/uploads/members admin/uploads/members/photos \
+          admin/uploads/cache admin/id_cards/assets/qr uploads uploads/gallery \
+          uploads/teachers
 ```
 ```
 [ ] 3.1  Run the commands above.
@@ -87,8 +91,27 @@ chmod 755 admin/uploads admin/uploads/members admin/uploads/members/docs \
 [ ] 4.2  Open the project file  sql/003_production_hardening.sql. Copy SECTION A
          (indexes) and run it. This is the important speed fix. If any line says
          "Duplicate key name", that's harmless — keep going.
-[ ] 4.3  (Can wait to week 1, but better now) Copy SECTION B (foreign keys) and
-         run it. It cleans up bad rows first, then adds the keys.
+[ ] 4.3  Apply sql/004_year_lifecycle.sql through
+         sql/016_member_duplicate_lookup.sql IN NUMERIC ORDER. These migrations
+         are re-runnable and own all schema needed by the matching application
+         code; normal web/API requests intentionally never repair schema. Run
+         014 during this maintenance window because building its FULLTEXT index
+         can briefly lock a large members table. 015 makes attendance status
+         explicitly required and 016 adds the duplicate-lookup index; both are
+         idempotent. 008, 009 and 010 are required BEFORE the new code is
+         deployed: without 010 the mobile/REST login and token refresh return
+         503 by design (safe, but the app cannot authenticate). The migrations
+         are safe to run while the old code is still live (new tables/indexes
+         only), so do this stage before pulling the new files.
+[ ] 4.4  (Can wait to week 1, but better now) Copy SECTION B of
+         sql/003_production_hardening.sql (foreign keys) and run it. It cleans up
+         bad rows first, then adds the keys.
+[ ] 4.5  Confirm the directory indexes exist:
+         SHOW INDEX FROM members WHERE Key_name IN
+         ('idx_members_status_id','idx_members_tier_id',
+          'idx_members_archive_type_id','ft_members_directory');
+         SHOW INDEX FROM class_enrollments
+         WHERE Key_name = 'idx_ce_member_year_status_id';
 ```
 
 ---
@@ -96,20 +119,27 @@ chmod 755 admin/uploads admin/uploads/members admin/uploads/members/docs \
 ## STAGE 5 — Health check + backups (20 min)
 
 ```
-[ ] 5.1  Open in your browser (use YOUR HEALTH_KEY from step 1.3):
-            SITE/admin/tools/health_check.php?key=YOUR_HEALTH_KEY
-         Confirm: Database = connected (green), and the counts look sane.
+[ ] 5.1  Open the health check using HTTP Basic authentication. Do NOT put the
+         key in the URL (URLs are logged). With curl:
+            curl -u health:YOUR_HEALTH_KEY https://SITE/admin/tools/health_check.php
+         Confirm: Database = available (green), and the counts look sane.
 
-[ ] 5.2  Run a manual backup once (use YOUR BACKUP_KEY):
-            SITE/admin/tools/backup.php?key=YOUR_BACKUP_KEY
-         Confirm it prints "BACKUP OK" with a file name and size.
+[ ] 5.2  Log in as Super Admin → Backup & Data → Create Encrypted Backup.
+         Confirm an encrypted `.sql.gz.ssb` file appears. New backups are kept
+         outside public_html and the newest seven are retained.
 
-[ ] 5.3  Re-open the health check (5.1) — "Last backup" should now show your
-         backup file, minutes old.
+[ ] 5.3  Re-run the health check (5.1) — "Last backup" should report an
+         encrypted backup created minutes ago.
 
-[ ] 5.4  Set the DAILY automatic backup: cPanel → Cron Jobs → add, once per day:
-            0 2 * * * /usr/local/bin/php /home/YOURUSER/public_html/admin/tools/backup.php key=YOUR_BACKUP_KEY >/dev/null 2>&1
-         (If that PHP path errors, try /usr/bin/php. Replace YOURUSER and the key.)
+[ ] 5.4  Set the DAILY automatic backup in cPanel → Cron Jobs:
+            0 2 * * * /usr/local/bin/php /home/YOURUSER/public_html/admin/tools/backup.php >/dev/null 2>&1
+         The local CLI process is trusted; never put BACKUP_KEY in a cron command
+         or URL. If that PHP path errors, try /usr/bin/php.
+
+[ ] 5.5  Perform a restore drill to a NEW file outside public_html, then import
+         it into an empty staging database (never overwrite production first):
+            php admin/tools/backup.php --decrypt=BACKUP_NAME --output=/home/YOURUSER/restore-test.sql
+         Preserve BACKUP_KEY securely: without it encrypted backups cannot be restored.
 ```
 
 ---
@@ -168,8 +198,8 @@ Use the **ROLE-BY-ROLE TEST CHECKLIST** in `FOUNDATION_VERIFICATION.md` (Section
 - Every role passed its test checklist.
 
 ## Still open (safe to launch, handle after) — from the audits
-- **Member list speed** at a few thousand students: works, but gets slow. Server-side paging is the week-2 fix.
-- **Old `admin/backend/cron_backup.php`**: replaced by `admin/tools/backup.php` (this one is memory-safe). You can ignore/remove the old cron once the new one runs.
+- **Editable member sync batches**: XLSX round trips remain intentionally bounded to 2,000 rows; use the complete streaming CSV export for large read-only extracts.
+- **Legacy cron path**: `admin/backend/cron_backup.php` is now a CLI-only compatibility adapter to the same encrypted streaming service. New schedules should use `admin/tools/backup.php`.
 - **Code cleanup (Phase B)**: only after the above is stable and tested on a staging copy.
 
 ## If something breaks

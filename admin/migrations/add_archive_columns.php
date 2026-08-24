@@ -1,9 +1,16 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * Database Migration: Add Archive Columns
  * Run this once to add archive tracking columns to the members table
  * 
- * Usage: Visit /admin/migrations/add_archive_columns.php in browser
  */
 
 require_once dirname(__DIR__) . '/config.php';

@@ -9,10 +9,10 @@
  * HOW IT WORKS:
  * - Catches ALL PHP errors, warnings, fatal crashes
  * - Catches uncaught exceptions  
- * - Logs to database with full context (URL, IP, session, stack trace)
+ * - Logs privacy-minimized diagnostic context and stack traces
  * - Sends Telegram alerts for critical/error level
- * - Auto-fixes common problems (missing dirs, permissions, DB reconnect)
- * - Dashboard at: /monitor/dashboard.php?key={your_key}
+ * - Never mutates application files, permissions, or schema while handling errors
+ * - Dashboard at /monitor/ behind Super Admin password step-up
  * 
  * INTEGRATION:
  * One line added to /public_html/config.php:
@@ -29,36 +29,15 @@ define('MONITOR_DB_NAME', DB_NAME);
 define('MONITOR_DB_USER', DB_USER);
 define('MONITOR_DB_PASS', DB_PASS);
 
-// Secret key for the monitor dashboard.
-// PREFERRED: set MONITOR_SECRET_KEY in the secrets env file (.fkss_env.php).
-// If it is not set, we generate a key ONCE and persist it to a protected file
-// so it stays stable across requests. The OLD code generated a NEW random key
-// on EVERY run — which made the dashboard permanently inaccessible AND wrote a
-// warning to error.log on every single invocation (this file runs ~once per
-// minute), flooding the log. Now the warning fires at most once.
-if (!defined('MONITOR_SECRET_KEY')) {
-    $__mkFile = (defined('ROOT_PATH') ? ROOT_PATH : dirname(__DIR__)) . '/admin/uploads/cache/.monitor_key';
-    $__mkKey  = @is_file($__mkFile) ? trim((string)@file_get_contents($__mkFile)) : '';
-    if (strlen($__mkKey) < 32) {
-        $__mkKey = bin2hex(random_bytes(32));
-        $__mkDir = dirname($__mkFile);
-        if (!is_dir($__mkDir)) { @mkdir($__mkDir, 0755, true); }
-        // Persist ONCE and warn ONCE (only when the key is first created).
-        if (@file_put_contents($__mkFile, $__mkKey) !== false) {
-            error_log('NOTICE: MONITOR_SECRET_KEY not in env file. Generated a persistent key at admin/uploads/cache/.monitor_key (add MONITOR_SECRET_KEY to your env file to set your own).');
-        }
-    }
-    define('MONITOR_SECRET_KEY', $__mkKey);
-}
+// Monitor access is enforced by the account-bound admin step-up flow.
+// Telegram secrets are deployment configuration, never source values.
+if (!defined('MONITOR_TELEGRAM_ENABLED')) define('MONITOR_TELEGRAM_ENABLED', false);
+if (!defined('MONITOR_TELEGRAM_BOT_TOKEN')) define('MONITOR_TELEGRAM_BOT_TOKEN', '');
+if (!defined('MONITOR_TELEGRAM_CHAT_ID')) define('MONITOR_TELEGRAM_CHAT_ID', '');
 
-// Telegram Settings — Set these up later via @BotFather
-define('MONITOR_TELEGRAM_ENABLED', false);  // Change to true after setup
-define('MONITOR_TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE');
-define('MONITOR_TELEGRAM_CHAT_ID', 'YOUR_CHAT_ID_HERE');
-
-// Auto-fix settings
-define('MONITOR_AUTO_FIX_ENABLED', true);
-define('MONITOR_LOG_FILE', __DIR__ . '/error_monitor.log');
+// Error handling is observational only; remediation belongs in reviewed deployments.
+if (!defined('MONITOR_AUTO_FIX_ENABLED')) define('MONITOR_AUTO_FIX_ENABLED', false);
+if (!defined('MONITOR_LOG_FILE')) define('MONITOR_LOG_FILE', __DIR__ . '/error_monitor.log');
 
 // Error display — never show raw errors to church users
 define('MONITOR_SHOW_ERRORS_TO_USERS', false);
@@ -75,22 +54,11 @@ class ArkeonErrorMonitor {
     private static $instance = null;
     private $db = null;
     private $dbConnected = false;
+    private $dbConnectionAttempted = false;
     private $telegramSentThisRequest = 0;
     private $maxTelegramPerRequest = 3;
     private $startTime;
     private $startMemory;
-    
-    // Common auto-fixable problems
-    private $autoFixPatterns = [
-        'mkdir\(\): No such file or directory' => 'fix_missing_directory',
-        'failed to open stream: No such file or directory' => 'fix_missing_file_path',
-        'Permission denied' => 'fix_permissions',
-        'session_start\(\): Failed' => 'fix_session',
-        'move_uploaded_file\(\)' => 'fix_upload_directory',
-        'imagecreatefrom' => 'fix_image_processing',
-        'MySQL server has gone away' => 'fix_db_reconnect',
-        'Lost connection to MySQL' => 'fix_db_reconnect',
-    ];
     
     public static function getInstance() {
         if (self::$instance === null) {
@@ -102,8 +70,6 @@ class ArkeonErrorMonitor {
     private function __construct() {
         $this->startTime = microtime(true);
         $this->startMemory = memory_get_usage();
-        $this->connectDB();
-        
         // Only override error handling if NOT already set by main config
         // This prevents conflicts with the system's own error settings
         set_error_handler([$this, 'handleError']);
@@ -112,6 +78,8 @@ class ArkeonErrorMonitor {
     }
     
     private function connectDB() {
+        if ($this->dbConnectionAttempted) return;
+        $this->dbConnectionAttempted = true;
         try {
             // Use a SEPARATE connection so we never interfere with the system's $conn
             $this->db = @new mysqli(
@@ -129,86 +97,9 @@ class ArkeonErrorMonitor {
             
             $this->db->set_charset('utf8mb4');
             $this->dbConnected = true;
-            
-            // Auto-create table if it doesn't exist (self-setup)
-            $this->ensureTablesExist();
-            
         } catch (Exception $e) {
             $this->logToFile("Monitor DB exception: " . $e->getMessage());
             $this->dbConnected = false;
-        }
-    }
-    
-    /**
-     * Auto-create monitor tables if they don't exist
-     * No need to run setup_monitor.php separately!
-     */
-    private function ensureTablesExist() {
-        if (!$this->dbConnected) return;
-        
-        // Check once per session to avoid running on every request
-        if (isset($_SESSION['_monitor_tables_ok'])) return;
-        
-        try {
-            $check = $this->db->query("SHOW TABLES LIKE 'arkeon_error_log'");
-            if ($check && $check->num_rows === 0) {
-                $this->db->query("CREATE TABLE IF NOT EXISTS `arkeon_error_log` (
-                    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                    `project_name` VARCHAR(100) NOT NULL DEFAULT '',
-                    `error_type` VARCHAR(100) NOT NULL DEFAULT '',
-                    `error_code` INT NOT NULL DEFAULT 0,
-                    `severity` ENUM('info','warning','error','critical') NOT NULL DEFAULT 'info',
-                    `message` TEXT NOT NULL,
-                    `file_path` VARCHAR(500) DEFAULT '',
-                    `line_number` INT DEFAULT 0,
-                    `url` VARCHAR(2000) DEFAULT '',
-                    `http_method` VARCHAR(10) DEFAULT '',
-                    `ip_address` VARCHAR(45) DEFAULT '',
-                    `user_agent` VARCHAR(500) DEFAULT '',
-                    `request_data` JSON DEFAULT NULL,
-                    `session_data` JSON DEFAULT NULL,
-                    `extra_data` JSON DEFAULT NULL,
-                    `stack_trace` TEXT DEFAULT NULL,
-                    `memory_usage` BIGINT DEFAULT 0,
-                    `peak_memory` BIGINT DEFAULT 0,
-                    `execution_time` DECIMAL(10,4) DEFAULT 0,
-                    `auto_fix_applied` VARCHAR(500) DEFAULT NULL,
-                    `php_version` VARCHAR(20) DEFAULT '',
-                    `server_software` VARCHAR(200) DEFAULT '',
-                    `is_resolved` TINYINT(1) NOT NULL DEFAULT 0,
-                    `resolved_at` DATETIME DEFAULT NULL,
-                    `resolved_note` TEXT DEFAULT NULL,
-                    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    INDEX `idx_project` (`project_name`),
-                    INDEX `idx_severity` (`severity`),
-                    INDEX `idx_created` (`created_at`),
-                    INDEX `idx_resolved` (`is_resolved`),
-                    INDEX `idx_project_severity` (`project_name`, `severity`, `created_at`),
-                    INDEX `idx_file` (`file_path`(100))
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-            }
-            
-            $check2 = $this->db->query("SHOW TABLES LIKE 'arkeon_uptime_log'");
-            if ($check2 && $check2->num_rows === 0) {
-                $this->db->query("CREATE TABLE IF NOT EXISTS `arkeon_uptime_log` (
-                    `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                    `project_name` VARCHAR(100) NOT NULL DEFAULT '',
-                    `url_checked` VARCHAR(2000) NOT NULL,
-                    `status_code` INT DEFAULT 0,
-                    `response_time_ms` INT DEFAULT 0,
-                    `is_up` TINYINT(1) NOT NULL DEFAULT 1,
-                    `error_message` VARCHAR(500) DEFAULT NULL,
-                    `checked_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    INDEX `idx_project_uptime` (`project_name`, `checked_at`),
-                    INDEX `idx_status` (`is_up`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-            }
-            
-            if (isset($_SESSION)) {
-                $_SESSION['_monitor_tables_ok'] = true;
-            }
-        } catch (Exception $e) {
-            $this->logToFile("Table auto-create failed: " . $e->getMessage());
         }
     }
     
@@ -226,7 +117,7 @@ class ArkeonErrorMonitor {
         $context = [
             'error_type' => $this->getErrorTypeName($errno),
             'error_code' => $errno,
-            'message' => $errstr,
+            'message' => $this->redactText($errstr),
             'file' => $errfile,
             'line' => $errline,
             'severity' => $severity,
@@ -234,9 +125,8 @@ class ArkeonErrorMonitor {
             'method' => $_SERVER['REQUEST_METHOD'] ?? 'CLI',
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'N/A',
             'ip_address' => $this->getClientIP(),
-            'get_params' => $this->sanitizeData($_GET),
-            'post_params' => $this->sanitizeData($_POST),
-            'session_data' => isset($_SESSION) ? $this->sanitizeData($_SESSION) : [],
+            'request_data' => $this->getRequestMetadata(),
+            'session_data' => $this->getSessionMetadata(),
             'memory_usage' => memory_get_usage(true),
             'peak_memory' => memory_get_peak_usage(true),
             'execution_time' => round(microtime(true) - $this->startTime, 4),
@@ -244,15 +134,6 @@ class ArkeonErrorMonitor {
             'php_version' => PHP_VERSION,
             'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'N/A',
         ];
-        
-        // Try auto-fix
-        $autoFixResult = null;
-        if (MONITOR_AUTO_FIX_ENABLED) {
-            $autoFixResult = $this->attemptAutoFix($errstr, $errfile, $errline, $context);
-        }
-        if ($autoFixResult) {
-            $context['auto_fix_applied'] = $autoFixResult;
-        }
         
         $errorId = $this->saveError($context);
         
@@ -273,7 +154,7 @@ class ArkeonErrorMonitor {
         $context = [
             'error_type' => 'Uncaught Exception: ' . get_class($exception),
             'error_code' => $exception->getCode(),
-            'message' => $exception->getMessage(),
+            'message' => $this->redactText($exception->getMessage()),
             'file' => $exception->getFile(),
             'line' => $exception->getLine(),
             'severity' => 'critical',
@@ -281,9 +162,8 @@ class ArkeonErrorMonitor {
             'method' => $_SERVER['REQUEST_METHOD'] ?? 'CLI',
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'N/A',
             'ip_address' => $this->getClientIP(),
-            'get_params' => $this->sanitizeData($_GET),
-            'post_params' => $this->sanitizeData($_POST),
-            'session_data' => isset($_SESSION) ? $this->sanitizeData($_SESSION) : [],
+            'request_data' => $this->getRequestMetadata(),
+            'session_data' => $this->getSessionMetadata(),
             'memory_usage' => memory_get_usage(true),
             'peak_memory' => memory_get_peak_usage(true),
             'execution_time' => round(microtime(true) - $this->startTime, 4),
@@ -291,16 +171,6 @@ class ArkeonErrorMonitor {
             'php_version' => PHP_VERSION,
             'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'N/A',
         ];
-        
-        $autoFixResult = null;
-        if (MONITOR_AUTO_FIX_ENABLED) {
-            $autoFixResult = $this->attemptAutoFix(
-                $exception->getMessage(), $exception->getFile(), $exception->getLine(), $context
-            );
-        }
-        if ($autoFixResult) {
-            $context['auto_fix_applied'] = $autoFixResult;
-        }
         
         $errorId = $this->saveError($context);
         $this->sendTelegramAlert($context, $errorId);
@@ -338,7 +208,7 @@ class ArkeonErrorMonitor {
             $context = [
                 'error_type' => 'FATAL: ' . $this->getErrorTypeName($error['type']),
                 'error_code' => $error['type'],
-                'message' => $error['message'],
+                'message' => $this->redactText($error['message']),
                 'file' => $error['file'],
                 'line' => $error['line'],
                 'severity' => 'critical',
@@ -388,14 +258,14 @@ class ArkeonErrorMonitor {
         $context = [
             'error_type' => 'Custom Log: ' . ucfirst($severity),
             'error_code' => 0,
-            'message' => $message,
+            'message' => $instance->redactText($message),
             'file' => $caller['file'] ?? 'unknown',
             'line' => $caller['line'] ?? 0,
             'severity' => $severity,
             'url' => $instance->getCurrentURL(),
             'method' => $_SERVER['REQUEST_METHOD'] ?? 'CLI',
             'ip_address' => $instance->getClientIP(),
-            'extra_data' => $extraData,
+            'extra_data' => $instance->sanitizeData($extraData),
             'memory_usage' => memory_get_usage(true),
             'execution_time' => round(microtime(true) - $instance->startTime, 4),
             'stack_trace' => $instance->getCleanStackTrace(),
@@ -462,106 +332,59 @@ class ArkeonErrorMonitor {
     }
     
     // ============================================================
-    // AUTO-FIX SYSTEM
-    // ============================================================
-    
-    private function attemptAutoFix($errorMessage, $file, $line, $context) {
-        foreach ($this->autoFixPatterns as $pattern => $fixMethod) {
-            if (preg_match('/' . $pattern . '/i', $errorMessage)) {
-                try {
-                    $result = $this->$fixMethod($errorMessage, $file, $line, $context);
-                    if ($result) {
-                        $this->logToFile("AUTO-FIX: {$fixMethod} for {$file}:{$line}");
-                        return $result;
-                    }
-                } catch (Exception $e) {
-                    $this->logToFile("Auto-fix failed ({$fixMethod}): " . $e->getMessage());
-                }
-            }
-        }
-        return null;
-    }
-    
-    private function fix_missing_directory($msg, $file, $line, $ctx) {
-        if (preg_match('/(?:mkdir|open)\(\): .+?["\']?([\\/\\\\][^"\']+)["\']?/', $msg, $matches)) {
-            $dir = dirname($matches[1]);
-            if (!is_dir($dir) && @mkdir($dir, 0755, true)) {
-                return "Created directory: {$dir}";
-            }
-        }
-        return null;
-    }
-    
-    private function fix_missing_file_path($msg, $file, $line, $ctx) {
-        if (preg_match('/open\(([^)]+)\)/', $msg, $matches)) {
-            $dir = dirname($matches[1]);
-            if (!is_dir($dir) && @mkdir($dir, 0755, true)) {
-                return "Created directory: {$dir}";
-            }
-        }
-        return null;
-    }
-    
-    private function fix_permissions($msg, $file, $line, $ctx) {
-        $fixableDirs = ['uploads', 'cache', 'tmp', 'temp', 'logs', 'sessions', 'backups'];
-        foreach ($fixableDirs as $dirName) {
-            if (stripos($msg, $dirName) !== false) {
-                $dir = dirname($file) . '/' . $dirName;
-                if (is_dir($dir) && @chmod($dir, 0755)) {
-                    return "Fixed permissions: {$dir}";
-                }
-            }
-        }
-        return null;
-    }
-    
-    private function fix_session($msg, $file, $line, $ctx) {
-        $sessionPath = session_save_path();
-        if (empty($sessionPath)) $sessionPath = sys_get_temp_dir() . '/sessions';
-        if (!is_dir($sessionPath) && @mkdir($sessionPath, 0755, true)) {
-            return "Created session dir: {$sessionPath}";
-        }
-        return null;
-    }
-    
-    private function fix_upload_directory($msg, $file, $line, $ctx) {
-        $uploadDirs = ['uploads', 'uploads/members', 'uploads/members/photos',
-                       'uploads/members/docs', 'uploads/members/guardian_photo',
-                       'uploads/backups', 'uploads/cache'];
-        $baseDir = dirname($file);
-        foreach ($uploadDirs as $dir) {
-            $fullPath = $baseDir . '/' . $dir;
-            if (!is_dir($fullPath) && @mkdir($fullPath, 0755, true)) {
-                return "Created upload dir: {$fullPath}";
-            }
-        }
-        return null;
-    }
-    
-    private function fix_image_processing($msg, $file, $line, $ctx) {
-        if (preg_match('/imagecreatefrom\w+\(\): (.+)/', $msg, $matches)) {
-            return "Image issue: {$matches[1]}. Check file integrity.";
-        }
-        return null;
-    }
-    
-    private function fix_db_reconnect($msg, $file, $line, $ctx) {
-        if ($this->db && !$this->db->ping()) {
-            $this->connectDB();
-            if ($this->dbConnected) return "Database reconnected";
-        }
-        return null;
-    }
-    
-    // ============================================================
     // DATABASE LOGGING
     // ============================================================
     
     private function saveError($context) {
-        $this->logToFile(json_encode($context, JSON_UNESCAPED_UNICODE));
-        
+        $projectName = mb_substr((string)MONITOR_PROJECT_NAME, 0, 100);
+        $errorType = mb_substr($this->redactText($context['error_type'] ?? 'Unknown'), 0, 100);
+        $errorCode = (int)($context['error_code'] ?? 0);
+        $severity = in_array(($context['severity'] ?? ''), ['info', 'warning', 'error', 'critical'], true)
+            ? $context['severity'] : 'error';
+        $message = mb_substr($this->redactText($context['message'] ?? ''), 0, 2000);
+        $filePath = mb_substr($this->redactFilePath($context['file'] ?? ''), 0, 500);
+        $lineNumber = max(0, (int)($context['line'] ?? 0));
+        $url = mb_substr($this->redactText($context['url'] ?? ''), 0, 2000);
+        $httpMethod = preg_match('/^[A-Z]{1,10}$/', (string)($context['method'] ?? ''))
+            ? (string)$context['method'] : 'UNKNOWN';
+        $ipAddress = mb_substr((string)($context['ip_address'] ?? ''), 0, 45);
+        $userAgent = mb_substr($this->redactText($context['user_agent'] ?? ''), 0, 500);
+        $requestData = json_encode(
+            $this->sanitizeData($context['request_data'] ?? []),
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        ) ?: '{}';
+        $sessionData = json_encode(
+            $this->sanitizeData($context['session_data'] ?? []),
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        ) ?: '{}';
+        $extraData = json_encode([
+            'privacy_version' => 2,
+            'data' => $this->sanitizeData($context['extra_data'] ?? []),
+        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}';
+        $stackTrace = mb_substr($this->redactText($context['stack_trace'] ?? ''), 0, 5000);
+        $memoryUsage = max(0, (int)($context['memory_usage'] ?? 0));
+        $peakMemory = max(0, (int)($context['peak_memory'] ?? 0));
+        $executionTime = max(0.0, (float)($context['execution_time'] ?? 0));
+        $autoFix = null; // Retained only for compatibility with existing rows/UI.
+        $phpVer = mb_substr((string)($context['php_version'] ?? PHP_VERSION), 0, 20);
+        $serverSw = mb_substr($this->redactText($context['server_software'] ?? ''), 0, 200);
+
+        // The fallback file contains only a bounded, redacted summary. Request,
+        // session, and custom context are never copied to filesystem logs.
+        $this->logToFile(json_encode([
+            'type' => $errorType,
+            'severity' => $severity,
+            'message' => $message,
+            'file' => $filePath,
+            'line' => $lineNumber,
+            'url' => $url,
+        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+
+        // Open the separate monitor connection only when an error is actually
+        // persisted; ordinary application requests incur no monitor DB work.
+        if (!$this->dbConnected) $this->connectDB();
         if (!$this->dbConnected) return null;
-        
+
         try {
             $stmt = $this->db->prepare(
                 "INSERT INTO arkeon_error_log (
@@ -572,58 +395,29 @@ class ArkeonErrorMonitor {
                     auto_fix_applied, php_version, server_software, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
             );
-            
             if (!$stmt) {
-                $this->logToFile("Prepare failed: " . $this->db->error);
+                $this->logToFile('Monitor schema unavailable. Apply migration 011.');
                 return null;
             }
-            
-            $projectName = MONITOR_PROJECT_NAME;
-            $errorType = mb_substr($context['error_type'] ?? 'Unknown', 0, 100);
-            $errorCode = (int)($context['error_code'] ?? 0);
-            $severity = $context['severity'] ?? 'info';
-            $message = mb_substr($context['message'] ?? '', 0, 2000);
-            $filePath = mb_substr($context['file'] ?? '', 0, 500);
-            $lineNumber = (int)($context['line'] ?? 0);
-            $url = mb_substr($context['url'] ?? '', 0, 2000);
-            $httpMethod = $context['method'] ?? '';
-            $ipAddress = $context['ip_address'] ?? '';
-            $userAgent = mb_substr($context['user_agent'] ?? '', 0, 500);
-            $requestData = json_encode(array_merge(
-                $context['get_params'] ?? [], $context['post_params'] ?? []
-            ), JSON_UNESCAPED_UNICODE);
-            $sessionData = json_encode($context['session_data'] ?? [], JSON_UNESCAPED_UNICODE);
-            $extraData = json_encode($context['extra_data'] ?? [], JSON_UNESCAPED_UNICODE);
-            $stackTrace = mb_substr($context['stack_trace'] ?? '', 0, 5000);
-            $memoryUsage = (int)($context['memory_usage'] ?? 0);
-            $peakMemory = (int)($context['peak_memory'] ?? 0);
-            $executionTime = (float)($context['execution_time'] ?? 0);
-            $autoFix = $context['auto_fix_applied'] ?? null;
-            $phpVer = $context['php_version'] ?? PHP_VERSION;
-            $serverSw = $context['server_software'] ?? '';
-            
+
             $stmt->bind_param(
-                'ssisssississsssiidsss',
+                'ssisssissssssssiidsss',
                 $projectName, $errorType, $errorCode, $severity, $message,
                 $filePath, $lineNumber, $url, $httpMethod, $ipAddress,
                 $userAgent, $requestData, $sessionData, $extraData,
                 $stackTrace, $memoryUsage, $peakMemory, $executionTime,
                 $autoFix, $phpVer, $serverSw
             );
-            
-            $stmt->execute();
+            if (!$stmt->execute()) {
+                $stmt->close();
+                $this->logToFile('Monitor insert failed. Verify migration 011.');
+                return null;
+            }
             $errorId = $this->db->insert_id;
             $stmt->close();
-            
-            // Auto-cleanup: delete logs older than 30 days (run rarely)
-            if (mt_rand(1, 100) === 1) {
-                $this->db->query("DELETE FROM arkeon_error_log WHERE is_resolved = 1 AND created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)");
-            }
-            
             return $errorId;
-            
-        } catch (Exception $e) {
-            $this->logToFile("Save failed: " . $e->getMessage());
+        } catch (Throwable $error) {
+            $this->logToFile('Monitor persistence failed. Verify migration 011.');
             return null;
         }
     }
@@ -634,7 +428,7 @@ class ArkeonErrorMonitor {
     
     private function sendTelegramAlert($context, $errorId = null) {
         if (!MONITOR_TELEGRAM_ENABLED) return;
-        if (MONITOR_TELEGRAM_BOT_TOKEN === 'YOUR_BOT_TOKEN_HERE') return;
+        if (MONITOR_TELEGRAM_BOT_TOKEN === '' || MONITOR_TELEGRAM_CHAT_ID === '') return;
         if ($this->telegramSentThisRequest >= $this->maxTelegramPerRequest) return;
         
         // Rate limit check
@@ -764,49 +558,152 @@ h1{font-size:22px;margin-bottom:8px;color:#f1f5f9}
     
     private function getCurrentURL() {
         if (php_sapi_name() === 'cli') return 'CLI';
-        $p = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        return $p . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['REQUEST_URI'] ?? '/');
+        $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+        $path = parse_url($requestUri, PHP_URL_PATH);
+        $path = is_string($path) && $path !== '' ? $path : '/';
+        // Numeric/UUID-like resource identifiers are not needed to identify a route.
+        $path = preg_replace('#/(?:[0-9]+|[a-f0-9-]{24,})(?=/|$)#i', '/{id}', $path);
+        $fields = $this->fieldNames($_GET);
+        return mb_substr($path . ($fields ? '?fields=' . implode(',', $fields) : ''), 0, 2000);
     }
-    
+
     private function getClientIP() {
-        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'] as $h) {
-            if (!empty($_SERVER[$h])) return trim(explode(',', $_SERVER[$h])[0]);
+        $address = trim((string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        if ($address === '' || filter_var($address, FILTER_VALIDATE_IP) === false) {
+            return 'unknown';
         }
-        return 'unknown';
+        return 'h:' . substr($this->pseudonymize($address), 0, 24);
     }
-    
-    private function sanitizeData($data) {
+
+    private function getRequestMetadata() {
+        $contentType = mb_substr((string)($_SERVER['CONTENT_TYPE'] ?? ''), 0, 100);
+        if (strpos($contentType, ';') !== false) {
+            $contentType = trim(explode(';', $contentType, 2)[0]);
+        }
+        $contentLength = max(0, min((int)($_SERVER['CONTENT_LENGTH'] ?? 0), 1073741824));
+        return [
+            'privacy_version' => 2,
+            'query_fields' => $this->fieldNames($_GET),
+            'body_fields' => $this->fieldNames($_POST),
+            'file_fields' => $this->fieldNames($_FILES),
+            'content_type' => $contentType,
+            'content_length' => $contentLength,
+        ];
+    }
+
+    private function getSessionMetadata() {
+        if (!isset($_SESSION) || !is_array($_SESSION)) return [];
+        $metadata = [
+            'privacy_version' => 2,
+            'authenticated' => !empty($_SESSION['admin_logged_in']),
+        ];
+        if (!empty($_SESSION['admin_logged_in'])) {
+            $metadata['role'] = mb_substr((string)($_SESSION['admin_role'] ?? 'unknown'), 0, 50);
+            $adminId = (int)($_SESSION['admin_id'] ?? 0);
+            if ($adminId > 0) {
+                $metadata['actor_ref'] = substr($this->pseudonymize((string)$adminId), 0, 20);
+            }
+        }
+        return $metadata;
+    }
+
+    private function fieldNames($data) {
         if (!is_array($data)) return [];
-        $sensitive = ['password', 'passwd', 'pass', 'secret', 'token', 'api_key', 'credit_card', 'password_hash'];
+        $fields = [];
+        foreach (array_slice(array_keys($data), 0, 50) as $key) {
+            $field = preg_replace('/[^A-Za-z0-9_.-]/', '_', (string)$key);
+            if ($field !== '') $fields[] = mb_substr($field, 0, 80);
+        }
+        return $fields;
+    }
+
+    private function pseudonymize($value) {
+        $secret = defined('API_TOKEN_SECRET')
+            ? (string)API_TOKEN_SECRET
+            : (string)MONITOR_DB_PASS . '|' . (string)MONITOR_DB_NAME;
+        return hash_hmac('sha256', (string)$value, $secret);
+    }
+
+    private function sanitizeData($data, $depth = 0) {
+        if (!is_array($data) || $depth >= 4) return [];
         $out = [];
+        $count = 0;
         foreach ($data as $key => $value) {
-            if (in_array(strtolower($key), $sensitive)) $out[$key] = '***';
-            elseif (is_array($value)) $out[$key] = $this->sanitizeData($value);
-            else $out[$key] = mb_substr((string)$value, 0, 500);
+            if ($count++ >= 50) break;
+            $safeKey = mb_substr((string)$key, 0, 80);
+            if (preg_match('/(?:^|_)(?:pass(?:word)?|secret|token|api_?key|csrf|cookie|session|email|phone|mobile|address|name|user_?name|full_?name|first_?name|last_?name|birth|photo|document|medical|(?:member|user|student|guardian)_?id)(?:$|_)/i', $safeKey)) {
+                $out[$safeKey] = '[redacted]';
+            } elseif (is_array($value)) {
+                $out[$safeKey] = $this->sanitizeData($value, $depth + 1);
+            } elseif (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+                $out[$safeKey] = $value;
+            } else {
+                $out[$safeKey] = mb_substr($this->redactText((string)$value), 0, 200);
+            }
         }
         return $out;
     }
-    
+
+    private function redactText($text) {
+        $text = (string)$text;
+        $patterns = [
+            '/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/i' => 'Bearer [redacted]',
+            '/\b(?:password|passwd|secret|token|api[_-]?key|authorization|csrf)["\']?\s*[:=]\s*(?:"[^"]*"|\'[^\']*\'|[^\s&,;]+)/i' => '[credential redacted]',
+            '/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i' => '[email redacted]',
+            '/\bDuplicate entry\s+\'[^\']*\'/i' => "Duplicate entry '[redacted]'",
+            '/\b(?:phone|mobile)(?:\s+number)?\s*[:=]?\s*\+?[0-9() .-]{7,}/i' => '[phone redacted]',
+            '/\b(?:eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|[a-f0-9]{48,})\b/i' => '[token redacted]',
+        ];
+        return preg_replace(array_keys($patterns), array_values($patterns), $text) ?? '[unavailable]';
+    }
+
+    private function redactFilePath($path) {
+        $path = str_replace('\\', '/', (string)$path);
+        $root = defined('ROOT_PATH') ? str_replace('\\', '/', (string)ROOT_PATH) : '';
+        if ($root !== '' && strpos($path, $root) === 0) {
+            return '[root]' . substr($path, strlen($root));
+        }
+        return $this->redactText($path);
+    }
+
     private function getCleanStackTrace() {
         $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15);
         $out = [];
         foreach ($trace as $i => $f) {
             if (isset($f['file']) && strpos($f['file'], 'error_monitor.php') !== false) continue;
-            $file = $f['file'] ?? 'unknown';
+            $file = $this->redactFilePath($f['file'] ?? 'unknown');
             $line = $f['line'] ?? '?';
             $func = ($f['class'] ?? '') . ($f['type'] ?? '') . ($f['function'] ?? '?');
             $out[] = "#{$i} {$file}({$line}): {$func}()";
         }
         return implode("\n", $out);
     }
-    
+
     private function truncateSQL($sql) {
-        return mb_substr(preg_replace('/\s+/', ' ', trim($sql)), 0, 500);
+        $sql = preg_replace('/\s+/', ' ', trim((string)$sql));
+        return mb_substr($this->redactText($sql), 0, 500);
     }
-    
+
     private function logToFile($message) {
-        @file_put_contents(MONITOR_LOG_FILE, '[' . date('Y-m-d H:i:s') . '] ' . $message . "\n", FILE_APPEND | LOCK_EX);
+        $handle = @fopen(MONITOR_LOG_FILE, 'c+');
+        if (!$handle) return;
+        try {
+            if (!flock($handle, LOCK_EX)) return;
+            $stats = fstat($handle);
+            if (($stats['size'] ?? 0) >= 5242880) {
+                ftruncate($handle, 0);
+                rewind($handle);
+                fwrite($handle, '[' . date('Y-m-d H:i:s') . "] log truncated at 5 MiB\n");
+            }
+            fseek($handle, 0, SEEK_END);
+            fwrite($handle, '[' . date('Y-m-d H:i:s') . '] ' . mb_substr($this->redactText($message), 0, 8000) . "\n");
+            fflush($handle);
+            flock($handle, LOCK_UN);
+        } finally {
+            fclose($handle);
+        }
     }
+
 }
 
 // ============================================================

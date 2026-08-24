@@ -58,6 +58,10 @@ class ApiService {
   String? _token;
   String? _refreshToken;
   Map<String, dynamic>? _userData;
+  Future<bool>? _refreshInFlight;
+  bool _refreshWasRejected = false;
+  bool _authExpiryNotified = false;
+  bool _discardedInvalidSession = false;
 
   // Auth expiry callback — set by AppShell to handle token expiry
   void Function()? onAuthExpired;
@@ -66,49 +70,110 @@ class ApiService {
   String? get token => _token;
   Map<String, dynamic>? get userData => _userData;
   bool get isLoggedIn => _token != null;
+  bool get discardedInvalidSession => _discardedInvalidSession;
   String get userRole => _userData?['role'] ?? '';
   String get userName => _userData?['full_name'] ?? '';
   int get userId => _userData?['id'] ?? 0;
 
-  /// Initialize — load saved token from encrypted storage
+  /// Initialize credentials and migrate legacy plaintext profile metadata.
   Future<void> init() async {
-    _token = await _secureStorage.read(key: AppConfig.tokenKey);
-    _refreshToken = await _secureStorage.read(key: AppConfig.refreshTokenKey);
+    final token = await _secureStorage.read(key: AppConfig.tokenKey);
+    final refreshToken =
+        await _secureStorage.read(key: AppConfig.refreshTokenKey);
+    var userJson = await _secureStorage.read(key: AppConfig.userDataKey);
+
+    // Versions <= 1.1.14 stored the staff profile in SharedPreferences. Move it
+    // to platform secure storage once, then remove the plaintext value.
     final prefs = await SharedPreferences.getInstance();
-    final userJson = prefs.getString(AppConfig.userDataKey);
+    final legacyUserJson = prefs.getString(AppConfig.userDataKey);
+    if (userJson == null && legacyUserJson != null) {
+      await _secureStorage.write(
+          key: AppConfig.userDataKey, value: legacyUserJson);
+      userJson = legacyUserJson;
+    }
+    if (legacyUserJson != null) {
+      await prefs.remove(AppConfig.userDataKey);
+    }
+
+    Map<String, dynamic>? user;
     if (userJson != null) {
       try {
-        _userData = jsonDecode(userJson);
+        final decoded = jsonDecode(userJson);
+        if (decoded is Map<String, dynamic>) user = decoded;
       } catch (_) {}
     }
-  }
 
-  /// Save tokens to encrypted storage, user data to SharedPreferences
-  Future<void> _saveTokens(
-      String token, String refreshToken, Map<String, dynamic> user) async {
+    // A session is accepted only as a complete token + refresh + role binding.
+    if (token == null || refreshToken == null || user == null) {
+      _discardedInvalidSession = token != null ||
+          refreshToken != null ||
+          userJson != null ||
+          legacyUserJson != null;
+      await _secureStorage.delete(key: AppConfig.tokenKey);
+      await _secureStorage.delete(key: AppConfig.refreshTokenKey);
+      await _secureStorage.delete(key: AppConfig.userDataKey);
+      _token = null;
+      _refreshToken = null;
+      _userData = null;
+      return;
+    }
     _token = token;
     _refreshToken = refreshToken;
     _userData = user;
-    await _secureStorage.write(key: AppConfig.tokenKey, value: token);
-    await _secureStorage.write(key: AppConfig.refreshTokenKey, value: refreshToken);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConfig.userDataKey, jsonEncode(user));
+    _discardedInvalidSession = false;
   }
 
-  /// Clear tokens (logout)
+  /// Persist tokens and staff profile only in platform encrypted storage.
+  Future<void> _saveTokens(
+      String token, String refreshToken, Map<String, dynamic> user) async {
+    // Commit supporting state first and the access token last. If the process
+    // stops between writes, startup never accepts a token without its profile.
+    await _secureStorage.write(
+        key: AppConfig.userDataKey, value: jsonEncode(user));
+    await _secureStorage.write(key: AppConfig.refreshTokenKey, value: refreshToken);
+    await _secureStorage.write(key: AppConfig.tokenKey, value: token);
+    _token = token;
+    _refreshToken = refreshToken;
+    _userData = user;
+    _authExpiryNotified = false;
+    _discardedInvalidSession = false;
+  }
+
+  /// Revoke the server-side refresh family, then clear all local credentials.
   Future<void> logout() async {
+    final presentedRefreshToken = _refreshToken;
+    if (presentedRefreshToken != null && presentedRefreshToken.isNotEmpty) {
+      try {
+        await _http
+            .post(
+              Uri.parse('${AppConfig.apiBaseUrl}/auth/logout'),
+              headers: _headers(withAuth: false),
+              body: jsonEncode({'refresh_token': presentedRefreshToken}),
+            )
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Offline sign-out must still erase sensitive local data and tokens.
+      }
+    }
+
     _token = null;
     _refreshToken = null;
     _userData = null;
     await _secureStorage.delete(key: AppConfig.tokenKey);
     await _secureStorage.delete(key: AppConfig.refreshTokenKey);
+    await _secureStorage.delete(key: AppConfig.userDataKey);
+    // Defense-in-depth cleanup for upgrades from the legacy plaintext store.
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(AppConfig.userDataKey);
   }
 
   /// Build headers
   Map<String, String> _headers({bool withAuth = true}) {
-    final h = <String, String>{'Content-Type': 'application/json'};
+    final h = <String, String>{
+      'Content-Type': 'application/json',
+      'X-App-Version': AppConfig.appVersion,
+      'X-App-Build': '${AppConfig.appBuild}',
+    };
     if (withAuth && _token != null) {
       h['Authorization'] = 'Bearer $_token';
     }
@@ -141,9 +206,21 @@ class ApiService {
 
   Future<ApiResponse> _doGet(Uri uri, bool auth) async {
     try {
-      final response = await _http
+      final sentToken = auth ? _token : null;
+      var response = await _http
           .get(uri, headers: _headers(withAuth: auth))
           .timeout(Duration(seconds: AppConfig.connectionTimeout));
+      if (response.statusCode == 401 && auth) {
+        final refreshed = (_token != null && _token != sentToken)
+            || await refreshAccessToken();
+        if (refreshed) {
+          response = await _http
+              .get(uri, headers: _headers(withAuth: true))
+              .timeout(Duration(seconds: AppConfig.connectionTimeout));
+        } else {
+          _notifyIfRefreshRejected();
+        }
+      }
       return _handleResponse(response);
     } catch (e) {
       return _handleError(e);
@@ -156,6 +233,7 @@ class ApiService {
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
       var headers = _headers(withAuth: auth);
+      final sentToken = auth ? _token : null;
       final key = (idempotencyKey ?? '').trim();
       if (key.isNotEmpty) {
         headers['Idempotency-Key'] = key;
@@ -169,8 +247,9 @@ class ApiService {
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
       if (response.statusCode == 401 && auth) {
-        final ok = await refreshAccessToken();
-        if (ok) {
+        final refreshed = (_token != null && _token != sentToken)
+            || await refreshAccessToken();
+        if (refreshed) {
           headers = _headers(withAuth: true);
           if (key.isNotEmpty) headers['Idempotency-Key'] = key;
           response = await _http
@@ -180,6 +259,8 @@ class ApiService {
                 body: body != null ? jsonEncode(body) : null,
               )
               .timeout(Duration(seconds: AppConfig.postTimeout));
+        } else {
+          _notifyIfRefreshRejected();
         }
       }
       return _handleResponse(response);
@@ -192,13 +273,29 @@ class ApiService {
   Future<ApiResponse> put(String path, {Map<String, dynamic>? body}) async {
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
-      final response = await _http
+      final sentToken = _token;
+      var response = await _http
           .put(
             uri,
             headers: _headers(),
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
+      if (response.statusCode == 401) {
+        final refreshed = (_token != null && _token != sentToken)
+            || await refreshAccessToken();
+        if (refreshed) {
+          response = await _http
+              .put(
+                uri,
+                headers: _headers(),
+                body: body != null ? jsonEncode(body) : null,
+              )
+              .timeout(Duration(seconds: AppConfig.postTimeout));
+        } else {
+          _notifyIfRefreshRejected();
+        }
+      }
       return _handleResponse(response);
     } catch (e) {
       return _handleError(e);
@@ -209,11 +306,6 @@ class ApiService {
   ApiResponse _handleResponse(http.Response response) {
     // Mark as online since we got a response
     _connectivity.markOnline();
-
-    // Handle auth errors — try to refresh token
-    if (response.statusCode == 401) {
-      _handleAuthExpiry();
-    }
 
     try {
       final json = _decodeJson(response.body);
@@ -276,14 +368,11 @@ class ApiService {
     return ApiResponse.error('Could not finish this request. Please try again.');
   }
 
-  /// Handle token expiry
-  void _handleAuthExpiry() {
-    // Try refresh token first (done async, next request will use new token)
-    refreshAccessToken().then((success) {
-      if (!success && onAuthExpired != null) {
-        onAuthExpired!();
-      }
-    });
+  void _notifyIfRefreshRejected() {
+    if (_refreshWasRejected && !_authExpiryNotified && onAuthExpired != null) {
+      _authExpiryNotified = true;
+      onAuthExpired!();
+    }
   }
 
   // ============================================================
@@ -306,20 +395,73 @@ class ApiService {
     return res;
   }
 
+  /// Rotate the refresh token exactly once even when several requests receive
+  /// a 401 together. This prevents a legitimate app from looking like a replay.
   Future<bool> refreshAccessToken() async {
-    if (_refreshToken == null) return false;
-    final res = await post('/auth/refresh-token', body: {
-      'refresh_token': _refreshToken,
-    }, auth: false);
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
 
-    if (res.success && res.data != null) {
-      _token = res.data['token'];
-      _refreshToken = res.data['refresh_token'];
-      await _secureStorage.write(key: AppConfig.tokenKey, value: _token!);
-      await _secureStorage.write(key: AppConfig.refreshTokenKey, value: _refreshToken!);
-      return true;
+    final attempt = _performRefreshAccessToken();
+    _refreshInFlight = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (identical(_refreshInFlight, attempt)) {
+        _refreshInFlight = null;
+      }
     }
-    return false;
+  }
+
+  Future<bool> _performRefreshAccessToken() async {
+    final presentedRefreshToken = _refreshToken;
+    _refreshWasRejected = presentedRefreshToken == null;
+    if (presentedRefreshToken == null) return false;
+
+    try {
+      final response = await _http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}/auth/refresh-token'),
+            headers: _headers(withAuth: false),
+            body: jsonEncode({'refresh_token': presentedRefreshToken}),
+          )
+          .timeout(Duration(seconds: AppConfig.postTimeout));
+      _connectivity.markOnline();
+      _refreshWasRejected = response.statusCode == 401 || response.statusCode == 403;
+
+      final decoded = _decodeJson(response.body);
+      if (response.statusCode < 200 ||
+          response.statusCode >= 300 ||
+          decoded is! Map<String, dynamic> ||
+          decoded['status'] != 'success' ||
+          decoded['data'] is! Map<String, dynamic>) {
+        return false;
+      }
+
+      final data = decoded['data'] as Map<String, dynamic>;
+      final nextToken = data['token'];
+      final nextRefreshToken = data['refresh_token'];
+      if (nextToken is! String ||
+          nextToken.isEmpty ||
+          nextRefreshToken is! String ||
+          nextRefreshToken.isEmpty) {
+        return false;
+      }
+
+      // Persist the one-time refresh token first. If the process stops between
+      // writes, the app can still recover instead of replaying the old token.
+      await _secureStorage.write(
+          key: AppConfig.refreshTokenKey, value: nextRefreshToken);
+      await _secureStorage.write(key: AppConfig.tokenKey, value: nextToken);
+      _refreshToken = nextRefreshToken;
+      _token = nextToken;
+      _refreshWasRejected = false;
+      _authExpiryNotified = false;
+      return true;
+    } catch (error) {
+      // Network and 5xx failures keep the local session and offline data. Only
+      // an explicit server rejection asks AppShell to sign the user out.
+      return false;
+    }
   }
 
   // ============================================================

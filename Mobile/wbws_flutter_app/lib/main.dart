@@ -20,16 +20,28 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    systemNavigationBarColor: AppTheme.bgLight,
-    systemNavigationBarIconBrightness: Brightness.dark,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: AppTheme.bgLight,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
 
-  await ApiService().init();
-  await LocalDb().database;
-  await CatalogService().hydrate();
+  try {
+    await ApiService().init();
+    await LocalDb().database;
+    if (ApiService().discardedInvalidSession) {
+      await LocalDb().clearAllUserData();
+    }
+    await CatalogService().hydrate();
+  } catch (_) {
+    // Never reset or expose encrypted offline student work after a key/storage
+    // failure. A generic recovery screen is safer than a blank crash or data loss.
+    runApp(const OfflineDataProtectionFailureApp());
+    return;
+  }
 
   runApp(const FKSSApp());
 
@@ -43,6 +55,49 @@ void main() async {
       SyncService().startAutoSync();
     }
   });
+}
+
+class OfflineDataProtectionFailureApp extends StatelessWidget {
+  const OfflineDataProtectionFailureApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'FKSS',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      home: const Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.security_rounded,
+                    size: 56,
+                    color: AppTheme.primary,
+                  ),
+                  SizedBox(height: 20),
+                  Text(
+                    'Offline data is protected',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'The secure data store could not be opened. Restart the app after unlocking the device. If this continues, contact the school administrator before reinstalling because reinstalling removes unsynced work.',
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class FKSSApp extends StatefulWidget {

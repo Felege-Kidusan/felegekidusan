@@ -185,9 +185,10 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
         <div id="tab-exports" class="tc" style="display:none">
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 fi">
                 <div class="card">
-                    <div class="card-hd bg-emerald-50"><span class="text-sm font-semibold text-emerald-800"><i class="fa-solid fa-file-csv mr-1"></i> CSV Exports</span></div>
+                    <div class="card-hd bg-emerald-50"><span class="text-sm font-semibold text-emerald-800"><i class="fa-solid fa-file-csv mr-1"></i> Report CSV (up to 5,000)</span></div>
                     <div class="card-bd space-y-2">
-                        <a href="/admin/export_pdf.php?format=csv&filter=all" class="exp-card"><span><i class="fa-solid fa-users text-emerald-600 mr-2"></i>All Members</span><i class="fa-solid fa-download text-slate-400"></i></a>
+                        <a href="/admin/api_export_members.php?tier=all&amp;format=csv" class="exp-card"><span><i class="fa-solid fa-database text-emerald-700 mr-2"></i>Complete Roster CSV</span><i class="fa-solid fa-download text-slate-400"></i></a>
+                        <a href="/admin/export_pdf.php?format=csv&filter=all" class="exp-card"><span><i class="fa-solid fa-users text-emerald-600 mr-2"></i>All Members Report</span><i class="fa-solid fa-download text-slate-400"></i></a>
                         <a href="/admin/export_pdf.php?format=csv&filter=active" class="exp-card"><span><i class="fa-solid fa-user-check text-blue-600 mr-2"></i>Active Only</span><i class="fa-solid fa-download text-slate-400"></i></a>
                         <a href="/admin/export_pdf.php?format=csv&filter=waiting" class="exp-card"><span><i class="fa-solid fa-hourglass-half text-amber-600 mr-2"></i>Waiting Members</span><i class="fa-solid fa-download text-slate-400"></i></a>
                         <a href="/admin/export_pdf.php?format=csv&filter=no_id" class="exp-card"><span><i class="fa-solid fa-id-card text-red-500 mr-2"></i>Without ID Card</span><i class="fa-solid fa-download text-slate-400"></i></a>
@@ -215,7 +216,7 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
                     </div>
                 </div>
             </div>
-            <div class="card mt-4"><div class="card-bd text-center text-xs text-slate-400"><i class="fa-solid fa-lightbulb mr-1 text-amber-400"></i> PDF opens a print-ready page. Use <strong>Ctrl+P → Save as PDF</strong> in Chrome to download. For custom filters, use <strong>Data Explorer</strong> tab.</div></div>
+            <div class="card mt-4"><div class="card-bd text-center text-xs text-slate-400"><i class="fa-solid fa-lightbulb mr-1 text-amber-400"></i> PDF opens a print-ready page. Use <strong>Ctrl+P → Save as PDF</strong> in Chrome. Printable, Word, and report CSV outputs are bounded to 5,000 rows and clearly show when truncated; use <strong>Complete Roster CSV</strong> for the entire roster.</div></div>
         </div>
     </main>
     <div id="toastC"></div>

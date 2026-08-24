@@ -19,6 +19,13 @@ $role = $_SESSION['admin_role'] ?? '';
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'User';
 $username = $_SESSION['admin_username'] ?? '';
 
+$roleFeature = \App\Services\FeatureGate::forRoleDashboard($role);
+if ($roleFeature !== null && !\App\Services\FeatureGate::isEnabled($roleFeature)) {
+    http_response_code(403);
+    showDashboardNotReady($roleFeature . ' feature disabled', $fullName, $username);
+    exit;
+}
+
 // If impersonating from school_admin, inject a floating "Back to School Admin" button
 $isImpersonating = !empty($_SESSION['original_admin_role']);
 if ($isImpersonating) {
@@ -101,7 +108,7 @@ switch ($role) {
 
 // ── Inject AI Chatbot Widget on ALL dashboards ──
 $_aiWidgetFile = __DIR__ . '/dashboards/ai_chatbot_widget.php';
-if (file_exists($_aiWidgetFile) && isLoggedIn()) {
+if (feature_enabled('ai') && file_exists($_aiWidgetFile) && isLoggedIn()) {
     include $_aiWidgetFile;
 }
 

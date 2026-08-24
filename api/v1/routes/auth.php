@@ -2,11 +2,26 @@
 /**
  * School API v1 — Auth Routes
  * POST /auth/login          — Login with username + password, get tokens
- * POST /auth/refresh-token  — Get new access token using refresh token
+ * POST /auth/refresh-token  — Rotate refresh token and get a new token pair
+ * POST /auth/logout         — Revoke the presented refresh-token family
  * GET  /auth/verify         — Verify current token is valid
  */
 
+require_once __DIR__ . '/../../../admin/backend/services/RefreshTokenService.php';
+
 $action = $ROUTE['id'] ?? '';
+$refreshService = new \App\Services\RefreshTokenService(
+    $conn,
+    static function ($userId, $username, $role, $fullName, $sessionId, $familyId, $expiresAt) {
+        return createRefreshToken(
+            $userId, $username, $role, $fullName, $sessionId, $familyId, $expiresAt
+        );
+    },
+    API_REFRESH_EXPIRY
+);
+$clientIp = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+$userAgent = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+$accessTokenExpiry = apiAccessTokenExpiryForClient();
 
 // ============================================================
 // POST /auth/login
@@ -19,10 +34,13 @@ if ($action === 'login' && $method === 'POST') {
     
     $input = getBody();
     $username = trim($input['username'] ?? '');
-    $password = $input['password'] ?? '';
+    $password = (string)($input['password'] ?? '');
     
-    if (empty($username) || empty($password)) {
+    if ($username === '' || $password === '') {
         err('Username and password are required.');
+    }
+    if (strlen($password) > 4096) {
+        err('Invalid username or password.', 401);
     }
     
     $stmt = $conn->prepare("SELECT id, username, email, full_name, role, password_hash, is_active FROM users WHERE (username = ? OR email = ?) LIMIT 1");
@@ -40,16 +58,20 @@ if ($action === 'login' && $method === 'POST') {
         err('Your account is inactive. Contact an administrator.', 403);
     }
     
-    // Update last login
+    try {
+        $refreshToken = $refreshService->issue($user, $clientIp, $userAgent);
+    } catch (Throwable $error) {
+        error_log('API refresh session creation failed. Apply migration 010.');
+        err('Authentication service is temporarily unavailable.', 503);
+    }
+
     $conn->query("UPDATE users SET last_login = NOW() WHERE id = " . (int)$user['id']);
-    
-    // Log the login
     logApiAction($user['id'], $user['username'], 'API Login', 'REST API v1');
     
     ok([
-        'token' => createToken($user['id'], $user['username'], $user['role'], $user['full_name']),
-        'refresh_token' => createRefreshToken($user['id'], $user['username'], $user['role'], $user['full_name']),
-        'expires_in' => API_TOKEN_EXPIRY,
+        'token' => createToken($user['id'], $user['username'], $user['role'], $user['full_name'], $accessTokenExpiry),
+        'refresh_token' => $refreshToken,
+        'expires_in' => $accessTokenExpiry,
         'user' => [
             'id' => (int)$user['id'],
             'username' => $user['username'],
@@ -61,41 +83,62 @@ if ($action === 'login' && $method === 'POST') {
 }
 
 // ============================================================
-// POST /auth/refresh-token
+// POST /auth/refresh-token — atomically rotate a one-time refresh session
 // ============================================================
 if ($action === 'refresh-token' && $method === 'POST') {
+    if (isApiRateLimited('auth_refresh', 30)) {
+        err('Too many refresh attempts. Please wait a minute.', 429);
+    }
+
     $input = getBody();
-    $refreshToken = $input['refresh_token'] ?? '';
-    
-    if (empty($refreshToken)) {
+    $refreshToken = (string)($input['refresh_token'] ?? '');
+    if ($refreshToken === '') {
         err('Refresh token is required.');
     }
-    
+
     $payload = verifyToken($refreshToken);
-    if (!$payload) {
+    if (!$payload || ($payload['typ'] ?? '') !== 'refresh') {
         err('Invalid or expired refresh token. Please login again.', 401);
     }
-    
-    if (($payload['typ'] ?? '') !== 'refresh') {
-        err('Invalid token type. Provide a refresh token.', 401);
+
+    $rotation = $refreshService->rotate($refreshToken, $payload, $clientIp, $userAgent);
+    if (($rotation['state'] ?? '') === 'reused') {
+        logApiAction((int)($payload['uid'] ?? 0), (string)($payload['usr'] ?? ''),
+            'Refresh token reuse blocked', 'Refresh-token family revoked');
+        err('Refresh token reuse detected. Please login again.', 401);
     }
-    
-    // Verify user still exists and is active
-    $stmt = $conn->prepare("SELECT id, username, full_name, role, is_active FROM users WHERE id = ? LIMIT 1");
-    $stmt->bind_param('i', $payload['uid']);
-    $stmt->execute();
-    $user = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    
-    if (!$user || (int)$user['is_active'] !== 1) {
-        err('Account no longer active. Please login again.', 401);
+    if (($rotation['state'] ?? '') === 'unavailable') {
+        error_log('API refresh rotation failed. Apply migration 010.');
+        err('Authentication service is temporarily unavailable.', 503);
     }
-    
+    if (($rotation['state'] ?? '') !== 'rotated' || empty($rotation['token']) || empty($rotation['user'])) {
+        err('Invalid or expired refresh token. Please login again.', 401);
+    }
+
+    $user = $rotation['user'];
     ok([
-        'token' => createToken($user['id'], $user['username'], $user['role'], $user['full_name']),
-        'refresh_token' => createRefreshToken($user['id'], $user['username'], $user['role'], $user['full_name']),
-        'expires_in' => API_TOKEN_EXPIRY,
+        'token' => createToken($user['id'], $user['username'], $user['role'], $user['full_name'], $accessTokenExpiry),
+        'refresh_token' => $rotation['token'],
+        'expires_in' => $accessTokenExpiry,
     ]);
+}
+
+// ============================================================
+// POST /auth/logout — revoke the presented refresh-token family
+// ============================================================
+if ($action === 'logout' && $method === 'POST') {
+    if (isApiRateLimited('auth_logout', 30)) {
+        err('Too many logout attempts. Please wait a minute.', 429);
+    }
+    $input = getBody();
+    $refreshToken = (string)($input['refresh_token'] ?? '');
+    if ($refreshToken !== '') {
+        $payload = verifyToken($refreshToken);
+        if ($payload && ($payload['typ'] ?? '') === 'refresh') {
+            $refreshService->revokePresented($refreshToken, $payload);
+        }
+    }
+    ok(['message' => 'Signed out.']);
 }
 
 // ============================================================
@@ -110,4 +153,4 @@ if ($action === 'verify' && $method === 'GET') {
     ]);
 }
 
-err("Unknown auth action: {$action}. Use: login, refresh-token, verify", 404);
+err("Unknown auth action: {$action}. Use: login, refresh-token, logout, verify", 404);

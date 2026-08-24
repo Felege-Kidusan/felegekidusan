@@ -20,42 +20,7 @@ if (!defined('DB_HOST')) {
     require_once __DIR__ . '/../config.php';
 }
 
-// ============================================================
-// AUTO-CREATE NOTIFICATIONS TABLE IF MISSING
-// ============================================================
-if (isset($conn) && $conn && !$conn->connect_error) {
-    try {
-        $tableCheck = $conn->query("SHOW TABLES LIKE 'notifications'");
-        if (!$tableCheck || $tableCheck->num_rows === 0) {
-            $conn->query("
-                CREATE TABLE IF NOT EXISTS `notifications` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `type` VARCHAR(50) NOT NULL,
-                    `title` VARCHAR(255) NOT NULL,
-                    `message` TEXT NOT NULL,
-                    `data` JSON DEFAULT NULL,
-                    `priority` ENUM('low', 'normal', 'high', 'urgent') NOT NULL DEFAULT 'normal',
-                    `source_dept` VARCHAR(50) DEFAULT NULL,
-                    `source_user_id` INT UNSIGNED DEFAULT NULL,
-                    `target_roles` VARCHAR(255) DEFAULT NULL,
-                    `target_user_id` INT UNSIGNED DEFAULT NULL,
-                    `is_read` TINYINT(1) NOT NULL DEFAULT 0,
-                    `read_at` DATETIME DEFAULT NULL,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    KEY `type` (`type`),
-                    KEY `target_roles` (`target_roles`),
-                    KEY `target_user_id` (`target_user_id`),
-                    KEY `is_read` (`is_read`),
-                    KEY `created_at` (`created_at`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-            ");
-        }
-    } catch (Exception $e) {
-        // Table creation may fail - config.php will also try to create it
-        error_log("workflow.php: Could not create notifications table: " . $e->getMessage());
-    }
-}
+// Notification schema is deployment-managed by migration 012.
 
 /**
  * Department role mappings for notifications
@@ -108,16 +73,6 @@ $NOTIFICATION_MATRIX = [
 function sendNotification($conn, $type, $title, $message, $options = []) {
     global $NOTIFICATION_MATRIX;
     
-    // Check if table exists first (exception-safe)
-    try {
-        $tableCheck = $conn->query("SHOW TABLES LIKE 'notifications'");
-        if (!$tableCheck || $tableCheck->num_rows === 0) {
-            return false; // Silently fail if table doesn't exist
-        }
-    } catch (Exception $e) {
-        return false;
-    }
-    
     try {
         $data = isset($options['data']) ? json_encode($options['data']) : null;
         $priority = $options['priority'] ?? 'normal';
@@ -159,16 +114,6 @@ function sendNotification($conn, $type, $title, $message, $options = []) {
  * Get unread notifications for current user
  */
 function getUnreadNotifications($conn, $limit = 20) {
-    // Check if table exists first (exception-safe)
-    try {
-        $tableCheck = $conn->query("SHOW TABLES LIKE 'notifications'");
-        if (!$tableCheck || $tableCheck->num_rows === 0) {
-            return [];
-        }
-    } catch (Exception $e) {
-        return [];
-    }
-    
     $userRole = $_SESSION['admin_role'] ?? '';
     $userId = $_SESSION['admin_id'] ?? 0;
     
@@ -207,16 +152,6 @@ function getUnreadNotifications($conn, $limit = 20) {
  * Get unread notification count
  */
 function getUnreadNotificationCount($conn) {
-    // Check if table exists first (exception-safe)
-    try {
-        $tableCheck = $conn->query("SHOW TABLES LIKE 'notifications'");
-        if (!$tableCheck || $tableCheck->num_rows === 0) {
-            return 0;
-        }
-    } catch (Exception $e) {
-        return 0;
-    }
-    
     $userRole = $_SESSION['admin_role'] ?? '';
     $userId = $_SESSION['admin_id'] ?? 0;
     

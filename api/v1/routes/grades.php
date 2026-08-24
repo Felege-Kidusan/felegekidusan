@@ -194,7 +194,8 @@ if ($action === 'subjects' && $method === 'GET') {
         }
         $stmt->close();
     } catch (Exception $e) {
-        err('Failed to load subjects: ' . $e->getMessage(), 500);
+        reportInternalError('API grades subject list failed', $e);
+        err('Unable to load subjects.', 500);
     }
     
     ok(['subjects' => $subjects, 'count' => count($subjects)]);
@@ -235,7 +236,8 @@ if ($action === 'assessments' && $method === 'GET') {
         }
         $stmt->close();
     } catch (Exception $e) {
-        err('Failed to load assessments: ' . $e->getMessage(), 500);
+        reportInternalError('API grades assessment list failed', $e);
+        err('Unable to load assessments.', 500);
     }
     
     ok(['assessments' => $assessments, 'count' => count($assessments)]);
@@ -310,7 +312,8 @@ if ($action === 'assessments' && $method === 'POST') {
         
         ok(['id' => $newId, 'message' => 'Assessment created']);
     } catch (Exception $e) {
-        err('Failed to create assessment: ' . $e->getMessage(), 500);
+        reportInternalError('API grades assessment creation failed', $e);
+        err('Unable to create assessment.', 500);
     }
 }
 
@@ -390,7 +393,8 @@ if ($action === 'students' && $method === 'GET') {
             ];
         }
     } catch (Exception $e) {
-        err('Failed to load students: ' . $e->getMessage(), 500);
+        reportInternalError('API grades student list failed', $e);
+        err('Unable to load students.', 500);
     }
     
     $packetStatus = null;
@@ -685,7 +689,8 @@ if ($action === 'summary' && $method === 'GET') {
         while ($row = $r->fetch_assoc()) $data[] = $row;
         $stmt->close();
     } catch (Exception $e) {
-        err('Failed to load summary: ' . $e->getMessage(), 500);
+        reportInternalError('API grades summary failed', $e);
+        err('Unable to load grade summary.', 500);
     }
     
     ok(['data' => $data, 'class_id' => $classId, 'subject_id' => $subjectId]);

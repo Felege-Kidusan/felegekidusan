@@ -71,16 +71,9 @@ class GalleryService
         }
     }
 
+    /** Compatibility hook; schema is deployment-managed by migrations 002/013. */
     public static function ensureSchema(\mysqli $conn): void
     {
-        try {
-            $chk = $conn->query("SHOW COLUMNS FROM cms_gallery_photos LIKE 'thumb_path'");
-            if ($chk && $chk->num_rows === 0) {
-                $conn->query("ALTER TABLE cms_gallery_photos ADD COLUMN thumb_path VARCHAR(255) DEFAULT NULL AFTER image_path");
-            }
-        } catch (\Throwable $e) {
-            // table may not exist yet
-        }
     }
 
     /**
@@ -103,11 +96,15 @@ class GalleryService
             ];
             return ['error' => $map[$err] ?? 'Upload failed.'];
         }
-        if ((int)$_FILES[$field]['size'] > self::MAX_BYTES) {
+        $tmp = (string)($_FILES[$field]['tmp_name'] ?? '');
+        $actualSize = $tmp !== '' ? @filesize($tmp) : false;
+        if ($tmp === '' || !is_uploaded_file($tmp) || $actualSize === false || $actualSize <= 0) {
+            return ['error' => 'The uploaded image could not be verified.'];
+        }
+        if ($actualSize > self::MAX_BYTES) {
             return ['error' => 'Image is too large (max 8MB).'];
         }
 
-        $tmp = (string)$_FILES[$field]['tmp_name'];
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
         $mime = (string)$finfo->file($tmp);
         $mimeMap = [

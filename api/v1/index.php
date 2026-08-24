@@ -60,6 +60,21 @@ require_once __DIR__ . '/core/auth.php';
 require_once __DIR__ . '/core/acl.php';
 require_once __DIR__ . '/core/middleware.php';
 
+// Keep infrastructure diagnostics in server logs. Mobile clients always receive
+// a stable JSON contract rather than PHP/MySQL exception text or an HTML error.
+set_exception_handler(function (Throwable $error): void {
+    reportInternalError('Unhandled API v1 exception', $error);
+    apiSendJson(['status' => 'error', 'message' => 'The service could not complete the request.'], 500);
+});
+register_shutdown_function(function (): void {
+    $error = error_get_last();
+    if (!$error || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        return;
+    }
+    reportInternalError('Fatal API v1 error', $error['message'] ?? 'fatal error');
+    apiSendJson(['status' => 'error', 'message' => 'The service could not complete the request.'], 500);
+});
+
 // CORS + headers
 handleCors();
 
@@ -118,6 +133,13 @@ $routeMap = [
 // Check if resource exists
 if (!isset($routeMap[$resource])) {
     err("Unknown endpoint: /{$resource}. Available: " . implode(', ', array_keys($routeMap)), 404);
+}
+
+// Feature flags are server-authoritative. Mobile UI filtering is convenience;
+// a disabled module's API remains unavailable even to a crafted client.
+$resourceFeature = \App\Services\FeatureGate::forApiResource($resource);
+if ($resourceFeature !== null && !\App\Services\FeatureGate::isEnabled($resourceFeature)) {
+    err('This feature is not enabled for this deployment.', 403);
 }
 
 // Load the route file

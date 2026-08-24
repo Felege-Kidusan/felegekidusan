@@ -48,6 +48,26 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   int _pendingCount = 0;
   StreamSubscription<bool>? _netSub;
 
+  static const Set<String> _validStatuses = {
+    'present',
+    'absent',
+    'late',
+    'excused',
+  };
+
+  String _statusOf(dynamic value) {
+    final status = '${value ?? ''}'.trim().toLowerCase();
+    return _validStatuses.contains(status) ? status : '';
+  }
+
+  String _firstStatus(Iterable<dynamic> values) {
+    for (final value in values) {
+      final status = _statusOf(value);
+      if (status.isNotEmpty) return status;
+    }
+    return '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -171,7 +191,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     for (final p in pending) {
       final mid = RosterParse.asInt(p['member_id']);
       if (mid == null) continue;
-      pendingMap[mid] = '${p['status'] ?? 'present'}';
+      final status = _statusOf(p['status']);
+      if (status.isNotEmpty) pendingMap[mid] = status;
       pendingNotes[mid] = '${p['notes'] ?? p['note'] ?? ''}';
     }
 
@@ -183,7 +204,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         students.add({
           ...s,
           'member_id': mid,
-          'status': pendingMap[mid] ?? s['status'] ?? s['att_status'] ?? 'present',
+          'status': _firstStatus([pendingMap[mid], s['status'], s['att_status']]),
           'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
         });
       }
@@ -201,7 +222,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             'father_name': s['father_name'] ?? '',
             'member_code': s['member_code'] ?? '',
             'gender': s['gender'] ?? '',
-            'status': pendingMap[mid] ?? 'present',
+            'status': _statusOf(pendingMap[mid]),
             'notes': pendingNotes[mid] ?? '',
           });
         }
@@ -236,7 +257,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'father_name': s['father_name'] ?? '',
           'member_code': s['member_code'] ?? '',
           'gender': s['gender'] ?? '',
-          'status': lockedEarly ? (s['att_status'] ?? 'present') : (pendingMap[mid] ?? s['att_status'] ?? 'present'),
+          'status': lockedEarly
+              ? _statusOf(s['att_status'])
+              : _firstStatus([pendingMap[mid], s['att_status']]),
           'notes': lockedEarly ? (s['notes'] ?? s['note'] ?? '') : (pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? ''),
         };
       }).toList();
@@ -289,12 +312,23 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   bool get _locked => PacketLock.isLocked(_packetStatus);
 
+  bool _requireCompleteSheet() {
+    final unmarked = _students.where((student) => _statusOf(student['status']).isEmpty).length;
+    if (unmarked == 0) return true;
+    setState(() {
+      _error = 'Mark attendance for every student ($unmarked remaining).';
+      _successMsg = null;
+    });
+    return false;
+  }
+
   Future<void> _saveAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) {
       setState(() => _successMsg = 'Already submitted. Only Education can change this.');
       return;
     }
+    if (!_requireCompleteSheet()) return;
     setState(() {
       _error = null;
       _successMsg = null;
@@ -330,6 +364,13 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       Future.delayed(const Duration(seconds: 4), () {
         if (mounted) setState(() => _successMsg = null);
       });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'Attendance could not be saved. Your previous offline copy is unchanged.';
+          _successMsg = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -341,6 +382,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       setState(() => _successMsg = 'Already submitted. Only Education can change this.');
       return;
     }
+    if (!_requireCompleteSheet()) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -372,6 +414,13 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         }
       });
       await _updatePendingCount();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'Attendance could not be submitted. Your previous offline copy is unchanged.';
+          _successMsg = null;
+        });
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -384,7 +433,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               'student_name': s['student_name'],
               'father_name': s['father_name'],
               'member_code': s['member_code'],
-              'status': s['status'] ?? 'present',
+              'status': _statusOf(s['status']),
               'notes': s['notes'] ?? s['note'] ?? '',
             })
         .toList();
@@ -606,9 +655,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(
                 children: [
-                  Text('${_students.length} students',
-                      style: TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                  Text(
+                    '${_students.length} students · '
+                    '${_students.where((student) => _statusOf(student['status']).isEmpty).length} unmarked',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
                   const Spacer(),
                   if (!_locked) ...[
                     _quickBtn(
@@ -688,6 +739,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           controller: ctrl,
           autofocus: true,
           maxLines: 3,
+          maxLength: 500,
           decoration: const InputDecoration(hintText: 'Optional note'),
         ),
         actions: [
@@ -721,7 +773,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _studentRow(int index) {
     final s = _students[index];
-    final status = s['status'] ?? 'present';
+    final status = _statusOf(s['status']);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 6),

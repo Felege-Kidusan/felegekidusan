@@ -1,0 +1,288 @@
+<?php
+/** Integration exercise for the DB-backed member directory service. */
+
+require $argv[1] . '/admin/backend/services/MemberDirectoryService.php';
+require $argv[1] . '/admin/backend/services/MemberExportService.php';
+require $argv[1] . '/admin/backend/services/MemberReportService.php';
+require $argv[1] . '/admin/backend/services/SecurityAuditService.php';
+
+use App\Services\MemberDirectoryService;
+use App\Services\MemberExportService;
+use App\Services\MemberReportService;
+use App\Services\SecurityAuditService;
+
+$pdo = new PDO('sqlite::memory:');
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$pdo->exec(<<<'SQL'
+CREATE TABLE members (
+    id INTEGER PRIMARY KEY,
+    member_code TEXT,
+    registration_type TEXT,
+    member_type TEXT,
+    status TEXT,
+    membership_tier TEXT,
+    age_group TEXT,
+    current_section TEXT,
+    student_name TEXT,
+    father_name TEXT,
+    grandfather_name TEXT,
+    baptismal_name TEXT,
+    gender TEXT,
+    phone_number TEXT,
+    alt_phone_number TEXT,
+    guardian_name TEXT,
+    guardian_phone1 TEXT,
+    guardian_phone2 TEXT,
+    city TEXT,
+    sub_city TEXT,
+    woreda TEXT,
+    mender TEXT,
+    block_number TEXT,
+    house_number TEXT,
+    work_profession TEXT,
+    education_level TEXT,
+    student_photo_path TEXT,
+    id_card_status TEXT,
+    id_card_generated_at TEXT,
+    archive_type TEXT,
+    archive_reason TEXT,
+    archived_at TEXT,
+    created_at TEXT
+);
+CREATE INDEX idx_members_status_id ON members(status, id);
+CREATE INDEX idx_members_city ON members(city);
+CREATE INDEX idx_members_education_level ON members(education_level);
+CREATE TABLE activity_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    action TEXT,
+    details TEXT,
+    entity_type TEXT,
+    entity_id INTEGER,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at TEXT
+);
+SQL);
+
+$insert = $pdo->prepare(
+    'INSERT INTO members
+     (id, member_code, registration_type, member_type, status, membership_tier,
+      age_group, current_section, student_name, father_name, grandfather_name,
+      baptismal_name, gender, phone_number, alt_phone_number, guardian_name,
+      guardian_phone1, guardian_phone2, city, sub_city, woreda, mender,
+      block_number, house_number, work_profession, education_level,
+      student_photo_path, id_card_status, id_card_generated_at, archive_type,
+      archive_reason, archived_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+);
+$statuses = ['active', 'warning', 'inactive', 'archived'];
+$pdo->beginTransaction();
+for ($id = 1; $id <= 100025; $id++) {
+    $insert->execute([
+        $id,
+        'M' . str_pad((string)$id, 6, '0', STR_PAD_LEFT),
+        $id % 3 === 0 ? 'waiting' : ($id % 3 === 1 ? 'direct' : 'transfer'),
+        $id % 5 === 0 ? 'honorary' : 'regular',
+        $statuses[$id % 4],
+        $id % 2 === 0 ? 'permanent' : 'temporary',
+        $id % 2 === 0 ? '14_17' : '18_plus',
+        'Section ' . ($id % 20),
+        $id === 100025 ? '=1+1' : 'Student ' . $id,
+        'Father ' . $id,
+        'Grandfather ' . $id,
+        'Baptismal ' . $id,
+        $id % 2 === 0 ? 'male' : 'female',
+        '0900' . $id,
+        '0910' . $id,
+        'Guardian ' . $id,
+        '0920' . $id,
+        '0930' . $id,
+        $id % 2 === 0 ? 'addis_ababa' : 'oromia',
+        'Subcity',
+        'Woreda',
+        'Mender',
+        'Block',
+        'House',
+        'Student',
+        'high_school',
+        'private/path/' . $id,
+        $id % 2 === 0 ? 'generated' : 'none',
+        $id % 2 === 0 ? '2020-01-01' : null,
+        $id % 8 === 3 ? 'failed_observation' : 'permanent_archive',
+        $id % 4 === 3 ? 'transferred' : null,
+        $id % 4 === 3 ? '2026-02-01' : null,
+        '2026-01-01',
+    ]);
+}
+$pdo->commit();
+
+$service = new MemberDirectoryService($pdo);
+$first = $service->search(['limit' => 50], 'finance_dept', 'picker');
+if (count($first['members']) !== 50 || $first['next_cursor'] === null) {
+    throw new RuntimeException('First keyset page was not bounded.');
+}
+foreach (['guardian_name', 'phone_number', 'city', 'student_photo_path'] as $privateColumn) {
+    if (array_key_exists($privateColumn, $first['members'][0])) {
+        throw new RuntimeException('Finance projection exposed ' . $privateColumn);
+    }
+}
+
+$second = $service->search([
+    'limit' => 50,
+    'page' => 2,
+    'cursor' => $first['next_cursor'],
+    'include_total' => '0',
+], 'finance_dept', 'picker');
+if ($second['total'] !== null || count($second['members']) !== 50) {
+    throw new RuntimeException('Deep keyset page repeated count or exceeded its bound.');
+}
+$firstIds = array_column($first['members'], 'id');
+$secondIds = array_column($second['members'], 'id');
+if (array_intersect($firstIds, $secondIds) !== []) {
+    throw new RuntimeException('Keyset pages overlap.');
+}
+
+$filtered = $service->search([
+    'q' => 'Student 100000',
+    'status' => 'active',
+    'current_section' => 'Section 0',
+    'limit' => 10,
+], 'school_admin');
+if (count($filtered['members']) !== 1 || (int)$filtered['members'][0]['id'] !== 100000) {
+    throw new RuntimeException('Combined server-side filters returned the wrong member.');
+}
+if (!array_key_exists('guardian_name', $filtered['members'][0])) {
+    throw new RuntimeException('Authorized full projection lost required compatibility fields.');
+}
+
+$hostile = $service->search([
+    'sort' => 'id`; DROP TABLE members; --',
+    'direction' => 'sideways',
+    'limit' => 999999,
+], 'school_admin', 'manager');
+if (count($hostile['members']) !== MemberDirectoryService::MAX_PAGE_SIZE) {
+    throw new RuntimeException('Page-size cap or sort allow-list failed.');
+}
+if ((int)$pdo->query('SELECT COUNT(*) FROM members')->fetchColumn() !== 100025) {
+    throw new RuntimeException('Hostile sort input changed the database.');
+}
+
+$idCards = $service->search(['limit' => 50], 'hr_dept', 'id_cards');
+if (count($idCards['members']) !== 50 || $idCards['next_cursor'] === null) {
+    throw new RuntimeException('ID-card directory was not bounded.');
+}
+foreach ($idCards['members'] as $member) {
+    if (!array_key_exists('id_card_status', $member) || array_key_exists('phone_number', $member)) {
+        throw new RuntimeException('ID-card projection was incomplete or excessive.');
+    }
+    if ((int)$member['id'] % 4 !== 0) {
+        throw new RuntimeException('ID-card directory included a non-active member.');
+    }
+    if ((int)$member['id'] % 3 === 0 && (int)$member['id'] % 5 !== 0) {
+        throw new RuntimeException('ID-card directory included an ineligible member.');
+    }
+}
+
+$archive = $service->search([
+    'limit' => 50,
+    'archive_type' => 'permanent_archive',
+], 'info_dept', 'archive');
+if (count($archive['members']) !== 50 || $archive['next_cursor'] === null) {
+    throw new RuntimeException('Archive directory was not bounded.');
+}
+foreach ($archive['members'] as $member) {
+    if ((int)$member['id'] % 8 !== 7 || !array_key_exists('archive_reason', $member)) {
+        throw new RuntimeException('Archive directory returned an invalid member.');
+    }
+    if (array_key_exists('phone_number', $member) || array_key_exists('student_photo_path', $member)) {
+        throw new RuntimeException('Archive projection exposed unnecessary private data.');
+    }
+}
+
+$sections = $service->sections();
+if (count($sections) !== 15) {
+    throw new RuntimeException('Directory filter options included archived-only or missed active sections.');
+}
+
+if (MemberExportService::count($pdo, 'all') !== 100025) {
+    throw new RuntimeException('Complete export count omitted members.');
+}
+$editable = MemberExportService::collectEditable(
+    $pdo,
+    'all',
+    0,
+    static fn(string $raw): string => $raw
+);
+if (count($editable) !== MemberExportService::MAX_EDITABLE_ROWS) {
+    throw new RuntimeException('Editable workbook query was not bounded.');
+}
+if (($editable[0]['student_name'] ?? '') !== "'=1+1") {
+    throw new RuntimeException('Editable workbook formula injection guard failed.');
+}
+
+$report = new MemberReportService($pdo, ['filter' => 'all']);
+$reportSummary = $report->summary();
+if ($reportSummary['total'] !== 75019) {
+    throw new RuntimeException('Printable report summary did not exclude archived members.');
+}
+$reportRows = $report->openRows();
+$reportRowCount = 0;
+while (MemberReportService::nextRow($reportRows) !== null) {
+    $reportRowCount++;
+}
+$reportRows->closeCursor();
+if ($reportRowCount !== MemberReportService::MAX_ROWS) {
+    throw new RuntimeException('Printable report row stream was not bounded to 5,000 rows.');
+}
+$activeReport = new MemberReportService($pdo, ['filter' => 'active', 'gender' => 'female']);
+if ($activeReport->summary()['total'] !== 25006
+    || $activeReport->presetTitle() !== 'Active Members Report') {
+    throw new RuntimeException('Report preset compatibility changed.');
+}
+try {
+    new MemberReportService($pdo, ['filter' => 'all', 'gender' => 'invalid']);
+    throw new RuntimeException('Invalid report filter was accepted.');
+} catch (InvalidArgumentException $expected) {
+    // Expected.
+}
+$formulaGuard = new ReflectionMethod(MemberExportService::class, 'spreadsheetSafeValue');
+if ($formulaGuard->invoke(null, '=HYPERLINK("https://evil.invalid")') !== "'=HYPERLINK(\"https://evil.invalid\")") {
+    throw new RuntimeException('Spreadsheet formula injection guard failed.');
+}
+
+$_SESSION['admin_id'] = 42;
+$_SESSION['admin_username'] = 'integration-admin';
+$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+$_SERVER['HTTP_USER_AGENT'] = 'integration-test';
+if (!SecurityAuditService::record(
+    $pdo,
+    'Member Export Requested',
+    ['tier' => 'all', 'rows' => 100025],
+    'member_export'
+)) {
+    throw new RuntimeException('Security audit write failed.');
+}
+$audit = $pdo->query('SELECT * FROM activity_logs')->fetch(PDO::FETCH_ASSOC);
+if (
+    !$audit
+    || (int)$audit['user_id'] !== 42
+    || $audit['entity_type'] !== 'member_export'
+    || json_decode((string)$audit['details'], true)['rows'] !== 100025
+) {
+    throw new RuntimeException('Security audit content was incomplete.');
+}
+
+echo json_encode([
+    'rows' => 100025,
+    'first_page' => count($first['members']),
+    'second_page' => count($second['members']),
+    'total' => $first['total'],
+    'sections' => count($sections),
+    'editable_rows' => count($editable),
+    'audit_rows' => 1,
+    'id_card_rows' => count($idCards['members']),
+    'archive_rows' => count($archive['members']),
+    'report_rows' => $reportRowCount,
+], JSON_THROW_ON_ERROR), PHP_EOL;

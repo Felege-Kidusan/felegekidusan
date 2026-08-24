@@ -1,0 +1,57 @@
+<?php
+require $argv[1] . '/admin/backend/services/MemberRegistrationPolicy.php';
+
+use App\Services\MemberRegistrationPolicy;
+
+$school = MemberRegistrationPolicy::prepare([
+    'full_name_am' => 'Student Father',
+    'gender' => 'female',
+    'registration_type' => 'direct',
+    'member_type' => 'honorary',
+    'membership_tier' => 'temporary',
+    'status' => 'inactive',
+    'phone_number' => '+251 911 000 000',
+    'current_section' => 'Section A',
+    'upgrade_member_id' => '99',
+], 'school_admin');
+if (
+    !$school['quick_add']
+    || $school['allow_uploads']
+    || $school['allow_upgrade']
+    || $school['member_type'] !== 'regular'
+    || $school['membership_tier'] !== 'permanent'
+    || $school['status'] !== 'active'
+) {
+    throw new RuntimeException('School quick-add capabilities were not constrained.');
+}
+
+$hr = MemberRegistrationPolicy::prepare([
+    'full_name_am' => 'Student Father Grandfather',
+    'gender' => 'male',
+    'registration_type' => 'transfer',
+    'member_type' => 'honorary',
+    'membership_tier' => 'temporary',
+    'status' => 'warning',
+], 'hr_dept');
+if ($hr['quick_add'] || !$hr['allow_uploads'] || !$hr['allow_upgrade']) {
+    throw new RuntimeException('HR full-registration capabilities were lost.');
+}
+
+$rejected = false;
+try {
+    MemberRegistrationPolicy::prepare([
+        'full_name_am' => 'SingleName',
+        'gender' => 'invalid',
+    ], 'school_admin');
+} catch (InvalidArgumentException $error) {
+    $rejected = true;
+}
+if (!$rejected) {
+    throw new RuntimeException('Malformed quick-add input was accepted.');
+}
+
+echo json_encode([
+    'school_profile' => $school['quick_add'],
+    'hr_upgrade' => $hr['allow_upgrade'],
+    'invalid_rejected' => $rejected,
+], JSON_THROW_ON_ERROR), PHP_EOL;

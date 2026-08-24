@@ -24,12 +24,14 @@ $bodyClass  = 'page-finance';
 // Only finance staff and admins may open the finance dashboard.
 // (base.php enforces this list; the finance API is guarded separately.)
 $requiredRoles = ['super_admin', 'school_admin', 'finance_dept'];
+$requiredFeature = 'finance';
 
 // Extra libraries needed by this dashboard
 $extraHead = '
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="/frontend/js/member-picker.js" defer></script>
 ';
 
 ob_start();
@@ -102,9 +104,7 @@ ob_start();
                 <i class="fa-solid fa-database" style="font-size:3rem; color:var(--school-accent); margin-bottom:1rem"></i>
                 <h2 style="color:var(--school-text-bright); margin-bottom:0.5rem">Setup Required</h2>
                 <p style="color:var(--school-text-dim); margin-bottom:1.5rem">Finance tables need to be created.</p>
-                <a href="/admin/migrations/004_add_finance_material_tables.php" class="btn-primary" style="display:inline-flex;padding:0.6rem 1.25rem;border-radius:var(--school-btn-radius);text-decoration:none;color:#fff">
-                    <i class="fa-solid fa-play"></i> Run Migration
-                </a>
+                <p class="school-text-muted">Ask the deployment administrator to apply the versioned SQL migrations.</p>
             </div>
 
             <!-- ═══ DASHBOARD SECTION ═══ -->
@@ -278,7 +278,11 @@ ob_start();
             </div>
             <div class="school-form-group"><label class="school-label">Receipt #</label><input id="txnReceipt" class="school-input"></div>
         </div>
-        <div class="school-form-group" id="txnMemberWrap"><label class="school-label">Member (optional)</label><select id="txnMember" class="school-input"><option value="">— None —</option></select></div>
+        <div class="school-form-group" id="txnMemberWrap">
+            <label class="school-label" for="txnMemberSearch">Member (optional)</label>
+            <input id="txnMemberSearch" class="school-input" type="search" autocomplete="off" placeholder="Search name, phone, or member code" data-member-picker-target="txnMember">
+            <select id="txnMember" class="school-input" data-optional="true"><option value="">— None —</option></select>
+        </div>
         <button class="btn-primary" onclick="Finance.saveTxn()" style="width:100%;justify-content:center"><i class="fa-solid fa-save"></i> Save</button>
     </div>
 </div>
@@ -290,7 +294,11 @@ ob_start();
             <h3 style="font-size:1.1rem;font-weight:700;color:var(--school-text-bright)">Record Fee Payment</h3>
             <button onclick="modal('feeModal',false)" style="background:none;border:none;color:var(--school-text-dim);font-size:1.25rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div class="school-form-group"><label class="school-label">Member</label><select id="feeMember" class="school-input"></select></div>
+        <div class="school-form-group">
+            <label class="school-label" for="feeMemberSearch">Member</label>
+            <input id="feeMemberSearch" class="school-input" type="search" autocomplete="off" placeholder="Search name, phone, or member code" data-member-picker-target="feeMember">
+            <select id="feeMember" class="school-input"><option value="">Select member…</option></select>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
             <div class="school-form-group"><label class="school-label">Amount (ETB)</label><input type="number" id="feeAmt" class="school-input" step="0.01" min="0"></div>
             <div class="school-form-group"><label class="school-label">Fee Type</label><select id="feeType" class="school-input"><option value="monthly">Monthly</option><option value="annual">Annual</option><option value="special">Special</option></select></div>

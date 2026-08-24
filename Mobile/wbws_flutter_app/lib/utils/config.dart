@@ -5,8 +5,8 @@ class AppConfig {
   static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
   static const String appName = 'FKSS';
   static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
-  static const String appVersion = '1.1.13';
-  static const int appBuild = 15;
+  static const String appVersion = '1.1.15';
+  static const int appBuild = 17;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';
@@ -84,7 +84,7 @@ class NavTab {
       : activeIcon = activeIcon ?? icon;
 }
 
-List<NavTab> getTabsForRole(String role) {
+List<NavTab> _baseTabsForRole(String role) {
   switch (role) {
     // ---- TEACHER ----
     case UserRoles.teacher:
@@ -163,4 +163,17 @@ List<NavTab> getTabsForRole(String role) {
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
   }
+}
+
+
+List<NavTab> getTabsForRole(
+  String role, {
+  bool attendanceEnabled = true,
+  bool gradesEnabled = true,
+}) {
+  return _baseTabsForRole(role).where((tab) {
+    if (tab.id == 'attendance') return attendanceEnabled;
+    if (tab.id == 'grades') return gradesEnabled;
+    return true;
+  }).toList(growable: false);
 }

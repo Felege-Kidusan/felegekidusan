@@ -1,5 +1,13 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * ============================================================
  * School Management Migration 005 — Database Optimization
  * ============================================================
@@ -8,8 +16,6 @@
  * SAFE TO RUN MULTIPLE TIMES — all statements use IF NOT EXISTS
  * or check before adding.
  * 
- * Run from: Super Admin → System Health → or visit directly
- * URL: /admin/migrations/005_optimize_database.php
  * ============================================================
  */
 

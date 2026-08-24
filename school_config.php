@@ -189,17 +189,23 @@ define('THEME_SIDEBAR_BOTTOM', '#702000'); //   warm maroon-brown
 // │  SECTION 10: FEATURE TOGGLES                                │
 // │  Enable/disable system modules per deployment               │
 // └─────────────────────────────────────────────────────────────┘
+// Defaults stay compatible. Production may define boolean overrides in the
+// out-of-web-root secrets/environment file before this file is loaded.
 
-define('FEATURE_AI_CHATBOT', true);
-define('FEATURE_GROUPS', true);
-define('FEATURE_FINANCE', true);
-define('FEATURE_MATERIAL', true);
-define('FEATURE_ID_CARDS', true);
-define('FEATURE_ATTENDANCE', true);
-define('FEATURE_GRADES', true);
-define('FEATURE_REPORTS', true);
-define('FEATURE_EXPORT_PDF', true);
-define('FEATURE_MONITOR', true);
+if (!defined('FEATURE_AI_CHATBOT')) define('FEATURE_AI_CHATBOT', true);
+if (!defined('FEATURE_GROUPS')) define('FEATURE_GROUPS', true);
+if (!defined('FEATURE_FINANCE')) define('FEATURE_FINANCE', true);
+if (!defined('FEATURE_MATERIAL')) define('FEATURE_MATERIAL', true);
+if (!defined('FEATURE_ID_CARDS')) define('FEATURE_ID_CARDS', true);
+if (!defined('FEATURE_ATTENDANCE')) define('FEATURE_ATTENDANCE', true);
+if (!defined('FEATURE_GRADES')) define('FEATURE_GRADES', true);
+if (!defined('FEATURE_REPORTS')) define('FEATURE_REPORTS', true);
+if (!defined('FEATURE_EXPORT_PDF')) define('FEATURE_EXPORT_PDF', true);
+if (!defined('FEATURE_MONITOR')) define('FEATURE_MONITOR', true);
+
+// Destructive synthetic-data tooling is off in production unless a deployment
+// explicitly enables it in the out-of-web-root environment file.
+if (!defined('ENABLE_TEST_DATA_TOOLS')) define('ENABLE_TEST_DATA_TOOLS', false);
 
 
 // ┌─────────────────────────────────────────────────────────────┐

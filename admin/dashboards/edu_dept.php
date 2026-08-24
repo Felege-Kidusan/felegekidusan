@@ -163,7 +163,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$tablesExist): ?>
-<div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:#7c3aed;margin-bottom:1rem"></i><h2 style="margin-bottom:.5rem">Setup Required</h2><p style="color:#64748b;margin-bottom:1.5rem">Education tables need to be created first.</p><a href="/admin/migrations/002_add_academic_attendance_workflow.php" class="btn btn-p"><i class="fa-solid fa-play"></i> Run Migration 002</a> <a href="/admin/migrations/003_add_assessments.php" class="btn btn-s" style="margin-left:.5rem"><i class="fa-solid fa-play"></i> Run Migration 003</a></div>
+<div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:#7c3aed;margin-bottom:1rem"></i><h2 style="margin-bottom:.5rem">Setup Required</h2><p style="color:#64748b;margin-bottom:1.5rem">Education tables need to be created first.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>
 <?php else: ?>
 
 <!-- ═══ DASHBOARD ═══ -->
@@ -440,7 +440,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div><label class="lbl">Full Name *</label><input id="teacherFullName" class="inp" required></div>
 <div><label class="lbl">Username *</label><input id="teacherUsername" class="inp" required></div>
 <div><label class="lbl">Email</label><input id="teacherEmail" type="email" class="inp"></div>
-<div><label class="lbl" id="teacherPasswordLabel">Password *</label><input id="teacherPassword" type="password" class="inp" autocomplete="new-password">
+<div><label class="lbl" id="teacherPasswordLabel">Password *</label><input id="teacherPassword" type="password" class="inp" minlength="12" maxlength="72" autocomplete="new-password">
 <div id="teacherPasswordHint" style="font-size:.65rem;color:#94a3b8;margin-top:.25rem">They will sign in with this password.</div></div>
 </div>
 <div style="margin-top:1.15rem;padding-top:1rem;border-top:1px solid #f1f5f9">
@@ -805,7 +805,7 @@ function resetTeacherForm(){
 }
 function setPasswordMode(isCreate){
     document.getElementById('teacherPasswordLabel').textContent=isCreate?'Password *':'Password';
-    document.getElementById('teacherPasswordHint').textContent=isCreate?'They will sign in with this password.':'Leave blank to keep the current password.';
+    document.getElementById('teacherPasswordHint').textContent=isCreate?'Use at least 12 characters.':'Leave blank to keep the current password; new passwords need at least 12 characters.';
     document.getElementById('teacherPassword').required=!!isCreate;
 }
 function pickTeacherMember(id,name,code){
@@ -884,8 +884,8 @@ async function saveTeacher(){
     const pw=document.getElementById('teacherPassword').value;
     if(!name){setFormAlert('teacherFormAlert','Please enter the teacher full name.','err');markField('teacherFullName',true);document.getElementById('teacherFullName').focus();return;}
     if(!user){setFormAlert('teacherFormAlert','Please choose a username for login.','err');markField('teacherUsername',true);document.getElementById('teacherUsername').focus();return;}
-    if(!currentTeacherId&&pw.length<4){setFormAlert('teacherFormAlert','Set a password of at least 4 characters so they can log in.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
-    if(currentTeacherId&&pw&&pw.length<4){setFormAlert('teacherFormAlert','New password must be at least 4 characters, or leave it blank to keep the current one.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
+    if(!currentTeacherId&&pw.length<12){setFormAlert('teacherFormAlert','Set a password of at least 12 characters so they can log in.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
+    if(currentTeacherId&&pw&&pw.length<12){setFormAlert('teacherFormAlert','New password must be at least 12 characters, or leave it blank to keep the current one.','err');markField('teacherPassword',true);document.getElementById('teacherPassword').focus();return;}
     if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setFormAlert('teacherFormAlert','That email does not look right.','err');markField('teacherEmail',true);document.getElementById('teacherEmail').focus();return;}
     const incomplete=asgRows.some(r=>(r.class_id&&!r.subject_id)||(!r.class_id&&r.subject_id));
     if(incomplete){setFormAlert('teacherFormAlert','Each teaching row needs both a class and a subject. Finish the row or remove it.','err');return;}

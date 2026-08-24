@@ -11,48 +11,9 @@ class TimetableService
 {
     private static $schemaReady = false;
 
+    /** Compatibility hook; schema is deployment-managed by migration 007. */
     public static function ensureSchema(\mysqli $conn): void
     {
-        if (self::$schemaReady) {
-            return;
-        }
-        self::$schemaReady = true;
-        try {
-            $conn->query(
-                "CREATE TABLE IF NOT EXISTS `timetable_periods` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `label` VARCHAR(50) NOT NULL,
-                    `start_time` TIME NOT NULL,
-                    `end_time` TIME NOT NULL,
-                    `is_break` TINYINT(1) NOT NULL DEFAULT 0,
-                    `sort_order` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    UNIQUE KEY `uniq_period_sort` (`sort_order`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-            );
-            $conn->query(
-                "CREATE TABLE IF NOT EXISTS `timetable_entries` (
-                    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `class_id` INT UNSIGNED NOT NULL,
-                    `period_id` INT UNSIGNED NOT NULL,
-                    `day_of_week` TINYINT UNSIGNED NOT NULL,
-                    `subject_id` INT UNSIGNED DEFAULT NULL,
-                    `teacher_id` INT UNSIGNED DEFAULT NULL,
-                    `room` VARCHAR(50) DEFAULT NULL,
-                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    UNIQUE KEY `uniq_class_period_day` (`class_id`, `period_id`, `day_of_week`),
-                    KEY `idx_tt_teacher_day` (`teacher_id`, `day_of_week`),
-                    KEY `idx_tt_class` (`class_id`),
-                    KEY `idx_tt_period` (`period_id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-            );
-        } catch (\Throwable $e) {
-            error_log('TimetableService::ensureSchema: ' . $e->getMessage());
-        }
     }
 
     /** @return array{status:string,periods:array} */

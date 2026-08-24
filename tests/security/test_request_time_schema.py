@@ -1,0 +1,98 @@
+"""Regression checks for deployment-owned application schema."""
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# These are explicit maintenance/export programs, not normal request bootstrap.
+DDL_TEXT_ALLOWLIST = {
+    # This domain service serializes schema into an operator-requested backup;
+    # it does not execute CREATE/ALTER statements against the live database.
+    "admin/backend/services/BackupService.php",
+}
+
+
+class RequestTimeSchemaTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.migration = (
+            ROOT / "sql/013_application_schema_completion.sql"
+        ).read_text(encoding="utf-8")
+
+    def test_normal_application_paths_do_not_execute_ddl(self):
+        offenders = []
+        for path in ROOT.rglob("*.php"):
+            relative = path.relative_to(ROOT).as_posix()
+            if (
+                relative.startswith("vendor/")
+                or relative.startswith("admin/vendor/")
+                or relative.startswith("admin/migrations/")
+                or relative.startswith("backend/migrations/")
+                or relative in DDL_TEXT_ALLOWLIST
+            ):
+                continue
+            source = path.read_text(encoding="utf-8", errors="replace").upper()
+            if "CREATE TABLE" in source or "ALTER TABLE" in source:
+                offenders.append(relative)
+        self.assertEqual([], offenders)
+
+    def test_hot_services_keep_contract_hooks_without_schema_queries(self):
+        services = [
+            "admin/backend/services/AssignmentService.php",
+            "admin/backend/services/SubmissionService.php",
+            "admin/backend/services/TimetableService.php",
+            "admin/backend/services/GalleryService.php",
+            "admin/backend/services/IdCardLayout.php",
+            "admin/backend/services/EnrollmentService.php",
+        ]
+        for relative in services:
+            source = (ROOT / relative).read_text(encoding="utf-8")
+            for statement in ("CREATE TABLE", "ALTER TABLE", "SHOW TABLES", "SHOW COLUMNS", "SHOW INDEX"):
+                self.assertNotIn(statement, source, relative)
+
+    def test_completion_migration_owns_removed_runtime_tables(self):
+        for table in (
+            "system_settings",
+            "ai_chat_history",
+            "ai_provider_configs",
+            "dept_settings",
+            "academic_terms",
+            "class_enrollments",
+            "wbws_groups",
+            "wbws_group_leaders",
+            "wbws_group_members",
+            "wbws_audit_log",
+            "academic_records",
+            "attendance",
+            "attendance_summary",
+            "grade_submissions",
+        ):
+            self.assertIn(f"CREATE TABLE IF NOT EXISTS `{table}`", self.migration)
+
+    def test_legacy_debug_schema_endpoint_is_removed(self):
+        self.assertFalse((ROOT / "admin/scratch_get_cols.php").exists())
+        groups = (ROOT / "admin/backend/groups_api.php").read_text(encoding="utf-8")
+        self.assertNotIn("action === 'diagnose'", groups)
+        self.assertNotIn("csrf_token_preview", groups)
+        self.assertNotIn("session_id()", groups)
+
+    def test_archive_and_branding_compatibility_are_migrated(self):
+        for column in (
+            "archived_at",
+            "archived_by",
+            "archive_reason",
+            "archive_notes",
+            "archive_type",
+            "restored_at",
+            "restored_by",
+            "thumb_path",
+            "assessment_id",
+            "submission_id",
+        ):
+            self.assertIn(f"'{column}'", self.migration)
+        self.assertIn("'card_bg', 'ID Card Background'", self.migration)
+
+
+if __name__ == "__main__":
+    unittest.main()

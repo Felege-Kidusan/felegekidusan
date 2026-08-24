@@ -30,18 +30,7 @@ $action = $_REQUEST['action'] ?? '';
 // CSRF protection for all POST requests
 requireCsrfForPost();
 
-// Ensure dept_settings table exists
-try {
-    $conn->query("CREATE TABLE IF NOT EXISTS `dept_settings` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `setting_key` VARCHAR(100) NOT NULL,
-        `setting_value` TEXT DEFAULT NULL,
-        `updated_by` INT UNSIGNED DEFAULT NULL,
-        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `setting_key` (`setting_key`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) { /* table may already exist */ }
+// Settings schema is deployment-managed by migration 013.
 
 try {
     switch ($action) {
@@ -147,8 +136,15 @@ try {
                 break;
             }
 
-            if (strlen($newPwd) < 6) {
-                echo json_encode(['status' => 'error', 'message' => 'New password must be at least 6 characters']);
+            if (!is_string($currentPwd) || !is_string($newPwd) || !is_string($confirmPwd)
+                || strlen($currentPwd) > 4096) {
+                echo json_encode(['status' => 'error', 'message' => 'Invalid password input']);
+                break;
+            }
+
+            $passwordErrors = validatePassword($newPwd);
+            if ($passwordErrors !== []) {
+                echo json_encode(['status' => 'error', 'message' => implode(' ', $passwordErrors)]);
                 break;
             }
 
@@ -174,11 +170,34 @@ try {
             $stmt->bind_param('si', $newHash, $adminId);
             
             if ($stmt->execute()) {
-                // Log password change
+                $_SESSION['AUTH_PASSWORD_VERSION'] = hash('sha256', $newHash);
+                $_SESSION['AUTH_REVALIDATED_AT'] = time();
+                session_regenerate_id(true);
+
+                // Password changes revoke every mobile refresh family for this
+                // account. Migration 010 may not be present during rollout.
                 try {
-                    $conn->query("INSERT INTO activity_logs (user_id, username, action, details, ip_address) 
-                        VALUES ($adminId, '{$_SESSION['admin_username']}', 'Password Change', 'Password changed via settings', '{$_SERVER['REMOTE_ADDR']}')");
-                } catch (Exception $e) {}
+                    $revoke = $conn->prepare(
+                        'UPDATE api_refresh_sessions SET revoked_at=COALESCE(revoked_at, CURRENT_TIMESTAMP) WHERE user_id=?'
+                    );
+                    $revoke->bind_param('i', $adminId);
+                    $revoke->execute();
+                    $revoke->close();
+                } catch (Throwable $error) {
+                }
+
+                try {
+                    $log = $conn->prepare(
+                        "INSERT INTO activity_logs (user_id, username, action, details, ip_address)
+                         VALUES (?, ?, 'Password Change', 'Password changed via settings', ?)"
+                    );
+                    $username = (string)($_SESSION['admin_username'] ?? '');
+                    $ipAddress = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+                    $log->bind_param('iss', $adminId, $username, $ipAddress);
+                    $log->execute();
+                    $log->close();
+                } catch (Throwable $error) {
+                }
                 echo json_encode(['status' => 'success', 'message' => 'Password changed successfully']);
             } else {
                 echo json_encode(['status' => 'error', 'message' => 'Failed to change password']);

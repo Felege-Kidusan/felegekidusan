@@ -46,8 +46,7 @@ register_shutdown_function(function() {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
             'success' => false, 
-            'message' => 'Server error. Please try again or contact support.',
-            'debug' => defined('DEBUG_MODE') && DEBUG_MODE ? $error['message'] : null
+            'message' => 'Server error. Please try again or contact support.'
         ]);
     }
 });
@@ -77,21 +76,28 @@ if (!isLoggedIn()) {
 }
 
 // ============================================================
-// SAFE COLUMN/TABLE CHECK HELPERS
+// DEPLOYMENT-SCHEMA COMPATIBILITY ADAPTERS
 // ============================================================
-// PHP 8+ throws mysqli_sql_exception even with @, so we must use try/catch
+// Migration 013 guarantees these tables/columns. Keep the helpers so existing
+// query builders stay stable without per-request SHOW/INFORMATION_SCHEMA work.
 function safeColumnExists($conn, $table, $column) {
-    try {
-        $r = $conn->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
-        return $r && $r->num_rows > 0;
-    } catch (Exception $e) { return false; }
+    $columns = [
+        'wbws_groups' => ['status', 'group_name_en', 'created_at'],
+        'wbws_group_leaders' => ['is_active'],
+        'wbws_group_members' => [
+            'group_id', 'full_name', 'full_name_en', 'baptismal_name', 'gender',
+            'phone', 'email', 'date_of_birth', 'city', 'sub_city', 'woreda',
+            'house_number', 'education_level', 'occupation', 'joined_date',
+            'membership_status', 'notes', 'created_by', 'is_active',
+        ],
+    ];
+    return isset($columns[$table]) && in_array($column, $columns[$table], true);
 }
 
 function safeTableExists($conn, $table) {
-    try {
-        $r = $conn->query("SHOW TABLES LIKE '$table'");
-        return $r && $r->num_rows > 0;
-    } catch (Exception $e) { return false; }
+    return in_array($table, [
+        'wbws_groups', 'wbws_group_leaders', 'wbws_group_members',
+    ], true);
 }
 
 function safeQuery($conn, $sql) {
@@ -140,21 +146,7 @@ function logAudit($conn, $action, $entityType, $entityId, $details = '') {
         $username = $_SESSION['admin_username'] ?? 'system';
         $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         
-        // Create audit table if not exists
-        $conn->query("CREATE TABLE IF NOT EXISTS `wbws_audit_log` (
-            `id` INT AUTO_INCREMENT PRIMARY KEY,
-            `user_id` INT DEFAULT NULL,
-            `username` VARCHAR(100) DEFAULT NULL,
-            `action` VARCHAR(50) NOT NULL,
-            `entity_type` VARCHAR(50) NOT NULL,
-            `entity_id` INT DEFAULT NULL,
-            `details` TEXT DEFAULT NULL,
-            `ip_address` VARCHAR(45) DEFAULT NULL,
-            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-            KEY `idx_entity` (`entity_type`, `entity_id`),
-            KEY `idx_created` (`created_at`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-        
+        // Audit schema is deployment-managed by migration 013.
         $stmt = $conn->prepare("INSERT INTO wbws_audit_log (user_id, username, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?)");
         if ($stmt) {
             $stmt->bind_param("issisis", $userId, $username, $action, $entityType, $entityId, $details, $ip);
@@ -172,141 +164,7 @@ if (!isset($conn) || $conn->connect_error) {
     apiResponse(false, null, 'Database connection failed');
 }
 
-// ============================================================
-// ENSURE TABLES EXIST AND HAVE ALL REQUIRED COLUMNS
-// Always run this - it's fast (SHOW COLUMNS is cheap) and prevents
-// column-missing errors that cause save_member to fail silently
-// ============================================================
-    // Groups table
-    $conn->query("CREATE TABLE IF NOT EXISTS `wbws_groups` (
-        `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        `group_name` VARCHAR(200) NOT NULL,
-        `group_name_en` VARCHAR(200) DEFAULT NULL,
-        `established_year` VARCHAR(20) DEFAULT NULL,
-        `established_year_gc` VARCHAR(20) DEFAULT NULL,
-        `is_under_sunday_school` TINYINT(1) NOT NULL DEFAULT 1,
-        `founding_male` INT UNSIGNED NOT NULL DEFAULT 0,
-        `founding_female` INT UNSIGNED NOT NULL DEFAULT 0,
-        `current_male` INT UNSIGNED NOT NULL DEFAULT 0,
-        `current_female` INT UNSIGNED NOT NULL DEFAULT 0,
-        `description` TEXT DEFAULT NULL,
-        `notes` TEXT DEFAULT NULL,
-        `status` ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-        `created_by` VARCHAR(100) DEFAULT NULL,
-        `updated_by` VARCHAR(100) DEFAULT NULL,
-        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        KEY `idx_status` (`status`),
-        KEY `idx_category` (`is_under_sunday_school`),
-        KEY `idx_created` (`created_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    // Add missing columns to existing wbws_groups table
-    $groupColumns = [
-        ['group_name_en', "VARCHAR(200) DEFAULT NULL AFTER `group_name`"],
-        ['established_year_gc', "VARCHAR(20) DEFAULT NULL AFTER `established_year`"],
-        ['description', "TEXT DEFAULT NULL AFTER `current_female`"],
-        ['status', "ENUM('active', 'inactive') NOT NULL DEFAULT 'active' AFTER `notes`"],
-        ['updated_by', "VARCHAR(100) DEFAULT NULL AFTER `created_by`"],
-    ];
-    foreach ($groupColumns as $col) {
-        if (!safeColumnExists($conn, 'wbws_groups', $col[0])) {
-            safeQuery($conn, "ALTER TABLE wbws_groups ADD COLUMN `{$col[0]}` {$col[1]}");
-        }
-    }
-
-    // Leaders table
-    $conn->query("CREATE TABLE IF NOT EXISTS `wbws_group_leaders` (
-        `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        `group_id` INT UNSIGNED NOT NULL,
-        `leader_full_name` VARCHAR(200) NOT NULL,
-        `leader_full_name_en` VARCHAR(200) DEFAULT NULL,
-        `sex` ENUM('M','F') NOT NULL DEFAULT 'M',
-        `phone` VARCHAR(30) DEFAULT NULL,
-        `email` VARCHAR(100) DEFAULT NULL,
-        `education_level` VARCHAR(80) DEFAULT NULL,
-        `responsibility` VARCHAR(150) DEFAULT NULL,
-        `start_date` DATE DEFAULT NULL,
-        `end_date` DATE DEFAULT NULL,
-        `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-        `remark` TEXT DEFAULT NULL,
-        `created_by` VARCHAR(100) DEFAULT NULL,
-        `updated_by` VARCHAR(100) DEFAULT NULL,
-        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        KEY `idx_group` (`group_id`),
-        KEY `idx_active` (`is_active`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    // Add missing columns to existing wbws_group_leaders table
-    $leaderColumns = [
-        ['leader_full_name_en', "VARCHAR(200) DEFAULT NULL AFTER `leader_full_name`"],
-        ['email', "VARCHAR(100) DEFAULT NULL AFTER `phone`"],
-        ['start_date', "DATE DEFAULT NULL AFTER `responsibility`"],
-        ['end_date', "DATE DEFAULT NULL AFTER `start_date`"],
-        ['is_active', "TINYINT(1) NOT NULL DEFAULT 1 AFTER `end_date`"],
-        ['updated_by', "VARCHAR(100) DEFAULT NULL AFTER `created_by`"],
-    ];
-    foreach ($leaderColumns as $col) {
-        if (!safeColumnExists($conn, 'wbws_group_leaders', $col[0])) {
-            safeQuery($conn, "ALTER TABLE wbws_group_leaders ADD COLUMN `{$col[0]}` {$col[1]}");
-        }
-    }
-
-    // Members table
-    $conn->query("CREATE TABLE IF NOT EXISTS `wbws_group_members` (
-        `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        `group_id` INT UNSIGNED NOT NULL,
-        `full_name` VARCHAR(200) NOT NULL,
-        `full_name_en` VARCHAR(200) DEFAULT NULL,
-        `baptismal_name` VARCHAR(100) DEFAULT NULL,
-        `gender` ENUM('M','F') NOT NULL DEFAULT 'M',
-        `phone` VARCHAR(30) DEFAULT NULL,
-        `email` VARCHAR(100) DEFAULT NULL,
-        `date_of_birth` DATE DEFAULT NULL,
-        `city` VARCHAR(80) DEFAULT NULL,
-        `sub_city` VARCHAR(80) DEFAULT NULL,
-        `woreda` VARCHAR(30) DEFAULT NULL,
-        `house_number` VARCHAR(30) DEFAULT NULL,
-        `education_level` VARCHAR(80) DEFAULT NULL,
-        `occupation` VARCHAR(100) DEFAULT NULL,
-        `joined_date` DATE DEFAULT NULL,
-        `membership_status` ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
-        `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-        `notes` TEXT DEFAULT NULL,
-        `photo_path` VARCHAR(300) DEFAULT NULL,
-        `created_by` VARCHAR(100) DEFAULT NULL,
-        `updated_by` VARCHAR(100) DEFAULT NULL,
-        `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-        `updated_at` DATETIME DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-        KEY `idx_group` (`group_id`),
-        KEY `idx_status` (`membership_status`),
-        KEY `idx_name` (`full_name`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    // Add missing columns to existing wbws_group_members table
-    $memberColumns = [
-        ['full_name_en', "VARCHAR(200) DEFAULT NULL AFTER `full_name`"],
-        ['email', "VARCHAR(100) DEFAULT NULL AFTER `phone`"],
-        ['date_of_birth', "DATE DEFAULT NULL AFTER `email`"],
-        ['occupation', "VARCHAR(100) DEFAULT NULL AFTER `education_level`"],
-        ['joined_date', "DATE DEFAULT NULL AFTER `occupation`"],
-        ['membership_status', "ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active' AFTER `joined_date`"],
-        ['photo_path', "VARCHAR(300) DEFAULT NULL AFTER `notes`"],
-        ['updated_by', "VARCHAR(100) DEFAULT NULL AFTER `created_by`"],
-    ];
-    foreach ($memberColumns as $col) {
-        if (!safeColumnExists($conn, 'wbws_group_members', $col[0])) {
-            safeQuery($conn, "ALTER TABLE wbws_group_members ADD COLUMN `{$col[0]}` {$col[1]}");
-        }
-    }
-    
-    // Fix existing columns that may lack DEFAULT values (causes 'cannot be null' errors)
-    safeQuery($conn, "ALTER TABLE wbws_group_members MODIFY COLUMN `membership_status` ENUM('active','inactive','suspended') NOT NULL DEFAULT 'active'");
-    safeQuery($conn, "ALTER TABLE wbws_group_members MODIFY COLUMN `gender` ENUM('M','F') NOT NULL DEFAULT 'M'");
-    safeQuery($conn, "ALTER TABLE wbws_group_leaders MODIFY COLUMN `sex` ENUM('M','F') NOT NULL DEFAULT 'M'");
-    
-    // Tables/columns verified - ready to handle requests
+// Group schema is deployment-managed by migrations 012 and 013.
 
 // ============================================================
 // REQUEST HANDLING
@@ -330,47 +188,6 @@ if ($method === 'POST') {
         http_response_code(403);
         apiResponse(false, null, 'CSRF token mismatch. Session may have expired. Please refresh the page.');
     }
-}
-
-// ============================================================
-// DIAGNOSTIC ENDPOINT (helps debug issues from browser)
-// Visit: backend/groups_api.php?action=diagnose
-// ============================================================
-if ($action === 'diagnose') {
-    $diag = [
-        'php_version' => PHP_VERSION,
-        'session_active' => session_status() === PHP_SESSION_ACTIVE,
-        'session_id' => session_id() ? substr(session_id(), 0, 8) . '...' : 'NONE',
-        'user_logged_in' => isLoggedIn(),
-        'username' => $username,
-        'csrf_token_exists' => !empty($_SESSION['csrf_token']),
-        'csrf_token_preview' => !empty($_SESSION['csrf_token']) ? substr($_SESSION['csrf_token'], 0, 8) . '...' : 'NONE',
-        'db_connected' => isset($conn) && !$conn->connect_error,
-        'ob_level' => ob_get_level(),
-        'https' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
-        'cookie_secure' => ini_get('session.cookie_secure'),
-        'cookie_samesite' => ini_get('session.cookie_samesite'),
-    ];
-    
-    // Check tables
-    $tables = ['wbws_groups', 'wbws_group_leaders', 'wbws_group_members'];
-    foreach ($tables as $t) {
-        $diag['table_' . $t] = safeTableExists($conn, $t) ? 'EXISTS' : 'MISSING';
-    }
-    
-    // Check key columns in members table
-    if (safeTableExists($conn, 'wbws_group_members')) {
-        $keyCols = ['group_id','full_name','full_name_en','baptismal_name','gender','phone','email',
-                     'date_of_birth','city','sub_city','woreda','house_number','education_level',
-                     'occupation','joined_date','membership_status','notes','created_by'];
-        $missing = [];
-        foreach ($keyCols as $col) {
-            if (!safeColumnExists($conn, 'wbws_group_members', $col)) $missing[] = $col;
-        }
-        $diag['members_missing_columns'] = $missing ?: 'NONE - all columns present';
-    }
-    
-    apiResponse(true, $diag, 'Diagnostic info');
 }
 
 // ============================================================
@@ -491,7 +308,8 @@ if ($action === 'list_groups') {
     
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        apiResponse(false, null, 'SQL Error: ' . $conn->error);
+        reportInternalError('Group list prepare failed', $conn->error);
+        apiResponse(false, null, 'Unable to load groups.');
     }
     if (!empty($types)) {
         $stmt->bind_param($types, ...$params);
@@ -514,7 +332,8 @@ if ($action === 'list_groups') {
     ]);
     
     } catch (Exception $e) {
-        apiResponse(false, null, 'Error: ' . $e->getMessage());
+        reportInternalError('Group list failed', $e);
+        apiResponse(false, null, 'Unable to load groups.');
     }
 }
 
@@ -603,7 +422,8 @@ if ($action === 'save_group' && $method === 'POST') {
         }
     }
     } catch (Exception $e) {
-        apiResponse(false, null, 'Error saving group: ' . $e->getMessage());
+        reportInternalError('Group save failed', $e);
+        apiResponse(false, null, 'Unable to save the group.');
     }
 }
 
@@ -765,11 +585,13 @@ if ($action === 'save_leader' && $method === 'POST') {
             logAudit($conn, 'create', 'leader', $newId, "Added leader: $name");
             apiResponse(true, ['id' => $newId], 'Leader added successfully');
         } else {
-            apiResponse(false, null, 'Failed to add leader: ' . $stmt->error);
+            reportInternalError('Group leader insert failed', $stmt->error);
+            apiResponse(false, null, 'Unable to add the leader.');
         }
     }
     } catch (Exception $e) {
-        apiResponse(false, null, 'Error saving leader: ' . $e->getMessage());
+        reportInternalError('Group leader save failed', $e);
+        apiResponse(false, null, 'Unable to save the leader.');
     }
 }
 
@@ -922,7 +744,8 @@ if ($action === 'save_member' && $method === 'POST') {
                 WHERE id = ?";
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
-                apiResponse(false, null, 'Database prepare failed: ' . $conn->error);
+                reportInternalError('Group member update prepare failed', $conn->error);
+                apiResponse(false, null, 'Group storage is temporarily unavailable.');
             }
             $stmt->bind_param("sssssssssssssssssi", 
                 $name, $nameEn, $baptismal, $gender, $phone, $email, $dob,
@@ -933,7 +756,8 @@ if ($action === 'save_member' && $method === 'POST') {
                 logAudit($conn, 'update', 'group_member', $id, "Updated member: $name");
                 apiResponse(true, ['id' => $id], 'Member updated successfully');
             } else {
-                apiResponse(false, null, 'Failed to update: ' . $stmt->error);
+                reportInternalError('Group member update failed', $stmt->error);
+                apiResponse(false, null, 'Unable to update the group member.');
             }
         } else {
             // INSERT new member
@@ -943,33 +767,10 @@ if ($action === 'save_member' && $method === 'POST') {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
-                // Prepare failed - probably a missing column. Try to fix and retry.
-                $prepError = $conn->error;
-                
-                // Force re-check columns
-                $requiredCols = [
-                    'full_name_en' => "VARCHAR(200) DEFAULT NULL AFTER `full_name`",
-                    'email' => "VARCHAR(100) DEFAULT NULL AFTER `phone`",
-                    'date_of_birth' => "DATE DEFAULT NULL AFTER `email`",
-                    'occupation' => "VARCHAR(100) DEFAULT NULL AFTER `education_level`",
-                    'joined_date' => "DATE DEFAULT NULL AFTER `occupation`",
-                    'membership_status' => "ENUM('active','inactive','suspended') NOT NULL DEFAULT 'active' AFTER `joined_date`",
-                    'photo_path' => "VARCHAR(300) DEFAULT NULL AFTER `notes`",
-                    'updated_by' => "VARCHAR(100) DEFAULT NULL AFTER `created_by`",
-                ];
-                foreach ($requiredCols as $col => $def) {
-                    if (!safeColumnExists($conn, 'wbws_group_members', $col)) {
-                        safeQuery($conn, "ALTER TABLE wbws_group_members ADD COLUMN `$col` $def");
-                    }
-                }
-                
-                // Retry prepare
-                $stmt = $conn->prepare($sql);
-                if (!$stmt) {
-                    apiResponse(false, null, 'Database error: ' . $prepError . ' (auto-fix attempted but failed: ' . $conn->error . ')');
-                }
+                error_log('Group member insert prepare failed. Verify migration 013.');
+                apiResponse(false, null, 'Group storage is temporarily unavailable.');
             }
-            
+
             $stmt->bind_param("isssssssssssssssss", 
                 $groupId, $name, $nameEn, $baptismal, $gender, $phone, $email, $dob,
                 $city, $subCity, $woreda, $house, $education, $occupation,
@@ -980,11 +781,13 @@ if ($action === 'save_member' && $method === 'POST') {
                 logAudit($conn, 'create', 'group_member', $newId, "Added member: $name");
                 apiResponse(true, ['id' => $newId], 'Member added successfully');
             } else {
-                apiResponse(false, null, 'Failed to add member: ' . $stmt->error);
+                reportInternalError('Group member insert failed', $stmt->error);
+                apiResponse(false, null, 'Unable to add the group member.');
             }
         }
     } catch (Exception $e) {
-        apiResponse(false, null, 'Error saving member: ' . $e->getMessage());
+        reportInternalError('Group member save failed', $e);
+        apiResponse(false, null, 'Unable to save the group member.');
     }
 }
 
@@ -1213,7 +1016,8 @@ if ($action === 'get_analytics') {
         
         apiResponse(true, $analytics);
     } catch (Exception $e) {
-        apiResponse(false, null, 'Analytics error: ' . $e->getMessage());
+        reportInternalError('Group analytics failed', $e);
+        apiResponse(false, null, 'Unable to load group analytics.');
     }
 }
 

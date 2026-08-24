@@ -1,18 +1,24 @@
 <?php
 /**
  * ============================================================
- * Member Registration API — Production v5 (Hashed Codes)
+ * Member Registration API
  * ============================================================
- * POST /admin/info_register_member.php
- * 
- * Member codes: 5-char unique hash (e.g., "A7K2X")
- * No sequential logic, no collision risk, no MAX queries.
+ * POST /admin/hr_register_member.php
+ *
+ * Member codes use a bounded, high-entropy generator with a unique lookup.
+ * No sequential MAX query or fixed 90,000-code ceiling.
  * ============================================================
  */
 
 ob_start();
 header('Content-Type: application/json; charset=utf-8');
 require __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/MemberFileService.php';
+require_once __DIR__ . '/backend/services/MemberCodeService.php';
+require_once __DIR__ . '/backend/services/MemberRegistrationPolicy.php';
+require_once __DIR__ . '/backend/services/MemberDuplicateService.php';
+require_once __DIR__ . '/backend/services/ApiIdempotencyService.php';
+require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 
 $_ethDateLoaded = false;
 if (file_exists(__DIR__ . '/backend/ethiopian_date.php')) {
@@ -25,10 +31,103 @@ if ($_stray) error_log('Registration: stray output: ' . substr($_stray, 0, 200))
 
 // ── Clean JSON response helper ──
 function jsonExit($data, $code = 200) {
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($json === false) {
+        $json = '{"status":"error","message":"Response encoding failed."}';
+        $code = 500;
+    }
+    $idempotency = $GLOBALS['_member_registration_idempotency'] ?? null;
+    unset($GLOBALS['_member_registration_idempotency']);
+    if (is_array($idempotency)
+        && ($idempotency['service'] ?? null) instanceof \App\Services\ApiIdempotencyService
+        && is_array($idempotency['reservation'] ?? null)) {
+        if (($data['status'] ?? '') === 'success' && $code >= 200 && $code < 300) {
+            $idempotency['service']->complete($idempotency['reservation'], $json, $code);
+        } else {
+            $idempotency['service']->abandon($idempotency['reservation']);
+        }
+    }
     while (ob_get_level() > 0) ob_end_clean();
     if (!headers_sent()) { header('Content-Type: application/json; charset=utf-8'); http_response_code($code); }
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    echo $json;
     exit;
+}
+
+/** @return mixed */
+function registrationCanonicalize($value) {
+    if (!is_array($value)) return $value;
+    $keys = array_keys($value);
+    if ($keys !== range(0, count($keys) - 1)) ksort($value, SORT_STRING);
+    foreach ($value as $key => $item) $value[$key] = registrationCanonicalize($item);
+    return $value;
+}
+
+function beginRegistrationIdempotency(\mysqli $conn, int $userId): void {
+    $keyRaw = $_POST['registration_request_id'] ?? '';
+    if (!is_scalar($keyRaw)) {
+        jsonExit(['status' => 'error', 'message' => 'A valid registration request ID is required. Refresh and retry.'], 400);
+    }
+    $key = trim((string)$keyRaw);
+    if (strlen($key) < 16 || strlen($key) > 80 || !preg_match('/^[A-Za-z0-9._-]+$/', $key)) {
+        jsonExit(['status' => 'error', 'message' => 'A valid registration request ID is required. Refresh and retry.'], 400);
+    }
+    $payload = $_POST;
+    // CSRF rotation and the UI's post-advisory override flag do not change the
+    // underlying registration operation represented by this request ID.
+    unset(
+        $payload['csrf_token'],
+        $payload['duplicate_override'],
+        $payload['duplicate_override_reason']
+    );
+    $files = [];
+    foreach ($_FILES as $field => $file) {
+        if (!is_array($file)) continue;
+        $name = $file['name'] ?? '';
+        $size = $file['size'] ?? 0;
+        $error = $file['error'] ?? UPLOAD_ERR_NO_FILE;
+        $tmpName = $file['tmp_name'] ?? '';
+        $meta = [
+            'name' => is_scalar($name) ? basename((string)$name) : '[multiple]',
+            'size' => is_scalar($size) ? (int)$size : 0,
+            'error' => is_scalar($error) ? (int)$error : UPLOAD_ERR_NO_FILE,
+        ];
+        $tmp = is_scalar($tmpName) ? (string)$tmpName : '';
+        if ($meta['error'] === UPLOAD_ERR_OK && $tmp !== '' && is_uploaded_file($tmp)) {
+            $meta['sha256'] = hash_file('sha256', $tmp) ?: '';
+        }
+        $files[$field] = $meta;
+    }
+    $canonical = json_encode(
+        registrationCanonicalize(['payload' => $payload, 'files' => $files]),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    $requestHash = hash('sha256', 'POST\0/admin/hr_register_member.php\0' . (string)$canonical);
+    $service = new \App\Services\ApiIdempotencyService(
+        $conn,
+        ROOT_PATH . '/admin/uploads/cache'
+    );
+    $result = $service->begin($userId, $key, 'POST /admin/hr_register_member.php', $requestHash);
+    $state = (string)($result['state'] ?? 'unavailable');
+    if ($state === 'acquired') {
+        $GLOBALS['_member_registration_idempotency'] = ['service' => $service, 'reservation' => $result];
+        return;
+    }
+    if ($state === 'replay') {
+        while (ob_get_level() > 0) ob_end_clean();
+        http_response_code((int)($result['status_code'] ?? 200));
+        header('Content-Type: application/json; charset=utf-8');
+        header('Idempotency-Replayed: true');
+        echo (string)($result['body'] ?? '');
+        exit;
+    }
+    if ($state === 'conflict') {
+        jsonExit(['status' => 'error', 'message' => 'This registration request ID was reused for different data.'], 409);
+    }
+    if ($state === 'processing') {
+        header('Retry-After: ' . max(1, (int)($result['retry_after'] ?? 1)));
+        jsonExit(['status' => 'error', 'message' => 'This registration is already processing.'], 409);
+    }
+    jsonExit(['status' => 'error', 'message' => 'Safe registration retry is temporarily unavailable.'], 503);
 }
 
 // ── Auth ──
@@ -45,31 +144,27 @@ if (!isset($conn) || $conn->connect_error) {
     jsonExit(['status' => 'error', 'message' => 'Database connection error.'], 503);
 }
 
-// ── POST field helper ──
-function field($n, $d = '') { return isset($_POST[$n]) ? trim($_POST[$n]) : $d; }
+try {
+    $registrationPolicy = \App\Services\MemberRegistrationPolicy::prepare(
+        $_POST,
+        (string)($_SESSION['admin_role'] ?? '')
+    );
+} catch (InvalidArgumentException $error) {
+    jsonExit(['status' => 'error', 'message' => $error->getMessage()], 422);
+}
+$isQuickAdd = $registrationPolicy['quick_add'];
+beginRegistrationIdempotency($conn, (int)$_SESSION['admin_id']);
 
-/**
- * Generate a unique 5-digit numeric member code (10000–99999).
- * Random, not sequential — avoids the collision problems of MAX+1.
- * 90,000 possible codes — more than enough for any Sunday school.
- */
-function generateMemberCode($conn) {
-    for ($attempt = 0; $attempt < 50; $attempt++) {
-        // Random 5-digit number (10000–99999, never starts with 0)
-        $code = str_pad(random_int(10000, 99999), 5, '0', STR_PAD_LEFT);
-        
-        // Check if it exists
-        $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM members WHERE member_code = ?");
-        if (!$stmt) return $code;
-        $stmt->bind_param('s', $code);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $exists = $result ? (int) $result->fetch_assoc()['cnt'] : 0;
-        $stmt->close();
-        
-        if ($exists === 0) return $code;
+// ── POST field helper ──
+function field($n, $d = '') {
+    global $isQuickAdd;
+    if ($isQuickAdd && !in_array($n, [
+        'full_name_am', 'gender', 'phone_number', 'current_section',
+        'registration_type',
+    ], true)) {
+        return $d;
     }
-    return $code;
+    return isset($_POST[$n]) ? trim((string)$_POST[$n]) : $d;
 }
 
 
@@ -77,14 +172,14 @@ function generateMemberCode($conn) {
 // ║  1. COLLECT & VALIDATE FORM DATA                        ║
 // ╚══════════════════════════════════════════════════════════╝
 
-$registration_type = field('registration_type', 'waiting');
-$member_type       = field('member_type', 'regular');
-$status            = field('status', 'active');
+$registration_type = $registrationPolicy['registration_type'];
+$member_type       = $registrationPolicy['member_type'];
+$status            = $registrationPolicy['status'];
 
 // --- Single Full Name input (required). Split into parts for DB compatibility. ---
-$full_name_input  = trim(field('full_name_am'));
+$full_name_input  = $registrationPolicy['full_name_am'];
 $baptismal_name   = field('baptismal_name');
-$membership_tier  = field('membership_tier', 'permanent');
+$membership_tier  = $registrationPolicy['membership_tier'];
 
 // Only Full Name is required
 $errors = [];
@@ -104,7 +199,7 @@ $grandfather_name = $nameParts[2] ?? '';
 // Build full name from the single input
 $full_name_am = $full_name_input;
 $full_name_en = null;
-$gender       = field('gender', 'male') ?: 'male';
+$gender       = $registrationPolicy['gender'];
 
 // DOB & Age (all optional)
 $dob_day   = (int) field('dob_day', 0);
@@ -114,7 +209,7 @@ $date_of_birth   = null;
 $age             = null;
 // Auto-age sectioning DISABLED by design — section is set explicitly by HR
 $age_group       = field('age_group') ?: null;
-$current_section = field('current_section') ?: null;
+$current_section = $registrationPolicy['current_section'] ?: null;
 
 if ($dob_year > 0) {
     if ($_ethDateLoaded) {
@@ -139,7 +234,7 @@ $house_number    = field('house_number');
 $work_profession = field('work_profession');
 
 // Phones
-$phone_number     = field('phone_number');
+$phone_number     = $registrationPolicy['phone_number'];
 $alt_phone_number = field('alt_phone_number');
 $phone_primary    = $phone_number;
 $phone_guardian   = field('guardian_phone1');
@@ -156,18 +251,18 @@ $guardian_block_number = field('guardian_block_number');
 $guardian_house        = field('guardian_house');
 
 // Role flags
-$is_teacher     = isset($_POST['is_teacher']) ? 1 : 0;
-$is_staff       = isset($_POST['is_staff']) ? 1 : 0;
-$is_committee   = isset($_POST['is_committee']) ? 1 : 0;
-$is_volunteer   = isset($_POST['is_volunteer']) ? 1 : 0;
-$is_dept_head_1 = isset($_POST['is_dept_head_1']) ? 1 : 0;
-$is_dept_head_2 = isset($_POST['is_dept_head_2']) ? 1 : 0;
-$is_dept_head_3 = isset($_POST['is_dept_head_3']) ? 1 : 0;
-$is_dept_head_4 = isset($_POST['is_dept_head_4']) ? 1 : 0;
-$is_dept_head_5 = isset($_POST['is_dept_head_5']) ? 1 : 0;
-$is_dept_head_6 = isset($_POST['is_dept_head_6']) ? 1 : 0;
-$is_dept_head_7 = isset($_POST['is_dept_head_7']) ? 1 : 0;
-$is_dept_head_8 = isset($_POST['is_dept_head_8']) ? 1 : 0;
+$is_teacher     = !$isQuickAdd && isset($_POST['is_teacher']) ? 1 : 0;
+$is_staff       = !$isQuickAdd && isset($_POST['is_staff']) ? 1 : 0;
+$is_committee   = !$isQuickAdd && isset($_POST['is_committee']) ? 1 : 0;
+$is_volunteer   = !$isQuickAdd && isset($_POST['is_volunteer']) ? 1 : 0;
+$is_dept_head_1 = !$isQuickAdd && isset($_POST['is_dept_head_1']) ? 1 : 0;
+$is_dept_head_2 = !$isQuickAdd && isset($_POST['is_dept_head_2']) ? 1 : 0;
+$is_dept_head_3 = !$isQuickAdd && isset($_POST['is_dept_head_3']) ? 1 : 0;
+$is_dept_head_4 = !$isQuickAdd && isset($_POST['is_dept_head_4']) ? 1 : 0;
+$is_dept_head_5 = !$isQuickAdd && isset($_POST['is_dept_head_5']) ? 1 : 0;
+$is_dept_head_6 = !$isQuickAdd && isset($_POST['is_dept_head_6']) ? 1 : 0;
+$is_dept_head_7 = !$isQuickAdd && isset($_POST['is_dept_head_7']) ? 1 : 0;
+$is_dept_head_8 = !$isQuickAdd && isset($_POST['is_dept_head_8']) ? 1 : 0;
 
 // ── Member Code ──
 $member_code_form = field('student_id');
@@ -182,7 +277,7 @@ if ($registration_type === 'waiting') {
     // The frontend used to pre-fill a sequential code in a hidden field,
     // but sequential codes caused constant duplicate collisions.
     // Now we ignore the form value and generate a proper unique code.
-    $member_code = generateMemberCode($conn);
+    $member_code = \App\Services\MemberCodeService::generate($conn);
 }
 
 // ── Registration Date (DATE column — Y-m-d only) ──
@@ -209,42 +304,21 @@ if ($reg_date_year > 0 && $reg_date_month > 0 && $reg_date_day > 0) {
 // ║  2. FILE UPLOADS                                        ║
 // ╚══════════════════════════════════════════════════════════╝
 
-function saveUploadedFile($fieldName, $subDir) {
-    if (!isset($_FILES[$fieldName]) || $_FILES[$fieldName]['error'] === UPLOAD_ERR_NO_FILE) return null;
-
-    $err = $_FILES[$fieldName]['error'];
-    if ($err !== UPLOAD_ERR_OK) {
-        $map = [UPLOAD_ERR_INI_SIZE => 'File too large (server limit)', UPLOAD_ERR_FORM_SIZE => 'File too large',
-                UPLOAD_ERR_PARTIAL => 'Partial upload', UPLOAD_ERR_NO_TMP_DIR => 'Server temp folder missing',
-                UPLOAD_ERR_CANT_WRITE => 'Disk write failed', UPLOAD_ERR_EXTENSION => 'Blocked by extension'];
-        return ['error' => $map[$err] ?? "Upload error $err"];
-    }
-
-    if ($_FILES[$fieldName]['size'] > 5 * 1024 * 1024) return ['error' => 'File too large (max 5MB)'];
-
-    $ext = strtolower(pathinfo($_FILES[$fieldName]['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, ['jpg','jpeg','png','gif','webp','pdf','bmp'])) return ['error' => ".$ext not allowed"];
-
-    if (in_array($ext, ['jpg','jpeg','png','gif','webp','bmp']) && @getimagesize($_FILES[$fieldName]['tmp_name']) === false) {
-        return ['error' => 'Not a valid image'];
-    }
-
-    $dir = __DIR__ . '/uploads/members/' . $subDir;
-    if (!is_dir($dir) && !@mkdir($dir, 0775, true)) return ['error' => 'Storage error'];
-
-    $name = $fieldName . '_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext;
-    $path = $dir . '/' . $name;
-
-    if (!move_uploaded_file($_FILES[$fieldName]['tmp_name'], $path)) return ['error' => 'Save failed'];
-
-    return 'uploads/members/' . $subDir . '/' . $name;
+function saveUploadedFile($fieldName) {
+    $result = \App\Services\MemberFileService::storeRequestUpload($fieldName);
+    return $result['error'] !== null ? ['error' => $result['error']] : $result['path'];
 }
 
-$student_photo_path      = saveUploadedFile('student_photo', 'photos');
-$guardian_photo_path     = saveUploadedFile('guardian_photo', 'guardian_photos');
-$doc_school_records_path = saveUploadedFile('doc_school_records', 'docs');
-$doc_spiritual_path      = saveUploadedFile('doc_spiritual', 'docs');
-$doc_signed_form_path    = saveUploadedFile('doc_signed_form', 'docs');
+if ($registrationPolicy['allow_uploads']) {
+    $student_photo_path      = saveUploadedFile('student_photo');
+    $guardian_photo_path     = saveUploadedFile('guardian_photo');
+    $doc_school_records_path = saveUploadedFile('doc_school_records');
+    $doc_spiritual_path      = saveUploadedFile('doc_spiritual');
+    $doc_signed_form_path    = saveUploadedFile('doc_signed_form');
+} else {
+    $student_photo_path = $guardian_photo_path = $doc_school_records_path = null;
+    $doc_spiritual_path = $doc_signed_form_path = null;
+}
 
 // Check upload failures
 $uploadErrors = [];
@@ -270,6 +344,9 @@ if (is_array($doc_signed_form_path)) {
 }
 
 if (!empty($uploadErrors)) {
+    foreach ([$student_photo_path, $guardian_photo_path, $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path] as $uploadedPath) {
+        if (is_string($uploadedPath)) \App\Services\MemberFileService::discard($uploadedPath);
+    }
     jsonExit(['status' => 'error', 'message' => "Upload error:\n" . implode("\n", $uploadErrors)]);
 }
 
@@ -279,6 +356,8 @@ if (!empty($uploadErrors)) {
 // ╚══════════════════════════════════════════════════════════╝
 
 $conn->begin_transaction();
+$filesCommitted = false;
+$duplicateIdentityLock = null;
 
 try {
     $data = [
@@ -286,7 +365,7 @@ try {
         'registration_type'    => $registration_type,
         'member_type'          => $member_type,
         'status'               => $status,
-        'membership_tier'      => field('membership_tier', 'permanent'),
+        'membership_tier'      => $membership_tier,
         'full_name_am'         => $full_name_am,
         'full_name_en'         => $full_name_en,
         'student_name'         => $student_name,
@@ -344,8 +423,38 @@ try {
         'registered_at'            => $registered_at,
     ];
 
-    $upgrade_id = (int) field('upgrade_member_id', 0);
+    $upgrade_id = $registrationPolicy['allow_upgrade']
+        ? (int)field('upgrade_member_id', 0)
+        : 0;
     $newId = 0;
+    $duplicateOverrideRaw = $_POST['duplicate_override'] ?? '';
+    $duplicateOverrideRequested = $registrationPolicy['allow_upgrade']
+        && is_scalar($duplicateOverrideRaw)
+        && (string)$duplicateOverrideRaw === '1';
+    $duplicateIdentityLock = \App\Services\MemberDuplicateService::acquireStrongIdentityLock(
+        $conn,
+        $data,
+        5
+    );
+    $strongDuplicate = \App\Services\MemberDuplicateService::findStrongMatch(
+        $conn,
+        $data,
+        $upgrade_id,
+        true
+    );
+    if ($strongDuplicate !== null && !$duplicateOverrideRequested) {
+        throw new \App\Services\DuplicateMemberException($strongDuplicate);
+    }
+    $duplicateOverride = $strongDuplicate !== null && $duplicateOverrideRequested;
+    $duplicateOverrideReason = null;
+    if ($duplicateOverride) {
+        $reasonRaw = $_POST['duplicate_override_reason'] ?? '';
+        $duplicateOverrideReason = is_scalar($reasonRaw) ? trim((string)$reasonRaw) : '';
+        if ($duplicateOverrideReason === '' || strlen($duplicateOverrideReason) > 500
+            || preg_match('//u', $duplicateOverrideReason) !== 1) {
+            throw new InvalidArgumentException('A valid duplicate override reason is required.');
+        }
+    }
 
     if ($upgrade_id > 0) {
         // Remove fields we don't want to overwrite during upgrade
@@ -401,7 +510,27 @@ try {
         $stmt->close();
     }
 
+    if (!\App\Services\SecurityAuditService::record(
+        $conn,
+        $upgrade_id > 0 ? 'Member Registration Updated' : 'Member Registered',
+        [
+            'profile' => $isQuickAdd ? 'quick_add' : 'full',
+            'registration_type' => $registration_type,
+            'membership_tier' => $membership_tier,
+            'duplicate_override' => $duplicateOverride,
+            'duplicate_match_id' => $duplicateOverride ? (int)$strongDuplicate['id'] : null,
+            'duplicate_override_reason' => $duplicateOverride ? $duplicateOverrideReason : null,
+        ],
+        'member',
+        $newId
+    )) {
+        throw new RuntimeException('Registration audit recording failed.');
+    }
+
     $conn->commit();
+    \App\Services\MemberDuplicateService::releaseIdentityLock($conn, $duplicateIdentityLock);
+    $duplicateIdentityLock = null;
+    $filesCommitted = true;
 
     // Optional class assignment — never fail the registration if this misses.
     $enrollNote = '';
@@ -445,7 +574,41 @@ try {
 
 } catch (Throwable $e) {
     try { $conn->rollback(); } catch (Throwable $r) {}
+    \App\Services\MemberDuplicateService::releaseIdentityLock($conn, $duplicateIdentityLock);
+    $duplicateIdentityLock = null;
+    if (!$filesCommitted) {
+        foreach ([$student_photo_path, $guardian_photo_path, $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path] as $uploadedPath) {
+            if (is_string($uploadedPath)) \App\Services\MemberFileService::discard($uploadedPath);
+        }
+    }
     error_log("Registration FAILED: " . $e->getMessage() . " | " . $e->getFile() . ":" . $e->getLine());
+
+    if ($e instanceof InvalidArgumentException) {
+        jsonExit(['status' => 'error', 'message' => $e->getMessage()], 422);
+    }
+    if ($e instanceof \App\Services\DuplicateRegistrationBusyException) {
+        header('Retry-After: 2');
+        jsonExit([
+            'status' => 'error',
+            'message' => 'A matching registration is already processing. Wait briefly and retry.',
+        ], 409);
+    }
+    if ($e instanceof \App\Services\DuplicateMemberException) {
+        if (!\App\Services\SecurityAuditService::record(
+            $conn,
+            'Member Registration Duplicate Blocked',
+            ['profile' => $isQuickAdd ? 'quick_add' : 'full'],
+            'member',
+            (int)$e->member['id']
+        )) {
+            error_log('Could not audit blocked duplicate registration.');
+        }
+        jsonExit([
+            'status' => 'duplicate',
+            'message' => 'A strongly matching member already exists. Review that record or explicitly authorize a duplicate.',
+            'match' => $e->member,
+        ], 409);
+    }
 
     $msg = 'Registration failed. Please try again.';
     $dbErr = $e->getMessage();

@@ -539,9 +539,7 @@ $healthLabel = $healthScore >= 80 ? 'Healthy' : ($healthScore >= 60 ? 'Warning' 
                         <input type="hidden" name="action" value="clear_session_cache">
                         <button class="btn btn-gray"><i class="fas fa-broom"></i> Clear Session Cache</button>
                     </form>
-                    <a href="migrations/auto_fix_database.php" class="btn btn-gray" onclick="return confirm('Run database auto-fix?')">
-                        <i class="fas fa-wrench"></i> Run DB Auto-Fix
-                    </a>
+                    <span style="align-self:center;color:#94a3b8;font-size:.85rem;">Database schema changes are applied by the deployment administrator.</span>
                 </div>
             </div>
         </div>

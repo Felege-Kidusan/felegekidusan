@@ -1,80 +1,81 @@
 <?php
 /**
- * ============================================================
- * SECURE BACKUP DOWNLOAD  (Super Admin only)
- * ============================================================
- * The backups directory (admin/uploads/backups/) is deliberately blocked from
- * direct web access by .htaccess, because a raw .sql dump contains student PII
- * and password hashes. A plain <a href> to the file therefore always fails
- * ("file not found / forbidden").
- *
- * This endpoint is the ONLY sanctioned way to download a backup: it
- *   1. requires a logged-in Super Admin,
- *   2. validates the requested name (no path traversal, .sql only),
- *   3. reads the file from disk server-side and streams it as a download.
- *
- * URL:  /admin/tools/download_backup.php?file=backup_YYYY-MM-DD_HH-ii-ss.sql
- * ============================================================
+ * Authenticated download controller for encrypted and read-only legacy backups.
  */
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../backend/services/BackupService.php';
 
-// ── Super Admin ONLY ──
+use App\Services\BackupService;
+
 if (empty($_SESSION['admin_logged_in']) || ($_SESSION['admin_role'] ?? '') !== 'super_admin') {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    exit('Only a Super Admin can download database backups.');
+    exit('Access denied.');
 }
 
-$backupDir = realpath(__DIR__ . '/../uploads/backups');
-if ($backupDir === false) {
-    http_response_code(404);
-    header('Content-Type: text/plain; charset=utf-8');
-    exit('No backups directory found.');
-}
-
-// ── Validate the requested filename (defence in depth) ──
-$requested = (string)($_GET['file'] ?? '');
-$name = basename($requested); // strip any path components
-if ($name === '' || !preg_match('/^backup_[0-9A-Za-z_\-]+\.sql$/', $name)) {
+$name = (string)($_GET['file'] ?? '');
+if ($name === '' || basename($name) !== $name) {
     http_response_code(400);
     header('Content-Type: text/plain; charset=utf-8');
     exit('Invalid backup file name.');
 }
 
-$path = $backupDir . DIRECTORY_SEPARATOR . $name;
-$real = realpath($path);
-// Must exist AND resolve to a path INSIDE the backups directory (anti-traversal).
-if ($real === false || strpos($real, $backupDir . DIRECTORY_SEPARATOR) !== 0 || !is_file($real)) {
+$path = BackupService::resolveForDownload($name, ROOT_PATH);
+if ($path === null) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
-    exit('That backup file is no longer on the server.');
+    exit('Backup not found.');
 }
 
-// ── Log the download (non-fatal) ──
 try {
     if (isset($conn) && $conn) {
         $uid = (int)($_SESSION['admin_id'] ?? 0);
-        $uname = $_SESSION['admin_username'] ?? 'admin';
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-        $stmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address) VALUES (?, ?, 'Backup Downloaded', ?, ?)");
-        if ($stmt) { $stmt->bind_param('isss', $uid, $uname, $name, $ip); $stmt->execute(); $stmt->close(); }
+        $username = (string)($_SESSION['admin_username'] ?? 'admin');
+        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $stmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address, created_at) VALUES (?, ?, 'Backup Downloaded', ?, ?, NOW())");
+        if ($stmt) {
+            $stmt->bind_param('isss', $uid, $username, $name, $ip);
+            $stmt->execute();
+            $stmt->close();
+        }
     }
-} catch (Throwable $e) { /* logging is optional */ }
+} catch (Throwable $ignored) {
+    // Availability of audit storage must not corrupt an authorized download.
+}
 
-// ── Stream the file as a download ──
-// Clear any output buffering so headers/body are clean.
-while (ob_get_level() > 0) { ob_end_clean(); }
+$size = @filesize($path);
+if ($size === false) {
+    http_response_code(404);
+    exit('Backup not found.');
+}
 
-header('Content-Description: File Transfer');
-header('Content-Type: application/sql');
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+header('Content-Type: application/octet-stream');
 header('Content-Disposition: attachment; filename="' . $name . '"');
-header('Content-Transfer-Encoding: binary');
-header('Expires: 0');
-header('Cache-Control: must-revalidate, no-store, no-cache, private');
+header('Content-Length: ' . (int)$size);
+header('Cache-Control: no-store, no-cache, must-revalidate, private');
 header('Pragma: no-cache');
-header('Content-Length: ' . filesize($real));
+header('Expires: 0');
 header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header("Content-Security-Policy: default-src 'none'; sandbox");
+header('Referrer-Policy: no-referrer');
 
-readfile($real);
+$stream = @fopen($path, 'rb');
+if ($stream === false) {
+    http_response_code(404);
+    exit;
+}
+while (!feof($stream)) {
+    $chunk = fread($stream, 1024 * 1024);
+    if ($chunk === false) {
+        break;
+    }
+    echo $chunk;
+    flush();
+}
+fclose($stream);
 exit;

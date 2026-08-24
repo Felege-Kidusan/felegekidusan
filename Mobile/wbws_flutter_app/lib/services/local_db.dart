@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:path/path.dart';
+import 'local_database_security.dart';
 
 String newClientOpId() {
   final r = Random.secure();
@@ -31,10 +32,17 @@ class LocalDb {
   Future<Database> _initDb() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'wbws_offline_v4.db');
+    final security = EncryptedDatabaseMigrator();
+    final encryptedDataExists = await security.encryptedArtifactsExist(path);
+    final password = await LocalDatabaseKeyStore()
+        .loadOrCreate(encryptedDataExists: encryptedDataExists);
+    await security.ensureEncrypted(path, password);
 
     return await openDatabase(
       path,
-      version: 7,
+      password: password,
+      version: 8,
+      onConfigure: security.configureEncryptedDatabase,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -120,6 +128,16 @@ class LocalDb {
                 "ALTER TABLE pending_grades ADD COLUMN client_op_id TEXT");
           } catch (_) {}
         }
+        if (oldVersion < 8) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_grade_sheets (
+              assessment_id INTEGER PRIMARY KEY,
+              class_id INTEGER,
+              response_json TEXT NOT NULL,
+              updated_at TEXT
+            )
+          ''');
+        }
       },
     );
   }
@@ -136,7 +154,7 @@ class LocalDb {
         student_name TEXT,
         father_name TEXT,
         member_code TEXT,
-        status TEXT NOT NULL DEFAULT 'present',
+        status TEXT NOT NULL,
         notes TEXT,
         packet_kind TEXT NOT NULL DEFAULT 'draft',
         client_op_id TEXT,
@@ -270,6 +288,14 @@ class LocalDb {
         response_json TEXT NOT NULL,
         updated_at TEXT,
         PRIMARY KEY (class_id, date)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_grade_sheets (
+        assessment_id INTEGER PRIMARY KEY,
+        class_id INTEGER,
+        response_json TEXT NOT NULL,
+        updated_at TEXT
       )
     ''');
   }
@@ -517,32 +543,48 @@ class LocalDb {
   Future<void> saveAttendanceLocal(int classId, String className, String date,
       List<Map<String, dynamic>> records,
       {String packetKind = 'draft'}) async {
+    const validStatuses = {'present', 'absent', 'late', 'excused'};
+    if (records.isEmpty) {
+      throw ArgumentError('Attendance records are required.');
+    }
+    for (final record in records) {
+      final status = '${record['status'] ?? ''}'.trim().toLowerCase();
+      final memberId = record['member_id'] is int
+          ? record['member_id'] as int
+          : int.tryParse('${record['member_id'] ?? ''}');
+      if (memberId == null || memberId <= 0 || !validStatuses.contains(status)) {
+        throw ArgumentError('Attendance must explicitly mark every student.');
+      }
+    }
+
     final db = await database;
     final now = DateTime.now().toIso8601String();
-    await db.delete('pending_attendance',
-        where: 'class_id = ? AND date = ? AND synced = 0',
-        whereArgs: [classId, date]);
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final opId = newClientOpId();
-    final batch = db.batch();
-    for (final r in records) {
-      batch.insert('pending_attendance', {
-        'class_id': classId,
-        'class_name': className,
-        'date': date,
-        'member_id': r['member_id'],
-        'student_name': r['student_name'] ?? '',
-        'father_name': r['father_name'] ?? '',
-        'member_code': r['member_code'] ?? '',
-        'status': r['status'] ?? 'present',
-        'notes': r['notes'] ?? r['note'] ?? '',
-        'packet_kind': kind,
-        'client_op_id': opId,
-        'synced': 0,
-        'created_at': now,
-      });
-    }
-    await batch.commit(noResult: true);
+    await db.transaction((txn) async {
+      await txn.delete('pending_attendance',
+          where: 'class_id = ? AND date = ? AND synced = 0',
+          whereArgs: [classId, date]);
+      final batch = txn.batch();
+      for (final r in records) {
+        batch.insert('pending_attendance', {
+          'class_id': classId,
+          'class_name': className,
+          'date': date,
+          'member_id': r['member_id'],
+          'student_name': r['student_name'] ?? '',
+          'father_name': r['father_name'] ?? '',
+          'member_code': r['member_code'] ?? '',
+          'status': '${r['status']}'.trim().toLowerCase(),
+          'notes': r['notes'] ?? r['note'] ?? '',
+          'packet_kind': kind,
+          'client_op_id': opId,
+          'synced': 0,
+          'created_at': now,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPendingAttendance() async {
@@ -827,13 +869,30 @@ class LocalDb {
     try { await db.delete('cached_grade_sheets'); } catch (_) {}
   }
 
-  /// Full wipe for this device user — cache + unsynced rows.
+  /// Full transactional wipe for this device user — cache + unsynced rows.
   /// Prevents the next login on this phone from seeing the previous roster.
   Future<void> clearAllUserData() async {
     final db = await database;
-    await clearAllCache();
-    await db.delete('pending_attendance');
-    await db.delete('pending_grades');
-    try { await db.delete('sync_log'); } catch (_) {}
+    await db.transaction((txn) async {
+      for (final table in [
+        'cached_classes',
+        'cached_students',
+        'cached_subjects',
+        'cached_assessments',
+        'cached_dashboard',
+        'cached_members',
+        'cached_attendance',
+        'cached_grade_sheets',
+        'pending_attendance',
+        'pending_grades',
+        'sync_log',
+      ]) {
+        await txn.delete(table);
+      }
+    });
+    // secure_delete is enabled on open; checkpoint/truncate also discards WAL
+    // pages that may contain the previous user's sensitive offline records.
+    try { await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) {}
+    try { await db.execute('VACUUM'); } catch (_) {}
   }
 }

@@ -1,5 +1,13 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * ============================================================
  * School Management School Management System - Migration 002
  * ============================================================
@@ -14,8 +22,6 @@
  * 7. Tasks & Assignments
  * 8. Shared Documents
  * 
- * Run this file once in your browser:
- * {SITE_URL}/admin/migrations/002_add_academic_attendance_workflow.php
  * ============================================================
  */
 

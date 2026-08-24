@@ -1,45 +1,53 @@
 <?php
 /**
- * Get Archived Members - Fetch all archived members
- * AJAX endpoint
+ * Bounded compatibility endpoint for archived members.
+ * New dashboard code uses api_list_members.php?view=archive directly.
  */
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, private');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/MemberDirectoryService.php';
 
-// Check auth
-if (empty($_SESSION['admin_username'])) {
-    echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
+use App\Services\MemberDirectoryService;
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    header('Allow: GET');
+    http_response_code(405);
+    echo json_encode(['status' => 'error', 'message' => 'Method not allowed.']);
+    exit;
+}
+if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
+    echo json_encode(['status' => 'error', 'message' => 'Unauthorized.']);
+    exit;
+}
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    http_response_code(503);
+    echo json_encode(['status' => 'error', 'message' => 'Service unavailable.']);
     exit;
 }
 
-// Fetch all archived members
-$sql = "SELECT 
-            id, member_code, student_name, father_name, grandfather_name,
-            baptismal_name, gender, age, current_section, age_group,
-            phone_number, guardian_name, student_photo_path,
-            status, registration_type, member_type, archive_type,
-            registered_at, archived_at, archived_by, archive_reason, archive_notes
-        FROM members 
-        WHERE status = 'archived' 
-        ORDER BY archived_at DESC, student_name ASC";
-
-$result = $conn->query($sql);
-
-if (!$result) {
-    echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $conn->error]);
-    exit;
+try {
+    $result = (new MemberDirectoryService($pdo))->search(
+        $_GET,
+        (string)($_SESSION['admin_role'] ?? ''),
+        'archive'
+    );
+    echo json_encode([
+        'status' => 'success',
+        'count' => $result['total'],
+        'members' => $result['members'],
+        'page' => $result['page'],
+        'limit' => $result['limit'],
+        'pages' => $result['pages'],
+        'next_cursor' => $result['next_cursor'],
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+} catch (InvalidArgumentException $error) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Archived members are not available for this role.']);
+} catch (Throwable $error) {
+    error_log('Archived member directory failed.');
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'message' => 'Unable to load archived members.']);
 }
-
-$members = [];
-while ($row = $result->fetch_assoc()) {
-    $members[] = $row;
-}
-
-echo json_encode([
-    'status' => 'success',
-    'count' => count($members),
-    'members' => $members
-]);
-
-$conn->close();

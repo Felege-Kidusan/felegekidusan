@@ -48,7 +48,13 @@ try {
     if ($r) $currentTerm = $r->fetch_assoc();
 } catch (Exception $e) {}
 
-$action = $_REQUEST['action'] ?? '';
+$action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+$__gradeActions = ['submit_marklist', 'get_report_card', 'get_class_cards', 'get_class_report'];
+if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Grades are not enabled for this deployment.']);
+    exit;
+}
 
 // ── STEP 3: write-protection ────────────────────────────────────────────────
 // Marklist submission stamps the active year; refuse writes while time-travelling.
@@ -160,7 +166,8 @@ switch ($action) {
             ]);
         } catch (Exception $e) {
             $conn->rollback();
-            echo json_encode(['status' => 'error', 'message' => 'Error: ' . $e->getMessage()]);
+            reportInternalError('Mark-list submission failed', $e);
+            echo json_encode(['status' => 'error', 'message' => 'Unable to submit the mark list.']);
         }
         break;
 

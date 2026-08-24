@@ -54,10 +54,15 @@ if ($action === 'change-password' && $method === 'POST') {
     $newPassword = $body['new_password'] ?? '';
     $confirmPassword = $body['confirm_password'] ?? '';
     
-    // Validate
-    if (empty($currentPassword)) err('Current password is required');
-    if (empty($newPassword)) err('New password is required');
-    if (strlen($newPassword) < 4) err('New password must be at least 4 characters');
+    // Validate through the same policy used by browser administration.
+    if (!is_string($currentPassword) || $currentPassword === '' || strlen($currentPassword) > 4096) {
+        err('Current password is required');
+    }
+    if (!is_string($newPassword) || !is_string($confirmPassword)) {
+        err('Invalid password input');
+    }
+    $passwordErrors = validatePassword($newPassword);
+    if ($passwordErrors !== []) err(implode(' ', $passwordErrors));
     if ($newPassword !== $confirmPassword) err('New passwords do not match');
     if ($currentPassword === $newPassword) err('New password must be different from current');
     
@@ -75,12 +80,28 @@ if ($action === 'change-password' && $method === 'POST') {
     }
     
     // Update password
-    $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
+    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
     $stmt = $conn->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
     $stmt->bind_param('si', $newHash, $userId);
     
     if ($stmt->execute()) {
         $stmt->close();
+        // Revoke every refresh-token family. The current access token remains
+        // short-lived, while no device can mint another token with the old
+        // password session after this change.
+        try {
+            $revoke = $conn->prepare(
+                'UPDATE api_refresh_sessions
+                 SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+                 WHERE user_id = ?'
+            );
+            $revoke->bind_param('i', $userId);
+            $revoke->execute();
+            $revoke->close();
+        } catch (Throwable $error) {
+            // Migration 010 can be rolling out; the password update remains
+            // authoritative and existing access tokens still expire quickly.
+        }
         logApiAction($userId, $auth['usr'], 'password_change', 'User changed their password');
         ok(['message' => 'Password changed successfully']);
     } else {

@@ -84,41 +84,8 @@ $memberTypeHonor   = 0;
 $atRiskStudents = 0; // placeholder: define logic later
 
 if (isset($conn)) {
-    // Pull latest 400 members for table (paginate if needed)
-    $membersList = db_fetch_all_assoc(
-        $conn,
-        "SELECT 
-            id,
-            member_code,
-            registration_type,
-            member_type,
-            status,
-            age_group,
-            current_section,
-            student_name,
-            father_name,
-            grandfather_name,
-            baptismal_name,
-            gender,
-            phone_number,
-            alt_phone_number,
-            guardian_name,
-            guardian_phone1,
-            guardian_phone2,
-            city,
-            sub_city,
-            woreda,
-            mender,
-            block_number,
-            house_number,
-            work_profession,
-            education_level,
-            created_at
-         FROM members
-         WHERE status != 'archived'
-         ORDER BY id DESC
-         LIMIT 400"
-    );
+    // The full directory is fetched on demand by MemberDirectoryService. Do not
+    // embed a second sensitive roster in the dashboard response.
 
     // Recent 10
     $recentMembers = db_fetch_all_assoc(
@@ -522,14 +489,6 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     <i class="fa-solid fa-gauge text-sm"></i>
                 </span>
                 <span class="font-semibold">Dashboard</span>
-            </a>
-
-            <a href="#" data-section="members"
-               class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
-                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
-                    <i class="fa-solid fa-users text-sm"></i>
-                </span>
-                <span class="font-semibold">All Members</span>
             </a>
 
             <button data-section="manage"
@@ -1948,213 +1907,13 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             </tbody>
                         </table>
                     </div>
+                    <div id="manageMembersPagination" class="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3" aria-live="polite"></div>
                 </div>
             </section>
 
-<script>
-// Manage Section Scripts
-let allManageMembers = []; // Store data for client-side filtering
-const embeddedManageMembers = <?php echo json_encode($membersList, JSON_UNESCAPED_UNICODE); ?>;
-
-function loadManageMembers() {
-    const tbody = document.getElementById('manageMembersTableBody');
-    if(!tbody) return;
-    
-    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">Loading...</td></tr>';
-
-    // If we already rendered data from PHP, reuse it immediately (no network flash)
-    if (allManageMembers.length === 0 && Array.isArray(embeddedManageMembers) && embeddedManageMembers.length > 0) {
-        allManageMembers = embeddedManageMembers;
-        renderManageTable(allManageMembers);
-    }
-
-    // Reuse the same data source as "All Members" if possible, or fetch fresh
-    // For now, we'll assume we can fetch the same list. 
-    // Ideally, we should have a dedicated API endpoint, but we can parse the existing PHP array if it was exposed to JS,
-    // or better, make an AJAX call. 
-    // Since we don't have a dedicated "list members" API, we will use the PHP rendered list from "All Members" section 
-    // if we are on the same page, OR we can create a simple API.
-    // Let's create a simple API endpoint for this: admin/api_list_members.php
-    
-    fetch('/admin/api_list_members.php', {credentials: 'same-origin'})
-        .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
-        .then(data => {
-            if(data.status === 'success') {
-                allManageMembers = data.members;
-                renderManageTable(allManageMembers);
-            } else {
-                const fallback = Array.isArray(embeddedManageMembers) ? embeddedManageMembers : [];
-                if (fallback.length > 0) {
-                    allManageMembers = fallback;
-                    renderManageTable(allManageMembers);
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-400">Failed to load</td></tr>';
-                }
-            }
-        })
-        .catch(e => {
-            console.error(e);
-            const fallback = Array.isArray(embeddedManageMembers) ? embeddedManageMembers : [];
-            if (fallback.length > 0) {
-                allManageMembers = fallback;
-                renderManageTable(allManageMembers);
-            } else {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-400">Error loading data</td></tr>';
-            }
-        });
-}
-
-function renderManageTable(members) {
-    const tbody = document.getElementById('manageMembersTableBody');
-    tbody.innerHTML = '';
-    
-    if(members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">No members found</td></tr>';
-        return;
-    }
-
-    // Escape any member-supplied text before putting it into innerHTML.
-    // Student/father names are entered by staff and stored in the DB, so an
-    // unescaped name like <img src=x onerror=...> would run in THIS admin's
-    // browser (stored XSS). This local helper guarantees escaping is applied
-    // regardless of where escapeHtml() is defined in the page.
-    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
-        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-    members.forEach(m => {
-        const row = document.createElement('tr');
-        row.className = 'hover:bg-slate-50 transition';
-        const fullName = ((m.student_name || '') + ' ' + (m.father_name || '')).trim();
-        row.innerHTML = `
-            <td class="px-4 py-3">
-                <div class="font-bold text-slate-800">${esc(m.student_name)} ${esc(m.father_name)}</div>
-                <div class="text-[10px] text-slate-500">${esc(m.member_code || 'No ID')}</div>
-            </td>
-            <td class="px-4 py-3 capitalize">
-                <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
-                    ${esc(m.registration_type)}
-                </span>
-            </td>
-            <td class="px-4 py-3">
-                <span class="px-2 py-0.5 rounded-full ${getStatusColor(m.status)} text-[10px] font-bold border border-white shadow-sm">
-                    ${esc(m.status)}
-                </span>
-            </td>
-            <td class="px-4 py-3 text-right">
-                <div class="flex items-center justify-end gap-2">
-                    <button onclick="openManageSheet(${parseInt(m.id, 10)})" class="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-bold text-[11px] transition">
-                        <i class="fa-solid fa-pen-to-square mr-1"></i> Manage
-                    </button>
-                    <button data-id="${parseInt(m.id, 10)}" data-name="${esc(fullName)}" onclick="archiveMember(this.dataset.id, this.dataset.name)" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-bold text-[11px] transition" title="Move to Archive">
-                        <i class="fa-solid fa-box-archive"></i>
-                    </button>
-                </div>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-function getStatusColor(status) {
-    if(status === 'active') return 'bg-emerald-100 text-emerald-700';
-    if(status === 'warning') return 'bg-amber-100 text-amber-700';
-    if(status === 'inactive') return 'bg-slate-100 text-slate-600';
-    return 'bg-gray-100 text-gray-600';
-}
-
-function applyManageFilters() {
-    const q = document.getElementById('manageSearchInput').value.toLowerCase();
-    const type = document.getElementById('manageFilterType').value;
-    const status = document.getElementById('manageFilterStatus').value;
-    const memberType = document.getElementById('manageFilterMemberType').value;
-    const gender = document.getElementById('manageFilterGender').value;
-    const city = document.getElementById('manageFilterCity').value;
-    const ageGroup = document.getElementById('manageFilterAgeGroup').value;
-    const education = document.getElementById('manageFilterEducation').value;
-
-    const filtered = allManageMembers.filter(m => {
-        const haystack = [
-            m.student_name,
-            m.father_name,
-            m.grandfather_name,
-            m.baptismal_name,
-            m.member_code,
-            m.phone_number,
-            m.alt_phone_number,
-            m.guardian_name,
-            m.guardian_phone1,
-            m.guardian_phone2,
-            m.city,
-            m.sub_city,
-            m.woreda,
-            m.mender,
-            m.block_number,
-            m.house_number,
-            m.work_profession,
-            m.education_level,
-            m.registration_type,
-            m.member_type,
-            m.status,
-        ].filter(Boolean).join(' ').toLowerCase();
-
-        const matchText = haystack.includes(q);
-        const matchType = type ? m.registration_type === type : true;
-        const matchStatus = status ? m.status === status : true;
-        const matchMemberType = memberType ? m.member_type === memberType : true;
-        const matchGender = gender ? m.gender === gender : true;
-        const matchCity = city ? m.city === city : true;
-        const matchAge = ageGroup ? m.age_group === ageGroup : true;
-        const matchEdu = education ? m.education_level === education : true;
-
-        return matchText && matchType && matchStatus && matchMemberType && matchGender && matchCity && matchAge && matchEdu;
-    });
-
-    renderManageTable(filtered);
-}
-
-// Reset filters to defaults
-function resetManageFilters() {
-    document.getElementById('manageSearchInput').value = '';
-    document.getElementById('manageFilterType').value = '';
-    document.getElementById('manageFilterStatus').value = '';
-    document.getElementById('manageFilterMemberType').value = '';
-    document.getElementById('manageFilterGender').value = '';
-    document.getElementById('manageFilterCity').value = '';
-    document.getElementById('manageFilterAgeGroup').value = '';
-    document.getElementById('manageFilterEducation').value = '';
-    applyManageFilters();
-}
-
-// Hook into navigation to load data when tab is shown
-document.querySelectorAll('[data-section="manage"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-        loadManageMembers();
-    });
-});
-
-// Live filtering on input/change
-document.addEventListener('DOMContentLoaded', () => {
-    const inputs = [
-        'manageSearchInput',
-        'manageFilterType',
-        'manageFilterStatus',
-        'manageFilterMemberType',
-        'manageFilterGender',
-        'manageFilterCity',
-        'manageFilterAgeGroup',
-        'manageFilterEducation'
-    ];
-    inputs.forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('input', applyManageFilters);
-        el.addEventListener('change', applyManageFilters);
-    });
-});
-</script>
+<script src="/admin/js/manage-members.js" defer></script>
+<script src="/frontend/js/member-picker.js" defer></script>
+<script src="/admin/js/archive-members.js" defer></script>
 
             <!-- ARCHIVE -->
             <section id="section-archive" class="content-section">
@@ -2196,129 +1955,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-sm">Loading archived members...</p>
                         </div>
                     </div>
+                    <div id="archivedMembersPagination" class="mt-3 flex items-center justify-between gap-3" aria-live="polite"></div>
                 </div>
             </section>
 
-            <!-- ID CARDS -->
-          <!-- ID CARD SECTION START -->
-<section id="section-idcards" class="content-section hidden">
-    <div class="panel p-4 mobile-card">
-        <div class="flex justify-between items-center mb-4">
-            <div>
-                <h3 class="text-sm font-semibold text-slate-800 mb-1">ID Card Management</h3>
-                <p class="text-xs text-slate-500">Generate and Print Digital IDs for eligible members.</p>
-            </div>
-            <button onclick="location.reload()" class="p-2 text-slate-500 hover:text-slate-700">
-                <i class="fa-solid fa-sync"></i>
-            </button>
-        </div>
 
-        <div class="overflow-x-auto border rounded-lg">
-            <table class="w-full text-left border-collapse">
-                <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
-                    <tr>
-                        <th class="px-4 py-3 font-medium">Member Name</th>
-                        <th class="px-4 py-3 font-medium">Code</th>
-                        <th class="px-4 py-3 font-medium">Member Type</th>
-                        <th class="px-4 py-3 font-medium">Status</th>
-                        <th class="px-4 py-3 font-medium text-right">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
-                    <?php
-                    // Helper map for member types
-                    $typeMap = [
-                        'direct' => 'መደበኛ (Regular)',
-                        'transfer' => 'ልዩ መደበኛ (Student+)',
-                        'honorary' => 'የክብር አባላት'
-                    ];
-
-                    $id_sql = "SELECT id, student_name, father_name, member_code, registration_type, id_card_status, id_card_generated_at
-                               FROM members 
-                               WHERE status = 'active' 
-                               AND registration_type IN ('direct', 'transfer', 'honorary') 
-                               ORDER BY student_name ASC";
-                    
-                    if (isset($conn)) {
-                        $id_result = $conn->query($id_sql);
-                        
-                        if ($id_result && $id_result->num_rows > 0) {
-                            while ($row = $id_result->fetch_assoc()) {
-                                $full_name = $row['student_name'] . ' ' . $row['father_name'];
-                                $status = $row['id_card_status']; 
-                                $code = $row['member_code'] ? $row['member_code'] : 'Pending';
-                                
-                                // Map Type
-                                $displayType = $typeMap[$row['registration_type']] ?? $row['registration_type'];
-
-                                // Check Expiry (4 Years)
-                                $is_expired = false;
-                                if ($status == 'generated' && !empty($row['id_card_generated_at'])) {
-                                    $exp_date = date('Y-m-d', strtotime($row['id_card_generated_at'] . ' + 4 years'));
-                                    if (date('Y-m-d') > $exp_date) {
-                                        $is_expired = true;
-                                    }
-                                }
-                                ?>
-                                <tr class="hover:bg-slate-50 transition">
-                                    <td class="px-4 py-3 font-medium"><?php echo e($full_name); ?></td>
-                                    <td class="px-4 py-3">
-                                        <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs font-mono">
-                                            <?php echo e($code); ?>
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 text-xs font-semibold text-slate-600">
-                                        <?php echo e($displayType); ?>
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        <?php if($status == 'generated'): ?>
-                                            <?php if($is_expired): ?>
-                                                <span class="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">EXPIRED</span>
-                                            <?php else: ?>
-                                                <span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-semibold">Generated</span>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">Not Created</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="px-4 py-3 text-right">
-                                        <?php if($status == 'generated'): ?>
-                                            <!-- View Button -->
-                                            <a href="/admin/id_cards/view_id_card.php?member_id=<?php echo $row['id']; ?>" 
-                                               target="_blank"
-                                               class="inline-flex items-center gap-1 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-3 py-1.5 rounded text-xs font-medium shadow-sm">
-                                               <i class="fa-solid fa-eye"></i> View
-                                            </a>
-                                            <!-- Renew Button (Only if Expired) -->
-                                            <?php if($is_expired): ?>
-                                                <a href="/admin/id_cards/generate_id_card.php?member_id=<?php echo $row['id']; ?>&action=renew" 
-                                                   onclick="return confirm('Renew this ID? This will set the issue date to today.')"
-                                                   class="inline-flex items-center gap-1 bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded text-xs font-medium shadow-sm ml-2">
-                                                   <i class="fa-solid fa-rotate"></i> Renew
-                                                </a>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <!-- Generate Button -->
-                                            <a href="/admin/id_cards/generate_id_card.php?member_id=<?php echo $row['id']; ?>" 
-                                               class="inline-flex items-center gap-1 bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1.5 rounded text-xs font-medium shadow-sm transition">
-                                               <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
-                                            </a>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                                <?php
-                            }
-                        } else {
-                            echo "<tr><td colspan='5' class='px-4 py-8 text-center text-slate-400'>No eligible members found.</td></tr>";
-                        }
-                    }
-                    ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</section>
-<!-- ID CARD SECTION END -->
 
             <!-- GROUPS -->
             <section id="section-groups" class="content-section">
@@ -2712,7 +2353,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">New Password</label>
-                                        <input type="password" id="pwdNew" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Min 6 characters">
+                                        <input type="password" id="pwdNew" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Min 12 characters">
                                     </div>
                                     <div>
                                         <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Confirm New Password</label>
@@ -2925,11 +2566,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     <i class="fa-solid fa-chart-pie text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Dashboard</span>
                 </button>
-                <button data-section="members"
-                        class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
-                    <i class="fa-solid fa-users text-base mb-0.5"></i>
-                    <span class="text-[10px] whitespace-nowrap">Members</span>
-                </button>
                 <button data-section="manage"
                         class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
                     <i class="fa-solid fa-pen-to-square text-base mb-0.5"></i>
@@ -2983,14 +2619,14 @@ document.addEventListener('DOMContentLoaded', () => {
         <form id="attakerForm" class="p-5">
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Link to Member (Optional)</label>
-                <select name="member_id" id="attakerMemberId" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="">-- Select Member --</option>
-                    <?php
-                    $membersForAttaker = $conn->query("SELECT id, member_code, student_name, father_name FROM members WHERE status = 'active' ORDER BY student_name LIMIT 500");
-                    while ($ma = $membersForAttaker->fetch_assoc()):
-                    ?>
-                    <option value="<?= $ma['id'] ?>"><?= e($ma['student_name'] . ' ' . $ma['father_name']) ?> (<?= e($ma['member_code']) ?>)</option>
-                    <?php endwhile; ?>
+                <input type="search"
+                       data-member-picker-target="attakerMemberId"
+                       data-member-picker-status="active"
+                       class="w-full px-3 py-2 mb-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                       placeholder="Search active members by name, code, or phone"
+                       autocomplete="off">
+                <select name="member_id" id="attakerMemberId" data-optional="true" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
+                    <option value="">— None —</option>
                 </select>
             </div>
             
@@ -3011,7 +2647,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             <div class="mb-5">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Password *</label>
-                <input type="password" name="password" id="attakerPassword" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Secure password">
+                <input type="password" name="password" id="attakerPassword" minlength="12" maxlength="72" autocomplete="new-password" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Secure password">
             </div>
             
             <div class="flex gap-3">
@@ -3083,6 +2719,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Simple section navigation (sidebar + bottom nav)
     function navigateToSection(name) {
+        // Preserve old links while using the single server-paged directory.
+        if (name === 'members') name = 'manage';
         closeManageSheet(); // Close any open modal
         document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
         const target = document.getElementById('section-' + name);
@@ -3841,191 +3479,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------------------------------------------------------
-    // ARCHIVED MEMBERS FUNCTIONS
-    // ---------------------------------------------------------
-    let archivedMembersData = [];
-    
-    function loadArchivedMembers() {
-        const listContainer = document.getElementById('archivedMembersList');
-        const countBadge = document.getElementById('archivedCount');
-        
-        listContainer.innerHTML = `
-            <div class="text-center py-8 text-slate-400">
-                <i class="fa-solid fa-spinner fa-spin text-2xl mb-2"></i>
-                <p class="text-sm">Loading archived members...</p>
-            </div>
-        `;
-        
-        fetch('/admin/info_get_archived_members.php')
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    archivedMembersData = data.members || [];
-                    countBadge.textContent = archivedMembersData.length + ' Members';
-                    renderArchivedMembers(archivedMembersData);
-                } else {
-                    listContainer.innerHTML = `
-                        <div class="text-center py-8 text-red-400">
-                            <i class="fa-solid fa-exclamation-circle text-2xl mb-2"></i>
-                            <p class="text-sm">${data.message || 'Failed to load archived members'}</p>
-                        </div>
-                    `;
-                }
-            })
-            .catch(() => {
-                listContainer.innerHTML = `
-                    <div class="text-center py-8 text-red-400">
-                        <i class="fa-solid fa-wifi text-2xl mb-2"></i>
-                        <p class="text-sm">Network error. Please try again.</p>
-                    </div>
-                `;
-            });
-    }
-    
-    function renderArchivedMembers(members) {
-        const listContainer = document.getElementById('archivedMembersList');
-        
-        if (members.length === 0) {
-            listContainer.innerHTML = `
-                <div class="text-center py-12 text-slate-400">
-                    <i class="fa-solid fa-box-open text-4xl mb-3 text-slate-300"></i>
-                    <p class="text-sm font-medium">No archived members found</p>
-                    <p class="text-xs mt-1">Archived members will appear here</p>
-                </div>
-            `;
-            return;
-        }
-        
-        const reasonLabels = {
-            'left_school': 'ከት/ቤት ወጥቷል',
-            'graduated': 'ተመርቋል',
-            'transferred': 'ተዛውሯል',
-            'inactive_long': 'ረጅም ጊዜ ቦዝ',
-            'deceased': 'አርፏል',
-            'other': 'ሌላ'
-        };
-        
-        listContainer.innerHTML = members.map(m => {
-            const fullName = (m.student_name || '') + ' ' + (m.father_name || '');
-            const photo = m.student_photo_path ? fixImagePath(m.student_photo_path) : '';
-            const section = m.current_section || m.age_group || '—';
-            const reason = reasonLabels[m.archive_reason] || m.archive_reason || 'Unknown';
-            const archivedDate = m.archived_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(m.archived_at,'medium'):new Date(m.archived_at).toLocaleDateString('en-GB')) : '—';
-            
-            return `
-                <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition">
-                    <div class="flex items-start gap-4">
-                        <!-- Photo -->
-                        <div class="w-14 h-14 rounded-xl bg-slate-100 overflow-hidden flex-shrink-0 border-2 border-amber-200">
-                            ${photo 
-                                ? `<img src="${photo}" class="w-full h-full object-cover" alt="">` 
-                                : `<div class="w-full h-full flex items-center justify-center text-slate-400"><i class="fa-solid fa-user text-xl"></i></div>`
-                            }
-                        </div>
-                        
-                        <!-- Info -->
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-start justify-between gap-2">
-                                <div>
-                                    <h4 class="font-bold text-slate-800 text-sm truncate">${escapeHtml(fullName)}</h4>
-                                    <p class="text-xs text-slate-500 mt-0.5">
-                                        <span class="bg-slate-100 px-2 py-0.5 rounded">${m.member_code || 'No ID'}</span>
-                                        <span class="mx-1">•</span>
-                                        ${section}
-                                    </p>
-                                </div>
-                                <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-bold flex-shrink-0">
-                                    ARCHIVED
-                                </span>
-                            </div>
-                            
-                            <!-- Archive Info -->
-                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                                <span class="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg">
-                                    <i class="fa-solid fa-tag mr-1"></i> ${reason}
-                                </span>
-                                <span class="text-slate-400">
-                                    <i class="fa-solid fa-calendar mr-1"></i> ${archivedDate}
-                                </span>
-                            </div>
-                            
-                            <!-- Actions -->
-                            <div class="mt-3 flex gap-2">
-                                <button onclick="restoreMember(${m.id}, '${fullName.replace(/'/g, "\\'")}')" 
-                                        class="flex-1 px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-xs font-bold transition">
-                                    <i class="fa-solid fa-rotate-left mr-1"></i> Restore to Active
-                                </button>
-                                <button onclick="openManageSheet(${m.id})" 
-                                        class="px-3 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg text-xs font-bold transition">
-                                    <i class="fa-solid fa-eye mr-1"></i> View
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-    
-    function filterArchivedMembers() {
-        const query = document.getElementById('archiveSearch').value.toLowerCase().trim();
-        
-        if (!query) {
-            renderArchivedMembers(archivedMembersData);
-            return;
-        }
-        
-        const filtered = archivedMembersData.filter(m => {
-            const fullName = ((m.student_name || '') + ' ' + (m.father_name || '') + ' ' + (m.grandfather_name || '')).toLowerCase();
-            const code = (m.member_code || '').toLowerCase();
-            return fullName.includes(query) || code.includes(query);
-        });
-        
-        renderArchivedMembers(filtered);
-        document.getElementById('archivedCount').textContent = filtered.length + ' / ' + archivedMembersData.length;
-    }
-    
-    function fixImagePath(path) {
-        if (!path) return '';
-        if (path.startsWith('http')) return path;
-        path = path.replace(/^\/+/, '');
-        if (path.startsWith('uploads/')) return '/admin/' + path;
-        if (path.startsWith('admin/')) return '/' + path;
-        return '/' + path;
-    }
-    
+    // Shared text-escaping helper used by attendance and management views.
     function escapeHtml(text) {
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text ?? '');
         return div.innerHTML;
     }
-    
-    // Auto-load archived members when archive section is shown
-    document.addEventListener('DOMContentLoaded', () => {
-        // Observe section visibility
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting && entry.target.id === 'section-archive') {
-                    loadArchivedMembers();
-                    observer.unobserve(entry.target);
-                }
-            });
-        });
-        
-        const archiveSection = document.getElementById('section-archive');
-        if (archiveSection) {
-            observer.observe(archiveSection);
-        }
-        
-        // Also load when clicking archive nav
-        document.querySelectorAll('[data-section="archive"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                setTimeout(loadArchivedMembers, 100);
-            });
-        });
-    });
 
-    // ---------------------------------------------------------
     // MANAGE SHEET FUNCTIONS (Tabs, Preview, Edit)
     // ---------------------------------------------------------
     function switchManageTab(tab) {
@@ -4995,7 +4455,7 @@ function changePassword() {
     const cf = document.getElementById('pwdConfirm').value;
     if (!cur || !nw || !cf) { settingsToast('All password fields required', false); return; }
     if (nw !== cf) { settingsToast('New passwords do not match', false); return; }
-    if (nw.length < 6) { settingsToast('Min 6 characters required', false); return; }
+    if (nw.length < 12) { settingsToast('Min 12 characters required', false); return; }
     sApiPost('password_change', { current_password: cur, new_password: nw, confirm_password: cf }).then(d => {
         settingsToast(d.message, d.status === 'success');
         if (d.status === 'success') { document.getElementById('pwdCurrent').value = ''; document.getElementById('pwdNew').value = ''; document.getElementById('pwdConfirm').value = ''; }

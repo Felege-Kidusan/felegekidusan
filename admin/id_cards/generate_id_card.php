@@ -1,77 +1,154 @@
 <?php
-// FILE: /admin/id_cards/generate_id_card.php
-require_once '../config.php'; 
+/** Generate or renew one ID card through an authorized, CSRF-protected POST. */
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../backend/services/SecurityAuditService.php';
 
-// BULLETPROOF: Check if QR library exists
-$qr_lib_path = __DIR__ . '/libs/phpqrcode/qrlib.php';
-if (!file_exists($qr_lib_path)) {
-    die("Error: QR Code library not found at: libs/phpqrcode/qrlib.php — Please upload the phpqrcode library to this folder.");
+use App\Services\SecurityAuditService;
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    header('Allow: POST');
+    http_response_code(405);
+    exit('Method not allowed.');
 }
-require_once $qr_lib_path;
-
-if (!isset($_GET['member_id'])) die("Error: Member ID is required.");
-
-$member_id = intval($_GET['member_id']);
-$action = isset($_GET['action']) ? $_GET['action'] : 'generate';
-
-// 1. Fetch Member
-$stmt = $conn->prepare("SELECT * FROM members WHERE id = ?");
-$stmt->bind_param("i", $member_id);
-$stmt->execute();
-$member = $stmt->get_result()->fetch_assoc();
-
-if (!$member) die("Member not found.");
-
-// 2. Member Code Logic
-if (empty($member['member_code'])) {
-    $new_code = MEMBER_CODE_FORMAT . str_pad($member['id'], 4, '0', STR_PAD_LEFT);
-    $stmt2 = $conn->prepare("UPDATE members SET member_code = ? WHERE id = ?");
-    $stmt2->bind_param("si", $new_code, $member_id);
-    $stmt2->execute();
-    $member['member_code'] = $new_code;
+if (!validateCsrf($_POST['csrf_token'] ?? '')) {
+    http_response_code(403);
+    exit('Invalid security token. Refresh the page and try again.');
 }
 
-// 3. QR Code Generation (Bulletproof)
-$qr_content = (defined('SITE_URL') ? SITE_URL : SITE_URL) . '/member.php?code=' . $member['member_code'];
-$qr_filename = 'qr_' . $member['member_code'] . '.png';
-$qr_dir = __DIR__ . '/assets/qr/';
-$qr_abs_path = $qr_dir . $qr_filename;
-$qr_web_path = '/admin/id_cards/assets/qr/' . $qr_filename;
+$memberId = filter_var($_POST['member_id'] ?? null, FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1],
+]);
+$action = (string)($_POST['action'] ?? 'generate');
+if ($memberId === false || !in_array($action, ['generate', 'renew'], true)) {
+    http_response_code(422);
+    exit('Invalid ID-card request.');
+}
 
-// Create directory with full chain if needed
-// 0755 = owner can write, others can only read. NEVER use 0777 (world-writable)
-// under the web root — a world-writable web folder is a remote-code-execution risk.
-if (!is_dir($qr_dir)) {
-    if (!mkdir($qr_dir, 0755, true)) {
-        die("Error: Could not create QR directory: " . $qr_dir . " — Check folder permissions.");
+$qrLibrary = __DIR__ . '/libs/phpqrcode/qrlib.php';
+if (!is_file($qrLibrary)) {
+    error_log('ID-card QR library is unavailable.');
+    http_response_code(503);
+    exit('ID-card generation is temporarily unavailable.');
+}
+require_once $qrLibrary;
+
+$qrDirectory = __DIR__ . '/assets/qr';
+if (!is_dir($qrDirectory) || !is_writable($qrDirectory)) {
+    error_log('The deployment-managed ID-card QR directory is unavailable.');
+    http_response_code(503);
+    exit('ID-card generation is temporarily unavailable.');
+}
+
+$tempPath = null;
+$finalPath = null;
+$backupPath = null;
+$installedNewFile = false;
+
+try {
+    $pdo->beginTransaction();
+    $statement = $pdo->prepare(
+        'SELECT id, member_code, registration_type, member_type, status, id_card_status
+         FROM members WHERE id = ? FOR UPDATE'
+    );
+    $statement->execute([(int)$memberId]);
+    $member = $statement->fetch(PDO::FETCH_ASSOC);
+    $eligible = $member
+        && $member['status'] === 'active'
+        && (
+            in_array($member['registration_type'], ['direct', 'transfer'], true)
+            || $member['member_type'] === 'honorary'
+        );
+    if (!$eligible) {
+        throw new DomainException('The member is not eligible for an ID card.');
     }
+
+    $memberCode = trim((string)($member['member_code'] ?? ''));
+    if ($memberCode === '') {
+        $memberCode = MEMBER_CODE_FORMAT . str_pad((string)$memberId, 4, '0', STR_PAD_LEFT);
+        $statement = $pdo->prepare('UPDATE members SET member_code = ? WHERE id = ?');
+        $statement->execute([$memberCode, (int)$memberId]);
+    }
+
+    $baseUrl = defined('SITE_URL') ? rtrim((string)SITE_URL, '/') : '';
+    $qrContent = $baseUrl . '/member.php?code=' . rawurlencode($memberCode);
+    $filename = 'qr_member_' . (int)$memberId . '.png';
+    $finalPath = $qrDirectory . '/' . $filename;
+    $webPath = '/admin/id_cards/assets/qr/' . $filename;
+    $tempPath = tempnam($qrDirectory, '.qr-');
+    if ($tempPath === false) {
+        throw new RuntimeException('Could not allocate a QR output file.');
+    }
+
+    QRcode::png($qrContent, $tempPath, QR_ECLEVEL_L, 4, 2);
+    if (!is_file($tempPath) || filesize($tempPath) < 32) {
+        throw new RuntimeException('QR generation did not produce a valid image.');
+    }
+    @chmod($tempPath, 0644);
+
+    if (!SecurityAuditService::record(
+        $pdo,
+        'Member ID Card ' . ($action === 'renew' ? 'Renewed' : 'Generated'),
+        ['action' => $action],
+        'member',
+        (int)$memberId
+    )) {
+        throw new RuntimeException('ID-card audit recording failed.');
+    }
+
+    $refreshIssueDate = $action === 'renew' || ($member['id_card_status'] ?? 'none') !== 'generated';
+    $statement = $pdo->prepare(
+        $refreshIssueDate
+            ? "UPDATE members
+               SET qr_code_path = ?, id_card_status = 'generated', id_card_generated_at = CURRENT_TIMESTAMP
+               WHERE id = ?"
+            : 'UPDATE members SET qr_code_path = ? WHERE id = ?'
+    );
+    $statement->execute([$webPath, (int)$memberId]);
+
+    // Replace the generated asset atomically and keep the old image available
+    // for restoration if the database commit fails.
+    if (is_file($finalPath)) {
+        $backupPath = $finalPath . '.bak-' . bin2hex(random_bytes(6));
+        if (!rename($finalPath, $backupPath)) {
+            throw new RuntimeException('Could not preserve the prior QR image.');
+        }
+    }
+    if (!rename($tempPath, $finalPath)) {
+        throw new RuntimeException('Could not install the generated QR image.');
+    }
+    $tempPath = null;
+    $installedNewFile = true;
+
+    $pdo->commit();
+    if ($backupPath !== null && is_file($backupPath)) {
+        @unlink($backupPath);
+    }
+
+    header('Location: view_id_card.php?member_id=' . (int)$memberId, true, 303);
+    exit;
+} catch (DomainException $error) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    if ($tempPath !== null && is_file($tempPath)) {
+        @unlink($tempPath);
+    }
+    http_response_code(422);
+    exit($error->getMessage());
+} catch (Throwable $error) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    if ($tempPath !== null && is_file($tempPath)) {
+        @unlink($tempPath);
+    }
+    if ($installedNewFile && $finalPath !== null && is_file($finalPath)) {
+        @unlink($finalPath);
+    }
+    if ($backupPath !== null && is_file($backupPath) && $finalPath !== null) {
+        @rename($backupPath, $finalPath);
+    }
+    error_log('ID-card generation failed.');
+    http_response_code(500);
+    exit('ID-card generation failed. Please try again.');
 }
-
-// Check directory is writable
-if (!is_writable($qr_dir)) {
-    die("Error: QR directory is not writable: " . $qr_dir . " — set the assets/qr/ folder to 0755 and ensure it is owned by the web user.");
-}
-
-// Generate QR code
-QRcode::png($qr_content, $qr_abs_path, QR_ECLEVEL_L, 4, 2);
-
-// Verify QR was actually created
-if (!file_exists($qr_abs_path)) {
-    die("Error: QR code generation failed. File was not created at: " . $qr_abs_path);
-}
-
-// 4. Update Database (using prepared statements for security)
-if ($action == 'renew' || ($member['id_card_status'] ?? 'none') == 'none') {
-    $sql = "UPDATE members SET qr_code_path = ?, id_card_status = 'generated', id_card_generated_at = NOW() WHERE id = ?";
-} else {
-    $sql = "UPDATE members SET qr_code_path = ? WHERE id = ?";
-}
-
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("si", $qr_web_path, $member_id);
-$stmt->execute();
-
-// 5. Redirect back to View
-header("Location: view_id_card.php?member_id=" . $member_id);
-exit;
-?>

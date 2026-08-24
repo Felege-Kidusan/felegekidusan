@@ -39,8 +39,7 @@ $assetOnDisk = static function (string $web) use ($docRoot): bool {
     return false;
 };
 if ($conn && !$conn->connect_error) {
-    $tableCheck = $conn->query("SHOW TABLES LIKE 'system_branding'");
-    if ($tableCheck && $tableCheck->num_rows > 0) {
+    try {
         $br = $conn->query("SELECT asset_key, file_path FROM system_branding");
         if ($br) {
             while ($row = $br->fetch_assoc()) {
@@ -51,6 +50,8 @@ if ($conn && !$conn->connect_error) {
                 }
             }
         }
+    } catch (Throwable $error) {
+        error_log('ID card preview branding lookup failed.');
     }
 }
 if (!$assetOnDisk($CONFIG['logo'])) {

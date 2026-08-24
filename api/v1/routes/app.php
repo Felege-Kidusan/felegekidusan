@@ -14,6 +14,7 @@ if ($method === 'GET' && ($action === 'config' || $action === '' || $action === 
     }
     header('Cache-Control: no-store');
     $rel = fkssLoadAppRelease();
+    $rel['tiles'] = \App\Services\FeatureGate::filterMobileTiles($rel['tiles'] ?? []);
     $banner = null;
     if ($rel['banner_text'] !== '') {
         $banner = [
@@ -33,6 +34,7 @@ if ($method === 'GET' && ($action === 'config' || $action === '' || $action === 
         'apk_size_bytes' => $rel['apk_size_bytes'],
         'apk_sha256' => $rel['apk_sha256'],
         'banner' => $banner,
+        'features' => \App\Services\FeatureGate::mobileCapabilities(),
         'tiles' => $rel['tiles'],
     ]);
 }

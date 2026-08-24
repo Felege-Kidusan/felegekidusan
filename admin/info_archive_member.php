@@ -24,8 +24,13 @@ if (empty($csrfToken) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSIO
 }
 
 $id = isset($input['id']) ? (int)$input['id'] : 0;
-$reason = isset($input['reason']) ? trim($input['reason']) : '';
-$notes = isset($input['notes']) ? trim($input['notes']) : '';
+$reason = isset($input['reason']) ? trim((string)$input['reason']) : '';
+$notes = isset($input['notes']) ? trim((string)$input['notes']) : '';
+$allowedReasons = ['left_school','graduated','transferred','inactive_long','failed_observation','deceased','other'];
+if (!in_array($reason, $allowedReasons, true) || mb_strlen($notes) > 2000) {
+    echo json_encode(['status' => 'error', 'message' => 'Invalid archive reason or notes.']);
+    exit;
+}
 
 if ($id <= 0) {
     echo json_encode(['status' => 'error', 'message' => 'Invalid member ID']);
@@ -50,64 +55,18 @@ if ($member['status'] === 'archived') {
     exit;
 }
 
-// Check which columns exist
-$columns = [];
-$colResult = $conn->query("SHOW COLUMNS FROM members");
-while ($col = $colResult->fetch_assoc()) {
-    $columns[] = $col['Field'];
-}
+// Archive metadata columns are deployment-managed by migration 013.
+$archiveType = ($reason === 'failed_observation') ? 'failed_observation' : 'permanent_archive';
+$archivedBy = (string)$_SESSION['admin_username'];
 
-$hasArchivedAt = in_array('archived_at', $columns);
-$hasArchivedBy = in_array('archived_by', $columns);
-$hasArchiveReason = in_array('archive_reason', $columns);
-$hasArchiveNotes = in_array('archive_notes', $columns);
-$hasArchiveType = in_array('archive_type', $columns);
-
-// Build dynamic update query
-$updateParts = ["status = 'archived'"];
-$params = [];
-$types = '';
-
-if ($hasArchivedAt) {
-    $updateParts[] = "archived_at = NOW()";
-}
-
-if ($hasArchivedBy) {
-    $updateParts[] = "archived_by = ?";
-    $params[] = $_SESSION['admin_username'];
-    $types .= 's';
-}
-
-if ($hasArchiveReason && $reason) {
-    $updateParts[] = "archive_reason = ?";
-    $params[] = $reason;
-    $types .= 's';
-}
-
-if ($hasArchiveNotes && $notes) {
-    $updateParts[] = "archive_notes = ?";
-    $params[] = $notes;
-    $types .= 's';
-}
-
-if ($hasArchiveType) {
-    $archiveType = ($reason === 'failed_observation') ? 'failed_observation' : 'permanent_archive';
-    $updateParts[] = "archive_type = ?";
-    $params[] = $archiveType;
-    $types .= 's';
-}
-
-$params[] = $id;
-$types .= 'i';
-
-$sql = "UPDATE members SET " . implode(', ', $updateParts) . " WHERE id = ?";
+// Archive the member and preserve a reviewable reason trail.
+$sql = "UPDATE members
+        SET status='archived', archived_at=NOW(), archived_by=?, archive_reason=?,
+            archive_notes=?, archive_type=?
+        WHERE id=?";
 $stmt = $conn->prepare($sql);
-
 if ($stmt) {
-    if (!empty($types)) {
-        $stmt->bind_param($types, ...$params);
-    }
-    
+    $stmt->bind_param('ssssi', $archivedBy, $reason, $notes, $archiveType, $id);
     if ($stmt->execute()) {
         $memberName = $member['student_name'] . ' ' . $member['father_name'];
         
@@ -124,11 +83,13 @@ if ($stmt) {
             'message' => $memberName . ' has been moved to archive successfully'
         ]);
     } else {
-        echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $stmt->error]);
+        error_log('Member archive update failed.');
+        echo json_encode(['status' => 'error', 'message' => 'Unable to archive the member.']);
     }
     $stmt->close();
 } else {
-    echo json_encode(['status' => 'error', 'message' => 'Failed to prepare query: ' . $conn->error]);
+    error_log('Member archive prepare failed. Verify migration 013.');
+    echo json_encode(['status' => 'error', 'message' => 'Archive storage is temporarily unavailable.']);
 }
 
 $conn->close();

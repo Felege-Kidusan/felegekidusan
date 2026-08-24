@@ -92,7 +92,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$matReady): ?>
-<div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:var(--ac);margin-bottom:1rem"></i><h2 style="color:#f1f5f9;margin-bottom:.5rem">Setup Required</h2><p style="color:var(--dm);margin-bottom:1.5rem">Material tables need to be created.</p><a href="/admin/migrations/004_add_finance_material_tables.php" class="btn bp"><i class="fa-solid fa-play"></i> Run Migration 004</a></div>
+<div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:var(--ac);margin-bottom:1rem"></i><h2 style="color:#f1f5f9;margin-bottom:.5rem">Setup Required</h2><p style="color:var(--dm);margin-bottom:1.5rem">Material tables need to be created.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>
 <?php else: ?>
 <!-- DASHBOARD -->
 <div id="section-dashboard" class="cs active">

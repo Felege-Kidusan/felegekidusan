@@ -303,6 +303,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/admin/js/chart.umd.min.js"></script>
+    <script src="/admin/js/request-id.js"></script>
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
@@ -1329,6 +1330,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                           action="hr_register_member.php"
                           enctype="multipart/form-data"
                           onsubmit="handleMemberFormSubmitWithCheck(event)">
+                        <input type="hidden" name="registration_request_id" value="">
 
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                             <div>
@@ -2165,233 +2167,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </tbody>
                         </table>
                     </div>
+                    <div id="manageMembersPagination" class="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3" aria-live="polite"></div>
                 </div>
             </section>
 
-<script>
-// Manage Section Scripts
-let allManageMembers = []; // Store data for client-side filtering
-const embeddedManageMembers = <?php echo json_encode($membersList, JSON_UNESCAPED_UNICODE); ?>;
-
-function loadManageMembers() {
-    const tbody = document.getElementById('manageMembersTableBody');
-    if(!tbody) return;
-    
-    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">Loading...</td></tr>';
-
-    // If we already rendered data from PHP, reuse it immediately (no network flash)
-    if (allManageMembers.length === 0 && Array.isArray(embeddedManageMembers) && embeddedManageMembers.length > 0) {
-        allManageMembers = embeddedManageMembers;
-        renderManageTable(allManageMembers);
-    }
-
-    // Reuse the same data source as "All Members" if possible, or fetch fresh
-    // For now, we'll assume we can fetch the same list. 
-    // Ideally, we should have a dedicated API endpoint, but we can parse the existing PHP array if it was exposed to JS,
-    // or better, make an AJAX call. 
-    // Since we don't have a dedicated "list members" API, we will use the PHP rendered list from "All Members" section 
-    // if we are on the same page, OR we can create a simple API.
-    // Let's create a simple API endpoint for this: admin/api_list_members.php
-    
-    const params = new URLSearchParams();
-    const qEl = document.getElementById('manageSearchInput');
-    const typeEl = document.getElementById('manageFilterType');
-    const statusEl = document.getElementById('manageFilterStatus');
-    const mtypeEl = document.getElementById('manageFilterMemberType');
-    const genderEl = document.getElementById('manageFilterGender');
-    const ageEl = document.getElementById('manageFilterAgeGroup');
-    if (qEl && qEl.value.trim()) params.set('q', qEl.value.trim());
-    if (typeEl && typeEl.value) params.set('registration_type', typeEl.value);
-    if (statusEl && statusEl.value) params.set('status', statusEl.value);
-    if (mtypeEl && mtypeEl.value) params.set('member_type', mtypeEl.value);
-    if (genderEl && genderEl.value) params.set('gender', genderEl.value);
-    if (ageEl && ageEl.value) params.set('age_group', ageEl.value);
-    params.set('limit', '50');
-    params.set('page', '1');
-
-    fetch('/admin/api_list_members.php?' + params.toString(), {credentials: 'same-origin'})
-        .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
-        .then(data => {
-            if(data.status === 'success') {
-                allManageMembers = data.members;
-                renderManageTable(allManageMembers);
-            } else {
-                const fallback = Array.isArray(embeddedManageMembers) ? embeddedManageMembers : [];
-                if (fallback.length > 0) {
-                    allManageMembers = fallback;
-                    renderManageTable(allManageMembers);
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-400">Failed to load</td></tr>';
-                }
-            }
-        })
-        .catch(e => {
-            console.error(e);
-            const fallback = Array.isArray(embeddedManageMembers) ? embeddedManageMembers : [];
-            if (fallback.length > 0) {
-                allManageMembers = fallback;
-                renderManageTable(allManageMembers);
-            } else {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-400">Error loading data</td></tr>';
-            }
-        });
-}
-
-function renderManageTable(members) {
-    const tbody = document.getElementById('manageMembersTableBody');
-    tbody.innerHTML = '';
-    
-    if(members.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">No members found</td></tr>';
-        return;
-    }
-
-    // Escape any member-supplied text before putting it into innerHTML.
-    // Student/father names are entered by staff and stored in the DB, so an
-    // unescaped name like <img src=x onerror=...> would run in THIS admin's
-    // browser (stored XSS). This local helper guarantees escaping is applied
-    // regardless of where escapeHtml() is defined in the page.
-    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
-        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-    members.forEach(m => {
-        const row = document.createElement('tr');
-        row.className = 'hover:bg-slate-50 transition';
-        const fullName = ((m.student_name || '') + ' ' + (m.father_name || '')).trim();
-        row.innerHTML = `
-            <td class="px-4 py-3">
-                <div class="font-bold text-slate-800">${esc(m.student_name)} ${esc(m.father_name)}</div>
-                <div class="text-[10px] text-slate-500">${esc(m.member_code || 'No ID')}</div>
-            </td>
-            <td class="px-4 py-3 capitalize">
-                <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
-                    ${esc(m.registration_type)}
-                </span>
-            </td>
-            <td class="px-4 py-3">
-                <span class="px-2 py-0.5 rounded-full ${getStatusColor(m.status)} text-[10px] font-bold border border-white shadow-sm">
-                    ${esc(m.status)}
-                </span>
-            </td>
-            <td class="px-4 py-3 text-right">
-                <div class="flex items-center justify-end gap-2">
-                    <button onclick="openManageSheet(${parseInt(m.id, 10)})" class="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-bold text-[11px] transition">
-                        <i class="fa-solid fa-pen-to-square mr-1"></i> Manage
-                    </button>
-                    <button data-id="${parseInt(m.id, 10)}" data-name="${esc(fullName)}" onclick="archiveMember(this.dataset.id, this.dataset.name)" class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 font-bold text-[11px] transition" title="Move to Archive">
-                        <i class="fa-solid fa-box-archive"></i>
-                    </button>
-                </div>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-function getStatusColor(status) {
-    if(status === 'active') return 'bg-emerald-100 text-emerald-700';
-    if(status === 'warning') return 'bg-amber-100 text-amber-700';
-    if(status === 'inactive') return 'bg-slate-100 text-slate-600';
-    return 'bg-gray-100 text-gray-600';
-}
-
-function applyManageFilters() {
-    loadManageMembers();
-}
-
-function _legacyClientFilterUnused() {
-    const q = document.getElementById('manageSearchInput').value.toLowerCase();
-    const type = document.getElementById('manageFilterType').value;
-    const status = document.getElementById('manageFilterStatus').value;
-    const memberType = document.getElementById('manageFilterMemberType').value;
-    const gender = document.getElementById('manageFilterGender').value;
-    const city = document.getElementById('manageFilterCity').value;
-    const ageGroup = document.getElementById('manageFilterAgeGroup').value;
-    const education = document.getElementById('manageFilterEducation').value;
-
-    const filtered = allManageMembers.filter(m => {
-        const haystack = [
-            m.student_name,
-            m.father_name,
-            m.grandfather_name,
-            m.baptismal_name,
-            m.member_code,
-            m.phone_number,
-            m.alt_phone_number,
-            m.guardian_name,
-            m.guardian_phone1,
-            m.guardian_phone2,
-            m.city,
-            m.sub_city,
-            m.woreda,
-            m.mender,
-            m.block_number,
-            m.house_number,
-            m.work_profession,
-            m.education_level,
-            m.registration_type,
-            m.member_type,
-            m.status,
-        ].filter(Boolean).join(' ').toLowerCase();
-
-        const matchText = haystack.includes(q);
-        const matchType = type ? m.registration_type === type : true;
-        const matchStatus = status ? m.status === status : true;
-        const matchMemberType = memberType ? m.member_type === memberType : true;
-        const matchGender = gender ? m.gender === gender : true;
-        const matchCity = city ? m.city === city : true;
-        const matchAge = ageGroup ? m.age_group === ageGroup : true;
-        const matchEdu = education ? m.education_level === education : true;
-
-        return matchText && matchType && matchStatus && matchMemberType && matchGender && matchCity && matchAge && matchEdu;
-    });
-
-    renderManageTable(filtered);
-}
-
-// Reset filters to defaults
-function resetManageFilters() {
-    document.getElementById('manageSearchInput').value = '';
-    document.getElementById('manageFilterType').value = '';
-    document.getElementById('manageFilterStatus').value = '';
-    document.getElementById('manageFilterMemberType').value = '';
-    document.getElementById('manageFilterGender').value = '';
-    document.getElementById('manageFilterCity').value = '';
-    document.getElementById('manageFilterAgeGroup').value = '';
-    document.getElementById('manageFilterEducation').value = '';
-    applyManageFilters();
-}
-
-// Hook into navigation to load data when tab is shown
-document.querySelectorAll('[data-section="manage"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-        loadManageMembers();
-    });
-});
-
-// Live filtering on input/change
-document.addEventListener('DOMContentLoaded', () => {
-    const inputs = [
-        'manageSearchInput',
-        'manageFilterType',
-        'manageFilterStatus',
-        'manageFilterMemberType',
-        'manageFilterGender',
-        'manageFilterCity',
-        'manageFilterAgeGroup',
-        'manageFilterEducation'
-    ];
-    inputs.forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('input', applyManageFilters);
-        el.addEventListener('change', applyManageFilters);
-    });
-});
-</script>
+<script src="/admin/js/manage-members.js" defer></script>
+<script src="/frontend/js/member-picker.js" defer></script>
+<script src="/admin/js/id-card-directory.js" defer></script>
+<script src="/admin/js/archive-members.js" defer></script>
 
             <!-- ARCHIVE -->
             <section id="section-archive" class="content-section">
@@ -2442,6 +2225,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <p class="text-sm">Loading archived members...</p>
                         </div>
                     </div>
+                    <div id="archivedMembersPagination" class="mt-3 flex items-center justify-between gap-3" aria-live="polite"></div>
                 </div>
             </section>
 
@@ -2454,9 +2238,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 <h3 class="text-sm font-semibold text-slate-800 mb-1">ID Card Management</h3>
                 <p class="text-xs text-slate-500">Generate and Print Digital IDs for eligible members.</p>
             </div>
-            <button onclick="location.reload()" class="p-2 text-slate-500 hover:text-slate-700">
+            <button type="button" onclick="loadIdCardMembers()" class="p-2 text-slate-500 hover:text-slate-700">
                 <i class="fa-solid fa-sync"></i>
             </button>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 mb-4">
+            <input type="search" id="idCardMemberSearch" autocomplete="off"
+                   class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm"
+                   placeholder="Search eligible members by name, code, or phone">
+            <button type="button" onclick="loadIdCardMembers()" class="px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold">Refresh</button>
         </div>
 
         <div class="overflow-x-auto border rounded-lg">
@@ -2470,99 +2261,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         <th class="px-4 py-3 font-medium text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
-                    <?php
-                    // Helper map for member types
-                    $typeMap = [
-                        'direct' => 'መደበኛ (Regular)',
-                        'transfer' => 'ልዩ መደበኛ (Student+)',
-                        'honorary' => 'የክብር አባላት'
-                    ];
-
-                    $id_sql = "SELECT id, student_name, father_name, member_code, registration_type, id_card_status, id_card_generated_at
-                               FROM members 
-                               WHERE status = 'active' 
-                               AND membership_tier = 'permanent'
-                               AND registration_type IN ('direct', 'transfer', 'honorary') 
-                               ORDER BY student_name ASC";
-                    
-                    if (isset($conn)) {
-                        $id_result = $conn->query($id_sql);
-                        
-                        if ($id_result && $id_result->num_rows > 0) {
-                            while ($row = $id_result->fetch_assoc()) {
-                                $full_name = $row['student_name'] . ' ' . $row['father_name'];
-                                $status = $row['id_card_status']; 
-                                $code = $row['member_code'] ? $row['member_code'] : 'Pending';
-                                
-                                // Map Type
-                                $displayType = $typeMap[$row['registration_type']] ?? $row['registration_type'];
-
-                                // Check Expiry (4 Years)
-                                $is_expired = false;
-                                if ($status == 'generated' && !empty($row['id_card_generated_at'])) {
-                                    $exp_date = date('Y-m-d', strtotime($row['id_card_generated_at'] . ' + 4 years'));
-                                    if (date('Y-m-d') > $exp_date) {
-                                        $is_expired = true;
-                                    }
-                                }
-                                ?>
-                                <tr class="hover:bg-slate-50 transition">
-                                    <td class="px-4 py-3 font-medium"><?php echo e($full_name); ?></td>
-                                    <td class="px-4 py-3">
-                                        <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs font-mono">
-                                            <?php echo e($code); ?>
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 text-xs font-semibold text-slate-600">
-                                        <?php echo e($displayType); ?>
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        <?php if($status == 'generated'): ?>
-                                            <?php if($is_expired): ?>
-                                                <span class="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">EXPIRED</span>
-                                            <?php else: ?>
-                                                <span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-semibold">Generated</span>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs font-semibold">Not Created</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="px-4 py-3 text-right">
-                                        <?php if($status == 'generated'): ?>
-                                            <!-- View Button -->
-                                            <a href="/admin/id_cards/view_id_card.php?member_id=<?php echo $row['id']; ?>" 
-                                               target="_blank"
-                                               class="inline-flex items-center gap-1 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-3 py-1.5 rounded text-xs font-medium shadow-sm">
-                                               <i class="fa-solid fa-eye"></i> View
-                                            </a>
-                                            <!-- Renew Button (Only if Expired) -->
-                                            <?php if($is_expired): ?>
-                                                <a href="/admin/id_cards/generate_id_card.php?member_id=<?php echo $row['id']; ?>&action=renew" 
-                                                   onclick="return confirm('Renew this ID? This will set the issue date to today.')"
-                                                   class="inline-flex items-center gap-1 bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded text-xs font-medium shadow-sm ml-2">
-                                                   <i class="fa-solid fa-rotate"></i> Renew
-                                                </a>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <!-- Generate Button -->
-                                            <a href="/admin/id_cards/generate_id_card.php?member_id=<?php echo $row['id']; ?>" 
-                                               class="inline-flex items-center gap-1 bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1.5 rounded text-xs font-medium shadow-sm transition">
-                                               <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
-                                            </a>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                                <?php
-                            }
-                        } else {
-                            echo "<tr><td colspan='5' class='px-4 py-8 text-center text-slate-400'>No eligible members found.</td></tr>";
-                        }
-                    }
-                    ?>
+                <tbody id="idCardMembersBody" class="divide-y divide-slate-100 text-sm text-slate-700">
+                    <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Loading eligible members…</td></tr>
                 </tbody>
             </table>
         </div>
+        <div id="idCardMembersPagination" class="mt-3 flex items-center justify-between gap-3" aria-live="polite"></div>
     </div>
 </section>
 <!-- ID CARD SECTION END -->
@@ -2959,7 +2663,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">New Password</label>
-                                        <input type="password" id="pwdNew" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Min 6 characters">
+                                        <input type="password" id="pwdNew" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Min 12 characters">
                                     </div>
                                     <div>
                                         <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Confirm New Password</label>
@@ -3234,14 +2938,14 @@ document.addEventListener('DOMContentLoaded', () => {
         <form id="attakerForm" class="p-5">
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Link to Member (Optional)</label>
-                <select name="member_id" id="attakerMemberId" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="">-- Select Member --</option>
-                    <?php
-                    $membersForAttaker = $conn->query("SELECT id, member_code, student_name, father_name FROM members WHERE status = 'active' ORDER BY student_name LIMIT 500");
-                    while ($ma = $membersForAttaker->fetch_assoc()):
-                    ?>
-                    <option value="<?= $ma['id'] ?>"><?= e($ma['student_name'] . ' ' . $ma['father_name']) ?> (<?= e($ma['member_code']) ?>)</option>
-                    <?php endwhile; ?>
+                <input type="search"
+                       data-member-picker-target="attakerMemberId"
+                       data-member-picker-status="active"
+                       class="w-full px-3 py-2 mb-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                       placeholder="Search active members by name, code, or phone"
+                       autocomplete="off">
+                <select name="member_id" id="attakerMemberId" data-optional="true" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
+                    <option value="">— None —</option>
                 </select>
             </div>
             
@@ -3262,7 +2966,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             <div class="mb-5">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Password *</label>
-                <input type="password" name="password" id="attakerPassword" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Secure password">
+                <input type="password" name="password" id="attakerPassword" minlength="12" maxlength="72" autocomplete="new-password" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Secure password">
             </div>
             
             <div class="flex gap-3">
@@ -3919,6 +3623,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const overlay = document.getElementById('formLoadingOverlay');
         if (overlay) overlay.classList.remove('hidden');
 
+        ensureRegistrationRequestId(form);
         const formData = new FormData(form);
         formData.append('csrf_token', CSRF_TOKEN);
 
@@ -4180,230 +3885,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ---------------------------------------------------------
-    // ARCHIVED MEMBERS FUNCTIONS
-    // ---------------------------------------------------------
-    let archivedMembersData = [];
-    let currentArchiveTab = 'permanent_archive';
-    
-    function switchArchiveTab(tabName) {
-        currentArchiveTab = tabName;
-        
-        // Update tab styling
-        const tabPerm = document.getElementById('tab_permanent_archive');
-        const tabFail = document.getElementById('tab_failed_observation');
-        
-        if (tabName === 'permanent_archive') {
-            tabPerm.className = "px-4 py-2 text-sm font-semibold text-amber-700 border-b-2 border-amber-500";
-            tabFail.className = "px-4 py-2 text-sm font-semibold text-slate-500 border-b-2 border-transparent hover:text-amber-700";
-        } else {
-            tabFail.className = "px-4 py-2 text-sm font-semibold text-amber-700 border-b-2 border-amber-500";
-            tabPerm.className = "px-4 py-2 text-sm font-semibold text-slate-500 border-b-2 border-transparent hover:text-amber-700";
-        }
-        
-        filterArchivedMembers();
-    }
-    
-    function loadArchivedMembers() {
-        const listContainer = document.getElementById('archivedMembersList');
-        const countBadge = document.getElementById('archivedCount');
-        
-        listContainer.innerHTML = `
-            <div class="text-center py-8 text-slate-400">
-                <i class="fa-solid fa-spinner fa-spin text-2xl mb-2"></i>
-                <p class="text-sm">Loading archived members...</p>
-            </div>
-        `;
-        
-        fetch('/admin/info_get_archived_members.php')
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    archivedMembersData = data.members || [];
-                    countBadge.textContent = archivedMembersData.length + ' Members';
-                    filterArchivedMembers();
-                } else {
-                    listContainer.innerHTML = `
-                        <div class="text-center py-8 text-red-400">
-                            <i class="fa-solid fa-exclamation-circle text-2xl mb-2"></i>
-                            <p class="text-sm">${data.message || 'Failed to load archived members'}</p>
-                        </div>
-                    `;
-                }
-            })
-            .catch(() => {
-                listContainer.innerHTML = `
-                    <div class="text-center py-8 text-red-400">
-                        <i class="fa-solid fa-wifi text-2xl mb-2"></i>
-                        <p class="text-sm">Network error. Please try again.</p>
-                    </div>
-                `;
-            });
-    }
-    
-    function filterArchivedMembers() {
-        const query = (document.getElementById('archiveSearch').value || '').toLowerCase();
-        
-        const filtered = archivedMembersData.filter(m => {
-            const matchesTab = (m.archive_type || 'permanent_archive') === currentArchiveTab;
-            if (!matchesTab) return false;
-            
-            if (!query) return true;
-            
-            const name = ((m.student_name || '') + ' ' + (m.father_name || '') + ' ' + (m.grandfather_name || '')).toLowerCase();
-            const code = (m.member_code || '').toLowerCase();
-            const phone = (m.phone_number || '').toLowerCase();
-            
-            return name.includes(query) || code.includes(query) || phone.includes(query);
-        });
-        
-        renderArchivedMembers(filtered);
-    }
-    
-    function renderArchivedMembers(members) {
-        const listContainer = document.getElementById('archivedMembersList');
-        
-        if (members.length === 0) {
-            listContainer.innerHTML = `
-                <div class="text-center py-12 text-slate-400">
-                    <i class="fa-solid fa-box-open text-4xl mb-3 text-slate-300"></i>
-                    <p class="text-sm font-medium">No archived members found</p>
-                    <p class="text-xs mt-1">Archived members for this category will appear here</p>
-                </div>
-            `;
-            return;
-        }
-        
-        const reasonLabels = {
-            'left_school': 'ከት/ቤት ወጥቷል',
-            'graduated': 'ተመርቋል',
-            'transferred': 'ተዛውሯል',
-            'inactive_long': 'ረጅም ጊዜ ቦዝ',
-            'failed_observation': 'የሙከራ ጊዜ አላጠናቀቀም',
-            'deceased': 'አርፏል',
-            'other': 'ሌላ'
-        };
-        
-        listContainer.innerHTML = members.map(m => {
-            const fullName = (m.student_name || '') + ' ' + (m.father_name || '');
-            const photo = m.student_photo_path ? fixImagePath(m.student_photo_path) : '';
-            const section = m.current_section || m.age_group || '—';
-            const reason = reasonLabels[m.archive_reason] || m.archive_reason || 'Unknown';
-            const archivedDate = m.archived_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(m.archived_at,'medium'):new Date(m.archived_at).toLocaleDateString('en-GB')) : '—';
-            
-            return `
-                <div class="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition">
-                    <div class="flex items-start gap-4">
-                        <!-- Photo -->
-                        <div class="w-14 h-14 rounded-xl bg-slate-100 overflow-hidden flex-shrink-0 border-2 border-amber-200">
-                            ${photo 
-                                ? `<img src="${photo}" class="w-full h-full object-cover" alt="">` 
-                                : `<div class="w-full h-full flex items-center justify-center text-slate-400"><i class="fa-solid fa-user text-xl"></i></div>`
-                            }
-                        </div>
-                        
-                        <!-- Info -->
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-start justify-between gap-2">
-                                <div>
-                                    <h4 class="font-bold text-slate-800 text-sm truncate">${escapeHtml(fullName)}</h4>
-                                    <p class="text-xs text-slate-500 mt-0.5">
-                                        <span class="bg-slate-100 px-2 py-0.5 rounded">${m.member_code || 'No ID'}</span>
-                                        <span class="mx-1">•</span>
-                                        ${section}
-                                    </p>
-                                </div>
-                                <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-bold flex-shrink-0">
-                                    ARCHIVED
-                                </span>
-                            </div>
-                            
-                            <!-- Archive Info -->
-                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                                <span class="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg">
-                                    <i class="fa-solid fa-tag mr-1"></i> ${reason}
-                                </span>
-                                <span class="text-slate-400">
-                                    <i class="fa-solid fa-calendar mr-1"></i> ${archivedDate}
-                                </span>
-                            </div>
-                            
-                            <!-- Actions -->
-                            <div class="mt-3 flex gap-2">
-                                <button onclick="restoreMember(${m.id}, '${fullName.replace(/'/g, "\\'")}')" 
-                                        class="flex-1 px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-xs font-bold transition">
-                                    <i class="fa-solid fa-rotate-left mr-1"></i> Restore to Active
-                                </button>
-                                <button onclick="openManageSheet(${m.id})" 
-                                        class="px-3 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg text-xs font-bold transition">
-                                    <i class="fa-solid fa-eye mr-1"></i> View
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-    
-    function filterArchivedMembers() {
-        const query = document.getElementById('archiveSearch').value.toLowerCase().trim();
-        
-        if (!query) {
-            renderArchivedMembers(archivedMembersData);
-            return;
-        }
-        
-        const filtered = archivedMembersData.filter(m => {
-            const fullName = ((m.student_name || '') + ' ' + (m.father_name || '') + ' ' + (m.grandfather_name || '')).toLowerCase();
-            const code = (m.member_code || '').toLowerCase();
-            return fullName.includes(query) || code.includes(query);
-        });
-        
-        renderArchivedMembers(filtered);
-        document.getElementById('archivedCount').textContent = filtered.length + ' / ' + archivedMembersData.length;
-    }
-    
-    function fixImagePath(path) {
-        if (!path) return '';
-        if (path.startsWith('http')) return path;
-        path = path.replace(/^\/+/, '');
-        if (path.startsWith('uploads/')) return '/admin/' + path;
-        if (path.startsWith('admin/')) return '/' + path;
-        return '/' + path;
-    }
-    
+    // Shared text-escaping helper used by attendance and management views.
     function escapeHtml(text) {
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = String(text ?? '');
         return div.innerHTML;
     }
-    
-    // Auto-load archived members when archive section is shown
-    document.addEventListener('DOMContentLoaded', () => {
-        // Observe section visibility
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting && entry.target.id === 'section-archive') {
-                    loadArchivedMembers();
-                    observer.unobserve(entry.target);
-                }
-            });
-        });
-        
-        const archiveSection = document.getElementById('section-archive');
-        if (archiveSection) {
-            observer.observe(archiveSection);
-        }
-        
-        // Also load when clicking archive nav
-        document.querySelectorAll('[data-section="archive"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                setTimeout(loadArchivedMembers, 100);
-            });
-        });
-    });
 
-    // ---------------------------------------------------------
     // MANAGE SHEET FUNCTIONS (Tabs, Preview, Edit)
     // ---------------------------------------------------------
     function switchManageTab(tab) {
@@ -4691,8 +4179,14 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="bg-slate-50 px-6 py-4 border-t">
             <p class="text-xs text-slate-500 mb-3 text-center">
                 <i class="fa-solid fa-info-circle mr-1"></i>
-                If this is a different person, click "Register Anyway"
+                If this is a different person, document why before continuing.
             </p>
+            <label for="duplicateOverrideReason" class="block text-xs font-semibold text-slate-600 mb-1">
+                Duplicate override reason
+            </label>
+            <textarea id="duplicateOverrideReason" maxlength="500" rows="2"
+                      class="w-full border border-slate-200 rounded-lg p-2 text-sm mb-3"
+                      placeholder="Example: verified different birth date and guardian"></textarea>
             <div class="flex gap-3">
                 <button onclick="closeDuplicateModal()" 
                         class="flex-1 px-4 py-3 bg-white border border-slate-200 text-slate-600 font-semibold rounded-xl hover:bg-slate-100 transition">
@@ -4716,14 +4210,52 @@ let duplicateCheckTimer = null;
 let skipDuplicateCheck = false;
 let pendingFormData = null;
 
-// Check for duplicates when name fields change
+function ensureRegistrationRequestId(form) {
+    return window.SsmsRequestId?.ensure(form, 'registration_request_id') || '';
+}
+
+function registrationIdentity(form) {
+    const parts = (form?.querySelector('input[name="full_name_am"]')?.value || '')
+        .trim().split(/\s+/u).filter(Boolean);
+    return {
+        studentName: parts[0] || '',
+        fatherName: parts[1] || '',
+        grandfatherName: parts.slice(2).join(' '),
+        phone: form?.querySelector('input[name="phone_number"]')?.value?.trim() || ''
+    };
+}
+
+function requestDuplicateCheck({ studentName, fatherName, grandfatherName, phone }) {
+    const body = new URLSearchParams({
+        student_name: studentName,
+        father_name: fatherName,
+        grandfather_name: grandfatherName,
+        phone: phone,
+        csrf_token: CSRF_TOKEN
+    });
+    return fetch('/admin/api_check_duplicate.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+        },
+        body: body.toString()
+    }).then(async response => {
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'Duplicate check failed');
+        }
+        return data;
+    });
+}
+
+// Check for duplicates when identity fields change
 function setupDuplicateCheck() {
-    const studentNameField = document.querySelector('input[name="student_name"]');
-    const fatherNameField = document.querySelector('input[name="father_name"]');
-    const grandfatherNameField = document.querySelector('input[name="grandfather_name"]');
-    const phoneField = document.querySelector('input[name="phone_number"]');
-    
-    const fields = [studentNameField, fatherNameField, grandfatherNameField, phoneField];
+    const form = document.getElementById('memberRegistrationForm');
+    const fullNameField = form?.querySelector('input[name="full_name_am"]');
+    const phoneField = form?.querySelector('input[name="phone_number"]');
+    const fields = [fullNameField, phoneField];
     
     fields.forEach(field => {
         if (field) {
@@ -4738,25 +4270,15 @@ function setupDuplicateCheck() {
 function checkForDuplicates() {
     if (skipDuplicateCheck) return;
     
-    const studentName = document.querySelector('input[name="student_name"]')?.value?.trim() || '';
-    const fatherName = document.querySelector('input[name="father_name"]')?.value?.trim() || '';
-    const grandfatherName = document.querySelector('input[name="grandfather_name"]')?.value?.trim() || '';
-    const phone = document.querySelector('input[name="phone_number"]')?.value?.trim() || '';
-    
+    const form = document.getElementById('memberRegistrationForm');
+    const { studentName, fatherName, grandfatherName, phone } = registrationIdentity(form);
+
     // Need at least student and father name
     if (studentName.length < 2 || fatherName.length < 2) return;
     
     duplicateCheckPending = true;
     
-    const params = new URLSearchParams({
-        student_name: studentName,
-        father_name: fatherName,
-        grandfather_name: grandfatherName,
-        phone: phone
-    });
-    
-    fetch('/admin/api_check_duplicate.php?' + params.toString())
-        .then(r => r.json())
+    requestDuplicateCheck({ studentName, fatherName, grandfatherName, phone })
         .then(data => {
             duplicateCheckPending = false;
             if (data.found && data.matches && data.matches.length > 0) {
@@ -4826,14 +4348,27 @@ function showDuplicateWarning(matches) {
 function closeDuplicateModal() {
     document.getElementById('duplicateModal').classList.add('hidden');
     document.getElementById('duplicateModal').classList.remove('flex');
+    const reason = document.getElementById('duplicateOverrideReason');
+    if (reason) reason.value = '';
     pendingFormData = null;
 }
 
 function proceedWithRegistration() {
+    const reasonField = document.getElementById('duplicateOverrideReason');
+    const overrideReason = reasonField?.value?.trim() || '';
+    if (!overrideReason) {
+        alert('Enter why this is a different person before registering.');
+        reasonField?.focus();
+        return;
+    }
     skipDuplicateCheck = true;
     
     // Save form data BEFORE closing modal (closeDuplicateModal sets pendingFormData = null)
     const formDataToSubmit = pendingFormData;
+    if (formDataToSubmit) {
+        formDataToSubmit.set('duplicate_override', '1');
+        formDataToSubmit.set('duplicate_override_reason', overrideReason);
+    }
     
     closeDuplicateModal();
     
@@ -4879,27 +4414,16 @@ function handleMemberFormSubmitWithCheck(event) {
     const form = document.getElementById('memberRegistrationForm');
     if (!form) return;
     
-    const studentName = form.querySelector('input[name="student_name"]')?.value?.trim() || '';
-    const fatherName = form.querySelector('input[name="father_name"]')?.value?.trim() || '';
-    const grandfatherName = form.querySelector('input[name="grandfather_name"]')?.value?.trim() || '';
-    const phone = form.querySelector('input[name="phone_number"]')?.value?.trim() || '';
-    
-    // Store form data for later submission
+    const { studentName, fatherName, grandfatherName, phone } = registrationIdentity(form);
+
+    // Store form data for later submission. Keep this ID across network retries.
+    ensureRegistrationRequestId(form);
     pendingFormData = new FormData(form);
-    
-    // Check for duplicates
-    const params = new URLSearchParams({
-        student_name: studentName,
-        father_name: fatherName,
-        grandfather_name: grandfatherName,
-        phone: phone
-    });
     
     const overlay = document.getElementById('formLoadingOverlay');
     if (overlay) overlay.classList.remove('hidden');
     
-    fetch('/admin/api_check_duplicate.php?' + params.toString())
-        .then(r => r.json())
+    requestDuplicateCheck({ studentName, fatherName, grandfatherName, phone })
         .then(data => {
             if (overlay) overlay.classList.add('hidden');
             
@@ -4924,6 +4448,10 @@ function submitRegistrationForm(formData) {
     const overlay = document.getElementById('formLoadingOverlay');
     if (overlay) overlay.classList.remove('hidden');
     
+    if (!formData.has('registration_request_id')) {
+        const form = document.getElementById('memberRegistrationForm');
+        formData.append('registration_request_id', ensureRegistrationRequestId(form));
+    }
     // CRITICAL: Add CSRF token — the form doesn't have a hidden field for it
     if (!formData.has('csrf_token')) {
         formData.append('csrf_token', CSRF_TOKEN);
@@ -5374,7 +4902,7 @@ function changePassword() {
     const cf = document.getElementById('pwdConfirm').value;
     if (!cur || !nw || !cf) { settingsToast('All password fields required', false); return; }
     if (nw !== cf) { settingsToast('New passwords do not match', false); return; }
-    if (nw.length < 6) { settingsToast('Min 6 characters required', false); return; }
+    if (nw.length < 12) { settingsToast('Min 12 characters required', false); return; }
     sApiPost('password_change', { current_password: cur, new_password: nw, confirm_password: cf }).then(d => {
         settingsToast(d.message, d.status === 'success');
         if (d.status === 'success') { document.getElementById('pwdCurrent').value = ''; document.getElementById('pwdNew').value = ''; document.getElementById('pwdConfirm').value = ''; }
@@ -5533,7 +5061,7 @@ function clearCache() {
         
         <!-- Body -->
         <div class="p-6 overflow-y-auto space-y-6">
-            <p class="text-sm text-slate-600">Filled cells update the member. Blank cells are left unchanged. Member codes cannot be edited. Use the <span class="font-medium text-slate-800">Class</span> dropdown to assign an Education class.</p>
+            <p class="text-sm text-slate-600">Filled cells update the member. Blank cells are left unchanged. Member codes cannot be edited. Use the <span class="font-medium text-slate-800">Class</span> dropdown to assign an Education class. Editable workbooks are limited to 2,000 rows to match the safe import transaction limit; complete CSV downloads stream the full roster.</p>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <!-- Temporary Members Column -->
@@ -5545,7 +5073,10 @@ function clearCache() {
                     <div class="bg-white rounded-xl p-4 shadow-sm mb-4">
                         <p class="text-xs text-slate-500 mb-3">Download the template with fields specific to Temporary members.</p>
                         <a href="/admin/api_export_members.php?tier=temporary" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-100 text-amber-800 rounded-lg font-semibold hover:bg-amber-200 transition border border-amber-300">
-                            <i class="fa-solid fa-download"></i> Download Template
+                            <i class="fa-solid fa-download"></i> Download Editable Template
+                        </a>
+                        <a href="/admin/api_export_members.php?tier=temporary&amp;format=csv" class="mt-2 w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-white text-amber-800 rounded-lg font-semibold hover:bg-amber-50 transition border border-amber-200">
+                            <i class="fa-solid fa-file-csv"></i> Download Complete CSV
                         </a>
                     </div>
                     
@@ -5571,8 +5102,11 @@ function clearCache() {
                     
                     <div class="bg-white rounded-xl p-4 shadow-sm mb-4">
                         <p class="text-xs text-slate-500 mb-3">Download the full template for Permanent members.</p>
-                        <a href="/admin/api_export_members.php?tier=permanent" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg font-semibold hover:bg-emerald-200 transition border border-emerald-300" onclick="this.href='/admin/api_export_members.php?tier=permanent&amp;t='+Date.now()">
-                            <i class="fa-solid fa-download"></i> Download Template
+                        <a href="/admin/api_export_members.php?tier=permanent" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-800 rounded-lg font-semibold hover:bg-emerald-200 transition border border-emerald-300">
+                            <i class="fa-solid fa-download"></i> Download Editable Template
+                        </a>
+                        <a href="/admin/api_export_members.php?tier=permanent&amp;format=csv" class="mt-2 w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-white text-emerald-800 rounded-lg font-semibold hover:bg-emerald-50 transition border border-emerald-200">
+                            <i class="fa-solid fa-file-csv"></i> Download Complete CSV
                         </a>
                     </div>
                     

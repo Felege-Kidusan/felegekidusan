@@ -35,6 +35,15 @@ admin/uploads/cache/
 
 # --- User-uploaded student files (photos, documents = PII) ---
 admin/uploads/members/
+# Keep denial rules, never uploaded content.
+!admin/uploads/members/
+admin/uploads/members/*
+!admin/uploads/members/docs/
+admin/uploads/members/docs/*
+!admin/uploads/members/docs/.htaccess
+!admin/uploads/members/guardian_photos/
+admin/uploads/members/guardian_photos/*
+!admin/uploads/members/guardian_photos/.htaccess
 uploads/gallery/*
 uploads/teachers/*
 !uploads/gallery/README.txt
@@ -50,3 +59,7 @@ admin/id_cards/assets/qr/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Python test caches
+__pycache__/
+*.pyc

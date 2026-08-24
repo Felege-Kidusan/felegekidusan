@@ -6,7 +6,7 @@
  * Checks if your sites are up every 5 minutes.
  * 
  * CRON SETUP (cPanel > Cron Jobs):
- *   Schedule: */5 * * * *
+ *   Schedule: every five minutes (standard five-minute cron interval)
  *   Command:  php /home/{HOSTING_USER}/domains/{SITE_DOMAIN}/public_html/monitor/uptime_cron.php
  * ============================================================
  */
@@ -14,6 +14,10 @@
 // Load credentials from main config (CLI-safe: skip session redirects)
 define('WBWS_API_REQUEST', true);
 require_once dirname(__DIR__) . '/config.php';
+if (!feature_enabled('monitor')) {
+    fwrite(STDOUT, "Monitor feature disabled; no uptime check was run.\n");
+    exit(0);
+}
 
 $config = [
     'db_host' => DB_HOST,
@@ -101,7 +105,11 @@ if (!empty($downSites) && $config['telegram_enabled']) {
     sendDownAlert($downSites, $config);
 }
 
-$conn->query("DELETE FROM arkeon_uptime_log WHERE checked_at < DATE_SUB(NOW(), INTERVAL 30 DAY)");
+// Privacy retention is a deployment/cron concern, never request-time work.
+// Bounded batches avoid long locks if a busy installation accumulates a backlog.
+$conn->query("DELETE FROM arkeon_uptime_log WHERE checked_at < DATE_SUB(NOW(), INTERVAL 30 DAY) LIMIT 5000");
+$conn->query("DELETE FROM arkeon_error_log WHERE is_resolved=1 AND created_at < DATE_SUB(NOW(), INTERVAL 30 DAY) LIMIT 5000");
+$conn->query("DELETE FROM arkeon_error_log WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY) LIMIT 5000");
 $conn->close();
 
 echo "Checked " . count($sites) . " sites. " . count($downSites) . " down.\n";

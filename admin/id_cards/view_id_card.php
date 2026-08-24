@@ -5,6 +5,11 @@ require_once 'libs/eth_date_helper.php';
 require_once __DIR__ . '/../backend/services/IdCardLayout.php';
 
 $member_id = isset($_GET['member_id']) ? intval($_GET['member_id']) : 0;
+$backDashboard = match ((string)($_SESSION['admin_role'] ?? '')) {
+    'super_admin' => '../dashboards/super-admin.php',
+    'school_admin' => '../dashboards/school_admin.php',
+    default => '../dashboards/hr-dept.php',
+};
 $stmt = $conn->prepare("SELECT * FROM members WHERE id = ?");
 $stmt->bind_param("i", $member_id);
 $stmt->execute();
@@ -38,23 +43,20 @@ $DISPLAY = [
     'sig_admin_size' => 140, 'sig_admin_opacity' => 90,
 ];
 
-// Safely load branding from DB — gracefully handles missing table
-$brandingLoaded = false;
+// Branding storage is deployment-managed by migration 012. Defaults remain
+// available if a transient query fails.
 if ($conn && !$conn->connect_error) {
-    // Step 1: Check if table exists first (avoids fatal error)
-    $tableCheck = $conn->query("SHOW TABLES LIKE 'system_branding'");
-    if ($tableCheck && $tableCheck->num_rows > 0) {
+    try {
         $br = $conn->query("SELECT asset_key, file_path, original_name FROM system_branding");
         if ($br) {
             while ($row = $br->fetch_assoc()) {
                 if ($row['asset_key'] === '_id_card_settings' && !empty($row['original_name'])) {
                     $saved = json_decode($row['original_name'], true);
                     if (is_array($saved)) {
-                        // Only merge known numeric keys
                         $allowedKeys = ['logo_size','logo_opacity','seal_size','seal_opacity',
                                         'sig_head_size','sig_head_opacity','sig_admin_size','sig_admin_opacity'];
                         foreach ($saved as $k => $v) {
-                            if (in_array($k, $allowedKeys) && is_numeric($v)) {
+                            if (in_array($k, $allowedKeys, true) && is_numeric($v)) {
                                 $DISPLAY[$k] = max(0, min(1000, (int)$v));
                             }
                         }
@@ -63,10 +65,10 @@ if ($conn && !$conn->connect_error) {
                     $CONFIG[$row['asset_key']] = $row['file_path'];
                 }
             }
-            $brandingLoaded = true;
         }
+    } catch (Throwable $error) {
+        error_log('ID card branding lookup failed.');
     }
-    // If table doesn't exist, $CONFIG and $DISPLAY keep their defaults — no crash
 }
 
 $layout = \App\Services\IdCardLayout::load($conn);
@@ -253,7 +255,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
     <!-- TOP MENU -->
     <div class="fixed top-0 left-0 w-full bg-white shadow-lg p-3 flex justify-between items-center z-50">
         <div class="flex items-center gap-4">
-            <a href="../dashboards/info-dept.php?section=idcards" class="text-gray-600 hover:text-black font-bold flex items-center gap-2">&larr; Back</a>
+            <a href="<?= e($backDashboard) ?>?section=idcards" class="text-gray-600 hover:text-black font-bold flex items-center gap-2">&larr; Back</a>
             <?php if($isExpired): ?>
                 <div class="bg-red-100 text-red-700 px-3 py-1 rounded font-bold text-sm flex items-center gap-2">
                     <span class="w-2 h-2 bg-red-600 rounded-full animate-pulse"></span> EXPIRED
@@ -266,11 +268,16 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
         </div>
         <div class="flex gap-2">
             <!-- RENEW BUTTON -->
-            <a href="generate_id_card.php?member_id=<?php echo $member_id; ?>&action=renew" 
-               onclick="return confirm('Update Issue Date to TODAY?')"
-               class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow font-semibold flex items-center gap-2 text-sm">
-               <i class="fa-solid fa-rotate"></i> Update Date
-            </a>
+            <form method="post" action="generate_id_card.php"
+                  onsubmit="return confirm('Update Issue Date to TODAY?')">
+                <?= csrf_field() ?>
+                <input type="hidden" name="member_id" value="<?= (int)$member_id ?>">
+                <input type="hidden" name="action" value="renew">
+                <button type="submit"
+                        class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow font-semibold flex items-center gap-2 text-sm">
+                    <i class="fa-solid fa-rotate"></i> Update Date
+                </button>
+            </form>
             <button onclick="downloadPNG('front')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded shadow font-semibold text-sm">PNG Front</button>
             <button onclick="downloadPNG('back')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded shadow font-semibold text-sm">PNG Back</button>
             <button onclick="downloadPDF()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded shadow font-semibold text-sm">Download PDF</button>

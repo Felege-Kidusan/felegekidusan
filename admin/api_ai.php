@@ -73,34 +73,7 @@ function getGeminiApiKey($conn) {
     return null;
 }
 
-// Ensure system_settings table exists
-try {
-    $conn->query("CREATE TABLE IF NOT EXISTS `system_settings` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `setting_key` VARCHAR(100) NOT NULL,
-        `setting_value` TEXT DEFAULT NULL,
-        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_key` (`setting_key`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) {}
-
-// Ensure ai_chat_history table exists (for context)
-try {
-    $conn->query("CREATE TABLE IF NOT EXISTS `ai_chat_history` (
-        `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `user_id` INT UNSIGNED NOT NULL,
-        `role` ENUM('user','assistant') NOT NULL,
-        `message` TEXT NOT NULL,
-        `data_context` TEXT DEFAULT NULL COMMENT 'JSON snapshot of data sent to AI',
-        `tokens_used` INT UNSIGNED DEFAULT 0,
-        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        KEY `user_id` (`user_id`),
-        KEY `created_at` (`created_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-} catch (Exception $e) {}
-
+// Storage is deployment-managed by sql/013_application_schema_completion.sql.
 
 // ══════════════════════════════════════════════════════════════
 // CALL GEMINI API — with automatic model fallback
@@ -134,7 +107,20 @@ function callGemini($apiKey, $prompt, $systemPrompt = '', $temperature = 0.7) {
         return $result;
     }
     
-    return ['error' => "All models exceeded quota. $lastError\n\nTip: Quota resets daily at midnight Pacific Time. Try again later, or create a new Google Cloud project with a fresh API key at aistudio.google.com/apikey"];
+    return ['error' => "All models exceeded quota. $lastError"];
+}
+
+function aiPublicError($error) {
+    $error = (string)$error;
+    reportInternalError('AI provider request failed', $error);
+    $normalized = strtolower($error);
+    if (strpos($normalized, 'quota') !== false || strpos($normalized, 'rate') !== false || strpos($normalized, '429') !== false) {
+        return 'The AI service quota is temporarily exhausted. Please try again later.';
+    }
+    if (strpos($normalized, 'not configured') !== false || strpos($normalized, 'api key') !== false || strpos($normalized, 'unauthorized') !== false) {
+        return 'The AI service is not configured correctly. Please contact an administrator.';
+    }
+    return 'The AI service is temporarily unavailable. Please try again.';
 }
 
 function callGeminiModel($apiKey, $model, $prompt, $systemPrompt, $temperature) {
@@ -668,7 +654,7 @@ switch ($action) {
         $result = aiGenerate($conn, $fullPrompt, getSystemPrompt($conn), 0.7);
         
         if (isset($result['error'])) {
-            echo json_encode(['status' => 'error', 'message' => 'AI Error: ' . $result['error']]);
+            echo json_encode(['status' => 'error', 'message' => aiPublicError($result['error'])]);
             exit;
         }
         
@@ -719,7 +705,7 @@ switch ($action) {
         $result = aiGenerate($conn, $prompt, getSystemPrompt($conn), 0.5);
         
         if (isset($result['error'])) {
-            echo json_encode(['status' => 'error', 'message' => 'AI Error: ' . $result['error']]);
+            echo json_encode(['status' => 'error', 'message' => aiPublicError($result['error'])]);
             exit;
         }
         
@@ -762,7 +748,7 @@ switch ($action) {
         $result = aiGenerate($conn, $prompt, getSystemPrompt($conn), 0.4);
         
         if (isset($result['error'])) {
-            echo json_encode(['status' => 'error', 'message' => 'AI Error: ' . $result['error']]);
+            echo json_encode(['status' => 'error', 'message' => aiPublicError($result['error'])]);
             exit;
         }
         

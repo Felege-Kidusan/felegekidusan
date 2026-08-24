@@ -44,7 +44,12 @@ if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD
 }
 
 $file = $_FILES['import_file'];
-if (($file['size'] ?? 0) > 5 * 1024 * 1024) {
+$tmpPath = (string)($file['tmp_name'] ?? '');
+$actualSize = $tmpPath !== '' ? @filesize($tmpPath) : false;
+if ($tmpPath === '' || !is_uploaded_file($tmpPath) || $actualSize === false || $actualSize <= 0) {
+    import_json(['success' => false, 'message' => 'The uploaded workbook could not be verified.']);
+}
+if ($actualSize > 5 * 1024 * 1024) {
     import_json(['success' => false, 'message' => 'File too large (max 5 MB).']);
 }
 
@@ -56,7 +61,7 @@ if ($ext !== 'xlsx') {
 
 $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
 if ($finfo) {
-    $mime = finfo_file($finfo, $file['tmp_name']);
+    $mime = finfo_file($finfo, $tmpPath);
     finfo_close($finfo);
     $okMime = [
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -67,6 +72,32 @@ if ($finfo) {
         import_json(['success' => false, 'message' => 'File does not look like a valid Excel workbook.']);
     }
 }
+
+// XLSX files are ZIP containers. Bound expanded data before PhpSpreadsheet
+// parses it to prevent small compressed uploads from exhausting server memory.
+if (!class_exists('ZipArchive')) {
+    import_json(['success' => false, 'message' => 'Excel validation is unavailable on this server.'], 503);
+}
+$zip = new ZipArchive();
+if ($zip->open($tmpPath) !== true || $zip->locateName('[Content_Types].xml') === false || $zip->locateName('xl/workbook.xml') === false) {
+    if ($zip->status === ZipArchive::ER_OK) $zip->close();
+    import_json(['success' => false, 'message' => 'File is not a valid XLSX workbook.']);
+}
+$expandedBytes = 0;
+if ($zip->numFiles > 5000) {
+    $zip->close();
+    import_json(['success' => false, 'message' => 'Workbook contains too many internal files.']);
+}
+for ($i = 0; $i < $zip->numFiles; $i++) {
+    $stat = $zip->statIndex($i);
+    $entrySize = (int)($stat['size'] ?? 0);
+    $expandedBytes += $entrySize;
+    if ($entrySize > 20 * 1024 * 1024 || $expandedBytes > 50 * 1024 * 1024) {
+        $zip->close();
+        import_json(['success' => false, 'message' => 'Workbook expands beyond the safe processing limit.']);
+    }
+}
+$zip->close();
 
 $tier = $_POST['tier'] ?? 'permanent';
 if (!in_array($tier, ['temporary', 'permanent'], true)) {

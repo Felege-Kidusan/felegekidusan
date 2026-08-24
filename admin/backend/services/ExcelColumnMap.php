@@ -49,6 +49,12 @@ class ExcelColumnMap
 
     public static function columns(string $tier): array
     {
+        if ($tier === 'all') {
+            return array_values(array_unique(array_merge(
+                self::columns('permanent'),
+                self::columns('temporary')
+            )));
+        }
         if ($tier === 'temporary') {
             return [
                 'full_name_am', 'baptismal_name',

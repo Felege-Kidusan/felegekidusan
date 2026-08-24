@@ -36,37 +36,30 @@ if (empty($csrfToken) || empty($sessionToken) || !hash_equals($sessionToken, $cs
     exit;
 }
 
-// ============================================================
-// RATE LIMITING (inline simple implementation)
-// ============================================================
-$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-$cacheDir = __DIR__ . '/../uploads/cache';
-if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
-
-$rateFile = $cacheDir . '/rate_' . md5('login_' . $ip) . '.json';
-$rateData = ['attempts' => 0, 'first_attempt' => time()];
-
-if (file_exists($rateFile)) {
-    $rateData = json_decode(file_get_contents($rateFile), true) ?: $rateData;
-    // Reset if 5 minutes have passed
-    if (time() - $rateData['first_attempt'] > 300) {
-        $rateData = ['attempts' => 0, 'first_attempt' => time()];
-    }
+// Get and bound inputs before any password hashing work.
+$usernameOrEmail = isset($_POST['username']) ? trim((string)$_POST['username']) : '';
+$password = (string)($_POST['password'] ?? '');
+if ($usernameOrEmail === '' || $password === '') {
+    header('Location: ../index.php?error=' . urlencode('Please fill in all fields.'));
+    exit;
 }
-
-// Check if rate limited (5 attempts per 5 minutes)
-if ($rateData['attempts'] >= 5) {
-    header('Location: ../index.php?error=' . urlencode('Too many login attempts. Please wait 5 minutes.'));
+if (strlen($usernameOrEmail) > 254 || strlen($password) > 4096) {
+    header('Location: ../index.php?error=' . urlencode('Invalid username/email or password.'));
     exit;
 }
 
-// Get inputs
-$usernameOrEmail = isset($_POST['username']) ? trim($_POST['username']) : '';
-$password        = isset($_POST['password']) ? $_POST['password'] : '';
-
-// Basic validation
-if ($usernameOrEmail === '' || $password === '') {
-    header('Location: ../index.php?error=' . urlencode('Please fill in all fields.'));
+// Atomic IP + account throttles work across web nodes. The service uses a
+// locked compatibility fallback while migration 008 is being deployed.
+require_once __DIR__ . '/services/SecurityRateLimiter.php';
+$rateLimiter = new \App\Services\SecurityRateLimiter($pdo, __DIR__ . '/../uploads/cache');
+$ipAddress = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+$accountSubject = strtolower($usernameOrEmail);
+$ipLimit = $rateLimiter->consume('admin-login-ip', $ipAddress, 20, 300);
+$accountLimit = $rateLimiter->consume('admin-login-account', $accountSubject, 5, 300);
+if (!$ipLimit['allowed'] || !$accountLimit['allowed']) {
+    $retryAfter = max((int)$ipLimit['retry_after'], (int)$accountLimit['retry_after']);
+    header('Retry-After: ' . max(1, $retryAfter));
+    header('Location: ../index.php?error=' . urlencode('Too many login attempts. Please wait 5 minutes.'));
     exit;
 }
 
@@ -81,10 +74,7 @@ try {
     $stmt->execute([':ue1' => $usernameOrEmail, ':ue2' => $usernameOrEmail]);
     $user = $stmt->fetch();
 
-    if (!$user) {
-        // Record failed attempt
-        $rateData['attempts']++;
-        file_put_contents($rateFile, json_encode($rateData));
+    if (!$user || !password_verify($password, $user['password_hash'])) {
         header('Location: ../index.php?error=' . urlencode('Invalid username/email or password.'));
         exit;
     }
@@ -94,17 +84,9 @@ try {
         exit;
     }
 
-    // Verify password
-    if (!password_verify($password, $user['password_hash'])) {
-        // Record failed attempt
-        $rateData['attempts']++;
-        file_put_contents($rateFile, json_encode($rateData));
-        header('Location: ../index.php?error=' . urlencode('Invalid username/email or password.'));
-        exit;
-    }
-
-    // Login success → clear rate limit and save info in session
-    if (file_exists($rateFile)) @unlink($rateFile);
+    // Clear the account bucket after a valid login. The IP bucket remains so
+    // one known credential cannot reset protection against credential stuffing.
+    $rateLimiter->clear('admin-login-account', $accountSubject);
     
     // Regenerate session ID to prevent session fixation
     session_regenerate_id(true);
@@ -115,6 +97,9 @@ try {
     $_SESSION['admin_role']      = $user['role'];
     $_SESSION['admin_full_name'] = $user['full_name'];
     $_SESSION['LAST_ACTIVITY']   = time();
+    $_SESSION['AUTH_STARTED_AT'] = time();
+    $_SESSION['AUTH_REVALIDATED_AT'] = time();
+    $_SESSION['AUTH_PASSWORD_VERSION'] = hash('sha256', (string)$user['password_hash']);
 
     // Log successful login
     try {

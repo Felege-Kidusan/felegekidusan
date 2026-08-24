@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
+require_once __DIR__ . '/backend/services/MemberFileService.php';
 
 // Helper functions
 if (!function_exists('sel')) {
@@ -38,34 +39,15 @@ if (!function_exists('isPDF')) {
         return strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'pdf'; 
     }
 }
+if (!function_exists('memberFileUrl')) {
+    function memberFileUrl($memberId, $field) {
+        return '/admin/member_file.php?member_id=' . (int)$memberId . '&field=' . rawurlencode($field);
+    }
+}
 if (!function_exists('field')) { 
     function field($n, $d = '') { return isset($_POST[$n]) ? trim($_POST[$n]) : $d; } 
 }
-if (!function_exists('saveUploadedFile')) {
-    function saveUploadedFile($fieldName, $subDir) {
-        if (!isset($_FILES[$fieldName]) || $_FILES[$fieldName]['error'] === UPLOAD_ERR_NO_FILE) return null;
-        if ($_FILES[$fieldName]['error'] !== UPLOAD_ERR_OK) return null;
-        // Validate file size (max 5MB)
-        if ($_FILES[$fieldName]['size'] > 5 * 1024 * 1024) return null;
-        // Validate extension
-        $ext = strtolower(pathinfo($_FILES[$fieldName]['name'], PATHINFO_EXTENSION));
-        $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'bmp'];
-        if (!in_array($ext, $allowedExts)) return null;
-        // For images, verify they are real images
-        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])) {
-            if (@getimagesize($_FILES[$fieldName]['tmp_name']) === false) return null;
-        }
-        $uploadBase = __DIR__ . '/uploads/members'; 
-        $relBase = 'uploads/members'; 
-        $targetDir = $uploadBase . '/' . $subDir; 
-        if (!is_dir($targetDir)) @mkdir($targetDir, 0775, true);
-        if ($ext === '') $ext = 'bin';
-        $safeName = $fieldName . '_' . time() . '_' . mt_rand(1000, 9999) . '.' . $ext; 
-        $targetPath = $targetDir . '/' . $safeName;
-        if (!move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) return null;
-        return $relBase . '/' . $subDir . '/' . $safeName;
-    }
-}
+
 
 // ============================================================
 // HANDLE POST REQUEST (Update Member)
@@ -75,9 +57,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Global error handler for this request
     set_error_handler(function($severity, $message, $file, $line) {
+        if (!(error_reporting() & $severity)) return false;
         throw new ErrorException($message, 0, $severity, $file, $line);
     });
     
+    $newUploadedPaths = [];
+    $uploadsCommitted = false;
     try {
         // Validate CSRF token
         if (!validateCsrf()) {
@@ -107,20 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit; 
         }
         
-        // Check if spiritual_education column exists (exception-safe)
-        $hasSpiritualEduCol = false;
-        try {
-            $hasSpiritualEdu = $conn->query("SHOW COLUMNS FROM members LIKE 'spiritual_education'");
-            $hasSpiritualEduCol = $hasSpiritualEdu && $hasSpiritualEdu->num_rows > 0;
-        } catch (Exception $e) {}
-        
-        // If column doesn't exist, try to add it
-        if (!$hasSpiritualEduCol) {
-            try {
-                $conn->query("ALTER TABLE `members` ADD COLUMN `spiritual_education` VARCHAR(100) DEFAULT NULL AFTER `education_level`");
-                $hasSpiritualEduCol = true;
-            } catch (Exception $e) {}
-        }
+        // Migration 012 guarantees the education compatibility columns.
 
     // Get form values
     $registration_type = field('registration_type', $cur['registration_type'] ?? 'waiting');
@@ -166,17 +138,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_committee = isset($_POST['is_committee']) ? 1 : 0;
     $is_volunteer = isset($_POST['is_volunteer']) ? 1 : 0;
 
-    // File uploads
-    $student_photo_path      = saveUploadedFile('student_photo', 'photos') ?? $cur['student_photo_path'];
-    $guardian_photo_path     = saveUploadedFile('guardian_photo', 'guardian_photos') ?? $cur['guardian_photo_path'];
-    $doc_school_records_path = saveUploadedFile('doc_school_records', 'docs') ?? $cur['doc_school_records_path'];
-    $doc_spiritual_path      = saveUploadedFile('doc_spiritual', 'docs') ?? $cur['doc_spiritual_path'];
-    $doc_signed_form_path    = saveUploadedFile('doc_signed_form', 'docs') ?? $cur['doc_signed_form_path'];
+    // File validation/storage is isolated from the UI and database update.
+    $storeUpload = static function (string $field) use (&$newUploadedPaths): ?string {
+        $result = \App\Services\MemberFileService::storeRequestUpload($field);
+        if ($result['error'] !== null) {
+            throw new InvalidArgumentException($result['error']);
+        }
+        if ($result['path'] !== null) {
+            $newUploadedPaths[] = $result['path'];
+        }
+        return $result['path'];
+    };
+    $student_photo_path      = $storeUpload('student_photo') ?? $cur['student_photo_path'];
+    $guardian_photo_path     = $storeUpload('guardian_photo') ?? $cur['guardian_photo_path'];
+    $doc_school_records_path = $storeUpload('doc_school_records') ?? $cur['doc_school_records_path'];
+    $doc_spiritual_path      = $storeUpload('doc_spiritual') ?? $cur['doc_spiritual_path'];
+    $doc_signed_form_path    = $storeUpload('doc_signed_form') ?? $cur['doc_signed_form_path'];
 
     $full_name_am = trim($student_name . ' ' . $father_name . ' ' . $grandfather_name);
 
-    // Build SQL dynamically based on available columns
-    if ($hasSpiritualEduCol) {
+    // Update the migration-backed member schema.
         $sql = "UPDATE members SET 
             registration_type=?, member_type=?, status=?,
             student_name=?, baptismal_name=?, father_name=?, grandfather_name=?,
@@ -193,8 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
-            echo json_encode(['status' => 'error', 'message' => 'SQL Error: ' . $conn->error]);
-            exit;
+            throw new RuntimeException('Member update prepare failed: ' . $conn->error);
         }
         $ageVal = $age !== null ? $age : 0;
         $stmt->bind_param('sssssssssiiiissssssssssssssssssiiiisssssi',
@@ -211,45 +191,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path,
             $id
         );
-    } else {
-        // Without spiritual_education column
-        $sql = "UPDATE members SET 
-            registration_type=?, member_type=?, status=?,
-            student_name=?, baptismal_name=?, father_name=?, grandfather_name=?,
-            full_name_am=?, gender=?, 
-            dob_ec_day=?, dob_ec_month=?, dob_ec_year=?, age=?, age_group=?, current_section=?,
-            education_level=?, work_profession=?,
-            city=?, sub_city=?, woreda=?, mender=?, block_number=?, house_number=?,
-            phone_number=?, phone_primary=?, alt_phone_number=?,
-            guardian_name=?, guardian_phone1=?, guardian_phone2=?, phone_guardian=?,
-            is_teacher=?, is_staff=?, is_committee=?, is_volunteer=?,
-            student_photo_path=?, guardian_photo_path=?,
-            doc_school_records_path=?, doc_spiritual_path=?, doc_signed_form_path=?
-            WHERE id=?";
-        
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            echo json_encode(['status' => 'error', 'message' => 'SQL Error: ' . $conn->error]);
-            exit;
-        }
-        $ageVal = $age !== null ? $age : 0;
-        $stmt->bind_param('sssssssssiiiisssssssssssssssssiiiisssssi',
-            $registration_type, $member_type, $status,
-            $student_name, $baptismal_name, $father_name, $grandfather_name,
-            $full_name_am, $gender, 
-            $dob_day, $dob_month, $dob_year, $ageVal, $age_group, $current_section,
-            $education_level, $work_profession,
-            $city, $sub_city, $woreda, $mender, $block_number, $house_number,
-            $phone_number, $phone_number, $alt_phone_number,
-            $guardian_name, $guardian_phone1, $guardian_phone2, $guardian_phone1,
-            $is_teacher, $is_staff, $is_committee, $is_volunteer,
-            $student_photo_path, $guardian_photo_path,
-            $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path,
-            $id
-        );
-    }
     
     if ($stmt->execute()) { 
+        $uploadsCommitted = true;
+        foreach ([
+            'student_photo_path' => $student_photo_path,
+            'guardian_photo_path' => $guardian_photo_path,
+            'doc_school_records_path' => $doc_school_records_path,
+            'doc_spiritual_path' => $doc_spiritual_path,
+            'doc_signed_form_path' => $doc_signed_form_path,
+        ] as $column => $newPath) {
+            $oldPath = $cur[$column] ?? null;
+            if ($newPath && $oldPath && $newPath !== $oldPath) {
+                \App\Services\MemberFileService::discard($oldPath);
+            }
+        }
         // Sync member_type based on role flags (cross-department sync)
         if (file_exists(__DIR__ . '/backend/member_sync.php')) {
             require_once __DIR__ . '/backend/member_sync.php';
@@ -262,12 +218,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         echo json_encode(['status' => 'success', 'message' => 'Member updated successfully']); 
     } else { 
-        echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $stmt->error]); 
+        foreach ($newUploadedPaths as $uploadedPath) \App\Services\MemberFileService::discard($uploadedPath);
+        reportInternalError('Member update execution failed', $stmt->error);
+        echo json_encode(['status' => 'error', 'message' => 'Unable to update the member.']);
     }
     $stmt->close();
     
-    } catch (Exception $e) {
-        echo json_encode(['status' => 'error', 'message' => 'Error: ' . $e->getMessage()]);
+    } catch (InvalidArgumentException $e) {
+        foreach ($newUploadedPaths as $uploadedPath) \App\Services\MemberFileService::discard($uploadedPath);
+        $uploadMessage = $e->getMessage();
+        echo json_encode(['status' => 'error', 'message' => 'Upload error: ' . $uploadMessage]);
+    } catch (Throwable $e) {
+        if (!$uploadsCommitted) {
+            foreach ($newUploadedPaths as $uploadedPath) \App\Services\MemberFileService::discard($uploadedPath);
+        }
+        reportInternalError('Member update failed', $e);
+        echo json_encode(['status' => 'error', 'message' => 'Unable to update the member.']);
     }
     exit;
 }
@@ -577,9 +543,9 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                         </div>
                         <div class="mm-photo-wrap">
                             <div class="mm-photo-label">Guardian Photo</div>
-                            <div class="mm-photo-box" onclick="openDocFullscreen('<?= fixPath($m['guardian_photo_path']) ?>')">
+                            <div class="mm-photo-box" onclick="openDocFullscreen('<?= memberFileUrl($m['id'], 'guardian_photo_path') ?>')">
                                 <?php if (!empty($m['guardian_photo_path'])): ?>
-                                    <img src="<?= fixPath($m['guardian_photo_path']) ?>" alt="Guardian">
+                                    <img src="<?= memberFileUrl($m['id'], 'guardian_photo_path') ?>" alt="Guardian">
                                     <div class="mm-photo-overlay"><i class="fas fa-search-plus"></i></div>
                                 <?php else: ?>
                                     <div class="mm-photo-empty"><i class="fas fa-user"></i><span>No Photo</span></div>
@@ -607,7 +573,8 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                         foreach ($docs as $key => $info): 
                             $path = $m[$key] ?? '';
                             $has = !empty($path);
-                            $viewAction = $has ? (isPDF($path) ? "window.open('".fixPath($path)."','_blank')" : "openDocFullscreen('".fixPath($path)."')") : '';
+                            $fileUrl = memberFileUrl($m['id'], $key);
+                            $viewAction = $has ? (isPDF($path) ? "window.open('".$fileUrl."','_blank')" : "openDocFullscreen('".$fileUrl."')") : '';
                         ?>
                         <div class="mm-doc <?= $has ? 'has-file' : '' ?>" onclick="<?= $viewAction ?>">
                             <div class="mm-doc-icon" style="<?= !$has ? 'color:'.$info[2] : '' ?>">
@@ -745,7 +712,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                                 <div class="mm-photo-label">Guardian Photo</div>
                                 <div class="mm-photo-box" style="cursor: default;">
                                     <?php if (!empty($m['guardian_photo_path'])): ?>
-                                        <img src="<?= fixPath($m['guardian_photo_path']) ?>" alt="Guardian">
+                                        <img src="<?= memberFileUrl($m['id'], 'guardian_photo_path') ?>" alt="Guardian">
                                     <?php else: ?>
                                         <div class="mm-photo-empty"><i class="fas fa-user"></i></div>
                                     <?php endif; ?>

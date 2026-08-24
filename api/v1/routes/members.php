@@ -248,7 +248,10 @@ if ($method === 'POST' && $id === null) {
         address, city, sub_city, woreda, created_by
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 
-    if (!$stmt) err('Database error: ' . $conn->error, 500);
+    if (!$stmt) {
+        reportInternalError('API member statement preparation failed', $conn->error);
+        err('Member storage is temporarily unavailable.', 500);
+    }
 
     $stmt->bind_param('sssssssssiiissssssssssssssssi',
         $memberCode, $studentName, $fatherName, $grandfatherName, $fullNameAm, $fullNameEn,
@@ -259,7 +262,8 @@ if ($method === 'POST' && $id === null) {
     );
 
     if (!$stmt->execute()) {
-        err('Failed to register member: ' . $stmt->error, 500);
+        reportInternalError('API member registration failed', $stmt->error);
+        err('Unable to register the member.', 500);
     }
 
     $newId = $conn->insert_id;
@@ -338,11 +342,15 @@ if ($method === 'PUT' && is_int($id)) {
 
     $sql = "UPDATE members SET " . implode(', ', $sets) . " WHERE id = ?";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) err('Database error: ' . $conn->error, 500);
+    if (!$stmt) {
+        reportInternalError('API member statement preparation failed', $conn->error);
+        err('Member storage is temporarily unavailable.', 500);
+    }
     $stmt->bind_param($types, ...$params);
 
     if (!$stmt->execute()) {
-        err('Failed to update member: ' . $stmt->error, 500);
+        reportInternalError('API member update failed', $stmt->error);
+        err('Unable to update the member.', 500);
     }
     $stmt->close();
 

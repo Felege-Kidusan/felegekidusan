@@ -8,6 +8,8 @@
 
 namespace App\Services;
 
+require_once __DIR__ . '/MemberCodeService.php';
+
 class EnrollmentService
 {
     public static function activeYear(\mysqli $conn): ?array
@@ -148,9 +150,12 @@ class EnrollmentService
         }
         $stmt->bind_param('iiisi', $memberId, $class['id'], $yearId, $today, $enrolledBy);
         if (!$stmt->execute()) {
-            $err = $stmt->error;
+            $error = $stmt->error;
             $stmt->close();
-            return ['status' => 'error', 'message' => 'Enrollment failed: ' . $err];
+            if (function_exists('reportInternalError')) {
+                reportInternalError('Enrollment insert failed', $error);
+            }
+            return ['status' => 'error', 'message' => 'Unable to save the enrollment.'];
         }
         $enrollId = (int)$stmt->insert_id;
         $stmt->close();
@@ -210,13 +215,6 @@ class EnrollmentService
             $up->close();
         }
 
-        try {
-            $r = $conn->query("SHOW COLUMNS FROM `class_enrollments` LIKE 'promoted_from'");
-            if ($r && $r->num_rows === 0) {
-                $conn->query("ALTER TABLE `class_enrollments` ADD COLUMN `promoted_from` INT UNSIGNED DEFAULT NULL AFTER `notes`");
-            }
-        } catch (\Throwable $e) { /* ignore */ }
-
         $ins = $conn->prepare(
             "INSERT INTO class_enrollments
                 (member_id, class_id, academic_year_id, enrolled_at, status, notes, promoted_from, enrolled_by)
@@ -249,21 +247,8 @@ class EnrollmentService
 
     public static function generateMemberCode(\mysqli $conn): string
     {
-        for ($attempt = 0; $attempt < 50; $attempt++) {
-            $code = (string)random_int(10000, 99999);
-            $stmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM members WHERE member_code = ?");
-            if (!$stmt) {
-                return $code;
-            }
-            $stmt->bind_param('s', $code);
-            $stmt->execute();
-            $exists = (int)($stmt->get_result()->fetch_assoc()['cnt'] ?? 0);
-            $stmt->close();
-            if ($exists === 0) {
-                return $code;
-            }
-        }
-        return (string)random_int(10000, 99999);
+        // Compatibility adapter for existing import/enrollment callers.
+        return MemberCodeService::generate($conn);
     }
 
     private static function activeEnrollment(\mysqli $conn, int $memberId, int $yearId): ?array

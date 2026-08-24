@@ -27,16 +27,7 @@ if (isset($conn)) {
     $r = $conn->query("SELECT COUNT(*) as cnt FROM wbws_group_leaders");
     if ($r) $stats['total_leaders'] = (int)$r->fetch_assoc()['cnt'];
     
-    // Ensure group_members table exists
-    $conn->query("CREATE TABLE IF NOT EXISTS wbws_group_members (
-        id INT AUTO_INCREMENT PRIMARY KEY, group_id INT NOT NULL, full_name VARCHAR(200) NOT NULL,
-        baptismal_name VARCHAR(100), gender ENUM('M','F') DEFAULT 'M', phone VARCHAR(30),
-        city VARCHAR(60), sub_city VARCHAR(60), woreda VARCHAR(20), house_number VARCHAR(20),
-        education_level VARCHAR(80), notes TEXT, is_active TINYINT(1) DEFAULT 1,
-        created_by VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (group_id) REFERENCES wbws_groups(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    
+    // Group schema is deployment-managed by migration 013.
     $r = $conn->query("SELECT COUNT(*) as cnt FROM wbws_group_members WHERE is_active = 1");
     if ($r) $stats['total_members'] = (int)$r->fetch_assoc()['cnt'];
     

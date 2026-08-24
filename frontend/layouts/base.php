@@ -66,6 +66,12 @@ if (!empty($requiredRoles) && is_array($requiredRoles)) {
         exit;
     }
 }
+if (!empty($requiredFeature)
+    && (!is_string($requiredFeature) || !\App\Services\FeatureGate::isEnabled($requiredFeature))) {
+    if (!headers_sent()) { http_response_code(403); }
+    echo 'This feature is not enabled for this deployment.';
+    exit;
+}
 
 // Resolve theme
 $_activeTheme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
@@ -147,15 +153,15 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
             logo: '<?= $_themeBase ?>/assets/logos/school_logo.png',
             seal: '<?= $_themeBase ?>/assets/seals/school_seal.png',
             features: {
-                ai: <?= defined('FEATURE_AI_CHATBOT') && FEATURE_AI_CHATBOT ? 'true' : 'false' ?>,
-                finance: <?= defined('FEATURE_FINANCE') && FEATURE_FINANCE ? 'true' : 'false' ?>,
-                material: <?= defined('FEATURE_MATERIAL') && FEATURE_MATERIAL ? 'true' : 'false' ?>,
-                groups: <?= defined('FEATURE_GROUPS') && FEATURE_GROUPS ? 'true' : 'false' ?>,
-                idcards: <?= defined('FEATURE_ID_CARDS') && FEATURE_ID_CARDS ? 'true' : 'false' ?>,
-                attendance: <?= defined('FEATURE_ATTENDANCE') && FEATURE_ATTENDANCE ? 'true' : 'false' ?>,
-                grades: <?= defined('FEATURE_GRADES') && FEATURE_GRADES ? 'true' : 'false' ?>,
-                reports: <?= defined('FEATURE_REPORTS') && FEATURE_REPORTS ? 'true' : 'false' ?>,
-                pdf: <?= defined('FEATURE_EXPORT_PDF') && FEATURE_EXPORT_PDF ? 'true' : 'false' ?>
+                ai: <?= feature_enabled('ai') ? 'true' : 'false' ?>,
+                finance: <?= feature_enabled('finance') ? 'true' : 'false' ?>,
+                material: <?= feature_enabled('material') ? 'true' : 'false' ?>,
+                groups: <?= feature_enabled('groups') ? 'true' : 'false' ?>,
+                idcards: <?= feature_enabled('id_cards') ? 'true' : 'false' ?>,
+                attendance: <?= feature_enabled('attendance') ? 'true' : 'false' ?>,
+                grades: <?= feature_enabled('grades') ? 'true' : 'false' ?>,
+                reports: <?= feature_enabled('reports') ? 'true' : 'false' ?>,
+                pdf: <?= feature_enabled('export_pdf') ? 'true' : 'false' ?>
             },
             depts: {
                 info:     { am: '<?= addslashes(defined('DEPT_INFO_NAME') ? DEPT_INFO_NAME : '') ?>', en: '<?= addslashes(defined('DEPT_INFO_NAME_EN') ? DEPT_INFO_NAME_EN : '') ?>' },

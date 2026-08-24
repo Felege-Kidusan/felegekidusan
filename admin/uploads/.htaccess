@@ -23,9 +23,14 @@
     RewriteRule ^cache/ - [F,L]
 </IfModule>
 
-# ── PRODUCTION PATCH: Block sensitive file downloads ──
-# Without this, anyone who knows the URL can download database backups,
-# member photos, member documents, and other sensitive files.
+# ── Block direct access to sensitive files ──
+# Private member documents and guardian photos are streamed only by the
+# authenticated /admin/member_file.php controller. Student photos retain their
+# legacy URL contract for browser/mobile compatibility.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^members/(docs|guardian_photos)/ - [F,L,NC]
+</IfModule>
 
 # Block backup files (SQL dumps, archives)
 <FilesMatch "\.(sql|gz|tar|bak|dump|sqlite)$">

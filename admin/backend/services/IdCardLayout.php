@@ -365,13 +365,9 @@ class IdCardLayout
         return $out;
     }
 
+    /** Compatibility hook; storage width is deployment-managed by migration 012. */
     public static function ensureStorage(\mysqli $conn): void
     {
-        try {
-            $conn->query("ALTER TABLE `system_branding` MODIFY `original_name` MEDIUMTEXT NULL");
-        } catch (\Throwable $e) {
-            /* already wide, or no table yet */
-        }
     }
 
     /** @return array<string,int|string> */
@@ -380,10 +376,6 @@ class IdCardLayout
         $out = self::defaults();
         try {
             self::ensureStorage($conn);
-            $chk = $conn->query("SHOW TABLES LIKE 'system_branding'");
-            if (!$chk || $chk->num_rows === 0) {
-                return $out;
-            }
             $stmt = $conn->prepare("SELECT original_name FROM system_branding WHERE asset_key = '_id_card_settings' LIMIT 1");
             if (!$stmt) {
                 return $out;

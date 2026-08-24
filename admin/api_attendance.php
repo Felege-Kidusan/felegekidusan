@@ -7,7 +7,9 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
+require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 
+use App\Services\AttendanceRecordService;
 use App\Services\EnrollmentService;
 
 // Check authentication
@@ -87,7 +89,7 @@ switch ($action) {
                 'member_code' => $row['member_code'] ?? '',
                 'gender' => $row['gender'] ?? '',
                 'attendance_id' => $att && !empty($att['id']) ? (int)$att['id'] : null,
-                'status' => $att['status'] ?? 'present',
+                'status' => $att['status'] ?? null,
                 'note' => $att['notes'] ?? '',
             ];
         }
@@ -118,62 +120,41 @@ switch ($action) {
             $records = json_decode($records, true) ?: [];
         }
         
-        $academicYearId = $currentYear ? $currentYear['id'] : null;
-        
+        $academicYearId = $currentYear ? (int)$currentYear['id'] : null;
+
+        // Resolve the roster again at save time. A stale or partial browser
+        // sheet must never erase students or silently mark them present.
+        $scope = EnrollmentService::resolveRosterYear($conn, $classId, $academicYearId);
+        $roster = EnrollmentService::fetchRoster($conn, $classId, $scope['year_id'] ?? null);
+        try {
+            $records = AttendanceRecordService::normalizeCompleteSheet($records, $roster);
+        } catch (DomainException $error) {
+            http_response_code(422);
+            echo json_encode([
+                'status' => 'error',
+                'message' => $error->getMessage(),
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // Replace the whole class/day and commit only if every row succeeds.
         $successCount = 0;
         $errors = [];
-
-        // ── Save the whole class's attendance as ONE all-or-nothing unit ──
-        // We delete the old rows for this class/date and insert the new ones.
-        // Without a transaction, an interruption between the delete and the
-        // inserts would WIPE the class's attendance for that day. The
-        // transaction guarantees we either fully replace it or leave the old
-        // data untouched — a teacher can never end up with an empty day.
         $conn->begin_transaction();
         try {
-            // Delete existing attendance for this class/date first
-            $stmt = $conn->prepare("DELETE FROM attendance WHERE class_id = ? AND attendance_date = ?");
-            if (!$stmt) {
-                throw new Exception('Prepare failed (delete): ' . $conn->error);
-            }
-            $stmt->bind_param("is", $classId, $date);
-            $stmt->execute();
-
-            // Insert new records (attendance table has no term_id column)
-            $insertStmt = $conn->prepare("
-                INSERT INTO attendance
-                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ");
-            if (!$insertStmt) {
-                throw new Exception('Prepare failed (insert): ' . $conn->error);
-            }
-
-            foreach ($records as $record) {
-                $memberId = (int)($record['member_id'] ?? 0);
-                $status = $record['status'] ?? 'present';
-                $note = trim($record['note'] ?? '');
-
-                if (!$memberId) continue;
-
-                // Validate status
-                if (!in_array($status, ['present', 'absent', 'late', 'excused'])) {
-                    $status = 'present';
-                }
-
-                // A bad row must fail the whole save, not silently vanish.
-                $insertStmt->bind_param(
-                    "iiisssi",
-                    $memberId, $classId, $academicYearId, $date, $status, $note, $userId
-                );
-                $insertStmt->execute();
-                $successCount++;
-            }
-
+            $successCount = AttendanceRecordService::replaceSheet(
+                $conn,
+                $classId,
+                $date,
+                $academicYearId,
+                (int)$userId,
+                $records
+            );
             $conn->commit();
-        } catch (Exception $e) {
+        } catch (Throwable $error) {
             $conn->rollback();
-            error_log("save_attendance failed (class $classId, $date): " . $e->getMessage());
+            error_log("save_attendance failed (class $classId, $date): " . $error->getMessage());
+            http_response_code(500);
             echo json_encode([
                 'status'  => 'error',
                 'message' => 'Attendance was NOT saved. Your previous data is unchanged. Please try again.'
@@ -508,10 +489,7 @@ switch ($action) {
  */
 function updateAttendanceSummary($conn, $classId, $date, $academicYearId, $termId) {
     try {
-        // Check if attendance_summary table exists
-        $check = $conn->query("SHOW TABLES LIKE 'attendance_summary'");
-        if (!$check || $check->num_rows === 0) return;
-        
+        // Summary storage is deployment-managed by migration 013.
         $gcMonth = (int)date('m', strtotime($date));
         $gcYear = (int)date('Y', strtotime($date));
         $startDate = date('Y-m-01', strtotime($date));

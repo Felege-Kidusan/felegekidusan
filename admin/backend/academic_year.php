@@ -26,33 +26,10 @@
 if (!function_exists('ay_ensure_schema')) {
 
 /**
- * Make sure the `status` column exists and is in sync with is_current.
- * Self-healing: works even if sql/004_year_lifecycle.sql has not been run.
- * Runs its checks at most once per request.
+ * Compatibility hook retained for callers. Schema is deployment-managed by
+ * migrations 004 and 013; request handling never inspects or mutates it.
  */
 function ay_ensure_schema($conn): void {
-    static $done = false;
-    if ($done) return;
-    $done = true;
-    if (!$conn || (isset($conn->connect_error) && $conn->connect_error)) return;
-    try {
-        $r = $conn->query("SHOW COLUMNS FROM `academic_years` LIKE 'status'");
-        if ($r && $r->num_rows === 0) {
-            $conn->query("ALTER TABLE `academic_years`
-                ADD COLUMN `status` ENUM('upcoming','active','closed')
-                NOT NULL DEFAULT 'upcoming' AFTER `is_current`");
-            // Seed from the legacy flag, then normalise to one active.
-            $conn->query("UPDATE `academic_years` SET `status` = IF(`is_current`=1,'active','upcoming')");
-            // If nothing is active, promote the most recent year.
-            $c = $conn->query("SELECT COUNT(*) c FROM `academic_years` WHERE `status`='active'");
-            $activeCount = $c ? (int)$c->fetch_assoc()['c'] : 0;
-            if ($activeCount === 0) {
-                $conn->query("UPDATE `academic_years` SET `status`='active'
-                    ORDER BY COALESCE(`ec_year`,0) DESC, `id` DESC LIMIT 1");
-            }
-            $conn->query("UPDATE `academic_years` SET `is_current` = IF(`status`='active',1,0)");
-        }
-    } catch (Throwable $e) { /* table may not exist yet — resolver degrades gracefully */ }
 }
 
 /**

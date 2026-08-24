@@ -32,23 +32,12 @@ function wbws_get_calendar_mode($conn = null) {
     
     if ($conn) {
         try {
-            // Ensure the setting exists in dept_settings
-            $conn->query("CREATE TABLE IF NOT EXISTS `dept_settings` (
-                `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `setting_key` VARCHAR(100) NOT NULL,
-                `setting_value` TEXT DEFAULT NULL,
-                `updated_by` INT UNSIGNED DEFAULT NULL,
-                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (`id`),
-                UNIQUE KEY `setting_key` (`setting_key`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-            
+            // Schema/default row are deployment-managed by migration 013.
             $r = $conn->query("SELECT setting_value FROM dept_settings WHERE setting_key = 'calendar_mode' LIMIT 1");
             if ($r && $row = $r->fetch_assoc()) {
                 $mode = $row['setting_value'] ?: 'ethiopian';
             } else {
-                // Insert default
-                $conn->query("INSERT IGNORE INTO dept_settings (setting_key, setting_value) VALUES ('calendar_mode', 'ethiopian')");
+                $mode = 'ethiopian';
             }
         } catch (Exception $e) {
             // Table might not exist yet

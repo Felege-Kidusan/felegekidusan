@@ -142,6 +142,8 @@ $csrfToken = generateCsrfToken();
         .att-absent.active { background: #dc2626; color: white; border-color: #dc2626; }
         .att-late { background: #fef3c7; color: #92400e; border-color: #fde68a; }
         .att-late.active { background: #f59e0b; color: white; border-color: #f59e0b; }
+        .att-excused { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+        .att-excused.active { background: #2563eb; color: white; border-color: #2563eb; }
         .assignment-card { transition: all 0.2s; cursor: pointer; }
         .assignment-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     </style>
@@ -641,6 +643,7 @@ $csrfToken = generateCsrfToken();
     
     <div id="toastContainer"></div>
     <script src="/admin/js/report_card.js?v=20260819c"></script>
+    <script src="/admin/js/attendance-sheet.js?v=20260824"></script>
     <script>
         let currentAssessment = null;
         
@@ -825,7 +828,7 @@ $csrfToken = generateCsrfToken();
             }
             
             tbody.innerHTML = students.map((s, i) => {
-                const status = s.status || 'present';
+                const status = AttendanceSheet.normalizeStatus(s.status);
                 return `
                 <tr data-member-id="${s.member_id || s.id}">
                     <td>${i + 1}</td>
@@ -833,33 +836,26 @@ $csrfToken = generateCsrfToken();
                     <td><code class="text-xs bg-slate-100 px-2 py-1 rounded">${escapeHtml(s.member_code || '—')}</code></td>
                     <td class="text-center">
                         <div class="flex justify-center gap-2">
-                            <button type="button" class="att-btn att-present ${status === 'present' ? 'active' : ''}" onclick="setAttStatus(this, ${s.member_id || s.id}, 'present')" title="Present">✓</button>
-                            <button type="button" class="att-btn att-absent ${status === 'absent' ? 'active' : ''}" onclick="setAttStatus(this, ${s.member_id || s.id}, 'absent')" title="Absent">✗</button>
-                            <button type="button" class="att-btn att-late ${status === 'late' ? 'active' : ''}" onclick="setAttStatus(this, ${s.member_id || s.id}, 'late')" title="Late">L</button>
+                            <button type="button" class="att-btn att-present ${status === 'present' ? 'active' : ''}" data-attendance-status="present" onclick="setAttStatus(this, ${s.member_id || s.id}, 'present')" title="Present">✓</button>
+                            <button type="button" class="att-btn att-absent ${status === 'absent' ? 'active' : ''}" data-attendance-status="absent" onclick="setAttStatus(this, ${s.member_id || s.id}, 'absent')" title="Absent">✗</button>
+                            <button type="button" class="att-btn att-late ${status === 'late' ? 'active' : ''}" data-attendance-status="late" onclick="setAttStatus(this, ${s.member_id || s.id}, 'late')" title="Late">L</button>
+                            <button type="button" class="att-btn att-excused ${status === 'excused' ? 'active' : ''}" data-attendance-status="excused" onclick="setAttStatus(this, ${s.member_id || s.id}, 'excused')" title="Excused">E</button>
                         </div>
                     </td>
-                    <td><input type="text" class="form-input att-note" style="width:120px" data-member-id="${s.member_id || s.id}" value="${escapeHtml(s.note || '')}" placeholder="Note"></td>
+                    <td><input type="text" class="form-input att-note" style="width:120px" maxlength="500" data-member-id="${s.member_id || s.id}" value="${escapeHtml(s.note || '')}" placeholder="Note"></td>
                 </tr>
             `}).join('');
         }
         
         function setAttStatus(btn, memberId, status) {
-            const row = btn.closest('tr');
-            row.querySelectorAll('.att-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
+            if (!AttendanceSheet.setStatus(btn, status)) return;
             const idx = attendanceData.findIndex(s => (s.member_id || s.id) == memberId);
             if (idx !== -1) attendanceData[idx].status = status;
         }
         
         function markAllAttendance(status) {
-            document.querySelectorAll('#attendanceBody tr').forEach(row => {
-                const btn = row.querySelector(`.att-${status}`);
-                if (btn) {
-                    row.querySelectorAll('.att-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                }
-            });
+            const body = document.getElementById('attendanceBody');
+            if (!AttendanceSheet.markAll(body, status)) return;
             attendanceData.forEach(s => s.status = status);
         }
         
@@ -867,34 +863,30 @@ $csrfToken = generateCsrfToken();
             const classId = document.getElementById('attClassSelect').value;
             const date = document.getElementById('attDateInput').value;
             if (!classId) return;
-            
-            const records = [];
-            document.querySelectorAll('#attendanceBody tr').forEach(row => {
-                const memberId = row.dataset.memberId;
-                if (!memberId) return;
-                
-                let status = 'present';
-                if (row.querySelector('.att-absent.active')) status = 'absent';
-                else if (row.querySelector('.att-late.active')) status = 'late';
-                
-                const noteInput = row.querySelector('.att-note');
-                const note = noteInput ? noteInput.value : '';
-                
-                records.push({ member_id: memberId, status, note });
-            });
+
+            const sheet = AttendanceSheet.collect(document.getElementById('attendanceBody'));
+            if (sheet.unmarked.length > 0) {
+                showToast(`Mark attendance for all students (${sheet.unmarked.length} remaining).`, 'error');
+                return;
+            }
+            if (sheet.records.length === 0) {
+                showToast('There are no attendance records to save.', 'error');
+                return;
+            }
             
             const formData = new FormData();
             formData.append('action', 'save_attendance');
             formData.append('class_id', classId);
             formData.append('date', date);
-            formData.append('records', JSON.stringify(records));
+            formData.append('records', JSON.stringify(sheet.records));
             formData.append('csrf_token', CSRF_TOKEN);
             
             fetch('/admin/api_attendance.php', { method: 'POST', body: formData })
                 .then(r => r.json())
                 .then(data => {
                     showToast(data.message, data.status === 'success' ? 'success' : 'error');
-                });
+                })
+                .catch(() => showToast('Attendance could not be saved. Check your connection and retry.', 'error'));
         }
         
         // ============================================================

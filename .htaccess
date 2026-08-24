@@ -54,6 +54,9 @@ Options -Indexes
     # Rate-limit / runtime cache
     RewriteRule ^admin/uploads/cache/ - [F,L]
 
+    # Guardian photos and member documents require an authenticated controller.
+    RewriteRule ^admin/uploads/members/(docs|guardian_photos)/ - [F,L,NC]
+
     # Migration scripts (schema mutators)
     RewriteRule ^admin/migrations/ - [F,L]
     RewriteRule ^backend/migrations/ - [F,L]
@@ -67,6 +70,7 @@ Options -Indexes
     # Debug endpoints and dev tools (hardcoded credentials / info leaks)
     RewriteRule ^api/v1/debug_ - [F,L]
     RewriteRule ^admin/backend/generate_hash\.php$ - [F,L]
+    RewriteRule ^admin/get_schema\.php$ - [F,L]
     RewriteRule ^admin/id_cards/qr_diagnostic\.php$ - [F,L]
     RewriteRule (^|/)leak_detector\.php$ - [F,L]
 
@@ -93,9 +97,13 @@ Options -Indexes
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "SAMEORIGIN"
-    Header always set X-XSS-Protection "1; mode=block"
+    Header always set X-XSS-Protection "0"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header always set X-Permitted-Cross-Domain-Policies "none"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Content-Security-Policy "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'"
+    Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == 'on'"
 </IfModule>
 
 # ------------------------------------------------------------

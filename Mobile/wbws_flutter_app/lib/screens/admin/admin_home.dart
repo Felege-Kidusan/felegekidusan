@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
+import '../../services/app_update_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/stat_card.dart';
@@ -160,10 +161,12 @@ class AdminHomeScreenState extends State<AdminHomeScreen> {
         children: [
           FeatureTile(label: 'Members', icon: Icons.people_rounded, color: AppTheme.primary,
               onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const MemberListScreen()))),
-          FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.warning,
-              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const AttendanceScreen()))),
-          FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.info,
-              onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const TeacherGradesScreen()))),
+          if (AppUpdateService().featureEnabled('attendance'))
+            FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.warning,
+                onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const AttendanceScreen()))),
+          if (AppUpdateService().featureEnabled('grades'))
+            FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.info,
+                onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const TeacherGradesScreen()))),
         ],
       ),
       const SizedBox(height: 16),

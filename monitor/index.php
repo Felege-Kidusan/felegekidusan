@@ -6,116 +6,237 @@
  * URL: {SITE_URL}/monitor/
  * 
  * SECURITY:
- *  - Custom login page that verifies against super_admin password
- *  - Only super_admin accounts can access
- *  - Session-based (stays logged in while browser is open)
+ *  - Requires an active, database-revalidated Super Admin session
+ *  - Requires short-lived, throttled password step-up authentication
+ *  - All state changes require POST and CSRF validation
  * ============================================================
  */
 
 // Load config for DB connection + session
 require_once dirname(__DIR__) . '/config.php';
+if (!feature_enabled('monitor')) {
+    http_response_code(404);
+    exit('Monitor is not enabled for this deployment.');
+}
+if (!headers_sent()) {
+    header('Cache-Control: no-store, private, max-age=0');
+    header('Pragma: no-cache');
+}
 
 // ── AUTHENTICATION ──
-$loginError = '';
-$isAuthenticated = !empty($_SESSION['monitor_authenticated']);
+// The monitor is a privileged extension of the admin session, never an
+// alternate password-only login surface.
+require_once dirname(__DIR__) . '/admin/backend/services/MonitorAccessService.php';
 
-// Handle logout
-if (isset($_GET['action']) && $_GET['action'] === 'logout' && !isset($_GET['id'])) {
-    unset($_SESSION['monitor_authenticated'], $_SESSION['monitor_admin_name']);
-    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
+use App\Services\MonitorAccessService;
+use App\Services\SecurityRateLimiter;
+
+// Retire the legacy password-only authorization flags. They are deliberately
+// ignored and removed so an older session cannot survive this access upgrade.
+unset($_SESSION['monitor_authenticated'], $_SESSION['monitor_admin_name']);
+
+if (!isLoggedIn() || ($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+    unset($_SESSION['monitor_admin_id'], $_SESSION['monitor_authenticated_at']);
+    denyMonitorAccess(401, 'A Super Admin session is required.');
+}
+
+if (!$pdo instanceof PDO) {
+    monitorUnavailable();
+}
+
+try {
+    $rateLimiter = new SecurityRateLimiter($pdo, ROOT_PATH . '/admin/uploads/cache');
+    $monitorAccess = new MonitorAccessService($pdo, $rateLimiter);
+    $admin = $monitorAccess->findActiveSuperAdmin((int)($_SESSION['admin_id'] ?? 0));
+} catch (Throwable $error) {
+    error_log('Monitor authorization lookup failed.');
+    monitorUnavailable();
+}
+
+// Revalidate role and active status from the database on every monitor request.
+// A stale or disabled admin session must fail closed for this sensitive area.
+if (!$admin) {
+    unset(
+        $_SESSION['admin_logged_in'],
+        $_SESSION['admin_id'],
+        $_SESSION['admin_username'],
+        $_SESSION['admin_role'],
+        $_SESSION['admin_full_name'],
+        $_SESSION['monitor_admin_id'],
+        $_SESSION['monitor_authenticated_at']
+    );
+    denyMonitorAccess(403, 'Your account is not authorized for the monitor.');
+}
+
+$monitorCsrf = generateCsrfToken();
+$adminName = $admin['full_name'] !== '' ? $admin['full_name'] : $admin['username'];
+
+// Monitor-only logout removes step-up authorization but keeps the normal admin
+// session. State changes are POST + CSRF protected.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['monitor_action'] ?? '') === 'logout') {
+    if (!validateCsrf($_POST['csrf_token'] ?? '')) {
+        http_response_code(403);
+        exit('Security token expired. Please go back and refresh.');
+    }
+    recordMonitorAccess($pdo, $admin, 'Monitor logout', 'Monitor step-up authorization cleared');
+    unset($_SESSION['monitor_admin_id'], $_SESSION['monitor_authenticated_at']);
+    header('Location: /monitor/');
     exit;
 }
 
-// Handle login POST
+$isAuthenticated = $monitorAccess->hasValidStepUp($_SESSION, (int)$admin['id']);
+$loginError = '';
+
 if (!$isAuthenticated && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['monitor_password'])) {
-    $password = $_POST['monitor_password'] ?? '';
-    
-    if ($password !== '') {
-        try {
-            $stmt = $pdo->prepare("SELECT id, username, full_name, password_hash FROM users WHERE role = 'super_admin' AND is_active = 1");
-            $stmt->execute();
-            $admins = $stmt->fetchAll();
-            
-            $matched = false;
-            foreach ($admins as $admin) {
-                if (password_verify($password, $admin['password_hash'])) {
-                    $_SESSION['monitor_authenticated'] = true;
-                    $_SESSION['monitor_admin_name'] = $admin['full_name'] ?: $admin['username'];
-                    $matched = true;
-                    break;
-                }
-            }
-            
-            if (!$matched) {
-                $loginError = 'Wrong password. Only Super Admin passwords work here.';
-            }
-        } catch (Exception $e) {
-            $loginError = 'Database error. Please try again.';
-        }
-        $isAuthenticated = !empty($_SESSION['monitor_authenticated']);
+    if (!validateCsrf($_POST['csrf_token'] ?? '')) {
+        $loginError = 'Security token expired. Please refresh and try again.';
     } else {
-        $loginError = 'Please enter your password.';
+        $result = $monitorAccess->verifyStepUp(
+            $admin,
+            (string)($_POST['monitor_password'] ?? ''),
+            (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown')
+        );
+        if ($result['success']) {
+            session_regenerate_id(true);
+            $_SESSION['monitor_admin_id'] = (int)$admin['id'];
+            $_SESSION['monitor_authenticated_at'] = time();
+            recordMonitorAccess($pdo, $admin, 'Monitor access', 'Step-up authentication succeeded');
+            header('Location: /monitor/');
+            exit;
+        }
+        if ($result['limited']) {
+            $waitMinutes = max(1, (int)ceil($result['retry_after'] / 60));
+            $loginError = "Too many attempts. Please wait {$waitMinutes} minute(s).";
+            header('Retry-After: ' . max(1, (int)$result['retry_after']));
+        } else {
+            recordMonitorAccess($pdo, $admin, 'Monitor access denied', 'Step-up authentication failed');
+            $loginError = 'Unable to verify your password.';
+        }
     }
 }
 
-// Show login page if not authenticated
 if (!$isAuthenticated) {
-    showMonitorLogin($loginError);
+    // Fetch/API callers receive a machine-readable expiry instead of the login
+    // page, while normal navigation receives the step-up form.
+    if (isset($_GET['action'])) {
+        denyMonitorAccess(401, 'Monitor authorization expired. Re-open the monitor to continue.');
+    }
+    showMonitorLogin($loginError, $monitorCsrf, $adminName);
     exit;
 }
 
 // ── Authenticated from here ──
-$monitorCsrf = generateCsrfToken();
 $mconn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-if ($mconn->connect_error) { die("Monitor DB failed"); }
+if ($mconn->connect_error) {
+    monitorUnavailable();
+}
 $mconn->set_charset('utf8mb4');
-$adminName = $_SESSION['monitor_admin_name'] ?? 'Admin';
 
 // ── AJAX actions ──
-if (isset($_GET['action']) && $_GET['action'] !== 'logout') {
+if (isset($_GET['action'])) {
     header('Content-Type: application/json; charset=utf-8');
-    
-    // CSRF validation for all POST actions
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $csrfToken = $_POST['csrf_token'] ?? '';
-        if (!validateCsrf($csrfToken)) {
+    $action = (string)$_GET['action'];
+    $readActions = ['get_detail'];
+    $writeActions = ['resolve', 'delete', 'clear_resolved', 'test_error'];
+
+    if (!in_array($action, array_merge($readActions, $writeActions), true)) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => 'Unknown monitor action.']);
+        exit;
+    }
+    if (in_array($action, $readActions, true) && $_SERVER['REQUEST_METHOD'] !== 'GET') {
+        http_response_code(405);
+        header('Allow: GET');
+        echo json_encode(['success' => false, 'message' => 'Method not allowed.']);
+        exit;
+    }
+    if (in_array($action, $writeActions, true)) {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            header('Allow: POST');
+            echo json_encode(['success' => false, 'message' => 'Method not allowed.']);
+            exit;
+        }
+        if (!validateCsrf($_POST['csrf_token'] ?? '')) {
             http_response_code(403);
-            echo json_encode(['success'=>false,'message'=>'Security token expired. Please refresh.']);
+            echo json_encode(['success' => false, 'message' => 'Security token expired. Please refresh.']);
             exit;
         }
     }
-    
-    switch ($_GET['action']) {
+
+    switch ($action) {
         case 'resolve':
             $id = (int)($_POST['id'] ?? 0);
-            $note = trim($_POST['note'] ?? '');
+            $note = trim((string)($_POST['note'] ?? ''));
+            if ($id <= 0 || mb_strlen($note) > 2000) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'message' => 'Invalid error or note.']);
+                exit;
+            }
             $stmt = $mconn->prepare("UPDATE arkeon_error_log SET is_resolved=1, resolved_at=NOW(), resolved_note=? WHERE id=?");
             $stmt->bind_param('si', $note, $id);
             $stmt->execute();
             $stmt->close();
-            echo json_encode(['success'=>true]); exit;
+            echo json_encode(['success' => true]);
+            exit;
+
         case 'delete':
             $id = (int)($_POST['id'] ?? 0);
+            if ($id <= 0) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'message' => 'Invalid error.']);
+                exit;
+            }
             $stmt = $mconn->prepare("DELETE FROM arkeon_error_log WHERE id=?");
             $stmt->bind_param('i', $id);
             $stmt->execute();
             $stmt->close();
-            echo json_encode(['success'=>true]); exit;
+            echo json_encode(['success' => true]);
+            exit;
+
         case 'clear_resolved':
             $mconn->query("DELETE FROM arkeon_error_log WHERE is_resolved=1");
-            echo json_encode(['success'=>true]); exit;
+            echo json_encode(['success' => true]);
+            exit;
+
         case 'get_detail':
             $id = (int)($_GET['id'] ?? 0);
-            $stmt = $mconn->prepare("SELECT * FROM arkeon_error_log WHERE id=?");
+            if ($id <= 0) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'message' => 'Invalid error.']);
+                exit;
+            }
+            $stmt = $mconn->prepare(
+                "SELECT id, project_name, error_type, severity, message, file_path,
+                        line_number, url, http_method, ip_address, user_agent,
+                        request_data, extra_data, stack_trace, memory_usage,
+                        peak_memory, execution_time, auto_fix_applied, php_version,
+                        is_resolved, resolved_note, created_at
+                 FROM arkeon_error_log WHERE id=?"
+            );
             $stmt->bind_param('i', $id);
             $stmt->execute();
-            $r = $stmt->get_result();
-            echo json_encode($r ? $r->fetch_assoc() : null);
+            $result = $stmt->get_result();
+            $detail = $result ? $result->fetch_assoc() : null;
+            // Historical rows could contain raw request/custom values. Only
+            // privacy-versioned metadata produced by the hardened collector is
+            // ever released through the dashboard.
+            if (is_array($detail)) {
+                foreach (['request_data', 'extra_data'] as $field) {
+                    $decoded = json_decode((string)($detail[$field] ?? ''), true);
+                    if (!is_array($decoded) || (int)($decoded['privacy_version'] ?? 0) !== 2) {
+                        $detail[$field] = null;
+                    }
+                }
+            }
+            echo json_encode($detail, JSON_INVALID_UTF8_SUBSTITUTE);
             $stmt->close();
             exit;
+
         case 'test_error':
             trigger_error("Monitor test — this is a test!", E_USER_WARNING);
-            echo json_encode(['success'=>true,'message'=>'Test error triggered! Refresh to see it.']); exit;
+            echo json_encode(['success' => true, 'message' => 'Test error triggered! Refresh to see it.']);
+            exit;
     }
 }
 
@@ -152,7 +273,7 @@ function getMonitorStats($c){
 }
 function timeAgo($dt){$d=(new DateTime())->diff(new DateTime($dt));if($d->y>0)return $d->y.'y ago';if($d->m>0)return $d->m.'mo ago';if($d->d>0)return $d->d.'d ago';if($d->h>0)return $d->h.'h ago';if($d->i>0)return $d->i.'m ago';return 'Just now';}
 ?>
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>⚡ <?= defined('MONITOR_PAGE_TITLE') ? MONITOR_PAGE_TITLE : 'Error Monitor' ?></title>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta name="csrf-token" content="<?= htmlspecialchars($monitorCsrf, ENT_QUOTES, 'UTF-8') ?>"><title>⚡ <?= defined('MONITOR_PAGE_TITLE') ? MONITOR_PAGE_TITLE : 'Error Monitor' ?></title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0d1117;--surface:#161b22;--sh:#1c2129;--border:#30363d;--text:#e6edf3;--tm:#8b949e;--crit:#f85149;--err:#f0883e;--warn:#d29922;--info:#58a6ff;--ok:#3fb950;--acc:#58a6ff}
@@ -192,7 +313,7 @@ function timeAgo($dt){$d=(new DateTime())->diff(new DateTime($dt));if($d->y>0)re
 .md{background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:800px;width:100%;max-height:90vh;overflow-y:auto;padding:24px}
 .md h2{margin-bottom:16px;font-size:18px}
 .dg{display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:13px}.dl{color:var(--tm);font-weight:600}
-.st{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:16px;max-height:300px;overflow-y:auto}
+.st{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:16px;max-height:300px;overflow-y:auto}.detail-json{font-size:11px;margin:0;white-space:pre-wrap;word-break:break-word}
 .cb{float:right;background:none;border:none;color:var(--tm);font-size:24px;cursor:pointer}
 .pg{display:flex;justify-content:space-between;align-items:center;margin-top:16px;font-size:13px;color:var(--tm)}
 .pg .ps{display:flex;gap:4px}.pg a{padding:6px 12px;border:1px solid var(--border);border-radius:4px;color:var(--text);text-decoration:none;font-size:13px}
@@ -207,11 +328,11 @@ function timeAgo($dt){$d=(new DateTime())->diff(new DateTime($dt));if($d->y>0)re
 <h1>⚡ <?= defined('MONITOR_PAGE_TITLE') ? MONITOR_PAGE_TITLE : 'Monitor' ?> <span>/ Error Dashboard</span></h1>
 <div class="ha">
 <span class="ab">🔒 <?=htmlspecialchars($adminName)?></span>
-<button class="btn bs" onclick="testError()">🧪 Test</button>
-<button class="btn" onclick="location.reload()">🔄 Refresh</button>
-<button class="btn bd" onclick="clearResolved()">🗑 Clear Resolved</button>
-<a href="/admin/dashboard.php" class="btn">← <?= SCHOOL_NAME_SHORT ?></a>
-<a href="?action=logout" class="btn">Logout</a>
+<button type="button" class="btn bs" data-monitor-action="test">🧪 Test</button>
+<button type="button" class="btn" data-monitor-action="refresh">🔄 Refresh</button>
+<button type="button" class="btn bd" data-monitor-action="clear-resolved">🗑 Clear Resolved</button>
+<a href="/admin/dashboard.php" class="btn">← <?= e(SCHOOL_NAME_SHORT) ?></a>
+<form method="POST" style="display:inline"><input type="hidden" name="monitor_action" value="logout"><input type="hidden" name="csrf_token" value="<?= e($monitorCsrf) ?>"><button type="submit" class="btn">Logout</button></form>
 </div></div>
 <div class="content">
 <div class="sg">
@@ -235,59 +356,88 @@ function timeAgo($dt){$d=(new DateTime())->diff(new DateTime($dt));if($d->y>0)re
 <button type="submit" class="btn bp">🔍 Filter</button><a href="." class="btn">Reset</a></form></div>
 <div class="et"><?php if(empty($errors)):?><div class="es"><div class="ei">✅</div><h3>No errors found</h3><p><?= defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'System' ?> is running smoothly!</p></div>
 <?php else:?><table><thead><tr><th>Severity</th><th>Project</th><th>Error</th><th>File</th><th>Fix</th><th>Time</th><th>Actions</th></tr></thead><tbody>
-<?php foreach($errors as $e):?><tr class="<?=$e['is_resolved']?'res':''?>" onclick="showDetail(<?=$e['id']?>)" style="cursor:pointer">
+<?php foreach($errors as $e):?><tr class="<?=$e['is_resolved']?'res':''?>" data-error-row data-error-id="<?= (int)$e['id'] ?>" style="cursor:pointer">
 <td><span class="sb sb-<?=htmlspecialchars($e['severity'])?>"><?=htmlspecialchars($e['severity'])?></span></td>
 <td style="font-size:12px;white-space:nowrap"><?=htmlspecialchars($e['project_name'])?></td>
 <td><div class="em" title="<?=htmlspecialchars($e['message'])?>"><?=htmlspecialchars(mb_substr($e['message'],0,100))?></div></td>
 <td class="fi"><?=htmlspecialchars(basename($e['file_path']))?>:<?=$e['line_number']?></td>
 <td><?=$e['auto_fix_applied']?'<span class="af">🔧 Fixed</span>':'<span style="color:var(--tm)">—</span>'?></td>
 <td class="ta"><?=timeAgo($e['created_at'])?></td>
-<td onclick="event.stopPropagation()"><div class="ra"><?php if(!$e['is_resolved']):?><button class="rb" onclick="resolveError(<?=$e['id']?>)">✓</button><?php endif;?><button class="db" onclick="deleteError(<?=$e['id']?>)">✕</button></div></td>
+<td><div class="ra"><?php if(!$e['is_resolved']):?><button type="button" class="rb" data-monitor-action="resolve" data-error-id="<?= (int)$e['id'] ?>">✓</button><?php endif;?><button type="button" class="db" data-monitor-action="delete" data-error-id="<?= (int)$e['id'] ?>">✕</button></div></td>
 </tr><?php endforeach;?></tbody></table><?php endif;?></div>
 <?php if($totalPages>1):?><div class="pg"><span><?=$offset+1?>–<?=min($offset+$perPage,$totalErrors)?> of <?=$totalErrors?></span><div class="ps">
 <?php if($page>1):?><a href="?<?=http_build_query(array_merge($_GET,['page'=>$page-1]))?>">←</a><?php endif;?>
 <?php for($i=max(1,$page-3);$i<=min($totalPages,$page+3);$i++):?><a href="?<?=http_build_query(array_merge($_GET,['page'=>$i]))?>" class="<?=$i===$page?'act':''?>"><?=$i?></a><?php endfor;?>
 <?php if($page<$totalPages):?><a href="?<?=http_build_query(array_merge($_GET,['page'=>$page+1]))?>">→</a><?php endif;?></div></div><?php endif;?>
 </div>
-<div class="mo" id="dm"><div class="md"><button class="cb" onclick="closeModal()">×</button><h2>Error Detail <span id="di" style="color:var(--tm);font-size:14px"></span></h2><div class="dg" id="dc"></div><div class="st" id="ds"></div><div style="margin-top:16px;display:flex;gap:12px"><button class="btn bp" onclick="resolveFromDetail()">✓ Resolve</button><button class="btn bd" onclick="deleteFromDetail()">✕ Delete</button></div></div></div>
-<script>
-const CSRF='<?=$monitorCsrf?>';
-let cid=null;
-async function showDetail(id){cid=id;const r=await fetch(`?action=get_detail&id=${id}`);const d=await r.json();if(!d)return;
-document.getElementById('di').textContent=`#${d.id}`;
-const f=[['Project',d.project_name],['Type',d.error_type],['Severity',`<span class="sb sb-${d.severity}">${d.severity}</span>`],['Message',d.message],['File',`<code>${d.file_path}:${d.line_number}</code>`],['URL',d.url||'N/A'],['Method',d.http_method||'N/A'],['IP',d.ip_address||'N/A'],['User Agent',d.user_agent||'N/A'],['Memory',fB(d.memory_usage)],['Peak',fB(d.peak_memory)],['Time',d.execution_time+'s'],['PHP',d.php_version||'N/A'],['Auto-Fix',d.auto_fix_applied||'None'],['Status',d.is_resolved==1?'✅ Resolved':'❌ Open'],['When',d.created_at]];
-if(d.request_data&&d.request_data!=='[]'&&d.request_data!=='{}')f.push(['Request',`<pre style="font-size:11px;margin:0">${fJ(d.request_data)}</pre>`]);
-if(d.extra_data&&d.extra_data!=='[]'&&d.extra_data!=='{}')f.push(['Extra',`<pre style="font-size:11px;margin:0">${fJ(d.extra_data)}</pre>`]);
-if(d.resolved_note)f.push(['Note',d.resolved_note]);
-document.getElementById('dc').innerHTML=f.map(([l,v])=>`<div class="dl">${l}</div><div>${v}</div>`).join('');
-document.getElementById('ds').textContent=d.stack_trace||'No stack trace';document.getElementById('dm').classList.add('active')}
-function closeModal(){document.getElementById('dm').classList.remove('active');cid=null}
-async function resolveError(id){const n=prompt('Note (optional):')||'';const r=await fetch('?action=resolve',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}&note=${encodeURIComponent(n)}&csrf_token=${CSRF}`});if((await r.json()).success)location.reload()}
-async function deleteError(id){if(!confirm('Delete?'))return;const r=await fetch('?action=delete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}&csrf_token=${CSRF}`});if((await r.json()).success)location.reload()}
-async function resolveFromDetail(){if(cid)await resolveError(cid)}
-async function deleteFromDetail(){if(cid)await deleteError(cid)}
-async function clearResolved(){if(!confirm('Delete ALL resolved?'))return;const r=await fetch('?action=clear_resolved',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`csrf_token=${CSRF}`});if((await r.json()).success)location.reload()}
-async function testError(){const r=await fetch('?action=test_error');const d=await r.json();alert(d.message||'Done!');setTimeout(()=>location.reload(),500)}
-function fB(b){if(!b)return'0 B';const k=1024,s=['B','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(k));return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]}
-function fJ(s){try{return JSON.stringify(JSON.parse(s),null,2)}catch(e){return s}}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
-document.getElementById('dm').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
-</script></body></html>
+<div class="mo" id="dm"><div class="md"><button type="button" class="cb" data-monitor-action="close-detail">×</button><h2>Error Detail <span id="di" style="color:var(--tm);font-size:14px"></span></h2><div class="dg" id="dc"></div><div class="st" id="ds"></div><div style="margin-top:16px;display:flex;gap:12px"><button type="button" class="btn bp" data-monitor-action="resolve">✓ Resolve</button><button type="button" class="btn bd" data-monitor-action="delete">✕ Delete</button></div></div></div>
+<script src="/monitor/dashboard.js?v=<?= (int) filemtime(__DIR__ . '/dashboard.js') ?>"></script></body></html>
 <?php
-function showMonitorLogin($error=''){
-?><!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title><?= defined('MONITOR_PAGE_TITLE') ? MONITOR_PAGE_TITLE : 'Monitor' ?></title>
+function denyMonitorAccess($status, $message) {
+    $expectsJson = isset($_GET['action'])
+        || strpos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false;
+    if ($expectsJson) {
+        http_response_code((int)$status);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'message' => (string)$message]);
+        exit;
+    }
+
+    header('Location: /admin/index.php?error=' . rawurlencode('Please sign in with an authorized Super Admin account.'));
+    exit;
+}
+
+function monitorUnavailable() {
+    $expectsJson = isset($_GET['action'])
+        || strpos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false;
+    http_response_code(503);
+    header('Retry-After: 60');
+    if ($expectsJson) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'message' => 'Monitor temporarily unavailable.']);
+    } else {
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Monitor temporarily unavailable. Please try again later.';
+    }
+    exit;
+}
+
+/** @param array{id:int,username:string} $admin */
+function recordMonitorAccess(PDO $database, array $admin, $action, $details) {
+    try {
+        $statement = $database->prepare(
+            'INSERT INTO activity_logs (user_id, username, action, details, ip_address, user_agent)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $statement->execute([
+            (int)$admin['id'],
+            (string)$admin['username'],
+            substr((string)$action, 0, 100),
+            substr((string)$details, 0, 500),
+            substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+            substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+        ]);
+    } catch (Throwable $error) {
+        // Authorization must not depend on optional audit-log availability.
+    }
+}
+
+function showMonitorLogin($error, $csrfToken, $adminName) {
+    $pageTitle = defined('MONITOR_PAGE_TITLE') ? MONITOR_PAGE_TITLE : 'Error Monitor';
+    $schoolName = defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'School';
+?><!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title><?= e($pageTitle) ?></title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0d1117;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px}
 .lc{background:#161b22;border:1px solid #30363d;border-radius:16px;padding:48px 40px;width:380px;text-align:center}
-.logo{font-size:48px;margin-bottom:12px}h2{color:#58a6ff;font-size:20px;margin-bottom:6px}.sub{color:#8b949e;font-size:14px;margin-bottom:32px}
+.logo{font-size:48px;margin-bottom:12px}h2{color:#58a6ff;font-size:20px;margin-bottom:6px}.sub{color:#8b949e;font-size:14px;margin-bottom:32px}.account{color:#e6edf3;font-weight:600}
 .ig{text-align:left;margin-bottom:20px}.ig label{display:block;color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 input[type="password"]{width:100%;padding:14px 16px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:15px;outline:none;transition:border-color .2s}
 input[type="password"]:focus{border-color:#58a6ff}input[type="password"]::placeholder{color:#484f58}
 button{width:100%;padding:14px;background:linear-gradient(135deg,#58a6ff,#3b82f6);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .2s}button:hover{opacity:.9}
 .err{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#f85149;padding:10px 16px;border-radius:8px;font-size:13px;margin-bottom:20px}
-.hint{color:#484f58;font-size:12px;margin-top:24px;line-height:1.6}.hint a{color:#58a6ff;text-decoration:none}</style></head>
-<body><div class="lc"><div class="logo">⚡</div><h2><?= defined('MONITOR_PAGE_TITLE') ? MONITOR_PAGE_TITLE : 'Error Monitor' ?></h2><p class="sub">Enter your Super Admin password</p>
-<?php if($error):?><div class="err"><?=htmlspecialchars($error)?></div><?php endif;?>
-<form method="POST"><div class="ig"><label>Super Admin Password</label><input type="password" name="monitor_password" placeholder="Enter password..." autofocus required></div>
+.hint{color:#8b949e;font-size:12px;margin-top:24px;line-height:1.6}.hint a{color:#58a6ff;text-decoration:none}</style></head>
+<body><div class="lc"><div class="logo">⚡</div><h2><?= e($pageTitle) ?></h2><p class="sub">Confirm the password for<br><span class="account"><?= e($adminName) ?></span></p>
+<?php if ($error !== ''): ?><div class="err"><?= e($error) ?></div><?php endif; ?>
+<form method="POST"><input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>"><div class="ig"><label>Current password</label><input type="password" name="monitor_password" placeholder="Enter your current password" autocomplete="current-password" autofocus required maxlength="4096"></div>
 <button type="submit">🔓 Access Monitor</button></form>
-<p class="hint">Only Super Admin accounts can access.<br><a href="/admin/">← Back to <?= defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'School' ?> Admin</a></p></div></body></html>
-<?php } ?>
+<p class="hint">This additional verification expires after 15 minutes.<br><a href="/admin/">← Back to <?= e($schoolName) ?> Admin</a></p></div></body></html>
+<?php }

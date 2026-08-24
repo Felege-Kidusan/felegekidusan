@@ -66,10 +66,19 @@ class TestMemberSeed
 
     public static function load(\mysqli $conn, int $adminId = 0): array
     {
+        $lock = self::acquireMutationLock();
+        try {
+            return self::loadUnlocked($conn, $adminId);
+        } finally {
+            self::releaseMutationLock($lock);
+        }
+    }
+
+    private static function loadUnlocked(\mysqli $conn, int $adminId): array
+    {
         @set_time_limit(90);
         $roster = self::roster();
         if (!$roster) {
-            if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
             return ['ok' => false, 'message' => 'Practice list is missing from the website files.'];
         }
 
@@ -78,7 +87,6 @@ class TestMemberSeed
         $classes = self::ensureClasses($conn);
         $year = self::ensureYear($conn);
         if (!$year) {
-            if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
             return ['ok' => false, 'message' => 'Could not create or find an academic year. Open Education and set the year first.'];
         }
 
@@ -147,7 +155,10 @@ class TestMemberSeed
                 }
             } catch (\Throwable $e) {
                 $stats['errors']++;
-                $stats['error_details'][] = $name . ': ' . $e->getMessage();
+                if (function_exists('reportInternalError')) {
+                    reportInternalError('Practice member seed failed for ' . $name, $e);
+                }
+                $stats['error_details'][] = $name . ': could not save';
             }
         }
 
@@ -166,11 +177,20 @@ class TestMemberSeed
         if ($stats['errors']) {
             $stats['message'] .= " {$stats['errors']} row(s) had a problem.";
         }
-        if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
         return $stats;
     }
 
     public static function clear(\mysqli $conn): array
+    {
+        $lock = self::acquireMutationLock();
+        try {
+            return self::clearUnlocked($conn);
+        } finally {
+            self::releaseMutationLock($lock);
+        }
+    }
+
+    private static function clearUnlocked(\mysqli $conn): array
     {
         @set_time_limit(90);
         $ids = self::testMemberIds($conn);
@@ -590,12 +610,21 @@ class TestMemberSeed
 
     private static function writeFlag(\mysqli $conn, array $state): void
     {
-        $json = json_encode($state, JSON_UNESCAPED_UNICODE);
-        $dir = dirname(self::flagFile());
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+        $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return;
         }
-        @file_put_contents(self::flagFile(), $json);
+        $dir = dirname(self::flagFile());
+        if (is_dir($dir) || @mkdir($dir, 0750, true)) {
+            $temporary = @tempnam($dir, '.test-members-state-');
+            if ($temporary !== false) {
+                $written = @file_put_contents($temporary, $json, LOCK_EX);
+                @chmod($temporary, 0600);
+                if ($written === false || !@rename($temporary, self::flagFile())) {
+                    @unlink($temporary);
+                }
+            }
+        }
 
         if (!self::tableExists($conn, 'system_branding')) {
             return;
@@ -612,6 +641,33 @@ class TestMemberSeed
             $stmt->execute();
             $stmt->close();
         }
+    }
+
+    /** @return resource */
+    private static function acquireMutationLock()
+    {
+        $path = self::flagFile() . '.lock';
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0750, true)) {
+            throw new \RuntimeException('Test data lock storage is unavailable.');
+        }
+        $lock = @fopen($path, 'c');
+        if ($lock === false) {
+            throw new \RuntimeException('Test data lock storage is unavailable.');
+        }
+        @chmod($path, 0600);
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+            throw new \RuntimeException('Another test data operation is already running.');
+        }
+        return $lock;
+    }
+
+    /** @param resource $lock */
+    private static function releaseMutationLock($lock): void
+    {
+        flock($lock, LOCK_UN);
+        fclose($lock);
     }
 
     private static function flagFile(): string

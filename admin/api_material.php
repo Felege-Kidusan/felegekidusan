@@ -202,5 +202,6 @@ default:
     echo json_encode(['status'=>'error','message'=>'Unknown action']);
 }
 } catch (Exception $e) {
-    echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+    reportInternalError('Material API request failed', $e);
+    echo json_encode(['status'=>'error','message'=>'Unable to complete the material request.']);
 }

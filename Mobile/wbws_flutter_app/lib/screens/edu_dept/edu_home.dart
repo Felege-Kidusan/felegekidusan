@@ -112,7 +112,13 @@ class EduHomeScreenState extends State<EduHomeScreen> {
       'grades': FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () => _open(const TeacherGradesScreen())),
       'attendance': FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.accent, onTap: () => _open(const AttendanceScreen())),
     };
-    return [for (final id in ids) if (all[id] != null) all[id]!];
+    return [
+      for (final id in ids)
+        if (all[id] != null
+            && (id != 'attendance' || AppUpdateService().featureEnabled('attendance'))
+            && (id != 'grades' || AppUpdateService().featureEnabled('grades')))
+          all[id]!,
+    ];
   }
 
   List<Widget> _buildContent() {

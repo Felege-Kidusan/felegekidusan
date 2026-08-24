@@ -407,7 +407,7 @@ var Finance = (function() {
     // ══════════════════════════════════════════════════════════
 
     function loadMembers() {
-        window.api.get('members.php')
+        window.api.get('members.php?view=picker&limit=50')
             .then(function(d) {
                 if (d.status === 'success') {
                     members = d.members || [];

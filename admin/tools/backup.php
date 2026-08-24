@@ -1,192 +1,125 @@
 <?php
 /**
- * ============================================================
- * DATABASE BACKUP   —   admin/tools/backup.php
- * ============================================================
- * Exports the whole database to a timestamped .sql file, keeps the
- * newest 7, and deletes older ones. Can be run by a person in the
- * browser OR automatically by a daily cron job.
+ * Create an encrypted database backup.
  *
- * Like the health check, this does NOT use the normal login — it has
- * its own key (BACKUP_KEY, from your .fkss_env.php). That lets the cron
- * job run it without a browser session.
+ * Recommended cron command:
+ *   0 2 * * * /usr/local/bin/php /path/to/public_html/admin/tools/backup.php
  *
- * IT STREAMS the export row-by-row straight to disk, so it stays fast
- * and does not run out of memory even when the database is large. (The
- * old backup script built the whole file in memory and would silently
- * fail once the data grew — this one does not.)
+ * Decrypt a downloaded/stored backup before a controlled database restore:
+ *   php admin/tools/backup.php --decrypt=BACKUP_NAME --output=/private/restore.sql
  *
- * RUN IT MANUALLY (browser):
- *   https://your-site/admin/tools/backup.php?key=YOUR_BACKUP_KEY
- *
- * RUN IT DAILY (cPanel → Cron Jobs), once per day at 2 AM:
- *   0 2 * * * /usr/local/bin/php /home/USERNAME/public_html/admin/tools/backup.php key=YOUR_BACKUP_KEY >/dev/null 2>&1
- *   (On some hosts the PHP path is /usr/bin/php. Replace USERNAME and the key.)
- * ============================================================
+ * Browser requests require a Super Admin session, POST, and CSRF token. Secrets
+ * are never accepted in URLs. Legacy cron_backup.php delegates here for CLI.
  */
 
 @set_time_limit(0);
-$isCli = (PHP_SAPI === 'cli');
+@ignore_user_abort(true);
 
-// ── Load ONLY the secrets file (DB creds + BACKUP_KEY) ──
-$envNames = ['.fkss_env.php', '.wbws_env.php'];
-$envDirs  = [dirname(__DIR__, 2), dirname(__DIR__, 3), dirname(__DIR__, 4)];
-$envLoaded = false;
-foreach ($envDirs as $d) {
-    foreach ($envNames as $n) {
-        if (is_file($d . '/' . $n)) { require_once $d . '/' . $n; $envLoaded = true; break 2; }
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../backend/services/BackupService.php';
+
+use App\Services\BackupService;
+
+$isCli = PHP_SAPI === 'cli';
+
+function backupOutput(bool $ok, string $message, array $metadata = []): void
+{
+    global $isCli;
+    if ($isCli) {
+        $stream = $ok ? STDOUT : STDERR;
+        fwrite($stream, ($ok ? 'BACKUP OK: ' : 'BACKUP FAILED: ') . $message . PHP_EOL);
+        if ($ok && $metadata) {
+            fwrite($stream, 'File: ' . $metadata['name'] . PHP_EOL);
+            fwrite($stream, 'Encrypted size: ' . number_format((int)$metadata['size']) . ' bytes' . PHP_EOL);
+            fwrite($stream, 'Rows: ' . number_format((int)$metadata['rows']) . PHP_EOL);
+        }
+        exit($ok ? 0 : 1);
     }
-}
 
-function backup_fail($msg, $code = 500) {
-    http_response_code($code);
-    header('Content-Type: text/plain; charset=utf-8');
-    echo "BACKUP FAILED: $msg\n";
+    if (!headers_sent()) {
+        header('Cache-Control: no-store, private');
+        header('Pragma: no-cache');
+        header('Location: /admin/dashboards/super-admin.php?section=backup&backup_status=' . ($ok ? 'created' : 'failed'), true, 303);
+    }
     exit;
 }
 
-if (!$envLoaded) {
-    backup_fail('secrets file (.fkss_env.php) not found above the web root.');
-}
-if (!defined('BACKUP_KEY') || BACKUP_KEY === '' || strpos(BACKUP_KEY, 'REPLACE_WITH') === 0) {
-    backup_fail('BACKUP_KEY is not set in your secrets file. Set it, then try again.');
-}
-
-// ── Key check (CLI runs are trusted; web/cron runs need the key) ──
 if (!$isCli) {
-    $providedKey = $_GET['key'] ?? ($_POST['key'] ?? '');
-    if (!is_string($providedKey) || !hash_equals(BACKUP_KEY, $providedKey)) {
-        backup_fail('invalid or missing key.', 403);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        http_response_code(405);
+        header('Allow: POST');
+        exit('Method not allowed.');
+    }
+    if (empty($_SESSION['admin_logged_in']) || ($_SESSION['admin_role'] ?? '') !== 'super_admin') {
+        http_response_code(403);
+        exit('Access denied.');
+    }
+    if (!validateCsrf($_POST['csrf_token'] ?? '')) {
+        backupOutput(false, 'Security token expired.');
+    }
+    // A large backup must not block the administrator's other requests.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
     }
 }
-// (CLI cron can also pass key=... as an argument; accept it but do not require it)
+
 if ($isCli && isset($argv)) {
-    foreach ($argv as $a) { if (strpos($a, 'key=') === 0) { /* accepted, not required for CLI */ } }
-}
-
-// ── Choose a backup directory: OUTSIDE the web root if we can, else the
-//    .htaccess-protected folder inside it. ──
-// __DIR__ is .../admin/tools ; dirname(__DIR__,2) is the project root
-// (public_html); dirname(__DIR__,3) is the account home ABOVE the web root.
-$outsideDir = dirname(__DIR__, 3) . '/wbss_secure_backups';
-$insideDir  = dirname(__DIR__, 2) . '/admin/uploads/backups';
-
-$backupDir = null;
-foreach ([$outsideDir, $insideDir] as $cand) {
-    if (!$cand) continue;
-    if (!is_dir($cand)) { @mkdir($cand, 0755, true); }
-    if (is_dir($cand) && is_writable($cand)) { $backupDir = $cand; break; }
-}
-if (!$backupDir) {
-    backup_fail('no writable backup directory. Create ' . htmlspecialchars($insideDir) . ' and make it writable (0755).');
-}
-
-// Make sure the inside dir (if used) blocks web download of the dumps.
-if ($backupDir === $insideDir && !is_file($insideDir . '/.htaccess')) {
-    @file_put_contents($insideDir . '/.htaccess', "Require all denied\n<IfModule !mod_authz_core.c>\nOrder Allow,Deny\nDeny from all\n</IfModule>\n");
-}
-
-// ── Connect ──
-mysqli_report(MYSQLI_REPORT_OFF);
-$conn = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-if (!$conn || $conn->connect_error) {
-    backup_fail('database connection failed: ' . ($conn->connect_error ?? 'unknown'));
-}
-$conn->set_charset('utf8mb4');
-
-// ── Stream the dump to a file ──
-$timestamp = date('Y-m-d_H-i-s');
-$fileName  = 'backup_' . $timestamp . '.sql';
-$filePath  = $backupDir . '/' . $fileName;
-
-$fh = @fopen($filePath, 'w');
-if (!$fh) {
-    backup_fail('could not open backup file for writing: ' . $filePath);
-}
-
-$rowsTotal = 0;
-try {
-    fwrite($fh, "-- " . (defined('BACKUP_HEADER') ? BACKUP_HEADER : 'Database Backup') . "\n");
-    fwrite($fh, "-- Date: " . date('Y-m-d H:i:s T') . "\n");
-    fwrite($fh, "-- Database: " . DB_NAME . "\n\n");
-    fwrite($fh, "SET FOREIGN_KEY_CHECKS=0;\n");
-    fwrite($fh, "SET NAMES utf8mb4;\n\n");
-
-    // List tables
-    $tables = [];
-    if ($res = $conn->query("SHOW TABLES")) {
-        while ($r = $res->fetch_row()) { $tables[] = $r[0]; }
-        $res->free();
-    }
-
-    foreach ($tables as $table) {
-        // Structure
-        if ($cr = $conn->query("SHOW CREATE TABLE `$table`")) {
-            $row = $cr->fetch_assoc();
-            $cr->free();
-            $create = $row['Create Table'] ?? ($row['Create View'] ?? '');
-            fwrite($fh, "\n-- ----- Table: $table -----\n");
-            fwrite($fh, "DROP TABLE IF EXISTS `$table`;\n");
-            fwrite($fh, $create . ";\n\n");
-        }
-
-        // Data — UNBUFFERED read so we never hold the whole table in memory
-        $data = $conn->query("SELECT * FROM `$table`", MYSQLI_USE_RESULT);
-        if ($data) {
-            while ($row = $data->fetch_assoc()) {
-                $vals = array_map(function ($v) use ($conn) {
-                    return $v === null ? 'NULL' : "'" . $conn->real_escape_string($v) . "'";
-                }, array_values($row));
-                fwrite($fh, "INSERT INTO `$table` VALUES (" . implode(',', $vals) . ");\n");
-                $rowsTotal++;
-            }
-            $data->free();
+    $decryptName = null;
+    $outputPath = null;
+    foreach ($argv as $argument) {
+        if (strpos($argument, '--decrypt=') === 0) {
+            $decryptName = substr($argument, strlen('--decrypt='));
+        } elseif (strpos($argument, '--output=') === 0) {
+            $outputPath = substr($argument, strlen('--output='));
         }
     }
-
-    fwrite($fh, "\nSET FOREIGN_KEY_CHECKS=1;\n");
-    fclose($fh);
-} catch (Throwable $e) {
-    fclose($fh);
-    @unlink($filePath); // don't leave a half-written backup
-    backup_fail('error while writing backup: ' . $e->getMessage());
-}
-
-$sizeMb = round(filesize($filePath) / 1048576, 2);
-
-// ── Keep only the newest 7 backups ──
-$all = glob($backupDir . '/*.sql') ?: [];
-usort($all, fn($a, $b) => filemtime($b) <=> filemtime($a));
-$deleted = 0;
-foreach (array_slice($all, 7) as $old) {
-    if (@unlink($old)) { $deleted++; }
-}
-
-// ── Log it (best effort; ignore if the table isn't there) ──
-try {
-    $stmt = $conn->prepare("INSERT INTO activity_logs (username, action, details, created_at) VALUES ('BACKUP', 'Database Backup', ?, NOW())");
-    if ($stmt) {
-        $details = "$fileName ($sizeMb MB, $rowsTotal rows)";
-        $stmt->bind_param('s', $details);
-        $stmt->execute();
-        $stmt->close();
+    if ($decryptName !== null || $outputPath !== null) {
+        if (!$decryptName || !$outputPath) {
+            fwrite(STDERR, "RESTORE FAILED: provide both --decrypt=BACKUP_NAME and --output=/absolute/path.sql\n");
+            exit(1);
+        }
+        try {
+            $bytes = BackupService::decryptToSql($decryptName, $outputPath, ROOT_PATH);
+            fwrite(STDOUT, 'RESTORE OK: wrote ' . number_format($bytes) . " SQL bytes to the requested private path.\n");
+            exit(0);
+        } catch (Throwable $error) {
+            reportInternalError('Backup decryption failed', $error);
+            fwrite(STDERR, "RESTORE FAILED: the backup could not be decrypted.\n");
+            exit(1);
+        }
     }
-} catch (Throwable $e) { /* ignore */ }
+}
 
-$conn->close();
+if (!isset($conn) || !($conn instanceof mysqli) || $conn->connect_error) {
+    reportInternalError('Backup database connection unavailable');
+    backupOutput(false, 'Database service is unavailable.');
+}
 
-// ── Report ──
-$outsideWebRoot = ($backupDir !== $insideDir);
-$msg = "BACKUP OK\n"
-     . "File: $fileName\n"
-     . "Size: $sizeMb MB\n"
-     . "Rows: $rowsTotal\n"
-     . "Location: " . ($outsideWebRoot ? 'outside web root (best)' : 'inside web root (.htaccess protected)') . "\n"
-     . "Old backups deleted: $deleted (keeping newest 7)\n";
+try {
+    $metadata = BackupService::create($conn, ROOT_PATH);
 
-if ($isCli) {
-    echo $msg;
-} else {
-    header('Content-Type: text/plain; charset=utf-8');
-    echo $msg;
+    try {
+        $uid = $isCli ? 0 : (int)($_SESSION['admin_id'] ?? 0);
+        $username = $isCli ? 'CRON' : (string)($_SESSION['admin_username'] ?? 'admin');
+        $ip = $isCli ? 'localhost' : (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $details = sprintf(
+            '%s (%d bytes encrypted, %d rows)',
+            $metadata['name'],
+            $metadata['size'],
+            $metadata['rows']
+        );
+        $stmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address, created_at) VALUES (?, ?, 'Encrypted Backup Created', ?, ?, NOW())");
+        if ($stmt) {
+            $stmt->bind_param('isss', $uid, $username, $details, $ip);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $ignored) {
+        // Backup success must not depend on optional audit persistence.
+    }
+
+    backupOutput(true, 'Encrypted backup created.', $metadata);
+} catch (Throwable $error) {
+    reportInternalError('Encrypted backup creation failed', $error);
+    backupOutput(false, 'The encrypted backup could not be created.');
 }

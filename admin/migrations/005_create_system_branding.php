@@ -1,14 +1,18 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * ============================================================
  * Migration 005: Create system_branding table
  * ============================================================
- * Run this ONCE if the branding section shows errors.
  * Safe to re-run — uses IF NOT EXISTS.
  * 
- * How to run:
- *   Option A: Visit this URL while logged in as super_admin
- *   Option B: Copy the SQL below and run in phpMyAdmin
  * ============================================================
  */
 require_once __DIR__ . '/../config.php';

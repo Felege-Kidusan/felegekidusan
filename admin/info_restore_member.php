@@ -48,50 +48,16 @@ if ($member['status'] !== 'archived') {
     exit;
 }
 
-// Check which columns exist
-$columns = [];
-$colResult = $conn->query("SHOW COLUMNS FROM members");
-while ($col = $colResult->fetch_assoc()) {
-    $columns[] = $col['Field'];
-}
-
-// Build dynamic update query - restore to active and clear archive fields
-$updateParts = ["status = 'active'"];
-$params = [];
-$types = '';
-
-if (in_array('archived_at', $columns)) {
-    $updateParts[] = "archived_at = NULL";
-}
-if (in_array('archived_by', $columns)) {
-    $updateParts[] = "archived_by = NULL";
-}
-if (in_array('archive_reason', $columns)) {
-    $updateParts[] = "archive_reason = NULL";
-}
-if (in_array('archive_notes', $columns)) {
-    $updateParts[] = "archive_notes = NULL";
-}
-if (in_array('restored_at', $columns)) {
-    $updateParts[] = "restored_at = NOW()";
-}
-if (in_array('restored_by', $columns)) {
-    $updateParts[] = "restored_by = ?";
-    $params[] = $_SESSION['admin_username'];
-    $types .= 's';
-}
-
-$params[] = $id;
-$types .= 'i';
-
-$sql = "UPDATE members SET " . implode(', ', $updateParts) . " WHERE id = ?";
-$stmt = $conn->prepare($sql);
-
+// Archive metadata columns are deployment-managed by migration 013.
+$restoredBy = (string)$_SESSION['admin_username'];
+$stmt = $conn->prepare(
+    "UPDATE members
+     SET status='active', archived_at=NULL, archived_by=NULL, archive_reason=NULL,
+         archive_notes=NULL, archive_type=NULL, restored_at=NOW(), restored_by=?
+     WHERE id=?"
+);
 if ($stmt) {
-    if (!empty($types)) {
-        $stmt->bind_param($types, ...$params);
-    }
-    
+    $stmt->bind_param('si', $restoredBy, $id);
     if ($stmt->execute()) {
         $memberName = $member['student_name'] . ' ' . $member['father_name'];
         echo json_encode([
@@ -99,11 +65,13 @@ if ($stmt) {
             'message' => $memberName . ' has been restored to active members'
         ]);
     } else {
-        echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $stmt->error]);
+        error_log('Member restore update failed.');
+        echo json_encode(['status' => 'error', 'message' => 'Unable to restore the member.']);
     }
     $stmt->close();
 } else {
-    echo json_encode(['status' => 'error', 'message' => 'Failed to prepare query: ' . $conn->error]);
+    error_log('Member restore prepare failed. Verify migration 013.');
+    echo json_encode(['status' => 'error', 'message' => 'Archive storage is temporarily unavailable.']);
 }
 
 $conn->close();

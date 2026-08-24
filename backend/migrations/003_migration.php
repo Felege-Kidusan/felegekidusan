@@ -1,7 +1,14 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * Migration 003 - Add Assessments and Class-Subject Assignment Tables
- * Run: {SITE_URL}/admin/migrations/003_add_assessments.php
  */
 
 require_once __DIR__ . '/../config.php';

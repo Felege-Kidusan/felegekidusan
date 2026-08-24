@@ -68,6 +68,15 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             return; // public site, mobile app, /api/v1 — handled elsewhere
         }
 
+        // Deployment-time schema mutators and diagnostics are never web
+        // applications. This application-level denial remains effective when
+        // Apache .htaccess rules are unavailable or accidentally disabled.
+        $deploymentOnly = str_contains(strtolower(str_replace('\\', '/', $script)), '/migrations/')
+            || in_array($base, ['get_schema.php', 'qr_diagnostic.php', 'leak_detector.php'], true);
+        if ($deploymentOnly) {
+            _ac_deny(404, 'This deployment tool is not available over HTTP.');
+        }
+
         // 4. Pages that must stay reachable WITHOUT logging in.
         $PUBLIC_PAGES = [
             'index.php',        // the admin login screen itself
@@ -137,6 +146,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'members_check.php'       => ['super_admin', 'school_admin', 'hr_dept'],
             'hr_register_member.php'  => ['super_admin', 'school_admin', 'hr_dept'],
             'info_manage_member.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
+            'member_file.php'               => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'info_archive_member.php'       => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'info_restore_member.php'       => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'info_get_archived_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
@@ -159,7 +169,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'export_pdf.php'  => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_export_members.php' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'api_import_members.php' => ['super_admin', 'school_admin', 'hr_dept'],
-            'api_test_seed.php'      => ['super_admin', 'school_admin', 'edu_dept'],
+            'api_test_seed.php'      => ['super_admin'],
 
             // ---- CMS (public website content) ----
             'api_cms.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'content_editor'],
@@ -182,7 +192,8 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // Year section; matches the rest of the year lifecycle ownership.
             'year_rollover.php' => ['super_admin', 'school_admin'],
 
-            // ---- Backup download: SUPER ADMIN ONLY (streams PII-bearing dumps) ----
+            // ---- Backups: SUPER ADMIN ONLY (contain all sensitive records) ----
+            'backup.php'          => ['super_admin'],
             'download_backup.php' => ['super_admin'],
 
             // ---- User management: SUPER ADMIN ONLY ----
@@ -216,6 +227,13 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             if (!in_array($role, $ROLE_MAP[$base], true)) {
                 _ac_deny(403, 'You do not have permission to use this page.');
             }
+        }
+
+        // 8. Deployment feature flags are server-side capabilities, not UI
+        // preferences. A hidden menu alone must never leave its endpoint live.
+        $feature = \App\Services\FeatureGate::forAdminRequest($script);
+        if ($feature !== null && !\App\Services\FeatureGate::isEnabled($feature)) {
+            _ac_deny(403, 'This feature is not enabled for this deployment.');
         }
     })();
 }

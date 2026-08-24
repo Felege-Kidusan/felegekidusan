@@ -1,5 +1,13 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
+ * Legacy compatibility migration. HTTP execution is disabled.
+ * Apply reviewed, versioned sql/*.sql migrations during deployment.
+ *
  * Migration 004: Finance & Material Department Tables
  * Run once to create all required tables for these departments.
  */
