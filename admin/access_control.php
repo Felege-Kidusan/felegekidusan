@@ -196,6 +196,9 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'backup.php'          => ['super_admin'],
             'download_backup.php' => ['super_admin'],
 
+            // ---- Identity & Codes hub: SUPER ADMIN ONLY ----
+            'api_identity.php'  => ['super_admin'],
+
             // ---- User management: SUPER ADMIN ONLY ----
             'users.php'       => ['super_admin'],
             'user-save.php'   => ['super_admin'],

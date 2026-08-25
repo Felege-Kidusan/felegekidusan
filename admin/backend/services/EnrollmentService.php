@@ -8,7 +8,8 @@
 
 namespace App\Services;
 
-require_once __DIR__ . '/MemberCodeService.php';
+require_once __DIR__ . '/MemberCategory.php';
+require_once __DIR__ . '/IdentityCodeService.php';
 
 class EnrollmentService
 {
@@ -245,10 +246,17 @@ class EnrollmentService
         ];
     }
 
-    public static function generateMemberCode(\mysqli $conn): string
+    /**
+     * Compatibility adapter for existing import/enrollment callers.
+     * $ageGroup accepts the stored value ('7_13','14_17','18_plus', legacy
+     * 'under6') or a bare letter; it maps onto the ministry A/B/C sequence.
+     */
+    public static function generateMemberCode(\mysqli $conn, ?string $ageGroup = null): string
     {
-        // Compatibility adapter for existing import/enrollment callers.
-        return MemberCodeService::generate($conn);
+        require_once __DIR__ . '/MemberCategory.php';
+        require_once __DIR__ . '/IdentityCodeService.php';
+        $letter = MemberCategory::letterFor($ageGroup) ?? MemberCategory::LETTER_A;
+        return IdentityCodeService::allocateStudent($conn, $letter);
     }
 
     private static function activeEnrollment(\mysqli $conn, int $memberId, int $yearId): ?array

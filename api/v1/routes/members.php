@@ -236,7 +236,7 @@ if ($method === 'POST' && $id === null) {
     $fullNameAm = trim($studentName . ' ' . $fatherName . ' ' . $grandfatherName);
 
     require_once __DIR__ . '/../../../admin/backend/services/EnrollmentService.php';
-    $memberCode = \App\Services\EnrollmentService::generateMemberCode($conn);
+    $memberCode = \App\Services\EnrollmentService::generateMemberCode($conn, $ageGroup);
 
     $createdBy = $auth['uid'];
 

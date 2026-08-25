@@ -995,7 +995,7 @@ switch ($action) {
         $w=["m.status='active'"]; $p=[]; $t='';
         if ($search!=='') { $w[]="(m.student_name LIKE ? OR m.father_name LIKE ? OR m.member_code LIKE ? OR m.baptismal_name LIKE ?)"; $st="%$search%"; $p=array_merge($p,[$st,$st,$st,$st]); $t.='ssss'; }
         if ($genderFilter!=='' && in_array($genderFilter,['male','female'])) { $w[]="m.gender=?"; $p[]=$genderFilter; $t.='s'; }
-        if ($ageGroupFilter!=='' && in_array($ageGroupFilter,['under6','7_13','14_17','18_plus'])) { $w[]="m.age_group=?"; $p[]=$ageGroupFilter; $t.='s'; }
+        if ($ageGroupFilter!=='' && in_array($ageGroupFilter,['7_13','14_17','18_plus'])) { $w[]="m.age_group=?"; $p[]=$ageGroupFilter; $t.='s'; }
         if ($memberTypeFilter!=='' && in_array($memberTypeFilter,['regular','special_regular','honorary'])) { $w[]="m.member_type=?"; $p[]=$memberTypeFilter; $t.='s'; }
         $wc=implode(' AND ',$w);
         $csql="SELECT COUNT(*) as total FROM members m WHERE $wc AND m.id NOT IN (SELECT ce.member_id FROM class_enrollments ce WHERE ce.academic_year_id=? AND ce.status='active')";
@@ -1146,7 +1146,7 @@ switch ($action) {
             $p[] = $gender;
             $t .= 's';
         }
-        if ($ageGroup !== '' && in_array($ageGroup, ['under6', '7_13', '14_17', '18_plus'], true)) {
+        if ($ageGroup !== '' && in_array($ageGroup, ['7_13', '14_17', '18_plus'], true)) {
             $w[] = 'm.age_group = ?';
             $p[] = $ageGroup;
             $t .= 's';

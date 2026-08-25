@@ -136,7 +136,10 @@ class TestMemberSeed
                     self::updateMember($conn, $memberId, $payload, $cols);
                     $stats['updated']++;
                 } else {
-                    $payload['member_code'] = EnrollmentService::generateMemberCode($conn);
+                    $payload['member_code'] = EnrollmentService::generateMemberCode(
+                        $conn,
+                        isset($payload['age_group']) ? (string)$payload['age_group'] : null
+                    );
                     $memberId = self::insertMember($conn, $payload, $cols);
                     if ($memberId <= 0) {
                         $stats['errors']++;

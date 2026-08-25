@@ -10,10 +10,9 @@ use RuntimeException;
 final class MemberReportRenderer
 {
     private const AGE_LABELS = [
-        'under6' => 'Under 6',
-        '7_13' => '7-13',
-        '14_17' => '14-17',
-        '18_plus' => '18+',
+        '7_13' => 'ህጻናት (A)',
+        '14_17' => 'ማዕከላዊያን (B)',
+        '18_plus' => 'ወጣቶች (C)',
     ];
 
     /**

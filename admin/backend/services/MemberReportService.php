@@ -188,7 +188,7 @@ final class MemberReportService
         $this->enumFilter(
             $input,
             'age_group',
-            ['under6', '7_13', '14_17', '18_plus'],
+            ['7_13', '14_17', '18_plus'],
             '`age_group`',
             $where,
             $params

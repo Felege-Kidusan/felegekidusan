@@ -64,7 +64,6 @@ $membersList = [];
 $recentMembers = [];
 $genderCounts = ['male' => 0, 'female' => 0];
 $sectionCounts = [
-    'under6'   => 0,
     '7_13'     => 0,
     '14_17'    => 0,
     '18_plus'  => 0,
@@ -173,7 +172,6 @@ if (isset($conn)) {
             SUM(status='warning')           AS warning_cnt,
             SUM(status='inactive')          AS inactive_cnt,
             SUM(status='archived')          AS archived_cnt,
-            SUM(age_group='under6' AND status != 'archived')         AS under6_cnt,
             SUM(age_group='7_13' AND status != 'archived')           AS ag_7_13_cnt,
             SUM(age_group='14_17' AND status != 'archived')          AS ag_14_17_cnt,
             SUM(age_group='18_plus' AND status != 'archived')        AS ag_18_plus_cnt
@@ -195,7 +193,6 @@ if (isset($conn)) {
         $statusCounts['inactive'] = (int) ($row['inactive_cnt'] ?? 0);
         $statusCounts['archived'] = (int) ($row['archived_cnt'] ?? 0);
 
-        $sectionCounts['under6']   = (int) ($row['under6_cnt'] ?? 0);
         $sectionCounts['7_13']     = (int) ($row['ag_7_13_cnt'] ?? 0);
         $sectionCounts['14_17']    = (int) ($row['ag_14_17_cnt'] ?? 0);
         $sectionCounts['18_plus']  = (int) ($row['ag_18_plus_cnt'] ?? 0);
@@ -206,15 +203,12 @@ if (isset($conn)) {
 }
 
 // For display labels mapping
+require_once __DIR__ . '/../backend/services/MemberCategory.php';
 function sectionLabelFromGroup(?string $ageGroup): string
 {
-    return match ($ageGroup) {
-        'under6'  => 'አጸደ ህጻናት',
-        '7_13'    => 'ህጻናት',
-        '14_17'   => 'ማዕከላዊያን',
-        '18_plus' => 'ወጣቶች',
-        default   => '',
-    };
+    $letter = \App\Services\MemberCategory::letterFor($ageGroup);
+    return $letter === null ? '' : \App\Services\MemberCategory::labelAm($letter)
+        . ' (' . $letter . ')';
 }
 
 // ------------------------------------------------------------
@@ -949,24 +943,19 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-3 mt-3">
-                            <div class="p-3 rounded-2xl bg-emerald-50 border border-emerald-100">
-                                <div class="text-[11px] text-emerald-700 amharic-text">አጸደ ህጻናት</div>
-                                <div class="text-xl font-bold text-emerald-900 mt-1"><?= $sectionCounts['under6'] ?></div>
-                                <div class="text-[11px] text-emerald-500">Section</div>
-                            </div>
+                        <div class="grid grid-cols-3 gap-3 mt-3">
                             <div class="p-3 rounded-2xl bg-sky-50 border border-sky-100">
-                                <div class="text-[11px] text-sky-700 amharic-text">ህጻናት</div>
+                                <div class="text-[11px] text-sky-700 amharic-text">ህጻናት (A)</div>
                                 <div class="text-xl font-bold text-sky-900 mt-1"><?= $sectionCounts['7_13'] ?></div>
                                 <div class="text-[11px] text-sky-500">Section</div>
                             </div>
                             <div class="p-3 rounded-2xl bg-amber-50 border border-amber-100">
-                                <div class="text-[11px] text-amber-700 amharic-text">ማዕከላዊያን</div>
+                                <div class="text-[11px] text-amber-700 amharic-text">ማዕከላዊያን (B)</div>
                                 <div class="text-xl font-bold text-amber-900 mt-1"><?= $sectionCounts['14_17'] ?></div>
                                 <div class="text-[11px] text-amber-500">Section</div>
                             </div>
                             <div class="p-3 rounded-2xl bg-rose-50 border border-rose-100">
-                                <div class="text-[11px] text-rose-700 amharic-text">ወጣቶች</div>
+                                <div class="text-[11px] text-rose-700 amharic-text">ወጣቶች (C)</div>
                                 <div class="text-xl font-bold text-rose-900 mt-1"><?= $sectionCounts['18_plus'] ?></div>
                                 <div class="text-[11px] text-rose-500">Section</div>
                             </div>
@@ -1164,10 +1153,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 <select id="filterAgeGroup"
                                         class="text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
                                     <option value="">Section (All)</option>
-                                    <option value="under6">አጸደ ህጻናት</option>
-                                    <option value="7_13">ህጻናት</option>
-                                    <option value="14_17">ማዕከላዊያን</option>
-                                    <option value="18_plus">ወጣቶች</option>
+                                    <option value="7_13">ህጻናት (A)</option>
+                                    <option value="14_17">ማዕከላዊያን (B)</option>
+                                    <option value="18_plus">ወጣቶች (C)</option>
                                 </select>
                             </div>
                         </div>
@@ -2127,10 +2115,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </select>
                             <select id="manageFilterAgeGroup" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Age Groups</option>
-                                <option value="under6">Under 6</option>
-                                <option value="7_13">7 - 13</option>
-                                <option value="14_17">14 - 17</option>
-                                <option value="18_plus">18+</option>
+                                <option value="7_13">ህጻናት (7 - 13)</option>
+                                <option value="14_17">ማዕከላዊያን (14 - 17)</option>
+                                <option value="18_plus">ወጣቶች (18+)</option>
                             </select>
                             <select id="manageFilterEducation" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Education Levels</option>
@@ -2509,11 +2496,10 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         <div class="bg-pink-50 p-3 rounded-xl"><div class="text-lg font-bold text-pink-700"><?= $genderCounts['female'] ?></div><div class="text-[10px] text-pink-600">Female</div></div>
                         <div class="bg-amber-50 p-3 rounded-xl"><div class="text-lg font-bold text-amber-700"><?= $memberTypeWaiting ?></div><div class="text-[10px] text-amber-600">Waiting</div></div>
                     </div>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                        <div class="bg-emerald-50 p-3 rounded-xl"><div class="text-lg font-bold text-emerald-700"><?= $sectionCounts['under6'] ?></div><div class="text-[10px] text-emerald-600 amharic-text">አጸደ ህጻናት</div></div>
-                        <div class="bg-sky-50 p-3 rounded-xl"><div class="text-lg font-bold text-sky-700"><?= $sectionCounts['7_13'] ?></div><div class="text-[10px] text-sky-600 amharic-text">ህጻናት</div></div>
-                        <div class="bg-amber-50 p-3 rounded-xl"><div class="text-lg font-bold text-amber-700"><?= $sectionCounts['14_17'] ?></div><div class="text-[10px] text-amber-600 amharic-text">ማዕከላዊያን</div></div>
-                        <div class="bg-rose-50 p-3 rounded-xl"><div class="text-lg font-bold text-rose-700"><?= $sectionCounts['18_plus'] ?></div><div class="text-[10px] text-rose-600 amharic-text">ወጣቶች</div></div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div class="bg-sky-50 p-3 rounded-xl"><div class="text-lg font-bold text-sky-700"><?= $sectionCounts['7_13'] ?></div><div class="text-[10px] text-sky-600 amharic-text">ህጻናት (A)</div></div>
+                        <div class="bg-amber-50 p-3 rounded-xl"><div class="text-lg font-bold text-amber-700"><?= $sectionCounts['14_17'] ?></div><div class="text-[10px] text-amber-600 amharic-text">ማዕከላዊያን (B)</div></div>
+                        <div class="bg-rose-50 p-3 rounded-xl"><div class="text-lg font-bold text-rose-700"><?= $sectionCounts['18_plus'] ?></div><div class="text-[10px] text-rose-600 amharic-text">ወጣቶች (C)</div></div>
                     </div>
                 </div>
             </section>
@@ -2751,10 +2737,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Default Age Group</label>
                                     <select id="defAgeGroup" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-teal-200 focus:border-teal-400">
                                         <option value="">None (manual selection)</option>
-                                        <option value="under6">Under 6 (አጸደ ህጻናት)</option>
-                                        <option value="7_13">7-13 (ህጻናት)</option>
-                                        <option value="14_17">14-17 (ማዕከላዊያን)</option>
-                                        <option value="18_plus">18+ (ወጣቶች)</option>
+                                        <option value="7_13">ህጻናት (7-13)</option>
+                                        <option value="14_17">ማዕከላዊያን (14-17)</option>
+                                        <option value="18_plus">ወጣቶች (18+)</option>
                                     </select>
                                 </div>
                                 <div>
@@ -3093,16 +3078,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         new Chart(sectionCtx, {
             type: 'bar',
             data: {
-                labels: ['አጸደ ህጻናት', 'ህጻናት', 'ማዕከላዊያን', 'ወጣቶች'],
+                labels: ['ህጻናት (A)', 'ማዕከላዊያን (B)', 'ወጣቶች (C)'],
                 datasets: [{
                     data: [
-                        <?= (int)$sectionCounts['under6'] ?>,
                         <?= (int)$sectionCounts['7_13'] ?>,
                         <?= (int)$sectionCounts['14_17'] ?>,
                         <?= (int)$sectionCounts['18_plus'] ?>
                     ],
                     backgroundColor: [
-                        'rgba(22,163,74,0.9)',
                         'rgba(34,197,94,0.9)',
                         'rgba(250,204,21,0.9)',
                         'rgba(248,113,113,0.9)'
@@ -3420,28 +3403,10 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         let age = currentYearEC - year;
         if (age < 0) age = 0;
 
-        let sectionLabel = '';
-        let ageGroup = '';
-
-        if (age <= 6) {
-            sectionLabel = 'አጸደ ህጻናት';
-            ageGroup = 'under6';
-        } else if (age >= 7 && age <= 13) {
-            sectionLabel = 'ህጻናት';
-            ageGroup = '7_13';
-        } else if (age >= 14 && age <= 17) {
-            sectionLabel = 'ማዕከላዊያን';
-            ageGroup = '14_17';
-        } else {
-            sectionLabel = 'ወጣቶች';
-            ageGroup = '18_plus';
-        }
-
+        // Age is informational only. Category (ህጻናት/ማዕከላዊያን/ወጣቶች) and
+        // section are assigned manually by staff — no automatic assignment.
         if (document.getElementById('ageDisplay')) document.getElementById('ageDisplay').value = age.toString();
         if (document.getElementById('ageField')) document.getElementById('ageField').value = age.toString();
-        if (document.getElementById('sectionDisplay')) document.getElementById('sectionDisplay').value = sectionLabel;
-        if (document.getElementById('currentSectionField')) document.getElementById('currentSectionField').value = sectionLabel;
-        if (document.getElementById('ageGroupField')) document.getElementById('ageGroupField').value = ageGroup;
     }
 
     // Toggle custom registration date fields

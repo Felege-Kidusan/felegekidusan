@@ -227,7 +227,6 @@ function collectDataSnapshot($conn, $scope = 'overview') {
             SUM(registration_type='direct') as direct,
             SUM(phone_number IS NOT NULL AND phone_number!='') as has_phone,
             SUM(student_photo_path IS NOT NULL AND student_photo_path!='') as has_photo,
-            SUM(age_group='under6') as age_under6,
             SUM(age_group='7_13') as age_7_13,
             SUM(age_group='14_17') as age_14_17,
             SUM(age_group='18_plus' OR age_group='18+') as age_18plus

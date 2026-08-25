@@ -15,8 +15,8 @@ class MemberRegistrationContractTests(unittest.TestCase):
         cls.policy = (
             ROOT / "admin/backend/services/MemberRegistrationPolicy.php"
         ).read_text()
-        cls.code_service = (
-            ROOT / "admin/backend/services/MemberCodeService.php"
+        cls.category_service = (
+            ROOT / "admin/backend/services/MemberCategory.php"
         ).read_text()
         cls.school = (ROOT / "admin/dashboards/school_admin.php").read_text()
 
@@ -63,15 +63,25 @@ class MemberRegistrationContractTests(unittest.TestCase):
         self.assertIn("$registrationPolicy['allow_uploads']", self.controller)
         self.assertIn("$registrationPolicy['allow_upgrade']", self.controller)
 
-    def test_member_codes_scale_beyond_five_digit_namespace(self):
-        self.assertIn("RANDOM_BYTES = 6", self.code_service)
-        self.assertIn("bin2hex(random_bytes", self.code_service)
-        self.assertIn("SELECT 1 FROM members WHERE member_code = ? LIMIT 1", self.code_service)
-        self.assertNotIn("random_int(10000, 99999)", self.controller + self.code_service)
+    def test_member_codes_follow_ministry_category_system(self):
+        identity = (
+            ROOT / "admin/backend/services/IdentityCodeService.php"
+        ).read_text()
+        # Sequential-per-letter allocation under a named lock (race-safe at
+        # six-figure rosters), plus the random 5-digit staff tail.
+        self.assertIn("GET_LOCK", identity)
+        self.assertIn("MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED))", identity)
+        self.assertIn("random_int(", identity)
+        self.assertIn("HEAD_MARKER = 'H'", identity)
+        self.assertIn("ORDINARY_MARKER = 'N'", identity)
+        # Registration derives the letter from the manual age group and never
+        # guesses staff codes.
+        self.assertIn("MemberCategory::letterFor($age_group)", self.controller)
+        self.assertIn("IdentityCodeService::allocateStudent", self.controller)
         enrollment = (
             ROOT / "admin/backend/services/EnrollmentService.php"
         ).read_text()
-        self.assertIn("return MemberCodeService::generate($conn)", enrollment)
+        self.assertIn("IdentityCodeService::allocateStudent", enrollment)
 
     def test_route_authorizes_only_registration_owners(self):
         access = (ROOT / "admin/access_control.php").read_text()

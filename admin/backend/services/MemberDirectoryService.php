@@ -191,7 +191,7 @@ final class MemberDirectoryService
             'member_type' => $enum($input['member_type'] ?? '', ['regular', 'special_regular', 'honorary']),
             'status' => $enum($input['status'] ?? '', ['active', 'warning', 'inactive', 'archived']),
             'gender' => $enum($input['gender'] ?? '', ['male', 'female']),
-            'age_group' => $enum($input['age_group'] ?? '', ['under6', '7_13', '14_17', '18_plus']),
+            'age_group' => $enum($input['age_group'] ?? '', ['7_13', '14_17', '18_plus']),
             'current_section' => $text($input['current_section'] ?? '', 100),
             'city' => $text($input['city'] ?? '', 100),
             'education_level' => $enum($input['education_level'] ?? '', [

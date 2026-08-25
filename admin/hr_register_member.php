@@ -14,7 +14,8 @@ ob_start();
 header('Content-Type: application/json; charset=utf-8');
 require __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/MemberFileService.php';
-require_once __DIR__ . '/backend/services/MemberCodeService.php';
+require_once __DIR__ . '/backend/services/MemberCategory.php';
+require_once __DIR__ . '/backend/services/IdentityCodeService.php';
 require_once __DIR__ . '/backend/services/MemberRegistrationPolicy.php';
 require_once __DIR__ . '/backend/services/MemberDuplicateService.php';
 require_once __DIR__ . '/backend/services/ApiIdempotencyService.php';
@@ -273,11 +274,14 @@ if ($registration_type === 'waiting') {
     $member_code   = null;
     $waiting_since = date('Y-m-d');
 } else {
-    // Always generate a unique hashed code.
-    // The frontend used to pre-fill a sequential code in a hidden field,
-    // but sequential codes caused constant duplicate collisions.
-    // Now we ignore the form value and generate a proper unique code.
-    $member_code = \App\Services\MemberCodeService::generate($conn);
+    // Ministry coding: students get {CategoryLetter}{Sequential} (A1, B4,
+    // C12…). The letter derives from the manually assigned age group; the
+    // retired fourth category normalizes onto ህጻናት. Staff codes are issued
+    // by the Super Admin Identity hub when positions are assigned — never
+    // guessed at registration time.
+    $letter = \App\Services\MemberCategory::letterFor($age_group)
+        ?? \App\Services\MemberCategory::LETTER_A;
+    $member_code = \App\Services\IdentityCodeService::allocateStudent($conn, $letter);
 }
 
 // ── Registration Date (DATE column — Y-m-d only) ──

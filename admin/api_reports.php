@@ -35,7 +35,6 @@ try {
                 COALESCE(SUM(registration_type='waiting' AND status!='archived'),0) as waiting,
                 COALESCE(SUM(registration_type='direct' AND status!='archived'),0) as direct,
                 COALESCE(SUM(registration_type='transfer' AND status!='archived'),0) as transfer_reg,
-                COALESCE(SUM(age_group='under6' AND status!='archived'),0) as under6,
                 COALESCE(SUM(age_group='7_13' AND status!='archived'),0) as ag_7_13,
                 COALESCE(SUM(age_group='14_17' AND status!='archived'),0) as ag_14_17,
                 COALESCE(SUM(age_group='18_plus' AND status!='archived'),0) as ag_18_plus,
@@ -147,7 +146,7 @@ try {
             $cSql = "SELECT COUNT(*) as total,
                 COALESCE(SUM(gender='male'),0) as male, COALESCE(SUM(gender='female'),0) as female,
                 COALESCE(SUM(status='active'),0) as active, COALESCE(SUM(status='warning'),0) as warning,
-                COALESCE(SUM(age_group='under6'),0) as under6, COALESCE(SUM(age_group='7_13'),0) as ag7_13,
+                COALESCE(SUM(age_group='7_13'),0) as ag7_13,
                 COALESCE(SUM(age_group='14_17'),0) as ag14_17, COALESCE(SUM(age_group='18_plus'),0) as ag18_plus
                 FROM members WHERE $whereStr";
             $stmt2 = $conn->prepare($cSql);
