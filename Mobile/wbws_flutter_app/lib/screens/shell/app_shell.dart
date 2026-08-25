@@ -93,10 +93,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _applyFeatureTabs() {
     if (!mounted) return;
+    final next = _configuredTabs();
+    // No-op guard: check() completes asynchronously after launch/resume and
+    // used to setState the whole shell — rebuilding every kept-alive tab in
+    // the IndexedStack — even when the tab set was identical. That surprise
+    // rebuild visibly hitched whatever was on screen at the moment.
+    final sameTabs = next.length == _tabs.length &&
+        _sameTabIds(next, _tabs);
+    if (sameTabs && _currentIndex < _tabs.length) return;
     final currentId = _tabs.isNotEmpty && _currentIndex < _tabs.length
         ? _tabs[_currentIndex].id
         : 'home';
-    final next = _configuredTabs();
     final nextIndex = next.indexWhere((tab) => tab.id == currentId);
     final allowed = next.map((tab) => tab.id).toSet();
     setState(() {
@@ -105,6 +112,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _openedTabs.remove('home');
       _openedTabs.removeWhere((id, _) => !allowed.contains(id));
     });
+  }
+
+  static bool _sameTabIds(List<NavTab> a, List<NavTab> b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id) return false;
+    }
+    return true;
   }
 
   @override

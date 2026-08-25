@@ -1613,7 +1613,7 @@ async function loadSubmissions(){
                 <td><span class="ch ch-i">${s.student_count||0}</span></td>
                 <td style="font-weight:700;font-size:.8rem">${esc(result)}</td>
                 <td>${subStatusChip(s.status)}</td>
-                <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'—'}</td>
+                <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'—'}${s.status==='revision_needed'&&s.reviewer_name?`<div style="color:#c2410c;font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ${esc(s.reviewer_name)}${s.review_notes?': '+esc(s.review_notes.length>60?s.review_notes.slice(0,60)+'…':s.review_notes):''}</div>`:''}</td>
                 <td style="white-space:nowrap">
                     <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="reviewSubmission(${s.id})" title="Open"><i class="fa-solid fa-eye"></i></button>
                     ${s.status==='submitted'?`
@@ -1725,7 +1725,7 @@ function paintReviewShell(s){
         ${s.status==='submitted'?`
         <div style="border-top:1px solid #f1f5f9;padding-top:1rem;margin-top:1rem">
             <label class="lbl">Review Notes</label>
-            <textarea id="reviewNotes" class="inp" rows="2" placeholder="Optional feedback for the teacher..."></textarea>
+            <textarea id="reviewNotes" class="inp" rows="2" placeholder="Required for Needs Revision / Reject: tell the teacher exactly what to fix."></textarea>
             <div style="display:flex;gap:.5rem;margin-top:.75rem;justify-content:flex-end">
                 <button class="btn btn-d" onclick="doReview(${s.id},'rejected')"><i class="fa-solid fa-times"></i> Reject</button>
                 <button class="btn btn-w" onclick="doReview(${s.id},'revision_needed')"><i class="fa-solid fa-exclamation-circle"></i> Needs Revision</button>
@@ -1783,7 +1783,14 @@ async function quickReview(id,status){
     await doReview(id,status);
 }
 async function doReview(id,status){
-    const notes=document.getElementById('reviewNotes')?.value||'';
+    const notes=(document.getElementById('reviewNotes')?.value||'').trim();
+    // Maker-checker discipline: returning/rejecting MUST carry a reason —
+    // it is the teacher's instruction for what to fix before resubmitting.
+    if(status!=='approved' && notes.length<3){
+        toast('Write a short reason so the teacher knows what to fix.','err');
+        document.getElementById('reviewNotes')?.focus();
+        return;
+    }
     const fd=new FormData();fd.append('action','review_submission');fd.append('submission_id',id);fd.append('new_status',status);fd.append('notes',notes);
     try{const d=await postAPI('/admin/api_communication.php',fd);
     toast(d.message,d.status==='success'?'ok':'err');

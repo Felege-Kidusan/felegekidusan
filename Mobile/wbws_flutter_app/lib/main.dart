@@ -11,6 +11,7 @@ import 'services/sync_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/warm_store.dart';
+import 'utils/scrolling.dart';
 import 'utils/theme.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/shell/app_shell.dart';
@@ -112,6 +113,7 @@ class _OfflineDataProtectionFailureAppState
       title: 'FKSS',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+      scrollBehavior: const SmoothScrollBehavior(),
       home: Scaffold(
         body: SafeArea(
           child: Center(
@@ -195,6 +197,7 @@ class _FKSSAppState extends State<FKSSApp> {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.light,
+      scrollBehavior: const SmoothScrollBehavior(),
       home: home,
     );
   }

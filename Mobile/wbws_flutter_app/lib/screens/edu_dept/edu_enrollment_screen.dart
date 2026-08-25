@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
+import '../../widgets/fast_list.dart';
 import '../../widgets/use_website_note.dart';
 
 /// Search by name or code and enroll one student. Bulk enroll stays on the website.
@@ -141,18 +142,20 @@ class _EduEnrollmentScreenState extends State<EduEnrollmentScreen> {
                 if (_searching)
                   const Center(child: CircularProgressIndicator())
                 else
-                  ..._hits.map((m) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
+                  ..._hits.asMap().entries.map((e) => FastListRow(
+                        index: e.key,
                         child: ListTile(
-                          title: Text('${m['student_name'] ?? ''} ${m['father_name'] ?? ''}'),
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('${e.value['student_name'] ?? ''} ${e.value['father_name'] ?? ''}',
+                              style: const TextStyle(fontWeight: FontWeight.w700)),
                           subtitle: Text(
                             [
-                              m['member_code'] ?? '',
-                              if (m['class_name'] != null) 'now: ${m['class_name']}',
+                              e.value['member_code'] ?? '',
+                              if (e.value['class_name'] != null) 'now: ${e.value['class_name']}',
                             ].where((s) => s.toString().isNotEmpty).join(' · '),
                           ),
                           trailing: TextButton(
-                            onPressed: _enrolling ? null : () => _enroll(m),
+                            onPressed: _enrolling ? null : () => _enroll(e.value),
                             child: const Text('Enroll'),
                           ),
                         ),

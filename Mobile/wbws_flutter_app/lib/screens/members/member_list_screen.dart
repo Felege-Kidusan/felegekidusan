@@ -4,7 +4,9 @@ import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
+import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
+import '../../widgets/fast_list.dart';
 import 'member_detail_screen.dart';
 
 class MemberListScreen extends StatefulWidget {
@@ -115,7 +117,10 @@ class _MemberListScreenState extends State<MemberListScreen> {
 
   Future<void> _loadMore() async {
     if (_loadingMore || _page >= _totalPages || _isOffline) return;
-    setState(() => _loadingMore = true);
+    // Silent pagination: no setState for the flag and no inline footer row.
+    // A full-screen rebuild mid-fling (plus itemCount churn) is exactly the
+    // hitch Telegram avoids by appending quietly.
+    _loadingMore = true;
     _page++;
     await _loadMembers();
   }
@@ -243,26 +248,30 @@ class _MemberListScreenState extends State<MemberListScreen> {
                         ? const Center(
                             child: Text('No members found',
                                 style: TextStyle(color: Colors.grey)))
-                        : RefreshIndicator(
-                            onRefresh: () => _loadMembers(refresh: true),
-                            child: ListView.builder(
-                              controller: _scrollController,
-                              itemCount: _members.length +
-                                  (_loadingMore ? 1 : 0),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16),
-                              itemBuilder: (context, index) {
-                                if (index == _members.length) {
-                                  return const Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Center(
-                                        child:
-                                            CircularProgressIndicator(
-                                                strokeWidth: 2)),
-                                  );
-                                }
-                                return _memberCard(_members[index]);
-                              },
+                        : RawScrollbar(
+                            controller: _scrollController,
+                            interactive: true,
+                            thickness: 5,
+                            radius: const Radius.circular(3),
+                            thumbColor: const Color(0x595A1212),
+                            child: RefreshIndicator(
+                              onRefresh: () => _loadMembers(refresh: true),
+                              child: ListView.builder(
+                                controller: _scrollController,
+                                itemCount: _members.length,
+                                itemExtent: kFastRowHeight,
+                                cacheExtent: kListCacheExtent,
+                                addAutomaticKeepAlives: false,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12),
+                                itemBuilder: (context, index) {
+                                  // Flat zebra row — no Card/shadow/ripple.
+                                  // Fixed extent lets the viewport skip
+                                  // measuring (SliverFixedExtentList).
+                                  return _memberCard(
+                                      _members[index], index);
+                                },
+                              ),
                             ),
                           ),
           ),
@@ -294,106 +303,110 @@ class _MemberListScreenState extends State<MemberListScreen> {
     );
   }
 
-  Widget _memberCard(Map<String, dynamic> member) {
+  // Precomputed tint colors — withOpacity() allocates a new Color on every
+  // row build; during a fast fling that is thousands of avoidable allocations.
+  static const Color _avatarBg = Color(0x265A1212);
+  static const Map<String, Color> _chipBg = {
+    'active': Color(0x26059669),
+    'warning': Color(0x26D97706),
+    'danger': Color(0x26DC2626),
+  };
+
+  Widget _memberCard(Map<String, dynamic> member, int index) {
     final status = member['status'] ?? 'active';
     final statusColor = status == 'active'
         ? AppTheme.success
         : status == 'warning'
             ? AppTheme.warning
             : AppTheme.danger;
+    final name = '${member['student_name'] ?? ''}';
+    final initial =
+        name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        onTap: _isOffline
-            ? null // Disable detail navigation when offline
-            : () => Navigator.push(
-                  context,
-                  SmoothPageRoute(page:
-                          MemberDetailScreen(memberId: member['id'])),
-                ),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              // Avatar
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: AppTheme.primary.withOpacity(0.15),
-                child: Text(
-                  (member['student_name'] ?? '?')[0].toUpperCase(),
-                  style: const TextStyle(
-                      color: AppTheme.primary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16),
-                ),
+    return FastListRow(
+      index: index,
+      height: kFastRowHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      onTap: _isOffline
+          ? null // Disable detail navigation when offline
+          : () => Navigator.push(
+                context,
+                SmoothPageRoute(page:
+                        MemberDetailScreen(memberId: member['id'])),
               ),
-              const SizedBox(width: 12),
-
-              // Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 21,
+            backgroundColor: _avatarBg,
+            child: Text(initial,
+                style: const TextStyle(
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$name ${member['father_name'] ?? ''}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 14),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 3),
+                Row(
                   children: [
-                    Text(
-                      '${member['student_name'] ?? ''} ${member['father_name'] ?? ''}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        if (member['member_code'] != null) ...[
-                          Text(member['member_code'],
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppTheme.textSecondary)),
-                          const SizedBox(width: 8),
-                        ],
-                        if (member['gender'] != null)
-                          Icon(
-                              member['gender'] == 'male'
-                                  ? Icons.male
-                                  : Icons.female,
-                              size: 14,
-                              color: AppTheme.textSecondary),
-                        const SizedBox(width: 4),
-                        if (member['current_section'] != null)
-                          Text(member['current_section'],
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppTheme.textSecondary)),
-                      ],
-                    ),
+                    if (member['member_code'] != null) ...[
+                      Text(member['member_code'],
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.textSecondary)),
+                      const SizedBox(width: 8),
+                    ],
+                    if (member['gender'] != null)
+                      Icon(
+                          member['gender'] == 'male'
+                              ? Icons.male
+                              : Icons.female,
+                          size: 14,
+                          color: AppTheme.textSecondary),
+                    const SizedBox(width: 4),
+                    if (member['current_section'] != null)
+                      Flexible(
+                        child: Text(member['current_section'],
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.textSecondary),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      ),
                   ],
                 ),
-              ),
-
-              // Status badge
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(status,
-                    style: TextStyle(
-                        color: statusColor,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600)),
-              ),
-
-              const SizedBox(width: 4),
-              if (!_isOffline)
-                Icon(Icons.chevron_right,
-                    size: 18, color: AppTheme.textSecondary),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 6),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: _chipBg[status] ?? const Color(0x26DC2626),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(status,
+                style: TextStyle(
+                    color: statusColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 2),
+          if (!_isOffline)
+            const Icon(Icons.chevron_right,
+                size: 16, color: AppTheme.textSecondary),
+        ],
       ),
     );
   }

@@ -35,13 +35,7 @@ class FeatureTile extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryDark.withOpacity(0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
+                border: Border.all(color: AppTheme.borderLight, width: 0.8),
               ),
               child: Column(
               mainAxisAlignment: MainAxisAlignment.center,

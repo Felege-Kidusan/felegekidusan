@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/fast_list.dart';
 import '../../widgets/use_website_note.dart';
 
 class EduSubjectsScreen extends StatefulWidget {
@@ -60,13 +61,14 @@ class _EduSubjectsScreenState extends State<EduSubjectsScreen> {
                           title: 'No subjects yet',
                           subtitle: 'Add them on the website.',
                         ),
-                      ..._subjects.map((s) => Card(
-                            margin: const EdgeInsets.only(bottom: 8),
+                      ..._subjects.asMap().entries.map((e) => FastListRow(
+                            index: e.key,
                             child: ListTile(
-                              title: Text(s['subject_name'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.w600)),
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(e.value['subject_name'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.w700)),
                               subtitle: Text(
-                                  '${s['subject_name_en'] ?? s['subject_code'] ?? ''} · ${s['class_count'] ?? 0} classes'),
+                                  '${e.value['subject_name_en'] ?? e.value['subject_code'] ?? ''} · ${e.value['class_count'] ?? 0} classes'),
                             ),
                           )),
                     ],

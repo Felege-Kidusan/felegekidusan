@@ -38,4 +38,18 @@ class PacketLock {
     }
     return '$label — view only. Only Education can change this.';
   }
+
+  /// Education's written reason, delivered only while the packet is
+  /// returned for correction (the teacher's editing key). Null otherwise.
+  static String? returnNote(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    final status =
+        '${data['submission_status'] ?? ''}'.toLowerCase().trim();
+    if (status != 'revision_needed') return null;
+    final note = '${data['review_notes'] ?? ''}'.trim();
+    final reviewer = '${data['reviewer_name'] ?? ''}'.trim();
+    final by = reviewer.isEmpty ? 'Education' : reviewer;
+    if (note.isEmpty) return '$by asked for corrections.';
+    return '$by: $note';
+  }
 }

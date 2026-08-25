@@ -727,6 +727,13 @@ class LocalDb {
         whereArgs: [assessmentId]);
   }
 
+  /// Truth check for the Submit-Undo window: is the packet still only on
+  /// this phone? If the outbox already delivered it, undo must refuse.
+  Future<bool> gradesPacketPending(int assessmentId) async {
+    final rows = await getPendingGradeRecords(assessmentId);
+    return rows.isNotEmpty;
+  }
+
   // ============================================================
   // CACHED ATTENDANCE RESPONSES
   // ============================================================

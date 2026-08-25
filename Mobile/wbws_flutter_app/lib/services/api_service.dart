@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../utils/config.dart';
@@ -238,7 +239,7 @@ class ApiService {
           _notifyIfRefreshRejected();
         }
       }
-      return _handleResponse(response);
+      return _handleResponseAsync(response);
     } catch (e) {
       return _handleError(e);
     }
@@ -335,6 +336,45 @@ class ApiService {
       return ApiResponse.error(
           _httpErrorLabel(response.statusCode), response.statusCode);
     }
+  }
+
+  /// Async variant used by GETs: large payloads (member rosters, reports)
+  /// are JSON-decoded in an isolate so a page arriving mid-fling never
+  /// stalls the UI thread. Small payloads stay on the main isolate because
+  /// spawning one costs more than parsing them.
+  Future<ApiResponse> _handleResponseAsync(http.Response response) async {
+    _connectivity.markOnline();
+    try {
+      final body = response.body;
+      final dynamic json = body.length > 32 * 1024
+          ? await compute(_decodeJsonIsolate, body)
+          : _decodeJson(body);
+      if (json is Map<String, dynamic>) {
+        return ApiResponse.fromJson(json, response.statusCode);
+      }
+      return ApiResponse.error(
+          _httpErrorLabel(response.statusCode), response.statusCode);
+    } catch (_) {
+      return ApiResponse.error(
+          _httpErrorLabel(response.statusCode), response.statusCode);
+    }
+  }
+
+  /// Isolate-safe copy of [_decodeJson] (no instance state).
+  static dynamic _decodeJsonIsolate(String body) {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return null;
+    try {
+      return jsonDecode(trimmed);
+    } catch (_) {}
+    final start = trimmed.indexOf('{');
+    final end = trimmed.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return jsonDecode(trimmed.substring(start, end + 1));
+      } catch (_) {}
+    }
+    return null;
   }
 
   /// WhatsApp/Gmail: never show "parse failed". Pull JSON out of mixed HTML.

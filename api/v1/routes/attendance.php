@@ -145,9 +145,15 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
 
     $packetStatus = null;
     $locked = false;
+    $review = null;
     if (class_exists('\\App\\Services\\SubmissionService')) {
         $packetStatus = \App\Services\SubmissionService::resolvedAttendanceStatus($conn, $classId, $date);
         $locked = \App\Services\SubmissionService::isLockedForTeacher($packetStatus, $auth);
+        // Education's reason is delivered only while the packet is actually
+        // returned for correction — the teacher's key back to editing.
+        if ($packetStatus === \App\Services\SubmissionService::STATUS_REVISION) {
+            $review = \App\Services\SubmissionService::attendanceReview($conn, $classId, $date);
+        }
     }
 
     $students = [];
@@ -178,6 +184,9 @@ if ($method === 'GET' && ($action === '' || $action === null)) {
         'roster_fallback' => !empty($scope['fallback']),
         'submission_status' => $packetStatus,
         'locked' => $locked,
+        'review_notes' => $review['review_notes'] ?? null,
+        'reviewed_at' => $review['reviewed_at'] ?? null,
+        'reviewer_name' => $review['reviewer_name'] ?? null,
     ]);
 }
 

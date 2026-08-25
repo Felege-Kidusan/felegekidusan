@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/fast_list.dart';
 import '../../widgets/use_website_note.dart';
 
 /// Teacher list + assignments. Creating a login stays on the website.
@@ -125,15 +126,16 @@ class _EduTeachersScreenState extends State<EduTeachersScreen> {
                                 title: 'No teachers found',
                                 subtitle: 'Add them on the website.',
                               ),
-                            ..._teachers.map((t) => Card(
-                                  margin: const EdgeInsets.only(bottom: 8),
+                            ..._teachers.asMap().entries.map((e) => FastListRow(
+                                  index: e.key,
                                   child: ListTile(
-                                    title: Text(t['full_name'] ?? '',
-                                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(e.value['full_name'] ?? '',
+                                        style: const TextStyle(fontWeight: FontWeight.w700)),
                                     subtitle: Text(
-                                        '${t['username'] ?? ''} · ${t['assigned_classes'] ?? 0} classes'),
+                                        '${e.value['username'] ?? ''} · ${e.value['assigned_classes'] ?? 0} classes'),
                                     trailing: const Icon(Icons.chevron_right),
-                                    onTap: () => _open((t['id'] as num).toInt(), t['full_name'] ?? ''),
+                                    onTap: () => _open((e.value['id'] as num).toInt(), e.value['full_name'] ?? ''),
                                   ),
                                 )),
                           ],

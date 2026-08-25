@@ -27,6 +27,9 @@ class AppTheme {
       useMaterial3: true,
       brightness: Brightness.light,
       scaffoldBackgroundColor: bgLight,
+      // Cheap CPU ripple instead of the GPU-expensive InkSparkle default on
+      // Android M3 — sparkle bursts right before a fling cost real frames.
+      splashFactory: InkRipple.splashFactory,
       colorScheme: const ColorScheme.light(
         primary: primary,
         secondary: accent,
@@ -48,14 +51,16 @@ class AppTheme {
         ),
       ),
 
-      // Cards
+      // Cards — completely flat like Telegram settings/contacts lists:
+      // zero elevation means zero blurred-shadow passes anywhere in the app.
+      // A hairline border provides the edge definition instead.
       cardTheme: CardThemeData(
         color: cardLight,
-        elevation: 8,
-        shadowColor: primaryDark.withOpacity(0.08),
+        elevation: 0,
+        margin: const EdgeInsets.symmetric(vertical: 4),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide.none,
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: borderLight, width: 0.8),
         ),
       ),
 

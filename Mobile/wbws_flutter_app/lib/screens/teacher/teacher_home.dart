@@ -44,7 +44,10 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     super.initState();
     _isOffline = !ConnectivityService().hasLink;
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
-      if (mounted) setState(() => _isOffline = !hasLink);
+      // Rebuild only on a real change — duplicate events must not rebuild
+      // the whole dashboard while the user is mid-fling.
+      if (!mounted || _isOffline == !hasLink) return;
+      setState(() => _isOffline = !hasLink);
     });
     _loadDashboard();
   }

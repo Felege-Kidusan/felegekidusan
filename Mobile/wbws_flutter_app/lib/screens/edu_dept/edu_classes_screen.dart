@@ -108,11 +108,17 @@ class _EduClassesScreenState extends State<EduClassesScreen> {
                           title: 'No classes yet',
                           subtitle: 'Create classes on the website under Education.',
                         ),
-                      ..._classes.map((c) {
+                      ..._classes.asMap().entries.map((e) {
+                        final c = e.value;
                         final id = RosterParse.asInt(c['id']);
                         final open = id == _openId;
-                        return Card(
+                        return Container(
                           margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: e.key.isEven ? Colors.white : const Color(0xFFF2F4F7),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppTheme.borderLight, width: 0.8),
+                          ),
                           child: Column(
                             children: [
                               ListTile(

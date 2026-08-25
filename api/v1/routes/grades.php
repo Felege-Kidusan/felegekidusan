@@ -399,9 +399,13 @@ if ($action === 'students' && $method === 'GET') {
     
     $packetStatus = null;
     $locked = false;
+    $review = null;
     if (class_exists('\\App\\Services\\SubmissionService')) {
         $packetStatus = \App\Services\SubmissionService::resolvedMarklistStatus($conn, $assessmentId);
         $locked = \App\Services\SubmissionService::isLockedForTeacher($packetStatus, $auth);
+        if ($packetStatus === \App\Services\SubmissionService::STATUS_REVISION) {
+            $review = \App\Services\SubmissionService::marklistReview($conn, $assessmentId);
+        }
     }
     ok([
         'assessment' => [
@@ -417,6 +421,9 @@ if ($action === 'students' && $method === 'GET') {
         'roster_fallback' => !empty($scope['fallback']),
         'submission_status' => $packetStatus,
         'locked' => $locked,
+        'review_notes' => $review['review_notes'] ?? null,
+        'reviewed_at' => $review['reviewed_at'] ?? null,
+        'reviewer_name' => $review['reviewer_name'] ?? null,
     ]);
 }
 

@@ -91,6 +91,76 @@ class SubmissionService
         return $row ? self::normalizeStatus($row['status'] ?? '') : null;
     }
 
+    /**
+     * Reviewer feedback attached to the latest packet, for mobile clients.
+     * Returned only while the packet is in revision_needed so the teacher
+     * sees WHY Education handed the key back. Null otherwise.
+     *
+     * @return array{review_notes:string,reviewed_at:string,reviewer_name:string}|null
+     */
+    public static function attendanceReview(\mysqli $conn, int $classId, string $date): ?array
+    {
+        self::ensureTable($conn);
+        if ($classId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+        $stmt = $conn->prepare(
+            "SELECT gs.review_notes, gs.reviewed_at, COALESCE(u.full_name, '') AS reviewer_name
+             FROM grade_submissions gs
+             LEFT JOIN users u ON gs.reviewed_by = u.id
+             WHERE gs.class_id = ? AND gs.attendance_date = ?
+               AND gs.submission_type = 'attendance' AND gs.status = 'revision_needed'
+             ORDER BY gs.id DESC LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('is', $classId, $date);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return null;
+        }
+        return [
+            'review_notes' => (string)($row['review_notes'] ?? ''),
+            'reviewed_at' => (string)($row['reviewed_at'] ?? ''),
+            'reviewer_name' => (string)($row['reviewer_name'] ?? ''),
+        ];
+    }
+
+    /** @return array{review_notes:string,reviewed_at:string,reviewer_name:string}|null */
+    public static function marklistReview(\mysqli $conn, int $assessmentId): ?array
+    {
+        self::ensureTable($conn);
+        if ($assessmentId <= 0) {
+            return null;
+        }
+        $stmt = $conn->prepare(
+            "SELECT gs.review_notes, gs.reviewed_at, COALESCE(u.full_name, '') AS reviewer_name
+             FROM grade_submissions gs
+             LEFT JOIN users u ON gs.reviewed_by = u.id
+             WHERE gs.assessment_id = ? AND gs.submission_type = 'marklist'
+               AND gs.status = 'revision_needed'
+             ORDER BY gs.id DESC LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('i', $assessmentId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return null;
+        }
+        return [
+            'review_notes' => (string)($row['review_notes'] ?? ''),
+            'reviewed_at' => (string)($row['reviewed_at'] ?? ''),
+            'reviewer_name' => (string)($row['reviewer_name'] ?? ''),
+        ];
+    }
+
     public static function attendanceHasRows(\mysqli $conn, int $classId, string $date): bool
     {
         if ($classId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {

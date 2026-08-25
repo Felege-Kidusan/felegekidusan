@@ -10,11 +10,14 @@ import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
 import '../../utils/packet.dart';
 import '../../utils/roster.dart';
+import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/action_bar.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/app_error.dart';
+import '../../widgets/fast_list.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../../widgets/quick_confirm.dart';
 import '../../widgets/status_banner.dart';
 
 class TeacherGradesScreen extends StatefulWidget {
@@ -52,7 +55,8 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     super.initState();
     _isOffline = !ConnectivityService().hasLink;
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
-      if (mounted) setState(() => _isOffline = !hasLink);
+      if (!mounted || _isOffline == !hasLink) return;
+      setState(() => _isOffline = !hasLink);
     });
     _loadClasses();
     _updatePendingCount();
@@ -519,13 +523,18 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   Map<int, TextEditingController> _scoreCtrl = {};
   Map<int, TextEditingController> _remarkCtrl = {};
   bool _loading = true;
-  bool _saving = false;
   bool _isOffline = false;
+  /// Grayed-out Save until a score/remark changes (see TeacherActionBar).
+  final ValueNotifier<bool> _dirty = ValueNotifier(false);
   String _packetStatus = '';
+  /// Education's reason when this mark list was returned for correction.
+  String? _returnNote;
   String? _error;
   String? _rosterNote;
   int _gradedCount = 0;
+  int _pendingSync = 0;
   StreamSubscription<bool>? _netSub;
+  StreamSubscription<dynamic>? _syncSub;
 
   @override
   void initState() {
@@ -534,14 +543,24 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     _packetStatus = widget.initialStatus;
     if (widget.initialLocked && _packetStatus.isEmpty) _packetStatus = 'submitted';
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
-      if (mounted) setState(() => _isOffline = !hasLink);
+      if (!mounted || _isOffline == !hasLink) return;
+      setState(() => _isOffline = !hasLink);
     });
+    // Icon-only delivery state (WhatsApp tick analogue): a tiny cloud while
+    // the packet is still on this phone, nothing once the outbox delivers.
+    _syncSub = SyncService().syncStream.listen((s) {
+      if (!mounted || s.pendingGrades == _pendingSync) return;
+      setState(() => _pendingSync = s.pendingGrades);
+    });
+    SyncService().emitCurrentStatus();
     _loadStudents();
   }
 
   @override
   void dispose() {
     _netSub?.cancel();
+    _syncSub?.cancel();
+    _dirty.dispose();
     _scoreCtrl.values.forEach((c) => c.dispose());
     _remarkCtrl.values.forEach((c) => c.dispose());
     super.dispose();
@@ -592,6 +611,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         _loading = false;
         _rosterNote = note;
         _packetStatus = locked && packet.isEmpty ? 'submitted' : (packet.isNotEmpty ? packet : _packetStatus);
+        _returnNote = PacketLock.returnNote(res.data);
       });
       _recountGraded();
       await _db.cacheGradeSheet(
@@ -722,6 +742,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     }
     _students = clean;
     _gradedCount = graded;
+    // Fresh sheet from cache/server — nothing unsaved yet.
+    _dirty.value = false;
   }
 
   void _recountGraded() {
@@ -762,82 +784,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
 
   bool get _locked => PacketLock.isLocked(_packetStatus, flagged: widget.initialLocked && _packetStatus.isEmpty);
 
-  Future<void> _saveGrades() async {
-    if (_locked) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Already submitted. Only Education can change this.'),
-          backgroundColor: AppTheme.warning));
-      return;
-    }
-
-    final grades = <Map<String, dynamic>>[];
-    for (final s in _students) {
-      final mid = s['member_id'] as int;
-      final text = _scoreCtrl[mid]?.text.trim() ?? '';
-      final remark = _remarkCtrl[mid]?.text.trim() ?? '';
-      if (text.isNotEmpty) {
-        final score = double.tryParse(text);
-        if (score != null && score >= 0 && score <= widget.maxScore) {
-          grades.add({
-            'member_id': mid, 'score': score, 'remark': remark,
-            'record_id': s['record_id'], 'student_name': s['student_name'],
-          });
-        }
-      }
-    }
-
-    if (grades.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No valid grades to save'), backgroundColor: AppTheme.warning));
-      return;
-    }
-
-    await _db.saveGradesLocal(
-      widget.assessmentId, widget.assessmentName,
-      widget.classId, widget.className,
-      widget.subjectId, widget.subjectName,
-      widget.maxScore, grades,
-      packetKind: 'draft',
-    );
-    if (!mounted) return;
-    setState(() {
-      _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus;
-      _saving = true;
-    });
-    try {
-      final result = await SyncService().syncAll(force: true);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result.synced > 0 && result.failed == 0
-            ? 'Sent to Education'
-            : result.message),
-        backgroundColor: result.failed > 0 ? AppTheme.warning : AppTheme.success,
-        duration: const Duration(seconds: 3),
-      ));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _submitGrades() async {
-    if (_locked) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Already submitted. Only Education can change this.'),
-          backgroundColor: AppTheme.warning));
-      return;
-    }
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Submit mark list?'),
-        content: Text('Use this when the test is finished. Education will treat ${widget.assessmentName} as done.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-
+  /// Valid score rows currently on the form. Shared by Save, Submit, Undo.
+  List<Map<String, dynamic>> _collectGrades() {
     final grades = <Map<String, dynamic>>[];
     for (final s in _students) {
       final mid = RosterParse.asInt(s['member_id']);
@@ -854,37 +802,123 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         'student_name': s['student_name'],
       });
     }
+    return grades;
+  }
+
+  /// Telegram-send model: the SQLite write IS the save (~5 ms). The outbox
+  /// worker owns delivery — never awaited from a button tap.
+  Future<void> _saveGrades() async {
+    if (_locked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Already submitted. Only Education can change this.'),
+          backgroundColor: AppTheme.warning));
+      return;
+    }
+
+    final grades = _collectGrades();
+    if (grades.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No valid grades to save'), backgroundColor: AppTheme.warning));
+      return;
+    }
+
+    try {
+      await _db.saveGradesLocal(
+        widget.assessmentId, widget.assessmentName,
+        widget.classId, widget.className,
+        widget.subjectId, widget.subjectName,
+        widget.maxScore, grades,
+        packetKind: 'draft',
+      );
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Phone storage refused the save'),
+          backgroundColor: AppTheme.danger));
+      return;
+    }
+    if (!mounted) return;
+    HapticFeedback.selectionClick(); // Telegram send-tick: saved on phone.
+    showQuickConfirm(context, 'Saved');
+    _dirty.value = false;
+    setState(() {
+      _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus;
+      if (_packetStatus == 'draft') _returnNote = null;
+    });
+    // Fire-and-forget: retries/backoff/pending-pill are SyncService's job.
+    unawaited(SyncService().syncAll(force: true));
+  }
+
+  /// Instant submit with a 4-second UNDO window instead of a confirmation
+  /// dialog. Undo refuses honestly once the outbox has delivered.
+  Future<void> _submitGrades() async {
+    if (_locked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Already submitted. Only Education can change this.'),
+          backgroundColor: AppTheme.warning));
+      return;
+    }
+    final grades = _collectGrades();
     if (grades.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Enter at least one valid score first'), backgroundColor: AppTheme.warning));
       return;
     }
-    await _db.saveGradesLocal(
-      widget.assessmentId, widget.assessmentName,
-      widget.classId, widget.className,
-      widget.subjectId, widget.subjectName,
-      widget.maxScore, grades,
-      packetKind: 'submitted',
-    );
-    if (!mounted) return;
-    setState(() => _saving = true);
     try {
-      final result = await SyncService().syncAll(force: true);
-      if (!mounted) return;
-      setState(() {
-        if (result.synced > 0 && result.failed == 0) {
-          _packetStatus = 'submitted';
-        }
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result.synced > 0 && result.failed == 0
-            ? 'Submitted to Education'
-            : result.message),
-        backgroundColor: result.failed > 0 ? AppTheme.warning : AppTheme.success,
-      ));
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      await _db.saveGradesLocal(
+        widget.assessmentId, widget.assessmentName,
+        widget.classId, widget.className,
+        widget.subjectId, widget.subjectName,
+        widget.maxScore, grades,
+        packetKind: 'submitted',
+      );
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Phone storage refused the save'),
+          backgroundColor: AppTheme.danger));
+      return;
     }
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    _dirty.value = false;
+    setState(() {
+      _packetStatus = 'submitted';
+      _returnNote = null;
+    });
+    unawaited(SyncService().syncAll(force: true));
+    // 5-second decision window with a visible countdown; when the ring
+    // empties the toast disappears and the mark list stays locked for
+    // Education.
+    showUndoToast(context, message: 'Submitted', onUndo: _undoSubmit);
+  }
+
+  Future<void> _undoSubmit() async {
+    final stillOnPhone = await _db.gradesPacketPending(widget.assessmentId);
+    if (!mounted) return;
+    if (!stillOnPhone) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        duration: Duration(seconds: 2),
+        content: Text('Already sent to Education'),
+      ));
+      return;
+    }
+    final grades = _collectGrades();
+    if (grades.isEmpty) return;
+    try {
+      await _db.saveGradesLocal(
+        widget.assessmentId, widget.assessmentName,
+        widget.classId, widget.className,
+        widget.subjectId, widget.subjectName,
+        widget.maxScore, grades,
+        packetKind: 'draft',
+      );
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _packetStatus = 'draft';
+      _returnNote = null;
+    });
+    _dirty.value = false;
   }
 
   @override
@@ -900,16 +934,17 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
 
         ],
       ),
-      bottomNavigationBar: _students.isEmpty || _locked
+      bottomNavigationBar: _students.isEmpty
           ? null
-          : TeacherActionBar(
-              saveLabel: 'Save',
-              submitLabel: 'Submit',
-              onSave: _saveGrades,
-              onSubmit: _submitGrades,
-              busy: _saving,
-              hint: 'Save sends a draft to Education. Submit when the test is finished.',
-            ),
+          : _locked
+              ? const SubmittedBar()
+              : TeacherActionBar(
+                  saveLabel: 'Save',
+                  submitLabel: 'Submit',
+                  onSave: _saveGrades,
+                  onSubmit: _submitGrades,
+                  saveEnabled: _dirty,
+                ),
       body: _loading
           ? const StudentListSkeleton()
           : _error != null
@@ -937,15 +972,28 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                           ])),
                       if (_rosterNote != null)
                         StatusBanner.warning(_rosterNote!),
+                      if (_returnNote != null &&
+                          _returnNote!.isNotEmpty &&
+                          !_locked)
+                        StatusBanner.warning(
+                            'Returned by Education — you can edit and resubmit. $_returnNote'),
                       Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), color: AppTheme.surfaceLight,
                         child: Row(children: [
                           Text('${_students.length} students', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                           const Spacer(),
                           Text('$_gradedCount of ${_students.length} graded', style: TextStyle(fontSize: 12,
                               color: _gradedCount > 0 ? AppTheme.success : AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+                          if (_pendingSync > 0) ...[
+                            const SizedBox(width: 10),
+                            Tooltip(
+                              message: 'On this phone — sending in background',
+                              child: Icon(Icons.cloud_upload_outlined, size: 15, color: AppTheme.textSecondary),
+                            ),
+                          ],
                         ])),
                       Expanded(child: ListView.builder(
                         itemCount: _students.length,
+                        cacheExtent: kListCacheExtent,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         itemBuilder: (_, i) => _studentRow(i),
                       )),
@@ -959,11 +1007,10 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (mid == null) return const SizedBox.shrink();
     final hasScore = _scoreCtrl[mid]?.text.isNotEmpty ?? false;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(
+    return FastListRow(
+      index: index,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
@@ -991,6 +1038,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                   ),
                   textInputAction: TextInputAction.next,
                   onChanged: (_) {
+                    _dirty.value = true;
                     _recountGraded();
                     _persistLocal();
                   },
@@ -1012,10 +1060,12 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
               ),
-              onChanged: (_) => _persistLocal(),
+              onChanged: (_) {
+                _dirty.value = true;
+                _persistLocal();
+              },
             ),
           ],
-        ),
       ),
     );
   }

@@ -16,6 +16,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
 require_once __DIR__ . '/backend/services/ReportCardService.php';
+require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 
 if (empty($_SESSION['admin_id'])) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
@@ -245,29 +246,78 @@ switch ($action) {
         break;
 
     // ============================================================
-    // REVIEW SUBMISSION (Edu Dept approves/rejects)
+    // REVIEW SUBMISSION (Edu Dept approves / rejects / returns for correction)
+    // Maker-checker boundary: this action transfers the editing key back to
+    // the teacher (revision_needed) or finalizes the packet. Every decision
+    // is audited with the actor, previous status, and the written reason.
     // ============================================================
     case 'review_submission':
         if (!in_array($userRole, ['edu_dept','school_admin','super_admin'])) {
             echo json_encode(['status' => 'error', 'message' => 'Access denied']); exit;
         }
-        
+
         $submissionId = (int)($_POST['submission_id'] ?? 0);
         $newStatus = $_POST['new_status'] ?? '';
-        $notes = trim($_POST['notes'] ?? '');
-        
+        $notes = trim((string)($_POST['notes'] ?? ''));
+
         if (!$submissionId || !in_array($newStatus, ['approved','rejected','revision_needed'])) {
             echo json_encode(['status' => 'error', 'message' => 'Invalid parameters']); exit;
         }
-        
-        $stmt = $conn->prepare("UPDATE grade_submissions 
-            SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ? 
+        // A returned/rejected packet must tell the teacher what to fix —
+        // otherwise the unlock is meaningless.
+        if ($newStatus !== 'approved' && mb_strlen($notes) < 3) {
+            echo json_encode(['status' => 'error', 'message' => 'Write a short reason so the teacher knows what to fix.']); exit;
+        }
+        if (mb_strlen($notes) > 500) {
+            $notes = mb_substr($notes, 0, 500);
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT teacher_id, class_id, submission_type, attendance_date,
+                    assessment_id, status
+             FROM grade_submissions WHERE id = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $submissionId);
+        $stmt->execute();
+        $packet = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$packet) {
+            echo json_encode(['status' => 'error', 'message' => 'Submission not found']); exit;
+        }
+        $previousStatus = (string)($packet['status'] ?? '');
+
+        $stmt = $conn->prepare("UPDATE grade_submissions
+            SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
             WHERE id = ?");
         $stmt->bind_param("sisi", $newStatus, $userId, $notes, $submissionId);
-        
+
         if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'message' => 'Submission ' . $newStatus]);
+            $stmt->close();
+            // Immutable trail: who decided, from which state, and why.
+            \App\Services\SecurityAuditService::record(
+                $conn,
+                'Submission Reviewed',
+                [
+                    'new_status' => $newStatus,
+                    'previous_status' => $previousStatus,
+                    'reason' => $notes,
+                    'kind' => (string)$packet['submission_type'],
+                    'class_id' => (int)$packet['class_id'],
+                    'attendance_date' => (string)($packet['attendance_date'] ?? ''),
+                    'assessment_id' => (int)($packet['assessment_id'] ?? 0),
+                    'teacher_id' => (int)$packet['teacher_id'],
+                ],
+                'grade_submission',
+                $submissionId
+            );
+            $friendly = [
+                'approved' => 'Approved',
+                'rejected' => 'Rejected',
+                'revision_needed' => 'Returned to the teacher for correction',
+            ];
+            echo json_encode(['status' => 'success', 'message' => $friendly[$newStatus]]);
         } else {
+            $stmt->close();
             echo json_encode(['status' => 'error', 'message' => 'Database error']);
         }
         break;

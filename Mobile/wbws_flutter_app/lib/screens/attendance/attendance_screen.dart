@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
@@ -10,11 +11,14 @@ import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/packet.dart';
 import '../../utils/roster.dart';
+import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/action_bar.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/fast_list.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../../widgets/quick_confirm.dart';
 import '../../widgets/status_banner.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -38,14 +42,20 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   bool _loadingClasses = true;
   bool _loadingStudents = false;
   bool _rosterReady = false;
-  bool _saving = false;
+  bool _saving = false; // Kept for API symmetry; saves are non-blocking now.
   bool _isOffline = false;
   bool _loadFailed = false;
   String? _error;
   String? _successMsg;
   String? _rosterNote;
   String _packetStatus = '';
+  /// Education's reason when this sheet was returned for correction.
+  String? _returnNote;
   int _pendingCount = 0;
+  /// WhatsApp-state visibility: true the moment anything changes after a
+  /// save; drives the Save button's grayed-out/lit appearance without
+  /// rebuilding the student list (ValueListenable -> action bar only).
+  final ValueNotifier<bool> _dirty = ValueNotifier(false);
   StreamSubscription<bool>? _netSub;
 
   static const Set<String> _validStatuses = {
@@ -73,7 +83,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     super.initState();
     _isOffline = !ConnectivityService().hasLink;
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
-      if (mounted) setState(() => _isOffline = !hasLink);
+      if (!mounted || _isOffline == !hasLink) return;
+      setState(() => _isOffline = !hasLink);
     });
     _loadClasses();
     _updatePendingCount();
@@ -89,6 +100,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void dispose() {
     _netSub?.cancel();
+    _dirty.dispose();
     super.dispose();
   }
 
@@ -285,6 +297,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         _loadFailed = false;
         _rosterNote = note;
         _packetStatus = locked && packet.isEmpty ? 'submitted' : packet;
+        _returnNote = PacketLock.returnNote(res.data);
       });
       await _db.cacheStudents(_selectedClassId!, students);
       await _db.cacheAttendanceResponse(
@@ -322,20 +335,16 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     return false;
   }
 
+  /// Telegram-send model: the SQLite write IS the save (~5 ms). Delivery is
+  /// the SyncService outbox's job and is never awaited from a button tap —
+  /// no spinner, no "Sending…" text, buttons stay live (last write wins:
+  /// saving again simply replaces the queued packet).
   Future<void> _saveAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
-    if (_locked) {
-      setState(() => _successMsg = 'Already submitted. Only Education can change this.');
-      return;
-    }
+    if (_locked) return;
     if (!_requireCompleteSheet()) return;
-    setState(() {
-      _error = null;
-      _successMsg = null;
-    });
 
     final records = _records();
-    setState(() => _saving = true);
     try {
       await _db.saveAttendanceLocal(
         _selectedClassId!,
@@ -344,86 +353,90 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         records,
         packetKind: 'draft',
       );
-
-      if (!mounted) return;
-      setState(() {
-        _packetStatus = 'draft';
-        _successMsg = 'Sending to Education…';
-      });
-      await _updatePendingCount();
-      final result = await _sync.syncAll(force: true);
-      if (!mounted) return;
-      setState(() {
-        if (result.synced > 0 && result.failed == 0) {
-          _successMsg = 'Sent to Education';
-        } else {
-          _successMsg = result.message;
-        }
-      });
-      await _updatePendingCount();
-      Future.delayed(const Duration(seconds: 4), () {
-        if (mounted) setState(() => _successMsg = null);
-      });
     } catch (_) {
       if (mounted) {
         setState(() {
-          _error = 'Attendance could not be saved. Your previous offline copy is unchanged.';
+          _error =
+              'Phone storage refused the save. Free up space and try again.';
           _successMsg = null;
         });
       }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _submitAttendance() async {
-    if (_selectedClassId == null || _students.isEmpty) return;
-    if (_locked) {
-      setState(() => _successMsg = 'Already submitted. Only Education can change this.');
       return;
     }
-    if (!_requireCompleteSheet()) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Submit attendance?'),
-        content: Text('Use this after class. Education will treat $_selectedClassName as finished.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
-        ],
-      ),
-    );
-    if (ok != true) return;
+    if (!mounted) return;
+    HapticFeedback.selectionClick(); // Telegram send-tick: saved on phone.
+    showQuickConfirm(context, 'Saved');
+    _dirty.value = false;
+    setState(() {
+      _packetStatus = 'draft';
+      _error = null;
+      _successMsg = null;
+      _returnNote = null;
+    });
+    // Fire-and-forget. The outbox coalesces, retries with backoff, and
+    // updates the pending pill through its stream.
+    unawaited(_sync.syncAll(force: true));
+  }
 
-    setState(() { _error = null; _successMsg = null; _saving = true; });
+  /// Instant submit — no confirmation dialog. A short UNDO window replaces
+  /// it; undo refuses honestly if the outbox already delivered the packet.
+  Future<void> _submitAttendance() async {
+    if (_selectedClassId == null || _students.isEmpty) return;
+    if (_locked) return;
+    if (!_requireCompleteSheet()) return;
+
     final records = _records();
     try {
-      await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '', _selectedDate, records, packetKind: 'submitted');
-      if (!mounted) return;
-      setState(() { _successMsg = 'Sending to Education…'; });
-      await _updatePendingCount();
-      final result = await _sync.syncAll(force: true);
-      if (!mounted) return;
-      setState(() {
-        if (result.synced > 0 && result.failed == 0) {
-          _packetStatus = 'submitted';
-          _successMsg = 'Submitted to Education';
-        } else {
-          _successMsg = result.message;
-        }
-      });
-      await _updatePendingCount();
+      await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '',
+          _selectedDate, records,
+          packetKind: 'submitted');
     } catch (_) {
       if (mounted) {
         setState(() {
-          _error = 'Attendance could not be submitted. Your previous offline copy is unchanged.';
+          _error =
+              'Phone storage refused the save. Free up space and try again.';
           _successMsg = null;
         });
       }
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      return;
     }
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    _dirty.value = false;
+    setState(() {
+      _packetStatus = 'submitted';
+      _error = null;
+      _successMsg = null;
+    });
+    unawaited(_sync.syncAll(force: true));
+    // 5-second decision window with a visible countdown; when the ring
+    // empties the toast disappears and the sheet stays locked for Education.
+    showUndoToast(context, message: 'Submitted', onUndo: _undoSubmit);
+  }
+
+  Future<void> _undoSubmit() async {
+    final classId = _selectedClassId;
+    if (classId == null) return;
+    final stillOnPhone =
+        await _db.getPendingAttendanceRecords(classId, _selectedDate);
+    if (!mounted) return;
+    if (stillOnPhone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        duration: Duration(seconds: 2),
+        content: Text('Already sent to Education'),
+      ));
+      return;
+    }
+    try {
+      await _db.saveAttendanceLocal(classId, _selectedClassName ?? '',
+          _selectedDate, _records(),
+          packetKind: 'draft');
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _packetStatus = 'draft');
+    _dirty.value = false;
   }
 
   List<Map<String, dynamic>> _records() {
@@ -457,6 +470,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         s['status'] = status;
       }
     });
+    _dirty.value = true;
     _persistLocal();
   }
 
@@ -523,16 +537,17 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
         ],
       ),
-      bottomNavigationBar: _students.isEmpty || _locked
+      bottomNavigationBar: _students.isEmpty
           ? null
-          : TeacherActionBar(
-              saveLabel: 'Save',
-              submitLabel: 'Submit',
-              onSave: _saveAttendance,
-              onSubmit: _submitAttendance,
-              busy: _saving,
-              hint: 'Save sends a draft to Education. Submit after class.',
-            ),
+          : _locked
+              ? const SubmittedBar()
+              : TeacherActionBar(
+                  saveLabel: 'Save',
+                  submitLabel: 'Submit',
+                  onSave: _saveAttendance,
+                  onSubmit: _submitAttendance,
+                  saveEnabled: _dirty,
+                ),
       body: Column(
         children: [
           // Offline indicator
@@ -598,22 +613,24 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                                         overflow: TextOverflow.ellipsis),
                                   ))
                               .toList(),
-                          onChanged: (v) {
-                            setState(() {
-                              _selectedClassId = v;
-                              _selectedClassName = _classes
-                                  .firstWhere((c) =>
-                                      (c['id'] is int
-                                          ? c['id']
-                                          : int.tryParse('${c['id']}')) ==
-                                      v)['class_name'];
-                              _students = [];
-                              _rosterReady = false;
-                              _loadingStudents = true;
-                              _packetStatus = '';
-                            });
-                            _loadAttendance();
-                          },
+                            onChanged: (v) {
+                              setState(() {
+                                _selectedClassId = v;
+                                _selectedClassName = _classes
+                                    .firstWhere((c) =>
+                                        (c['id'] is int
+                                            ? c['id']
+                                            : int.tryParse('${c['id']}')) ==
+                                        v)['class_name'];
+                                _students = [];
+                                _rosterReady = false;
+                                _loadingStudents = true;
+                                _packetStatus = '';
+                              });
+                              _dirty.value = false;
+                              _returnNote = null;
+                              _loadAttendance();
+                            },
                         ),
                 ),
                 const SizedBox(width: 10),
@@ -646,6 +663,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             }),
           if (_rosterNote != null && _error == null)
             StatusBanner.warning(_rosterNote!),
+          if (_returnNote != null &&
+              _returnNote!.isNotEmpty &&
+              !_locked)
+            StatusBanner.warning(
+                'Returned by Education — you can edit and resubmit. $_returnNote'),
           if (_locked && _students.isNotEmpty && _error == null)
             StatusBanner.warning(PacketLock.viewOnlyHint(_packetStatus)),
 
@@ -719,8 +741,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                             : ListView.builder(
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 itemCount: _students.length,
+                                cacheExtent: kListCacheExtent,
                                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                                itemBuilder: (_, i) => _studentRow(i),
+                                itemBuilder: (_, i) =>
+                                    RepaintBoundaryListItem(child: _studentRow(i)),
+
                               ),
                   ),
           ),
@@ -749,7 +774,9 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       ),
     );
     if (note == null) return;
+    if (note == '${_students[index]['notes'] ?? ''}') return;
     setState(() => _students[index]['notes'] = note);
+    _dirty.value = true;
     _persistLocal();
   }
 
@@ -775,54 +802,54 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     final s = _students[index];
     final status = _statusOf(s['status']);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 28,
-              child: Text('${index + 1}',
-                  style:
-                      TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-            ),
-            Expanded(
-              child: InkWell(
-                onTap: () => _editNote(index),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${s['student_name']} ${s['father_name']}',
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w500),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    Text(
-                      (s['notes'] != null && '${s['notes']}'.trim().isNotEmpty)
-                          ? '${s['notes']}'
-                          : (s['member_code'] != null &&
-                                  s['member_code'].toString().isNotEmpty)
-                              ? '${s['member_code']}'
-                              : 'Tap for note',
-                      style: TextStyle(
-                          fontSize: 10, color: AppTheme.textSecondary),
+    return FastListRow(
+      index: index,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 28,
+            child: Text('${index + 1}',
+                style:
+                    TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          ),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _editNote(index),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${s['student_name']} ${s['father_name']}',
+                      style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    (s['notes'] != null && '${s['notes']}'.trim().isNotEmpty)
+                        ? '${s['notes']}'
+                        : (s['member_code'] != null &&
+                                s['member_code'].toString().isNotEmpty)
+                            ? '${s['member_code']}'
+                            : 'Tap for note',
+                    style: TextStyle(
+                        fontSize: 10, color: AppTheme.textSecondary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
-            _statusBtn('P', 'present', status, AppTheme.success, index),
-            const SizedBox(width: 4),
-            _statusBtn('A', 'absent', status, AppTheme.danger, index),
-            const SizedBox(width: 4),
-            _statusBtn('L', 'late', status, AppTheme.warning, index),
-            const SizedBox(width: 4),
-            _statusBtn('E', 'excused', status, AppTheme.info, index),
-          ],
-        ),
+          ),
+          _statusBtn('P', 'present', status, AppTheme.success, index),
+          const SizedBox(width: 4),
+          _statusBtn('A', 'absent', status, AppTheme.danger, index),
+          const SizedBox(width: 4),
+          _statusBtn('L', 'late', status, AppTheme.warning, index),
+          const SizedBox(width: 4),
+          _statusBtn('E', 'excused', status, AppTheme.info, index),
+        ],
       ),
     );
   }
@@ -830,14 +857,15 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   Widget _statusBtn(
       String label, String value, String current, Color color, int index) {
     final selected = current == value;
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: _locked
           ? null
           : () {
               setState(() => _students[index]['status'] = value);
+              _dirty.value = true;
               _persistLocal();
             },
-      borderRadius: BorderRadius.circular(8),
       child: Container(
         width: 34,
         height: 34,
