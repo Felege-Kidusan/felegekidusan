@@ -72,6 +72,10 @@ class MobileLocalStorageTests(unittest.TestCase):
     def test_bootstrap_degrades_gracefully_with_diagnostics(self):
         # Secure-storage reads must never throw out of init().
         self.assertIn("best-effort at bootstrap", self.api)
+        # legacyUserJson must be declared OUTSIDE the try block: the
+        # session-discard check below it references it (Dart scope).
+        self.assertIn("String? legacyUserJson;", self.api)
+        self.assertNotIn("final legacyUserJson = prefs.getString", self.api)
         # The failure screen keeps a retry path and records the real error.
         self.assertIn("OfflineDataProtectionFailureApp", self.main)
         self.assertIn("runBootstrap", self.main)

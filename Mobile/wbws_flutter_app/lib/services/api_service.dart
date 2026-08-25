@@ -94,9 +94,10 @@ class ApiService {
 
     // Versions <= 1.1.14 stored the staff profile in SharedPreferences. Move it
     // to platform secure storage once, then remove the plaintext value.
+    String? legacyUserJson;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final legacyUserJson = prefs.getString(AppConfig.userDataKey);
+      legacyUserJson = prefs.getString(AppConfig.userDataKey);
       if (userJson == null && legacyUserJson != null) {
         try {
           await _secureStorage.write(
