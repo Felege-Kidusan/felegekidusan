@@ -1,7 +1,7 @@
 name: fkss_app
 description: FKSS Sunday School Management System — Mobile App
 publish_to: 'none'
-version: 1.1.15+17
+version: 1.1.16+18
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -37,9 +37,11 @@ dependencies:
   # Date formatting
   intl: ^0.19.0
 
-  # Encrypted offline storage (SQLCipher 4.10). Pin to the Flutter 3.27-
-  # compatible release; upgrades require Android/iOS migration verification.
-  sqflite_sqlcipher: 3.3.0
+  # Offline cache storage. The local DB is a sandboxed cache of server data;
+  # at-rest protection comes from the OS (app sandbox + device file-based
+  # encryption, the mainstream pattern). Tokens and the staff profile stay in
+  # platform secure storage (flutter_secure_storage above).
+  sqflite: ^2.3.0
   path: ^1.8.0
   crypto: ^3.0.3
 

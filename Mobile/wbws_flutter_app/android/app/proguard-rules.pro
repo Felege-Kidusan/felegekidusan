@@ -11,10 +11,8 @@
 -keep class org.apache.http.** { *; }
 -dontwarn org.apache.http.**
 
-# ── SQLCipher encrypted SQLite ──
--keep class com.davidmartos96.sqflite_sqlcipher.** { *; }
--keep class net.sqlcipher.** { *; }
--keep class net.sqlcipher.database.** { *; }
+# ── SQLite (sandboxed local cache; at-rest protected by OS device encryption) ──
+-keep class io.flutter.plugins.sqflite.** { *; }
 
 # ── Google Play Core (Flutter references these for deferred components) ──
 -dontwarn com.google.android.play.core.splitinstall.**

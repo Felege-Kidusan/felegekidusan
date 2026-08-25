@@ -77,23 +77,39 @@ class ApiService {
 
   /// Initialize credentials and migrate legacy plaintext profile metadata.
   Future<void> init() async {
-    final token = await _secureStorage.read(key: AppConfig.tokenKey);
-    final refreshToken =
-        await _secureStorage.read(key: AppConfig.refreshTokenKey);
-    var userJson = await _secureStorage.read(key: AppConfig.userDataKey);
+    // Secure storage is best-effort at bootstrap: a keystore hiccup must
+    // never dead-end the whole app. A failed read simply means "not signed
+    // in"; the login screen is reached and the next launch retries.
+    Future<String?> _read(String key) async {
+      try {
+        return await _secureStorage.read(key: key);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final token = await _read(AppConfig.tokenKey);
+    final refreshToken = await _read(AppConfig.refreshTokenKey);
+    var userJson = await _read(AppConfig.userDataKey);
 
     // Versions <= 1.1.14 stored the staff profile in SharedPreferences. Move it
     // to platform secure storage once, then remove the plaintext value.
-    final prefs = await SharedPreferences.getInstance();
-    final legacyUserJson = prefs.getString(AppConfig.userDataKey);
-    if (userJson == null && legacyUserJson != null) {
-      await _secureStorage.write(
-          key: AppConfig.userDataKey, value: legacyUserJson);
-      userJson = legacyUserJson;
-    }
-    if (legacyUserJson != null) {
-      await prefs.remove(AppConfig.userDataKey);
-    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final legacyUserJson = prefs.getString(AppConfig.userDataKey);
+      if (userJson == null && legacyUserJson != null) {
+        try {
+          await _secureStorage.write(
+              key: AppConfig.userDataKey, value: legacyUserJson);
+        } catch (_) {}
+        userJson = legacyUserJson;
+      }
+      if (legacyUserJson != null) {
+        try {
+          await prefs.remove(AppConfig.userDataKey);
+        } catch (_) {}
+      }
+    } catch (_) {}
 
     Map<String, dynamic>? user;
     if (userJson != null) {

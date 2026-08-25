@@ -1,8 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
-import 'package:sqflite_sqlcipher/sqflite.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'local_database_security.dart';
 
 String newClientOpId() {
   final r = Random.secure();
@@ -32,17 +32,23 @@ class LocalDb {
   Future<Database> _initDb() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'wbws_offline_v4.db');
-    final security = EncryptedDatabaseMigrator();
-    final encryptedDataExists = await security.encryptedArtifactsExist(path);
-    final password = await LocalDatabaseKeyStore()
-        .loadOrCreate(encryptedDataExists: encryptedDataExists);
-    await security.ensureEncrypted(path, password);
+    await _recoverFromInterruptedEncryptionUpgrade(path);
 
+    // The offline DB is a sandboxed cache of server data. At-rest protection
+    // comes from the OS (app sandbox + device file-based encryption); the
+    // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      password: password,
       version: 8,
-      onConfigure: security.configureEncryptedDatabase,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+        // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
+        // throws "Queries can be performed using ... rawQuery methods only"
+        // for them, which crashed every database open in 1.1.15.
+        try {
+          await db.rawQuery('PRAGMA secure_delete = ON');
+        } catch (_) {}
+      },
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -140,6 +146,38 @@ class LocalDb {
         }
       },
     );
+  }
+
+  /// Version 1.1.15 briefly attempted an in-place SQLCipher upgrade. If that
+  /// step was interrupted it may have left sibling files behind, and in the
+  /// worst state the original file was set aside. This build no longer uses
+  /// app-level encryption, so: restore the original file whenever the current
+  /// one is missing or the original is still parked beside it, then remove
+  /// the stale siblings. No data is deleted here.
+  Future<void> _recoverFromInterruptedEncryptionUpgrade(String path) async {
+    final backup = File('$path.plaintext-migration-backup');
+    final main = File(path);
+    try {
+      if (!await main.exists() && await backup.exists()) {
+        // Swap interrupted before promotion: the original is the only copy.
+        await backup.rename(path);
+      } else if (await main.exists() && await backup.exists()) {
+        // Swap interrupted after promotion: the current file is the encrypted
+        // export and the parked original holds the same data.
+        await main.delete();
+        await backup.rename(path);
+      }
+    } catch (_) {}
+    for (final stale in [
+      '$path.encrypted-migration',
+      '$path.encrypted-migration-wal',
+      '$path.encrypted-migration-shm',
+      '$path.plaintext-migration-backup',
+    ]) {
+      try {
+        await File(stale).delete();
+      } catch (_) {}
+    }
   }
 
   Future<void> _createTables(Database db) async {

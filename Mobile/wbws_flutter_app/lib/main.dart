@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 import 'services/api_service.dart';
 import 'services/catalog_service.dart';
 import 'services/local_db.dart';
@@ -29,6 +33,12 @@ void main() async {
     ),
   );
 
+  await runBootstrap();
+}
+
+/// Runs the startup sequence. Extracted so the recovery screen can retry
+/// without restarting the process.
+Future<void> runBootstrap() async {
   try {
     await ApiService().init();
     await LocalDb().database;
@@ -36,10 +46,13 @@ void main() async {
       await LocalDb().clearAllUserData();
     }
     await CatalogService().hydrate();
-  } catch (_) {
-    // Never reset or expose encrypted offline student work after a key/storage
-    // failure. A generic recovery screen is safer than a blank crash or data loss.
-    runApp(const OfflineDataProtectionFailureApp());
+  } catch (error, stack) {
+    // Local offline storage is the only genuinely blocking part. Never
+    // reset or expose it; write the real error for diagnosis and offer a
+    // retry. With OS-protected storage this screen is rare (full/corrupt
+    // phone storage) rather than a key/migration failure.
+    final detail = await _writeBootstrapLog(error, stack);
+    runApp(OfflineDataProtectionFailureApp(detail: detail));
     return;
   }
 
@@ -57,8 +70,41 @@ void main() async {
   });
 }
 
-class OfflineDataProtectionFailureApp extends StatelessWidget {
-  const OfflineDataProtectionFailureApp({super.key});
+/// Appends the real error to a log inside the app sandbox and returns a
+/// short, screen-safe summary the user can send to the school administrator.
+Future<String> _writeBootstrapLog(Object error, StackTrace stack) async {
+  var summary = '$error';
+  try {
+    final dbPath = await getDatabasesPath();
+    final logFile = File(join(dbPath, 'fkss_bootstrap_error.log'));
+    await logFile.writeAsString(
+      '=== ${DateTime.now().toIso8601String()} ===\n$error\n$stack\n',
+      mode: FileMode.append,
+      flush: true,
+    );
+  } catch (_) {}
+  summary = summary.replaceAll('\n', ' ').trim();
+  if (summary.length > 160) summary = '${summary.substring(0, 160)}…';
+  return summary;
+}
+
+class OfflineDataProtectionFailureApp extends StatefulWidget {
+  final String detail;
+  const OfflineDataProtectionFailureApp({super.key, required this.detail});
+
+  @override
+  State<OfflineDataProtectionFailureApp> createState() =>
+      _OfflineDataProtectionFailureAppState();
+}
+
+class _OfflineDataProtectionFailureAppState
+    extends State<OfflineDataProtectionFailureApp> {
+  bool _retrying = false;
+
+  Future<void> _retry() async {
+    setState(() => _retrying = true);
+    await runBootstrap(); // replaces this app on success
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,11 +112,11 @@ class OfflineDataProtectionFailureApp extends StatelessWidget {
       title: 'FKSS',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const Scaffold(
+      home: Scaffold(
         body: SafeArea(
           child: Center(
             child: Padding(
-              padding: EdgeInsets.all(32),
+              padding: const EdgeInsets.all(32),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -79,16 +125,31 @@ class OfflineDataProtectionFailureApp extends StatelessWidget {
                     size: 56,
                     color: AppTheme.primary,
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Text(
-                    'Offline data is protected',
+                    'Offline storage could not be opened',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   Text(
-                    'The secure data store could not be opened. Restart the app after unlocking the device. If this continues, contact the school administrator before reinstalling because reinstalling removes unsynced work.',
+                    'The app could not open its offline storage on this phone. '
+                    'Your data has NOT been deleted. Free up some phone storage '
+                    'and tap Retry. If it continues, send the detail line below '
+                    'to the school administrator.',
                     textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: _retrying ? null : _retry,
+                    icon: const Icon(Icons.refresh),
+                    label: Text(_retrying ? 'Retrying…' : 'Retry'),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    widget.detail,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ],
               ),

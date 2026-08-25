@@ -5,22 +5,34 @@ role-based online workflows plus offline attendance, grades, and roster caches.
 
 ## Local-data security
 
-Version 1.1.15 migrates the existing `wbws_offline_v4.db` plaintext SQLite file
-to SQLCipher 4.10 on first startup. A random 256-bit key is stored in platform
-secure storage and is never hardcoded or written beside the database.
+The offline database (`wbws_offline_v4.db`) is a **cache** of server data plus
+temporary unsynced attendance/grade drafts. It lives in the app's private
+sandbox and is protected at rest by the device's own file-based encryption —
+the mainstream pattern used by large consumer apps (Google, Meta). The server
+remains the source of truth; synced data can always be re-fetched after a
+reinstall.
 
-The migration is designed to preserve unsynced work:
+The app no longer performs app-level (SQLCipher) database encryption.
+Version 1.1.15 attempted an in-place encryption upgrade that dead-ended some
+phones at a recovery screen, and for cached data the reliability cost
+outweighed the protection.
 
-1. Open the existing database without a key.
-2. Export to a new encrypted sibling with `sqlcipher_export()`.
-3. Verify its application marker and SQLite integrity.
-4. Rename the original to a temporary recovery copy.
-5. Activate and reopen the encrypted copy with its key.
-6. Remove the plaintext recovery copy only after verification.
+What is still protected:
 
-Interrupted migrations resume from fixed sibling files. Key loss, corruption,
-or storage failures stop at a generic recovery screen; the app does not silently
-delete attendance or grade drafts.
+- **Tokens and the staff profile** live in platform secure storage (Android
+  Keystore / iOS Keychain), never in plain preferences. Secure-storage reads
+  at bootstrap are best-effort: a keystore hiccup degrades to the login
+  screen instead of blocking the app.
+- **Startup is resilient.** A genuine offline-storage failure shows a retry
+  screen (data is never deleted) and appends the real error to
+  `fkss_bootstrap_error.log` in the app directory for diagnosis.
+- **Interrupted 1.1.15 upgrades self-heal.** If the old encryption step left
+  the original file set aside, first startup restores it and removes the
+  stale sibling files — no data is lost and no "clear app data" is needed.
+- **Logout** removes all prior-user rows from the local cache
+  (`clearAllUserData`), with WAL checkpoint + vacuum.
+- **App-data backup is disabled** (`android:allowBackup="false"`) so local
+  caches are never carried between devices or restored across phones.
 
 ## Required release checks
 
@@ -33,12 +45,8 @@ flutter test
 flutter build apk --release
 ```
 
-Before rollout, test both a fresh install and an upgrade containing representative
-cached rosters plus unsynced attendance/grade packets on Android and iOS. Confirm
-the upgraded database does not begin with the plaintext `SQLite format 3` header,
-o plaintext migration sibling remains, logout removes all prior-user rows, and a
-second cold start opens the encrypted database successfully.
-
-Android release shrinking must retain SQLCipher classes; the required rules are
-in `android/app/proguard-rules.pro`. Android app-data backup is disabled so an
-encrypted database cannot be restored without its device-bound secure key.
+Before rollout, test both a fresh install and an upgrade containing
+representative cached rosters plus unsynced attendance/grade packets on
+Android and iOS. Confirm the upgrade opens the existing database with all
+unsynced packets intact, logout removes all prior-user rows, and a second
+cold start opens the database successfully.
