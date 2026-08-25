@@ -86,8 +86,9 @@ class MemberDirectoryScalingTests(unittest.TestCase):
             self.assertNotIn("embeddedManageMembers", source)
             self.assertNotIn("function loadManageMembers()", source)
         self.assertIn("view: 'manager'", self.manager_js)
-        self.assertIn("params.set('cursor'", self.manager_js)
-        self.assertIn("AbortController", self.manager_js)
+        self.assertIn("PaginatedList", self.manager_js)
+        self.assertIn("AbortController", (
+            ROOT / "admin/js/paginated-list.js").read_text())
 
         school = (ROOT / "admin/dashboards/school_admin.php").read_text()
         self.assertIn("include_options", school)
@@ -112,10 +113,9 @@ class MemberDirectoryScalingTests(unittest.TestCase):
         self.assertIn("new MemberDirectoryService($pdo)", compatibility)
         self.assertNotIn("$members[]", compatibility)
         self.assertIn("view: 'archive'", self.archive_js)
-        self.assertIn("limit: '50'", self.archive_js)
-        self.assertIn("params.set('cursor'", self.archive_js)
-        self.assertIn("params.set('archive_type'", self.archive_js)
-        self.assertIn("replaceChildren", self.archive_js)
+        self.assertIn("PaginatedList", self.archive_js)
+        self.assertIn("archive_type", self.archive_js)
+        self.assertIn("textContent", self.archive_js)
         self.assertNotIn("innerHTML", self.archive_js)
         for relative in [
             "admin/dashboards/info-dept.php",
@@ -144,8 +144,7 @@ class MemberDirectoryScalingTests(unittest.TestCase):
         viewer = (ROOT / "admin/id_cards/view_id_card.php").read_text()
         access = (ROOT / "admin/access_control.php").read_text()
         self.assertIn("view: 'id_cards'", id_card_js)
-        self.assertIn("limit: '50'", id_card_js)
-        self.assertIn("include_total", id_card_js)
+        self.assertIn("PaginatedList", id_card_js)
         self.assertIn("form.method = 'post'", id_card_js)
         self.assertIn("validateCsrf", generator)
         self.assertIn("REQUEST_METHOD'] ?? 'GET') !== 'POST'", generator)

@@ -198,6 +198,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
 
             // ---- Identity & Codes hub: SUPER ADMIN ONLY ----
             'api_identity.php'  => ['super_admin'],
+            'api_identity_migration.php' => ['super_admin'],
 
             // ---- User management: SUPER ADMIN ONLY ----
             'users.php'       => ['super_admin'],
