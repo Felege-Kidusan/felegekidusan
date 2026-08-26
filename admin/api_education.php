@@ -697,6 +697,30 @@ switch ($action) {
         // single source of truth and makes two-active-years impossible.
         $isCurrent = 0; // ignored for lifecycle; kept for backward-compat only.
 
+        // M3: application-level uniqueness guard. Migration 018 adds the real
+        // UNIQUE(year_name) index (skipped automatically on deployments that
+        // still contain duplicate names); this pre-check enforces uniqueness
+        // even where that migration has not run yet.
+        try {
+            if ($id > 0) {
+                $dupCheck = $conn->prepare('SELECT id FROM academic_years WHERE year_name = ? AND id <> ? LIMIT 1');
+                $dupCheck->bind_param('si', $name, $id);
+            } else {
+                $dupCheck = $conn->prepare('SELECT id FROM academic_years WHERE year_name = ? LIMIT 1');
+                $dupCheck->bind_param('s', $name);
+            }
+            $dupCheck->execute();
+            $duplicateYear = $dupCheck->get_result()->fetch_assoc();
+            $dupCheck->close();
+            if ($duplicateYear) {
+                echo json_encode(['status'=>'error','message'=>'An academic year with this name already exists — please choose a different year name.']);
+                exit;
+            }
+        } catch (Exception $dupError) {
+            // Fall through to the write path; the UNIQUE index (when present)
+            // still rejects duplicates with errno 1062 handled below.
+        }
+
         try {
             if ($id > 0) {
                 // UPDATE existing — descriptive fields only. The active-year

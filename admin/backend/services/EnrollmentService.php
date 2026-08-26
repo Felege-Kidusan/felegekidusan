@@ -272,11 +272,19 @@ class EnrollmentService
      * $ageGroup accepts the stored value ('7_13','14_17','18_plus', legacy
      * 'under6') or a bare letter; it maps onto the ministry A/B/C sequence.
      */
-    public static function generateMemberCode(\mysqli $conn, ?string $ageGroup = null): string
+    /**
+     * Compatibility adapter. Returns NULL (pending code) when the age group
+     * cannot be mapped to a category letter — codes are never guessed, the
+     * Identity hub issues them once the category is known.
+     */
+    public static function generateMemberCode(\mysqli $conn, ?string $ageGroup = null): ?string
     {
         require_once __DIR__ . '/MemberCategory.php';
         require_once __DIR__ . '/IdentityCodeService.php';
-        $letter = MemberCategory::letterFor($ageGroup) ?? MemberCategory::LETTER_A;
+        $letter = MemberCategory::letterFor($ageGroup);
+        if ($letter === null) {
+            return null;
+        }
         return IdentityCodeService::allocateStudent($conn, $letter);
     }
 

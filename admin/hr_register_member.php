@@ -269,6 +269,8 @@ $is_dept_head_8 = !$isQuickAdd && isset($_POST['is_dept_head_8']) ? 1 : 0;
 $member_code_form = field('student_id');
 $waiting_since = null;
 $member_code   = null;
+$code_letter   = null; // resolved category letter; allocation is deferred
+                       // into the registration transaction below (M2).
 
 if ($registration_type === 'waiting') {
     $member_code   = null;
@@ -279,9 +281,13 @@ if ($registration_type === 'waiting') {
     // retired fourth category normalizes onto ህጻናት. Staff codes are issued
     // by the Super Admin Identity hub when positions are assigned — never
     // guessed at registration time.
-    $letter = \App\Services\MemberCategory::letterFor($age_group)
-        ?? \App\Services\MemberCategory::LETTER_A;
-    $member_code = \App\Services\IdentityCodeService::allocateStudent($conn, $letter);
+    //
+    // DATA INTEGRITY: when no age group was selected the category must NOT
+    // be guessed (defaulting everyone to ህጻናት/A silently corrupts ministry
+    // reporting). Such members are saved with a PENDING code; the Identity
+    // hub (admin/api_identity.php) or the migration tool issues the right
+    // code once the age group is known.
+    $code_letter = \App\Services\MemberCategory::letterFor($age_group);
 }
 
 // ── Registration Date (DATE column — Y-m-d only) ──
@@ -362,8 +368,18 @@ if (!empty($uploadErrors)) {
 $conn->begin_transaction();
 $filesCommitted = false;
 $duplicateIdentityLock = null;
+$codeLockLetter = null;
 
 try {
+    if ($member_code === null && $code_letter !== null) {
+        // M2 FIX: allocation happens INSIDE the registration transaction and
+        // keeps the per-letter advisory lock held until commit/rollback, so
+        // a concurrent registration can never read a pre-commit MAX and
+        // allocate the same number.
+        $codeLockLetter = $code_letter;
+        $member_code = \App\Services\IdentityCodeService::allocateStudentHeld($conn, $code_letter);
+    }
+
     $data = [
         'member_code'          => $member_code,
         'registration_type'    => $registration_type,
@@ -524,6 +540,9 @@ try {
             'duplicate_override' => $duplicateOverride,
             'duplicate_match_id' => $duplicateOverride ? (int)$strongDuplicate['id'] : null,
             'duplicate_override_reason' => $duplicateOverride ? $duplicateOverrideReason : null,
+            // Pending codes are never guessed: issued later by the Identity
+            // hub once the member's age group / position is known.
+            'member_code_status' => $member_code !== null ? 'assigned' : 'pending',
         ],
         'member',
         $newId
@@ -534,6 +553,10 @@ try {
     $conn->commit();
     \App\Services\MemberDuplicateService::releaseIdentityLock($conn, $duplicateIdentityLock);
     $duplicateIdentityLock = null;
+    if ($codeLockLetter !== null) {
+        \App\Services\IdentityCodeService::releaseCodeLock($conn, $codeLockLetter);
+        $codeLockLetter = null;
+    }
     $filesCommitted = true;
 
     // Optional class assignment — never fail the registration if this misses.
@@ -580,6 +603,10 @@ try {
     try { $conn->rollback(); } catch (Throwable $r) {}
     \App\Services\MemberDuplicateService::releaseIdentityLock($conn, $duplicateIdentityLock);
     $duplicateIdentityLock = null;
+    if ($codeLockLetter !== null) {
+        \App\Services\IdentityCodeService::releaseCodeLock($conn, $codeLockLetter);
+        $codeLockLetter = null;
+    }
     if (!$filesCommitted) {
         foreach ([$student_photo_path, $guardian_photo_path, $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path] as $uploadedPath) {
             if (is_string($uploadedPath)) \App\Services\MemberFileService::discard($uploadedPath);

@@ -316,7 +316,13 @@ try {
 
             $rowTier = $rowData['membership_tier'] ?? $tier;
             if ($rowTier !== 'temporary') {
-                $rowData['member_code'] = EnrollmentService::generateMemberCode($conn);
+                // Use the row's own age group when the sheet provides one;
+                // otherwise the member is saved with a pending code instead
+                // of being guessed into the ህጻናት (A) sequence.
+                $rowData['member_code'] = EnrollmentService::generateMemberCode(
+                    $conn,
+                    isset($rowData['age_group']) ? (string)$rowData['age_group'] : null
+                );
             }
 
             $cols = array_keys($rowData);

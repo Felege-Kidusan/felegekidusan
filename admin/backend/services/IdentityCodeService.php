@@ -75,6 +75,22 @@ final class IdentityCodeService
 
     public static function allocateStudent(\mysqli $conn, string $letter): string
     {
+        try {
+            return self::allocateStudentHeld($conn, $letter);
+        } finally {
+            self::releaseCodeLock($conn, strtoupper(trim($letter)));
+        }
+    }
+
+    /**
+     * Allocate a student code while KEEPING the per-letter advisory lock
+     * held. Callers that INSERT the member inside a transaction MUST use
+     * this variant and release the lock only after commit/rollback —
+     * otherwise a second registration can read the pre-commit MAX and
+     * allocate the same number. Pair with releaseCodeLock().
+     */
+    public static function allocateStudentHeld(\mysqli $conn, string $letter): string
+    {
         $letter = strtoupper(trim($letter));
         if (!preg_match('/^[A-Z]$/', $letter)) {
             throw new RuntimeException('Invalid member category letter.');
@@ -96,56 +112,156 @@ final class IdentityCodeService
             $lockStatement->close();
         }
 
+        // From here on the lock MUST stay held until the caller releases it.
         try {
-            $statement = $conn->prepare(
-                "SELECT MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED)) AS max_n
-                 FROM members
-                 WHERE member_code REGEXP CONCAT('^', ?, '[0-9]+$')"
-            );
-            if (!$statement) {
-                throw new RuntimeException('Could not prepare code lookup.');
-            }
-            try {
-                $statement->bind_param('s', $letter);
-                if (!$statement->execute()) {
-                    throw new RuntimeException('Could not read last member code.');
-                }
-                $max = (int)($statement->get_result()->fetch_assoc()['max_n'] ?? 0);
-            } finally {
-                $statement->close();
-            }
+            return self::nextStudentCode($conn, $letter);
+        } catch (\Throwable $error) {
+            self::releaseCodeLock($conn, $letter);
+            throw $error;
+        }
+    }
 
-            $existsStatement = $conn->prepare(
-                'SELECT 1 FROM members WHERE member_code = ? LIMIT 1'
-            );
-            if (!$existsStatement) {
-                throw new RuntimeException('Could not prepare code check.');
-            }
-            try {
-                // MAX+1 under the lock is collision-free in practice; the
-                // UNIQUE index + bounded retry covers exotic edge cases such
-                // as manually inserted legacy rows like "A12X" being renamed.
-                for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
-                    $code = $letter . (string)($max + 1 + $attempt);
-                    $existsStatement->bind_param('s', $code);
-                    if (!$existsStatement->execute()) {
-                        throw new RuntimeException('Could not verify member code.');
-                    }
-                    if (!$existsStatement->get_result()->fetch_row()) {
-                        return $code;
-                    }
+    /** Release the per-letter advisory lock (safe to call when not held). */
+    public static function releaseCodeLock(\mysqli $conn, string $letter): void
+    {
+        $letter = strtoupper(trim($letter));
+        if (!preg_match('/^[A-Z]$/', $letter)) {
+            return;
+        }
+        $lockName = 'ssms_member_code_' . $letter;
+        $release = $conn->prepare('SELECT RELEASE_LOCK(?)');
+        if ($release) {
+            $release->bind_param('s', $lockName);
+            $release->execute();
+            $release->close();
+        }
+    }
+
+    /**
+     * Compute the next free {letter}{n} code. Assumes the per-letter
+     * advisory lock is already held.
+     *
+     * Scale: the dedicated member_code_sequences table (migration 018)
+     * gives O(1) atomic allocation per letter. The legacy REGEXP scan of
+     * members remains only as a fallback for deployments where the
+     * migration has not run yet.
+     */
+    private static function nextStudentCode(\mysqli $conn, string $letter): string
+    {
+        $sequenceN = self::bumpSequence($conn, $letter);
+        $start = $sequenceN ?? self::legacyMax($conn, $letter);
+
+        $existsStatement = $conn->prepare(
+            'SELECT 1 FROM members WHERE member_code = ? LIMIT 1'
+        );
+        if (!$existsStatement) {
+            throw new RuntimeException('Could not prepare code check.');
+        }
+        try {
+            // start+1 under the lock is collision-free in practice; the
+            // UNIQUE index + bounded retry covers exotic edge cases such as
+            // manually inserted legacy rows like "A12X" being renamed.
+            for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
+                $candidateN = $start + 1 + $attempt;
+                $code = $letter . (string)$candidateN;
+                $existsStatement->bind_param('s', $code);
+                if (!$existsStatement->execute()) {
+                    throw new RuntimeException('Could not verify member code.');
                 }
-            } finally {
-                $existsStatement->close();
+                if (!$existsStatement->get_result()->fetch_row()) {
+                    // Keep the sequence in sync when legacy rows forced the
+                    // retry loop forward (no-op when already current).
+                    if ($sequenceN !== null && $candidateN > $sequenceN) {
+                        self::syncSequence($conn, $letter, $candidateN);
+                    }
+                    return $code;
+                }
             }
-            throw new RuntimeException('Could not allocate a unique member code.');
         } finally {
-            $release = $conn->prepare('SELECT RELEASE_LOCK(?)');
-            if ($release) {
-                $release->bind_param('s', $lockName);
-                $release->execute();
-                $release->close();
+            $existsStatement->close();
+        }
+        throw new RuntimeException('Could not allocate a unique member code.');
+    }
+
+    /**
+     * Atomically claim the next sequence number for a letter.
+     * Returns null when the sequence table does not exist yet (deployment
+     * has not run migration 018) so the caller falls back to the legacy
+     * MAX scan.
+     */
+    private static function bumpSequence(\mysqli $conn, string $letter): ?int
+    {
+        $bump = $conn->prepare(
+            'INSERT INTO member_code_sequences (letter, last_n) VALUES (?, 1)
+             ON DUPLICATE KEY UPDATE last_n = last_n + 1'
+        );
+        if (!$bump) {
+            return null; // prepare fails when the table is absent
+        }
+        $bump->bind_param('s', $letter);
+        $ok = false;
+        try {
+            $ok = $bump->execute();
+        } catch (\Throwable $error) {
+            $ok = false;
+        }
+        if (!$ok) {
+            $bump->close();
+            return null;
+        }
+        $bump->close();
+
+        $read = $conn->prepare('SELECT last_n FROM member_code_sequences WHERE letter = ?');
+        if (!$read) {
+            return null;
+        }
+        $read->bind_param('s', $letter);
+        if (!$read->execute()) {
+            $read->close();
+            return null;
+        }
+        $row = $read->get_result()->fetch_assoc();
+        $read->close();
+        return $row ? (int)$row['last_n'] : null;
+    }
+
+    /** Push the sequence forward after the retry loop skipped legacy codes. */
+    private static function syncSequence(\mysqli $conn, string $letter, int $n): void
+    {
+        $statement = $conn->prepare(
+            'UPDATE member_code_sequences SET last_n = ? WHERE letter = ? AND last_n < ?'
+        );
+        if (!$statement) {
+            return;
+        }
+        $statement->bind_param('isi', $n, $letter, $n);
+        try {
+            $statement->execute();
+        } catch (\Throwable $error) {
+            // Non-fatal: the lock + UNIQUE index still guarantee uniqueness.
+        }
+        $statement->close();
+    }
+
+    /** Legacy O(n) scan used only until migration 018 is deployed. */
+    private static function legacyMax(\mysqli $conn, string $letter): int
+    {
+        $statement = $conn->prepare(
+            "SELECT MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED)) AS max_n
+             FROM members
+             WHERE member_code REGEXP CONCAT('^', ?, '[0-9]+$')"
+        );
+        if (!$statement) {
+            throw new RuntimeException('Could not prepare code lookup.');
+        }
+        try {
+            $statement->bind_param('s', $letter);
+            if (!$statement->execute()) {
+                throw new RuntimeException('Could not read last member code.');
             }
+            return (int)($statement->get_result()->fetch_assoc()['max_n'] ?? 0);
+        } finally {
+            $statement->close();
         }
     }
 

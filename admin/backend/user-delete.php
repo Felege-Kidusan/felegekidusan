@@ -106,7 +106,12 @@ try {
     // 2. Keep the records, drop the broken author links (set to NULL).
     _cleanupExec($pdo, "UPDATE attendance        SET recorded_by   = NULL WHERE recorded_by   = :uid", $deleteUserId);
     _cleanupExec($pdo, "UPDATE academic_records  SET recorded_by   = NULL WHERE recorded_by   = :uid", $deleteUserId);
-    _cleanupExec($pdo, "UPDATE grade_submissions SET submitted_by  = NULL WHERE submitted_by  = :uid", $deleteUserId);
+    // M4 FIX: grade_submissions has NO submitted_by column (the old
+    // statement was a silent no-op). The reviewer link is nullable and is
+    // detached here. teacher_id is NOT NULL and intentionally kept: grade
+    // submissions remain attributed to the (deleted) teacher's id so no
+    // academic record is destroyed by a user deletion.
+    _cleanupExec($pdo, "UPDATE grade_submissions SET reviewed_by   = NULL WHERE reviewed_by   = :uid", $deleteUserId);
     _cleanupExec($pdo, "UPDATE member_changes    SET changed_by_user = NULL WHERE changed_by_user = :uid", $deleteUserId);
     _cleanupExec($pdo, "UPDATE activity_logs     SET user_id       = NULL WHERE user_id       = :uid", $deleteUserId);
 
