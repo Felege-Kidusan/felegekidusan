@@ -1,5 +1,13 @@
 <?php
 // FILE: /admin/id_cards/view_id_card.php
+
+// TEMPORARY DEBUG: add &debug=1 to the URL to see the actual error
+if (!empty($_GET['debug'])) {
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+    ini_set('display_startup_errors', 1);
+}
+
 require_once '../config.php';
 require_once 'libs/eth_date_helper.php';
 require_once __DIR__ . '/../backend/services/IdCardLayout.php';

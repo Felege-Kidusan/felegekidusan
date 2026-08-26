@@ -433,6 +433,16 @@ function validateCsrf($token = null) {
 }
 
 /**
+ * Generate a hidden CSRF token input field for forms.
+ * Call inside <form> tags: <?= csrf_field() ?>
+ */
+function csrf_field(): string {
+    return '<input type="hidden" name="csrf_token" value="'
+        . htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8')
+        . '">';
+}
+
+/**
  * Require valid CSRF token (dies on failure)
  */
 function requireCsrf() {

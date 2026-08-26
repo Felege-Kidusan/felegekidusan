@@ -1,5 +1,12 @@
 <?php
 /** Generate or renew one ID card through an authorized, CSRF-protected POST. */
+
+// TEMPORARY DEBUG: add &debug=1 to the referring page URL
+if (!empty($_POST['debug'])) {
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+}
+
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/services/SecurityAuditService.php';
 
