@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
@@ -217,8 +217,8 @@ function sectionLabelFromGroup(?string $ageGroup): string
 $recentMembers = array_map(function ($row) {
     $name = trim(($row['student_name'] ?? '') . ' ' . ($row['father_name'] ?? '') . ' ' . ($row['grandfather_name'] ?? ''));
     return [
-        'name'   => $name ?: 'â€”',
-        'type'   => $row['member_type'] ?? 'áˆ˜á‹°á‰ áŠ›',
+        'name'   => $name ?: '—',
+        'type'   => $row['member_type'] ?? 'መደበኛ',
         'status' => ucfirst($row['status'] ?? 'Active'),
         'section'=> $row['current_section'] ?? '',
         'date'   => !empty($row['created_at']) ? ethio_date_format(new DateTime($row['created_at'], new DateTimeZone('Africa/Addis_Ababa')), 'M j, Y') : '',
@@ -293,7 +293,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     </script>
 
     <link rel="icon"
-          href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>â›ª</text></svg>">
+          href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/admin/js/chart.umd.min.js"></script>
@@ -603,7 +603,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             </div>
             <div class="ml-3">
                 <div class="text-sm font-bold amharic-text">HR Department</div>
-                <div class="text-[11px] text-emerald-100 amharic-text"><?= SCHOOL_NAME_SHORT_AM ?> á‹¨áˆ°á‹ áˆ€á‹­áˆ áŠ áˆµá‰°á‹³á‹°áˆ­ (HR)</div>
+                <div class="text-[11px] text-emerald-100 amharic-text"><?= SCHOOL_NAME_SHORT_AM ?> የሰው ሀይል አስተዳደር (HR)</div>
             </div>
         </div>
 
@@ -729,7 +729,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </div>
                 <div>
                     <div class="text-sm font-bold">HR Department</div>
-                    <div class="text-[11px] text-emerald-100 amharic-text">á‹¨áˆ°á‹ áˆ€á‹­áˆ áŠ áˆµá‰°á‹³á‹°áˆ­ Â· áˆ˜áˆ˜á‹áŒˆá‰¥ Â· áˆ˜á‰†áŒ£áŒ áˆ­</div>
+                    <div class="text-[11px] text-emerald-100 amharic-text">የሰው ሀይል አስተዳደር · መመዝገብ · መቆጣጠር</div>
                 </div>
             </div>
             <div class="text-right text-[11px]">
@@ -753,7 +753,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 HR Department
                             </h1>
                             <p class="text-[11px] sm:text-xs text-emerald-100 amharic-text">
-                                á‹¨áˆ°á‹ áˆ€á‹­áˆ áŠ áˆµá‰°á‹³á‹°áˆ­ Â· á‹¨áŠ á‰£áˆ‹á‰µ áˆ˜áˆ˜á‹áŒˆá‰¥ áŠ¥áŠ“ áˆ˜á‰†áŒ£áŒ áˆ­
+                                የሰው ሀይል አስተዳደር · የአባላት መመዝገብ እና መቆጣጠር
                             </p>
                         </div>
                     </div>
@@ -823,15 +823,15 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         </div>
                         <div class="mt-2 text-[11px] sm:text-xs space-y-0.5">
                             <div class="flex justify-between">
-                                <span>áˆ˜á‹°á‰ áŠ›</span>
+                                <span>መደበኛ</span>
                                 <span class="font-semibold"><?= $memberTypeRegular ?></span>
                             </div>
                             <div class="flex justify-between">
-                                <span>á‹¨áˆ˜áŒ á‰£á‰ á‰‚á‹«</span>
+                                <span>የመጠባበቂያ</span>
                                 <span class="font-semibold"><?= $memberTypeWaiting ?></span>
                             </div>
                             <div class="flex justify-between">
-                                <span>á‹¨áŠ­á‰¥áˆ­ áŠ á‰£áˆ‹á‰µ</span>
+                                <span>የክብር አባላት</span>
                                 <span class="font-semibold"><?= $memberTypeHonor ?></span>
                             </div>
                         </div>
@@ -945,17 +945,17 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
                         <div class="grid grid-cols-3 gap-3 mt-3">
                             <div class="p-3 rounded-2xl bg-sky-50 border border-sky-100">
-                                <div class="text-[11px] text-sky-700 amharic-text">áˆ…áŒ»áŠ“á‰µ (A)</div>
+                                <div class="text-[11px] text-sky-700 amharic-text">ህጻናት (A)</div>
                                 <div class="text-xl font-bold text-sky-900 mt-1"><?= $sectionCounts['7_13'] ?></div>
                                 <div class="text-[11px] text-sky-500">Section</div>
                             </div>
                             <div class="p-3 rounded-2xl bg-amber-50 border border-amber-100">
-                                <div class="text-[11px] text-amber-700 amharic-text">áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ• (B)</div>
+                                <div class="text-[11px] text-amber-700 amharic-text">ማዕከላዊያን (B)</div>
                                 <div class="text-xl font-bold text-amber-900 mt-1"><?= $sectionCounts['14_17'] ?></div>
                                 <div class="text-[11px] text-amber-500">Section</div>
                             </div>
                             <div class="p-3 rounded-2xl bg-rose-50 border border-rose-100">
-                                <div class="text-[11px] text-rose-700 amharic-text">á‹ˆáŒ£á‰¶á‰½ (C)</div>
+                                <div class="text-[11px] text-rose-700 amharic-text">ወጣቶች (C)</div>
                                 <div class="text-xl font-bold text-rose-900 mt-1"><?= $sectionCounts['18_plus'] ?></div>
                                 <div class="text-[11px] text-rose-500">Section</div>
                             </div>
@@ -1014,7 +1014,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </p>
                         </div>
                         <button class="hidden sm:inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900">
-                            View all â†’
+                            View all →
                         </button>
                     </div>
 
@@ -1045,7 +1045,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         <span class="chip <?= $statusChip ?>"><?= e($row['status']) ?></span>
                                     </td>
                                     <td class="py-2 px-2 sm:px-3 amharic-text">
-                                        <?= esc($row['section'], 'â€”') ?>
+                                        <?= esc($row['section'], '—') ?>
                                     </td>
                                     <td class="py-2 px-2 sm:px-3">
                                         <?= e($row['date'] ?? '') ?>
@@ -1101,7 +1101,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div>
                             <h2 class="text-base md:text-lg font-semibold text-slate-900 amharic-text">
-                                áˆáˆ‰áˆ áŠ á‰£áˆ‹á‰µ (All Members)
+                                ሁሉም አባላት (All Members)
                             </h2>
                             <p class="text-xs text-slate-500">
                                 Showing latest <?php echo count($membersList); ?> members. Use search and filters to narrow down.
@@ -1114,7 +1114,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                        type="text"
                                        class="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 w-full"
                                        placeholder="Search any field (name, code, phone, profession, education, city...)">
-                                <span class="absolute left-3 top-2.5 text-slate-400 text-sm">ðŸ”</span>
+                                <span class="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
                             </div>
 
                             <div class="flex flex-wrap gap-2">
@@ -1153,9 +1153,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 <select id="filterAgeGroup"
                                         class="text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
                                     <option value="">Section (All)</option>
-                                    <option value="7_13">áˆ…áŒ»áŠ“á‰µ (A)</option>
-                                    <option value="14_17">áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ• (B)</option>
-                                    <option value="18_plus">á‹ˆáŒ£á‰¶á‰½ (C)</option>
+                                    <option value="7_13">ህጻናት (A)</option>
+                                    <option value="14_17">ማዕከላዊያን (B)</option>
+                                    <option value="18_plus">ወጣቶች (C)</option>
                                 </select>
                             </div>
                         </div>
@@ -1251,7 +1251,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             class="registration-type-btn w-full text-left px-3 py-2 rounded-xl border border-emerald-300 bg-white text-[11px] sm:text-xs"
                                             data-registration-type="waiting"
                                             onclick="selectRegistrationType('waiting', this)">
-                                        <div class="amharic-text text-[13px]">áŠ á‹²áˆµ á‰°áˆ˜á‹áŒ‹á‰¢</div>
+                                        <div class="amharic-text text-[13px]">አዲስ ተመዝጋቢ</div>
                                         <div class="text-[10px] text-slate-500">Waiting (list)</div>
                                     </button>
 
@@ -1259,7 +1259,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             class="registration-type-btn w-full text-left px-3 py-2 rounded-xl border border-slate-200 bg-white text-[11px] sm:text-xs"
                                             data-registration-type="transfer"
                                             onclick="selectRegistrationType('transfer', this)">
-                                        <div class="amharic-text text-[13px]">á‹¨á‰°á‹›á‹ˆáˆ¨</div>
+                                        <div class="amharic-text text-[13px]">የተዛወረ</div>
                                         <div class="text-[10px] text-slate-500">Transfer</div>
                                     </button>
 
@@ -1267,7 +1267,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             class="registration-type-btn w-full text-left px-3 py-2 rounded-xl border border-slate-200 bg-white text-[11px] sm:text-xs"
                                             data-registration-type="direct"
                                             onclick="selectRegistrationType('direct', this)">
-                                        <div class="amharic-text text-[13px]">á‰€áŒ¥á‰³ áˆ˜áˆ˜á‹áŒˆá‰¥</div>
+                                        <div class="amharic-text text-[13px]">ቀጥታ መመዝገብ</div>
                                         <div class="text-[10px] text-slate-500">Direct</div>
                                     </button>
                                 </div>
@@ -1292,7 +1292,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             class="member-type-btn w-full text-left px-3 py-2 rounded-xl border border-emerald-300 bg-white text-[11px] sm:text-xs"
                                             data-member-type="regular"
                                             onclick="selectMemberTypeFull('regular', this)">
-                                        <div class="amharic-text text-[13px]">áˆ˜á‹°á‰ áŠ›</div>
+                                        <div class="amharic-text text-[13px]">መደበኛ</div>
                                         <div class="text-[10px] text-slate-500">Regular</div>
                                     </button>
 
@@ -1300,7 +1300,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             class="member-type-btn w-full text-left px-3 py-2 rounded-xl border border-slate-200 bg-white text-[11px] sm:text-xs"
                                             data-member-type="special_regular"
                                             onclick="selectMemberTypeFull('special_regular', this)">
-                                        <div class="amharic-text text-[13px]">áˆá‹© áˆ˜á‹°á‰ áŠ›</div>
+                                        <div class="amharic-text text-[13px]">ልዩ መደበኛ</div>
                                         <div class="text-[10px] text-slate-500">Student + role</div>
                                     </button>
 
@@ -1308,7 +1308,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             class="member-type-btn w-full text-left px-3 py-2 rounded-xl border border-slate-200 bg-white text-[11px] sm:text-xs"
                                             data-member-type="honorary"
                                             onclick="selectMemberTypeFull('honorary', this)">
-                                        <div class="amharic-text text-[13px]">á‹¨áŠ­á‰¥áˆ­ áŠ á‰£áˆ‹á‰µ</div>
+                                        <div class="amharic-text text-[13px]">የክብር አባላት</div>
                                         <div class="text-[10px] text-slate-500">Honorary</div>
                                     </button>
                                 </div>
@@ -1378,19 +1378,19 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     <select name="reg_date_month" id="regDateMonth"
                                             class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-blue-200 text-xs focus:ring-blue-200 focus:border-blue-400 bg-white">
                                         <option value="">Month</option>
-                                        <option value="1">áˆ˜áˆµáŠ¨áˆ¨áˆ (1)</option>
-                                        <option value="2">áŒ¥á‰…áˆá‰µ (2)</option>
-                                        <option value="3">áŠ…á‹³áˆ­ (3)</option>
-                                        <option value="4">á‰³áŠ…áˆ£áˆ¥ (4)</option>
-                                        <option value="5">áŒ¥áˆ­ (5)</option>
-                                        <option value="6">á‹¨áŠ«á‰²á‰µ (6)</option>
-                                        <option value="7">áˆ˜áŒ‹á‰¢á‰µ (7)</option>
-                                        <option value="8">áˆšá‹«á‹á‹« (8)</option>
-                                        <option value="9">áŒáŠ•á‰¦á‰µ (9)</option>
-                                        <option value="10">áˆ°áŠ” (10)</option>
-                                        <option value="11">áˆáˆáˆŒ (11)</option>
-                                        <option value="12">áŠáˆáˆ´ (12)</option>
-                                        <option value="13">áŒ³áŒ‰áˆœ (13)</option>
+                                        <option value="1">መስከረም (1)</option>
+                                        <option value="2">ጥቅምት (2)</option>
+                                        <option value="3">ኅዳር (3)</option>
+                                        <option value="4">ታኅሣሥ (4)</option>
+                                        <option value="5">ጥር (5)</option>
+                                        <option value="6">የካቲት (6)</option>
+                                        <option value="7">መጋቢት (7)</option>
+                                        <option value="8">ሚያዝያ (8)</option>
+                                        <option value="9">ግንቦት (9)</option>
+                                        <option value="10">ሰኔ (10)</option>
+                                        <option value="11">ሐምሌ (11)</option>
+                                        <option value="12">ነሐሴ (12)</option>
+                                        <option value="13">ጳጉሜ (13)</option>
                                     </select>
 
                                     <input type="number" name="reg_date_year" id="regDateYear"
@@ -1411,20 +1411,20 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 <span class="w-6 h-6 rounded-lg bg-amber-200 flex items-center justify-center">
                                     <i class="fa-solid fa-user-gear text-[10px]"></i>
                                 </span>
-                                <span>Role Flags (for áˆá‹© áˆ˜á‹°á‰ áŠ›)</span>
+                                <span>Role Flags (for ልዩ መደበኛ)</span>
                             </h4>
 
                             <p class="text-[11px] text-amber-800 mb-2">
-                                Mark responsibilities. These are simple flags weâ€™ll use for filters/reports later.
+                                Mark responsibilities. These are simple flags we’ll use for filters/reports later.
                             </p>
 
                             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px]">
                                 <?php
                                 $flags = [
-                                    'is_teacher' => 'áˆ˜áˆáˆ…áˆ­ (Teacher)',
-                                    'is_staff' => 'áˆ°áˆ«á‰°áŠ› (Staff)',
-                                    'is_committee' => 'áŠ®áˆšá‰´ (Committee)',
-                                    'is_volunteer' => 'á‰ áˆá‰ƒá‹°áŠáŠá‰µ (Volunteer)',
+                                    'is_teacher' => 'መምህር (Teacher)',
+                                    'is_staff' => 'ሰራተኛ (Staff)',
+                                    'is_committee' => 'ኮሚቴ (Committee)',
+                                    'is_volunteer' => 'በፈቃደኝነት (Volunteer)',
                                     'is_dept_head_1' => 'Dept Head 1',
                                     'is_dept_head_2' => 'Dept Head 2',
                                     'is_dept_head_3' => 'Dept Head 3',
@@ -1458,7 +1458,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         <img id="studentPhotoPreview" src="" alt="Preview"
                                              class="hidden w-full h-full object-cover">
                                         <span id="studentPhotoPlaceholder" class="text-[11px] text-slate-400 text-center px-2">
-                                            3Ã—4 Photo
+                                            3×4 Photo
                                         </span>
                                     </div>
                                     <label class="text-[11px] text-emerald-700 cursor-pointer">
@@ -1477,14 +1477,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         </label>
                                         <input type="text" name="full_name_am" required
                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400"
-                                               placeholder="áˆ™áˆ‰ áˆµáˆ (áˆµáˆ áŠ á‰£á‰µ á‹ˆá‹­áˆ áŠ á‹«á‰µ)"
+                                               placeholder="ሙሉ ስም (ስም አባት ወይም አያት)"
                                                title="Enter full name separated by spaces: First Father Grandfather">
                                         <p class="text-[10px] text-slate-400 mt-1">Separate First, Father, and Grandfather names with spaces</p>
                                     </div>
 
                                     <div>
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Christian Name (á‹¨áŠ­áˆ­áˆµá‰µáŠ“ áˆµáˆ)
+                                            Christian Name (የክርስትና ስም)
                                         </label>
                                         <input type="text" name="baptismal_name"
                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400">
@@ -1556,8 +1556,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                                 class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-emerald-200 focus:border-emerald-400">
                                             <option value="">Select</option>
                                             <option value="kg">KG</option>
-                                            <option value="elementary">Elementary (1â€“8)</option>
-                                            <option value="high">High School (9â€“12)</option>
+                                            <option value="elementary">Elementary (1–8)</option>
+                                            <option value="high">High School (9–12)</option>
                                             <option value="tvet_level1">TVET Level I</option>
                                             <option value="tvet_level2">TVET Level II</option>
                                             <option value="tvet_level3">TVET Level III</option>
@@ -1566,32 +1566,32 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                             <option value="degree">Degree</option>
                                             <option value="masters">Masters</option>
                                             <option value="phd">PhD</option>
-                                            <option value="other">áˆŒáˆ‹</option>
+                                            <option value="other">ሌላ</option>
                                         </select>
                                     </div>
 
                                     <div class="permanent-only">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
                                             <i class="fa-solid fa-cross text-emerald-500 mr-1"></i>
-                                            Spiritual Education (á‹¨áˆ˜áŠ•áˆáˆ³á‹Š á‰µáˆáˆ…áˆ­á‰µ á‹°áˆ¨áŒƒ)
+                                            Spiritual Education (የመንፈሳዊ ትምህርት ደረጃ)
                                         </label>
                                         <select name="spiritual_education"
                                                 class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-emerald-200 text-xs focus:ring-emerald-200 focus:border-emerald-400 bg-emerald-50">
                                             <option value="">Select Level</option>
-                                            <option value="grade_1">1áŠ› áŠ­ááˆ (Grade 1)</option>
-                                            <option value="grade_2">2áŠ› áŠ­ááˆ (Grade 2)</option>
-                                            <option value="grade_3">3áŠ› áŠ­ááˆ (Grade 3)</option>
-                                            <option value="grade_4">4áŠ› áŠ­ááˆ (Grade 4)</option>
-                                            <option value="grade_5">5áŠ› áŠ­ááˆ (Grade 5)</option>
-                                            <option value="grade_6">6áŠ› áŠ­ááˆ (Grade 6)</option>
-                                            <option value="grade_7">7áŠ› áŠ­ááˆ (Grade 7)</option>
-                                            <option value="grade_8">8áŠ› áŠ­ááˆ (Grade 8)</option>
-                                            <option value="grade_9">9áŠ› áŠ­ááˆ (Grade 9)</option>
-                                            <option value="grade_10">10áŠ› áŠ­ááˆ (Grade 10)</option>
-                                            <option value="grade_11">11áŠ› áŠ­ááˆ (Grade 11)</option>
-                                            <option value="grade_12">12áŠ› áŠ­ááˆ (Grade 12)</option>
-                                            <option value="diploma">á‹²á•áˆŽáˆ› (Diploma)</option>
-                                            <option value="degree">á‹²áŒáˆª (Degree)</option>
+                                            <option value="grade_1">1ኛ ክፍል (Grade 1)</option>
+                                            <option value="grade_2">2ኛ ክፍል (Grade 2)</option>
+                                            <option value="grade_3">3ኛ ክፍል (Grade 3)</option>
+                                            <option value="grade_4">4ኛ ክፍል (Grade 4)</option>
+                                            <option value="grade_5">5ኛ ክፍል (Grade 5)</option>
+                                            <option value="grade_6">6ኛ ክፍል (Grade 6)</option>
+                                            <option value="grade_7">7ኛ ክፍል (Grade 7)</option>
+                                            <option value="grade_8">8ኛ ክፍል (Grade 8)</option>
+                                            <option value="grade_9">9ኛ ክፍል (Grade 9)</option>
+                                            <option value="grade_10">10ኛ ክፍል (Grade 10)</option>
+                                            <option value="grade_11">11ኛ ክፍል (Grade 11)</option>
+                                            <option value="grade_12">12ኛ ክፍል (Grade 12)</option>
+                                            <option value="diploma">ዲፕሎማ (Diploma)</option>
+                                            <option value="degree">ዲግሪ (Degree)</option>
                                         </select>
                                     </div>
 
@@ -1602,19 +1602,19 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         </label>
                                         <select name="class_id" id="hrClassId"
                                                 class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-violet-200 text-xs focus:ring-violet-200 focus:border-violet-400 bg-violet-50">
-                                            <option value="">â€” Do not assign a class â€”</option>
+                                            <option value="">— Do not assign a class —</option>
                                             <?php foreach ($hrClasses as $hc): ?>
                                             <option value="<?= (int)$hc['id'] ?>">
                                                 <?= e($hc['class_name']) ?>
                                                 <?php if (!empty($hc['class_name_en'])): ?> (<?= e($hc['class_name_en']) ?>)<?php endif; ?>
-                                                <?php if (!empty($hc['class_code'])): ?> â€” <?= e($hc['class_code']) ?><?php endif; ?>
+                                                <?php if (!empty($hc['class_code'])): ?> — <?= e($hc['class_code']) ?><?php endif; ?>
                                             </option>
                                             <?php endforeach; ?>
                                         </select>
                                         <p class="text-[10px] text-slate-400 mt-1">
                                             Assigns the member to this Education class for the active academic year. Education can still transfer or unenroll them.
                                             <?php if (empty($hrClasses)): ?>
-                                            <span class="text-amber-600">No classes found â€” Education must create classes first.</span>
+                                            <span class="text-amber-600">No classes found — Education must create classes first.</span>
                                             <?php endif; ?>
                                         </p>
                                     </div>
@@ -1696,7 +1696,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     <input type="text" name="work_profession"
                                            list="professionsList"
                                            class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400"
-                                           placeholder="IT, Singer, Designerâ€¦">
+                                           placeholder="IT, Singer, Designer…">
                                     <datalist id="professionsList">
                                         <option value="IT">
                                         <option value="Teacher">
@@ -1732,7 +1732,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     </label>
                                     <input type="tel" name="phone_number" required
                                            class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400"
-                                           placeholder="+251 9â€¦">
+                                           placeholder="+251 9…">
                                 </div>
                                 <div>
                                     <label class="block text-[11px] font-medium text-slate-700 mb-1">
@@ -1760,7 +1760,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         <img id="guardianPhotoPreview" src="" alt="Preview"
                                              class="hidden w-full h-full object-cover">
                                         <span id="guardianPhotoPlaceholder" class="text-[11px] text-slate-400 text-center px-2">
-                                            3Ã—4 Guardian Photo
+                                            3×4 Guardian Photo
                                         </span>
                                     </div>
                                     <label class="text-[11px] text-amber-700 cursor-pointer">
@@ -1787,7 +1787,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         </label>
                                         <input type="tel" name="guardian_phone1" required
                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400"
-                                               placeholder="+251 9â€¦">
+                                               placeholder="+251 9…">
                                     </div>
 
                                     <div>
@@ -1993,9 +1993,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </select>
                             <select id="manageFilterAgeGroup" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Age Groups</option>
-                                <option value="7_13">áˆ…áŒ»áŠ“á‰µ (7 - 13)</option>
-                                <option value="14_17">áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ• (14 - 17)</option>
-                                <option value="18_plus">á‹ˆáŒ£á‰¶á‰½ (18+)</option>
+                                <option value="7_13">ህጻናት (7 - 13)</option>
+                                <option value="14_17">ማዕከላዊያን (14 - 17)</option>
+                                <option value="18_plus">ወጣቶች (18+)</option>
                             </select>
                             <select id="manageFilterEducation" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Education Levels</option>
@@ -2130,7 +2130,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     </tr>
                 </thead>
                 <tbody id="idCardMembersBody" class="divide-y divide-slate-100 text-sm text-slate-700">
-                    <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Loading eligible membersâ€¦</td></tr>
+                    <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Loading eligible members…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -2159,7 +2159,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             <span class="w-9 h-9 rounded-2xl bg-orange-100 flex items-center justify-center"><i class="fa-solid fa-clipboard-check text-orange-600"></i></span>
                             Attendance & Status
                         </h2>
-                        <p class="text-xs text-slate-500 amharic-text mt-1">á‹¨áŠ á‰£áˆ‹á‰µ á‰†áŒ áˆ«áŠ“ áˆáŠ”á‰³</p>
+                        <p class="text-xs text-slate-500 amharic-text mt-1">የአባላት ቆጠራና ሁኔታ</p>
                     </div>
                 </div>
 
@@ -2283,7 +2283,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             <span class="w-7 h-7 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600"><i class="fa-solid fa-file-lines"></i></span>
                             <span>Exports & Reports</span>
                         </h3>
-                        <p class="text-xs text-slate-500 amharic-text">áˆªá–áˆ­á‰¶á‰½áŠ“ á‹ˆáŒªá‹Žá‰½</p>
+                        <p class="text-xs text-slate-500 amharic-text">ሪፖርቶችና ወጪዎች</p>
                     </div>
                     <a href="/admin/reports.php" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-semibold shadow hover:from-blue-700 hover:to-indigo-700 transition">
                         <i class="fa-solid fa-chart-line"></i> Open Advanced Analytics Center
@@ -2299,7 +2299,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         </div>
                         <div>
                             <div class="text-xs font-semibold text-blue-800">Advanced Analytics Available</div>
-                            <div class="text-[10px] text-blue-600">Interactive charts, multi-filter data explorer, and export to CSV, PDF & Word â€” all in one place.</div>
+                            <div class="text-[10px] text-blue-600">Interactive charts, multi-filter data explorer, and export to CSV, PDF & Word — all in one place.</div>
                         </div>
                     </div>
                 </div>
@@ -2378,9 +2378,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         <div class="bg-amber-50 p-3 rounded-xl"><div class="text-lg font-bold text-amber-700"><?= $memberTypeWaiting ?></div><div class="text-[10px] text-amber-600">Waiting</div></div>
                     </div>
                     <div class="grid grid-cols-3 gap-3 text-center">
-                        <div class="bg-sky-50 p-3 rounded-xl"><div class="text-lg font-bold text-sky-700"><?= $sectionCounts['7_13'] ?></div><div class="text-[10px] text-sky-600 amharic-text">áˆ…áŒ»áŠ“á‰µ (A)</div></div>
-                        <div class="bg-amber-50 p-3 rounded-xl"><div class="text-lg font-bold text-amber-700"><?= $sectionCounts['14_17'] ?></div><div class="text-[10px] text-amber-600 amharic-text">áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ• (B)</div></div>
-                        <div class="bg-rose-50 p-3 rounded-xl"><div class="text-lg font-bold text-rose-700"><?= $sectionCounts['18_plus'] ?></div><div class="text-[10px] text-rose-600 amharic-text">á‹ˆáŒ£á‰¶á‰½ (C)</div></div>
+                        <div class="bg-sky-50 p-3 rounded-xl"><div class="text-lg font-bold text-sky-700"><?= $sectionCounts['7_13'] ?></div><div class="text-[10px] text-sky-600 amharic-text">ህጻናት (A)</div></div>
+                        <div class="bg-amber-50 p-3 rounded-xl"><div class="text-lg font-bold text-amber-700"><?= $sectionCounts['14_17'] ?></div><div class="text-[10px] text-amber-600 amharic-text">ማዕከላዊያን (B)</div></div>
+                        <div class="bg-rose-50 p-3 rounded-xl"><div class="text-lg font-bold text-rose-700"><?= $sectionCounts['18_plus'] ?></div><div class="text-[10px] text-rose-600 amharic-text">ወጣቶች (C)</div></div>
                     </div>
                 </div>
             </section>
@@ -2423,7 +2423,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     <?php if ($att['member_id']): ?>
                                         <span class="text-emerald-600"><?= e($att['student_name'] . ' ' . $att['father_name']) ?></span>
                                     <?php else: ?>
-                                        <span class="text-slate-400">â€”</span>
+                                        <span class="text-slate-400">—</span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="px-4 py-3">
@@ -2466,7 +2466,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             <span class="w-9 h-9 rounded-2xl bg-slate-100 flex items-center justify-center"><i class="fa-solid fa-gear text-slate-600"></i></span>
                             Settings
                         </h2>
-                        <p class="text-xs text-slate-500 amharic-text mt-1">á‹¨áŠ­ááˆ á‰…áŠ•á‰¥áˆ®á‰½</p>
+                        <p class="text-xs text-slate-500 amharic-text mt-1">የክፍል ቅንብሮች</p>
                     </div>
                 </div>
 
@@ -2491,9 +2491,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             <span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 uppercase"><?= e($userRole) ?></span>
                             <div class="mt-4 space-y-2 text-xs text-slate-500 text-left">
                                 <div class="flex justify-between"><span>Email</span><span class="font-medium text-slate-700" id="spEmail">Loading...</span></div>
-                                <div class="flex justify-between"><span>Member Since</span><span class="font-medium text-slate-700" id="spCreated">â€”</span></div>
-                                <div class="flex justify-between"><span>Last Login</span><span class="font-medium text-slate-700" id="spLastLogin">â€”</span></div>
-                                <div class="flex justify-between"><span>Total Logins</span><span class="font-medium text-slate-700" id="spLogins">â€”</span></div>
+                                <div class="flex justify-between"><span>Member Since</span><span class="font-medium text-slate-700" id="spCreated">—</span></div>
+                                <div class="flex justify-between"><span>Last Login</span><span class="font-medium text-slate-700" id="spLastLogin">—</span></div>
+                                <div class="flex justify-between"><span>Total Logins</span><span class="font-medium text-slate-700" id="spLogins">—</span></div>
                             </div>
                         </div>
 
@@ -2556,7 +2556,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Department Name (Amharic)</label>
-                                <input type="text" id="deptNameAm" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm amharic-text focus:ring-2 focus:ring-blue-200 focus:border-blue-400" placeholder="áˆ›á‰¥áˆ«áˆªá‹« áŠ­ááˆ">
+                                <input type="text" id="deptNameAm" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm amharic-text focus:ring-2 focus:ring-blue-200 focus:border-blue-400" placeholder="ማብራሪያ ክፍል">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Church/School Name (English)</label>
@@ -2618,9 +2618,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Default Age Group</label>
                                     <select id="defAgeGroup" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-teal-200 focus:border-teal-400">
                                         <option value="">None (manual selection)</option>
-                                        <option value="7_13">áˆ…áŒ»áŠ“á‰µ (7-13)</option>
-                                        <option value="14_17">áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ• (14-17)</option>
-                                        <option value="18_plus">á‹ˆáŒ£á‰¶á‰½ (18+)</option>
+                                        <option value="7_13">ህጻናት (7-13)</option>
+                                        <option value="14_17">ማዕከላዊያን (14-17)</option>
+                                        <option value="18_plus">ወጣቶች (18+)</option>
                                     </select>
                                 </div>
                                 <div>
@@ -2812,7 +2812,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                        placeholder="Search active members by name, code, or phone"
                        autocomplete="off">
                 <select name="member_id" id="attakerMemberId" data-optional="true" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="">â€” None â€”</option>
+                    <option value="">— None —</option>
                 </select>
             </div>
             
@@ -2852,7 +2852,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     <div class="bg-white rounded-2xl shadow-lg px-6 py-4 flex items-center gap-3">
         <div class="animate-spin rounded-full h-6 w-6 border-2 border-emerald-500 border-t-transparent"></div>
         <div class="text-sm font-medium text-emerald-700">
-            Saving member, please waitâ€¦
+            Saving member, please wait…
         </div>
     </div>
 </div>
@@ -2863,7 +2863,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         <div class="toast-enter bg-emerald-500 text-white px-5 py-4 rounded-2xl shadow-2xl
                 text-[15px] font-semibold flex items-center justify-between gap-3">
             <div class="flex items-center gap-2">
-                <span class="text-xl">âœ…</span>
+                <span class="text-xl">✅</span>
                 <span id="memberSuccessToastText">Member registered successfully.</span>
             </div>
             <button type="button"
@@ -2960,7 +2960,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         new Chart(sectionCtx, {
             type: 'bar',
             data: {
-                labels: ['áˆ…áŒ»áŠ“á‰µ (A)', 'áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ• (B)', 'á‹ˆáŒ£á‰¶á‰½ (C)'],
+                labels: ['ህጻናት (A)', 'ማዕከላዊያን (B)', 'ወጣቶች (C)'],
                 datasets: [{
                     data: [
                         <?= (int)$sectionCounts['7_13'] ?>,
@@ -3245,19 +3245,19 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         if (!monthSelect) return;
 
         const months = [
-            {value: '1', label: 'áˆ˜áˆµáŠ¨áˆ¨áˆ'},
-            {value: '2', label: 'áŒ¥á‰…áˆá‰µ'},
-            {value: '3', label: 'áˆ…á‹³áˆ­'},
-            {value: '4', label: 'á‰³áŠ…áˆ£áˆµ'},
-            {value: '5', label: 'áŒ¥áˆ­'},
-            {value: '6', label: 'á‹¨áŠ«á‰²á‰µ'},
-            {value: '7', label: 'áˆ˜áŒ‹á‰¢á‰µ'},
-            {value: '8', label: 'áˆšá‹«á‹á‹«'},
-            {value: '9', label: 'áŒáŠ•á‰¦á‰µ'},
-            {value: '10', label: 'áˆ°áŠ”'},
-            {value: '11', label: 'áˆáˆáˆŒ'},
-            {value: '12', label: 'áŠáˆáˆ´'},
-            {value: '13', label: 'áŒ³áŒ‰áˆœ'}
+            {value: '1', label: 'መስከረም'},
+            {value: '2', label: 'ጥቅምት'},
+            {value: '3', label: 'ህዳር'},
+            {value: '4', label: 'ታኅሣስ'},
+            {value: '5', label: 'ጥር'},
+            {value: '6', label: 'የካቲት'},
+            {value: '7', label: 'መጋቢት'},
+            {value: '8', label: 'ሚያዝያ'},
+            {value: '9', label: 'ግንቦት'},
+            {value: '10', label: 'ሰኔ'},
+            {value: '11', label: 'ሐምሌ'},
+            {value: '12', label: 'ነሐሴ'},
+            {value: '13', label: 'ጳጉሜ'}
         ];
 
         monthSelect.innerHTML = '<option value="">Month</option>';
@@ -3285,8 +3285,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         let age = currentYearEC - year;
         if (age < 0) age = 0;
 
-        // Age is informational only. Category (áˆ…áŒ»áŠ“á‰µ/áˆ›á‹•áŠ¨áˆ‹á‹Šá‹«áŠ•/á‹ˆáŒ£á‰¶á‰½) and
-        // section are assigned manually by staff â€” no automatic assignment.
+        // Age is informational only. Category (ህጻናት/ማዕከላዊያን/ወጣቶች) and
+        // section are assigned manually by staff — no automatic assignment.
         if (document.getElementById('ageDisplay')) document.getElementById('ageDisplay').value = age.toString();
         if (document.getElementById('ageField')) document.getElementById('ageField').value = age.toString();
     }
@@ -3338,11 +3338,11 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         
         let durationText = '';
         if (years > 0 && months > 0) {
-            durationText = `${years} á‹“áˆ˜á‰µ ${months} á‹ˆáˆ­ (${years} year${years > 1 ? 's' : ''} ${months} month${months > 1 ? 's' : ''})`;
+            durationText = `${years} ዓመት ${months} ወር (${years} year${years > 1 ? 's' : ''} ${months} month${months > 1 ? 's' : ''})`;
         } else if (years > 0) {
-            durationText = `${years} á‹“áˆ˜á‰µ (${years} year${years > 1 ? 's' : ''})`;
+            durationText = `${years} ዓመት (${years} year${years > 1 ? 's' : ''})`;
         } else if (months > 0) {
-            durationText = `${months} á‹ˆáˆ­ (${months} month${months > 1 ? 's' : ''})`;
+            durationText = `${months} ወር (${months} month${months > 1 ? 's' : ''})`;
         } else {
             durationText = 'Less than a month';
         }
@@ -3682,7 +3682,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         }).then(r=>r.json()).then(data=>{
             if (data.status === 'success') {
                 closeArchiveModal();
-                showToast('âœ“ ' + data.message, 'success');
+                showToast('✓ ' + data.message, 'success');
                 setTimeout(() => window.location.reload(), 1500);
             } else {
                 showToast(data.message || 'Archive failed.', 'error');
@@ -3706,7 +3706,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             body: JSON.stringify({id: id, csrf_token: CSRF_TOKEN})
         }).then(r=>r.json()).then(data=>{
             if (data.status === 'success') {
-                showToast('âœ“ ' + data.message, 'success');
+                showToast('✓ ' + data.message, 'success');
                 setTimeout(() => window.location.reload(), 1500);
             } else {
                 showToast(data.message || 'Restore failed.', 'error');
@@ -3943,13 +3943,13 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 <select id="archiveReason" onchange="checkArchiveConfirmation()" 
                         class="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
                     <option value="">-- Select a reason --</option>
-                    <option value="left_school">áŠ¨á‰µáˆáˆ…áˆ­á‰µ á‰¤á‰µ á‹ˆáŒ¥á‰·áˆ/á‰½ (Left School)</option>
-                    <option value="graduated">á‰°áˆ˜áˆ­á‰‹áˆ/á‰½ (Graduated)</option>
-                    <option value="transferred">á‹ˆá‹° áˆŒáˆ‹ á‰¦á‰³ á‰°á‹›á‹áˆ¯áˆ/á‰½ (Transferred)</option>
-                    <option value="inactive_long">áˆ¨áŒ…áˆ áŒŠá‹œ áŠ áˆá‰°áŒˆáŠ˜áˆ/á‰½ (Long Inactive)</option>
-                    <option value="failed_observation">á‹¨áˆ™áŠ¨áˆ« áŒŠá‹œá‹áŠ• áŠ áˆ‹áŒ áŠ“á‰€á‰€áˆ/á‰½ (Failed Observation)</option>
-                    <option value="deceased">áŠ áˆ­ááˆ/á‰½ (Deceased)</option>
-                    <option value="other">áˆŒáˆ‹ (Other)</option>
+                    <option value="left_school">ከትምህርት ቤት ወጥቷል/ች (Left School)</option>
+                    <option value="graduated">ተመርቋል/ች (Graduated)</option>
+                    <option value="transferred">ወደ ሌላ ቦታ ተዛውሯል/ች (Transferred)</option>
+                    <option value="inactive_long">ረጅም ጊዜ አልተገኘም/ች (Long Inactive)</option>
+                    <option value="failed_observation">የሙከራ ጊዜውን አላጠናቀቀም/ች (Failed Observation)</option>
+                    <option value="deceased">አርፏል/ች (Deceased)</option>
+                    <option value="other">ሌላ (Other)</option>
                 </select>
             </div>
             
@@ -4165,8 +4165,8 @@ function showDuplicateWarning(matches) {
                         </div>
                         <div class="space-y-1 text-xs text-slate-600">
                             <p><i class="fa-solid fa-id-card w-4 text-slate-400"></i> ${m.member_code || 'No ID'}</p>
-                            <p><i class="fa-solid fa-users w-4 text-slate-400"></i> ${m.current_section || m.age_group || 'â€”'}</p>
-                            <p><i class="fa-solid fa-phone w-4 text-slate-400"></i> ${m.phone_number || 'â€”'}</p>
+                            <p><i class="fa-solid fa-users w-4 text-slate-400"></i> ${m.current_section || m.age_group || '—'}</p>
+                            <p><i class="fa-solid fa-phone w-4 text-slate-400"></i> ${m.phone_number || '—'}</p>
                             ${m.match_reasons ? `<p class="text-red-500 text-[10px] mt-1"><i class="fa-solid fa-exclamation-circle"></i> ${m.match_reasons.join(', ')}</p>` : ''}
                         </div>
                         <div class="mt-3 flex gap-2">
@@ -4299,7 +4299,7 @@ function submitRegistrationForm(formData) {
         const form = document.getElementById('memberRegistrationForm');
         formData.append('registration_request_id', ensureRegistrationRequestId(form));
     }
-    // CRITICAL: Add CSRF token â€” the form doesn't have a hidden field for it
+    // CRITICAL: Add CSRF token — the form doesn't have a hidden field for it
     if (!formData.has('csrf_token')) {
         formData.append('csrf_token', CSRF_TOKEN);
     }
@@ -4310,7 +4310,7 @@ function submitRegistrationForm(formData) {
         headers: { 'Accept': 'application/json' }
     })
     .then(response => {
-        // â”€â”€ Key fix: check for non-JSON responses before parsing â”€â”€
+        // ── Key fix: check for non-JSON responses before parsing ──
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
             // Server returned HTML (likely a redirect to login page)
@@ -4329,21 +4329,21 @@ function submitRegistrationForm(formData) {
             return;
         }
         
-        // â”€â”€ Handle session expiration â”€â”€
+        // ── Handle session expiration ──
         if (data.status === 'session_expired' || data.action === 'reload') {
             alert(data.message || 'Your session has expired. The page will reload.');
             window.location.reload();
             return;
         }
         
-        // â”€â”€ Handle CSRF token expiration â”€â”€
+        // ── Handle CSRF token expiration ──
         if (data.status === 'csrf_expired') {
             alert(data.message || 'Security token expired. The page will reload.');
             window.location.reload();
             return;
         }
         
-        // â”€â”€ Handle success â”€â”€
+        // ── Handle success ──
         if (data.status === 'success') {
             resetMemberForm();
             showMemberSuccessToast(data.message || 'Member registered successfully.');
@@ -4352,13 +4352,13 @@ function submitRegistrationForm(formData) {
             return;
         }
         
-        // â”€â”€ Handle known errors with real messages â”€â”€
+        // ── Handle known errors with real messages ──
         alert(data.message || 'Registration failed. Please try again.');
     })
     .catch(err => {
         if (overlay) overlay.classList.add('hidden');
         
-        // â”€â”€ Structured errors from our checks above â”€â”€
+        // ── Structured errors from our checks above ──
         if (err && err._type === 'session_expired') {
             alert(err.message);
             window.location.reload();
@@ -4369,7 +4369,7 @@ function submitRegistrationForm(formData) {
             return;
         }
         
-        // â”€â”€ Actual network errors â”€â”€
+        // ── Actual network errors ──
         console.error('Registration error:', err);
         
         // Check if it's a JSON parse error (server returned HTML)
@@ -4504,12 +4504,12 @@ function attToast(msg, ok) {
 
 function attBadge(status) {
     const m = {present:'att-present',absent:'att-absent',late:'att-late',excused:'att-excused'};
-    return '<span class="att-badge ' + (m[status]||'att-excused') + '">' + (status||'â€”') + '</span>';
+    return '<span class="att-badge ' + (m[status]||'att-excused') + '">' + (status||'—') + '</span>';
 }
 
 function statusBadge(s) {
     const m = {active:'background:#d1fae5;color:#065f46',warning:'background:#fef3c7;color:#92400e',inactive:'background:#fee2e2;color:#991b1b'};
-    return '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;' + (m[s]||'') + '">' + (s||'â€”') + '</span>';
+    return '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;' + (m[s]||'') + '">' + (s||'—') + '</span>';
 }
 
 // --- Overview ---
@@ -4558,7 +4558,7 @@ function loadAttOverview() {
         const abs = data.top_absentees;
         document.getElementById('attAbsentees').innerHTML = abs.length === 0 ? '<p class="text-xs text-emerald-500"><i class="fa-solid fa-check-circle mr-1"></i>No frequent absentees found!</p>' :
             '<div style="max-height:250px;overflow:auto"><table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left font-semibold text-slate-500">Name</th><th class="px-2 py-1.5 text-left font-semibold text-slate-500">Code</th><th class="px-2 py-1.5 text-center font-semibold text-slate-500">Absent</th><th class="px-2 py-1.5 text-center font-semibold text-slate-500">Rate</th><th class="px-2 py-1.5 text-center font-semibold text-slate-500">Status</th></tr></thead><tbody>' +
-            abs.map(a => '<tr class="border-t border-slate-100 hover:bg-orange-50 cursor-pointer" onclick="viewMemberAtt('+a.member_id+')"><td class="px-2 py-1.5 font-medium">'+escapeHtml(a.student_name+' '+a.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(a.member_code||'â€”')+'</code></td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+a.absent_days+'</td><td class="px-2 py-1.5 text-center"><span style="color:'+(a.rate<50?'#dc2626':a.rate<75?'#d97706':'#16a34a')+'">'+a.rate+'%</span></td><td class="px-2 py-1.5 text-center">'+statusBadge(a.member_status)+'</td></tr>').join('') +
+            abs.map(a => '<tr class="border-t border-slate-100 hover:bg-orange-50 cursor-pointer" onclick="viewMemberAtt('+a.member_id+')"><td class="px-2 py-1.5 font-medium">'+escapeHtml(a.student_name+' '+a.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(a.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+a.absent_days+'</td><td class="px-2 py-1.5 text-center"><span style="color:'+(a.rate<50?'#dc2626':a.rate<75?'#d97706':'#16a34a')+'">'+a.rate+'%</span></td><td class="px-2 py-1.5 text-center">'+statusBadge(a.member_status)+'</td></tr>').join('') +
             '</tbody></table></div>';
     }).catch(err => { document.getElementById('attOvLoad').innerHTML = '<p class="text-xs text-red-400">Error: '+escapeHtml(err.message)+'</p>'; });
 }
@@ -4584,7 +4584,7 @@ function loadDailyReport() {
         ].map(k => '<div style="background:'+k.b+';padding:10px;border-radius:12px;text-align:center"><div style="font-size:18px;font-weight:700;color:'+k.c+'">'+k.v+'</div><div style="font-size:9px;color:'+k.c+'80">'+k.l+'</div></div>').join('');
         document.getElementById('attDailyTable').style.display = 'block';
         document.getElementById('attDailyBody').innerHTML = recs.map((r,i) =>
-            '<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="px-3 py-2">'+(i+1)+'</td><td class="px-3 py-2 font-medium">'+escapeHtml((r.student_name||'')+' '+(r.father_name||''))+'</td><td class="px-3 py-2"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(r.member_code||'â€”')+'</code></td><td class="px-3 py-2">'+(r.gender==='male'?'M':'F')+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'â€”')+'</td></tr>'
+            '<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="px-3 py-2">'+(i+1)+'</td><td class="px-3 py-2 font-medium">'+escapeHtml((r.student_name||'')+' '+(r.father_name||''))+'</td><td class="px-3 py-2"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(r.member_code||'—')+'</code></td><td class="px-3 py-2">'+(r.gender==='male'?'M':'F')+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'—')+'</td></tr>'
         ).join('');
     });
 }
@@ -4598,7 +4598,7 @@ function searchMemberAtt() {
         document.getElementById('attMemResults').style.display = 'block';
         document.getElementById('attMemDetail').style.display = 'none';
         document.getElementById('attMemResults').innerHTML = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">' +
-            d.members.map(m => '<div class="panel p-3 cursor-pointer hover:shadow-md transition" onclick="viewMemberAtt('+m.id+')"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div><div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'â€”')+' Â· '+statusBadge(m.status)+'</div></div></div></div>').join('') +
+            d.members.map(m => '<div class="panel p-3 cursor-pointer hover:shadow-md transition" onclick="viewMemberAtt('+m.id+')"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div><div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'—')+' · '+statusBadge(m.status)+'</div></div></div></div>').join('') +
             '</div>';
     });
 }
@@ -4615,7 +4615,7 @@ function viewMemberAtt(memberId) {
         document.getElementById('attMemResults').style.display = 'none';
         document.getElementById('attMemDetail').style.display = 'block';
         document.getElementById('attMemDetail').innerHTML =
-            '<div class="panel p-4 mb-3"><div class="flex items-center gap-3 mb-3"><div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div><div><h4 class="font-bold text-slate-800">'+escapeHtml(m.student_name+' '+m.father_name+(m.grandfather_name?' '+m.grandfather_name:''))+'</h4><div class="text-xs text-slate-400">'+(m.member_code||'â€”')+' Â· '+(m.age_group||'')+' Â· '+(m.phone_number||'No phone')+' Â· '+statusBadge(m.status)+'</div></div></div>' +
+            '<div class="panel p-4 mb-3"><div class="flex items-center gap-3 mb-3"><div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div><div><h4 class="font-bold text-slate-800">'+escapeHtml(m.student_name+' '+m.father_name+(m.grandfather_name?' '+m.grandfather_name:''))+'</h4><div class="text-xs text-slate-400">'+(m.member_code||'—')+' · '+(m.age_group||'')+' · '+(m.phone_number||'No phone')+' · '+statusBadge(m.status)+'</div></div></div>' +
             '<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">' +
             '<div style="background:#f0fdf4;padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:#16a34a">'+st.present+'</div><div style="font-size:9px;color:#16a34a">Present</div></div>' +
             '<div style="background:#fee2e2;padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:#dc2626">'+st.absent+'</div><div style="font-size:9px;color:#dc2626">Absent</div></div>' +
@@ -4625,7 +4625,7 @@ function viewMemberAtt(memberId) {
             '<button onclick="document.getElementById(\'attMemDetail\').style.display=\'none\';document.getElementById(\'attMemResults\').style.display=\'block\'" class="text-xs text-orange-600 mb-3 hover:underline"><i class="fa-solid fa-arrow-left mr-1"></i>Back to results</button></div>' +
             (recs.length === 0 ? '<div class="panel p-4 text-center text-slate-400 text-xs">No attendance records in the last 90 days</div>' :
             '<div class="panel" style="max-height:350px;overflow:auto"><table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-3 py-2 text-left font-semibold text-slate-500">Date</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Status</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Check-in</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Notes</th></tr></thead><tbody>' +
-            recs.map(r => '<tr class="border-t border-slate-100"><td class="px-3 py-2">'+r.attendance_date+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.check_in_time||'â€”')+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'â€”')+'</td></tr>').join('') +
+            recs.map(r => '<tr class="border-t border-slate-100"><td class="px-3 py-2">'+r.attendance_date+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.check_in_time||'—')+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'—')+'</td></tr>').join('') +
             '</tbody></table></div>');
     });
 }
@@ -4640,7 +4640,7 @@ function loadAtRisk() {
         document.getElementById('attRiskCount').innerHTML = '<span class="font-semibold text-red-600">'+ms.length+'</span> members below '+thresh+'% attendance in last '+days+' days';
         document.getElementById('attRiskList').innerHTML = ms.length === 0 ? '<div class="text-center py-8 text-emerald-500 text-xs"><i class="fa-solid fa-check-circle text-2xl mb-2"></i><p>All members have good attendance!</p></div>' :
             '<table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left">Name</th><th class="px-2 py-1.5">Code</th><th class="px-2 py-1.5">Present</th><th class="px-2 py-1.5">Absent</th><th class="px-2 py-1.5">Rate</th><th class="px-2 py-1.5">Status</th><th class="px-2 py-1.5">Action</th></tr></thead><tbody>' +
-            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'â€”')+'</code></td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.rate<50?'#dc2626':'#d97706')+'">'+(m.rate||0)+'%</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name)+'\',\''+m.status+'\')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
+            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.rate<50?'#dc2626':'#d97706')+'">'+(m.rate||0)+'%</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name)+'\',\''+m.status+'\')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
             '</tbody></table>';
     });
 }
@@ -4654,7 +4654,7 @@ function searchForStatus() {
             '<div class="space-y-2">' + d.members.map(m =>
                 '<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition">' +
                 '<div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div>' +
-                '<div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'â€”')+' Â· '+(m.age_group||'')+'</div></div></div>' +
+                '<div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'—')+' · '+(m.age_group||'')+'</div></div></div>' +
                 '<div class="flex items-center gap-2">'+statusBadge(m.status)+
                 '<button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name+' '+m.father_name).replace(/'/g,"\\'")+'\',\''+m.status+'\')" class="px-3 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-[10px] font-semibold hover:bg-violet-200"><i class="fa-solid fa-pen mr-1"></i>Change</button></div></div>'
             ).join('') + '</div>';
@@ -4722,8 +4722,8 @@ function loadProfile() {
         document.getElementById('profUsername').value = u.username || '';
         document.getElementById('profName').value = u.full_name || '';
         document.getElementById('profEmail').value = u.email || '';
-        document.getElementById('spEmail').textContent = u.email || 'â€”';
-        document.getElementById('spCreated').textContent = u.created_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.created_at,'medium'):new Date(u.created_at).toLocaleDateString()) : 'â€”';
+        document.getElementById('spEmail').textContent = u.email || '—';
+        document.getElementById('spCreated').textContent = u.created_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.created_at,'medium'):new Date(u.created_at).toLocaleDateString()) : '—';
         document.getElementById('spLastLogin').textContent = u.last_login ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.last_login,'medium'):new Date(u.last_login).toLocaleDateString()) : 'Never';
         document.getElementById('spLogins').textContent = d.login_count || '0';
     });
@@ -4737,7 +4737,7 @@ function saveProfile() {
         settingsToast(d.message, d.status === 'success');
         if (d.status === 'success') {
             document.getElementById('spName').textContent = name;
-            document.getElementById('spEmail').textContent = email || 'â€”';
+            document.getElementById('spEmail').textContent = email || '—';
             document.getElementById('spAvatar').textContent = name.charAt(0).toUpperCase();
         }
     }).catch(() => settingsToast('Network error', false));
