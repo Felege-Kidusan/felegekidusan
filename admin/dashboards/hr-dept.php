@@ -2158,6 +2158,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </div>
             </section>
 
+<script src="/admin/js/paginated-list.js"></script>
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/id-card-directory.js" defer></script>

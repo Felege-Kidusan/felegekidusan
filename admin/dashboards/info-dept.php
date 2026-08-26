@@ -1899,6 +1899,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 </div>
             </section>
 
+<script src="/admin/js/paginated-list.js"></script>
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>

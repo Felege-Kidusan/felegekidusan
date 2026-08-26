@@ -76,8 +76,7 @@ SET @legacy_sql := (
                WHERE table_schema = DATABASE() AND table_name = 'members'
                  AND column_name = 'legacy_member_code'),
         'SELECT 1',
-        'ALTER TABLE `members` ADD COLUMN `legacy_member_code` VARCHAR(32) NULL '
-            || 'AFTER `member_code`'
+        CONCAT('ALTER TABLE `members` ADD COLUMN `legacy_member_code` VARCHAR(32) NULL AFTER `member_code`')
     )
 );
 PREPARE legacy_stmt FROM @legacy_sql;
