@@ -23,7 +23,15 @@ if (!in_array($originalRole, ['school_admin', 'super_admin'])) {
     exit;
 }
 
-$action = $_REQUEST['action'] ?? '';
+// SECURITY: state-changing actions must arrive via POST (CSRF-protected by
+// requireCsrfForPost above). Accepting $_REQUEST would let a cross-site
+// <img>/link request switch an admin's role. 'status' is read-only and may
+// use GET.
+$action = $_POST['action'] ?? ($_SERVER['REQUEST_METHOD'] === 'GET' ? ($_GET['action'] ?? '') : '');
+if ($action !== 'status' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['status' => 'error', 'message' => 'Use POST for this action']);
+    exit;
+}
 
 switch ($action) {
     case 'switch':
