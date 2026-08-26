@@ -545,100 +545,34 @@ function autoUpdateMemberClass($conn, $memberId, $classId, $academicYearId) {
 }
 
 /**
- * Update attendance summary after recording attendance
+ * Update attendance summary after recording attendance.
+ *
+ * SINGLE-WRITER NOTICE: the summary table is maintained exclusively by
+ * App\Services\AttendanceSummaryService (derived-cache pattern: the row is
+ * recomputed from the attendance source rows, so repeated saves are
+ * idempotent and self-healing).
+ *
+ * The month is derived from the RECORDED attendance date — never from
+ * "today" — so backfilling an older session updates that month's row
+ * instead of corrupting the current month. Pass $attendanceDate whenever
+ * the caller knows the record's date; it falls back to today for legacy
+ * call sites.
  */
-function updateAttendanceSummary($conn, $memberId, $academicYearId = null) {
+function updateAttendanceSummary($conn, $memberId, $academicYearId = null, $attendanceDate = null) {
     try {
-    // IMPORTANT: attendance_date is stored as a normal (Gregorian) date, and
-    // the other copy of this routine in api_attendance.php also keys the
-    // summary table by Gregorian month/year. We MUST match it — using the
-    // Ethiopian year here would both (a) look up the wrong date range and
-    // (b) write a second, conflicting row for the same real month. Keep both
-    // functions on Gregorian so the (member_id, year, month) key never clashes.
-    $gcMonth = (int)date('n');
-    $gcYear  = (int)date('Y');
+        require_once __DIR__ . '/services/AttendanceSummaryService.php';
 
-    // Calculate summary for the current Gregorian month
-    $startOfMonth = date('Y-m-01');
-    $endOfMonth   = date('Y-m-t');
-    
-    $stmt = $conn->prepare("
-        SELECT 
-            COUNT(*) as total_days,
-            SUM(status = 'present') as present_days,
-            SUM(status = 'absent') as absent_days,
-            SUM(status = 'late') as late_days,
-            SUM(status = 'excused') as excused_days
-        FROM attendance
-        WHERE member_id = ?
-        AND attendance_date BETWEEN ? AND ?
-    ");
-    
-    $stmt->bind_param("iss", $memberId, $startOfMonth, $endOfMonth);
-    $stmt->execute();
-    $stats = $stmt->get_result()->fetch_assoc();
-    
-    $totalDays = (int)$stats['total_days'];
-    $presentDays = (int)$stats['present_days'];
-    $attendanceRate = $totalDays > 0 ? round(($presentDays / $totalDays) * 100, 2) : null;
-    
-    // Upsert summary
-    $stmt = $conn->prepare("
-        INSERT INTO attendance_summary 
-        (member_id, academic_year_id, month, year, total_days, present_days, absent_days, late_days, excused_days, attendance_rate)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-            total_days = VALUES(total_days),
-            present_days = VALUES(present_days),
-            absent_days = VALUES(absent_days),
-            late_days = VALUES(late_days),
-            excused_days = VALUES(excused_days),
-            attendance_rate = VALUES(attendance_rate)
-    ");
-    
-    $stmt->bind_param(
-        "iiiiiiiid",
-        $memberId, $academicYearId, $gcMonth, $gcYear,
-        $totalDays, $presentDays, $stats['absent_days'], $stats['late_days'], $stats['excused_days'],
-        $attendanceRate
-    );
-    $stmt->execute();
-    
-    // Update member's overall attendance rate
-    $stmt = $conn->prepare("
-        SELECT AVG(attendance_rate) as avg_rate
-        FROM attendance_summary
-        WHERE member_id = ? AND attendance_rate IS NOT NULL
-    ");
-    $stmt->bind_param("i", $memberId);
-    $stmt->execute();
-    $avg = $stmt->get_result()->fetch_assoc();
-    
-    if ($avg && $avg['avg_rate'] !== null) {
-        $stmt = $conn->prepare("UPDATE members SET total_attendance_rate = ?, last_attendance_date = CURDATE() WHERE id = ?");
-        $avgRate = round($avg['avg_rate'], 2);
-        $stmt->bind_param("di", $avgRate, $memberId);
-        $stmt->execute();
-    }
-    
-    // Check for attendance issues
-    if ($attendanceRate !== null && $attendanceRate < 70) {
-        $stmt = $conn->prepare("SELECT student_name, father_name FROM members WHERE id = ?");
-        $stmt->bind_param("i", $memberId);
-        $stmt->execute();
-        $member = $stmt->get_result()->fetch_assoc();
-        
-        sendNotification($conn, 'attendance_issue',
-            "Low Attendance Alert",
-            "{$member['student_name']} {$member['father_name']} has {$attendanceRate}% attendance this month",
-            [
-                'priority' => 'high',
-                'data' => ['member_id' => $memberId, 'attendance_rate' => $attendanceRate]
-            ]
+        $date = (is_string($attendanceDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $attendanceDate))
+            ? $attendanceDate
+            : date('Y-m-d');
+
+        \App\Services\AttendanceSummaryService::recordSaved(
+            $conn,
+            (int)$memberId,
+            $date,
+            $academicYearId !== null ? (int)$academicYearId : null
         );
-    }
-    
-    return true;
+        return true;
     } catch (Exception $e) { return false; }
 }
 

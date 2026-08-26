@@ -8,6 +8,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
+require_once __DIR__ . '/backend/services/AttendanceSummaryService.php';
 
 use App\Services\AttendanceRecordService;
 use App\Services\EnrollmentService;
@@ -482,63 +483,44 @@ switch ($action) {
 }
 
 /**
- * Update monthly attendance summary
- * Note: attendance_summary table uses (member_id, academic_year_id, month, year) as unique key
- * month = Ethiopian month (1-13), year = Ethiopian year
- * For now we store Gregorian month/year since Ethiopian calendar conversion is separate
+ * Update monthly attendance summary for every member appearing on the
+ * saved class sheet.
+ *
+ * SINGLE-WRITER NOTICE: aggregation and persistence live in
+ * App\Services\AttendanceSummaryService — the only writer of
+ * attendance_summary. The summary unique key (member_id, academic_year_id,
+ * month, year) has NO class column, so each affected member is aggregated
+ * across ALL of their classes for the month of the recorded date; this
+ * keeps a transferred student's month intact and every recomputation
+ * idempotent.
  */
 function updateAttendanceSummary($conn, $classId, $date, $academicYearId, $termId) {
     try {
-        // Summary storage is deployment-managed by migration 013.
-        $gcMonth = (int)date('m', strtotime($date));
-        $gcYear = (int)date('Y', strtotime($date));
-        $startDate = date('Y-m-01', strtotime($date));
-        $endDate = date('Y-m-t', strtotime($date));
-        
-        // Get all members in this class with their attendance for the month
-        $stmt = $conn->prepare("
-            SELECT 
-                a.member_id,
-                COUNT(*) as total_days,
-                SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present_days,
-                SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
-                SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late_days
-            FROM attendance a
-            WHERE a.class_id = ? AND a.attendance_date BETWEEN ? AND ?
-            GROUP BY a.member_id
-        ");
+        if (!is_string($date) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return;
+        }
+        // Members whose records changed on this class/date sheet.
+        $stmt = $conn->prepare(
+            "SELECT DISTINCT member_id FROM attendance WHERE class_id = ? AND attendance_date = ?"
+        );
         if (!$stmt) return;
-        $stmt->bind_param("iss", $classId, $startDate, $endDate);
+        $stmt->bind_param("is", $classId, $date);
         $stmt->execute();
         $result = $stmt->get_result();
-        
+
+        $affected = [];
         while ($row = $result->fetch_assoc()) {
-            $memberId = $row['member_id'];
-            $totalDays = (int)$row['total_days'];
-            $presentDays = (int)$row['present_days'];
-            $absentDays = (int)$row['absent_days'];
-            $lateDays = (int)$row['late_days'];
-            $attendanceRate = $totalDays > 0 ? round(($presentDays + $lateDays * 0.5) / $totalDays * 100, 2) : 0;
-            
-            // Upsert summary (table unique key: member_id, academic_year_id, month, year)
-            $upsert = $conn->prepare("
-                INSERT INTO attendance_summary 
-                (member_id, academic_year_id, month, year, total_days, present_days, absent_days, late_days, attendance_rate)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                total_days = VALUES(total_days),
-                present_days = VALUES(present_days),
-                absent_days = VALUES(absent_days),
-                late_days = VALUES(late_days),
-                attendance_rate = VALUES(attendance_rate)
-            ");
-            if (!$upsert) continue;
-            $upsert->bind_param(
-                "iiiiiiiid",
-                $memberId, $academicYearId, $gcMonth, $gcYear,
-                $totalDays, $presentDays, $absentDays, $lateDays, $attendanceRate
+            $affected[] = (int)$row['member_id'];
+        }
+        $stmt->close();
+
+        foreach ($affected as $memberId) {
+            \App\Services\AttendanceSummaryService::recordSaved(
+                $conn,
+                $memberId,
+                $date,
+                $academicYearId !== null ? (int)$academicYearId : null
             );
-            try { $upsert->execute(); } catch (Exception $e) { /* skip individual errors */ }
         }
     } catch (Exception $e) {
         error_log("updateAttendanceSummary error: " . $e->getMessage());

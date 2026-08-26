@@ -301,8 +301,8 @@ switch ($action) {
         );
         
         if ($stmt->execute()) {
-            // Update attendance summary
-            updateAttendanceSummary($conn, $memberId, $yearId);
+            // Update attendance summary for the RECORDED date's month.
+            updateAttendanceSummary($conn, $memberId, $yearId, $attendanceDate);
             
             echo json_encode(['status' => 'success', 'message' => 'Attendance recorded!']);
         } else {
@@ -360,7 +360,7 @@ switch ($action) {
         }
 
         foreach ($records as $record) {
-            updateAttendanceSummary($conn, (int)$record['member_id'], $yearId);
+            updateAttendanceSummary($conn, (int)$record['member_id'], $yearId, $attendanceDate);
         }
         
         echo json_encode([
