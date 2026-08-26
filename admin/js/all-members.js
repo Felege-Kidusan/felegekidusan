@@ -110,7 +110,7 @@
     }
 
     function getParams() {
-        var p = { view: 'manager' };
+        var p = {};
         Object.keys(filterMap).forEach(function (elId) {
             var el = document.getElementById(elId);
             if (el && el.value.trim() !== '') params[filterMap[elId]] = el.value.trim();

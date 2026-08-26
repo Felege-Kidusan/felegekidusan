@@ -54,13 +54,20 @@
             this._clearControls();
         }
         try {
-            var response = await fetch(
-                this.buildUrl(page, !append),
+            var url = this.buildUrl(page, !append);
+            var response = await fetch(url,
                 { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: this.request.signal }
             );
-            var data = await response.json();
-            if (!response.ok || data.status !== 'success')
-                throw new Error(data.message || 'Failed to load.');
+            var raw = await response.text();
+            var data;
+            try { data = JSON.parse(raw); } catch (parseErr) {
+                console.error('[PaginatedList] Non-JSON response from', url, 'HTTP', response.status, raw.substring(0, 300));
+                throw new Error('Server returned invalid response (HTTP ' + response.status + ').');
+            }
+            if (!response.ok || data.status !== 'success') {
+                console.error('[PaginatedList] API error:', data.message || data, 'HTTP', response.status, 'URL:', url);
+                throw new Error(data.message || 'Failed to load (HTTP ' + response.status + ').');
+            }
 
             var members = Array.isArray(data.members) ? data.members : [];
             if (data.total != null) this.total = Number(data.total) || 0;

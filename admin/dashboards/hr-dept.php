@@ -1104,7 +1104,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 ሁሉም አባላት (All Members)
                             </h2>
                             <p class="text-xs text-slate-500">
-                                Showing latest <?php echo count($membersList); ?> members. Use search and filters to narrow down.
+                                Use search and filters to find members. All results are paginated.
                             </p>
                         </div>
 
@@ -1183,7 +1183,6 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </table>
                         </div>
                         <div class="px-3 py-2 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
-                            <span>Showing latest <?php echo count($membersList); ?> records</span>
                             <span id="membersVisibleCount"></span>
                         </div>
                     </div>
@@ -3517,76 +3516,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             });
     }
 
-    // Advanced search / filters
-    function applyMembersFilters() {
-        const searchInput = document.getElementById('memberSearchInput');
-        const regTypeSel  = document.getElementById('filterRegistrationType');
-        const mTypeSel    = document.getElementById('filterMemberType');
-        const statusSel   = document.getElementById('filterStatus');
-        const genderSel   = document.getElementById('filterGender');
-        const ageSel      = document.getElementById('filterAgeGroup');
-        const rows        = document.querySelectorAll('#membersTableBody .member-row');
-        const visibleCountLabel = document.getElementById('membersVisibleCount');
-
-        if (!rows.length) {
-            if (visibleCountLabel) visibleCountLabel.textContent = '';
-            return;
-        }
-
-        const searchVal = searchInput ? searchInput.value.trim().toLowerCase() : '';
-        const regVal    = regTypeSel ? regTypeSel.value : '';
-        const mTypeVal  = mTypeSel ? mTypeSel.value : '';
-        const statusVal = statusSel ? statusSel.value : '';
-        const genderVal = genderSel ? genderSel.value : '';
-        const ageVal    = ageSel ? ageSel.value : '';
-
-        let visible = 0;
-
-        rows.forEach(row => {
-            let ok = true;
-
-            const rowSearch = row.getAttribute('data-search') || '';
-            const rowReg    = row.getAttribute('data-regtype') || '';
-            const rowMType  = row.getAttribute('data-mtype') || '';
-            const rowStatus = row.getAttribute('data-status') || '';
-            const rowGender = row.getAttribute('data-gender') || '';
-            const rowAge    = row.getAttribute('data-agegroup') || '';
-
-            if (searchVal && !rowSearch.includes(searchVal)) ok = false;
-            if (ok && regVal && rowReg !== regVal) ok = false;
-            if (ok && mTypeVal && rowMType !== mTypeVal) ok = false;
-            if (ok && statusVal && rowStatus !== statusVal) ok = false;
-            if (ok && genderVal && rowGender !== genderVal) ok = false;
-            if (ok && ageVal && rowAge !== ageVal) ok = false;
-
-            if (ok) {
-                row.classList.remove('hidden');
-                visible++;
-            } else {
-                row.classList.add('hidden');
-            }
-        });
-
-        if (visibleCountLabel) visibleCountLabel.textContent = visible + ' matching member' + (visible === 1 ? '' : 's');
-    }
-
-    document.addEventListener('DOMContentLoaded', function () {
-        const searchInput = document.getElementById('memberSearchInput');
-        const regTypeSel  = document.getElementById('filterRegistrationType');
-        const mTypeSel    = document.getElementById('filterMemberType');
-        const statusSel   = document.getElementById('filterStatus');
-        const genderSel   = document.getElementById('filterGender');
-        const ageSel      = document.getElementById('filterAgeGroup');
-
-        if (searchInput) searchInput.addEventListener('input', applyMembersFilters);
-        if (regTypeSel)  regTypeSel.addEventListener('change', applyMembersFilters);
-        if (mTypeSel)    mTypeSel.addEventListener('change', applyMembersFilters);
-        if (statusSel)   statusSel.addEventListener('change', applyMembersFilters);
-        if (genderSel)   genderSel.addEventListener('change', applyMembersFilters);
-        if (ageSel)      ageSel.addEventListener('change', applyMembersFilters);
-
-        applyMembersFilters();
-    });
+    // Advanced search / filters — handled by all-members.js (PaginatedList)
 
     // Manage sheet (edit)
     function openManageSheet(id) {

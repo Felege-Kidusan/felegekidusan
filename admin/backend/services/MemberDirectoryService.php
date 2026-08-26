@@ -28,7 +28,7 @@ final class MemberDirectoryService
         'alt_phone_number', 'guardian_name', 'guardian_phone1',
         'guardian_phone2', 'city', 'sub_city', 'woreda', 'mender',
         'block_number', 'house_number', 'work_profession', 'education_level',
-        'student_photo_path', 'created_at',
+        'student_photo_path', 'membership_tier', 'created_at',
     ];
 
     private const MANAGER_COLUMNS = [
