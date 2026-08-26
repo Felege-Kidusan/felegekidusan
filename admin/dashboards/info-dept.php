@@ -954,122 +954,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                     <th class="px-3 py-2 text-left">Actions</th>
                                 </tr>
                                 </thead>
-                                <tbody id="membersTableBody" class="divide-y divide-slate-100">
-                                <?php if (empty($membersList)): ?>
-                                    <tr>
-                                        <td colspan="11" class="px-3 py-6 text-center text-slate-400 text-xs">
-                                            No members found yet. Register the first member to see them here.
-                                        </td>
-                                    </tr>
-                                <?php else: ?>
-                                    <?php foreach ($membersList as $index => $m):
-                                        $fullName = trim(($m['student_name'] ?? '') . ' ' . ($m['father_name'] ?? '') . ' ' . ($m['grandfather_name'] ?? ''));
-                                        $location = trim(($m['city'] ?? '') . ' / ' . ($m['sub_city'] ?? ''));
-                                        $sectionLabel = sectionLabelFromGroup($m['age_group'] ?? '');
-                                        $searchBlob = strtolower(
-                                            implode(' ', [
-                                                $fullName,
-                                                $m['member_code'] ?? '',
-                                                $m['phone_number'] ?? '',
-                                                $m['alt_phone_number'] ?? '',
-                                                $m['work_profession'] ?? '',
-                                                $m['education_level'] ?? '',
-                                                $m['city'] ?? '',
-                                                $m['sub_city'] ?? '',
-                                                $sectionLabel,
-                                                $m['registration_type'] ?? '',
-                                                $m['member_type'] ?? '',
-                                                $m['status'] ?? '',
-                                            ])
-                                        );
-                                        ?>
-                                        <tr class="member-row hover:bg-emerald-50/40 transition"
-                                            data-search="<?= e($searchBlob) ?>"
-                                            data-regtype="<?= e($m['registration_type'] ?? '') ?>"
-                                            data-mtype="<?= e($m['member_type'] ?? '') ?>"
-                                            data-status="<?= e($m['status'] ?? '') ?>"
-                                            data-gender="<?= e($m['gender'] ?? '') ?>"
-                                            data-agegroup="<?= e($m['age_group'] ?? '') ?>">
-                                            <td class="px-3 py-2 text-[11px] text-slate-400">
-                                                <?php echo $index + 1; ?>
-                                            </td>
-                                            <td class="px-3 py-2">
-                                                <div class="flex flex-col">
-                                                    <span class="text-[11px] font-medium text-slate-900 amharic-text">
-                                                        <?php echo esc($fullName, 'â€”'); ?>
-                                                    </span>
-                                                    <span class="text-[10px] text-slate-400">
-                                                        <?php echo e($m['current_section'] ?? $sectionLabel); ?>
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-700">
-                                                <?php echo esc($m['member_code'], 'Pending'); ?>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px]">
-                                                <?php
-                                                $rt = $m['registration_type'] ?? '';
-                                                $rtLabel = $rt === 'transfer' ? 'Transfer'
-                                                    : ($rt === 'direct' ? 'Direct' : 'Waiting');
-                                                $rtColor = $rt === 'transfer' ? 'bg-blue-100 text-blue-700'
-                                                    : ($rt === 'direct' ? 'bg-emerald-100 text-emerald-700'
-                                                        : 'bg-amber-100 text-amber-700');
-                                                ?>
-                                                <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium <?php echo $rtColor; ?>">
-                                                    <?php echo $rtLabel; ?>
-                                                </span>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-700">
-                                                <?php
-                                                $mt = $m['member_type'] ?? '';
-                                                $mtLabel = $mt === 'special_regular' ? 'Special Regular'
-                                                    : ($mt === 'honorary' ? 'Honorary' : 'Regular');
-                                                ?>
-                                                <?php echo $mtLabel; ?>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-700">
-                                                <?php echo $m['gender'] === 'female' ? 'Female' : 'Male'; ?>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-700">
-                                                <?php echo e($sectionLabel); ?>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px]">
-                                                <?php
-                                                $st = $m['status'] ?? 'active';
-                                                $stLabel = ucfirst($st);
-                                                $stColor = $st === 'inactive' ? 'badge-inactive'
-                                                    : ($st === 'warning' ? 'badge-warning'
-                                                        : ($st === 'archived' ? 'badge-archived'
-                                                            : 'badge-active'));
-                                                ?>
-                                                <span class="chip <?= $stColor ?>">
-                                                    <?php echo $stLabel; ?>
-                                                </span>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-700">
-                                                <?php echo e($m['phone_number'] ?? ''); ?>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-500">
-                                                <?php echo e($location ?? ''); ?>
-                                            </td>
-                                            <td class="px-3 py-2 text-[11px] text-slate-500">
-                                                <div class="flex gap-1">
-                                                    <button class="action-btn" title="Edit"
-                                                            onclick="openManageSheet(<?= (int)$m['id'] ?>)">
-                                                        <i class="fa-solid fa-pen text-[11px] text-emerald-600"></i>
-                                                    </button>
-                                                                     <a class="action-btn" title="Generate ID"
-                                                                         href="/admin/id_cards/view_id_card.php?member_id=<?= (int)$m['id'] ?>"
-                                                       target="_blank"
-                                                       rel="noopener noreferrer">
-                                                        <i class="fa-solid fa-id-card text-[11px] text-slate-700"></i>
-                                                    </a>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                                </tbody>
+                                <tbody id="membersTableBody" class="divide-y divide-slate-100"></tbody>
                             </table>
                         </div>
                         <div class="px-3 py-2 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
@@ -1900,6 +1785,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
             </section>
 
 <script src="/admin/js/paginated-list.js"></script>
+<script src="/admin/js/all-members.js" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>
@@ -2606,7 +2492,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         <form id="attakerForm" class="p-5">
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Link to Member (Optional)</label>
-                <input type="search"
+                <input type="text" inputmode="search"
+                       name="fkss_attaker_search" autocomplete="nope" data-form-type="other" data-1p-ignore
                        data-member-picker-target="attakerMemberId"
                        data-member-picker-status="active"
                        class="w-full px-3 py-2 mb-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
