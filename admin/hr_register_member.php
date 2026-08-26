@@ -371,15 +371,6 @@ $duplicateIdentityLock = null;
 $codeLockLetter = null;
 
 try {
-    if ($member_code === null && $code_letter !== null) {
-        // M2 FIX: allocation happens INSIDE the registration transaction and
-        // keeps the per-letter advisory lock held until commit/rollback, so
-        // a concurrent registration can never read a pre-commit MAX and
-        // allocate the same number.
-        $codeLockLetter = $code_letter;
-        $member_code = \App\Services\IdentityCodeService::allocateStudentHeld($conn, $code_letter);
-    }
-
     $data = [
         'member_code'          => $member_code,
         'registration_type'    => $registration_type,
@@ -474,6 +465,17 @@ try {
             || preg_match('//u', $duplicateOverrideReason) !== 1) {
             throw new InvalidArgumentException('A valid duplicate override reason is required.');
         }
+    }
+
+    if ($upgrade_id === 0 && $member_code === null && $code_letter !== null) {
+        // M2 FIX: allocation happens INSIDE the registration transaction and
+        // keeps the per-letter advisory lock held until commit/rollback, so
+        // a concurrent registration can never read a pre-commit MAX and
+        // allocate the same number. (Upgrades never allocate here — the
+        // upgrade branch keeps the member's existing code.)
+        $codeLockLetter = $code_letter;
+        $member_code = \App\Services\IdentityCodeService::allocateStudentHeld($conn, $code_letter);
+        $data['member_code'] = $member_code;
     }
 
     if ($upgrade_id > 0) {

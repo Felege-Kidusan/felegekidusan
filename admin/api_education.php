@@ -420,32 +420,34 @@ switch ($action) {
             exit;
         }
 
+        // Pre-flight validation answers with fixed messages only — nothing
+        // diagnostic ever reaches the client.
+        $check = $conn->prepare(
+            "SELECT id FROM class_enrollments
+             WHERE member_id = ? AND class_id = ? AND status = 'active' LIMIT 1"
+        );
+        $check->bind_param('ii', $memberId, $fromClassId);
+        $check->execute();
+        $sourceEnrollment = $check->get_result()->fetch_assoc();
+        $check->close();
+        if (!$sourceEnrollment) {
+            echo json_encode(['status' => 'error', 'message' => 'No active enrollment found in the source class.']);
+            exit;
+        }
+
+        // Target class must exist.
+        $classCheck = $conn->prepare('SELECT id FROM classes WHERE id = ? LIMIT 1');
+        $classCheck->bind_param('i', $toClassId);
+        $classCheck->execute();
+        $targetClass = $classCheck->get_result()->fetch_assoc();
+        $classCheck->close();
+        if (!$targetClass) {
+            echo json_encode(['status' => 'error', 'message' => 'Target class does not exist.']);
+            exit;
+        }
+
         $conn->begin_transaction();
         try {
-            // The member must actually hold an active enrollment in the
-            // source class (prevents promoting from stale UI state).
-            $check = $conn->prepare(
-                "SELECT id FROM class_enrollments
-                 WHERE member_id = ? AND class_id = ? AND status = 'active' LIMIT 1"
-            );
-            $check->bind_param('ii', $memberId, $fromClassId);
-            $check->execute();
-            $sourceEnrollment = $check->get_result()->fetch_assoc();
-            $check->close();
-            if (!$sourceEnrollment) {
-                throw new RuntimeException('No active enrollment found in the source class.');
-            }
-
-            // Target class must exist.
-            $classCheck = $conn->prepare('SELECT id FROM classes WHERE id = ? LIMIT 1');
-            $classCheck->bind_param('i', $toClassId);
-            $classCheck->execute();
-            $targetClass = $classCheck->get_result()->fetch_assoc();
-            $classCheck->close();
-            if (!$targetClass) {
-                throw new RuntimeException('Target class does not exist.');
-            }
-
             // Mark old enrollment as completed
             $stmt = $conn->prepare("UPDATE class_enrollments SET status = 'completed' WHERE id = ?");
             $stmt->bind_param("i", $sourceEnrollment['id']);
@@ -482,7 +484,7 @@ switch ($action) {
         } catch (Exception $e) {
             $conn->rollback();
             error_log('promote failed: ' . $e->getMessage());
-            echo json_encode(['status' => 'error', 'message' => 'Promotion failed: ' . $e->getMessage() . ' No changes were made.']);
+            echo json_encode(['status' => 'error', 'message' => 'Promotion failed. No changes were made.']);
         }
         break;
     

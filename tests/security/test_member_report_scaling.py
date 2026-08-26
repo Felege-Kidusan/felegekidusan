@@ -83,6 +83,12 @@ class MemberReportScalingTests(unittest.TestCase):
         php = shutil.which("php")
         if php is None:
             self.skipTest("PHP CLI is not installed")
+        driver = subprocess.run(
+            [php, "-r", "exit(extension_loaded('pdo_sqlite') ? 0 : 1);"],
+            capture_output=True,
+        )
+        if driver.returncode != 0:
+            self.skipTest("pdo_sqlite driver is not installed")
         fixture = ROOT / "tests/fixtures/member_report_render.fixture"
         html = subprocess.run(
             [php, str(fixture), str(ROOT), "pdf"],
