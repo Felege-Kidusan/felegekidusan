@@ -209,33 +209,54 @@ class EnrollmentService
         $note = $reason !== '' ? $reason : 'Transferred';
         $today = date('Y-m-d');
 
-        $up = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''), ' [', ?, ']') WHERE id = ?");
-        if ($up) {
-            $up->bind_param('si', $note, $enrollmentId);
-            $up->execute();
-            $up->close();
+        // TRANSACTION PARTICIPATION: close-and-recreate must be atomic. If
+        // the caller already opened a transaction we participate in it;
+        // otherwise we open (and close) our own so a mid-sequence failure
+        // can never strand a member without an active enrollment.
+        $ownsTransaction = false;
+        if (!$conn->in_transaction()) {
+            $conn->begin_transaction();
+            $ownsTransaction = true;
         }
 
-        $ins = $conn->prepare(
-            "INSERT INTO class_enrollments
-                (member_id, class_id, academic_year_id, enrolled_at, status, notes, promoted_from, enrolled_by)
-             VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
-             ON DUPLICATE KEY UPDATE status='active', notes=VALUES(notes), enrolled_by=VALUES(enrolled_by)"
-        );
-        if (!$ins) {
-            return ['status' => 'error', 'message' => 'Could not create transfer enrollment.'];
-        }
-        $ins->bind_param('iiissii', $memberId, $toClass['id'], $yearId, $today, $note, $fromClass, $enrolledBy);
-        if (!$ins->execute()) {
-            $err = $ins->error;
+        try {
+            $up = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''), ' [', ?, ']') WHERE id = ?");
+            if ($up) {
+                $up->bind_param('si', $note, $enrollmentId);
+                $up->execute();
+                $up->close();
+            }
+
+            $ins = $conn->prepare(
+                "INSERT INTO class_enrollments
+                    (member_id, class_id, academic_year_id, enrolled_at, status, notes, promoted_from, enrolled_by)
+                 VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE status='active', notes=VALUES(notes), enrolled_by=VALUES(enrolled_by)"
+            );
+            if (!$ins) {
+                throw new \RuntimeException('Could not create transfer enrollment.');
+            }
+            $ins->bind_param('iiissii', $memberId, $toClass['id'], $yearId, $today, $note, $fromClass, $enrolledBy);
+            if (!$ins->execute()) {
+                $err = $ins->error;
+                $ins->close();
+                throw new \RuntimeException('Transfer failed: ' . $err);
+            }
+            $newId = (int)$ins->insert_id;
             $ins->close();
-            return ['status' => 'error', 'message' => 'Transfer failed: ' . $err];
-        }
-        $newId = (int)$ins->insert_id;
-        $ins->close();
 
-        if (function_exists('autoUpdateMemberClass')) {
-            autoUpdateMemberClass($conn, $memberId, (int)$toClass['id'], $yearId);
+            if (function_exists('autoUpdateMemberClass')) {
+                autoUpdateMemberClass($conn, $memberId, (int)$toClass['id'], $yearId);
+            }
+
+            if ($ownsTransaction) {
+                $conn->commit();
+            }
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $conn->in_transaction()) {
+                $conn->rollback();
+            }
+            return ['status' => 'error', 'message' => $error->getMessage() . ' No changes were made.'];
         }
 
         return [

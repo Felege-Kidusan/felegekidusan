@@ -398,43 +398,91 @@ switch ($action) {
     // PROMOTE STUDENT
     // ============================================================
     case 'promote':
+        // ATOMICITY GUARANTEE: a promotion either completes fully (old
+        // enrollment closed + new enrollment created + member denormalized)
+        // or makes NO changes at all. Previously the four steps ran as
+        // independent autocommits, so a mid-sequence failure could leave a
+        // member enrolled in two classes or in none.
         $memberId = (int)($_POST['member_id'] ?? 0);
         $fromClassId = (int)($_POST['from_class_id'] ?? 0);
         $toClassId = (int)($_POST['to_class_id'] ?? 0);
-        
+
         if (!$memberId || !$fromClassId || !$toClassId) {
             echo json_encode(['status' => 'error', 'message' => 'Missing required fields']);
             exit;
         }
-        
-        // Mark old enrollment as completed
-        $stmt = $conn->prepare("UPDATE class_enrollments SET status = 'completed' WHERE member_id = ? AND class_id = ?");
-        $stmt->bind_param("ii", $memberId, $fromClassId);
-        $stmt->execute();
-        
-        // Create new enrollment
-        $stmt = $conn->prepare("
-            INSERT INTO class_enrollments 
-            (member_id, class_id, academic_year_id, enrolled_at, status, promoted_from, enrolled_by)
-            VALUES (?, ?, ?, CURDATE(), 'active', ?, ?)
-        ");
-        $enrolledBy = $_SESSION['admin_id'];
-        $stmt->bind_param("iiiii", $memberId, $toClassId, $currentYear['id'], $fromClassId, $enrolledBy);
-        
-        if ($stmt->execute()) {
-            // Update member's class
-            autoUpdateMemberClass($conn, $memberId, $toClassId, $currentYear['id']);
-            
+        if (!$currentYear) {
+            echo json_encode(['status' => 'error', 'message' => 'No active academic year']);
+            exit;
+        }
+        if ($fromClassId === $toClassId) {
+            echo json_encode(['status' => 'error', 'message' => 'Source and target class are the same.']);
+            exit;
+        }
+
+        $conn->begin_transaction();
+        try {
+            // The member must actually hold an active enrollment in the
+            // source class (prevents promoting from stale UI state).
+            $check = $conn->prepare(
+                "SELECT id FROM class_enrollments
+                 WHERE member_id = ? AND class_id = ? AND status = 'active' LIMIT 1"
+            );
+            $check->bind_param('ii', $memberId, $fromClassId);
+            $check->execute();
+            $sourceEnrollment = $check->get_result()->fetch_assoc();
+            $check->close();
+            if (!$sourceEnrollment) {
+                throw new RuntimeException('No active enrollment found in the source class.');
+            }
+
+            // Target class must exist.
+            $classCheck = $conn->prepare('SELECT id FROM classes WHERE id = ? LIMIT 1');
+            $classCheck->bind_param('i', $toClassId);
+            $classCheck->execute();
+            $targetClass = $classCheck->get_result()->fetch_assoc();
+            $classCheck->close();
+            if (!$targetClass) {
+                throw new RuntimeException('Target class does not exist.');
+            }
+
+            // Mark old enrollment as completed
+            $stmt = $conn->prepare("UPDATE class_enrollments SET status = 'completed' WHERE id = ?");
+            $stmt->bind_param("i", $sourceEnrollment['id']);
+            $stmt->execute();
+            $stmt->close();
+
+            // Create new enrollment
+            $stmt = $conn->prepare("
+                INSERT INTO class_enrollments
+                (member_id, class_id, academic_year_id, enrolled_at, status, promoted_from, enrolled_by)
+                VALUES (?, ?, ?, CURDATE(), 'active', ?, ?)
+            ");
+            $enrolledBy = (int)($_SESSION['admin_id'] ?? 0);
+            $yearId = (int)$currentYear['id'];
+            $stmt->bind_param("iiiii", $memberId, $toClassId, $yearId, $fromClassId, $enrolledBy);
+            if (!$stmt->execute()) {
+                throw new RuntimeException('Unable to create the new enrollment.');
+            }
+            $stmt->close();
+
+            // Update member's denormalized class reference
+            autoUpdateMemberClass($conn, $memberId, $toClassId, $yearId);
+
             // Update promoted_at (column added by migration/config auto-fix)
             try {
                 $stmt = $conn->prepare("UPDATE members SET promoted_at = CURDATE() WHERE id = ?");
                 $stmt->bind_param("i", $memberId);
                 $stmt->execute();
+                $stmt->close();
             } catch (Exception $e) { /* promoted_at column may not exist yet */ }
-            
+
+            $conn->commit();
             echo json_encode(['status' => 'success', 'message' => 'Student promoted successfully!']);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log('promote failed: ' . $e->getMessage());
+            echo json_encode(['status' => 'error', 'message' => 'Promotion failed: ' . $e->getMessage() . ' No changes were made.']);
         }
         break;
     
@@ -968,18 +1016,36 @@ switch ($action) {
         $stmt = $conn->prepare("SELECT id FROM class_enrollments WHERE member_id=? AND class_id=? AND academic_year_id=? AND status='active'");
         $stmt->bind_param("iii", $enr['member_id'], $toClassId, $currentYear['id']); $stmt->execute();
         if ($stmt->get_result()->num_rows > 0) { echo json_encode(['status'=>'error','message'=>'Already in target class']); exit; }
-        $stmt = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''),' [Transferred: ',?,']') WHERE id=?");
-        $stmt->bind_param("si", $reason, $enrollmentId); $stmt->execute();
-        $by = $_SESSION['admin_id']; $dt = date('Y-m-d'); $from = $enr['class_id'];
-        $tnote = "Transferred from class #$from".($reason ? ": $reason" : '');
-        $stmt = $conn->prepare("INSERT INTO class_enrollments (member_id,class_id,academic_year_id,enrolled_at,status,notes,promoted_from,enrolled_by) VALUES (?,?,?,?,'active',?,?,?)");
-        $stmt->bind_param("iiissii", $enr['member_id'], $toClassId, $currentYear['id'], $dt, $tnote, $from, $by);
-        if ($stmt->execute()) {
-            if (function_exists('autoUpdateMemberClass')) autoUpdateMemberClass($conn, $enr['member_id'], $toClassId, $currentYear['id']);
+        // Target class must exist before mutating anything.
+        $classCheck = $conn->prepare('SELECT id FROM classes WHERE id = ? LIMIT 1');
+        $classCheck->bind_param('i', $toClassId); $classCheck->execute();
+        if (!$classCheck->get_result()->fetch_assoc()) { $classCheck->close(); echo json_encode(['status'=>'error','message'=>'Target class does not exist.']); exit; }
+        $classCheck->close();
+
+        // ATOMICITY GUARANTEE: closing the old enrollment and creating the
+        // new one commit together or not at all — a member can never end up
+        // stranded (no active enrollment) or double-enrolled by a
+        // mid-sequence failure.
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''),' [Transferred: ',?,']') WHERE id=?");
+            $stmt->bind_param("si", $reason, $enrollmentId);
+            if (!$stmt->execute()) { throw new RuntimeException('Unable to close the source enrollment.'); }
+            $stmt->close();
+            $by = (int)($_SESSION['admin_id'] ?? 0); $dt = date('Y-m-d'); $from = $enr['class_id'];
+            $tnote = "Transferred from class #$from".($reason ? ": $reason" : '');
+            $yearId = (int)$currentYear['id']; $memberId = (int)$enr['member_id'];
+            $stmt = $conn->prepare("INSERT INTO class_enrollments (member_id,class_id,academic_year_id,enrolled_at,status,notes,promoted_from,enrolled_by) VALUES (?,?,?,?,'active',?,?,?)");
+            $stmt->bind_param("iiissii", $memberId, $toClassId, $yearId, $dt, $tnote, $from, $by);
+            if (!$stmt->execute()) { throw new RuntimeException('Unable to create the target enrollment.'); }
+            $stmt->close();
+            if (function_exists('autoUpdateMemberClass')) autoUpdateMemberClass($conn, $memberId, $toClassId, $yearId);
+            $conn->commit();
             echo json_encode(['status'=>'success','message'=>$enr['student_name'].' '.$enr['father_name'].' transferred!']);
-        } else {
-            reportInternalError('Enrollment transfer failed', $stmt->error ?: $conn->error);
-            echo json_encode(['status'=>'error','message'=>'Unable to transfer the enrollment.']);
+        } catch (Exception $e) {
+            $conn->rollback();
+            reportInternalError('Enrollment transfer failed', $e->getMessage());
+            echo json_encode(['status'=>'error','message'=>'Unable to transfer the enrollment. No changes were made.']);
         }
         break;
 
