@@ -1,5 +1,26 @@
 <?php
 // FILE: /member.php — FKSS Member Verification (QR scan landing page)
+//
+// SECURITY HARDENING (enumeration protection, H5)
+// ------------------------------------------------
+// Member codes are short sequential values (A1, A2, ...), which used to let
+// anyone harvest the full roster — photo + home address, including minors —
+// by sweeping ?code=A1..An. This endpoint now:
+//   1. rate-limits lookups per client IP (atomic DB bucket, works across
+//      app instances, locked-file fallback),
+//   2. returns a neutral "temporarily unavailable" page when throttled —
+//      identical for existing and non-existing codes,
+//   3. discloses only coarse location (city / sub-city): woreda, house
+//      number and free-text street addresses are PII and are never shown,
+//   4. sends no-store cache headers so verification results are never
+//      cached by browsers or intermediaries.
+
+// Verification results are personal data — never cache them.
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
 
 // 1. Load Configuration
 if (file_exists('admin/config.php')) { require_once 'admin/config.php'; } 
@@ -14,11 +35,66 @@ if (file_exists('admin/id_cards/libs/eth_date_helper.php')) {
     function isExpired($d){ return false; }
 }
 
-$code = isset($_GET['code']) ? $_GET['code'] : '';
-$stmt = $conn->prepare("SELECT * FROM members WHERE member_code = ?");
-$stmt->bind_param("s", $code);
-$stmt->execute();
-$member = $stmt->get_result()->fetch_assoc();
+// Renders the shared page shell around a neutral message (used when the
+// lookup is throttled; reveals nothing about code existence).
+function renderUnavailableNotice($retryAfterSeconds) {
+    $schoolName = defined('SCHOOL_NAME_AMHARIC') ? SCHOOL_NAME_AMHARIC : '';
+    $logoPath = defined('SCHOOL_LOGO_PATH') ? SCHOOL_LOGO_PATH : '';
+    $retryMinutes = max(1, (int)ceil($retryAfterSeconds / 60));
+    echo '<!DOCTYPE html><html lang="am"><head><meta charset="UTF-8">'
+        . '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        . '<title>Verification</title>'
+        . '<style>body{font-family:sans-serif;background:#faf7f0;display:flex;'
+        . 'align-items:center;justify-content:center;min-height:100vh;margin:0}'
+        . '.card{background:#fff;border:1px solid #f0e2c8;border-radius:16px;'
+        . 'padding:32px;max-width:380px;text-align:center;box-shadow:0 10px 30px rgba(96,0,0,.12)}'
+        . 'h1{font-size:18px;color:#5b1414;margin:12px 0 8px}p{color:#6b7280;font-size:14px;line-height:1.5}</style>'
+        . '</head><body><div class="card">'
+        . '<div style="font-size:34px">&#9888;&#65039;</div>'
+        . '<h1>' . htmlspecialchars($schoolName, ENT_QUOTES, 'UTF-8') . '</h1>'
+        . '<p>Verification is temporarily unavailable. Please try again in about '
+        . $retryMinutes . ' minute' . ($retryMinutes === 1 ? '' : 's') . '.</p>'
+        . '</div></body></html>';
+    if (isset($GLOBALS['conn'])) { $GLOBALS['conn']->close(); }
+    exit;
+}
+
+// 2.5 Rate limit lookups per IP BEFORE touching the members table.
+$lookupCode = trim((string)($_GET['code'] ?? ''));
+if (strlen($lookupCode) > 32) {
+    $lookupCode = substr($lookupCode, 0, 32);
+}
+if ($lookupCode !== '') {
+    try {
+        if (file_exists(__DIR__ . '/admin/backend/services/SecurityRateLimiter.php')) {
+            require_once __DIR__ . '/admin/backend/services/SecurityRateLimiter.php';
+        }
+        $limiter = new \App\Services\SecurityRateLimiter(
+            (isset($pdo) && $pdo instanceof PDO) ? $pdo : null,
+            __DIR__ . '/admin/uploads/cache'
+        );
+        $ipAddress = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        // 30 verifications per IP per 10 minutes — generous for genuine QR
+        // scans, fatal for A1..An harvesting.
+        $verdict = $limiter->consume('member-verify-ip', $ipAddress, 30, 600);
+        if (!$verdict['allowed']) {
+            renderUnavailableNotice((int)$verdict['retry_after']);
+        }
+    } catch (\Throwable $limiterError) {
+        error_log('member.php rate limiter error: ' . $limiterError->getMessage());
+        // Fail-open only on limiter infrastructure failure; the lookup below
+        // still discloses minimal data.
+    }
+}
+
+$code = $lookupCode;
+$member = null;
+if ($code !== '') {
+    $stmt = $conn->prepare("SELECT * FROM members WHERE member_code = ?");
+    $stmt->bind_param("s", $code);
+    $stmt->execute();
+    $member = $stmt->get_result()->fetch_assoc();
+}
 
 // 3. Logic
 $exists = ($member && $member['status'] !== 'archived');
@@ -39,19 +115,19 @@ $issueDateEth = $exists ? toEthiopianDate($member['id_card_generated_at']) : '-'
 $expDateGregorian = $exists ? date('Y-m-d', strtotime($member['id_card_generated_at'] . ' + 4 years')) : '';
 $expDateEth = $exists ? toEthiopianDate($expDateGregorian) : '-';
 
-// Address Construction
+// Address Construction — COARSE LOCATION ONLY.
+// Woreda, house number and free-text street addresses are precise home
+// locations of members (many of them minors) and are never exposed on a
+// public page. Full addresses remain available inside the authenticated
+// admin dashboards.
 $address = 'Not Registered';
 if ($exists) {
     $parts = [];
     if (!empty($member['city'])) $parts[] = $member['city'];
     if (!empty($member['sub_city'])) $parts[] = $member['sub_city'];
-    if (!empty($member['woreda'])) $parts[] = 'Wor. ' . $member['woreda'];
-    if (!empty($member['house_number'])) $parts[] = 'H.No ' . $member['house_number'];
-    
+
     if (!empty($parts)) {
         $address = implode(', ', $parts);
-    } elseif (!empty($member['address'])) {
-        $address = $member['address'];
     }
 }
 
