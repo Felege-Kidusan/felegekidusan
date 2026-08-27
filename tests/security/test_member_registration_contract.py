@@ -67,17 +67,20 @@ class MemberRegistrationContractTests(unittest.TestCase):
         identity = (
             ROOT / "admin/backend/services/IdentityCodeService.php"
         ).read_text()
-        # Sequential-per-letter allocation under a named lock (race-safe at
-        # six-figure rosters), plus the random 5-digit staff tail.
-        self.assertIn("GET_LOCK", identity)
-        self.assertIn("MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED))", identity)
-        self.assertIn("random_int(", identity)
+        # FORMAT v2 (ANALYSIS/08): {PREFIX}-{random unique 5-digit tail}.
+        # Uniqueness comes from the members.member_code UNIQUE key with a
+        # bounded indexed probe — race-safe at six-figure rosters without
+        # locks or sequential scans (which were retired with the old
+        # per-category numbers).
+        self.assertNotIn("GET_LOCK", identity)
+        self.assertNotIn("MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED))", identity)
+        self.assertIn("random_int(self::TAIL_MIN, self::TAIL_MAX)", identity)
+        self.assertIn("STUDENT_REGEX", identity)
         self.assertIn("HEAD_MARKER = 'H'", identity)
         self.assertIn("ORDINARY_MARKER = 'N'", identity)
-        # Registration derives the letter from the manual age group and never
-        # guesses staff codes.
-        self.assertIn("MemberCategory::letterFor($age_group)", self.controller)
-        self.assertIn("IdentityCodeService::allocateStudent", self.controller)
+        # Registration delegates code issuance to the single position-sync
+        # writer (positions + manual category; never guessed).
+        self.assertIn("PositionSyncService::applyPositions", self.controller)
         enrollment = (
             ROOT / "admin/backend/services/EnrollmentService.php"
         ).read_text()

@@ -36,6 +36,12 @@ class IdentityCodeIntegrityTests(unittest.TestCase):
         cls.migration = (
             ROOT / "sql/018_code_sequences_and_year_uniqueness.sql"
         ).read_text(encoding="utf-8")
+        cls.migration_runner = (
+            ROOT / "admin/api_identity_migration.php"
+        ).read_text(encoding="utf-8")
+        cls.cli_tool = (
+            ROOT / "admin/tools/migrate_identity_codes.php"
+        ).read_text(encoding="utf-8")
         cls.api_education = (ROOT / "admin/api_education.php").read_text(encoding="utf-8")
         cls.user_delete = (ROOT / "admin/backend/user-delete.php").read_text(encoding="utf-8")
         cls.user_toggle = (ROOT / "admin/backend/user-toggle.php").read_text(encoding="utf-8")
@@ -58,25 +64,30 @@ class IdentityCodeIntegrityTests(unittest.TestCase):
         self.assertIn("$rowData['age_group']", self.importer)
         self.assertNotIn("generateMemberCode($conn);", self.importer)
 
-    # ── M2: allocation inside the transaction ────────────────
-    def test_allocation_moves_inside_transaction(self):
-        txn_pos = self.register.find("$conn->begin_transaction();")
-        alloc_pos = self.register.find("allocateStudentHeld")
-        self.assertGreater(txn_pos, 0)
-        self.assertGreater(alloc_pos, txn_pos)
-        # Lock is released on both success and failure paths.
-        self.assertEqual(self.register.count("releaseCodeLock"), 2)
+    # ── M2 (format v2): codes issued via PositionSyncService ──
+    # Sequential per-letter allocation was retired (ANALYSIS/08): codes
+    # are {PREFIX}-{random unique 5-digit tail}; uniqueness is enforced
+    # by the members.member_code UNIQUE key with a bounded indexed probe,
+    # so no locks/sequences are needed and registration delegates the
+    # whole assignment to the single position-sync writer.
+    def test_registration_delegates_codes_to_position_sync(self):
+        self.assertIn("PositionSyncService::applyPositions", self.register)
+        self.assertNotIn("allocateStudentHeld", self.register)
+        self.assertNotIn("releaseCodeLock", self.register)
 
-    def test_identity_service_supports_held_locks(self):
-        self.assertIn("function allocateStudentHeld", self.identity)
-        self.assertIn("function releaseCodeLock", self.identity)
-        self.assertIn("RELEASE_LOCK", self.identity)
+    def test_identity_service_v2_contract(self):
+        self.assertIn("STUDENT_REGEX", self.identity)
+        self.assertIn("STAFF_REGEX", self.identity)
+        self.assertIn("random_int(self::TAIL_MIN, self::TAIL_MAX)", self.identity)
+        self.assertNotIn("GET_LOCK", self.identity)
+        self.assertNotIn("allocateStudentHeld", self.identity)
 
-    def test_sequence_table_fast_path(self):
-        self.assertIn("member_code_sequences", self.identity)
-        self.assertIn("last_n = last_n + 1", self.identity)
-        self.assertIn("member_code_sequences", self.migration)
-        self.assertIn("INSERT IGNORE", self.migration)
+    def test_migration_engine_shared_and_idempotent(self):
+        engine = (ROOT / "admin/backend/services/IdentityMigrationService.php").read_text(encoding="utf-8")
+        for source in (self.migration_runner, self.cli_tool, engine):
+            self.assertIn("IdentityMigrationService", source if source is not engine else "IdentityMigrationService")
+        self.assertIn("renumberAll", engine)
+        self.assertIn("legacy_member_code", engine)
 
     # ── M3: unique year names ─────────────────────────────────
     def test_year_name_app_level_precheck(self):
@@ -130,11 +141,11 @@ class IdentityCodeIntegrityTests(unittest.TestCase):
             "echo \\App\\Services\\MemberCategory::letterFor('14_17') ?? 'none'; echo ',';"
             "echo \\App\\Services\\MemberCategory::letterFor('18_plus') ?? 'none'; echo ',';"
             "echo \\App\\Services\\MemberCategory::letterFor(null) ?? 'none'; echo ',';"
-            "echo method_exists('\\App\\Services\\IdentityCodeService','allocateStudentHeld') ? 'held' : 'missing';"
+            "echo \App\Services\IdentityCodeService::composePrefix(['D'], 'ED', 'H', ['T']);"
         )
         completed = subprocess.run([php, "-r", harness], capture_output=True, text=True)
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout, "A,B,C,none,held")
+        self.assertEqual(completed.stdout, "A,B,C,none,DEDHT")
 
     def test_php_syntax_all_touched_files(self):
         php = shutil.which("php")

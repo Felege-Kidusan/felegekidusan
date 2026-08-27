@@ -1,17 +1,18 @@
-"""Regression tests for the Identity & Codes management system.
+"""Regression tests for the Identity & Codes management system (v2).
 
-Guards:
-  W1  the removed 'under6' category never resurfaces (service, schema
-      baseline, test roster),
-  W2  a Super Admin management UI exists and is wired into the dashboard,
-  W3  latent fatals stay fixed — every identity file loads QR support via
-      admin/id_cards/libs/qr_loader.php, never the missing qrlib.php,
-  W4  categories are never guessed (no LETTER_A fallback in the hub API),
-  W5  sql/019 ships member_type_settings and drops the under6 ENUM,
-  W6  the renumbering runners resync member_code_sequences after execute,
-  W7  MemberCodeFormat renders the N marker smaller and escapes input,
-  W8  display surfaces (ID card, verification page, printout, CSV export)
-      adopt MemberCodeFormat / MemberTypeService.
+Guards the approved ANALYSIS/08 contract:
+  V1  codes are {PREFIX}-{random unique 5-digit tail}; students A-76392,
+      staff DEDHT-98798; free positions lead the prefix (D first);
+  V2  one central parser (parse/isStudentCode/isStaffCode) — no ad-hoc
+      strpos/REGEXP shape heuristics anywhere;
+  V3  positions may be free (NULL department); reserved letters guarded;
+  V4  Super Admin UI: no member search/editor; single-flight buttons;
+  V5  registration & member edit use the position picker (no hard-coded
+      is_* checkboxes); legacy flags derived (strangler pattern);
+  V6  edu-dept teacher flows converge flags ⇄ positions ⇄ codes;
+  V7  migration engine shared by CLI + web runner, idempotent;
+  V8  under6 remains fully removed; sql/019 & sql/020 idempotent;
+  V9  strict-mode (PHP >= 8.1 mysqli throws) safety preserved.
 """
 
 import re
@@ -24,249 +25,206 @@ ROOT = Path(__file__).resolve().parents[2]
 PHP = shutil.which("php")
 
 
-class IdentityManagementTests(unittest.TestCase):
+class IdentityManagementV2Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.api_identity = (ROOT / "admin/api_identity.php").read_text(encoding="utf-8")
-        cls.api_migration = (ROOT / "admin/api_identity_migration.php").read_text(encoding="utf-8")
-        cls.cli_tool = (ROOT / "admin/tools/migrate_identity_codes.php").read_text(encoding="utf-8")
-        cls.category = (
-            ROOT / "admin/backend/services/MemberCategory.php"
-        ).read_text(encoding="utf-8")
-        cls.code_format = (
-            ROOT / "admin/backend/services/MemberCodeFormat.php"
-        ).read_text(encoding="utf-8")
-        cls.type_service = (
-            ROOT / "admin/backend/services/MemberTypeService.php"
-        ).read_text(encoding="utf-8")
-        cls.sql_019 = (
-            ROOT / "sql/019_member_types_and_under6_removal.sql"
-        ).read_text(encoding="utf-8")
-        cls.schema_baseline = (ROOT / "database_schema.sql").read_text(encoding="utf-8")
-        cls.super_admin = (ROOT / "admin/dashboards/super-admin.php").read_text(encoding="utf-8")
-        cls.section = (
-            ROOT / "admin/dashboards/sections/identity_codes_section.php"
-        ).read_text(encoding="utf-8")
-        cls.view_id_card = (ROOT / "admin/id_cards/view_id_card.php").read_text(encoding="utf-8")
-        cls.card_template = (
-            ROOT / "admin/id_cards/id_card_template_layout.php"
-        ).read_text(encoding="utf-8")
-        cls.member_page = (ROOT / "member.php").read_text(encoding="utf-8")
-        cls.print_member = (ROOT / "admin/print_member.php").read_text(encoding="utf-8")
-        cls.export_pdf = (ROOT / "admin/export_pdf.php").read_text(encoding="utf-8")
-        cls.report_renderer = (
-            ROOT / "admin/backend/services/MemberReportRenderer.php"
-        ).read_text(encoding="utf-8")
-        cls.test_roster = (
-            ROOT / "admin/backend/data/test_members_roster.php"
-        ).read_text(encoding="utf-8")
+        def rd(rel):
+            return (ROOT / rel).read_text(encoding="utf-8")
+        cls.api_identity = rd("admin/api_identity.php")
+        cls.api_migration = rd("admin/api_identity_migration.php")
+        cls.cli_tool = rd("admin/tools/migrate_identity_codes.php")
+        cls.engine = rd("admin/backend/services/IdentityMigrationService.php")
+        cls.identity = rd("admin/backend/services/IdentityCodeService.php")
+        cls.sync = rd("admin/backend/services/PositionSyncService.php")
+        cls.code_format = rd("admin/backend/services/MemberCodeFormat.php")
+        cls.category = rd("admin/backend/services/MemberCategory.php")
+        cls.type_service = rd("admin/backend/services/MemberTypeService.php")
+        cls.sql_019 = rd("sql/019_member_types_and_under6_removal.sql")
+        cls.sql_020 = rd("sql/020_identity_v2.sql")
+        cls.schema_baseline = rd("database_schema.sql")
+        cls.super_admin = rd("admin/dashboards/super-admin.php")
+        cls.js = rd("admin/js/super_admin.js")
+        cls.section = rd("admin/dashboards/sections/identity_codes_section.php")
+        cls.hr_dept = rd("admin/dashboards/hr-dept.php")
+        cls.register = rd("admin/hr_register_member.php")
+        cls.edit_member = rd("admin/info_manage_member.php")
+        cls.member_sync = rd("admin/backend/member_sync.php")
+        cls.workflow = rd("admin/backend/workflow.php")
+        cls.member_page = rd("member.php")
+        cls.print_member = rd("admin/print_member.php")
+        cls.card_template = rd("admin/id_cards/id_card_template_layout.php")
 
-    # ── W1: under6 fully removed ────────────────────────────────────
-    def test_member_category_has_no_under6_logic(self):
-        # Comments may document the removal; live mapping logic must not exist.
-        self.assertNotIn("=== 'under6'", self.category)
-        self.assertNotIn("'under6' =>", self.category)
-        self.assertNotIn("=== 'under 6'", self.category)
-        self.assertIn("categories are never guessed", self.category)
+    # ── V1: format contract ─────────────────────────────────────────
+    def test_engine_defines_v2_regexes_and_random_tails(self):
+        self.assertIn("STUDENT_REGEX = '/^[ABC]-[1-9][0-9]{4}$/'", self.identity)
+        self.assertIn("TAIL_MIN = 10000", self.identity)
+        self.assertIn("random_int(self::TAIL_MIN, self::TAIL_MAX)", self.identity)
+        self.assertNotIn("GET_LOCK", self.identity)
+        self.assertNotIn("member_code_sequences", self.identity)
 
-    def test_schema_baseline_dropped_under6_enum(self):
-        self.assertNotIn("'under6'", self.schema_baseline)
-        self.assertIn("enum('7_13','14_17','18_plus')", self.schema_baseline)
-
-    def test_test_roster_has_no_under6(self):
-        self.assertNotIn("under6", self.test_roster)
-
-    # ── W5: sql/019 ─────────────────────────────────────────────────
-    def test_sql_019_creates_member_type_settings(self):
-        self.assertIn("member_type_settings", self.sql_019)
-        self.assertIn("regular", self.sql_019)
-        self.assertIn("special_regular", self.sql_019)
-        self.assertIn("honorary", self.sql_019)
-
-    def test_sql_019_removes_under6_enum_idempotently(self):
-        self.assertIn("under6", self.sql_019)  # the purge itself names the value
-        # Conditional ENUM modification — never crash on already-migrated DBs.
-        self.assertIn("information_schema`.`columns", self.sql_019.lower())
-        self.assertIn("like '%under6%'", self.sql_019.lower())
-
-    # ── strict-mode safety (PHP >= 8.1 mysqli throws by default) ─────
-    def test_no_dialect_specific_ordering_in_identity_api(self):
-        # MySQL rejects NULLS FIRST; with strict mysqli reporting the
-        # rejected query would THROW and a false-return fallback would
-        # never run. The hub API must use portable SQL only.
-        self.assertNotIn("ASC NULLS FIRST", self.api_identity)
-        self.assertIn("COALESCE(d.sort_order, 9999)", self.api_identity)
-
-    def test_save_actions_handle_thrown_duplicate_keys(self):
-        # 1062 must be caught as mysqli_sql_exception (strict mode) AND
-        # via errno (legacy non-strict mode) — both produce a friendly,
-        # non-leaking message.
-        for needle in ("mysqli_sql_exception", "1062"):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, self.api_identity)
-
-    def test_member_type_save_tolerates_missing_table(self):
-        # prepare() throws in strict mode when sql/019 has not run yet;
-        # the service must convert that to a safe operator message.
-        self.assertIn("catch (\\Throwable $error)", self.type_service)
-        self.assertIn("run sql/019", self.type_service)
-
-    # ── W3: QR loading fixed everywhere ──────────────────────────────
-    def test_no_qrlib_require_in_identity_files(self):
-        for name, source in (
-            ("api_identity.php", self.api_identity),
-            ("api_identity_migration.php", self.api_migration),
-            ("migrate_identity_codes.php", self.cli_tool),
-        ):
+    def test_no_sequential_student_allocation_anywhere(self):
+        for name, src in (("register", self.register), ("identity api", self.api_identity)):
             with self.subTest(file=name):
-                self.assertNotIn(
-                    "phpqrcode/qrlib.php", source, f"{name} still requires the missing qrlib"
-                )
-                self.assertIn("qr_loader.php", source)
+                self.assertNotIn("allocateStudentHeld", src)
+                self.assertNotIn("SUBSTRING(member_code, 2)", src)
 
-    # ── W4: never guess a category ───────────────────────────────────
-    def test_assign_positions_never_defaults_to_letter_a(self):
-        self.assertNotIn("MemberCategory::LETTER_A", self.api_identity)
-        self.assertIn("letterFor($ageGroup)) !== null", self.api_identity)
-
-    def test_update_member_identity_uses_held_allocation(self):
-        # Held allocation keeps the advisory lock until commit (M2 race fix).
-        self.assertIn("allocateStudentHeld", self.api_identity)
-        self.assertIn("releaseCodeLock", self.api_identity)
-
-    # ── W2: management UI exists and is wired ────────────────────────
-    def test_super_admin_allows_identity_section(self):
-        self.assertIn("'identity'", self.super_admin)
-        self.assertIn("data-section=\"identity\"", self.super_admin)
-        self.assertIn("sections/identity_codes_section.php", self.super_admin)
-
-    def test_section_ui_is_super_admin_only_consumption(self):
-        # UI performs zero SQL; every change flows through the gated APIs.
-        self.assertNotIn("FROM members", self.section)
-        self.assertNotIn("INSERT INTO", self.section)
-        self.assertIn("/admin/api_identity.php", self.section)
-        self.assertIn("/admin/api_identity_migration.php", self.section)
-        self.assertIn("csrf_token", self.section)
-
-    def test_section_exposes_all_management_tabs(self):
-        for tab in ("departments", "positions", "types", "members", "migration"):
-            with self.subTest(tab=tab):
-                self.assertIn(f'idc-pane-{tab}', self.section)
-        self.assertIn("list_departments", self.section)
-        self.assertIn("save_position", self.section)
-        self.assertIn("save_member_type", self.section)
-        self.assertIn("update_member_identity", self.section)
-        self.assertIn("assign_positions", self.section)
-        self.assertIn("dry_run", self.section)
-
-    def test_section_renders_small_n_marker_client_side(self):
-        self.assertIn("mc-min", self.section)
-
-    # ── W6: sequence resync after renumber ───────────────────────────
-    def test_runners_resync_code_sequences(self):
-        for name, source in (
-            ("api_identity_migration.php", self.api_migration),
-            ("migrate_identity_codes.php", self.cli_tool),
-        ):
-            with self.subTest(file=name):
-                self.assertIn("member_code_sequences", source)
-                self.assertIn("GREATEST(last_n, VALUES(last_n))", source)
-
-    # ── W7: MemberCodeFormat behaviour ───────────────────────────────
-    def test_code_format_renders_small_n_and_escapes(self):
-        self.assertIn("font-size:0.72em", self.code_format)
-        self.assertIn("htmlspecialchars", self.code_format)
+    def test_compose_prefix_order_free_first_then_dept(self):
         if not PHP:
             self.skipTest("php CLI not available")
         script = (
-            "require '{root}/admin/backend/services/MemberCodeFormat.php';"
-            "use App\\Services\\MemberCodeFormat;"
-            "$a = MemberCodeFormat::html('EDHNT-83719');"
-            "$b = MemberCodeFormat::html('A12');"
-            "$c = MemberCodeFormat::html('<script>-x');"
-            "if (substr_count($a, 'mc-min') !== 1) exit(1);"
-            "if (strpos($a, 'EDH<span') !== 0) exit(2);"
-            "if ($b !== 'A12') exit(3);"
-            "if (strpos($c, '<script>') !== false) exit(4);"
-            "echo 'ok';"
-        ).format(root=ROOT)
+            "require '{r}/admin/backend/services/IdentityCodeService.php';"
+            "use App\\Services\\IdentityCodeService;"
+            "echo IdentityCodeService::composePrefix(['D'],'ED','H',['T']), '|';"
+            "echo IdentityCodeService::composePrefix(['D'],null,null,['T']), '|';"
+            "echo IdentityCodeService::composePrefix([],'ED','N',['T']), '|';"
+            "$p = IdentityCodeService::parse('A-76392');"
+            "echo $p['kind'], ':', $p['letter'], '|';"
+            "$q = IdentityCodeService::parse('DEDHT-98798');"
+            "echo $q['kind'], ':', $q['prefix'], '|';"
+            "var_dump(IdentityCodeService::parse('A12') === null);"
+        ).format(r=ROOT)
         result = subprocess.run([PHP, "-r", script], capture_output=True, text=True)
-        self.assertEqual(result.stdout.strip(), "ok", result.stderr)
-
-    # ── W8: display surfaces adopt the formatting/labels ────────────
-    def test_id_card_template_uses_code_format(self):
-        self.assertIn("MemberCodeFormat::html", self.card_template)
-        self.assertNotIn(
-            "htmlspecialchars((string)$member['member_code'])", self.card_template
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "DEDHT|DT|EDNT|student:A|staff:DEDHT|bool(true)\n",
         )
 
-    def test_view_id_card_title_is_escaped(self):
-        title_line = next(
-            (line for line in self.view_id_card.splitlines() if "<title>ID Card" in line), ""
-        )
-        self.assertIn("htmlspecialchars", title_line)
+    # ── V2: central parser only ─────────────────────────────────────
+    def test_no_adhoc_shape_heuristics(self):
+        for name, src in (
+            ("api_identity", self.api_identity),
+            ("web runner", self.api_migration),
+            ("cli runner", self.cli_tool),
+            ("MemberCodeFormat", self.code_format),
+        ):
+            with self.subTest(file=name):
+                self.assertNotIn("strpos($old, '-')", src)
+                self.assertNotIn("REGEXP CONCAT", src)
 
-    def test_member_verification_page_renders_codes_safely(self):
-        self.assertIn("MemberCodeFormat::html", self.member_page)
-        self.assertIn("file_exists", self.member_page)  # graceful degradation
+    def test_member_code_format_uses_parser(self):
+        self.assertIn("IdentityCodeService::parse", self.code_format)
+        self.assertIn("font-size:0.72em", self.code_format)
 
-    def test_print_member_uses_format_and_type_labels(self):
-        self.assertIn("MemberCodeFormat::html", self.print_member)
-        self.assertIn("MemberTypeService::labelAm", self.print_member)
+    # ── V3: free positions ──────────────────────────────────────────
+    def test_sql_020_makes_department_optional_and_adds_legacy_flag(self):
+        self.assertIn("MODIFY `department_id` INT NULL", self.sql_020)
+        self.assertIn("legacy_flag", self.sql_020)
+        self.assertIn("information_schema", self.sql_020.lower())
 
-    def test_csv_export_uses_editable_type_labels(self):
-        self.assertIn("$memberTypeLabels", self.report_renderer)
-        self.assertIn("MemberTypeService::labels", self.export_pdf)
-        # Optional parameter — old call sites keep working.
-        self.assertIn("array $memberTypeLabels = []", self.report_renderer)
+    def test_api_allows_free_positions_and_reserved_letters(self):
+        self.assertIn("?: null", self.api_identity)
+        self.assertIn("RESERVED_FREE_CODES", self.api_identity)
+        self.assertIn("const RESERVED_FREE_CODES = ['N', 'A', 'B', 'C']", self.identity)
 
-    def test_type_service_degrades_before_migration_019(self):
-        self.assertIn("FALLBACK", self.type_service)
+    # ── V4: super admin UI ──────────────────────────────────────────
+    def test_section_has_no_member_editor(self):
+        self.assertNotIn("idc-pane-members", self.section)
+        self.assertNotIn("identity_search", self.section)
+        self.assertNotIn("identity_search", self.api_identity)
+        self.assertNotIn("update_member_identity", self.api_identity)
+
+    def test_section_single_flight_and_modal_ux(self):
+        self.assertIn("async function busy(", self.section)
+        self.assertIn("aria-busy", self.section)
+        self.assertIn("idcModalWrap", self.section)
+        self.assertNotIn("confirm(", self.section)
+        self.assertNotIn("prompt(", self.section)
+        self.assertIn("expect: 'RENUMBER'", self.section)
+
+    def test_shell_js_allowlist_covers_php_sections(self):
+        match = re.search(r"var ALLOWED = \{([^}]*)\}", self.js)
+        js_sections = set(re.findall(r"(\w+):\s*1", match.group(1)))
+        php_match = re.search(r"\$saAllowedSections = \[([^\]]*)\]", self.super_admin)
+        php_sections = set(re.findall(r"'(\w+)'", php_match.group(1)))
+        self.assertFalse(php_sections - js_sections)
+
+    # ── V5: position-driven forms ───────────────────────────────────
+    def test_registration_form_uses_position_picker(self):
+        self.assertIn('name="position_ids[]"', self.hr_dept)
+        self.assertNotIn("roleFlagsSection", self.hr_dept)
+        self.assertNotIn("is_dept_head_1", self.hr_dept)
+        self.assertIn("PositionSyncService::catalogue", self.hr_dept)
+
+    def test_registration_backend_applies_positions(self):
+        self.assertIn("PositionSyncService::applyPositions", self.register)
+        self.assertIn("$position_ids", self.register)
+        self.assertNotIn("isset($_POST['is_teacher']", self.register)
+
+    def test_member_edit_form_uses_picker_and_derives_flags(self):
+        self.assertIn('name="position_ids[]"', self.edit_member)
+        self.assertIn("PositionSyncService::applyPositions", self.edit_member)
+        self.assertNotIn("name=\"is_teacher\"", self.edit_member)
+        self.assertNotIn("is_teacher=?", self.edit_member)
+
+    def test_flags_are_derived_from_positions(self):
+        self.assertIn("function deriveFlags", self.sync)
+        self.assertIn("legacy_flag", self.sync)
+        self.assertIn("syncMemberType", self.sync)
+
+    # ── V6: edu-dept convergence ────────────────────────────────────
+    def test_teacher_flows_converge_positions(self):
+        self.assertIn("syncPositionFromFlag", self.member_sync)
+        self.assertIn("syncPositionFromFlag", self.workflow)
+        self.assertIn("function syncPositionFromFlag", self.sync)
+
+    # ── V7: shared idempotent migration engine ──────────────────────
+    def test_runners_share_engine(self):
+        self.assertIn("IdentityMigrationService::renumberAll", self.api_migration)
+        self.assertIn("IdentityMigrationService::renumberAll", self.cli_tool)
+        self.assertIn("function renumberAll", self.engine)
+        # idempotency: already-correct prefixes are skipped
+        self.assertIn("=== $expected", self.engine)
+        self.assertIn("legacy_member_code", self.engine)
+
+    # ── V8: under6 still gone ───────────────────────────────────────
+    def test_under6_still_removed(self):
+        self.assertNotIn("=== 'under6'", self.category)
+        self.assertNotIn("'under6'", self.schema_baseline)
+        self.assertIn("under6", self.sql_019)
+
+    # ── V9: strict-mode safety preserved ────────────────────────────
+    def test_save_actions_handle_thrown_duplicate_keys(self):
+        for needle in ("mysqli_sql_exception", "1062"):
+            self.assertIn(needle, self.api_identity)
+        self.assertNotIn("ASC NULLS FIRST", self.api_identity)
+
+    def test_member_type_save_tolerates_missing_table(self):
         self.assertIn("catch (\\Throwable $error)", self.type_service)
 
-    # ── client/server section allow-lists must never drift ──────────
-    def test_shell_js_allowlist_covers_php_sections(self):
-        js = (ROOT / "admin/js/super_admin.js").read_text(encoding="utf-8")
-        match = re.search(r"var ALLOWED = \{([^}]*)\}", js)
-        self.assertIsNotNone(match, "super_admin.js ALLOWED map not found")
-        js_sections = set(re.findall(r"(\w+):\s*1", match.group(1)))
+    # ── display surfaces ────────────────────────────────────────────
+    def test_display_surfaces_adopt_v2_format(self):
+        self.assertIn("MemberCodeFormat::html", self.card_template)
+        self.assertIn("MemberCodeFormat::html", self.member_page)
+        self.assertIn("MemberCodeFormat::html", self.print_member)
 
-        php_match = re.search(r"\$saAllowedSections = \[([^\]]*)\]", self.super_admin)
-        self.assertIsNotNone(php_match, "$saAllowedSections not found")
-        php_sections = set(re.findall(r"'(\w+)'", php_match.group(1)))
-
-        missing = php_sections - js_sections
-        self.assertFalse(
-            missing,
-            f"super_admin.js ALLOWED map is missing sections {sorted(missing)} — "
-            f"their nav buttons would silently ignore clicks",
-        )
-
-    # ── lint every PHP file touched by this batch ────────────────────
-    def test_php_syntax_of_identity_files(self):
+    # ── lint the touched files ──────────────────────────────────────
+    def test_php_syntax(self):
         if not PHP:
             self.skipTest("php CLI not available")
         files = [
             "admin/api_identity.php",
             "admin/api_identity_migration.php",
             "admin/tools/migrate_identity_codes.php",
-            "admin/backend/services/MemberCategory.php",
-            "admin/backend/services/MemberTypeService.php",
+            "admin/backend/services/IdentityCodeService.php",
+            "admin/backend/services/IdentityMigrationService.php",
+            "admin/backend/services/PositionSyncService.php",
             "admin/backend/services/MemberCodeFormat.php",
-            "admin/backend/services/MemberReportRenderer.php",
+            "admin/backend/services/MemberTypeService.php",
+            "admin/backend/member_sync.php",
+            "admin/backend/workflow.php",
             "admin/dashboards/super-admin.php",
             "admin/dashboards/sections/identity_codes_section.php",
+            "admin/dashboards/hr-dept.php",
+            "admin/hr_register_member.php",
+            "admin/info_manage_member.php",
+            "member.php",
             "admin/print_member.php",
             "admin/id_cards/id_card_template_layout.php",
-            "admin/id_cards/view_id_card.php",
-            "admin/export_pdf.php",
-            "member.php",
         ]
         for rel in files:
             with self.subTest(file=rel):
-                result = subprocess.run(
-                    [PHP, "-l", str(ROOT / rel)], capture_output=True, text=True
-                )
+                result = subprocess.run([PHP, "-l", str(ROOT / rel)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 

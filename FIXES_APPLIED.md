@@ -288,3 +288,47 @@ with the generic "Unable to complete the identity request" error:
 Errors at the API boundary always log internally and return
 user-actionable messages that never leak schema/SQL internals.
 3 new tests (211 total, all passing).
+
+## Fix 10 — Identity code format v2 + position-driven registration  `(this commit)`
+
+Leadership's corrected spec (ANALYSIS/08), implemented in three shippable
+phases after plan approval:
+
+### Code format v2 (sequential numbers retired)
+- Every code is now `{PREFIX}-{random unique 5-digit tail}`:
+  students `A-76392`, staff `EDHT-83719`, free positions first:
+  `DEDHT-98798` (Director+Ed-head+Teacher), `DT-98798`.
+- `IdentityCodeService` rewritten: single parser (`parse()`,
+  `isStudentCode()`, `isStaffCode()`), pure `composePrefix()`
+  (free → dept segment H/N → dept positions), random-tail allocation over
+  the UNIQUE key with a bounded indexed probe. Sequence tables, GET_LOCK
+  and sequential scans retired (schema kept for rollback safety).
+- Shared migration engine `IdentityMigrationService::renumberAll()` used
+  by BOTH the CLI tool and the web runner: re-issues codes for everyone,
+  preserves old codes in `legacy_member_code`, regenerates QR, skips
+  already-correct prefixes (idempotent), keyset-paginated.
+
+### Free positions + manageable mapping
+- `sql/020` (idempotent): `staff_positions.department_id` nullable;
+  `legacy_flag` column maps a position onto a legacy flag column.
+- Reserved letters: `N` always; `A/B/C` for department-less positions.
+- Registration (`hr-dept.php`) and member edit (`info_manage_member.php`)
+  now render a position picker fed by `PositionSyncService::catalogue()`
+  — the hard-coded 12-checkbox role block is gone; picker available to
+  regular AND special_regular.
+- `PositionSyncService` is the single writer: replaces assignments,
+  re-codes, derives legacy flags, keeps the special_regular sync rule.
+- Edu-dept teacher flows (`member_sync.php`, `workflow.php`) converge:
+  flag writes mirror onto the mapped Teacher position + re-code.
+- Super Admin: Member Editor removed (no member search there); Identity
+  section UX rebuilt — single-flight buttons (spinner + aria-busy, the
+  double-click duplicate bug cannot happen), toasts, inline modal for
+  destructive/execute confirmations, forms reset on success.
+
+### Verification
+php -l on every touched file; 207 tests passing (contract tests for the
+v2 parser/composer, free-position guards, convergence hooks, single-flight
+UI, form pickers, shared migration engine).
+
+Deployment: `git pull`; run `sql/020` in phpMyAdmin (idempotent); then
+Identity & Codes → Renumbering → dry run → execute.
