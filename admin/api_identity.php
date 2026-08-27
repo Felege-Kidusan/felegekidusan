@@ -95,14 +95,25 @@ try {
                 $stmt->bind_param('sssii', $code, $nameAm, $nameEn, $isActive, $maxSort);
             }
 
-            if ($stmt->execute()) {
+            // PHP >= 8.1 defaults mysqli to strict reporting, so a duplicate
+            // key THROWS instead of returning false — handle both modes.
+            $exception = null;
+            try {
+                $ok = $stmt->execute();
+                $errno = $conn->errno;
+            } catch (mysqli_sql_exception $e) {
+                $ok = false;
+                $errno = (int)$e->getCode();
+                $exception = $e;
+            }
+            if ($ok) {
                 SecurityAuditService::record($conn, $id > 0 ? 'Department Updated' : 'Department Created',
                     ['code' => $code, 'name_en' => $nameEn], 'department', $id ?: $conn->insert_id);
                 echo json_encode(['status' => 'success', 'message' => 'Department saved.', 'id' => $id > 0 ? $id : $conn->insert_id]);
-            } elseif ($conn->errno === 1062) {
+            } elseif ($errno === 1062) {
                 echo json_encode(['status' => 'error', 'message' => 'A department with that code already exists.']);
             } else {
-                reportInternalError('Department save failed', $stmt->error);
+                reportInternalError('Department save failed', $exception ?? $stmt->error);
                 echo json_encode(['status' => 'error', 'message' => 'Unable to save department.']);
             }
             $stmt->close();
@@ -141,26 +152,18 @@ try {
         /* ── Staff Positions ─────────────────────────────────────────── */
 
         case 'list_positions':
+            // Single portable query — no dialect-specific NULLS FIRST
+            // (MySQL rejects it; with PHP >= 8.1's default strict mysqli
+            // reporting a rejected query THROWS, so a false-return
+            // fallback would never run).
             $result = $conn->query(
                 'SELECT sp.id, sp.department_id, d.code AS dept_code,
                         sp.role_code, sp.title_am, sp.title_en,
                         sp.is_active, sp.sort_order
                  FROM staff_positions sp
                  LEFT JOIN departments d ON d.id = sp.department_id
-                 WHERE COALESCE(sp.is_active, 1) IN (0,1)
-                 ORDER BY d.sort_order ASC NULLS FIRST, sp.sort_order ASC, sp.id ASC'
+                 ORDER BY COALESCE(d.sort_order, 9999) ASC, sp.sort_order ASC, sp.id ASC'
             );
-            // Fallback for MariaDB < 10.4 that may not support NULLS FIRST.
-            if (!$result) {
-                $result = $conn->query(
-                    'SELECT sp.id, sp.department_id, d.code AS dept_code,
-                            sp.role_code, sp.title_am, sp.title_en,
-                            sp.is_active, sp.sort_order
-                     FROM staff_positions sp
-                     LEFT JOIN departments d ON d.id = sp.department_id
-                     ORDER BY COALESCE(d.sort_order, 9999) ASC, sp.sort_order ASC, sp.id ASC'
-                );
-            }
             $rows = [];
             while ($row = $result->fetch_assoc()) {
                 $row['is_active'] = (int)$row['is_active'];
@@ -203,14 +206,24 @@ try {
                 $stmt->bind_param('isssi', $deptId, $roleCode, $titleAm, $titleEn, $isActive);
             }
 
-            if ($stmt->execute()) {
+            // Strict-mode-safe: duplicate keys throw on PHP >= 8.1.
+            $exception = null;
+            try {
+                $ok = $stmt->execute();
+                $errno = $conn->errno;
+            } catch (mysqli_sql_exception $e) {
+                $ok = false;
+                $errno = (int)$e->getCode();
+                $exception = $e;
+            }
+            if ($ok) {
                 SecurityAuditService::record($conn, $id > 0 ? 'Position Updated' : 'Position Created',
                     ['role_code' => $roleCode, 'department_id' => $deptId], 'staff_position', $id ?: $conn->insert_id);
                 echo json_encode(['status' => 'success', 'message' => 'Position saved.', 'id' => $id > 0 ? $id : $conn->insert_id]);
-            } elseif ($conn->errno === 1062) {
+            } elseif ($errno === 1062) {
                 echo json_encode(['status' => 'error', 'message' => 'That position code already exists in this department.']);
             } else {
-                reportInternalError('Staff position save failed', $stmt->error);
+                reportInternalError('Staff position save failed', $exception ?? $stmt->error);
                 echo json_encode(['status' => 'error', 'message' => 'Unable to save position.']);
             }
             $stmt->close();

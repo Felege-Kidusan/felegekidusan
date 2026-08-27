@@ -78,15 +78,21 @@ final class MemberTypeService
         if (mb_strlen($labelAm) > 150 || mb_strlen($labelEn) > 150) {
             return ['status' => 'error', 'message' => 'Labels are too long.'];
         }
-        $stmt = $conn->prepare(
-            'UPDATE member_type_settings SET label_am = ?, label_en = ? WHERE type_key = ?'
-        );
-        if (!$stmt) {
+        try {
+            $stmt = $conn->prepare(
+                'UPDATE member_type_settings SET label_am = ?, label_en = ? WHERE type_key = ?'
+            );
+            if (!$stmt) {
+                return ['status' => 'error', 'message' => 'Membership settings are not installed yet (run sql/019).'];
+            }
+            $stmt->bind_param('sss', $labelAm, $labelEn, $key);
+            $ok = $stmt->execute();
+            $stmt->close();
+        } catch (\Throwable $error) {
+            // PHP >= 8.1 mysqli strict reporting throws when the table is
+            // missing (pre-migration deployment) or the write fails.
             return ['status' => 'error', 'message' => 'Membership settings are not installed yet (run sql/019).'];
         }
-        $stmt->bind_param('sss', $labelAm, $labelEn, $key);
-        $ok = $stmt->execute();
-        $stmt->close();
         return $ok
             ? ['status' => 'success', 'message' => 'Membership type updated.']
             : ['status' => 'error', 'message' => 'Unable to save membership type.'];

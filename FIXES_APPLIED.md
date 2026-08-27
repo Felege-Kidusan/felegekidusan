@@ -265,3 +265,26 @@ python3 -m pytest tests/security/ -q                 # 207 tests — OK
 Deployment: `git pull`, then run `sql/019` in phpMyAdmin (idempotent).
 The alphabetical renumber is then available from the new Identity &
 Codes section (dry run first) or `php admin/tools/migrate_identity_codes.php`.
+
+## Fix 9 — Identity hub API strict-mode hardening  `(this commit)`
+
+Production runs PHP 8.2, where mysqli defaults to **strict exception
+reporting** (`config.php` never calls `mysqli_report`). Three identity
+code paths still used the old false-return idiom and therefore failed
+with the generic "Unable to complete the identity request" error:
+
+1. `list_positions` — its primary query used `ORDER BY … NULLS FIRST`,
+   which MySQL rejects; the MariaDB fallback only ran when the query
+   returned `false`, which strict mode never does (it throws). Replaced
+   with a single portable `COALESCE(d.sort_order, 9999)` query.
+2. `save_department` / `save_position` — a duplicate key (1062) threw a
+   `mysqli_sql_exception` before the `errno === 1062` branch could run.
+   Both actions now catch the exception *and* keep the errno path, so
+   they behave identically under strict and legacy reporting.
+3. `MemberTypeService::saveLabel` — `prepare()` throws when sql/019 has
+   not been run yet; converted to the same safe "run sql/019" operator
+   message instead of the generic error.
+
+Errors at the API boundary always log internally and return
+user-actionable messages that never leak schema/SQL internals.
+3 new tests (211 total, all passing).

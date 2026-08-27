@@ -89,6 +89,28 @@ class IdentityManagementTests(unittest.TestCase):
         self.assertIn("information_schema`.`columns", self.sql_019.lower())
         self.assertIn("like '%under6%'", self.sql_019.lower())
 
+    # ── strict-mode safety (PHP >= 8.1 mysqli throws by default) ─────
+    def test_no_dialect_specific_ordering_in_identity_api(self):
+        # MySQL rejects NULLS FIRST; with strict mysqli reporting the
+        # rejected query would THROW and a false-return fallback would
+        # never run. The hub API must use portable SQL only.
+        self.assertNotIn("ASC NULLS FIRST", self.api_identity)
+        self.assertIn("COALESCE(d.sort_order, 9999)", self.api_identity)
+
+    def test_save_actions_handle_thrown_duplicate_keys(self):
+        # 1062 must be caught as mysqli_sql_exception (strict mode) AND
+        # via errno (legacy non-strict mode) — both produce a friendly,
+        # non-leaking message.
+        for needle in ("mysqli_sql_exception", "1062"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.api_identity)
+
+    def test_member_type_save_tolerates_missing_table(self):
+        # prepare() throws in strict mode when sql/019 has not run yet;
+        # the service must convert that to a safe operator message.
+        self.assertIn("catch (\\Throwable $error)", self.type_service)
+        self.assertIn("run sql/019", self.type_service)
+
     # ── W3: QR loading fixed everywhere ──────────────────────────────
     def test_no_qrlib_require_in_identity_files(self):
         for name, source in (
