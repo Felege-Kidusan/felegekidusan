@@ -121,6 +121,38 @@ Idempotent / re-runnable:
   a documented contract (`AttendanceSummaryService` is the template for any
   future derived cache); 43 regression tests lock the behavior.
 
+## Fix 6 — ID-card subsystem (production "Something went wrong")  `6d66582`
+
+**Root cause (verified by reproduction):** `id_card_template_layout.php`
+reads branding constants (`RELIGIOUS_INVOCATION`, `PARISH_NAME_AM`,
+`ID_CARD_TITLE_AM/EN`, …) **unguarded**. On PHP 8, a deployment whose
+`school_config.php` drifted behind the codebase throws
+`Uncaught Error: Undefined constant` — exactly the generic error page
+(Ref #555). Reproduced locally: rendering the template with a minimal
+config fatals at line 38; with the fix it renders.
+
+**Fixes:**
+- **`branding_defaults.php`** (loaded in `config.php` right after
+  `school_config.php`): guarded fallbacks for the *entire* branding
+  constant set. Complete configs are byte-for-byte unchanged; drifted
+  configs now degrade gracefully instead of throwing. Generic values
+  only. This protects every consumer (login, dashboards, ID cards,
+  printable reports, member.php) — the same class of fatal can no longer
+  occur anywhere in the app.
+- **`admin/id_cards/libs/qr_loader.php`**: the repo shipped the
+  single-file phpqrcode build but the code required the missing
+  multi-file entry point (`qrlib.php`) → QR generation dead, "renew"
+  503'd. The loader defines `QRcode` from either build; QR generation,
+  on-the-fly self-healing and renewal all work again (test asserts a
+  real PNG is produced).
+- **Hardening:** absolute `__DIR__` includes; URL-encoded QR links;
+  explicit `isLoggedIn()` gates on `view_id_card.php`,
+  `generate_id_card.php` (auth *before* CSRF — anonymous sessions also
+  hold CSRF tokens) and `print_member.php`, as defense-in-depth on top
+  of the central `access_control.php` role map (verified intact).
+  `qr_diagnostic.php` remains unreachable over HTTP (404 via
+  access_control).
+
 ## Verification
 
 ```bash
