@@ -64,6 +64,36 @@ final class PositionSyncService
     }
 
     /**
+     * Whether staff_positions.department_id accepts NULL (free positions
+     * ship with sql/020). Cached, like hasLegacyFlag().
+     */
+    private static ?bool $deptNullable = null;
+
+    public static function departmentNullable(\mysqli $conn): bool
+    {
+        if (self::$deptNullable !== null) {
+            return self::$deptNullable;
+        }
+        try {
+            $stmt = $conn->prepare(
+                "SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = 'staff_positions'
+                   AND COLUMN_NAME = 'department_id'"
+            );
+            if (!$stmt) {
+                return self::$deptNullable = false;
+            }
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            return self::$deptNullable = (($row['n'] ?? 'NO') === 'YES');
+        } catch (\Throwable $e) {
+            return self::$deptNullable = false;
+        }
+    }
+
+    /**
      * Replace a member's position assignments and re-code.
      *
      * @param list<int|numeric-string> $positionIds

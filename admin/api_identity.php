@@ -197,6 +197,9 @@ try {
             if ($roleCode === IdentityCodeService::ORDINARY_MARKER) {
                 echo json_encode(['status' => 'error', 'message' => "'N' is reserved for ordinary members."]); exit;
             }
+            if ($deptId === null && !PositionSyncService::departmentNullable($conn)) {
+                echo json_encode(['status' => 'error', 'message' => 'Free positions (no department) require sql/020 to be applied first.']); exit;
+            }
             if ($deptId === null && in_array($roleCode, IdentityCodeService::RESERVED_FREE_CODES, true)) {
                 echo json_encode(['status' => 'error', 'message' => "Code '{$roleCode}' is reserved (category letter) and cannot be a free position."]); exit;
             }

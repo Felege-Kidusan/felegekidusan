@@ -192,6 +192,10 @@ class IdentityManagementV2Tests(unittest.TestCase):
         self.assertIn("PositionSyncService::hasLegacyFlag($conn)", self.api_identity)
         self.assertIn("NULL AS legacy_flag", self.api_identity)
 
+    def test_free_position_save_gated_with_clear_message_pre_020(self):
+        self.assertIn("function departmentNullable", self.sync)
+        self.assertIn("require sql/020", self.api_identity)
+
     def test_ui_surfaces_list_errors_and_loads_in_parallel(self):
         self.assertIn("tableError(", self.section)
         self.assertIn("if (!loaded.departments) renderDepartments();", self.section)
