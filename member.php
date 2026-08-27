@@ -35,6 +35,12 @@ if (file_exists('admin/id_cards/libs/eth_date_helper.php')) {
     function isExpired($d){ return false; }
 }
 
+// Identity code presentation (small "N" marker). Optional — degrade to
+// plain escaped output when the service file is absent.
+if (file_exists(__DIR__ . '/admin/backend/services/MemberCodeFormat.php')) {
+    require_once __DIR__ . '/admin/backend/services/MemberCodeFormat.php';
+}
+
 // Renders the shared page shell around a neutral message (used when the
 // lookup is throttled; reveals nothing about code existence).
 function renderUnavailableNotice($retryAfterSeconds) {
@@ -247,7 +253,13 @@ function getMemberLabel($type) {
                             <?php echo e($member['student_name']) . ' ' . e($member['father_name']) . ' ' . e($member['grandfather_name']); ?>
                         </h2>
                         <p class="inline-block mt-2 font-mono text-sm px-3 py-1 rounded-full" style="background:#faf3e0;color:var(--maroon)">
-                            <i class="fa-solid fa-id-badge mr-1" style="color:var(--gold-dark)"></i><?php echo e($member['member_code']); ?>
+                            <i class="fa-solid fa-id-badge mr-1" style="color:var(--gold-dark)"></i><?php
+                                if (class_exists('App\\Services\\MemberCodeFormat')) {
+                                    echo \App\Services\MemberCodeFormat::html((string)($member['member_code'] ?? ''));
+                                } else {
+                                    echo e($member['member_code']);
+                                }
+                            ?>
                         </p>
                     </div>
 

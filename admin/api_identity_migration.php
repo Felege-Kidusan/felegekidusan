@@ -94,9 +94,9 @@ foreach ($letters as $letter) {
                     $qrCheck->bind_param('i', $mid); $qrCheck->execute();
                     $qrPath = (string)($qrCheck->get_result()->fetch_assoc()['qr_code_path'] ?? '');
                     $qrCheck->close();
-                    if ($qrPath !== '' && class_exists('\\QRcode')) {
-                        require_once __DIR__ . '/id_cards/libs/phpqrcode/qrlib.php';
-                        if (IdentityCodeService::regenerateQr($conn, $mid)) $totalQr++;
+                    if ($qrPath !== '') {
+                        require_once __DIR__ . '/id_cards/libs/qr_loader.php';
+                        if (class_exists('QRcode') && IdentityCodeService::regenerateQr($conn, $mid)) $totalQr++;
                     }
                 } else {
                     $errors[] = "Update failed for member {$mid}";
@@ -109,6 +109,32 @@ foreach ($letters as $letter) {
         }
         $result->free(); $stmt->close();
         if ($isDryRun && count($log) > 200) break;
+    }
+}
+
+// Resync per-letter sequences (sql/018) so post-migration allocations
+// continue from the renumbered maxima.
+if (!$isDryRun) {
+    foreach ($letters as $letter) {
+        $maxStmt = $conn->prepare(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED)), 0) AS max_n
+             FROM members WHERE member_code REGEXP CONCAT('^', ?, '[0-9]+$')"
+        );
+        if ($maxStmt) {
+            $maxStmt->bind_param('s', $letter);
+            $maxStmt->execute();
+            $maxN = (int)$maxStmt->get_result()->fetch_assoc()['max_n'];
+            $maxStmt->close();
+            $syncStmt = $conn->prepare(
+                'INSERT INTO member_code_sequences (letter, last_n) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE last_n = GREATEST(last_n, VALUES(last_n))'
+            );
+            if ($syncStmt) {
+                $syncStmt->bind_param('si', $letter, $maxN);
+                $syncStmt->execute();
+                $syncStmt->close();
+            }
+        }
     }
 }
 

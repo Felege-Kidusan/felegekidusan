@@ -163,3 +163,105 @@ python3 -m unittest tests.security.*             # 171 tests — OK
 Run `sql/018` during the next deployment to activate the sequence table and
 the UNIQUE year-name index (safe to run repeatedly; automatic fallbacks
 cover the window before it runs).
+
+## Fix 7 — Autofill hardening (form inputs)  `b74cba6`
+
+21 admin/registration form inputs were hardened against browser autofill
+leaking or overwriting sensitive fields: legacy `autocomplete="nope"`
+hacks (ignored by Chrome) replaced with a single proper
+`autocomplete="off"` + `type="search"` strategy, validated with a
+full-tag DOTALL regex so multi-line `<input>` tags could not hide
+duplicates. 4 new tests; covered by the suite below.
+
+## Fix 8 — Identity & Codes management system  `(this commit)`
+
+Deep line-by-line analysis (ANALYSIS/07) found the identity-code
+infrastructure (sql/017 schema, `IdentityCodeService`, category model,
+hub APIs, CLI + web migration runners) already existed — but **no UI
+consumed it**, and several latent bugs would break it on first use.
+This batch delivers the management UI and fixes every defect:
+
+### A. Bugs fixed
+
+- **QR fatal everywhere the identity system regenerates codes** —
+  `api_identity.php`, `api_identity_migration.php` and the CLI tool all
+  required the missing `id_cards/libs/phpqrcode/qrlib.php` (only the
+  single-file build ships in the repo). All three now load through the
+  canonical `admin/id_cards/libs/qr_loader.php` with a `class_exists`
+  guard. The web runner additionally never regenerated QR at all
+  (`class_exists` tested before anything was loaded) — fixed.
+- **Category guessing removed** — `assign_positions` fell back to
+  `MemberCategory::LETTER_A` when a member had no resolvable age group.
+  It now leaves the code pending (NULL). Categories are never inferred.
+- **Race on category changes** — the new advanced editor uses
+  `allocateStudentHeld()`/`releaseCodeLock()` so the advisory lock is
+  held until commit (same guarantee as Fix 5 / M2).
+- **Sequence drift after renumbering** — both runners now resync
+  `member_code_sequences` (sql/018) from the renumbered maxima after
+  execute, so post-migration allocations continue correctly
+  (`GREATEST(last_n, …)` — never moves backwards).
+- **XSS** — `view_id_card.php` printed `member_code` unescaped into the
+  page `<title>`; now `htmlspecialchars`.
+- **sql/019 robustness** — every statement is guarded: scrubbing of the
+  `classes` table only runs when the table exists, the ENUM shrink only
+  when the column is still an ENUM containing `under6` and no row uses
+  it (databases already upgraded to VARCHAR by the 012 baseline are
+  untouched). Fully re-runnable.
+
+### B. Super Admin UI — new "Identity & Codes" section
+
+`admin/dashboards/sections/identity_codes_section.php`, wired into
+`super-admin.php` (allowed-sections list, Management nav group, section
+include). Pure presentation — zero SQL in the file; every change flows
+through the session+CSRF-gated hub APIs. Five tabs:
+
+1. **Departments** — create/edit/deactivate; codes are 1–4 A–Z letters
+   and become staff-code prefixes (ED, ID, HRD, …).
+2. **Positions** — per-department letter codes (Teacher = T, …); `H`
+   marks the department head; `N` is reserved for ordinary members.
+3. **Membership types** — the three tiers keep their stable ENUM keys
+   (reports/mobile sync depend on them) but their Amharic/English
+   labels are now editable data (`member_type_settings`, sql/019).
+4. **Member editor** — search by name/code, then change category,
+   membership type and position assignments with a live code preview
+   (N marker rendered smaller, exactly as on cards). Every change is
+   audited and re-codes the member (`legacy_member_code` preserved,
+   QR refreshed).
+5. **Renumbering** — dry-run preview + `RENUMBER`-confirmed execute of
+   the alphabetical renumber (A1, A2…/B1…/C1… by name within category);
+   staff codes untouched, sequences resynced, QR regenerated.
+
+New hub-API actions: `list_member_types`, `save_member_type`,
+`identity_search`, `get_member_identity`, `update_member_identity`.
+
+### C. under6 (አጸደ ህጻናት) removed completely
+
+- `MemberCategory` no longer normalizes it (unknown → null → pending).
+- sql/019 scrubs stragglers into ህጻናት (7_13) and drops the ENUM value
+  on `members`/`classes`.
+- Test roster seed migrated to 7_13; `database_schema.sql` baseline now
+  ships the three-letter ENUM plus all identity tables for fresh
+  installs.
+- Auto age/section assignment was verified already disabled by design
+  (`hr_register_member.php`) — section assignment stays manual.
+
+### D. Presentation layer
+
+- **`MemberCodeFormat`** renders staff codes with the ordinary `N`
+  marker typeset smaller (`font-size:0.72em`) and fully escaped.
+  Adopted by: ID-card template (both card sides), public verification
+  page (`member.php` badge), `print_member.php`.
+- **`MemberTypeService`** labels adopted by `print_member.php` and the
+  bounded CSV report (`MemberReportRenderer` + `export_pdf.php`,
+  optional param — old call sites unchanged).
+
+## Verification (Fix 8)
+
+```bash
+php -l <every changed file>                          # syntax: all clean
+python3 -m pytest tests/security/ -q                 # 207 tests — OK
+```
+
+Deployment: `git pull`, then run `sql/019` in phpMyAdmin (idempotent).
+The alphabetical renumber is then available from the new Identity &
+Codes section (dry run first) or `php admin/tools/migrate_identity_codes.php`.

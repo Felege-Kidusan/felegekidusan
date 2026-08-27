@@ -6,8 +6,10 @@
  *   B = ማዕከላዊያን   (stored age_group '14_17')
  *   C = ወጣቶች      (stored age_group '18_plus')
  *
- * The retired fourth group 'under6' (አጸደ ህጻናት) is normalized to '7_13'
- * on read so stale rows and old filters keep working during rollout.
+ * The former fourth nursery group (አጸደ ህጻናት) has been REMOVED from the
+ * system entirely (sql/017 merged legacy rows, sql/019 dropped the ENUM
+ * value). Unknown or missing groups return null and callers keep the
+ * member's code PENDING — categories are never guessed.
  * Section assignment is manual everywhere; nothing in this class assigns.
  */
 
@@ -41,18 +43,15 @@ final class MemberCategory
     ];
 
     /**
-     * Normalize any historical age_group value (including the retired
-     * 'under6') onto one of the three canonical groups. Unknown values
-     * return null — callers decide display fallback.
+     * Normalize any historical age_group value onto one of the three
+     * canonical groups. Unknown values (including the removed 'under6')
+     * return null — callers decide the fallback (usually: pending code).
      */
     public static function normalizeGroup(?string $ageGroup): ?string
     {
         $group = strtolower(trim((string)$ageGroup));
         if ($group === '') {
             return null;
-        }
-        if ($group === 'under6' || $group === 'under 6') {
-            return self::BY_LETTER[self::LETTER_A];
         }
         return in_array($group, self::BY_LETTER, true) ? $group : null;
     }

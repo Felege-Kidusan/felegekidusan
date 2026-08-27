@@ -13,9 +13,11 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/IdentityCodeService.php';
 require_once __DIR__ . '/backend/services/MemberCategory.php';
+require_once __DIR__ . '/backend/services/MemberTypeService.php';
 
 use App\Services\IdentityCodeService;
 use App\Services\MemberCategory;
+use App\Services\MemberTypeService;
 use App\Services\SecurityAuditService;
 
 if (empty($_SESSION['admin_id'])) {
@@ -271,9 +273,12 @@ try {
 
                 if ($segments !== null && $segments !== []) {
                     $newCode = IdentityCodeService::allocateStaff($conn, $segments);
-                } else {
-                    $letter = MemberCategory::letterFor($ageGroup) ?? MemberCategory::LETTER_A;
+                } elseif (($letter = MemberCategory::letterFor($ageGroup)) !== null) {
                     $newCode = IdentityCodeService::allocateStudent($conn, $letter);
+                } else {
+                    // Never guess a category: no positions and no resolvable
+                    // age group means the code stays pending.
+                    $newCode = null;
                 }
 
                 $updateStmt = $conn->prepare(
@@ -284,13 +289,14 @@ try {
                 $updateStmt->close();
 
                 // Log migration trail.
+                $logNew = $newCode ?? '(pending)';
                 $logStmt = $conn->prepare(
                     'INSERT INTO member_code_migrations (member_id, old_code, new_code, reason)
                      VALUES (?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE old_code = VALUES(old_code), new_code = VALUES(new_code), reason = VALUES(reason)'
                 );
                 $reason = 'staff_assignment_change';
-                $logStmt->bind_param('isss', $memberId, $oldCode, $newCode, $reason);
+                $logStmt->bind_param('isss', $memberId, $oldCode, $logNew, $reason);
                 $logStmt->execute();
                 $logStmt->close();
 
@@ -299,19 +305,198 @@ try {
                     'member', $memberId);
 
                 $qrOk = false;
-                require_once __DIR__ . '/../id_cards/libs/phpqrcode/qrlib.php';
-                $qrOk = IdentityCodeService::regenerateQr($conn, $memberId);
+                require_once __DIR__ . '/../id_cards/libs/qr_loader.php';
+                if (class_exists('QRcode')) {
+                    $qrOk = IdentityCodeService::regenerateQr($conn, $memberId);
+                }
 
                 $conn->commit();
                 echo json_encode([
                     'status' => 'success',
-                    'message' => 'Positions assigned. New code: ' . $newCode . ($qrOk ? ' · QR refreshed.' : ''),
+                    'message' => 'Positions assigned. New code: ' . ($newCode ?? 'pending (no resolvable category)') . ($qrOk ? ' · QR refreshed.' : ''),
                     'new_code' => $newCode,
                 ], JSON_UNESCAPED_UNICODE);
             } catch (Throwable $e) {
                 $conn->rollback();
                 reportInternalError('Assign positions failed', $e);
                 echo json_encode(['status' => 'error', 'message' => 'Unable to assign positions.']);
+            }
+            break;
+
+        /* ── Membership types (labels editable by Super Admin) ──────── */
+
+        case 'list_member_types':
+            $labels = MemberTypeService::labels($conn);
+            $rows = [];
+            foreach (MemberTypeService::KEYS as $key) {
+                $rows[] = [
+                    'type_key' => $key,
+                    'label_am' => $labels[$key]['am'],
+                    'label_en' => $labels[$key]['en'],
+                ];
+            }
+            echo json_encode(['status' => 'success', 'member_types' => $rows], JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'save_member_type':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
+            $result = MemberTypeService::saveLabel(
+                $conn,
+                (string)($_POST['type_key'] ?? ''),
+                (string)($_POST['label_am'] ?? ''),
+                (string)($_POST['label_en'] ?? '')
+            );
+            if ($result['status'] === 'success') {
+                SecurityAuditService::record($conn, 'Membership Type Updated',
+                    ['type_key' => $_POST['type_key'] ?? ''], 'member_type');
+            }
+            echo json_encode($result, JSON_UNESCAPED_UNICODE);
+            break;
+
+        /* ── Advanced member identity editor ────────────────────────── */
+
+        case 'identity_search':
+            // Bounded, index-friendly lookup for the editor's member picker.
+            $search = trim((string)($_GET['q'] ?? ''));
+            if ($search === '') {
+                echo json_encode(['status' => 'success', 'members' => []], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+            $like = '%' . $search . '%';
+            $stmt = $conn->prepare(
+                "SELECT id, student_name, father_name, member_code, age_group, member_type, status
+                 FROM members
+                 WHERE (student_name LIKE ? OR father_name LIKE ? OR member_code LIKE ?)
+                   AND status != 'archived'
+                 ORDER BY student_name ASC LIMIT 20"
+            );
+            $stmt->bind_param('sss', $like, $like, $like);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $rows = [];
+            while ($row = $result->fetch_assoc()) {
+                $rows[] = $row;
+            }
+            $stmt->close();
+            echo json_encode(['status' => 'success', 'members' => $rows], JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'get_member_identity':
+            $memberId = filter_var($_GET['member_id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if (!$memberId) { echo json_encode(['status' => 'error', 'message' => 'Invalid member id.']); break; }
+
+            $stmt = $conn->prepare(
+                'SELECT id, student_name, father_name, grandfather_name, member_code, age_group, member_type, status
+                 FROM members WHERE id = ?'
+            );
+            $stmt->bind_param('i', $memberId);
+            $stmt->execute();
+            $member = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$member) { echo json_encode(['status' => 'error', 'message' => 'Member not found.']); break; }
+
+            $assigned = $conn->prepare(
+                'SELECT position_id FROM member_staff_positions WHERE member_id = ?'
+            );
+            $assigned->bind_param('i', $memberId);
+            $assigned->execute();
+            $assignedIds = [];
+            $r = $assigned->get_result();
+            while ($row = $r->fetch_assoc()) { $assignedIds[] = (int)$row['position_id']; }
+            $assigned->close();
+
+            echo json_encode([
+                'status' => 'success',
+                'member' => $member,
+                'assigned_position_ids' => $assignedIds,
+                'member_types' => array_keys(MemberTypeService::labels($conn)),
+                'categories' => MemberCategory::groups(),
+            ], JSON_UNESCAPED_UNICODE);
+            break;
+
+        case 'update_member_identity':
+            // Advanced edit: category (age_group) + membership type.
+            // Category changes re-letter a STUDENT code; staff codes are
+            // untouched (they encode positions, not category).
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
+            $memberId = filter_var($_POST['member_id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $newGroup = (string)($_POST['age_group'] ?? '');
+            $newType = (string)($_POST['member_type'] ?? '');
+            if (!$memberId) { echo json_encode(['status' => 'error', 'message' => 'Invalid member id.']); break; }
+            if (!in_array($newGroup, MemberCategory::groups(), true)) {
+                echo json_encode(['status' => 'error', 'message' => 'Invalid category.']); break;
+            }
+            if (!in_array($newType, MemberTypeService::KEYS, true)) {
+                echo json_encode(['status' => 'error', 'message' => 'Invalid membership type.']); break;
+            }
+
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare('SELECT member_code, age_group FROM members WHERE id = ? FOR UPDATE');
+                $stmt->bind_param('i', $memberId);
+                $stmt->execute();
+                $current = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if (!$current) { throw new RuntimeException('Member not found.'); }
+
+                $oldCode = (string)($current['member_code'] ?? '');
+                $oldGroup = (string)($current['age_group'] ?? '');
+                $newCode = $oldCode;
+                $heldLetter = null;
+                $isStudentCode = $oldCode !== '' && strpos($oldCode, '-') === false;
+
+                if ($isStudentCode && $newGroup !== $oldGroup) {
+                    $letter = MemberCategory::letterFor($newGroup);
+                    if ($letter === null) { throw new RuntimeException('Unresolvable category.'); }
+                    // Held allocation: the advisory lock stays until commit
+                    // so no concurrent write can draw the same number.
+                    $heldLetter = $letter;
+                    $newCode = IdentityCodeService::allocateStudentHeld($conn, $letter);
+                }
+
+                $stmt = $conn->prepare('UPDATE members SET age_group = ?, member_type = ?, member_code = ? WHERE id = ?');
+                $stmt->bind_param('sssi', $newGroup, $newType, $newCode, $memberId);
+                if (!$stmt->execute()) { throw new RuntimeException('Update failed.'); }
+                $stmt->close();
+
+                if ($newCode !== $oldCode) {
+                    $logStmt = $conn->prepare(
+                        'INSERT INTO member_code_migrations (member_id, old_code, new_code, reason)
+                         VALUES (?, ?, ?, ?)
+                         ON DUPLICATE KEY UPDATE old_code = VALUES(old_code), new_code = VALUES(new_code), reason = VALUES(reason)'
+                    );
+                    $reason = 'category_change';
+                    $logStmt->bind_param('isss', $memberId, $oldCode, $newCode, $reason);
+                    $logStmt->execute();
+                    $logStmt->close();
+
+                    require_once __DIR__ . '/../id_cards/libs/qr_loader.php';
+                    if (class_exists('QRcode')) {
+                        IdentityCodeService::regenerateQr($conn, $memberId);
+                    }
+                }
+
+                SecurityAuditService::record($conn, 'Member Identity Updated',
+                    ['age_group' => $newGroup, 'member_type' => $newType,
+                     'old_code' => $oldCode, 'new_code' => $newCode],
+                    'member', $memberId);
+
+                $conn->commit();
+                if ($heldLetter !== null) {
+                    IdentityCodeService::releaseCodeLock($conn, $heldLetter);
+                }
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Member updated.' . ($newCode !== $oldCode ? ' New code: ' . $newCode : ''),
+                    'member_code' => $newCode,
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (Throwable $e) {
+                $conn->rollback();
+                if (isset($heldLetter) && $heldLetter !== null) {
+                    IdentityCodeService::releaseCodeLock($conn, $heldLetter);
+                }
+                reportInternalError('update_member_identity failed', $e);
+                echo json_encode(['status' => 'error', 'message' => 'Unable to update member.']);
             }
             break;
 

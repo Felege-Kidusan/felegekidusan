@@ -6,6 +6,8 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
+require_once __DIR__ . '/backend/services/MemberCodeFormat.php';
+require_once __DIR__ . '/backend/services/MemberTypeService.php';
 
 // SECURITY (IDOR fix): full member dossier (PII incl. guardian contacts and
 // addresses) — requires an authenticated admin session.
@@ -555,7 +557,7 @@ $fullAddress = !empty($addressParts) ? implode('፣ ', $addressParts) : '—';
                 </div>
                 <div class="member-id-box">
                     የአባልነት ቁጥር
-                    <span class="id-num"><?= esc($m['member_code'], 'በመጠባበቅ') ?></span>
+                    <span class="id-num"><?= trim((string)$m['member_code']) !== '' ? \App\Services\MemberCodeFormat::html($m['member_code']) : 'በመጠባበቅ' ?></span>
                 </div>
             </div>
 
@@ -627,7 +629,7 @@ $fullAddress = !empty($addressParts) ? implode('፣ ', $addressParts) : '—';
                 </div>
                 <div class="status-item">
                     <div class="label">የአባልነት ዓይነት</div>
-                    <div class="value"><?= $m['member_type'] === 'regular' ? 'መደበኛ' : ($m['member_type'] === 'special_regular' ? 'ልዩ መደበኛ' : 'የክብር') ?></div>
+                    <div class="value"><?= esc(\App\Services\MemberTypeService::labelAm($conn, (string)$m['member_type'])) ?></div>
                 </div>
                 <div class="status-item highlight">
                     <div class="label">ሁኔታ / Status</div>

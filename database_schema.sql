@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS `members` (
   -- Section/Classification
   `current_section` varchar(60) DEFAULT NULL,
   `education_level` varchar(60) DEFAULT NULL,
-  `age_group` enum('under6','7_13','14_17','18_plus') DEFAULT NULL,
+  `age_group` enum('7_13','14_17','18_plus') DEFAULT NULL,
   `member_type` enum('regular','special_regular','honorary') NOT NULL DEFAULT 'regular',
   
   -- Role Flags (can be teacher, staff, etc.)
@@ -206,3 +206,75 @@ CREATE TABLE IF NOT EXISTS `cache_storage` (
 -- academic_years    - Academic year settings
 -- 
 -- ============================================================
+-- ============================================================
+-- Identity & Code Management (sql/017 + sql/018 + sql/019)
+-- Incremental migrations own these; the block below keeps the
+-- fresh-install baseline in sync.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `departments` (
+  `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `code` VARCHAR(4) NOT NULL,
+  `name_en` VARCHAR(100) NOT NULL,
+  `name_am` VARCHAR(100) DEFAULT NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_departments_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `staff_positions` (
+  `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `department_id` INT NOT NULL,
+  `role_code` VARCHAR(20) NOT NULL,
+  `title_en` VARCHAR(100) NOT NULL,
+  `title_am` VARCHAR(100) DEFAULT NULL,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_staff_positions_code` (`department_id`, `role_code`),
+  KEY `fk_staff_positions_dept` (`department_id`),
+  CONSTRAINT `fk_staff_positions_dept` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `member_staff_positions` (
+  `member_id` INT NOT NULL,
+  `position_id` INT NOT NULL,
+  `assigned_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `assigned_by` INT UNSIGNED DEFAULT NULL,
+  PRIMARY KEY (`member_id`, `position_id`),
+  KEY `fk_msp_position` (`position_id`),
+  CONSTRAINT `fk_msp_member` FOREIGN KEY (`member_id`) REFERENCES `members` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_msp_position` FOREIGN KEY (`position_id`) REFERENCES `staff_positions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `member_code_migrations` (
+  `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `member_id` INT NOT NULL,
+  `old_code` VARCHAR(30) NOT NULL,
+  `new_code` VARCHAR(30) NOT NULL,
+  `reason` VARCHAR(50) DEFAULT NULL,
+  `migrated_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_member_code_migrations_member` (`member_id`),
+  KEY `idx_member_code_migrations_member` (`member_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `member_code_sequences` (
+  `letter` CHAR(1) NOT NULL,
+  `last_n` INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`letter`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `member_type_settings` (
+  `type_key` VARCHAR(30) NOT NULL PRIMARY KEY,
+  `label_am` VARCHAR(80) NOT NULL,
+  `label_en` VARCHAR(80) NOT NULL,
+  `sort_order` INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+INSERT INTO `member_type_settings` (`type_key`,`label_am`,`label_en`,`sort_order`) VALUES
+('regular','መደበኛ','Regular Member',1),
+('special_regular','ልዩ መደበኛ','Special Regular Member',2),
+('honorary','ክብረ ደንበኛ','Honorary Member',3)
+ON DUPLICATE KEY UPDATE `label_am`=VALUES(`label_am`), `label_en`=VALUES(`label_en`), `sort_order`=VALUES(`sort_order`);
+
+ALTER TABLE `members` ADD COLUMN IF NOT EXISTS `legacy_member_code` VARCHAR(30) DEFAULT NULL;
+ALTER TABLE `members` ADD INDEX IF NOT EXISTS `idx_members_code` (`member_code`);
+ALTER TABLE `members` ADD INDEX IF NOT EXISTS `idx_members_legacy_code` (`legacy_member_code`);

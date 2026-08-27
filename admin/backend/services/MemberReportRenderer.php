@@ -17,12 +17,16 @@ final class MemberReportRenderer
 
     /**
      * @param array{total:int,male:int,female:int,active:int,warning:int} $summary
+     * @param array<string,string> $memberTypeLabels Optional editable labels
+     *        keyed by member_type (from MemberTypeService). When omitted the
+     *        raw keys are exported, matching historical behaviour.
      */
     public static function streamCsv(
         PDOStatement $rows,
         array $summary,
         string $filename,
-        bool $truncated
+        bool $truncated,
+        array $memberTypeLabels = []
     ): void {
         self::beginResponse(
             'text/csv; charset=utf-8',
@@ -67,7 +71,9 @@ final class MemberReportRenderer
                 self::spreadsheetSafe($member['work_profession']),
                 self::spreadsheetSafe($member['education_level']),
                 self::spreadsheetSafe($member['registration_type']),
-                self::spreadsheetSafe($member['member_type']),
+                self::spreadsheetSafe(
+                    $memberTypeLabels[(string)$member['member_type']] ?? $member['member_type']
+                ),
                 self::spreadsheetSafe($member['status']),
             ]);
             if (($number % 250) === 0) {

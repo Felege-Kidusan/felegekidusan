@@ -1,5 +1,6 @@
 <!-- FILE: /admin/id_cards/id_card_template_layout.php -->
 <?php
+require_once __DIR__ . '/../backend/services/MemberCodeFormat.php';
 if (empty($idCardBg)) {
     $idCardBg = defined('ID_CARD_BACKGROUND') ? ID_CARD_BACKGROUND : '/admin/id_cards/assets/backgrounds/id_card_bg.jpg';
 }
@@ -55,7 +56,7 @@ $footBackText = $idCardTxt('foot_back_text', defined('ID_CARD_DISCLAIMER_AM') ? 
                 <div class="id-el-gender" data-idc="gender"><span class="id-lbl">ጾታ</span><span class="id-val"><?php echo htmlspecialchars($genderLabel); ?></span></div>
                 <div class="id-el-age" data-idc="age"><span class="id-lbl">ዕድሜ</span><span class="id-val"><?php echo htmlspecialchars((string)$age); ?></span></div>
             </div>
-            <div class="id-row id-el-code" data-idc="code"><span class="id-lbl">የመታወቂያ ቁ.</span><span class="id-val id-code"><?php echo htmlspecialchars((string)$member['member_code']); ?></span></div>
+            <div class="id-row id-el-code" data-idc="code"><span class="id-lbl">የመታወቂያ ቁ.</span><span class="id-val id-code"><?php echo \App\Services\MemberCodeFormat::html((string)($member['member_code'] ?? '')); ?></span></div>
             <div class="id-signs">
                 <div data-idc="sig_head">
                     <div class="id-sign-img"><?php if (!empty($CONFIG['sig_head'])): ?><img class="id-sign-head" src="<?php echo htmlspecialchars($CONFIG['sig_head'], ENT_QUOTES, 'UTF-8'); ?>" alt="" onerror="this.style.display='none'"><?php endif; ?></div>

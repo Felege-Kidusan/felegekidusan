@@ -17,7 +17,7 @@ $calendarMode = wbws_get_calendar_mode($conn);
 $todayFormatted = wbws_format_date($today, 'long', $conn);
 
 // Track which section to show
-$saAllowedSections = ['overview','users','departments','health','settings','branding','logs','backup','syshealth'];
+$saAllowedSections = ['overview','users','departments','identity','health','settings','branding','logs','backup','syshealth'];
 $activeSection = $_GET['section'] ?? $_POST['section'] ?? 'overview';
 if (!in_array($activeSection, $saAllowedSections, true)) {
     $activeSection = 'overview';
@@ -631,6 +631,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
             <div class="nav-title">Management</div>
             <ul class="nav-list">
                 <li><button class="nav-link <?= $activeSection === 'departments' ? 'active' : '' ?>" data-section="departments"><i class="fa-solid fa-building"></i> Departments</button></li>
+                <li><button class="nav-link <?= $activeSection === 'identity' ? 'active' : '' ?>" data-section="identity"><i class="fa-solid fa-id-badge"></i> Identity &amp; Codes</button></li>
                 <li><button class="nav-link <?= $activeSection === 'health' ? 'active' : '' ?>" data-section="health"><i class="fa-solid fa-heart-pulse"></i> Site Health</button></li>
                 <li><button class="nav-link <?= $activeSection === 'settings' ? 'active' : '' ?>" data-section="settings"><i class="fa-solid fa-gear"></i> Settings</button></li>
                 <li><button class="nav-link <?= $activeSection === 'branding' ? 'active' : '' ?>" data-section="branding"><i class="fa-solid fa-palette"></i> Branding</button></li>
@@ -806,6 +807,8 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <?php endforeach; ?>
                 </div>
             </section>
+
+            <?php include __DIR__ . '/sections/identity_codes_section.php'; ?>
 
             <!-- SITE HEALTH - ADVANCED -->
             <section id="section-health" class="section <?= $activeSection === 'health' ? 'active' : '' ?>"<?= $activeSection === 'health' ? '' : ' hidden' ?>>

@@ -144,8 +144,8 @@ foreach ($letters as $letter) {
                 $qrCheck->close();
 
                 if ($qrPath !== '') {
-                    require_once __DIR__ . '/../id_cards/libs/phpqrcode/qrlib.php';
-                    if (IdentityCodeService::regenerateQr($conn, $memberId)) {
+                    require_once __DIR__ . '/../id_cards/libs/qr_loader.php';
+                    if (class_exists('QRcode') && IdentityCodeService::regenerateQr($conn, $memberId)) {
                         $totalQrRefreshed++;
                     }
                 }
@@ -159,6 +159,34 @@ foreach ($letters as $letter) {
         if ($isDryRun && $seq > 20) {
             echo "  … (dry-run preview truncated)\n";
             break;
+        }
+    }
+}
+
+/* ── Step 3: Resync per-letter sequences (sql/018 table) ─────────────── */
+// Renumbering rewrites the numeric suffixes; the O(1) allocation table
+// must reflect the new maxima or the next runtime allocation would
+// collide with a renumbered code.
+if (!$isDryRun) {
+    foreach ($letters as $letter) {
+        $maxStmt = $conn->prepare(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED)), 0) AS max_n
+             FROM members WHERE member_code REGEXP CONCAT('^', ?, '[0-9]+$')"
+        );
+        $maxStmt->bind_param('s', $letter);
+        $maxStmt->execute();
+        $maxN = (int)$maxStmt->get_result()->fetch_assoc()['max_n'];
+        $maxStmt->close();
+
+        $syncStmt = $conn->prepare(
+            'INSERT INTO member_code_sequences (letter, last_n) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE last_n = GREATEST(last_n, VALUES(last_n))'
+        );
+        if ($syncStmt) {
+            $syncStmt->bind_param('si', $letter, $maxN);
+            $syncStmt->execute();
+            $syncStmt->close();
+            echo "Sequence {$letter} synced to {$maxN}\n";
         }
     }
 }

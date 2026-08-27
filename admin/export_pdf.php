@@ -12,9 +12,11 @@ require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/services/MemberReportService.php';
 require_once __DIR__ . '/backend/services/MemberReportRenderer.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+require_once __DIR__ . '/backend/services/MemberTypeService.php';
 
 use App\Services\MemberReportRenderer;
 use App\Services\MemberReportService;
+use App\Services\MemberTypeService;
 use App\Services\SecurityAuditService;
 
 $role = (string)($_SESSION['admin_role'] ?? '');
@@ -87,11 +89,19 @@ try {
     $baseFilename = EXPORT_PREFIX . '_member_report_' . date('Y-m-d');
 
     if ($format === 'csv') {
+        // Editable membership-type labels (Super Admin → Identity & Codes).
+        $memberTypeLabels = [];
+        if (isset($conn) && $conn instanceof mysqli) {
+            foreach (MemberTypeService::labels($conn) as $typeKey => $pair) {
+                $memberTypeLabels[$typeKey] = $pair['am'] . ' (' . $pair['en'] . ')';
+            }
+        }
         MemberReportRenderer::streamCsv(
             $rows,
             $summary,
             $baseFilename . '.csv',
-            $truncated
+            $truncated,
+            $memberTypeLabels
         );
         exit;
     }
