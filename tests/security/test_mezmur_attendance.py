@@ -173,10 +173,10 @@ class MezmurAttendanceTests(unittest.TestCase):
         self.assertIn("esc(m.section)", self.js)
         # mutations go through POST helper (CSRF auto-appended)
         self.assertIn("action: 'save_sheet'", self.js)
-        self.assertIn("action: 'day_create'", self.js)
+        self.assertIn("action: 'submission_review'", self.js)
         self.assertNotIn("openSessionModal", self.js)
         self.assertNotIn("sessions_list", self.js)
-        self.assertIn("SSMS.api.post('/admin/backend/user-save.php'", self.js)
+        self.assertIn("window.api.post('/admin/backend/user-save.php'", self.js)
 
     # ── flutter wiring ─────────────────────────────────────────
     def test_flutter_role_and_navigation_wired(self):
@@ -193,12 +193,15 @@ class MezmurAttendanceTests(unittest.TestCase):
         for method in [
             "Future<ApiResponse> getMezmurDays(",
             "Future<ApiResponse> createMezmurDay(",
-            "Future<ApiResponse> getMezmurSheet(String date)",
+            "Future<ApiResponse> getMezmurSheet(String date, {String? section})",
             "Future<ApiResponse> saveMezmurSheet(",
+            "Future<ApiResponse> getMezmurSections()",
             "Future<ApiResponse> getMezmurAnalytics(",
         ]:
             self.assertIn(method, self.dart_api)
         self.assertIn("idempotencyKey: clientOpId", self.dart_api)
+        # phase 5: section-scoped save carries the packet kind
+        self.assertIn("if (section != null && section.isNotEmpty) 'kind': kind,", self.dart_api)
 
     # ── lint ───────────────────────────────────────────────────
     def test_new_php_lints_clean(self):

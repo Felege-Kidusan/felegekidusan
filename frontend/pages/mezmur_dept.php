@@ -154,10 +154,10 @@ ob_start();
                         <div class="table-shell">
                             <table>
                                 <thead>
-                                    <tr><th>Date</th><th>Program</th><th>Attended</th><th>Rate</th></tr>
+                                    <tr><th>Date</th><th>Attended</th><th>Rate</th></tr>
                                 </thead>
                                 <tbody id="mzOvRecentDays">
-                                    <tr><td colspan="4"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                    <tr><td colspan="3"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -174,6 +174,23 @@ ob_start();
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Review queue (department inbox preview) -->
+                <div class="school-card">
+                    <div class="school-card-title"><i class="fa-solid fa-inbox"></i> Attendance Review Queue
+                        <span class="text-dim">— packets saved or submitted by takers</span>
+                    </div>
+                    <div class="table-shell">
+                        <table>
+                            <thead>
+                                <tr><th>Date</th><th>Section</th><th>Marked</th><th>Status</th><th>Updated</th></tr>
+                            </thead>
+                            <tbody id="mzOvQueue">
+                                <tr><td colspan="5"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>
@@ -259,26 +276,22 @@ ob_start();
                     <div class="page-head">
                         <div>
                             <h2><i class="fa-solid fa-calendar-check"></i> Attendance</h2>
-                            <div class="page-head-sub amharic">በቀን መሠረት • በክፍል (section) የተከፋፈለ</div>
+                            <div class="page-head-sub amharic">በቀን መሠረት • በክፍል (section) — raw attendance, one sheet per section</div>
                         </div>
                     </div>
 
-                    <!-- Take attendance hero -->
+                    <!-- Take attendance hero (section-first, like teachers) -->
                     <div class="school-card">
                         <div class="toolbar">
                             <div class="toolbar-grow">
-                                <label class="school-label" for="mzAttDate">Attendance date</label>
-                                <input id="mzAttDate" class="school-input" type="date">
+                                <label class="school-label" for="mzAttSection">Section</label>
+                                <select id="mzAttSection" class="school-input" aria-label="Section">
+                                    <option value="">Select section…</option>
+                                </select>
                             </div>
                             <div class="toolbar-grow">
-                                <label class="school-label" for="mzAttProgram">Program type</label>
-                                <select id="mzAttProgram" class="school-input">
-                                    <option value="rehearsal">Rehearsal (የዝማሬ ልምምድ)</option>
-                                    <option value="service">Service (አገልግሎት)</option>
-                                    <option value="feast">Feast (በዓል)</option>
-                                    <option value="training">Training (ሥልጠና)</option>
-                                    <option value="other">Other</option>
-                                </select>
+                                <label class="school-label" for="mzAttDate">Attendance date</label>
+                                <input id="mzAttDate" class="school-input" type="date">
                             </div>
                             <div class="page-head-actions">
                                 <button class="btn-primary" onclick="Mezmur.openDay()"><i class="fa-solid fa-clipboard-check"></i> Take Attendance</button>
@@ -286,7 +299,43 @@ ob_start();
                         </div>
                         <div class="text-dim" aria-hidden="true">
                             <i class="fa-regular fa-keyboard"></i>
-                            In the sheet: <b>↑ / ↓</b> move between members, <b>P</b> present, <b>L</b> late, <b>A</b> absent.
+                            In the sheet: <b>↑ / ↓</b> move between members, <b>P</b> present, <b>L</b> late, <b>A</b> absent, <b>E</b> excused. Click a name to add a note.
+                        </div>
+                    </div>
+
+                    <!-- Department review inbox -->
+                    <div class="school-card">
+                        <div class="toolbar">
+                            <div class="toolbar-title">
+                                <h3 class="school-card-title"><i class="fa-solid fa-inbox"></i> Review Queue</h3>
+                            </div>
+                            <select id="mzSubStatus" class="school-input" aria-label="Filter packets by status">
+                                <option value="attention">Needs attention</option>
+                                <option value="submitted">Submitted</option>
+                                <option value="approved">Approved</option>
+                                <option value="revision_needed">Returned</option>
+                                <option value="rejected">Rejected</option>
+                                <option value="all">All</option>
+                            </select>
+                            <button class="btn-secondary" onclick="Mezmur.loadSubmissions()"><i class="fa-solid fa-filter"></i> Filter</button>
+                        </div>
+                        <div class="table-shell">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Section</th>
+                                        <th>Taker</th>
+                                        <th>Marked</th>
+                                        <th>Status</th>
+                                        <th>Updated</th>
+                                        <th class="nowrap">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mzSubTbody">
+                                    <tr><td colspan="7"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -307,8 +356,6 @@ ob_start();
                                 <thead>
                                     <tr>
                                         <th>Date</th>
-                                        <th>Program</th>
-                                        <th>Title</th>
                                         <th>Marked</th>
                                         <th>Attended</th>
                                         <th>Rate</th>
@@ -316,7 +363,7 @@ ob_start();
                                     </tr>
                                 </thead>
                                 <tbody id="mzSessTbody">
-                                    <tr><td colspan="7"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                    <tr><td colspan="5"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -342,6 +389,9 @@ ob_start();
                         </div>
                     </div>
 
+                    <!-- Packet status banner (draft / submitted / review note) -->
+                    <div id="mzSheetStatus" class="is-hidden" role="status" aria-live="polite"></div>
+
                     <div id="mzSheetBody" aria-live="polite">
                         <div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div>
                         <div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div>
@@ -350,7 +400,10 @@ ob_start();
 
                     <div class="sheet-summarybar">
                         <div id="mzSheetSummary" aria-live="polite"></div>
-                        <button class="btn-primary" id="mzSheetSaveBtn" onclick="Mezmur.saveSheet()"><i class="fa-solid fa-save"></i> Save Attendance</button>
+                        <div class="page-head-actions">
+                            <button class="btn-secondary" id="mzSheetSaveBtn" onclick="Mezmur.saveSheet('draft')"><i class="fa-solid fa-save"></i> Save</button>
+                            <button class="btn-primary" id="mzSheetSubmitBtn" onclick="Mezmur.saveSheet('submitted')"><i class="fa-solid fa-paper-plane"></i> Submit</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -373,14 +426,6 @@ ob_start();
                     <div class="toolbar">
                         <select id="mzAnSection" class="school-input" aria-label="Filter by section">
                             <option value="">All sections</option>
-                        </select>
-                        <select id="mzAnProgram" class="school-input" aria-label="Filter by program type">
-                            <option value="">All programs</option>
-                            <option value="rehearsal">Rehearsal</option>
-                            <option value="service">Service</option>
-                            <option value="feast">Feast</option>
-                            <option value="training">Training</option>
-                            <option value="other">Other</option>
                         </select>
                         <input id="mzAnFrom" class="school-input" type="date" aria-label="From date">
                         <input id="mzAnTo" class="school-input" type="date" aria-label="To date">
@@ -552,6 +597,44 @@ ob_start();
         </div>
         <div class="school-error-msg is-hidden" id="mzTkError" role="alert"></div>
         <button class="btn-primary btn-block" id="mzTkSaveBtn" onclick="Mezmur.createTaker()"><i class="fa-solid fa-save"></i> Create Account</button>
+    </div>
+</div>
+
+<!-- ═══ MODAL: REVIEW SUBMISSION (approve / return-with-note) ═══ -->
+<div class="school-modal" id="mzReviewModal" role="dialog" aria-modal="true" aria-labelledby="mzReviewTitle">
+    <div class="school-modal-content">
+        <div class="page-head">
+            <h3 id="mzReviewTitle"><i class="fa-solid fa-clipboard-check"></i> Review Attendance</h3>
+            <button class="btn-secondary btn-sm" onclick="modal('mzReviewModal',false)" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <input type="hidden" id="mzRvId" value="0">
+        <div id="mzRvMeta" class="toolbar"></div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzRvDecision">Decision *</label>
+            <select id="mzRvDecision" class="school-input">
+                <option value="approved">Approve — packet is final</option>
+                <option value="revision_needed">Return for correction — taker can edit again</option>
+                <option value="rejected">Reject — dismiss this packet</option>
+            </select>
+        </div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzRvNotes">Reason <span class="text-dim">(required for returns/rejections — the taker sees it)</span></label>
+            <textarea id="mzRvNotes" class="school-input" rows="4" maxlength="500" placeholder="What should the taker fix or confirm?"></textarea>
+        </div>
+        <div class="school-error-msg is-hidden" id="mzRvError" role="alert"></div>
+        <button class="btn-primary btn-block" id="mzRvSaveBtn" onclick="Mezmur.submitReview()"><i class="fa-solid fa-gavel"></i> Record Decision</button>
+    </div>
+</div>
+
+<!-- ═══ MODAL: PACKET DETAIL (rows) ═══ -->
+<div class="school-modal" id="mzPacketModal" role="dialog" aria-modal="true" aria-labelledby="mzPacketTitle">
+    <div class="school-modal-content">
+        <div class="page-head">
+            <h3 id="mzPacketTitle"><i class="fa-solid fa-list-check"></i> Attendance Packet</h3>
+            <button class="btn-secondary btn-sm" onclick="modal('mzPacketModal',false)" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="mzPacketMeta" class="toolbar"></div>
+        <div id="mzPacketBody"></div>
     </div>
 </div>
 

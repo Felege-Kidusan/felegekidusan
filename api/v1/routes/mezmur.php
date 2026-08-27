@@ -26,9 +26,11 @@ if (!apiRoleIs($auth, $MEZMUR_ROLES)) {
 }
 
 require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php';
+require_once __DIR__ . '/../../../admin/backend/services/MezmurSubmissionService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurHymnService.php';
 
 use App\Services\MezmurAttendanceService;
+use App\Services\MezmurSubmissionService;
 use App\Services\MezmurHymnService;
 
 $action = $ROUTE['id'] ?? '';
@@ -68,10 +70,30 @@ try {
         ok(['day' => $day], 200);
     }
 
-    // ── GET /mezmur/sheet?date=… ────────────────────────────────
+    // ── GET /mezmur/sections ────────────────────────────────────
+    if ($method === 'GET' && $action === 'sections') {
+        ok(['sections' => MezmurAttendanceService::sectionListWithCounts($conn)]);
+    }
+
+    // ── GET /mezmur/sheet?date=…&section=… ──────────────────────
     if ($method === 'GET' && $action === 'sheet') {
         $date = (string)($_GET['date'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) err('A valid date is required.');
+        $section = trim((string)($_GET['section'] ?? ''));
+
+        // Section-scoped sheet (teacher-clone): roster of that section
+        // + marks + packet status + the department's review note.
+        if ($section !== '') {
+            $out = MezmurAttendanceService::fetchSectionSheet($conn, $date, $section, $auth);
+            // PII discipline: roster rows carry name/code/photo only.
+            foreach ($out['members'] as &$m) {
+                unset($m['full_name_am']);
+            }
+            unset($m);
+            ok($out);
+        }
+
+        // Legacy full-roster sheet (older clients).
         $out = MezmurAttendanceService::fetchSheet($conn, $date, (int)$auth['uid']);
         // PII discipline: roster rows carry name/code/section/photo only.
         foreach ($out['sections'] as $sec => $members) {
@@ -88,6 +110,7 @@ try {
         $input = getBody();
         $date = (string)($input['date'] ?? '');
         $records = $input['records'] ?? [];
+        $section = trim((string)($input['section'] ?? ''));
         if (!is_array($records) || $records === []) err('records array is required.');
         if (count($records) > 500000) err('Sheet is too large.');
 
@@ -96,6 +119,56 @@ try {
             err('Too many sheet saves. Please wait a moment.', 429);
         }
 
+        // Section-scoped save + submission packet (teacher-clone).
+        if ($section !== '') {
+            if (!MezmurSubmissionService::takerMayWrite($conn, $auth, $date, $section)) {
+                err('This attendance is already submitted. Only the Mezmur department can change it.', 409);
+            }
+            $kind = strtolower(trim((string)($input['kind'] ?? 'draft')));
+            $packetStatus = $kind === 'submitted'
+                ? MezmurSubmissionService::STATUS_SUBMITTED
+                : MezmurSubmissionService::STATUS_DRAFT;
+
+            $counts = MezmurSubmissionService::countsFromRecords($records);
+            $packet = [];
+            $conn->begin_transaction();
+            try {
+                // Caller owns the transaction (rows + packet commit together).
+                $summary = MezmurAttendanceService::saveSectionSheet($conn, $date, $section, $records, (int)$auth['uid'], false);
+                $packet = MezmurSubmissionService::upsert($conn, [
+                    'taker_id' => (int)$auth['uid'],
+                    'date' => $date,
+                    'section' => $section,
+                    'status' => $packetStatus,
+                    'member_count' => $summary['marked'],
+                    'present' => $counts['present'],
+                    'late' => $counts['late'],
+                    'absent' => $counts['absent'],
+                    'excused' => $counts['excused'],
+                    'client_op_id' => (string)($input['client_op_id'] ?? ''),
+                ]);
+                if (empty($packet['ok'])) {
+                    throw new \DomainException($packet['message'] ?? 'Could not update the attendance workflow.');
+                }
+                $conn->commit();
+            } catch (\DomainException $error) {
+                $conn->rollback();
+                $safeMessage = $error->getMessage();
+                err($safeMessage, 409);
+            } catch (\Throwable $error) {
+                $conn->rollback();
+                error_log('API mezmur sheet save failed: ' . $error->getMessage());
+                err('Could not save attendance. Nothing was changed. Please try again.', 500);
+            }
+            ok([
+                'saved' => true,
+                'summary' => $summary,
+                'submission_id' => $packet['id'] ?? 0,
+                'submission_status' => $packet['status'] ?? 'draft',
+            ]);
+        }
+
+        // Legacy date-only save (older clients).
         $summary = MezmurAttendanceService::saveSheet($conn, $date, $records, (int)$auth['uid']);
         ok(['saved' => true, 'summary' => $summary]);
     }

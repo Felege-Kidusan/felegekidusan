@@ -24,7 +24,6 @@ class MezmurAnalyticsScreenState extends State<MezmurAnalyticsScreen> {
   bool _running = false;
   bool _hasRun = false;
   String? _error;
-  String _program = '';
   String _from = '';
   String _to = '';
   int _held = 0;
@@ -85,7 +84,6 @@ class MezmurAnalyticsScreenState extends State<MezmurAnalyticsScreen> {
     final res = await _api.getMezmurAnalytics(params: {
       if (_from.isNotEmpty) 'from': _from,
       if (_to.isNotEmpty) 'to': _to,
-      if (_program.isNotEmpty) 'program_type': _program,
       'per_page': '100',
     });
     if (!mounted) return;
@@ -109,7 +107,6 @@ class MezmurAnalyticsScreenState extends State<MezmurAnalyticsScreen> {
     final sec = await _api.get('/mezmur/analytics/sections', params: {
       if (_from.isNotEmpty) 'from': _from,
       if (_to.isNotEmpty) 'to': _to,
-      if (_program.isNotEmpty) 'program_type': _program,
     });
     if (!mounted) return;
     if (sec.success && sec.data != null) {
@@ -174,7 +171,7 @@ class MezmurAnalyticsScreenState extends State<MezmurAnalyticsScreen> {
           const EmptyState(
               icon: Icons.filter_alt_off_outlined,
               title: 'No members in this window',
-              subtitle: 'Adjust the window or program filter.'),
+              subtitle: 'Adjust the date window and run the analysis.'),
         for (var i = 0; i < _members.length; i++) _memberCard(i),
       ],
     );
@@ -319,43 +316,21 @@ class MezmurAnalyticsScreenState extends State<MezmurAnalyticsScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _program,
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: '', child: Text('All programs', style: TextStyle(fontSize: 12))),
-                            DropdownMenuItem(value: 'rehearsal', child: Text('Rehearsal', style: TextStyle(fontSize: 12))),
-                            DropdownMenuItem(value: 'service', child: Text('Service', style: TextStyle(fontSize: 12))),
-                            DropdownMenuItem(value: 'feast', child: Text('Feast', style: TextStyle(fontSize: 12))),
-                            DropdownMenuItem(value: 'training', child: Text('Training', style: TextStyle(fontSize: 12))),
-                            DropdownMenuItem(value: 'other', child: Text('Other', style: TextStyle(fontSize: 12))),
-                          ],
-                          onChanged: (v) => setState(() => _program = v ?? ''),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        onPressed: _running ? null : _run,
-                        icon: _running
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2))
-                            : const Icon(Icons.insights, size: 16),
-                        label: const Text('Analyze'),
-                        style: FilledButton.styleFrom(
-                            backgroundColor: AppTheme.primary),
-                      ),
-                    ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _running ? null : _run,
+                      icon: _running
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.insights, size: 16),
+                      label: const Text('Analyze'),
+                      style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.primary),
+                    ),
                   ),
                 ],
               ),

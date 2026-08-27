@@ -84,10 +84,12 @@ class MezmurModuleTests(unittest.TestCase):
     def test_api_never_leaks_exception_internals(self):
         self.assertIn("catch (\\Throwable $e)", self.api)
         self.assertIn("error_log(", self.api)
-        # getMessage() appears exactly twice: the server-side error_log
-        # line and the controlled DomainException 422 (strings thrown by
-        # our own service — never driver/diagnostic text).
-        self.assertEqual(self.api.count("$e->getMessage()"), 2)
+        # getMessage() appears exactly three times, all controlled
+        # strings thrown by our own services (never driver/diagnostic
+        # text): the server-side error_log line, the DomainException
+        # 422 validator message, and the DomainException 409 packet
+        # lock/save message in the section sheet transaction.
+        self.assertEqual(self.api.count("$e->getMessage()"), 3)
         self.assertIn("error_log('[mezmur] ' . $e->getMessage()", self.api)
         self.assertIn("catch (\DomainException $e)", self.api)
         self.assertNotIn("getTrace", self.api)
@@ -115,7 +117,7 @@ class MezmurModuleTests(unittest.TestCase):
         # long-form lyrics render via textContent, never innerHTML
         self.assertIn("$('mzViewLyrics').textContent", self.js)
         # mutations go through POST helper (CSRF auto-appended)
-        self.assertIn("SSMS.api.post('mezmur.php'", self.js)
+        self.assertIn("window.api.post('mezmur.php'", self.js)
 
     # ── schema safety ──────────────────────────────────────────
     def test_sql_creates_new_objects_only_and_is_idempotent(self):

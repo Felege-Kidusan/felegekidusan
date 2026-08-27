@@ -1,10 +1,19 @@
 /**
  * ════════════════════════════════════════════════════════════
  * Mezmur Department (መዝሙር ክፍል) — front-end controller
- *   • Overview • Hymn Library • Attendance (date/section-based)
- *   • Analytics • Attendance Takers
- * UI states everywhere: skeleton → data / empty(+CTA) / error(+retry).
- * ════════════════════════════════════════════════════════════
+ *   • Overview • Hymn Library • Attendance (section-first,
+ *     teachers/edu workflow clone) • Analytics • Takers
+ *
+ * Phase-5 performance model (big-company pattern):
+ *   1. LAZY TABS — each section loads its data on first
+ *      activation only; nothing fires on DOMContentLoaded except
+ *      the active tab.
+ *   2. BATCHED OVERVIEW — one `action=overview` round trip for
+ *      every overview widget (BFF pattern), not 8 parallel GETs.
+ *   3. BOUNDED GETS — every read races a 12 s timeout so a
+ *      skeleton can NEVER animate forever; timeout renders the
+ *      error state with Retry.
+ *
  * Pure UI layer for frontend/pages/mezmur_dept.php. Every data
  * access goes through /backend/api/mezmur.php (shim →
  * admin/api_mezmur.php) which re-validates session, role, CSRF,
@@ -13,7 +22,7 @@
  * Security conventions (same as finance.js):
  *   - All dynamic values HTML-escaped via esc() before innerHTML;
  *     free-form long text uses textContent only.
- *   - All mutations are POST (CSRF auto-appended by SSMS.api).
+ *   - All mutations are POST (CSRF auto-appended by window.api).
  *   - All lists are server-side paginated (scale-safe).
  * ════════════════════════════════════════════════════════════
  */
@@ -21,6 +30,7 @@
     'use strict';
 
     var PAGE_SIZE = 25;
+    var GET_TIMEOUT = 12000; // ms — skeletons may never outlive this
 
     // ── shared helpers ─────────────────────────────────────────
     function $(id) { return document.getElementById(id); }
@@ -46,10 +56,28 @@
 
     function pctLabel(v) { return v == null ? '—' : (Math.round(v * 10) / 10) + '%'; }
 
-    var PROGRAM_LABELS = {
-        rehearsal: 'Rehearsal', service: 'Service', feast: 'Feast',
-        training: 'Training', other: 'Other'
-    };
+    function todayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // ── bounded API access (the skeleton-forever fix) ─────────
+    function apiGet(q) {
+        var p = window.api.get('mezmur.php?' + q);
+        return new Promise(function (resolve, reject) {
+            var done = false;
+            var timer = setTimeout(function () {
+                if (!done) { done = true; reject(new Error('The server took too long to answer. Check your connection and retry.')); }
+            }, GET_TIMEOUT);
+            p.then(function (d) {
+                if (!done) { done = true; clearTimeout(timer); resolve(d); }
+            }).catch(function (e) {
+                if (!done) { done = true; clearTimeout(timer); reject(e); }
+            });
+        });
+    }
+
+    function apiPost(data) { return window.api.post('mezmur.php', data); }
 
     // ── shared state renderers (skeleton / empty / error) ─────
     function skeletonRows(n) {
@@ -93,6 +121,20 @@
         return '<span class="stat-delta ' + (up ? 'up' : 'down') + '"><i class="fa-solid fa-arrow-trend-' + (up ? 'up' : 'down') + '"></i> ' + Math.abs(d) + (unit || '') + ' vs last month</span>';
     }
 
+    var STATUS_META = {
+        draft:             { label: 'Draft',           badge: 'badge-inactive' },
+        incomplete:        { label: 'Draft',           badge: 'badge-inactive' },
+        submitted:         { label: 'Submitted',       badge: 'badge-info' },
+        approved:          { label: 'Approved',        badge: 'badge-active' },
+        rejected:          { label: 'Rejected',        badge: 'badge-warning' },
+        revision_needed:   { label: 'Needs revision',  badge: 'badge-warning' }
+    };
+
+    function statusChip(status) {
+        var m = STATUS_META[status] || { label: status || '—', badge: 'badge-inactive' };
+        return '<span class="badge ' + m.badge + '">' + esc(m.label) + '</span>';
+    }
+
     // ── modal focus management (Esc to close, focus return) ──
     var _modalTrigger = null;
     function openModalF(id, focusSelector) {
@@ -114,113 +156,132 @@
     });
 
     // ══════════════════════════════════════════════════════════
-    // MODULE 0 — OVERVIEW (composed from EXISTING api actions)
+    // LAZY TAB LOADING — data fetches on first tab activation
     // ══════════════════════════════════════════════════════════
-    function isoDate(d) {
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var tabLoaded = { overview: false, library: false, attendance: false, analytics: false, takers: false };
+
+    function loadTab(name) {
+        if (name === 'overview' && !tabLoaded.overview) {
+            tabLoaded.overview = true;
+            loadOverview();
+        } else if (name === 'library' && !tabLoaded.library) {
+            tabLoaded.library = true;
+            loadStats();
+            loadList();
+        } else if (name === 'attendance' && !tabLoaded.attendance) {
+            tabLoaded.attendance = true;
+            loadSections();
+            loadDays(1);
+            loadSubmissions();
+        } else if (name === 'analytics' && !tabLoaded.analytics) {
+            tabLoaded.analytics = true;
+            ensureAnalyticsSections();
+        } else if (name === 'takers' && !tabLoaded.takers) {
+            tabLoaded.takers = true;
+            loadTakers();
+        }
     }
 
-    function monthWindow(offset) {
-        var now = new Date();
-        var first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-        var last = offset === 0 ? now : new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-        return { from: isoDate(first), to: isoDate(last) };
+    // Wrap core.js's switchSection so every activation (sidebar,
+    // bottom nav, quick tiles, session restore) lazy-loads its tab.
+    var _origSwitch = window.switchSection;
+    if (typeof _origSwitch === 'function') {
+        window.switchSection = function (name) {
+            _origSwitch(name);
+            loadTab(name);
+        };
     }
 
+    // ══════════════════════════════════════════════════════════
+    // MODULE 0 — OVERVIEW (ONE batched request)
+    // ══════════════════════════════════════════════════════════
     function loadOverview() {
         var hour = new Date().getHours();
         var greet = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
         var name = ((window.APP || {}).user || {}).name || '';
         $('mzGreeting').textContent = greet + (name ? ', ' + name.split(' ')[0] : '') + ' 🎵';
 
-        var cur = monthWindow(0), prev = monthWindow(-1);
-        var daysQ = function (w) { return 'mezmur.php?action=days_list&page=1&per_page=100&from=' + w.from + '&to=' + w.to; };
-
-        Promise.all([
-            SSMS.api.get('mezmur.php?action=stats'),
-            SSMS.api.get(daysQ(cur)),
-            SSMS.api.get(daysQ(prev)),
-            SSMS.api.get('mezmur.php?action=list&page=1&per_page=5&status='),
-            SSMS.api.get('mezmur.php?action=takers_list')
-        ]).then(function (r) {
-            var st = r[0], dc = r[1], dp = r[2], hy = r[3], tk = r[4];
-
-            if (st.status === 'success') {
-                $('mzOvHymns').textContent = st.total != null ? st.total : '—';
-                $('mzOvMembers').textContent = st.members != null ? st.members : '—';
-            }
-            if (tk.status === 'success') {
-                var items = tk.items || [];
-                var active = items.filter(function (t) { return t.is_active; }).length;
-                $('mzOvTakers').textContent = active + ' / ' + items.length;
+        apiGet('action=overview').then(function (d) {
+            if (d.status !== 'success') {
+                var msg = d.message || 'Unable to load the overview.';
+                $('mzOvRecentDays').innerHTML = '<tr><td colspan="3">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
+                $('mzOvRecentHymns').innerHTML = '<tr><td colspan="3">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
+                $('mzOvQueue').innerHTML = '<tr><td colspan="5">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
+                return;
             }
 
-            function agg(d) {
-                if (d.status !== 'success') return null;
-                var list = d.items || [], marked = 0, attended = 0;
-                list.forEach(function (x) { marked += x.marked || 0; attended += x.attended || 0; });
-                return { days: d.total || list.length, marked: marked, attended: attended,
-                         rate: marked > 0 ? Math.round(attended * 1000 / marked) / 10 : null };
-            }
-            var c = agg(dc), pv = agg(dp);
-            if (c) {
-                $('mzOvDays').textContent = c.days;
-                $('mzOvRate').textContent = c.rate != null ? c.rate + '%' : '—';
-                $('mzOvDaysDelta').innerHTML = deltaHtml(c.days, pv ? pv.days : null, '');
-                $('mzOvRateDelta').innerHTML = c.rate != null && pv && pv.rate != null ? deltaHtml(c.rate, pv.rate, ' pts') : '';
-            }
+            $('mzOvHymns').textContent = d.hymns_total != null ? d.hymns_total : '—';
+            $('mzOvMembers').textContent = d.members != null ? d.members : '—';
+            $('mzOvTakers').textContent = (d.takers_active || 0) + ' / ' + (d.takers_total || 0);
 
-            // recent attendance days (top 5 of current window)
+            var m = d.month || {}, pv = d.prev_month || {};
+            $('mzOvDays').textContent = m.days != null ? m.days : '—';
+            $('mzOvRate').textContent = m.rate != null ? m.rate + '%' : '—';
+            $('mzOvDaysDelta').innerHTML = deltaHtml(m.days, pv.days, '');
+            $('mzOvRateDelta').innerHTML = (m.rate != null && pv.rate != null) ? deltaHtml(m.rate, pv.rate, ' pts') : '';
+
+            // recent attendance days (no program labels — raw data)
             var body = $('mzOvRecentDays');
-            if (dc.status !== 'success') {
-                body.innerHTML = '<tr><td colspan="4">' + errorState(dc.message, 'Mezmur.loadOverview()') + '</td></tr>';
+            var days = d.recent_days || [];
+            if (!days.length) {
+                body.innerHTML = '<tr><td colspan="3">' + emptyState('fa-calendar-check', 'No attendance yet this month', 'Open the Attendance tab and record your first day.') + '</td></tr>';
             } else {
-                var days = (dc.items || []).slice(0, 5);
-                if (!days.length) {
-                    body.innerHTML = '<tr><td colspan="4">' + emptyState('fa-calendar-check', 'No attendance yet this month', 'Open the Attendance tab and record your first day.') + '</td></tr>';
-                } else {
-                    body.innerHTML = days.map(function (d) {
-                        var rate = d.marked > 0 ? Math.round(d.attended * 1000 / d.marked) / 10 : null;
-                        return '<tr class="clickable-row" onclick="Mezmur.openExisting(\'' + esc(d.attendance_date) + '\')" tabindex="0">' +
-                            '<td class="nowrap">' + fmtDate(d.attendance_date) + '</td>' +
-                            '<td><span class="badge badge-info">' + esc(PROGRAM_LABELS[d.program_type] || d.program_type) + '</span></td>' +
-                            '<td>' + d.attended + '/' + d.marked + '</td>' +
-                            '<td>' + rateChip(rate) + '</td></tr>';
-                    }).join('');
-                }
+                body.innerHTML = days.map(function (x) {
+                    var rate = x.marked > 0 ? Math.round(x.attended * 1000 / x.marked) / 10 : null;
+                    return '<tr class="clickable-row" onclick="Mezmur.jumpToDate(\'' + esc(x.attendance_date) + '\')" tabindex="0">' +
+                        '<td class="nowrap">' + fmtDate(x.attendance_date) + '</td>' +
+                        '<td>' + x.attended + '/' + x.marked + '</td>' +
+                        '<td>' + rateChip(rate) + '</td></tr>';
+                }).join('');
             }
 
             // recent hymns
             var hb = $('mzOvRecentHymns');
-            if (hy.status !== 'success') {
-                hb.innerHTML = '<tr><td colspan="3">' + errorState(hy.message, 'Mezmur.loadOverview()') + '</td></tr>';
+            var hymns = d.recent_hymns || [];
+            if (!hymns.length) {
+                hb.innerHTML = '<tr><td colspan="3">' + emptyState('fa-music', 'No hymns yet', 'Add the first hymn to start the library.') + '</td></tr>';
             } else {
-                var hymns = hy.items || [];
-                if (!hymns.length) {
-                    hb.innerHTML = '<tr><td colspan="3">' + emptyState('fa-music', 'No hymns yet', 'Add the first hymn to start the library.') + '</td></tr>';
-                } else {
-                    hb.innerHTML = hymns.map(function (h) {
-                        return '<tr class="clickable-row" onclick="Mezmur.view(' + h.id + ')" tabindex="0">' +
-                            '<td>' + esc(h.title) + '</td>' +
-                            '<td>' + (h.category ? '<span class="badge badge-info">' + esc(h.category) + '</span>' : '<span class="text-dim">—</span>') + '</td>' +
-                            '<td class="nowrap text-dim">' + fmtDate(h.updated_at) + '</td></tr>';
-                    }).join('');
-                }
+                hb.innerHTML = hymns.map(function (h) {
+                    return '<tr class="clickable-row" onclick="Mezmur.view(' + h.id + ')" tabindex="0">' +
+                        '<td>' + esc(h.title) + '</td>' +
+                        '<td>' + (h.category ? '<span class="badge badge-info">' + esc(h.category) + '</span>' : '<span class="text-dim">—</span>') + '</td>' +
+                        '<td class="nowrap text-dim">' + fmtDate(h.updated_at) + '</td></tr>';
+                }).join('');
+            }
+
+            // review queue preview
+            var qb = $('mzOvQueue');
+            var packets = d.recent_packets || [];
+            if (!packets.length) {
+                qb.innerHTML = '<tr><td colspan="5">' + emptyState('fa-inbox', 'Queue is empty', 'Packets saved or submitted by takers appear here for review.') + '</td></tr>';
+            } else {
+                qb.innerHTML = packets.map(function (p) {
+                    return '<tr class="clickable-row" onclick="Mezmur.gotoAttendance()" tabindex="0">' +
+                        '<td class="nowrap">' + fmtDate(p.attendance_date) + '</td>' +
+                        '<td class="amharic">' + esc(p.section) + '</td>' +
+                        '<td>' + p.member_count + '</td>' +
+                        '<td>' + statusChip(p.status) + '</td>' +
+                        '<td class="nowrap text-dim">' + fmtDate(p.updated_at) + '</td></tr>';
+                }).join('');
             }
         }).catch(function (err) {
-            $('mzOvRecentDays').innerHTML = '<tr><td colspan="4">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadOverview()') + '</td></tr>';
-            $('mzOvRecentHymns').innerHTML = '<tr><td colspan="3">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadOverview()') + '</td></tr>';
+            var msg = (err && err.message) || 'Connection error.';
+            $('mzOvRecentDays').innerHTML = '<tr><td colspan="3">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
+            $('mzOvRecentHymns').innerHTML = '<tr><td colspan="3">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
+            $('mzOvQueue').innerHTML = '<tr><td colspan="5">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
         });
     }
 
-    function quickTake() {
-        switchSection('attendance');
-        $('mzAttDate').value = todayStr();
-        openDay();
+    function gotoAttendance() { window.switchSection('attendance'); }
+    function jumpToDate(date) {
+        window.switchSection('attendance');
+        $('mzAttDate').value = date;
+        window.toast('Date set to ' + fmtDate(date) + ' — pick a section and press Take Attendance.', 'i');
     }
-    function quickLibrary() { switchSection('library'); }
-    function quickAnalytics() { switchSection('analytics'); }
-    function quickTakers() { switchSection('takers'); }
+    function quickTake() { window.switchSection('attendance'); }
+    function quickLibrary() { window.switchSection('library'); }
+    function quickAnalytics() { window.switchSection('analytics'); }
+    function quickTakers() { window.switchSection('takers'); }
 
     // ══════════════════════════════════════════════════════════
     // MODULE 1 — HYMN LIBRARY
@@ -228,7 +289,7 @@
     var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', loading: false };
 
     function loadStats() {
-        return SSMS.api.get('mezmur.php?action=stats').then(function (d) {
+        return apiGet('action=stats').then(function (d) {
             if (d.status !== 'success') return;
             $('mzStatTotal').textContent = d.total != null ? d.total : '—';
             $('mzStatActive').textContent = d.active != null ? d.active : '—';
@@ -240,15 +301,16 @@
             sel.value = cur;
             $('mzCategoryOptions').innerHTML = (d.category_list || []).map(function (c) { return '<option value="' + esc(c) + '">'; }).join('');
 
-            // analytics section filter gets the live section list
-            var anSel = $('mzAnSection');
-            if (anSel) {
-                var anCur = anSel.value;
-                anSel.innerHTML = '<option value="">All sections</option>' +
-                    (d.section_list || []).map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
-                anSel.value = anCur;
-            }
+            populateSectionSelect($('mzAnSection'), d.section_list || []);
         }).catch(function () { /* stats non-critical */ });
+    }
+
+    function populateSectionSelect(sel, sections) {
+        if (!sel) return;
+        var cur = sel.value;
+        sel.innerHTML = '<option value="">All sections</option>' +
+            sections.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+        sel.value = cur;
     }
 
     function loadList() {
@@ -259,7 +321,7 @@
         var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + PAGE_SIZE +
             '&search=' + encodeURIComponent(lib.search) + '&category=' + encodeURIComponent(lib.category) +
             '&status=' + encodeURIComponent(lib.status);
-        SSMS.api.get('mezmur.php?' + q).then(function (d) {
+        apiGet(q).then(function (d) {
             lib.loading = false;
             if (d.status !== 'success') {
                 tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
@@ -326,7 +388,7 @@
     function openEdit(id) {
         clearHymnForm();
         $('mzModalTitle').innerHTML = '<i class="fa-solid fa-pen"></i> Edit Hymn';
-        SSMS.api.get('mezmur.php?action=get&id=' + encodeURIComponent(id)).then(function (d) {
+        apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
             var h = d.item;
             $('mzHymnId').value = h.id; $('mzTitle').value = h.title || ''; $('mzTitleAm').value = h.title_am || '';
@@ -340,7 +402,7 @@
         if (!title) { showError($('mzModalError'), 'Title is required.'); $('mzTitle').focus(); return; }
         var btn = $('mzSaveBtn');
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
-        SSMS.api.post('mezmur.php', {
+        apiPost({
             action: 'save', id: $('mzHymnId').value, title: title,
             title_am: $('mzTitleAm').value.trim(), category: $('mzCategory').value.trim(),
             reference: $('mzReference').value.trim(), lyrics: $('mzLyrics').value
@@ -357,7 +419,7 @@
     }
 
     function viewHymn(id) {
-        SSMS.api.get('mezmur.php?action=get&id=' + encodeURIComponent(id)).then(function (d) {
+        apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
             var h = d.item, meta = '';
             if (h.title_am) meta += '<span class="badge badge-info amharic">' + esc(h.title_am) + '</span>';
@@ -374,7 +436,7 @@
     function setHymnStatus(id, status) {
         var label = status === 'archived' ? 'archive' : 'restore';
         if (!window.confirm('Are you sure you want to ' + label + ' this hymn?')) return;
-        SSMS.api.post('mezmur.php', { action: 'set_status', id: id, status: status }).then(function (d) {
+        apiPost({ action: 'set_status', id: id, status: status }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Action failed.', 'e'); return; }
             window.toast(d.message || 'Done.', 's');
             loadStats(); loadList();
@@ -382,30 +444,38 @@
     }
 
     // ══════════════════════════════════════════════════════════
+    // MODULE 2 — ATTENDANCE (section-first, teacher/edu clone)
     // ══════════════════════════════════════════════════════════
-    // MODULE 2 — ATTENDANCE (date-based, section-grouped)
-    // ══════════════════════════════════════════════════════════
-    var COLLAPSE_THRESHOLD = 300; // sections collapse above this roster size
     var att = {
-        page: 1, totalPages: 1, date: null, sheet: null, marks: {},
-        order: [], focusIdx: -1, dirty: false
+        page: 1, totalPages: 1, date: null, section: null, sheet: null,
+        marks: {}, notes: {}, order: [], focusIdx: -1, dirty: false,
+        packetStatus: '', reviewNote: ''
     };
+    var VALID_MARKS = ['present', 'late', 'absent', 'excused'];
 
-    function todayStr() {
-        var d = new Date();
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    }
-
-    function draftKey(date) { return 'mzDraft:' + date; }
+    function draftKey() { return 'mzDraft:' + att.date + ':' + att.section; }
     function draftSave() {
-        if (!att.date) return;
-        try { sessionStorage.setItem(draftKey(att.date), JSON.stringify(att.marks)); } catch (e) { /* storage full/blocked */ }
+        if (!att.date || !att.section) return;
+        try { sessionStorage.setItem(draftKey(), JSON.stringify({ marks: att.marks, notes: att.notes })); } catch (e) { /* storage full/blocked */ }
     }
     function draftClear() {
-        if (!att.date) return;
-        try { sessionStorage.removeItem(draftKey(att.date)); } catch (e) { /* ignore */ }
+        if (!att.date || !att.section) return;
+        try { sessionStorage.removeItem(draftKey()); } catch (e) { /* ignore */ }
     }
     function markDirty() { att.dirty = true; draftSave(); }
+
+    // ── section selector ([Section ▾] like teachers' [Class ▾]) ─
+    function loadSections() {
+        apiGet('action=sections').then(function (d) {
+            if (d.status !== 'success') return;
+            var sel = $('mzAttSection'), cur = sel.value;
+            sel.innerHTML = '<option value="">Select section…</option>' +
+                (d.items || []).map(function (s) {
+                    return '<option value="' + esc(s.section) + '">' + esc(s.section) + ' · ' + s.members + '</option>';
+                }).join('');
+            if (cur) sel.value = cur;
+        }).catch(function () { /* retried on tab re-entry */ });
+    }
 
     // ── days list ─────────────────────────────────────────────
     function loadDays(page) {
@@ -414,13 +484,13 @@
         tb.innerHTML = skeletonRows(5);
         var q = 'action=days_list&page=' + att.page + '&per_page=' + PAGE_SIZE +
             '&from=' + encodeURIComponent($('mzSessFrom').value || '') + '&to=' + encodeURIComponent($('mzSessTo').value || '');
-        SSMS.api.get('mezmur.php?' + q).then(function (d) {
+        apiGet(q).then(function (d) {
             if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="7">' + errorState(d.message || 'Unable to load days.', 'Mezmur.loadDays()') + '</td></tr>';
+                tb.innerHTML = '<tr><td colspan="5">' + errorState(d.message || 'Unable to load days.', 'Mezmur.loadDays()') + '</td></tr>';
                 return;
             }
             att.totalPages = d.total_pages || 1;
-            renderDayRows(d.items || [], d.total || 0);
+            renderDayRows(d.items || []);
             var pg = $('mzSessPagination');
             pg.innerHTML = att.totalPages <= 1
                 ? '<span class="text-dim">' + (d.total || 0) + ' attendance day' + ((d.total || 0) === 1 ? '' : 's') + '</span><span></span>'
@@ -428,89 +498,86 @@
                   '<span class="text-dim">Page ' + att.page + ' of ' + att.totalPages + '</span>' +
                   '<button class="btn-secondary btn-sm" ' + (att.page >= att.totalPages ? 'disabled' : '') + ' onclick="Mezmur.sessPage(' + (att.page + 1) + ')" aria-label="Next page"><i class="fa-solid fa-chevron-right"></i></button>';
         }).catch(function (err) {
-            tb.innerHTML = '<tr><td colspan="7">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadDays()') + '</td></tr>';
+            tb.innerHTML = '<tr><td colspan="5">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadDays()') + '</td></tr>';
         });
     }
 
-    function renderDayRows(items, total) {
+    function renderDayRows(items) {
         var tb = $('mzSessTbody');
         if (!items.length) {
-            tb.innerHTML = '<tr><td colspan="7">' + emptyState('fa-calendar-check', 'No attendance yet',
-                'Pick a date above and press Take Attendance to record your first day.',
-                '<button class="btn-primary btn-sm" onclick="Mezmur.openDay()"><i class="fa-solid fa-clipboard-check"></i> Take Attendance</button>') + '</td></tr>';
+            tb.innerHTML = '<tr><td colspan="5">' + emptyState('fa-calendar-check', 'No attendance yet',
+                'Pick a section and date above and press Take Attendance to record your first day.') + '</td></tr>';
             return;
         }
         tb.innerHTML = items.map(function (d) {
             var rate = d.marked > 0 ? Math.round(d.attended * 1000 / d.marked) / 10 : null;
             return '<tr>' +
                 '<td class="nowrap">' + fmtDate(d.attendance_date) + '</td>' +
-                '<td><span class="badge badge-info">' + esc(PROGRAM_LABELS[d.program_type] || d.program_type) + '</span></td>' +
-                '<td class="text-dim">' + esc(d.title || '—') + '</td>' +
                 '<td>' + d.marked + '</td>' +
                 '<td class="text-ok"><b>' + d.attended + '</b></td>' +
                 '<td>' + rateBar(rate) + '</td>' +
-                '<td class="nowrap"><button class="btn-primary btn-sm" onclick="Mezmur.openExisting(\'' + esc(d.attendance_date) + '\')">' +
+                '<td class="nowrap"><button class="btn-primary btn-sm" onclick="Mezmur.jumpToDate(\'' + esc(d.attendance_date) + '\')">' +
                 '<i class="fa-solid fa-clipboard-check"></i> ' + (d.marked > 0 ? 'Review' : 'Open') + '</button></td></tr>';
         }).join('');
     }
 
-    // ── open / load sheet ─────────────────────────────────────
-    // day_create is an idempotent get-or-create; program label stored once.
+    // ── open / load sheet (section-scoped) ────────────────────
     function openDay() {
         var date = $('mzAttDate').value;
+        var section = $('mzAttSection').value;
+        if (!section) { window.toast('Pick a section first.', 'e'); $('mzAttSection').focus(); return; }
         if (!date) { window.toast('Pick a date first.', 'e'); return; }
-        SSMS.api.post('mezmur.php', {
-            action: 'day_create', date: date,
-            program_type: $('mzAttProgram').value
-        }).then(function (d) {
-            if (d.status !== 'success') { window.toast(d.message || 'Unable to open that date.', 'e'); return; }
-            loadSheet(date);
-        }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
+        loadSheet(date, section);
     }
 
-    function openExisting(date) { loadSheet(date); }
-
-    function loadSheet(date) {
+    function loadSheet(date, section) {
         $('mzSheetBody').innerHTML = skeletonRows(8);
         $('mzSessionListView').style.display = 'none';
         $('mzSheetView').style.display = 'block';
-        SSMS.api.get('mezmur.php?action=sheet&date=' + encodeURIComponent(date)).then(function (d) {
-            if (d.status !== 'success' || !d.day) { window.toast(d.message || 'Unable to load the sheet.', 'e'); closeSheet(true); return; }
+        renderSheetStatus('');
+        apiGet('action=sheet&date=' + encodeURIComponent(date) + '&section=' + encodeURIComponent(section)).then(function (d) {
+            if (d.status !== 'success' || !d.members) { window.toast(d.message || 'Unable to load the sheet.', 'e'); closeSheet(true); return; }
             att.sheet = d;
             att.date = date;
+            att.section = section;
             att.marks = {};
+            att.notes = {};
             att.order = [];
             att.focusIdx = -1;
             att.dirty = false;
-            Object.keys(d.sections).forEach(function (sec) {
-                d.sections[sec].forEach(function (m) {
-                    att.marks[m.id] = m.mark || 'present';
-                    att.order.push(m.id);
-                });
+            att.packetStatus = d.submission_status || '';
+            att.reviewNote = d.review_notes || '';
+            d.members.forEach(function (m) {
+                att.marks[m.id] = m.mark || '';
+                att.notes[m.id] = m.notes || '';
+                att.order.push(m.id);
             });
-            var label = (PROGRAM_LABELS[d.day.program_type] || d.day.program_type) + (d.day.title ? ' • ' + d.day.title : '');
-            $('mzSheetTitle').textContent = 'Attendance — ' + fmtDate(date);
-            $('mzSheetMeta').textContent = label + ' • ' + att.order.length + ' members';
+            $('mzSheetTitle').textContent = 'Attendance — ' + section;
+            $('mzSheetMeta').textContent = fmtDate(date) + ' • ' + att.order.length + ' members';
             var pm = $('mzPrintMeta');
-            if (pm) pm.textContent = label + ' • ' + att.order.length + ' members';
+            if (pm) pm.textContent = section + ' • ' + fmtDate(date) + ' • ' + att.order.length + ' members';
             renderSheet();
             restoreDraft();
+            renderSheetStatus(att.packetStatus);
             updateSheetSummary();
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); closeSheet(true); });
     }
 
     function restoreDraft() {
         var raw = null;
-        try { raw = sessionStorage.getItem(draftKey(att.date)); } catch (e) { /* ignore */ }
+        try { raw = sessionStorage.getItem(draftKey()); } catch (e) { /* ignore */ }
         if (!raw) return;
         var saved = {};
         try { saved = JSON.parse(raw); } catch (e) { saved = {}; }
         var applied = 0;
-        Object.keys(saved).forEach(function (id) {
-            if (att.marks.hasOwnProperty(id) && ['present', 'late', 'absent'].indexOf(saved[id]) !== -1 && att.marks[id] !== saved[id]) {
-                att.marks[id] = saved[id];
+        Object.keys(saved.marks || {}).forEach(function (id) {
+            if (att.marks.hasOwnProperty(id) && VALID_MARKS.indexOf(saved.marks[id]) !== -1 && att.marks[id] !== saved.marks[id]) {
+                att.marks[id] = saved.marks[id];
                 applied++;
             }
+        });
+        Object.keys(saved.notes || {}).forEach(function (id) {
+            if (att.notes.hasOwnProperty(id)) att.notes[id] = saved.notes[id];
         });
         if (applied > 0) {
             att.dirty = true;
@@ -519,57 +586,56 @@
         }
     }
 
-    // ── sheet rendering (section-grouped, batched) ────────────
+    function renderSheetStatus(status) {
+        var el = $('mzSheetStatus');
+        if (!el) return;
+        if (!status) { el.classList.add('is-hidden'); el.innerHTML = ''; return; }
+        var html = '';
+        if (status === 'submitted') {
+            html = '<div class="mz-banner info"><i class="fa-solid fa-paper-plane"></i><span><b>Submitted.</b> Waiting for the Mezmur department to review. You can still save corrections until it is approved.</span></div>';
+        } else if (status === 'approved') {
+            html = '<div class="mz-banner ok"><i class="fa-solid fa-circle-check"></i><span><b>Approved</b> by the Mezmur department.</span></div>';
+        } else if (status === 'rejected') {
+            html = '<div class="mz-banner bad"><i class="fa-solid fa-circle-xmark"></i><span><b>Rejected</b> by the Mezmur department.' + (att.reviewNote ? ' ' + esc(att.reviewNote) : '') + '</span></div>';
+        } else if (status === 'revision_needed') {
+            html = '<div class="mz-banner warn"><i class="fa-solid fa-rotate-left"></i><span><b>Returned for correction.</b> ' +
+                (att.reviewNote ? esc(att.reviewNote) : 'Fix the sheet and submit it again.') + '</span></div>';
+        } else if (status === 'draft') {
+            html = '<div class="mz-banner info"><i class="fa-solid fa-file-pen"></i><span><b>Draft</b> — saved locally and visible to the department. Submit when the sheet is final.</span></div>';
+        }
+        el.innerHTML = html;
+        el.classList.toggle('is-hidden', !html);
+    }
+
+    // ── sheet rendering (batched) ─────────────────────────────
     function renderSheet() {
         if (!att.sheet) return;
-        var sections = Object.keys(att.sheet.sections);
-        var total = att.order.length;
-        var collapseDefault = total > COLLAPSE_THRESHOLD;
+        var members = att.sheet.members || [];
         var html = '';
-        if (!total) {
-            html = emptyState('fa-users', 'No active members', 'Add members to the roster to start recording attendance.');
-        }
-        sections.forEach(function (sec, gi) {
-            var members = att.sheet.sections[sec];
-            var collapsed = collapseDefault && gi > 0;
-            html += '<div class="group">' +
-                '<div class="group-head">' +
-                (collapseDefault ? '<button class="group-caret" aria-expanded="' + (!collapsed) + '" onclick="Mezmur.toggleGroup(' + gi + ')" aria-label="Toggle ' + esc(sec) + '"><i class="fa-solid fa-chevron-' + (collapsed ? 'right' : 'down') + '"></i></button>' : '') +
-                '<h4><i class="fa-solid fa-layer-group"></i> ' + esc(sec) + '</h4>' +
-                '<span class="group-count">' + members.length + ' members</span>' +
-                '<div class="group-actions no-print">' +
-                '<button class="btn-secondary btn-sm" onclick="Mezmur.markSection(' + gi + ',\'present\')">All present</button>' +
-                '</div></div>' +
-                '<div class="group-body' + (collapsed ? ' is-collapsed' : '') + '" data-group="' + gi + '">';
+        if (!members.length) {
+            html = emptyState('fa-users', 'No active members in this section', 'Assign members to this section to start recording attendance.');
+        } else {
+            html = '<div class="group"><div class="group-body">';
             members.forEach(function (m) { html += memberRow(m); });
             html += '</div></div>';
-        });
+        }
         $('mzSheetBody').innerHTML = html;
     }
 
-    function toggleGroup(gi) {
-        var body = document.querySelector('[data-group="' + gi + '"]');
-        if (!body) return;
-        var collapsed = body.classList.toggle('is-collapsed');
-        var caret = body.previousElementSibling && body.previousElementSibling.querySelector('.group-caret');
-        if (caret) {
-            caret.setAttribute('aria-expanded', String(!collapsed));
-            caret.innerHTML = '<i class="fa-solid fa-chevron-' + (collapsed ? 'right' : 'down') + '"></i>';
-        }
-    }
-
     function memberRow(m) {
-        var mark = att.marks[m.id] || 'present';
+        var mark = att.marks[m.id] || '';
+        var note = att.notes[m.id] || '';
         function seg(status, label) {
             return '<button type="button" class="seg-btn seg-' + status + '" aria-pressed="' + (mark === status) + '" ' +
                 'onclick="Mezmur.setMark(' + m.id + ',\'' + status + '\')" aria-label="' + label + '"><span aria-hidden="true">' +
                 (status === 'present' ? '✓ ' : '') + label + '</span></button>';
         }
         return '<div class="member-row" data-mzrow="' + m.id + '">' +
-            '<div class="member-name">' + esc(m.student_name) + ' ' + esc(m.father_name || '') +
-            (m.full_name_am ? '<span class="member-am amharic">' + esc(m.full_name_am) + '</span>' : '') + '</div>' +
+            '<div class="member-name"><a href="#" onclick="Mezmur.editNote(' + m.id + ');return false;" style="color:inherit;text-decoration:none">' +
+            esc(m.student_name) + ' ' + esc(m.father_name || '') + '</a>' +
+            '<div class="text-dim" style="font-size:.68rem">' + (note ? esc(note) : '<i>tap name for note</i>') + '</div></div>' +
             '<div class="seg-group" role="group" aria-label="Attendance status">' +
-            seg('present', 'Present') + seg('late', 'Late') + seg('absent', 'Absent') +
+            seg('present', 'Present') + seg('late', 'Late') + seg('absent', 'Absent') + seg('excused', 'Excused') +
             '</div></div>';
     }
 
@@ -595,31 +661,46 @@
         updateSheetSummary();
     }
 
-    function markSection(gi, status) {
-        if (!att.sheet) return;
-        var sec = Object.keys(att.sheet.sections)[gi];
-        if (!sec) return;
-        att.sheet.sections[sec].forEach(function (m) { att.marks[m.id] = status; });
+    function editNote(memberId) {
+        if (!att.sheet || !att.notes.hasOwnProperty(memberId)) return;
+        var member = (att.sheet.members || []).filter(function (m) { return m.id === memberId; })[0];
+        var label = member ? member.student_name : 'Member';
+        var note = window.prompt('Note for ' + label + ' (optional):', att.notes[memberId] || '');
+        if (note === null) return;
+        note = note.trim().slice(0, 500);
+        if (note === (att.notes[memberId] || '')) return;
+        att.notes[memberId] = note;
         markDirty();
         renderSheet();
-        updateSheetSummary();
+    }
+
+    function unmarkedCount() {
+        var n = 0;
+        Object.keys(att.marks).forEach(function (id) { if (!att.marks[id]) n++; });
+        return n;
     }
 
     function updateSheetSummary() {
-        var p = 0, l = 0, a = 0;
+        var p = 0, l = 0, a = 0, e = 0, u = 0;
         Object.keys(att.marks).forEach(function (id) {
             if (att.marks[id] === 'present') p++;
             else if (att.marks[id] === 'late') l++;
-            else a++;
+            else if (att.marks[id] === 'absent') a++;
+            else if (att.marks[id] === 'excused') e++;
+            else u++;
         });
-        var total = p + l + a;
-        var rate = total > 0 ? Math.round((p + l) * 1000 / total) / 10 : 0;
+        var marked = p + l + a + e;
+        var rate = marked > 0 ? Math.round((p + l) * 1000 / marked) / 10 : 0;
         $('mzSheetSummary').innerHTML =
-            '<b>' + total + '</b> members • <span class="text-ok"><b>' + p + '</b> present</span> • ' +
-            '<span class="text-warn"><b>' + l + '</b> late</span> • <span class="text-bad"><b>' + a + '</b> absent</span> • rate <b>' + rate + '%</b>';
+            '<b>' + marked + '</b> marked' + (u > 0 ? ' • <span class="text-warn"><b>' + u + '</b> unmarked</span>' : '') +
+            ' • <span class="text-ok"><b>' + p + '</b> present</span>' +
+            ' • <span class="text-warn"><b>' + l + '</b> late</span>' +
+            ' • <span class="text-bad"><b>' + a + '</b> absent</span>' +
+            ' • <span style="color:var(--school-info)"><b>' + e + '</b> excused</span>' +
+            ' • rate <b>' + rate + '%</b>';
     }
 
-    // ── keyboard marking: ↑/↓ move, P/L/A set ─────────────────
+    // ── keyboard marking: ↑/↓ move, P/L/A/E set ────────────────
     document.addEventListener('keydown', function (e) {
         if (!att.sheet || $('mzSheetView').style.display === 'none') return;
         if (document.querySelector('.school-modal.show')) return;
@@ -635,6 +716,7 @@
         } else if (k === 'p' || k === 'P') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'present'); } }
         else if (k === 'l' || k === 'L') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'late'); } }
         else if (k === 'a' || k === 'A') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'absent'); } }
+        else if (k === 'e' || k === 'E') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'excused'); } }
     });
 
     function setFocusRow(idx) {
@@ -647,31 +729,43 @@
         }
     }
 
-    // ── save / close ──────────────────────────────────────────
-    function saveSheet() {
-        if (!att.sheet || !att.date) return;
-        var records = Object.keys(att.marks).map(function (id) { return { member_id: parseInt(id, 10), status: att.marks[id] }; });
-        var btn = $('mzSheetSaveBtn');
-        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
-        SSMS.api.post('mezmur.php', {
-            action: 'save_sheet', date: att.date, records: JSON.stringify(records)
+    // ── save / submit (teachers' Save & Submit semantics) ─────
+    function saveSheet(kind) {
+        if (!att.sheet || !att.date || !att.section) return;
+        kind = kind === 'submitted' ? 'submitted' : 'draft';
+        var unmarked = unmarkedCount();
+        if (unmarked > 0) {
+            window.toast('Mark every member first (' + unmarked + ' unmarked).', 'e');
+            return;
+        }
+        var records = Object.keys(att.marks).map(function (id) {
+            return { member_id: parseInt(id, 10), status: att.marks[id], notes: att.notes[id] || '' };
+        });
+        var btn = kind === 'submitted' ? $('mzSheetSubmitBtn') : $('mzSheetSaveBtn');
+        var orig = btn.innerHTML;
+        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + (kind === 'submitted' ? 'Submitting…' : 'Saving…');
+        apiPost({
+            action: 'save_sheet', date: att.date, section: att.section,
+            kind: kind, records: JSON.stringify(records)
         }).then(function (d) {
-            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Attendance';
+            btn.disabled = false; btn.innerHTML = orig;
             if (d.status !== 'success') { window.toast(d.message || 'Unable to save attendance.', 'e'); return; }
             var sum = d.summary || {};
             att.dirty = false;
             draftClear();
-            window.toast('Saved: ' + sum.present + ' present, ' + sum.late + ' late, ' + sum.absent + ' absent.', 's');
-            closeSheet(true);
-            loadDays(att.page);
+            att.packetStatus = d.submission_status || (kind === 'submitted' ? 'submitted' : 'draft');
+            renderSheetStatus(att.packetStatus);
+            window.toast(d.message || ('Saved: ' + sum.present + ' present, ' + sum.late + ' late, ' + sum.absent + ' absent, ' + (sum.excused || 0) + ' excused.'), 's');
+            loadSubmissions();
+            if (kind === 'submitted') closeSheet(true);
         }).catch(function (err) {
-            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Attendance';
+            btn.disabled = false; btn.innerHTML = orig;
             window.toast((err && err.message) || 'Connection error.', 'e');
         });
     }
 
     function closeSheet(force) {
-        if (!force && att.dirty && !window.confirm('You have unsaved attendance changes. Leave anyway? Your draft is kept for this date.')) {
+        if (!force && att.dirty && !window.confirm('You have unsaved attendance changes. Leave anyway? Your draft is kept for this date and section.')) {
             return;
         }
         if (!att.dirty) draftClear();
@@ -687,16 +781,132 @@
         if (att.dirty && att.sheet) { e.preventDefault(); e.returnValue = ''; }
     });
 
+    // ── review inbox (department) ─────────────────────────────
+    function loadSubmissions() {
+        var tb = $('mzSubTbody');
+        if (!tb) return;
+        tb.innerHTML = skeletonRows(5);
+        var q = 'action=submissions_list&status=' + encodeURIComponent($('mzSubStatus').value || 'attention');
+        apiGet(q).then(function (d) {
+            if (d.status !== 'success') {
+                tb.innerHTML = '<tr><td colspan="7">' + errorState(d.message || 'Unable to load the queue.', 'Mezmur.loadSubmissions()') + '</td></tr>';
+                return;
+            }
+            var items = d.items || [];
+            if (!items.length) {
+                tb.innerHTML = '<tr><td colspan="7">' + emptyState('fa-inbox', 'Nothing to review',
+                    'When a taker saves or submits a section sheet, the packet lands here.') + '</td></tr>';
+                return;
+            }
+            tb.innerHTML = items.map(function (p) {
+                var open = p.status === 'submitted' || p.status === 'revision_needed' || p.status === 'draft';
+                return '<tr>' +
+                    '<td class="nowrap">' + fmtDate(p.attendance_date) + '</td>' +
+                    '<td class="amharic">' + esc(p.section) + '</td>' +
+                    '<td>' + esc(p.taker_name || '—') + '</td>' +
+                    '<td>' + p.member_count + '</td>' +
+                    '<td>' + statusChip(p.status) + '</td>' +
+                    '<td class="nowrap text-dim">' + fmtDate(p.updated_at) + '</td>' +
+                    '<td class="nowrap">' +
+                    '<button class="btn-secondary btn-sm" title="View rows" onclick="Mezmur.viewPacket(' + p.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
+                    (open
+                        ? '<button class="btn-primary btn-sm" onclick="Mezmur.openReview(' + p.id + ')"><i class="fa-solid fa-gavel"></i> Review</button>'
+                        : '<button class="btn-secondary btn-sm" onclick="Mezmur.openReview(' + p.id + ')"><i class="fa-solid fa-gavel"></i> Re-review</button>') +
+                    '</td></tr>';
+            }).join('');
+        }).catch(function (err) {
+            tb.innerHTML = '<tr><td colspan="7">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadSubmissions()') + '</td></tr>';
+        });
+    }
+
+    var _reviewMeta = {};
+    function openReview(id) {
+        apiGet('action=submission_detail&id=' + encodeURIComponent(id)).then(function (d) {
+            if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load the packet.', 'e'); return; }
+            var p = d.item;
+            _reviewMeta = p;
+            $('mzRvId').value = p.id;
+            $('mzRvMeta').innerHTML =
+                '<span class="badge badge-info">' + fmtDate(p.attendance_date) + '</span>' +
+                '<span class="badge badge-active amharic">' + esc(p.section) + '</span>' +
+                '<span class="text-dim">by ' + esc(p.taker_name || '—') + '</span>' +
+                statusChip(p.status);
+            // A previously returned packet keeps its decision context.
+            $('mzRvDecision').value = p.status === 'submitted' ? 'approved' : 'revision_needed';
+            $('mzRvNotes').value = '';
+            showError($('mzRvError'), '');
+            openModalF('mzReviewModal', '#mzRvDecision');
+        }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
+    }
+
+    function submitReview() {
+        var id = parseInt($('mzRvId').value, 10);
+        var decision = $('mzRvDecision').value;
+        var notes = $('mzRvNotes').value.trim();
+        if (!id) return;
+        if (decision !== 'approved' && notes.length < 3) {
+            showError($('mzRvError'), 'Write a short reason so the taker knows what to fix.');
+            $('mzRvNotes').focus();
+            return;
+        }
+        var btn = $('mzRvSaveBtn');
+        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Recording…';
+        apiPost({ action: 'submission_review', submission_id: id, new_status: decision, notes: notes }).then(function (d) {
+            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-gavel"></i> Record Decision';
+            if (d.status !== 'success') { showError($('mzRvError'), d.message || 'Unable to record the decision.'); return; }
+            closeModalF('mzReviewModal');
+            window.toast(d.message || 'Decision recorded.', 's');
+            loadSubmissions();
+        }).catch(function (err) {
+            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-gavel"></i> Record Decision';
+            showError($('mzRvError'), (err && err.message) || 'Connection error.');
+        });
+    }
+
+    function viewPacket(id) {
+        apiGet('action=submission_detail&id=' + encodeURIComponent(id)).then(function (d) {
+            if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load the packet.', 'e'); return; }
+            var p = d.item;
+            $('mzPacketTitle').innerHTML = '<i class="fa-solid fa-list-check"></i> ' + esc(p.section) + ' — ' + fmtDate(p.attendance_date);
+            $('mzPacketMeta').innerHTML =
+                statusChip(p.status) +
+                '<span class="text-dim">by ' + esc(p.taker_name || '—') + '</span>' +
+                '<span class="text-dim">' + p.member_count + ' members • ' +
+                p.present_count + ' present • ' + p.late_count + ' late • ' +
+                p.absent_count + ' absent • ' + p.excused_count + ' excused</span>';
+            var rows = p.rows || [];
+            var body = '<div class="table-shell"><table><thead><tr><th>#</th><th>Member</th><th>Code</th><th>Status</th><th>Note</th></tr></thead><tbody>';
+            if (!rows.length) {
+                body += '<tr><td colspan="5">' + emptyState('fa-users', 'No rows', 'No attendance rows are attached to this packet.') + '</td></tr>';
+            } else {
+                body += rows.map(function (r, i) {
+                    return '<tr><td class="text-dim">' + (i + 1) + '</td>' +
+                        '<td><b>' + esc(r.student_name) + '</b> ' + esc(r.father_name || '') + '</td>' +
+                        '<td class="text-dim">' + esc(r.member_code || '—') + '</td>' +
+                        '<td>' + esc(r.status) + '</td>' +
+                        '<td class="text-dim">' + esc(r.notes || '—') + '</td></tr>';
+                }).join('');
+            }
+            body += '</tbody></table></div>';
+            $('mzPacketBody').innerHTML = body;
+            openModalF('mzPacketModal', null);
+        }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
+    }
+
     // ══════════════════════════════════════════════════════════
-    // MODULE 3 — ANALYTICS
+    // MODULE 3 — ANALYTICS (no program filter — raw attendance)
     // ══════════════════════════════════════════════════════════
     var an = { page: 1, sort: 'rate', dir: 'desc', lastMembers: [], sessionsHeld: 0 };
+
+    function ensureAnalyticsSections() {
+        var sel = $('mzAnSection');
+        if (sel && sel.options.length <= 1) loadStats();
+    }
 
     function anParams(page) {
         return 'action=analytics_members&page=' + (page || an.page) + '&per_page=' + PAGE_SIZE +
             '&sort=' + encodeURIComponent(an.sort) + '&dir=' + an.dir +
             '&section=' + encodeURIComponent($('mzAnSection').value || '') +
-            '&program_type=' + encodeURIComponent($('mzAnProgram').value || '') +
             '&from=' + encodeURIComponent($('mzAnFrom').value || '') +
             '&to=' + encodeURIComponent($('mzAnTo').value || '') +
             '&search=' + encodeURIComponent($('mzAnSearch').value.trim()) +
@@ -709,9 +919,9 @@
         var tb = $('mzAnTbody');
         tb.innerHTML = skeletonRows(8);
 
-        var pMembers = SSMS.api.get('mezmur.php?' + anParams(an.page));
-        var pSections = SSMS.api.get('mezmur.php?' + anParams(1).replace('action=analytics_members', 'action=analytics_sections'));
-        var pTrends = SSMS.api.get('mezmur.php?action=analytics_trends&program_type=' + encodeURIComponent($('mzAnProgram').value || '') +
+        var pMembers = apiGet(anParams(an.page));
+        var pSections = apiGet(anParams(1).replace('action=analytics_members', 'action=analytics_sections'));
+        var pTrends = apiGet('action=analytics_trends' +
             '&from=' + encodeURIComponent($('mzAnFrom').value || '') + '&to=' + encodeURIComponent($('mzAnTo').value || ''));
 
         Promise.all([pMembers, pSections, pTrends]).then(function (res) {
@@ -762,7 +972,6 @@
         }).join('');
         updateSortHeaders();
 
-        var tp = Math.max(1, Math.ceil(((dm.items || []).length === PAGE_SIZE ? an.page * PAGE_SIZE + 1 : (an.page - 1) * PAGE_SIZE + items.length) / PAGE_SIZE));
         $('mzAnPagination').innerHTML =
             '<button class="btn-secondary btn-sm" ' + (an.page <= 1 ? 'disabled' : '') + ' onclick="Mezmur.runAnalytics(' + (an.page - 1) + ')"><i class="fa-solid fa-chevron-left"></i></button>' +
             '<span style="color:var(--school-text-dim);font-size:.8rem">Page ' + an.page + '</span>' +
@@ -847,7 +1056,7 @@
     function loadTakers() {
         var tb = $('mzTakerTbody');
         tb.innerHTML = skeletonRows(4);
-        SSMS.api.get('mezmur.php?action=takers_list').then(function (d) {
+        apiGet('action=takers_list').then(function (d) {
             if (d.status !== 'success') {
                 tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load takers.', 'Mezmur.reloadTakers()') + '</td></tr>';
                 return;
@@ -887,7 +1096,7 @@
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating…';
         // Reuses the hardened user pipeline — server re-checks that the
         // mezmur_dept role may only create attendance_taker accounts.
-        SSMS.api.post('/admin/backend/user-save.php', {
+        window.api.post('/admin/backend/user-save.php', {
             full_name: name, username: user, role: 'attendance_taker',
             password: pass, confirm_password: pass, is_active: 1
         }).then(function (d) {
@@ -903,7 +1112,7 @@
     }
 
     function toggleTaker(id) {
-        SSMS.api.post('/admin/backend/user-toggle.php', { user_id: id, action: 'toggle_status' }).then(function (d) {
+        window.api.post('/admin/backend/user-toggle.php', { user_id: id, action: 'toggle_status' }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Action failed.', 'e'); return; }
             window.toast(d.message || 'Done.', 's');
             loadTakers();
@@ -924,11 +1133,12 @@
         $('mzAttDate').value = todayStr();
         $('mzAttDate').max = todayStr();
 
-        loadOverview();
-        loadStats();
-        loadList();
-        loadDays(1);
-        loadTakers();
+        // Lazy loading: fetch only what the user is actually looking at.
+        // core.js may restore the last-used section before this runs;
+        // whichever section is active now gets its (single) load.
+        var active = document.querySelector('.school-section.active');
+        var name = active ? (active.getAttribute('data-section') || 'overview') : 'overview';
+        loadTab(name);
     });
 
     // Public API (inline onclick handlers in the shell)
@@ -936,6 +1146,7 @@
         // overview
         loadOverview: loadOverview, reloadTakers: loadTakers, libReload: loadList,
         quickTake: quickTake, quickLibrary: quickLibrary, quickAnalytics: quickAnalytics, quickTakers: quickTakers,
+        gotoAttendance: gotoAttendance, jumpToDate: jumpToDate,
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
         closeModal: function () { closeModalF('mzHymnModal'); },
@@ -944,9 +1155,11 @@
         // attendance
         loadDays: function () { loadDays(1); },
         sessPage: function (p) { loadDays(p); },
-        openDay: openDay, openExisting: openExisting,
+        openDay: openDay,
         closeSheet: function () { closeSheet(false); }, saveSheet: saveSheet,
-        setMark: setMark, markAll: markAll, markSection: markSection, toggleGroup: toggleGroup,
+        setMark: setMark, markAll: markAll, editNote: editNote,
+        // review inbox
+        loadSubmissions: loadSubmissions, openReview: openReview, submitReview: submitReview, viewPacket: viewPacket,
         // analytics
         runAnalytics: runAnalytics, sortBy: sortBy, exportCsv: exportCsv,
         // takers

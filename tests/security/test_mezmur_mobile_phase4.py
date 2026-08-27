@@ -49,10 +49,16 @@ class MobilePhase4Tests(unittest.TestCase):
 
     # ── offline outbox parity ─────────────────────────────────
     def test_localdb_v9_mezmur_tables(self):
-        self.assertIn("version: 9,", self.db)
+        # v9 introduced the mezmur outbox; v10 (phase 5) made it
+        # section-scoped. Both migration blocks must stay present.
+        self.assertIn("version: 10,", self.db)
         self.assertIn("CREATE TABLE pending_mezmur", self.db.replace("IF NOT EXISTS ", ""))
         self.assertIn("CREATE TABLE cached_mezmur_sheet", self.db.replace("IF NOT EXISTS ", ""))
         self.assertIn("if (oldVersion < 9)", self.db)
+        self.assertIn("if (oldVersion < 10)", self.db)
+        self.assertIn("cached_mezmur_sheet_v2", self.db)
+        self.assertIn("CREATE TABLE cached_mezmur_sections", self.db.replace("IF NOT EXISTS ", ""))
+        self.assertIn("PRIMARY KEY (date, section)", self.db)
 
     def test_localdb_mezmur_methods(self):
         for m in [
@@ -62,19 +68,26 @@ class MobilePhase4Tests(unittest.TestCase):
             "Future<int> getPendingMezmurCount(",
             "Future<void> cacheMezmurSheet(",
             "Future<Map<String, dynamic>?> getCachedMezmurSheet(",
+            "Future<void> cacheMezmurSections(",
+            "Future<List<Map<String, dynamic>>?> getCachedMezmurSections(",
         ]:
             self.assertIn(m, self.db)
-        # explicit-mark validation like the teachers pipeline
-        self.assertIn("const validStatuses = {'present', 'absent', 'late'};", self.db)
+        # explicit-mark validation like the teachers pipeline (P/A/L/E)
+        self.assertIn("const validStatuses = {'present', 'absent', 'late', 'excused'};", self.db)
         self.assertIn("(await getPendingMezmurCount());", self.db)
+        # phase 5: outbox is keyed by (date, section)
+        self.assertIn("where: 'date = ? AND section = ? AND synced = 0'", self.db)
 
     def test_sync_drains_mezmur_outbox(self):
-        self.assertIn("getPendingMezmurRecords(date)", self.sync)
+        self.assertIn("getPendingMezmurRecords(date, section)", self.sync)
         self.assertIn("saveMezmurSheet(date, apiRecords", self.sync)
-        self.assertIn("markMezmurSynced(date)", self.sync)
+        self.assertIn("markMezmurSynced(date, section)", self.sync)
         self.assertIn("final int pendingMezmur;", self.sync)
         # idempotency key flows with every delivery
         self.assertIn("clientOpId: opId", self.sync)
+        # phase 5: section packets carry the draft/submitted kind + notes
+        self.assertIn("section: section, kind: kind, clientOpId: opId", self.sync)
+        self.assertIn("'notes': '${r['notes'] ?? ''}',", self.sync)
 
     # ── teachers-grade clone + Ethiopian calendar ─────────────
     def test_attendance_screen_clones_teacher_ux(self):
@@ -122,6 +135,7 @@ class MobilePhase4Tests(unittest.TestCase):
         wipe = self.db.split("clearAllUserData")[1]
         self.assertIn("'pending_mezmur',", wipe)
         self.assertIn("'cached_mezmur_sheet',", wipe)
+        self.assertIn("'cached_mezmur_sections',", wipe)
 
     # ── api surface additions ─────────────────────────────────
     def test_api_service_hymn_readers(self):

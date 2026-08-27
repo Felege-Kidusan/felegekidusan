@@ -617,16 +617,28 @@ class ApiService {
     });
   }
 
-  Future<ApiResponse> getMezmurSheet(String date) =>
-      get('/mezmur/sheet', params: {'date': date});
+  Future<ApiResponse> getMezmurSheet(String date, {String? section}) {
+    final params = <String, String>{'date': date};
+    if (section != null && section.isNotEmpty) params['section'] = section;
+    return get('/mezmur/sheet', params: params);
+  }
 
+  /// Section-scoped save (teacher clone). [kind] = 'draft' | 'submitted'.
   Future<ApiResponse> saveMezmurSheet(
       String date, List<Map<String, dynamic>> records,
-      {String? clientOpId}) {
+      {String? section, String kind = 'draft', String? clientOpId}) {
     return post('/mezmur/sheet',
-        body: {'date': date, 'records': records},
+        body: {
+          'date': date,
+          'records': records,
+          if (section != null && section.isNotEmpty) 'section': section,
+          if (section != null && section.isNotEmpty) 'kind': kind,
+        },
         idempotencyKey: clientOpId);
   }
+
+  /// Active sections with member counts (for the [Section ▾] picker).
+  Future<ApiResponse> getMezmurSections() => get('/mezmur/sections');
 
   Future<ApiResponse> getMezmurHymns(
       {int page = 1, String? search, String? category}) {

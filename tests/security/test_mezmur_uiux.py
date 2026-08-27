@@ -87,19 +87,23 @@ class MezmurUiUxTests(unittest.TestCase):
 
     # ── attendance sheet UX ────────────────────────────────────
     def test_sheet_ux_features_present(self):
-        self.assertIn("COLLAPSE_THRESHOLD", self.js)          # scale: batched sections
+        self.assertIn("GET_TIMEOUT = 12000", self.js)         # bounded GETs
         self.assertIn("aria-pressed", self.js)                # seg control state
         self.assertIn("ArrowDown", self.js)                   # keyboard marking
         self.assertIn("sessionStorage.setItem(draftKey", self.js)  # draft resume
         self.assertIn("beforeunload", self.js)                # unsaved guard
-        self.assertIn("group-head", self.js)                  # sticky section heads
+        self.assertIn("seg('excused', 'Excused')", self.js)   # P/A/L/E parity
         self.assertIn("sheet-summarybar", self.shell)
         self.assertIn('aria-live="polite"', self.shell)
 
     def test_sheet_date_contract_untouched(self):
+        # phase 5: sheets are section-scoped (teacher clone) and the
+        # department reviews packets like Education does.
         self.assertIn("action=sheet&date=", self.js)
+        self.assertIn("'&section=' + encodeURIComponent(section)", self.js)
         self.assertIn("action: 'save_sheet'", self.js)
-        self.assertIn("action: 'day_create'", self.js)
+        self.assertIn("section: att.section", self.js)
+        self.assertIn("action: 'submission_review'", self.js)
 
     # ── accessibility ──────────────────────────────────────────
     def test_inputs_are_labeled(self):
@@ -108,9 +112,10 @@ class MezmurUiUxTests(unittest.TestCase):
         self.assertGreaterEqual(self.shell.count('class="school-label"'), 8)
 
     def test_modals_are_dialogs_with_close_labels(self):
-        self.assertEqual(self.shell.count('role="dialog"'), 3)
-        self.assertEqual(self.shell.count('aria-modal="true"'), 3)
-        self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 3)
+        # hymn, view, taker + phase-5 review & packet modals
+        self.assertEqual(self.shell.count('role="dialog"'), 5)
+        self.assertEqual(self.shell.count('aria-modal="true"'), 5)
+        self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 5)
 
     def test_modal_focus_management(self):
         self.assertIn("function openModalF(", self.js)

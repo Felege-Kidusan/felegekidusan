@@ -62,20 +62,22 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.'], 405);
 }
 
 require_once __DIR__ . '/backend/services/MezmurAttendanceService.php';
+require_once __DIR__ . '/backend/services/MezmurSubmissionService.php';
 
 use App\Services\MezmurAttendanceService;
+use App\Services\MezmurSubmissionService;
 
 // ── 5. Rate limiting (per user; DB-backed with file fallback) ─
 $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create'], true)
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review'], true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -90,12 +92,21 @@ try {
     mezmur_respond(['status' => 'error', 'message' => 'Mezmur tables not found. Ask the administrator to run sql/021_mezmur_department.sql.']);
 }
 $__attendanceActions = ['days_list', 'day_create', 'sheet', 'save_sheet',
-    'analytics_members', 'analytics_sections', 'analytics_trends', 'takers_list'];
+    'analytics_members', 'analytics_sections', 'analytics_trends', 'takers_list',
+    'sections', 'overview', 'submissions_list', 'submission_detail', 'submission_review'];
 if (in_array($action, $__attendanceActions, true)) {
     try {
         $conn->query("SELECT 1 FROM mezmur_days LIMIT 0");
     } catch (\Throwable $e) {
         mezmur_respond(['status' => 'error', 'message' => 'Mezmur attendance tables not found. Ask the administrator to run sql/022_mezmur_attendance.sql and sql/023_mezmur_date_attendance.sql.']);
+    }
+}
+$__packetActions = ['submissions_list', 'submission_detail', 'submission_review', 'overview'];
+if (in_array($action, $__packetActions, true)) {
+    try {
+        $conn->query("SELECT 1 FROM mezmur_submissions LIMIT 0");
+    } catch (\Throwable $e) {
+        mezmur_respond(['status' => 'error', 'message' => 'Mezmur submission tables not found. Ask the administrator to run sql/024_mezmur_submissions.sql.']);
     }
 }
 
@@ -309,6 +320,12 @@ try {
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
                 mezmur_respond(['status' => 'error', 'message' => 'A valid date is required.']);
             }
+            $section = trim((string)($_GET['section'] ?? ''));
+            if ($section !== '') {
+                // Section-scoped sheet with packet status + review note.
+                $out = MezmurAttendanceService::fetchSectionSheet($conn, $date, $section, ['role' => $mezmurRole]);
+                mezmur_respond(['status' => 'success'] + $out);
+            }
             $out = MezmurAttendanceService::fetchSheet($conn, $date, $adminId);
             mezmur_respond(['status' => 'success'] + $out);
         }
@@ -326,6 +343,51 @@ try {
             if (count($records) > 500000) {
                 mezmur_respond(['status' => 'error', 'message' => 'The sheet is too large.']);
             }
+
+            $section = trim((string)($_POST['section'] ?? ''));
+            if ($section !== '') {
+                $kind = strtolower(trim((string)($_POST['kind'] ?? 'draft')));
+                $packetStatus = $kind === 'submitted'
+                    ? MezmurSubmissionService::STATUS_SUBMITTED
+                    : MezmurSubmissionService::STATUS_DRAFT;
+                $counts = MezmurSubmissionService::countsFromRecords($records);
+                $packet = [];
+                $conn->begin_transaction();
+                try {
+                    // Caller owns the transaction (rows + packet commit together).
+                    $summary = MezmurAttendanceService::saveSectionSheet($conn, $date, $section, $records, $adminId, false);
+                    $packet = MezmurSubmissionService::upsert($conn, [
+                        'taker_id' => $adminId,
+                        'date' => $date,
+                        'section' => $section,
+                        'status' => $packetStatus,
+                        'member_count' => $summary['marked'],
+                        'present' => $counts['present'],
+                        'late' => $counts['late'],
+                        'absent' => $counts['absent'],
+                        'excused' => $counts['excused'],
+                        'force' => true, // web dept users keep override power
+                    ]);
+                    if (empty($packet['ok'])) {
+                        throw new \DomainException($packet['message'] ?? 'Could not update the attendance packet.');
+                    }
+                    $conn->commit();
+                } catch (\DomainException $e) {
+                    $conn->rollback();
+                    mezmur_respond(['status' => 'error', 'message' => $e->getMessage()], 409);
+                } catch (\Throwable $e) {
+                    $conn->rollback();
+                    throw $e;
+                }
+                mezmur_respond([
+                    'status' => 'success',
+                    'message' => $packet['message'] ?? 'Attendance saved.',
+                    'summary' => $summary,
+                    'submission_id' => $packet['id'] ?? 0,
+                    'submission_status' => $packet['status'] ?? 'draft',
+                ]);
+            }
+
             $result = MezmurAttendanceService::saveSheet($conn, $date, $records, $adminId);
             mezmur_respond(['status' => 'success', 'message' => 'Attendance saved.', 'summary' => $result]);
         }
@@ -354,6 +416,110 @@ try {
         // ── ATTENDANCE TAKERS ──────────────────────────────────
         case 'takers_list': {
             mezmur_respond(['status' => 'success', 'items' => MezmurAttendanceService::takersList($conn)]);
+        }
+
+        // ── SECTIONS (for [Section ▾] selectors) ───────────────
+        case 'sections': {
+            mezmur_respond(['status' => 'success', 'items' => MezmurAttendanceService::sectionListWithCounts($conn)]);
+        }
+
+        // ── OVERVIEW (single batched read — BFF pattern) ───────
+        // One round trip for the whole dashboard overview: stats,
+        // month + previous-month aggregates, recent days, recent
+        // hymns, and the review queue. Lazy tabs replaced the old
+        // 8-parallel-request DOMContentLoaded storm.
+        case 'overview': {
+            $monthStart = date('Y-m-01');
+            $today = date('Y-m-d');
+            $prevStart = date('Y-m-01', strtotime('-1 month'));
+            $prevEnd = date('Y-m-t', strtotime('-1 month'));
+
+            $aggWindow = static function (\mysqli $c, string $from, string $to): array {
+                $stmt = $c->prepare(
+                    "SELECT COUNT(*) AS days,
+                            (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date BETWEEN ? AND ?) AS marked,
+                            (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date BETWEEN ? AND ?
+                               AND a.status IN ('present','late')) AS attended
+                     FROM mezmur_days d WHERE d.attendance_date BETWEEN ? AND ?"
+                );
+                $stmt->bind_param('ssssss', $from, $to, $from, $to, $from, $to);
+                $stmt->execute();
+                $r = $stmt->get_result()->fetch_assoc() ?: [];
+                $stmt->close();
+                $days = (int)($r['days'] ?? 0);
+                $marked = (int)($r['marked'] ?? 0);
+                $attended = (int)($r['attended'] ?? 0);
+                return [
+                    'days' => $days,
+                    'marked' => $marked,
+                    'attended' => $attended,
+                    'rate' => $marked > 0 ? round($attended * 100.0 / $marked, 1) : null,
+                ];
+            };
+
+            $stats = $conn->query("SELECT COUNT(*) total, COALESCE(SUM(status='active'),0) active FROM mezmur_hymns")->fetch_assoc() ?: [];
+            $members = $conn->query("SELECT COUNT(*) c FROM members WHERE status = 'active'")->fetch_assoc()['c'] ?? 0;
+            $takers = MezmurAttendanceService::takersList($conn);
+            $takersActive = count(array_filter($takers, static fn($t) => (int)$t['is_active'] === 1));
+
+            $recentDays = MezmurAttendanceService::listDays($conn, $monthStart, $today, 1, 5)['items'];
+            $recentHymns = [];
+            $rh = $conn->query("SELECT id, title, category, updated_at FROM mezmur_hymns WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 5");
+            if ($rh) {
+                while ($row = $rh->fetch_assoc()) $recentHymns[] = $row;
+            }
+
+            mezmur_respond([
+                'status' => 'success',
+                'hymns_total' => (int)($stats['total'] ?? 0),
+                'members' => (int)$members,
+                'takers_active' => $takersActive,
+                'takers_total' => count($takers),
+                'month' => $aggWindow($conn, $monthStart, $today),
+                'prev_month' => $aggWindow($conn, $prevStart, $prevEnd),
+                'recent_days' => $recentDays,
+                'recent_hymns' => $recentHymns,
+                'recent_packets' => array_slice(MezmurSubmissionService::listPackets($conn, []), 0, 5),
+            ]);
+        }
+
+        // ── SUBMISSIONS INBOX (dept review queue) ──────────────
+        case 'submissions_list': {
+            $items = MezmurSubmissionService::listPackets($conn, [
+                'status' => (string)($_GET['status'] ?? ''),
+                'from' => (string)($_GET['from'] ?? ''),
+                'to' => (string)($_GET['to'] ?? ''),
+                'section' => (string)($_GET['section'] ?? ''),
+            ]);
+            mezmur_respond(['status' => 'success', 'items' => $items]);
+        }
+
+        case 'submission_detail': {
+            $item = MezmurSubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
+            if ($item === null) {
+                mezmur_respond(['status' => 'error', 'message' => 'Submission not found.'], 404);
+            }
+            mezmur_respond(['status' => 'success', 'item' => $item]);
+        }
+
+        // ── REVIEW (approve / reject / return-with-note) ───────
+        // Maker-checker boundary: transfers the editing key back to
+        // the taker (revision_needed) or finalizes the packet.
+        case 'submission_review': {
+            if (!MezmurSubmissionService::canReview(['role' => $mezmurRole])) {
+                mezmur_respond(['status' => 'error', 'message' => 'You do not have permission to review submissions.'], 403);
+            }
+            $result = MezmurSubmissionService::reviewPacket(
+                $conn,
+                (int)($_POST['submission_id'] ?? 0),
+                (string)($_POST['new_status'] ?? ''),
+                (string)($_POST['notes'] ?? ''),
+                $adminId
+            );
+            if (!$result['ok']) {
+                mezmur_respond(['status' => 'error', 'message' => $result['message']], 422);
+            }
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
         }
 
         default:

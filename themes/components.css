@@ -198,6 +198,7 @@
 .seg-btn[aria-pressed="true"].seg-present { background: var(--school-success); border-color: var(--school-success); color: #fff; }
 .seg-btn[aria-pressed="true"].seg-late    { background: var(--school-warning); border-color: var(--school-warning); color: #fff; }
 .seg-btn[aria-pressed="true"].seg-absent  { background: var(--school-danger);  border-color: var(--school-danger);  color: #fff; }
+.seg-btn[aria-pressed="true"].seg-excused { background: var(--school-info);    border-color: var(--school-info);    color: #fff; }
 
 /* ═══ GROUP HEAD (sticky section header in sheet) ════════════ */
 .group-head {
@@ -387,3 +388,21 @@
 /* ═══ CLICKABLE ROWS (overview recent lists) ═════════════════ */
 .clickable-row { cursor: pointer; }
 .clickable-row:hover td { background: var(--school-surface-hover); }
+
+/* ═══ STATUS BANNER (packet state above the sheet) ═══════════ */
+.mz-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.65rem 0.9rem;
+    margin-bottom: 0.75rem;
+    border-radius: 10px;
+    border: 1px solid;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+.mz-banner i { margin-top: 0.1rem; }
+.mz-banner.warn { background: var(--school-warning-bg); border-color: var(--school-warning); color: var(--school-warning); }
+.mz-banner.ok   { background: var(--school-success-bg); border-color: var(--school-success); color: var(--school-success); }
+.mz-banner.info { background: var(--school-info-bg);    border-color: var(--school-info);    color: var(--school-info); }
+.mz-banner.bad  { background: var(--school-danger-bg);  border-color: var(--school-danger);  color: var(--school-danger); }

@@ -18,12 +18,21 @@ import '../../widgets/loading_skeleton.dart';
 import '../../widgets/quick_confirm.dart';
 import '../../widgets/status_banner.dart';
 
-/// Mezmur attendance — section-grouped clone of the teachers'
-/// attendance UX (Ethiopian calendar, quick marks, P/A/L chips,
-/// Telegram-style outbox save/submit) over the date-based roster.
+/// Mezmur attendance — VERBATIM clone of the teachers' attendance
+/// workflow, keyed by (date, section) instead of (date, class):
+///
+///   [Section ▾] + [Ethiopian date] → that section's member list →
+///   P/A/L/E chips + tap-for-note → Save (draft) / Submit (packet to
+///   the Mezmur department) → department approves or returns it with
+///   a note, exactly like Education reopens a teacher's sheet.
+///
+/// Offline parity: SQLite outbox (pending_mezmur), sheet cache keyed
+/// by date+section, background sync with idempotency keys.
 class MezmurAttendanceScreen extends StatefulWidget {
   final String? initialDate;
-  const MezmurAttendanceScreen({super.key, this.initialDate});
+  final String? initialSection;
+  const MezmurAttendanceScreen(
+      {super.key, this.initialDate, this.initialSection});
   @override
   State<MezmurAttendanceScreen> createState() => MezmurAttendanceScreenState();
 }
@@ -34,12 +43,14 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   final _sync = SyncService();
 
   String _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  String _program = 'rehearsal';
 
-  /// section name -> member rows (id, names, mark baseline)
-  final Map<String, List<Map<String, dynamic>>> _sections = {};
-  final Map<int, String> _marks = {};
-  List<int> _order = [];
+  /// [Section ▾] list — {section, members}
+  List<Map<String, dynamic>> _sections = [];
+  String? _selectedSection;
+  bool _loadingSections = true;
+
+  /// Roster of the selected section (teacher's _students analogue).
+  List<Map<String, dynamic>> _members = [];
 
   bool _loading = true;
   bool _rosterReady = false;
@@ -47,21 +58,35 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   bool _isOffline = false;
   String? _error;
   String _packetStatus = '';
+  String? _returnNote;
   int _pendingCount = 0;
   final ValueNotifier<bool> _dirty = ValueNotifier(false);
   StreamSubscription<bool>? _netSub;
 
-  static const Set<String> _validStatuses = {'present', 'absent', 'late'};
+  static const Set<String> _validStatuses = {
+    'present',
+    'absent',
+    'late',
+    'excused',
+  };
 
   String _statusOf(dynamic value) {
     final status = '${value ?? ''}'.trim().toLowerCase();
     return _validStatuses.contains(status) ? status : '';
   }
 
+  String _firstStatus(Iterable<dynamic> values) {
+    for (final value in values) {
+      final status = _statusOf(value);
+      if (status.isNotEmpty) return status;
+    }
+    return '';
+  }
+
   bool get _locked => PacketLock.isLocked(_packetStatus);
 
   int get _unmarked =>
-      _order.where((id) => _statusOf(_marks[id]).isEmpty).length;
+      _members.where((m) => _statusOf(m['status']).isEmpty).length;
 
   @override
   void initState() {
@@ -74,7 +99,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       if (!mounted || _isOffline == !hasLink) return;
       setState(() => _isOffline = !hasLink);
     });
-    _load();
+    _loadSections();
     _updatePendingCount();
     _sync.syncStream.listen((status) {
       if (mounted) setState(() => _pendingCount = status.totalPending);
@@ -88,15 +113,69 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     super.dispose();
   }
 
-  void refresh() => _load();
+  void refresh() => _loadSections();
 
   Future<void> _updatePendingCount() async {
     final count = await _db.getPendingMezmurCount();
     if (mounted) setState(() => _pendingCount = count);
   }
 
-  Future<void> _load() async {
-    final keepSheet = _order.isNotEmpty;
+  // ── [Section ▾] like teachers' [Class ▾] ─────────────────────
+  Future<void> _loadSections() async {
+    final cached = await _db.getCachedMezmurSections();
+    if (cached != null && cached.isNotEmpty && mounted) {
+      setState(() {
+        _sections = cached;
+        _loadingSections = false;
+      });
+    }
+    final res = await _api.getMezmurSections();
+    if (!mounted) return;
+    if (res.success && res.data != null) {
+      final raw = res.data!['sections'];
+      final list = raw is List
+          ? raw
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList()
+          : <Map<String, dynamic>>[];
+      if (list.isNotEmpty) {
+        _sections = list;
+        await _db.cacheMezmurSections(list);
+        setState(() {
+          _loadingSections = false;
+          _isOffline = !ConnectivityService().hasLink;
+        });
+      } else if (_sections.isEmpty) {
+        setState(() {
+          _loadingSections = false;
+          _error = 'No sections found. Assign sections to members on the website.';
+        });
+        return;
+      }
+    } else if (_sections.isEmpty) {
+      setState(() {
+        _loadingSections = false;
+        _error = res.message ?? 'Could not load sections.';
+      });
+      return;
+    }
+    if (_selectedSection == null && _sections.isNotEmpty) {
+      final wanted = widget.initialSection;
+      final match = wanted != null &&
+              _sections.any((s) => '${s['section']}' == wanted)
+          ? wanted
+          : '${_sections.first['section']}';
+      setState(() => _selectedSection = match);
+      _loadSheet();
+    }
+  }
+
+  // ── sheet load (cache → pending → network, teacher order) ────
+  Future<void> _loadSheet() async {
+    final section = _selectedSection;
+    if (section == null || section.isEmpty) return;
+    final keepSheet = _members.isNotEmpty;
     setState(() {
       _error = null;
       _loadFailed = false;
@@ -106,9 +185,25 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       }
     });
 
-    // 1. Local pending packet overrides (draft marks on this phone)
-    final pending = await _db.getPendingMezmurRecords(_selectedDate);
+    // 1. Cached sheet (offline parity)
+    final cached = await _db.getCachedMezmurSheet(_selectedDate, section);
+    final cacheLocked = PacketLock.isLocked(
+      '${cached?['submission_status'] ?? ''}',
+      flagged: cached?['locked'] == true,
+    );
+    if (cacheLocked && mounted) {
+      setState(() {
+        _packetStatus = '${cached?['submission_status']}';
+      });
+      await _db.dropPendingMezmur(_selectedDate, section);
+    }
+
+    // 2. Local pending packet overrides (draft marks on this phone)
+    final pending = cacheLocked
+        ? <Map<String, dynamic>>[]
+        : await _db.getPendingMezmurRecords(_selectedDate, section);
     final pendingMap = <int, String>{};
+    final pendingNotes = <int, String>{};
     for (final p in pending) {
       final mid = p['member_id'] is int
           ? p['member_id'] as int
@@ -116,6 +211,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       if (mid == null) continue;
       final st = _statusOf(p['status']);
       if (st.isNotEmpty) pendingMap[mid] = st;
+      pendingNotes[mid] = '${p['notes'] ?? ''}';
     }
     if (pending.isNotEmpty) {
       final first = pending.first;
@@ -123,25 +219,36 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       if (mounted) setState(() => _packetStatus = kind);
     }
 
-    // 2. Cached sheet (offline parity)
-    final cached = await _db.getCachedMezmurSheet(_selectedDate);
-    if (cached != null && _sections.isEmpty) {
-      _applySheet(cached, pendingMap);
+    if (cached != null && _members.isEmpty) {
+      _applySheet(cached, pendingMap, pendingNotes, cacheLocked);
     }
 
     // 3. Fresh fetch
-    final res = await _api.getMezmurSheet(_selectedDate);
+    final res = await _api.getMezmurSheet(_selectedDate, section: section);
     if (!mounted) return;
     if (res.success && res.data != null) {
-      _applySheet(res.data!, pendingMap);
-      await _db.cacheMezmurSheet(_selectedDate, res.data!);
+      final data = res.data!;
+      final packet = '${data['submission_status'] ?? ''}';
+      final locked =
+          PacketLock.isLocked(packet, flagged: data['locked'] == true);
+      if (locked) {
+        await _db.dropPendingMezmur(_selectedDate, section);
+      }
+      _applySheet(
+          data,
+          locked ? {} : pendingMap,
+          locked ? {} : pendingNotes,
+          locked);
+      await _db.cacheMezmurSheet(_selectedDate, section, data);
       setState(() {
         _loading = false;
         _rosterReady = true;
         _loadFailed = false;
         _isOffline = !ConnectivityService().hasLink;
+        _packetStatus = locked && packet.isEmpty ? 'submitted' : packet;
+        _returnNote = _mezmurReturnNote(data);
       });
-    } else if (_order.isEmpty) {
+    } else if (_members.isEmpty) {
       setState(() {
         _loading = false;
         _rosterReady = true;
@@ -156,42 +263,59 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     }
   }
 
-  void _applySheet(Map<String, dynamic> data, Map<int, String> pendingMap) {
-    final sections = data['sections'];
-    if (sections is! Map) return;
-    _sections.clear();
-    _marks.clear();
-    _order = [];
-    sections.forEach((sec, members) {
-      final list = <Map<String, dynamic>>[];
-      for (final m in (members as List)) {
-        final row = Map<String, dynamic>.from(m as Map);
-        final mid = row['id'] is int
-            ? row['id'] as int
-            : int.tryParse('${row['id']}');
-        if (mid == null) continue;
-        row['member_id'] = mid;
-        list.add(row);
-        _order.add(mid);
-        _marks[mid] = _statusOf(row['mark']);
-      }
-      _sections['$sec'] = list;
-    });
-    // Phone draft wins over the server baseline when one exists.
-    if (pendingMap.isNotEmpty) {
-      for (final id in _order) {
-        _marks[id] = pendingMap[id] ?? '';
+  /// Department's written reason while the packet is returned for
+  /// correction — the taker's key back to editing (mezmur wording).
+  String? _mezmurReturnNote(Map<String, dynamic> data) {
+    final status = '${data['submission_status'] ?? ''}'.toLowerCase().trim();
+    if (status != 'revision_needed') return null;
+    final note = '${data['review_notes'] ?? ''}'.trim();
+    final reviewer = '${data['reviewer_name'] ?? ''}'.trim();
+    final by = reviewer.isEmpty ? 'The Mezmur department' : reviewer;
+    if (note.isEmpty) return '$by asked for corrections.';
+    return '$by: $note';
+  }
+
+  void _applySheet(Map<String, dynamic> data, Map<int, String> pendingMap,
+      Map<int, String> pendingNotes, bool locked) {
+    final raw = data['members'];
+    if (raw is! List) return;
+    final members = <Map<String, dynamic>>[];
+    for (final m in raw) {
+      if (m is! Map) continue;
+      final row = Map<String, dynamic>.from(m);
+      final mid =
+          row['id'] is int ? row['id'] as int : int.tryParse('${row['id']}');
+      if (mid == null) continue;
+      row['member_id'] = mid;
+      // Server payloads carry 'mark'; the local offline cache carries
+      // 'status' — accept both so cached marks survive a reopen.
+      row['status'] = locked
+          ? _statusOf(row['mark'] ?? row['status'])
+          : _firstStatus([pendingMap[mid], row['mark'], row['status']]);
+      row['notes'] = locked
+          ? '${row['notes'] ?? ''}'
+          : (pendingNotes[mid] ?? '${row['notes'] ?? ''}');
+      members.add(row);
+    }
+    if (!locked && pendingMap.isNotEmpty) {
+      // Phone draft wins over the server baseline when one exists.
+      for (final m in members) {
+        final id = m['member_id'] as int;
+        if (pendingMap.containsKey(id)) m['status'] = pendingMap[id];
+        if (pendingNotes.containsKey(id)) m['notes'] = pendingNotes[id];
       }
     }
+    _members = members;
     _dirty.value = false;
     if (mounted) setState(() {});
   }
 
   List<Map<String, dynamic>> _records() {
-    return _order
-        .map((id) => <String, dynamic>{
-              'member_id': id,
-              'status': _statusOf(_marks[id]),
+    return _members
+        .map((m) => <String, dynamic>{
+              'member_id': m['member_id'],
+              'status': _statusOf(m['status']),
+              'notes': m['notes'] ?? '',
             })
         .toList();
   }
@@ -204,11 +328,25 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     return false;
   }
 
+  Future<void> _persistLocal() async {
+    final section = _selectedSection;
+    if (section == null || _members.isEmpty || _locked) return;
+    await _db.cacheMezmurSheet(_selectedDate, section, {
+      'date': _selectedDate,
+      'section': section,
+      'members': _members,
+      'submission_status': _packetStatus.isEmpty ? null : _packetStatus,
+      'locked': false,
+    });
+  }
+
+  // ── Telegram-send model: SQLite write IS the save ─────────────
   Future<void> _save() async {
-    if (_order.isEmpty || _locked) return;
+    final section = _selectedSection;
+    if (section == null || _members.isEmpty || _locked) return;
     if (!_requireCompleteSheet()) return;
     try {
-      await _db.saveMezmurLocal(_selectedDate, _program, _records(),
+      await _db.saveMezmurLocal(_selectedDate, section, _records(),
           packetKind: 'draft');
     } catch (_) {
       if (mounted) {
@@ -224,15 +362,17 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     setState(() {
       _packetStatus = 'draft';
       _error = null;
+      _returnNote = null;
     });
     unawaited(_sync.syncAll(force: true));
   }
 
   Future<void> _submit() async {
-    if (_order.isEmpty || _locked) return;
+    final section = _selectedSection;
+    if (section == null || _members.isEmpty || _locked) return;
     if (!_requireCompleteSheet()) return;
     try {
-      await _db.saveMezmurLocal(_selectedDate, _program, _records(),
+      await _db.saveMezmurLocal(_selectedDate, section, _records(),
           packetKind: 'submitted');
     } catch (_) {
       if (mounted) {
@@ -253,17 +393,20 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   }
 
   Future<void> _undoSubmit() async {
-    final stillOnPhone = await _db.getPendingMezmurRecords(_selectedDate);
+    final section = _selectedSection;
+    if (section == null) return;
+    final stillOnPhone =
+        await _db.getPendingMezmurRecords(_selectedDate, section);
     if (!mounted) return;
     if (stillOnPhone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         duration: Duration(seconds: 2),
-        content: Text('Already sent to the school'),
+        content: Text('Already sent to the Mezmur department'),
       ));
       return;
     }
     try {
-      await _db.saveMezmurLocal(_selectedDate, _program, _records(),
+      await _db.saveMezmurLocal(_selectedDate, section, _records(),
           packetKind: 'draft');
     } catch (_) {
       return;
@@ -275,28 +418,55 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
 
   void _setMark(int id, String status) {
     if (_locked) return;
-    setState(() => _marks[id] = status);
+    setState(() {
+      for (final m in _members) {
+        if (m['member_id'] == id) m['status'] = status;
+      }
+    });
     _dirty.value = true;
+    _persistLocal();
   }
 
   void _markAll(String status) {
     if (_locked) return;
     setState(() {
-      for (final id in _order) {
-        _marks[id] = status;
+      for (final m in _members) {
+        m['status'] = status;
       }
     });
     _dirty.value = true;
+    _persistLocal();
   }
 
-  void _markSection(String section, String status) {
-    if (_locked) return;
-    setState(() {
-      for (final m in (_sections[section] ?? const [])) {
-        _marks[m['member_id'] as int] = status;
-      }
-    });
+  Future<void> _editNote(int index) async {
+    final ctrl =
+        TextEditingController(text: '${_members[index]['notes'] ?? ''}');
+    final note = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Note'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 3,
+          maxLength: 500,
+          decoration: const InputDecoration(hintText: 'Optional note'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text('Keep')),
+        ],
+      ),
+    );
+    if (note == null) return;
+    if (note == '${_members[index]['notes'] ?? ''}') return;
+    setState(() => _members[index]['notes'] = note);
     _dirty.value = true;
+    _persistLocal();
   }
 
   Future<void> _pickDate() async {
@@ -308,12 +478,26 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     );
     if (picked != null && picked != _selectedDate) {
       _selectedDate = picked; // Gregorian yyyy-MM-dd for the API
-      _sections.clear();
-      _order = [];
+      _members = [];
       _packetStatus = '';
+      _returnNote = null;
       _dirty.value = false;
-      _load();
+      _loadSheet();
     }
+  }
+
+  void _changeSection(String? value) {
+    if (value == null || value == _selectedSection) return;
+    setState(() {
+      _selectedSection = value;
+      _members = [];
+      _packetStatus = '';
+      _returnNote = null;
+      _rosterReady = false;
+      _loading = true;
+    });
+    _dirty.value = false;
+    _loadSheet();
   }
 
   Future<void> _manualSync() async {
@@ -345,43 +529,10 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     );
   }
 
-  Widget _sectionHeader(String section) {
-    final members = _sections[section] ?? const [];
-    final unmarked = members
-        .where((m) => _statusOf(_marks[m['member_id']]).isEmpty)
-        .length;
-    return Container(
-      color: AppTheme.primary.withOpacity(0.06),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Icon(Icons.layers_outlined, size: 15, color: AppTheme.primary),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text('$section · ${members.length}',
-                style: const TextStyle(
-                    fontSize: 12.5, fontWeight: FontWeight.w800)),
-          ),
-          if (unmarked > 0)
-            Text('$unmarked unmarked',
-                style: TextStyle(
-                    fontSize: 10.5, color: AppTheme.textSecondary)),
-          if (!_locked) ...[
-            const SizedBox(width: 6),
-            _quickBtn('Present', AppTheme.success,
-                () => _markSection(section, 'present')),
-            const SizedBox(width: 4),
-            _quickBtn('Absent', AppTheme.danger,
-                () => _markSection(section, 'absent')),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _memberRow(Map<String, dynamic> m, int number) {
     final id = m['member_id'] as int;
-    final status = _statusOf(_marks[id]);
+    final status = _statusOf(m['status']);
+    final note = '${m['notes'] ?? ''}'.trim();
     return FastListRow(
       index: id,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -393,20 +544,30 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
           ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('${m['student_name'] ?? ''} ${m['father_name'] ?? ''}',
-                    style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                Text('${m['member_code'] ?? ''}',
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _locked ? null : () => _editNote(number - 1),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${m['student_name'] ?? ''} ${m['father_name'] ?? ''}',
+                      style: const TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    note.isNotEmpty
+                        ? note
+                        : ('${m['member_code'] ?? ''}'.isNotEmpty
+                            ? '${m['member_code']}'
+                            : 'Tap for note'),
                     style: TextStyle(
                         fontSize: 10, color: AppTheme.textSecondary),
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ],
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ),
           _statusBtn('P', 'present', status, AppTheme.success, id),
@@ -414,6 +575,8 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
           _statusBtn('A', 'absent', status, AppTheme.danger, id),
           const SizedBox(width: 4),
           _statusBtn('L', 'late', status, AppTheme.warning, id),
+          const SizedBox(width: 4),
+          _statusBtn('E', 'excused', status, AppTheme.info, id),
         ],
       ),
     );
@@ -442,19 +605,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             )),
       ),
     );
-  }
-
-  List<Widget> _rows() {
-    final out = <Widget>[];
-    var number = 0;
-    for (final section in _sections.keys) {
-      out.add(_sectionHeader(section));
-      for (final m in _sections[section]!) {
-        number += 1;
-        out.add(RepaintBoundaryListItem(child: _memberRow(m, number)));
-      }
-    }
-    return out;
   }
 
   @override
@@ -495,7 +645,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             ),
         ],
       ),
-      bottomNavigationBar: _order.isEmpty
+      bottomNavigationBar: _members.isEmpty
           ? null
           : _locked
               ? const SubmittedBar()
@@ -539,48 +689,42 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
               ),
             ),
 
-          // Program + Ethiopian date selector
+          // [Section ▾] + Ethiopian date selector (teacher layout)
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 Expanded(
                   flex: 3,
-                  child: DropdownButtonFormField<String>(
-                    value: _program,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'rehearsal',
-                          child: Text('Rehearsal · የዝማሬ ልምምድ',
-                              style: TextStyle(fontSize: 13))),
-                      DropdownMenuItem(
-                          value: 'service',
-                          child: Text('Service · አገልግሎት',
-                              style: TextStyle(fontSize: 13))),
-                      DropdownMenuItem(
-                          value: 'feast',
-                          child:
-                              Text('Feast · በዓል', style: TextStyle(fontSize: 13))),
-                      DropdownMenuItem(
-                          value: 'training',
-                          child: Text('Training · ሥልጠና',
-                              style: TextStyle(fontSize: 13))),
-                      DropdownMenuItem(
-                          value: 'other',
-                          child:
-                              Text('Other', style: TextStyle(fontSize: 13))),
-                    ],
-                    onChanged: _locked
-                        ? null
-                        : (v) => setState(() => _program = v ?? 'rehearsal'),
-                  ),
+                  child: _loadingSections
+                      ? const LinearProgressIndicator()
+                      : DropdownButtonFormField<String>(
+                          value: _selectedSection != null &&
+                                  _sections.any((s) =>
+                                      '${s['section']}' == _selectedSection)
+                              ? _selectedSection
+                              : null,
+                          hint: const Text('Select section',
+                              style: TextStyle(fontSize: 13)),
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                          items: _sections
+                              .map<DropdownMenuItem<String>>((s) =>
+                                  DropdownMenuItem(
+                                    value: '${s['section']}',
+                                    child: Text(
+                                        '${s['section']} · ${s['members'] ?? ''}',
+                                        style: const TextStyle(fontSize: 13),
+                                        overflow: TextOverflow.ellipsis),
+                                  ))
+                              .toList(),
+                          onChanged: _locked ? null : _changeSection,
+                        ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -605,17 +749,24 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             ),
           ),
 
-          if (_error != null) StatusBanner.error(_error!, onRetry: _load),
-          if (_locked && _order.isNotEmpty && _error == null)
-            StatusBanner.warning(PacketLock.viewOnlyHint(_packetStatus)),
+          if (_error != null) StatusBanner.error(_error!, onRetry: _loadSheet),
+          if (_returnNote != null &&
+              _returnNote!.isNotEmpty &&
+              !_locked &&
+              _error == null)
+            StatusBanner.warning(
+                'Returned by the Mezmur department — you can edit and resubmit. $_returnNote'),
+          if (_locked && _members.isNotEmpty && _error == null)
+            StatusBanner.warning(
+                '${PacketLock.label(_packetStatus).isEmpty ? _packetStatus : PacketLock.label(_packetStatus)} — view only. Only the Mezmur department can change this.'),
 
-          if (_order.isNotEmpty)
+          if (_members.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(
                 children: [
                   Text(
-                    '${_order.length} members · $_unmarked unmarked',
+                    '${_members.length} members · $_unmarked unmarked',
                     style:
                         TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   ),
@@ -632,11 +783,11 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             ),
 
           Expanded(
-            child: _loading
+            child: (_loading || (!_rosterReady && _selectedSection != null))
                 ? const StudentListSkeleton()
                 : RefreshIndicator(
-                    onRefresh: _load,
-                    child: _loadFailed && _order.isEmpty
+                    onRefresh: _loadSheet,
+                    child: _loadFailed && _members.isEmpty
                         ? ListView(
                             physics: const AlwaysScrollableScrollPhysics(),
                             children: [
@@ -644,35 +795,45 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
                                 padding: const EdgeInsets.all(16),
                                 child: AppErrorCard(
                                   error: AppError.fromMessage(_error),
-                                  onRetry: _load,
+                                  onRetry: _loadSheet,
                                 ),
                               ),
                             ],
                           )
-                        : _order.isEmpty
+                        : _members.isEmpty
                             ? ListView(
-                                physics: const AlwaysScrollableScrollPhysics(),
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
                                 children: [
                                   const SizedBox(height: 40),
                                   EmptyState(
-                                    icon: Icons.music_off_outlined,
-                                    title: 'No active members',
-                                    subtitle:
-                                        'Add members on the website to start recording Mezmur attendance.',
-                                    action: TextButton.icon(
-                                      onPressed: _load,
-                                      icon: const Icon(Icons.refresh, size: 18),
-                                      label: const Text('Refresh'),
-                                    ),
+                                    icon: Icons.people_outline,
+                                    title: _selectedSection == null
+                                        ? 'Select a section'
+                                        : 'No members in this section',
+                                    subtitle: _selectedSection == null
+                                        ? 'Pick a section above to take attendance.'
+                                        : 'Assign members to this section on the website, then pull down to refresh.',
+                                    action: _selectedSection == null
+                                        ? null
+                                        : TextButton.icon(
+                                            onPressed: _loadSheet,
+                                            icon: const Icon(Icons.refresh,
+                                                size: 18),
+                                            label: const Text('Refresh'),
+                                          ),
                                   ),
                                 ],
                               )
-                            : ListView(
-                                physics: const AlwaysScrollableScrollPhysics(),
+                            : ListView.builder(
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
+                                itemCount: _members.length,
                                 cacheExtent: kListCacheExtent,
                                 padding:
-                                    const EdgeInsets.fromLTRB(0, 0, 0, 24),
-                                children: _rows(),
+                                    const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                                itemBuilder: (_, i) => RepaintBoundaryListItem(
+                                    child: _memberRow(_members[i], i + 1)),
                               ),
                   ),
           ),

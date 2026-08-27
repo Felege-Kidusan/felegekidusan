@@ -555,3 +555,44 @@ WBSS-U01). Fixed to the house pattern `__DIR__ . '/../../../...'`.
 - **Hub** — Ethiopian greeting + feature tiles + recent days (Ethiopian dates).
 - Nav: mezmurDept 5 tabs; attendance_taker gains Mezmur tab (feature-gated).
 - Suite: +14 gates (test_mezmur_mobile_phase4.py); 295 green.
+
+---
+
+## Feature 6 — Mezmur Phase 5: teachers/edu workflow parity + web dashboard rescue
+
+**Workflow parity.** Mezmur attendance is now the verbatim clone of
+teachers ↔ education, keyed by (date, section) instead of (date, class):
+
+- **sql/024** — `mezmur_submissions` packet table (UNIQUE attendance_date+
+  section, counts, review fields, client_op_id); `mezmur_attendance` gains
+  `excused` + per-member `notes` (teacher parity) and a nullable
+  `session_id` (guarded ALTER — fixes a latent NOT NULL that blocked
+  date-based inserts). Fully idempotent; re-run verified against live MariaDB.
+- **MezmurSubmissionService** — mirrors SubmissionService vocabulary
+  (draft/incomplete/submitted/approved/rejected/revision_needed), lock +
+  override semantics, reason-mandatory returns, immutable SecurityAudit trail.
+- **Mobile API** — GET /mezmur/sections; GET/POST /mezmur/sheet section-scoped
+  with packet status/lock/review note; rows + packet commit atomically;
+  409 "Only the Mezmur department can change it"; legacy date-only path kept.
+- **Web API** — batched `overview` (one round trip), `submissions_list`,
+  `submission_detail`, `submission_review` (POST-only, dept-gated, rate-limited).
+- **App (v2)** — [Section ▾] + Ethiopian date, P/A/L/E chips + tap-for-note,
+  Save/Submit/UNDO, PacketLock + department return banner, outbox keyed by
+  (date, section), sections cached for offline. Program types removed.
+- **Program types removed from every attendance UI** (raw per-section data).
+
+**Web dashboard rescue** (root cause found + fixed):
+
+- Root cause 1: mezmur.js called `SSMS.api.*` — a global that never existed
+  (the real one is `window.api`). Every loader threw synchronously, so all
+  skeletons animated forever. Replaced throughout.
+- Root cause 2: DOMContentLoaded fired ~8 parallel GETs. Replaced with LAZY
+  TABS (data loads on first tab activation) + ONE batched `action=overview`
+  + bounded GETs (12 s race → error+Retry, skeletons can never hang).
+- Attendance tab rebuilt section-first with Save + Submit, status banner,
+  review inbox (Approve / Return-with-note / Reject), packet detail modal.
+
+**Verification.** Static suite 318/318 (+23 phase-5 gates, old gates updated
+lockstep). Functional smoke against live MariaDB (clean-room 022→023→024
+twice): complete-sheet validation, atomic rows+packet, lock/override,
+reason-mandatory review, audit trail, UNIQUE enforcement — all pass.

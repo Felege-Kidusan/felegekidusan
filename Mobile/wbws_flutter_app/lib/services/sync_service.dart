@@ -206,28 +206,28 @@ class SyncService {
       for (final batch in pendingMez) {
         final date = '${batch['date'] ?? ''}';
         if (date.isEmpty) continue;
-        final program = '${batch['program'] ?? ''}';
+        final section = '${batch['section'] ?? ''}';
+        final kind = '${batch['packet_kind'] ?? 'draft'}';
         final opId = '${batch['client_op_id'] ?? ''}';
         try {
-          final records = await _db.getPendingMezmurRecords(date);
+          final records = await _db.getPendingMezmurRecords(date, section);
           if (records.isEmpty) continue;
-          // Label the day first (idempotent get-or-create); the sheet save
-          // would create it anyway, so a failed label is non-fatal.
-          if (program.isNotEmpty) {
-            try {
-              await _api.createMezmurDay(date: date, programType: program);
-            } catch (_) {}
-          }
           final apiRecords = records
               .map((r) => {
                     'member_id': r['member_id'],
                     'status': r['status'],
+                    'notes': '${r['notes'] ?? ''}',
                   })
               .toList();
-          final res = await _api.saveMezmurSheet(date, apiRecords,
-              clientOpId: opId);
+          // Section-scoped packets (phase 5) carry kind + notes; legacy
+          // date-only packets keep working through the old endpoint shape.
+          final res = section.isNotEmpty
+              ? await _api.saveMezmurSheet(date, apiRecords,
+                  section: section, kind: kind, clientOpId: opId)
+              : await _api.saveMezmurSheet(date, apiRecords,
+                  clientOpId: opId);
           if (_accepted(res)) {
-            await _db.markMezmurSynced(date);
+            await _db.markMezmurSynced(date, section);
             synced++;
             didWork = true;
             lastError = '';

@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -168,6 +168,43 @@ class LocalDb {
             )
           ''');
         }
+        if (oldVersion < 10) {
+          // Phase 5: mezmur attendance becomes section-scoped (teacher
+          // clone). pending_mezmur gains section + notes; the sheet cache
+          // key becomes (date, section); the section picker gets a cache.
+          try {
+            await db.execute(
+                "ALTER TABLE pending_mezmur ADD COLUMN section TEXT NOT NULL DEFAULT ''");
+          } catch (_) {}
+          try {
+            await db.execute(
+                'ALTER TABLE pending_mezmur ADD COLUMN notes TEXT');
+          } catch (_) {}
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_mezmur_sheet_v2 (
+              date TEXT NOT NULL,
+              section TEXT NOT NULL DEFAULT '',
+              response_json TEXT NOT NULL,
+              updated_at TEXT,
+              PRIMARY KEY (date, section)
+            )
+          ''');
+          // Carry over phase-4 full-roster caches as section ''.
+          await db.execute('''
+            INSERT OR IGNORE INTO cached_mezmur_sheet_v2 (date, section, response_json, updated_at)
+            SELECT date, '', response_json, updated_at FROM cached_mezmur_sheet
+          ''');
+          await db.execute('DROP TABLE IF EXISTS cached_mezmur_sheet');
+          await db.execute(
+              'ALTER TABLE cached_mezmur_sheet_v2 RENAME TO cached_mezmur_sheet');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_mezmur_sections (
+              id INTEGER PRIMARY KEY CHECK (id = 1),
+              sections_json TEXT NOT NULL,
+              updated_at TEXT
+            )
+          ''');
+        }
       },
     );
   }
@@ -233,8 +270,10 @@ class LocalDb {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
         program TEXT,
+        section TEXT NOT NULL DEFAULT '',
         member_id INTEGER NOT NULL,
         status TEXT NOT NULL,
+        notes TEXT,
         packet_kind TEXT NOT NULL DEFAULT 'draft',
         client_op_id TEXT,
         synced INTEGER NOT NULL DEFAULT 0,
@@ -245,8 +284,17 @@ class LocalDb {
     ''');
     await db.execute('''
       CREATE TABLE cached_mezmur_sheet (
-        date TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        section TEXT NOT NULL DEFAULT '',
         response_json TEXT NOT NULL,
+        updated_at TEXT,
+        PRIMARY KEY (date, section)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE cached_mezmur_sections (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        sections_json TEXT NOT NULL,
         updated_at TEXT
       )
     ''');
@@ -908,10 +956,11 @@ class LocalDb {
   // PENDING MEZMUR (offline outbox, date-keyed)
   // ============================================================
 
-  Future<void> saveMezmurLocal(String date, String program,
+  Future<void> saveMezmurLocal(String date, String section,
       List<Map<String, dynamic>> records,
       {String packetKind = 'draft'}) async {
-    const validStatuses = {'present', 'absent', 'late'};
+    // Teacher parity: present / absent / late / excused.
+    const validStatuses = {'present', 'absent', 'late', 'excused'};
     if (records.isEmpty) {
       throw ArgumentError('Mezmur records are required.');
     }
@@ -931,14 +980,18 @@ class LocalDb {
     final opId = newClientOpId();
     await db.transaction((txn) async {
       await txn.delete('pending_mezmur',
-          where: 'date = ? AND synced = 0', whereArgs: [date]);
+          where: 'date = ? AND section = ? AND synced = 0',
+          whereArgs: [date, section]);
       final batch = txn.batch();
       for (final r in records) {
+        final note = '${r['notes'] ?? r['note'] ?? ''}'.trim();
         batch.insert('pending_mezmur', {
           'date': date,
-          'program': program,
+          'section': section,
+          'program': r['program'],
           'member_id': r['member_id'],
           'status': '${r['status']}'.trim().toLowerCase(),
+          if (note.isNotEmpty) 'notes': note,
           'packet_kind': kind,
           'client_op_id': opId,
           'synced': 0,
@@ -949,69 +1002,109 @@ class LocalDb {
     });
   }
 
+  /// Pending packets grouped by (date, section).
   Future<List<Map<String, dynamic>>> getPendingMezmur() async {
     final db = await database;
     return await db.rawQuery('''
-      SELECT date, MAX(program) as program,
+      SELECT date, section,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
              MAX(client_op_id) as client_op_id,
              COUNT(*) as member_count, MIN(created_at) as created_at
       FROM pending_mezmur WHERE synced = 0
-      GROUP BY date ORDER BY date DESC
+      GROUP BY date, section ORDER BY date DESC
     ''');
   }
 
-  Future<List<Map<String, dynamic>>> getPendingMezmurRecords(String date) async {
+  Future<List<Map<String, dynamic>>> getPendingMezmurRecords(
+      String date, String section) async {
     final db = await database;
     return await db.query('pending_mezmur',
-        where: 'date = ? AND synced = 0', whereArgs: [date]);
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
   }
 
-  Future<void> markMezmurSynced(String date) async {
+  Future<void> markMezmurSynced(String date, String section) async {
     final db = await database;
     await db.update(
         'pending_mezmur',
         {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
-        where: 'date = ? AND synced = 0',
-        whereArgs: [date]);
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
   }
 
-  Future<void> dropPendingMezmur(String date) async {
+  Future<void> dropPendingMezmur(String date, String section) async {
     final db = await database;
     await db.delete('pending_mezmur',
-        where: 'date = ? AND synced = 0', whereArgs: [date]);
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
   }
 
   Future<int> getPendingMezmurCount() async {
     final db = await database;
     final r = await db.rawQuery(
-        "SELECT COUNT(DISTINCT date) as cnt FROM pending_mezmur WHERE synced = 0");
+        "SELECT COUNT(DISTINCT date || '|' || IFNULL(section,'')) as cnt FROM pending_mezmur WHERE synced = 0");
     return r.first['cnt'] as int? ?? 0;
   }
 
-  Future<void> cacheMezmurSheet(String date, Map<String, dynamic> payload) async {
+  Future<void> cacheMezmurSheet(
+      String date, String section, Map<String, dynamic> payload) async {
     final db = await database;
     await db.insert(
         'cached_mezmur_sheet',
         {
           'date': date,
+          'section': section,
           'response_json': jsonEncode(payload),
           'updated_at': DateTime.now().toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<Map<String, dynamic>?> getCachedMezmurSheet(String date) async {
+  Future<Map<String, dynamic>?> getCachedMezmurSheet(
+      String date, String section) async {
     final db = await database;
     try {
       final rows = await db.query('cached_mezmur_sheet',
-          where: 'date = ?', whereArgs: [date]);
+          where: 'date = ? AND section = ?', whereArgs: [date, section]);
       if (rows.isEmpty) return null;
       final raw = rows.first['response_json'] as String?;
       if (raw == null || raw.isEmpty) return null;
       final decoded = jsonDecode(raw);
       return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Warm cache for the [Section ▾] picker (offline parity).
+  Future<void> cacheMezmurSections(List<Map<String, dynamic>> sections) async {
+    final db = await database;
+    await db.insert(
+        'cached_mezmur_sections',
+        {
+          'id': 1,
+          'sections_json': jsonEncode(sections),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>?> getCachedMezmurSections() async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_mezmur_sections', where: 'id = 1');
+      if (rows.isEmpty) return null;
+      final raw = rows.first['sections_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return null;
     } catch (_) {
       return null;
     }
@@ -1081,6 +1174,7 @@ class LocalDb {
     try { await db.delete('cached_attendance'); } catch (_) {}
     try { await db.delete('cached_grade_sheets'); } catch (_) {}
     try { await db.delete('cached_mezmur_sheet'); } catch (_) {}
+    try { await db.delete('cached_mezmur_sections'); } catch (_) {}
   }
 
   /// Full transactional wipe for this device user — cache + unsynced rows.
@@ -1098,6 +1192,7 @@ class LocalDb {
         'cached_attendance',
         'cached_grade_sheets',
         'cached_mezmur_sheet',
+        'cached_mezmur_sections',
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',

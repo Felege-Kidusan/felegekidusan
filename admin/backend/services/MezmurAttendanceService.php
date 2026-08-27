@@ -28,7 +28,10 @@ namespace App\Services;
 final class MezmurAttendanceService
 {
     public const PROGRAM_TYPES = ['rehearsal', 'service', 'feast', 'training', 'other'];
-    public const STATUSES = ['present', 'late', 'absent'];
+    /** Teacher parity: present / late / absent / excused. */
+    public const STATUSES = ['present', 'late', 'absent', 'excused'];
+
+    private const SECTION_MAX = 80;
 
     private const SORTABLE = [
         'name'          => 'm.student_name',
@@ -211,9 +214,11 @@ final class MezmurAttendanceService
     }
 
     /**
-     * Complete-sheet save (transactional replace by date).
-     * @param list<array{member_id:int|string,status:string}> $records
-     * @return array{marked:int,present:int,late:int,absent:int}
+     * Complete-sheet save (transactional replace by date) — LEGACY
+     * full-roster path kept for older clients; new clients use
+     * saveSectionSheet() with submission packets.
+     * @param list<array{member_id:int|string,status:string,notes?:string}> $records
+     * @return array{marked:int,present:int,late:int,absent:int,excused:int}
      */
     public static function saveSheet(\mysqli $conn, string $date, array $records, int $userId): array
     {
@@ -226,6 +231,7 @@ final class MezmurAttendanceService
 
         $roster = self::rosterIds($conn);
         $submitted = [];
+        $notesByMember = [];
         foreach ($records as $rec) {
             $mid = (int)($rec['member_id'] ?? 0);
             $status = (string)($rec['status'] ?? '');
@@ -234,15 +240,20 @@ final class MezmurAttendanceService
             }
             if (isset($submitted[$mid])) throw new \DomainException('Duplicate member in sheet.');
             $submitted[$mid] = $status;
+            $note = trim((string)($rec['notes'] ?? $rec['note'] ?? ''));
+            if ($note !== '') {
+                $notesByMember[$mid] = mb_substr($note, 0, 500);
+            }
         }
         if (count($submitted) !== count($roster) || array_diff($roster, array_keys($submitted)) !== []) {
             throw new \DomainException('The sheet is out of date with the current roster. Reload and try again.');
         }
 
-        $present = $late = $absent = 0;
+        $present = $late = $absent = $excused = 0;
         foreach ($submitted as $status) {
             if ($status === 'present') $present++;
             elseif ($status === 'late') $late++;
+            elseif ($status === 'excused') $excused++;
             else $absent++;
         }
 
@@ -253,19 +264,7 @@ final class MezmurAttendanceService
             $del->execute();
             $del->close();
 
-            $sql = "INSERT INTO mezmur_attendance (session_id, attendance_date, member_id, status, marked_by) VALUES (NULL,?,?,?,?)";
-            $ins = $conn->prepare($sql);
-            $batch = 0;
-            foreach ($submitted as $memberId => $status) {
-                $ins->bind_param('sisi', $date, $memberId, $status, $userId);
-                $ins->execute();
-                // Recycle the statement periodically on very large rosters.
-                if (++$batch % 500 === 0) {
-                    $ins->close();
-                    $ins = $conn->prepare($sql);
-                }
-            }
-            $ins->close();
+            self::insertRows($conn, $date, $submitted, $notesByMember, $userId);
             $conn->commit();
         } catch (\Throwable $e) {
             $conn->rollback();
@@ -273,8 +272,233 @@ final class MezmurAttendanceService
         }
 
         self::ensureDay($conn, $date, 'rehearsal', null, null, $userId);
-        self::audit($conn, $date, $userId, 'sheet_saved', "marked=" . count($submitted) . " present=$present late=$late absent=$absent");
-        return ['marked' => count($submitted), 'present' => $present, 'late' => $late, 'absent' => $absent];
+        self::audit($conn, $date, $userId, 'sheet_saved', "marked=" . count($submitted) . " present=$present late=$late absent=$absent excused=$excused");
+        return ['marked' => count($submitted), 'present' => $present, 'late' => $late, 'absent' => $absent, 'excused' => $excused];
+    }
+
+    /**
+     * Bulk-insert attendance rows for one date (caller owns the
+     * transaction and the DELETE). Notes bind as SQL NULL when absent.
+     *
+     * @param array<int,string>          $submitted memberId => status
+     * @param array<int,string>          $notesByMember memberId => note
+     */
+    private static function insertRows(\mysqli $conn, string $date, array $submitted, array $notesByMember, int $userId): void
+    {
+        $sql = "INSERT INTO mezmur_attendance (session_id, attendance_date, member_id, status, marked_by, notes)
+                VALUES (NULL,?,?,?,?,?)";
+        $ins = $conn->prepare($sql);
+        if (!$ins) {
+            throw new \RuntimeException('Could not write attendance.');
+        }
+        $batch = 0;
+        foreach ($submitted as $memberId => $status) {
+            $note = $notesByMember[$memberId] ?? null;
+            $ins->bind_param('sisis', $date, $memberId, $status, $userId, $note);
+            $ins->execute();
+            // Recycle the statement periodically on very large rosters.
+            if (++$batch % 500 === 0) {
+                $ins->close();
+                $ins = $conn->prepare($sql);
+                if (!$ins) {
+                    throw new \RuntimeException('Could not write attendance.');
+                }
+            }
+        }
+        $ins->close();
+    }
+
+    // ── section roster ─────────────────────────────────────────
+
+    /** Roster of one section (the taker's "class list"). */
+    public static function sectionRoster(\mysqli $conn, string $section): array
+    {
+        $section = trim($section);
+        if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
+            throw new \DomainException('A valid section is required.');
+        }
+        $stmt = $conn->prepare(
+            "SELECT id, member_code, student_name, father_name, photo_url
+             FROM members
+             WHERE status = 'active'
+               AND COALESCE(NULLIF(TRIM(current_section), ''), '—') = ?
+             ORDER BY student_name, father_name"
+        );
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->bind_param('s', $section);
+        $stmt->execute();
+        $rows = [];
+        $r = $stmt->get_result();
+        while ($row = $r->fetch_assoc()) {
+            $row['id'] = (int)$row['id'];
+            $rows[] = $row;
+        }
+        $stmt->close();
+        return $rows;
+    }
+
+    /** Distinct sections with member counts (for [Section ▾]). */
+    public static function sectionListWithCounts(\mysqli $conn): array
+    {
+        $out = [];
+        $res = $conn->query(
+            "SELECT COALESCE(NULLIF(TRIM(current_section), ''), '—') AS section, COUNT(*) AS members
+             FROM members WHERE status = 'active'
+             GROUP BY section ORDER BY section LIMIT 200"
+        );
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $out[] = ['section' => $r['section'], 'members' => (int)$r['members']];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Section-scoped sheet: roster + marks + packet status + review
+     * info — the exact analogue of GET /attendance for teachers.
+     */
+    public static function fetchSectionSheet(\mysqli $conn, string $date, string $section, array $auth): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new \DomainException('Invalid attendance date.');
+        }
+        $section = trim($section);
+        if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
+            throw new \DomainException('A valid section is required.');
+        }
+
+        $marks = [];
+        $stmt = $conn->prepare(
+            "SELECT a.member_id, a.status, a.notes
+             FROM mezmur_attendance a
+             JOIN members m ON m.id = a.member_id
+             WHERE a.attendance_date = ?
+               AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?"
+        );
+        if ($stmt) {
+            $stmt->bind_param('ss', $date, $section);
+            $stmt->execute();
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $marks[(int)$row['member_id']] = [
+                    'status' => $row['status'],
+                    'notes' => (string)($row['notes'] ?? ''),
+                ];
+            }
+            $stmt->close();
+        }
+
+        $members = [];
+        foreach (self::sectionRoster($conn, $section) as $m) {
+            $mark = $marks[$m['id']] ?? null;
+            $m['mark'] = $mark['status'] ?? null;
+            $m['notes'] = $mark['notes'] ?? '';
+            $members[] = $m;
+        }
+
+        $packetStatus = MezmurSubmissionService::resolvedStatus($conn, $date, $section);
+        $locked = MezmurSubmissionService::isLockedForTaker($packetStatus, $auth);
+        $review = null;
+        if ($packetStatus === MezmurSubmissionService::STATUS_REVISION) {
+            $review = MezmurSubmissionService::review($conn, $date, $section);
+        }
+
+        return [
+            'date' => $date,
+            'section' => $section,
+            'members' => $members,
+            'count' => count($members),
+            'submission_status' => $packetStatus,
+            'locked' => $locked,
+            'review_notes' => $review['review_notes'] ?? null,
+            'reviewed_at' => $review['reviewed_at'] ?? null,
+            'reviewer_name' => $review['reviewer_name'] ?? null,
+        ];
+    }
+
+    /**
+     * Complete section-sheet save (transactional replace for the
+     * section's members on that date). Submitted member set must
+     * exactly equal the live section roster.
+     *
+     * @param list<array{member_id:int|string,status:string,notes?:string}> $records
+     * @param bool $ownTransaction false when the caller already opened a
+     *                             transaction (e.g. to commit the packet
+     *                             upsert atomically with the rows).
+     * @return array{marked:int,present:int,late:int,absent:int,excused:int}
+     */
+    public static function saveSectionSheet(\mysqli $conn, string $date, string $section, array $records, int $userId, bool $ownTransaction = true): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new \DomainException('Invalid attendance date.');
+        }
+        if ($date > date('Y-m-d')) {
+            throw new \DomainException('Attendance cannot be recorded for a future date.');
+        }
+        $section = trim($section);
+        if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
+            throw new \DomainException('A valid section is required.');
+        }
+
+        $roster = array_map(static fn($m) => (int)$m['id'], self::sectionRoster($conn, $section));
+        $submitted = [];
+        $notesByMember = [];
+        foreach ($records as $rec) {
+            $mid = (int)($rec['member_id'] ?? 0);
+            $status = (string)($rec['status'] ?? '');
+            if ($mid <= 0 || !in_array($status, self::STATUSES, true)) {
+                throw new \DomainException('Sheet contains an invalid record.');
+            }
+            if (isset($submitted[$mid])) throw new \DomainException('Duplicate member in sheet.');
+            $submitted[$mid] = $status;
+            $note = trim((string)($rec['notes'] ?? $rec['note'] ?? ''));
+            if ($note !== '') {
+                $notesByMember[$mid] = mb_substr($note, 0, 500);
+            }
+        }
+        if (count($submitted) !== count($roster) || array_diff($roster, array_keys($submitted)) !== [] || array_diff(array_keys($submitted), $roster) !== []) {
+            throw new \DomainException('The sheet is out of date with the current roster. Reload and try again.');
+        }
+
+        $present = $late = $absent = $excused = 0;
+        foreach ($submitted as $status) {
+            if ($status === 'present') $present++;
+            elseif ($status === 'late') $late++;
+            elseif ($status === 'excused') $excused++;
+            else $absent++;
+        }
+
+        if ($ownTransaction) {
+            $conn->begin_transaction();
+        }
+        try {
+            // Delete only this section's rows for the date.
+            $del = $conn->prepare(
+                "DELETE a FROM mezmur_attendance a
+                 JOIN members m ON m.id = a.member_id
+                 WHERE a.attendance_date = ?
+                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?"
+            );
+            $del->bind_param('ss', $date, $section);
+            $del->execute();
+            $del->close();
+
+            self::insertRows($conn, $date, $submitted, $notesByMember, $userId);
+            if ($ownTransaction) {
+                $conn->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $conn->rollback();
+            }
+            throw $e;
+        }
+        self::ensureDay($conn, $date, 'rehearsal', null, null, $userId);
+        self::audit($conn, $date, $userId, 'section_sheet_saved', "section=$section marked=" . count($submitted) . " present=$present late=$late absent=$absent excused=$excused");
+        return ['marked' => count($submitted), 'present' => $present, 'late' => $late, 'absent' => $absent, 'excused' => $excused];
     }
 
     // ── analytics (server-side aggregation) ─────────────────────
