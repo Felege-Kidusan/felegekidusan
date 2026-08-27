@@ -262,18 +262,22 @@ let departments = [], positions = [];
 const loaded = {};
 
 /* ── tabs ─────────────────────────────────────────────────────────── */
+function loadTab(key){
+    if (key === 'departments' && !loaded.departments) renderDepartments();
+    if (key === 'positions' && !loaded.positions) renderPositions();
+    if (key === 'types' && !loaded.types) renderTypes();
+}
 document.querySelectorAll('#section-identity .idc-tab').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('#section-identity .idc-tab').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('#section-identity .idc-pane').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
-        const key = btn.dataset.idctab;
-        $('idc-pane-' + key).classList.add('active');
-        if (key === 'departments' && !loaded.departments) renderDepartments();
-        if (key === 'positions' && !loaded.positions) renderPositions();
-        if (key === 'types' && !loaded.types) renderTypes();
+        loadTab(btn.dataset.idctab);
     });
 });
+// Auto-load the pane that is visible on entry (deep links / refresh).
+const idcActiveTab = document.querySelector('#section-identity .idc-tab.active');
+if (idcActiveTab) loadTab(idcActiveTab.dataset.idctab);
 document.querySelectorAll('[data-idcreset]').forEach(btn => {
     btn.addEventListener('click', () => {
         const f = $(btn.dataset.idcreset);
@@ -283,10 +287,13 @@ document.querySelectorAll('[data-idcreset]').forEach(btn => {
 });
 
 /* ── departments ─────────────────────────────────────────────────── */
+function tableError(tbodyId, colspan, message){
+    $(tbodyId).innerHTML = '<tr><td colspan="' + colspan + '" class="idc-muted" style="color:#f87171">Failed to load: ' + esc(message || 'unknown error') + '</td></tr>';
+}
 async function renderDepartments(){
     loaded.departments = true;
     const r = await apiGet('list_departments');
-    if (r.status !== 'success') { msg($('idcDeptMsg'), r.message, false); return; }
+    if (r.status !== 'success') { msg($('idcDeptMsg'), r.message, false); tableError('idcDeptRows', 5, r.message); loaded.departments = false; return; }
     departments = r.departments || [];
     const tbody = $('idcDeptRows'); tbody.innerHTML = '';
     if (!departments.length) tbody.innerHTML = '<tr><td colspan="5" class="idc-muted">No departments yet — create the first one above.</td></tr>';
@@ -346,9 +353,10 @@ $('idcDeptForm').addEventListener('submit', (ev) => {
 /* ── positions ────────────────────────────────────────────────────── */
 async function renderPositions(){
     loaded.positions = true;
-    if (!loaded.departments) await renderDepartments();
+    // Independent fetches run in parallel — no serial dependency.
+    if (!loaded.departments) renderDepartments();
     const r = await apiGet('list_positions');
-    if (r.status !== 'success'){ msg($('idcPosMsg'), r.message, false); return; }
+    if (r.status !== 'success'){ msg($('idcPosMsg'), r.message, false); tableError('idcPosRows', 7, r.message); loaded.positions = false; return; }
     positions = r.positions || [];
     const tbody = $('idcPosRows'); tbody.innerHTML = '';
     if (!positions.length) tbody.innerHTML = '<tr><td colspan="7" class="idc-muted">No positions yet.</td></tr>';
@@ -396,7 +404,7 @@ $('idcPosForm').addEventListener('submit', (ev) => {
 async function renderTypes(){
     loaded.types = true;
     const r = await apiGet('list_member_types');
-    if (r.status !== 'success'){ msg($('idcTypeMsg'), r.message, false); return; }
+    if (r.status !== 'success'){ msg($('idcTypeMsg'), r.message, false); tableError('idcTypeRows', 4, r.message); loaded.types = false; return; }
     const tbody = $('idcTypeRows'); tbody.innerHTML = '';
     (r.member_types || []).forEach(t => {
         const tr = document.createElement('tr');

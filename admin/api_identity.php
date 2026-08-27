@@ -13,9 +13,11 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/IdentityCodeService.php';
 require_once __DIR__ . '/backend/services/MemberTypeService.php';
+require_once __DIR__ . '/backend/services/PositionSyncService.php';
 
 use App\Services\IdentityCodeService;
 use App\Services\MemberTypeService;
+use App\Services\PositionSyncService;
 use App\Services\SecurityAuditService;
 
 if (empty($_SESSION['admin_id'])) {
@@ -154,10 +156,15 @@ try {
             // (MySQL rejects it; with PHP >= 8.1's default strict mysqli
             // reporting a rejected query THROWS, so a false-return
             // fallback would never run).
+            // legacy_flag ships with sql/020; pre-migration deployments
+            // get a NULL placeholder so the UI contract never changes.
+            $flagCol = PositionSyncService::hasLegacyFlag($conn)
+                ? 'sp.legacy_flag'
+                : 'NULL AS legacy_flag';
             $result = $conn->query(
                 'SELECT sp.id, sp.department_id, d.code AS dept_code,
                         sp.role_code, sp.title_am, sp.title_en,
-                        sp.legacy_flag, sp.is_active, sp.sort_order
+                        ' . $flagCol . ', sp.is_active, sp.sort_order
                  FROM staff_positions sp
                  LEFT JOIN departments d ON d.id = sp.department_id
                  ORDER BY COALESCE(d.sort_order, 9999) ASC, sp.sort_order ASC, sp.id ASC'
@@ -197,16 +204,36 @@ try {
                 echo json_encode(['status' => 'error', 'message' => 'Amharic title is required.']); exit;
             }
 
+            $hasFlagCol = PositionSyncService::hasLegacyFlag($conn);
+            $flagNote = '';
+            if ($legacyFlag !== null && !$hasFlagCol) {
+                $flagNote = ' (legacy flag ignored until sql/020 is applied)';
+                $legacyFlag = null;
+            }
             if ($id > 0) {
-                $stmt = $conn->prepare(
-                    'UPDATE staff_positions SET department_id=?, role_code=?, title_am=?, title_en=?, legacy_flag=?, is_active=? WHERE id=?'
-                );
-                $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive, $id);
+                if ($hasFlagCol) {
+                    $stmt = $conn->prepare(
+                        'UPDATE staff_positions SET department_id=?, role_code=?, title_am=?, title_en=?, legacy_flag=?, is_active=? WHERE id=?'
+                    );
+                    $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive, $id);
+                } else {
+                    $stmt = $conn->prepare(
+                        'UPDATE staff_positions SET department_id=?, role_code=?, title_am=?, title_en=?, is_active=? WHERE id=?'
+                    );
+                    $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $isActive, $id);
+                }
             } else {
-                $stmt = $conn->prepare(
-                    'INSERT INTO staff_positions (department_id, role_code, title_am, title_en, legacy_flag, is_active) VALUES (?, ?, ?, ?, ?, ?)'
-                );
-                $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive);
+                if ($hasFlagCol) {
+                    $stmt = $conn->prepare(
+                        'INSERT INTO staff_positions (department_id, role_code, title_am, title_en, legacy_flag, is_active) VALUES (?, ?, ?, ?, ?, ?)'
+                    );
+                    $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive);
+                } else {
+                    $stmt = $conn->prepare(
+                        'INSERT INTO staff_positions (department_id, role_code, title_am, title_en, is_active) VALUES (?, ?, ?, ?, ?)'
+                    );
+                    $stmt->bind_param('isssi', $deptId, $roleCode, $titleAm, $titleEn, $isActive);
+                }
             }
 
             // Strict-mode-safe: duplicate keys throw on PHP >= 8.1.
@@ -222,7 +249,7 @@ try {
             if ($ok) {
                 SecurityAuditService::record($conn, $id > 0 ? 'Position Updated' : 'Position Created',
                     ['role_code' => $roleCode, 'department_id' => $deptId], 'staff_position', $id ?: $conn->insert_id);
-                echo json_encode(['status' => 'success', 'message' => 'Position saved.', 'id' => $id > 0 ? $id : $conn->insert_id]);
+                echo json_encode(['status' => 'success', 'message' => 'Position saved.' . $flagNote, 'id' => $id > 0 ? $id : $conn->insert_id]);
             } elseif ($errno === 1062) {
                 echo json_encode(['status' => 'error', 'message' => 'That position code already exists in this department.']);
             } else {

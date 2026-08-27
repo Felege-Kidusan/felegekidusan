@@ -183,6 +183,20 @@ class IdentityManagementV2Tests(unittest.TestCase):
         self.assertNotIn("'under6'", self.schema_baseline)
         self.assertIn("under6", self.sql_019)
 
+    # ── progressive rollout: code works before sql/020 runs ────────
+    def test_legacy_flag_sql_is_feature_detected(self):
+        # Every statement touching the 020 column must be guarded by the
+        # schema probe, otherwise pre-migration deployments throw 1054.
+        self.assertIn("function hasLegacyFlag", self.sync)
+        self.assertIn("if (!self::hasLegacyFlag($conn))", self.sync)
+        self.assertIn("PositionSyncService::hasLegacyFlag($conn)", self.api_identity)
+        self.assertIn("NULL AS legacy_flag", self.api_identity)
+
+    def test_ui_surfaces_list_errors_and_loads_in_parallel(self):
+        self.assertIn("tableError(", self.section)
+        self.assertIn("if (!loaded.departments) renderDepartments();", self.section)
+        self.assertIn("loadTab(idcActiveTab.dataset.idctab)", self.section)
+
     # ── V9: strict-mode safety preserved ────────────────────────────
     def test_save_actions_handle_thrown_duplicate_keys(self):
         for needle in ("mysqli_sql_exception", "1062"):

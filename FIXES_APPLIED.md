@@ -332,3 +332,25 @@ UI, form pickers, shared migration engine).
 
 Deployment: `git pull`; run `sql/020` in phpMyAdmin (idempotent); then
 Identity & Codes → Renumbering → dry run → execute.
+
+## Fix 11 — Pre-migration grace for sql/020 + section loading UX  `(this commit)`
+
+Production pulled the v2 code before running `sql/020`, so every query
+touching `staff_positions.legacy_flag` threw MySQL 1054 under PHP 8.2's
+strict mysqli reporting → "Unable to complete the identity request" and
+a stuck "Loading…" table. The code now degrades gracefully on
+pre-migration deployments (progressive-rollout / schema feature
+detection, the pattern used for safe staged rollouts at scale):
+
+- `PositionSyncService::hasLegacyFlag()` — one cached
+  information_schema probe per process; `deriveFlags()`,
+  `syncPositionFromFlag()`, `list_positions` (NULL placeholder column)
+  and `save_position` (column-aware SQL) all branch on it. Pre-020
+  deployments keep full functionality; the flag mapping simply activates
+  once the migration runs. Saving a flag pre-020 reports
+  "(legacy flag ignored until sql/020 is applied)".
+- Section loading UX/perf: lists now render their own error rows
+  instead of spinning forever, department/position fetches run in
+  parallel, and the visible pane auto-loads on entry (deep links).
+
+2 new regression tests; 209 total passing.

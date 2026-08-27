@@ -31,6 +31,39 @@ final class PositionSyncService
     public const LEGACY_FLAGS = ['is_teacher', 'is_staff', 'is_committee', 'is_volunteer'];
 
     /**
+     * Schema feature detection (progressive-rollout pattern): the
+     * legacy_flag column ships with sql/020. Deployments that pulled the
+     * code but have not run the migration yet must keep working — every
+     * statement touching the column goes through this probe, cached per
+     * process so it costs one indexed information_schema read per request.
+     */
+    private static ?bool $hasLegacyFlag = null;
+
+    public static function hasLegacyFlag(\mysqli $conn): bool
+    {
+        if (self::$hasLegacyFlag !== null) {
+            return self::$hasLegacyFlag;
+        }
+        try {
+            $stmt = $conn->prepare(
+                "SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = 'staff_positions'
+                   AND COLUMN_NAME = 'legacy_flag'"
+            );
+            if (!$stmt) {
+                return self::$hasLegacyFlag = false;
+            }
+            $stmt->execute();
+            $count = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
+            $stmt->close();
+            return self::$hasLegacyFlag = $count > 0;
+        } catch (\Throwable $e) {
+            return self::$hasLegacyFlag = false;
+        }
+    }
+
+    /**
      * Replace a member's position assignments and re-code.
      *
      * @param list<int|numeric-string> $positionIds
@@ -179,6 +212,9 @@ final class PositionSyncService
      */
     public static function deriveFlags(\mysqli $conn, int $memberId): void
     {
+        if (!self::hasLegacyFlag($conn)) {
+            return; // pre-sql/020 deployment: nothing to derive yet
+        }
         $held = [];
         $stmt = $conn->prepare(
             "SELECT DISTINCT sp.legacy_flag AS flag
@@ -218,6 +254,9 @@ final class PositionSyncService
     {
         if (!in_array($flag, self::LEGACY_FLAGS, true) || $memberId <= 0) {
             return;
+        }
+        if (!self::hasLegacyFlag($conn)) {
+            return; // pre-sql/020: the mapping column does not exist yet
         }
         $stmt = $conn->prepare(
             'SELECT id FROM staff_positions WHERE legacy_flag = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC LIMIT 1'
