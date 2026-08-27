@@ -371,24 +371,29 @@ final class MezmurAttendanceService
         }
 
         $marks = [];
-        $stmt = $conn->prepare(
-            "SELECT a.member_id, a.status, a.notes
-             FROM mezmur_attendance a
-             JOIN members m ON m.id = a.member_id
-             WHERE a.attendance_date = ?
-               AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?"
-        );
-        if ($stmt) {
-            $stmt->bind_param('ss', $date, $section);
-            $stmt->execute();
-            $r = $stmt->get_result();
-            while ($row = $r->fetch_assoc()) {
-                $marks[(int)$row['member_id']] = [
-                    'status' => $row['status'],
-                    'notes' => (string)($row['notes'] ?? ''),
-                ];
+        try {
+            $stmt = $conn->prepare(
+                "SELECT a.member_id, a.status, a.notes
+                 FROM mezmur_attendance a
+                 JOIN members m ON m.id = a.member_id
+                 WHERE a.attendance_date = ?
+                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?"
+            );
+            if ($stmt) {
+                $stmt->bind_param('ss', $date, $section);
+                $stmt->execute();
+                $r = $stmt->get_result();
+                while ($row = $r->fetch_assoc()) {
+                    $marks[(int)$row['member_id']] = [
+                        'status' => $row['status'],
+                        'notes' => (string)($row['notes'] ?? ''),
+                    ];
+                }
+                $stmt->close();
             }
-            $stmt->close();
+        } catch (\Throwable $e) {
+            // Degrade to an unmarked sheet rather than a 500.
+            $marks = [];
         }
 
         $members = [];

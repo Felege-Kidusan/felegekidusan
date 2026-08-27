@@ -18,6 +18,10 @@ $auth = apiRequireAuth();
 
 // Viewing & taking: mezmur staff, admins, and attendance takers.
 // Analytics & day labelling (decision data): mezmur staff + admins only.
+// Version handshake: every /mezmur/* response carries this marker so
+// clients can distinguish a current server from a stale deployment.
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-schema24');
+
 $MEZMUR_ROLES = ['mezmur_dept', 'school_admin', 'super_admin', 'attendance_taker'];
 $MEZMUR_ANALYTICS_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
 

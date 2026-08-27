@@ -32,8 +32,19 @@ require_once __DIR__ . '/config.php';
 
 use App\Services\FeatureGate;
 
+/**
+ * Server/code version marker, present in EVERY mezmur response.
+ * Clients compare this against what they were built for and show an
+ * actionable "server needs updating" message instead of a scary generic
+ * error when the deployment is stale (missing migrations / old code).
+ * Bump when the mezmur API contract changes.
+ */
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-schema24');
+define('MEZMUR_SCHEMA_MIN', 24); // highest migration the mezmur module relies on
+
 function mezmur_respond(array $payload, int $code = 200): void
 {
+    $payload['server_meta'] = ['mezmur' => MEZMUR_API_VERSION, 'schema' => MEZMUR_SCHEMA_MIN];
     http_response_code($code);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;
@@ -87,7 +98,9 @@ if (!$__rlCheck['allowed']) {
 
 // ── 6. Schema probes (clear message instead of a raw 1054) ────
 try {
-    $conn->query("SELECT 1 FROM mezmur_hymns LIMIT 0");
+    $probe = $conn->query("SELECT 1 FROM mezmur_hymns LIMIT 0");
+    if ($probe === false) { throw new \RuntimeException('mezmur_hymns missing'); }
+    $probe->close();
 } catch (\Throwable $e) {
     mezmur_respond(['status' => 'error', 'message' => 'Mezmur tables not found. Ask the administrator to run sql/021_mezmur_department.sql.']);
 }
@@ -96,7 +109,9 @@ $__attendanceActions = ['days_list', 'day_create', 'sheet', 'save_sheet',
     'sections', 'overview', 'submissions_list', 'submission_detail', 'submission_review'];
 if (in_array($action, $__attendanceActions, true)) {
     try {
-        $conn->query("SELECT 1 FROM mezmur_days LIMIT 0");
+        $probe = $conn->query("SELECT 1 FROM mezmur_days LIMIT 0");
+        if ($probe === false) { throw new \RuntimeException('mezmur_days missing'); }
+        $probe->close();
     } catch (\Throwable $e) {
         mezmur_respond(['status' => 'error', 'message' => 'Mezmur attendance tables not found. Ask the administrator to run sql/022_mezmur_attendance.sql and sql/023_mezmur_date_attendance.sql.']);
     }
@@ -104,7 +119,9 @@ if (in_array($action, $__attendanceActions, true)) {
 $__packetActions = ['submissions_list', 'submission_detail', 'submission_review', 'overview'];
 if (in_array($action, $__packetActions, true)) {
     try {
-        $conn->query("SELECT 1 FROM mezmur_submissions LIMIT 0");
+        $probe = $conn->query("SELECT 1 FROM mezmur_submissions LIMIT 0");
+        if ($probe === false) { throw new \RuntimeException('mezmur_submissions missing'); }
+        $probe->close();
     } catch (\Throwable $e) {
         mezmur_respond(['status' => 'error', 'message' => 'Mezmur submission tables not found. Ask the administrator to run sql/024_mezmur_submissions.sql.']);
     }
@@ -112,6 +129,50 @@ if (in_array($action, $__packetActions, true)) {
 
 try {
     switch ($action) {
+
+        // ── PING (deployment health check) ─────────────────────
+        // Lets the administrator verify, in one request, that the
+        // code version and every mezmur migration are live:
+        //   https://…/backend/api/mezmur.php?action=ping
+        case 'ping': {
+            $tables = [
+                'mezmur_hymns' => 'sql/021_mezmur_department.sql',
+                'mezmur_days' => 'sql/022_mezmur_attendance.sql',
+                'mezmur_attendance' => 'sql/023_mezmur_date_attendance.sql',
+                'mezmur_attendance_audit' => 'sql/023_mezmur_date_attendance.sql',
+                'mezmur_submissions' => 'sql/024_mezmur_submissions.sql',
+            ];
+            $missing = [];
+            foreach ($tables as $tbl => $migration) {
+                try {
+                    $r = $conn->query("SELECT 1 FROM `{$tbl}` LIMIT 0");
+                    if ($r === false) { $missing[$tbl] = $migration; continue; }
+                    $r->close();
+                } catch (\Throwable $e) {
+                    $missing[$tbl] = $migration;
+                }
+            }
+            // nullable session_id check (024 block #4)
+            $sessionIdOk = null;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_attendance LIKE 'session_id'");
+                if ($r) {
+                    $col = $r->fetch_assoc();
+                    $sessionIdOk = $col ? ($col['Null'] === 'YES') : true;
+                    $r->close();
+                }
+            } catch (\Throwable $e) { $sessionIdOk = null; }
+            mezmur_respond([
+                'status' => empty($missing) ? 'success' : 'error',
+                'code_version' => MEZMUR_API_VERSION,
+                'php' => PHP_VERSION,
+                'missing_tables' => $missing,
+                'session_id_nullable' => $sessionIdOk,
+                'message' => empty($missing)
+                    ? 'Mezmur deployment is current — all tables present.'
+                    : 'Run these migrations on the server: ' . implode(', ', array_values($missing)),
+            ]);
+        }
 
         // ── STATS ──────────────────────────────────────────────
         case 'stats': {
@@ -435,39 +496,52 @@ try {
             $prevEnd = date('Y-m-t', strtotime('-1 month'));
 
             $aggWindow = static function (\mysqli $c, string $from, string $to): array {
-                $stmt = $c->prepare(
-                    "SELECT COUNT(*) AS days,
-                            (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date BETWEEN ? AND ?) AS marked,
-                            (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date BETWEEN ? AND ?
-                               AND a.status IN ('present','late')) AS attended
-                     FROM mezmur_days d WHERE d.attendance_date BETWEEN ? AND ?"
-                );
-                $stmt->bind_param('ssssss', $from, $to, $from, $to, $from, $to);
-                $stmt->execute();
-                $r = $stmt->get_result()->fetch_assoc() ?: [];
-                $stmt->close();
-                $days = (int)($r['days'] ?? 0);
-                $marked = (int)($r['marked'] ?? 0);
-                $attended = (int)($r['attended'] ?? 0);
-                return [
-                    'days' => $days,
-                    'marked' => $marked,
-                    'attended' => $attended,
-                    'rate' => $marked > 0 ? round($attended * 100.0 / $marked, 1) : null,
-                ];
+                $zero = ['days' => 0, 'marked' => 0, 'attended' => 0, 'rate' => null];
+                try {
+                    $stmt = $c->prepare(
+                        "SELECT COUNT(*) AS days,
+                                (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date BETWEEN ? AND ?) AS marked,
+                                (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date BETWEEN ? AND ?
+                                   AND a.status IN ('present','late')) AS attended
+                         FROM mezmur_days d WHERE d.attendance_date BETWEEN ? AND ?"
+                    );
+                    $stmt->bind_param('ssssss', $from, $to, $from, $to, $from, $to);
+                    $stmt->execute();
+                    $r = $stmt->get_result()->fetch_assoc() ?: [];
+                    $stmt->close();
+                    $days = (int)($r['days'] ?? 0);
+                    $marked = (int)($r['marked'] ?? 0);
+                    $attended = (int)($r['attended'] ?? 0);
+                    return [
+                        'days' => $days,
+                        'marked' => $marked,
+                        'attended' => $attended,
+                        'rate' => $marked > 0 ? round($attended * 100.0 / $marked, 1) : null,
+                    ];
+                } catch (\Throwable $e) {
+                    // A missing/legacy table must degrade the dashboard to
+                    // zeros, never a 500.
+                    return $zero;
+                }
             };
 
-            $stats = $conn->query("SELECT COUNT(*) total, COALESCE(SUM(status='active'),0) active FROM mezmur_hymns")->fetch_assoc() ?: [];
-            $members = $conn->query("SELECT COUNT(*) c FROM members WHERE status = 'active'")->fetch_assoc()['c'] ?? 0;
+            try {
+                $stats = $conn->query("SELECT COUNT(*) total, COALESCE(SUM(status='active'),0) active FROM mezmur_hymns")->fetch_assoc() ?: [];
+            } catch (\Throwable $e) { $stats = ['total' => 0, 'active' => 0]; }
+            try {
+                $members = $conn->query("SELECT COUNT(*) c FROM members WHERE status = 'active'")->fetch_assoc()['c'] ?? 0;
+            } catch (\Throwable $e) { $members = 0; }
             $takers = MezmurAttendanceService::takersList($conn);
             $takersActive = count(array_filter($takers, static fn($t) => (int)$t['is_active'] === 1));
 
             $recentDays = MezmurAttendanceService::listDays($conn, $monthStart, $today, 1, 5)['items'];
             $recentHymns = [];
-            $rh = $conn->query("SELECT id, title, category, updated_at FROM mezmur_hymns WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 5");
-            if ($rh) {
-                while ($row = $rh->fetch_assoc()) $recentHymns[] = $row;
-            }
+            try {
+                $rh = $conn->query("SELECT id, title, category, updated_at FROM mezmur_hymns WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 5");
+                if ($rh) {
+                    while ($row = $rh->fetch_assoc()) $recentHymns[] = $row;
+                }
+            } catch (\Throwable $e) { $recentHymns = []; }
 
             mezmur_respond([
                 'status' => 'success',

@@ -314,3 +314,112 @@ class MezmurPhase5Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MezmurDeploymentResilienceTests(unittest.TestCase):
+    """Root-cause fixes for the recurring production failures:
+
+    1. A server whose migrations were never run (e.g. sql/024) must
+       DEGRADE, never HTTP-500: PHP 8.1 mysqli throws on a missing
+       table, so every mezmur_submissions read is wrapped in
+       try/catch Throwable.
+    2. Clients detect a stale backend via the server_meta version
+       marker and show an actionable "update the server" message
+       instead of a dead-end error.
+    3. POSTs are bounded so the Save button can never hang forever.
+    4. action=ping gives administrators a one-request deployment
+       health check (code version + every migration + session_id).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sub_service = (
+            ROOT / "admin/backend/services/MezmurSubmissionService.php"
+        ).read_text(encoding="utf-8")
+        cls.att_service = (
+            ROOT / "admin/backend/services/MezmurAttendanceService.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        cls.response = (ROOT / "api/v1/core/response.php").read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.screen = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_attendance.dart"
+        ).read_text(encoding="utf-8")
+
+    # ── 1. missing-migration resilience (reads degrade, no 500) ──
+    def test_submission_reads_are_exception_safe(self):
+        # PHP >= 8.1 throws mysqli_sql_exception from prepare() on a
+        # missing table; every packet-table READ must catch Throwable.
+        self.assertGreaterEqual(self.sub_service.count("catch (\\Throwable $e)"), 8)
+        # the classic read entry points all return a safe fallback
+        self.assertIn("ORDER BY id DESC LIMIT 1", self.sub_service)
+
+    def test_missing_table_gives_actionable_save_message(self):
+        self.assertIn(
+            "sql/024_mezmur_submissions.sql",
+            self.sub_service,
+            "upsert/review failures must tell admins which migration to run",
+        )
+
+    def test_section_sheet_marks_query_is_exception_safe(self):
+        # fetchSectionSheet: marks read wrapped so a legacy DB degrades
+        # to an unmarked sheet instead of WBSS-U01.
+        chunk = self.att_service.split("fetchSectionSheet")[1][:2200]
+        self.assertIn("try {", chunk)
+        self.assertIn("catch (\\Throwable $e)", chunk)
+        self.assertIn("$marks = [];", chunk)
+
+    def test_overview_degrades_to_zeros(self):
+        ov = self.api.split("case 'overview'")[1].split("case 'submissions_list'")[0]
+        self.assertIn("catch (\\Throwable $e)", ov)
+        self.assertIn("'days' => 0, 'marked' => 0, 'attended' => 0", ov)
+
+    def test_schema_probes_handle_php7_false_return(self):
+        # PHP 7 returns false from query() instead of throwing.
+        self.assertIn("if ($probe === false)", self.api)
+
+    # ── 2. version handshake (detect stale deployments) ─────────
+    def test_admin_api_stamps_every_response(self):
+        self.assertIn("MEZMUR_API_VERSION", self.api)
+        self.assertIn("server_meta", self.api)
+        self.assertIn("MEZMUR_SCHEMA_MIN", self.api)
+
+    def test_mobile_route_stamps_responses(self):
+        self.assertIn("define('MEZMUR_API_VERSION'", self.route)
+        self.assertIn("server_meta", self.response)
+        self.assertIn("defined('MEZMUR_API_VERSION')", self.response)
+
+    def test_web_js_explains_generic_server_errors(self):
+        self.assertIn("staleHint", self.js)
+        self.assertIn("sql/024_mezmur_submissions.sql", self.js)
+
+    def test_app_detects_and_warns_about_stale_server(self):
+        self.assertIn("_staleServer", self.screen)
+        self.assertIn("server_meta", self.screen)
+        self.assertIn("sql/024_mezmur_submissions.sql", self.screen)
+        self.assertIn("StatusBanner.warning", self.screen)
+
+    # ── 3. bounded POSTs (no more Saving… forever) ──────────────
+    def test_post_requests_are_bounded(self):
+        self.assertIn("POST_TIMEOUT", self.js)
+        self.assertIn("var POST_TIMEOUT = 20000", self.js)
+        # apiPost now races against its own timeout
+        post_fn = self.js.split("function apiPost")[1][:900]
+        self.assertIn("setTimeout", post_fn)
+
+    # ── 4. deployment health endpoint ───────────────────────────
+    def test_ping_action_exists_and_checks_all_migrations(self):
+        self.assertIn("case 'ping'", self.api)
+        ping = self.api.split("case 'ping'")[1].split("case 'stats'")[0]
+        for tbl in [
+            "mezmur_hymns",
+            "mezmur_days",
+            "mezmur_attendance",
+            "mezmur_attendance_audit",
+            "mezmur_submissions",
+        ]:
+            self.assertIn(tbl, ping)
+        self.assertIn("code_version", ping)
+        self.assertIn("missing_tables", ping)
+        self.assertIn("session_id_nullable", ping)

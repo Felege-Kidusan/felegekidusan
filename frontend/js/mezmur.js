@@ -77,7 +77,36 @@
         });
     }
 
-    function apiPost(data) { return window.api.post('mezmur.php', data); }
+    var POST_TIMEOUT = 20000; // ms — a save can never hang the UI past this
+
+    function apiPost(data) {
+        var p = window.api.post('mezmur.php', data);
+        return new Promise(function (resolve, reject) {
+            var done = false;
+            var timer = setTimeout(function () {
+                if (!done) { done = true; reject(new Error('The server took too long to answer. Your changes may not have been saved — check the list before saving again.')); }
+            }, POST_TIMEOUT);
+            p.then(function (d) {
+                if (!done) { done = true; clearTimeout(timer); resolve(d); }
+            }).catch(function (e) {
+                if (!done) { done = true; clearTimeout(timer); reject(e); }
+            });
+        });
+    }
+
+    /**
+     * Stale-deployment hint. The current server marks every mezmur
+     * response with server_meta; generic server errors with no marker
+     * almost always mean the deployed backend is behind the web/app
+     * build. Give an actionable message instead of a scary dead end.
+     */
+    function staleHint(err) {
+        var m = (err && err.message) || '';
+        if (/server error|invalid server response|took too long|failed to fetch|network|connection error/i.test(m)) {
+            return ' If this keeps happening, the server backend may be outdated — ask the administrator to pull the latest code and run sql/024_mezmur_submissions.sql.';
+        }
+        return '';
+    }
 
     // ── shared state renderers (skeleton / empty / error) ─────
     function skeletonRows(n) {
@@ -265,7 +294,7 @@
                 }).join('');
             }
         }).catch(function (err) {
-            var msg = (err && err.message) || 'Connection error.';
+            var msg = ((err && err.message) || 'Connection error.') + staleHint(err);
             $('mzOvRecentDays').innerHTML = '<tr><td colspan="3">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
             $('mzOvRecentHymns').innerHTML = '<tr><td colspan="3">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
             $('mzOvQueue').innerHTML = '<tr><td colspan="5">' + errorState(msg, 'Mezmur.loadOverview()') + '</td></tr>';
@@ -333,7 +362,8 @@
             renderLibPagination();
         }).catch(function (err) {
             lib.loading = false;
-            tb.innerHTML = '<tr><td colspan="6">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.libReload()') + '</td></tr>';
+            var msg = ((err && err.message) || 'Connection error.') + staleHint(err);
+            tb.innerHTML = '<tr><td colspan="6">' + errorState(msg, 'Mezmur.libReload()') + '</td></tr>';
         });
     }
 
@@ -414,7 +444,7 @@
             loadStats(); loadList();
         }).catch(function (err) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Hymn';
-            showError($('mzModalError'), (err && err.message) || 'Connection error.');
+            showError($('mzModalError'), ((err && err.message) || 'Connection error.') + staleHint(err));
         });
     }
 
@@ -560,7 +590,7 @@
             restoreDraft();
             renderSheetStatus(att.packetStatus);
             updateSheetSummary();
-        }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); closeSheet(true); });
+        }).catch(function (err) { window.toast(((err && err.message) || 'Connection error.') + staleHint(err), 'e'); closeSheet(true); });
     }
 
     function restoreDraft() {

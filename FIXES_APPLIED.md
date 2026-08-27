@@ -596,3 +596,50 @@ teachers ↔ education, keyed by (date, section) instead of (date, class):
 lockstep). Functional smoke against live MariaDB (clean-room 022→023→024
 twice): complete-sheet validation, atomic rows+packet, lock/override,
 reason-mandatory review, audit trail, UNIQUE enforcement — all pass.
+
+---
+
+## 7. Production incident (2026-08-28) — recurring failures root-caused
+
+**Symptoms on prod:** hymn Save stuck on "Saving…", hymn list showing
+"Server error. Please try again.", mobile sheet failing (WBSS-U01) while
+sections loaded fine.
+
+**Root causes found:**
+
+1. **Stale deployment.** Probing the live server showed
+   `/backend/api/mezmur.php` answering with *plain text* while every repo
+   version of that controller answers with JSON — prod is still serving a
+   legacy controller whose catch emits "Server error. Please try again."
+   (a string that exists in NO git version of the mezmur backend). The new
+   frontend JS and mobile API were deployed; the legacy backend files were
+   not replaced.
+2. **Missing migration + PHP 8.1 exception mode.** With sql/024 not run,
+   `prepare()` on the absent `mezmur_submissions` table *throws*
+   (mysqli exception mode), so `if (!$stmt)` guards never ran — the mobile
+   sheet died with a 500.
+
+**Fixes (server never 500s on a missing migration again):**
+
+- MezmurSubmissionService: every packet-table READ wrapped in
+  try/catch Throwable → null/[]/false fallback; writes return a controlled
+  message naming `sql/024_mezmur_submissions.sql`.
+- MezmurAttendanceService::fetchSectionSheet marks query wrapped → sheet
+  degrades to unmarked roster.
+- admin/api_mezmur.php overview: all aggregations wrapped → zeros on
+  legacy DBs; schema probes hardened for PHP 7 (`query()` returns false).
+- **Version handshake:** every mezmur response (admin + api/v1) now carries
+  `server_meta`; web JS + app detect a stale server and show an actionable
+  "pull latest code + run sql/024" message instead of a dead-end error.
+- **Bounded POSTs** (20 s race) — the Save button can never hang forever.
+- **`action=ping`** — one-request deployment health check (code version,
+  PHP version, every mezmur migration present, session_id nullability).
+
+**Verified:** suite 330/330 (+11 resilience gates); clean-room smoke
+ALL PASS; dedicated degradation test with `mezmur_submissions` DROPPED —
+10/10 checks pass (sheet loads, sections populate, save fails softly,
+zero exceptions).
+
+**Prod checklist:** (1) git pull to this commit; (2) run sql/024;
+(3) confirm via `…/backend/api/mezmur.php?action=ping` (logged in);
+(4) rebuild + reinstall the app.

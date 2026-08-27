@@ -116,19 +116,25 @@ final class MezmurSubmissionService
         if (!self::validDate($date) || trim($section) === '') {
             return null;
         }
-        $stmt = $conn->prepare(
-            "SELECT status FROM mezmur_submissions
-             WHERE attendance_date = ? AND section = ?
-             ORDER BY id DESC LIMIT 1"
-        );
-        if (!$stmt) {
+        try {
+            $stmt = $conn->prepare(
+                "SELECT status FROM mezmur_submissions
+                 WHERE attendance_date = ? AND section = ?
+                 ORDER BY id DESC LIMIT 1"
+            );
+            if (!$stmt) {
+                return null;
+            }
+            $stmt->bind_param('ss', $date, $section);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            return $row ? self::normalizeStatus($row['status'] ?? '') : null;
+        } catch (\Throwable $e) {
+            // Missing/unready packet table (migration not run yet) must
+            // degrade to "no packet", never a 500.
             return null;
         }
-        $stmt->bind_param('ss', $date, $section);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $row ? self::normalizeStatus($row['status'] ?? '') : null;
     }
 
     public static function packetHasRows(\mysqli $conn, string $date, string $section): bool
@@ -136,22 +142,26 @@ final class MezmurSubmissionService
         if (!self::validDate($date)) {
             return false;
         }
-        $stmt = $conn->prepare(
-            "SELECT 1
-             FROM mezmur_attendance a
-             JOIN members m ON m.id = a.member_id
-             WHERE a.attendance_date = ?
-               AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?
-             LIMIT 1"
-        );
-        if (!$stmt) {
+        try {
+            $stmt = $conn->prepare(
+                "SELECT 1
+                 FROM mezmur_attendance a
+                 JOIN members m ON m.id = a.member_id
+                 WHERE a.attendance_date = ?
+                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?
+                 LIMIT 1"
+            );
+            if (!$stmt) {
+                return false;
+            }
+            $stmt->bind_param('ss', $date, $section);
+            $stmt->execute();
+            $ok = $stmt->get_result()->num_rows > 0;
+            $stmt->close();
+            return $ok;
+        } catch (\Throwable $e) {
             return false;
         }
-        $stmt->bind_param('ss', $date, $section);
-        $stmt->execute();
-        $ok = $stmt->get_result()->num_rows > 0;
-        $stmt->close();
-        return $ok;
     }
 
     /**
@@ -178,21 +188,25 @@ final class MezmurSubmissionService
         if (!self::validDate($date) || trim($section) === '') {
             return null;
         }
-        $stmt = $conn->prepare(
-            "SELECT ms.review_notes, ms.reviewed_at, COALESCE(u.full_name, '') AS reviewer_name
-             FROM mezmur_submissions ms
-             LEFT JOIN users u ON ms.reviewed_by = u.id
-             WHERE ms.attendance_date = ? AND ms.section = ? AND ms.status = 'revision_needed'
-             ORDER BY ms.id DESC LIMIT 1"
-        );
-        if (!$stmt) {
-            return null;
-        }
-        $stmt->bind_param('ss', $date, $section);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if (!$row) {
+        try {
+            $stmt = $conn->prepare(
+                "SELECT ms.review_notes, ms.reviewed_at, COALESCE(u.full_name, '') AS reviewer_name
+                 FROM mezmur_submissions ms
+                 LEFT JOIN users u ON ms.reviewed_by = u.id
+                 WHERE ms.attendance_date = ? AND ms.section = ? AND ms.status = 'revision_needed'
+                 ORDER BY ms.id DESC LIMIT 1"
+            );
+            if (!$stmt) {
+                return null;
+            }
+            $stmt->bind_param('ss', $date, $section);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$row) {
+                return null;
+            }
+        } catch (\Throwable $e) {
             return null;
         }
         return [
@@ -243,11 +257,15 @@ final class MezmurSubmissionService
         }
 
         $existingId = 0;
-        $stmt = $conn->prepare(
-            "SELECT id FROM mezmur_submissions
-             WHERE attendance_date = ? AND section = ?
-             ORDER BY id DESC LIMIT 1"
-        );
+        try {
+            $stmt = $conn->prepare(
+                "SELECT id FROM mezmur_submissions
+                 WHERE attendance_date = ? AND section = ?
+                 ORDER BY id DESC LIMIT 1"
+            );
+        } catch (\Throwable $e) {
+            $stmt = false;
+        }
         if ($stmt) {
             $stmt->bind_param('ss', $date, $section);
             $stmt->execute();
@@ -275,13 +293,17 @@ final class MezmurSubmissionService
                     'message' => 'This attendance is already submitted. Only the Mezmur department can change it.',
                 ];
             }
-            $up = $conn->prepare(
-                "UPDATE mezmur_submissions
-                 SET status = ?, taker_id = ?, member_count = ?, present_count = ?, late_count = ?,
-                     absent_count = ?, excused_count = ?, client_op_id = COALESCE(?, client_op_id),
-                     submitted_at = COALESCE(?, submitted_at)
-                 WHERE id = ?"
-            );
+            try {
+                $up = $conn->prepare(
+                    "UPDATE mezmur_submissions
+                     SET status = ?, taker_id = ?, member_count = ?, present_count = ?, late_count = ?,
+                         absent_count = ?, excused_count = ?, client_op_id = COALESCE(?, client_op_id),
+                         submitted_at = COALESCE(?, submitted_at)
+                     WHERE id = ?"
+                );
+            } catch (\Throwable $e) {
+                $up = false;
+            }
             if (!$up) {
                 return ['ok' => false, 'id' => $existingId, 'status' => $status, 'message' => 'Could not update the attendance packet.'];
             }
@@ -298,15 +320,20 @@ final class MezmurSubmissionService
             ];
         }
 
-        $ins = $conn->prepare(
-            "INSERT INTO mezmur_submissions
-                (attendance_date, section, taker_id, status, member_count,
-                 present_count, late_count, absent_count, excused_count,
-                 submitted_at, client_op_id)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-        );
+        try {
+            $ins = $conn->prepare(
+                "INSERT INTO mezmur_submissions
+                    (attendance_date, section, taker_id, status, member_count,
+                     present_count, late_count, absent_count, excused_count,
+                     submitted_at, client_op_id)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            );
+        } catch (\Throwable $e) {
+            $ins = false;
+        }
         if (!$ins) {
-            return ['ok' => false, 'id' => 0, 'status' => $status, 'message' => 'Could not create the attendance packet.'];
+            return ['ok' => false, 'id' => 0, 'status' => $status,
+                'message' => 'The submission tables are not ready on this server. Ask the administrator to run sql/024_mezmur_submissions.sql.'];
         }
         $ins->bind_param(
             'ssisiiiiiss',
@@ -356,12 +383,16 @@ final class MezmurSubmissionService
             $notes = mb_substr($notes, 0, 500);
         }
 
-        $stmt = $conn->prepare(
-            "SELECT attendance_date, section, taker_id, status
-             FROM mezmur_submissions WHERE id = ? LIMIT 1"
-        );
+        try {
+            $stmt = $conn->prepare(
+                "SELECT attendance_date, section, taker_id, status
+                 FROM mezmur_submissions WHERE id = ? LIMIT 1"
+            );
+        } catch (\Throwable $e) {
+            $stmt = false;
+        }
         if (!$stmt) {
-            return ['ok' => false, 'message' => 'Could not read the packet.'];
+            return ['ok' => false, 'message' => 'The submission tables are not ready on this server. Ask the administrator to run sql/024_mezmur_submissions.sql.'];
         }
         $stmt->bind_param('i', $packetId);
         $stmt->execute();
@@ -372,11 +403,15 @@ final class MezmurSubmissionService
         }
         $previousStatus = (string)($packet['status'] ?? '');
 
-        $up = $conn->prepare(
-            "UPDATE mezmur_submissions
-             SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-             WHERE id = ?"
-        );
+        try {
+            $up = $conn->prepare(
+                "UPDATE mezmur_submissions
+                 SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
+                 WHERE id = ?"
+            );
+        } catch (\Throwable $e) {
+            $up = false;
+        }
         if (!$up) {
             return ['ok' => false, 'message' => 'Could not update the packet.'];
         }
@@ -462,21 +497,25 @@ final class MezmurSubmissionService
                 ORDER BY ms.updated_at DESC, ms.id DESC
                 LIMIT 200";
 
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            throw new \RuntimeException('Could not read mezmur submissions.');
+        try {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                return [];
+            }
+            if ($params) {
+                $stmt->bind_param($types, ...$params);
+            }
+            $stmt->execute();
+            $rows = [];
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $rows[] = self::presentRow($row);
+            }
+            $stmt->close();
+            return $rows;
+        } catch (\Throwable $e) {
+            return [];
         }
-        if ($params) {
-            $stmt->bind_param($types, ...$params);
-        }
-        $stmt->execute();
-        $rows = [];
-        $r = $stmt->get_result();
-        while ($row = $r->fetch_assoc()) {
-            $rows[] = self::presentRow($row);
-        }
-        $stmt->close();
-        return $rows;
     }
 
     /** @return array<string,mixed>|null */
@@ -485,21 +524,25 @@ final class MezmurSubmissionService
         if ($id <= 0) {
             return null;
         }
-        $stmt = $conn->prepare(
-            "SELECT ms.*, u.full_name AS taker_name, rv.full_name AS reviewer_name
-             FROM mezmur_submissions ms
-             LEFT JOIN users u ON ms.taker_id = u.id
-             LEFT JOIN users rv ON ms.reviewed_by = rv.id
-             WHERE ms.id = ? LIMIT 1"
-        );
-        if (!$stmt) {
-            return null;
-        }
-        $stmt->bind_param('i', $id);
-        $stmt->execute();
-        $raw = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if (!$raw) {
+        try {
+            $stmt = $conn->prepare(
+                "SELECT ms.*, u.full_name AS taker_name, rv.full_name AS reviewer_name
+                 FROM mezmur_submissions ms
+                 LEFT JOIN users u ON ms.taker_id = u.id
+                 LEFT JOIN users rv ON ms.reviewed_by = rv.id
+                 WHERE ms.id = ? LIMIT 1"
+            );
+            if (!$stmt) {
+                return null;
+            }
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $raw = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$raw) {
+                return null;
+            }
+        } catch (\Throwable $e) {
             return null;
         }
         $packet = self::presentRow($raw);
@@ -513,34 +556,38 @@ final class MezmurSubmissionService
         if (!self::validDate($date) || trim($section) === '') {
             return [];
         }
-        $stmt = $conn->prepare(
-            "SELECT a.member_id, a.status, a.notes, m.student_name, m.father_name, m.member_code
-             FROM mezmur_attendance a
-             JOIN members m ON m.id = a.member_id
-             WHERE a.attendance_date = ?
-               AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?
-             ORDER BY m.student_name, m.father_name
-             LIMIT 100000"
-        );
-        if (!$stmt) {
+        try {
+            $stmt = $conn->prepare(
+                "SELECT a.member_id, a.status, a.notes, m.student_name, m.father_name, m.member_code
+                 FROM mezmur_attendance a
+                 JOIN members m ON m.id = a.member_id
+                 WHERE a.attendance_date = ?
+                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?
+                 ORDER BY m.student_name, m.father_name
+                 LIMIT 100000"
+            );
+            if (!$stmt) {
+                return [];
+            }
+            $stmt->bind_param('ss', $date, $section);
+            $stmt->execute();
+            $rows = [];
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $rows[] = [
+                    'member_id' => (int)$row['member_id'],
+                    'student_name' => $row['student_name'] ?? '',
+                    'father_name' => $row['father_name'] ?? '',
+                    'member_code' => $row['member_code'] ?? '',
+                    'status' => $row['status'] ?? '',
+                    'notes' => $row['notes'] ?? '',
+                ];
+            }
+            $stmt->close();
+            return $rows;
+        } catch (\Throwable $e) {
             return [];
         }
-        $stmt->bind_param('ss', $date, $section);
-        $stmt->execute();
-        $rows = [];
-        $r = $stmt->get_result();
-        while ($row = $r->fetch_assoc()) {
-            $rows[] = [
-                'member_id' => (int)$row['member_id'],
-                'student_name' => $row['student_name'] ?? '',
-                'father_name' => $row['father_name'] ?? '',
-                'member_code' => $row['member_code'] ?? '',
-                'status' => $row['status'] ?? '',
-                'notes' => $row['notes'] ?? '',
-            ];
-        }
-        $stmt->close();
-        return $rows;
     }
 
     public static function countsFromRecords(array $records): array

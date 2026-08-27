@@ -55,6 +55,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   bool _loading = true;
   bool _rosterReady = false;
   bool _loadFailed = false;
+  bool _staleServer = false; // backend older than this app build
   bool _isOffline = false;
   String? _error;
   String _packetStatus = '';
@@ -179,6 +180,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     setState(() {
       _error = null;
       _loadFailed = false;
+      _staleServer = false;
       if (!keepSheet) {
         _loading = true;
         _rosterReady = false;
@@ -228,6 +230,9 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     if (!mounted) return;
     if (res.success && res.data != null) {
       final data = res.data!;
+      // Version handshake: the current server stamps every mezmur
+      // response with server_meta. Missing marker => stale backend.
+      _staleServer = data['server_meta'] == null;
       final packet = '${data['submission_status'] ?? ''}';
       final locked =
           PacketLock.isLocked(packet, flagged: data['locked'] == true);
@@ -249,11 +254,16 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
         _returnNote = _mezmurReturnNote(data);
       });
     } else if (_members.isEmpty) {
+      var msg = res.message ?? 'Could not load the sheet.';
+      if (RegExp(r'server error', caseSensitive: false).hasMatch(msg)) {
+        msg +=
+            ' The server may be outdated — ask the administrator to pull the latest code and run sql/024_mezmur_submissions.sql.';
+      }
       setState(() {
         _loading = false;
         _rosterReady = true;
         _loadFailed = true;
-        _error = res.message ?? 'Could not load the sheet.';
+        _error = msg;
       });
     } else {
       setState(() {
@@ -750,6 +760,9 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
           ),
 
           if (_error != null) StatusBanner.error(_error!, onRetry: _loadSheet),
+          if (_staleServer && _error == null)
+            StatusBanner.warning(
+                'This server is running an older version of the mezmur backend. Ask the administrator to pull the latest code and run sql/024_mezmur_submissions.sql.'),
           if (_returnNote != null &&
               _returnNote!.isNotEmpty &&
               !_locked &&

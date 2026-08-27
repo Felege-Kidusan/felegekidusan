@@ -36,6 +36,11 @@ function err($message, $code = 400, $extra = []) {
 }
 
 function apiSendJson(array $response, int $code = 200) {
+    // Module version handshake (see routes/mezmur.php): lets clients
+    // detect a stale server and show an actionable update message.
+    if (defined('MEZMUR_API_VERSION') && !isset($response['server_meta'])) {
+        $response['server_meta'] = ['mezmur' => MEZMUR_API_VERSION];
+    }
     while (ob_get_level() > 0) {
         @ob_end_clean();
     }
