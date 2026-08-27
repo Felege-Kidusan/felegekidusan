@@ -272,6 +272,9 @@ document.querySelectorAll('#section-identity .idc-tab').forEach(btn => {
         document.querySelectorAll('#section-identity .idc-tab').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('#section-identity .idc-pane').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
+        // The target pane MUST be re-activated: deactivating all panes
+        // above without this line blanks the section body on navigation.
+        $('idc-pane-' + btn.dataset.idctab).classList.add('active');
         loadTab(btn.dataset.idctab);
     });
 });

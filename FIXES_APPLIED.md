@@ -354,3 +354,12 @@ detection, the pattern used for safe staged rollouts at scale):
   parallel, and the visible pane auto-loads on entry (deep links).
 
 2 new regression tests; 209 total passing.
+
+## Fix 12 — Tab navigation blanked the Identity section  `(this commit)`
+
+The Fix-11 refactor of the tab handler deactivated every pane but never
+re-activated the clicked one, so any in-section navigation left the
+section body blank ("it disappears when I navigate"). The handler now
+re-activates the target pane, and a regression test pins the exact
+activation line so a future refactor cannot drop it silently.
+211 tests passing.

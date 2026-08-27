@@ -201,6 +201,15 @@ class IdentityManagementV2Tests(unittest.TestCase):
         self.assertIn("if (!loaded.departments) renderDepartments();", self.section)
         self.assertIn("loadTab(idcActiveTab.dataset.idctab)", self.section)
 
+    def test_tab_navigation_reactivates_target_pane(self):
+        # Regression: a refactor once deactivated all panes without
+        # re-activating the clicked one, blanking the section body on
+        # every in-section navigation.
+        self.assertIn(
+            "$('idc-pane-' + btn.dataset.idctab).classList.add('active');",
+            self.section,
+        )
+
     # ── V9: strict-mode safety preserved ────────────────────────────
     def test_save_actions_handle_thrown_duplicate_keys(self):
         for needle in ("mysqli_sql_exception", "1062"):
