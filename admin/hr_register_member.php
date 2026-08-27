@@ -251,19 +251,23 @@ $guardian_mender       = field('guardian_mender');
 $guardian_block_number = field('guardian_block_number');
 $guardian_house        = field('guardian_house');
 
-// Role flags
-$is_teacher     = !$isQuickAdd && isset($_POST['is_teacher']) ? 1 : 0;
-$is_staff       = !$isQuickAdd && isset($_POST['is_staff']) ? 1 : 0;
-$is_committee   = !$isQuickAdd && isset($_POST['is_committee']) ? 1 : 0;
-$is_volunteer   = !$isQuickAdd && isset($_POST['is_volunteer']) ? 1 : 0;
-$is_dept_head_1 = !$isQuickAdd && isset($_POST['is_dept_head_1']) ? 1 : 0;
-$is_dept_head_2 = !$isQuickAdd && isset($_POST['is_dept_head_2']) ? 1 : 0;
-$is_dept_head_3 = !$isQuickAdd && isset($_POST['is_dept_head_3']) ? 1 : 0;
-$is_dept_head_4 = !$isQuickAdd && isset($_POST['is_dept_head_4']) ? 1 : 0;
-$is_dept_head_5 = !$isQuickAdd && isset($_POST['is_dept_head_5']) ? 1 : 0;
-$is_dept_head_6 = !$isQuickAdd && isset($_POST['is_dept_head_6']) ? 1 : 0;
-$is_dept_head_7 = !$isQuickAdd && isset($_POST['is_dept_head_7']) ? 1 : 0;
-$is_dept_head_8 = !$isQuickAdd && isset($_POST['is_dept_head_8']) ? 1 : 0;
+// Legacy role flags are no longer form inputs: the position picker
+// (identity v2) drives them via PositionSyncService::deriveFlags() right
+// after registration, keeping every pre-v2 consumer in sync.
+
+// Position assignments (identity v2) — the picker is fed by the Super
+// Admin Identity & Codes catalogue and drives the member's code and the
+// derived legacy flags. Available for regular AND special_regular.
+$position_ids = [];
+if (!$isQuickAdd && isset($_POST['position_ids']) && is_array($_POST['position_ids'])) {
+    foreach ($_POST['position_ids'] as $pid) {
+        $pid = filter_var($pid, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($pid) {
+            $position_ids[] = (int)$pid;
+        }
+    }
+    $position_ids = array_values(array_unique($position_ids));
+}
 
 // ── Member Code ──
 $member_code_form = field('student_id');
@@ -368,7 +372,6 @@ if (!empty($uploadErrors)) {
 $conn->begin_transaction();
 $filesCommitted = false;
 $duplicateIdentityLock = null;
-$codeLockLetter = null;
 
 try {
     $data = [
@@ -413,18 +416,6 @@ try {
         'guardian_mender'      => $guardian_mender,
         'guardian_block_number'=> $guardian_block_number,
         'guardian_house'       => $guardian_house,
-        'is_teacher'           => $is_teacher,
-        'is_staff'             => $is_staff,
-        'is_committee'         => $is_committee,
-        'is_volunteer'         => $is_volunteer,
-        'is_dept_head_1'       => $is_dept_head_1,
-        'is_dept_head_2'       => $is_dept_head_2,
-        'is_dept_head_3'       => $is_dept_head_3,
-        'is_dept_head_4'       => $is_dept_head_4,
-        'is_dept_head_5'       => $is_dept_head_5,
-        'is_dept_head_6'       => $is_dept_head_6,
-        'is_dept_head_7'       => $is_dept_head_7,
-        'is_dept_head_8'       => $is_dept_head_8,
         'student_photo_path'       => $student_photo_path,
         'guardian_photo_path'      => $guardian_photo_path,
         'doc_school_records_path'  => $doc_school_records_path,
@@ -467,15 +458,14 @@ try {
         }
     }
 
-    if ($upgrade_id === 0 && $member_code === null && $code_letter !== null) {
-        // M2 FIX: allocation happens INSIDE the registration transaction and
-        // keeps the per-letter advisory lock held until commit/rollback, so
-        // a concurrent registration can never read a pre-commit MAX and
-        // allocate the same number. (Upgrades never allocate here — the
-        // upgrade branch keeps the member's existing code.)
-        $codeLockLetter = $code_letter;
-        $member_code = \App\Services\IdentityCodeService::allocateStudentHeld($conn, $code_letter);
-        $data['member_code'] = $member_code;
+    if ($upgrade_id === 0) {
+        // FORMAT v2: the code (category letter + random tail, or staff
+        // composition) is issued right after commit by PositionSyncService
+        // from the submitted positions + manually chosen category. Uniqueness
+        // is enforced by the members.member_code UNIQUE key with bounded
+        // retries — no locks, no sequences, no guessing. Upgrades never
+        // allocate here (the upgrade branch keeps the existing code).
+        $data['member_code'] = null;
     }
 
     if ($upgrade_id > 0) {
@@ -555,11 +545,28 @@ try {
     $conn->commit();
     \App\Services\MemberDuplicateService::releaseIdentityLock($conn, $duplicateIdentityLock);
     $duplicateIdentityLock = null;
-    if ($codeLockLetter !== null) {
-        \App\Services\IdentityCodeService::releaseCodeLock($conn, $codeLockLetter);
-        $codeLockLetter = null;
-    }
     $filesCommitted = true;
+
+    // Identity v2 (post-commit, own transaction): apply the submitted
+    // positions, issue the member code, derive legacy flags and refresh
+    // the QR. Never fails the registration itself — worst case the code
+    // stays pending and the Identity hub completes it later.
+    if ($upgrade_id === 0 && $newId > 0) {
+        try {
+            require_once __DIR__ . '/backend/services/PositionSyncService.php';
+            $posRes = \App\Services\PositionSyncService::applyPositions(
+                $conn,
+                $newId,
+                $position_ids,
+                (int)($_SESSION['admin_id'] ?? 0)
+            );
+            if (($posRes['status'] ?? '') === 'success' && !empty($posRes['member_code'])) {
+                $member_code = $posRes['member_code'];
+            }
+        } catch (Throwable $posErr) {
+            error_log('Registration position sync error: ' . $posErr->getMessage());
+        }
+    }
 
     // Optional class assignment — never fail the registration if this misses.
     $enrollNote = '';
@@ -605,10 +612,6 @@ try {
     try { $conn->rollback(); } catch (Throwable $r) {}
     \App\Services\MemberDuplicateService::releaseIdentityLock($conn, $duplicateIdentityLock);
     $duplicateIdentityLock = null;
-    if ($codeLockLetter !== null) {
-        \App\Services\IdentityCodeService::releaseCodeLock($conn, $codeLockLetter);
-        $codeLockLetter = null;
-    }
     if (!$filesCommitted) {
         foreach ([$student_photo_path, $guardian_photo_path, $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path] as $uploadedPath) {
             if (is_string($uploadedPath)) \App\Services\MemberFileService::discard($uploadedPath);

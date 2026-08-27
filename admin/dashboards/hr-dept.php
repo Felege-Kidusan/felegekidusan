@@ -1404,44 +1404,54 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </div>
                         </div>
 
-                        <div id="roleFlagsSection"
-                             class="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4 mb-4 hidden">
+                        <?php
+                        // Identity v2: responsibilities come from the Super
+                        // Admin catalogue (departments + free positions).
+                        require_once __DIR__ . '/../backend/services/PositionSyncService.php';
+                        $idCat = \App\Services\PositionSyncService::catalogue($conn);
+                        ?>
+                        <div id="positionPickerSection"
+                             class="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4 mb-4">
                             <h4 class="text-xs font-semibold text-amber-900 mb-2 flex items-center gap-2">
                                 <span class="w-6 h-6 rounded-lg bg-amber-200 flex items-center justify-center">
                                     <i class="fa-solid fa-user-gear text-[10px]"></i>
                                 </span>
-                                <span>Role Flags (for ልዩ መደበኛ)</span>
+                                <span>Positions &amp; Responsibilities (optional)</span>
                             </h4>
-
                             <p class="text-[11px] text-amber-800 mb-2">
-                                Mark responsibilities. These are simple flags we’ll use for filters/reports later.
+                                Available for regular and special regular members. Selected positions
+                                build the member's identity code (e.g. <span class="font-mono">DT-48291</span>)
+                                and keep the legacy role flags in sync automatically.
                             </p>
-
+                            <?php if (empty($idCat['departments']) && empty($idCat['free'])): ?>
+                                <p class="text-[11px] text-amber-700">No positions defined yet — the Super Admin creates them under Identity &amp; Codes.</p>
+                            <?php else: ?>
                             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px]">
-                                <?php
-                                $flags = [
-                                    'is_teacher' => 'መምህር (Teacher)',
-                                    'is_staff' => 'ሰራተኛ (Staff)',
-                                    'is_committee' => 'ኮሚቴ (Committee)',
-                                    'is_volunteer' => 'በፈቃደኝነት (Volunteer)',
-                                    'is_dept_head_1' => 'Dept Head 1',
-                                    'is_dept_head_2' => 'Dept Head 2',
-                                    'is_dept_head_3' => 'Dept Head 3',
-                                    'is_dept_head_4' => 'Dept Head 4',
-                                    'is_dept_head_5' => 'Dept Head 5',
-                                    'is_dept_head_6' => 'Dept Head 6',
-                                    'is_dept_head_7' => 'Dept Head 7',
-                                    'is_dept_head_8' => 'Dept Head 8',
-                                ];
-                                foreach ($flags as $name => $label): ?>
+                                <?php if (!empty($idCat['free'])): ?>
+                                <div class="col-span-full text-[10px] font-semibold text-amber-900 uppercase tracking-wide mt-1">School-wide positions</div>
+                                <?php foreach ($idCat['free'] as $pos): ?>
                                     <label class="inline-flex items-center gap-2">
-                                        <input type="checkbox" name="<?= $name ?>" class="rounded border-amber-300 text-amber-600">
-                                        <span><?= $label ?></span>
+                                        <input type="checkbox" name="position_ids[]" value="<?= (int)$pos['id'] ?>" class="rounded border-amber-300 text-amber-600">
+                                        <span class="eth"><?= htmlspecialchars($pos['title_am']) ?></span>
+                                        <span class="text-amber-600 font-mono">[<?= htmlspecialchars($pos['role_code']) ?>]</span>
+                                    </label>
+                                <?php endforeach; endif; ?>
+                                <?php
+                                $lastDept = null;
+                                foreach ($idCat['departments'] as $pos):
+                                    if ($pos['dept_code'] !== $lastDept):
+                                        $lastDept = $pos['dept_code']; ?>
+                                <div class="col-span-full text-[10px] font-semibold text-amber-900 uppercase tracking-wide mt-1"><?= htmlspecialchars($pos['dept_code']) ?> — <?= htmlspecialchars($pos['dept_am'] ?? '') ?></div>
+                                <?php endif; ?>
+                                    <label class="inline-flex items-center gap-2">
+                                        <input type="checkbox" name="position_ids[]" value="<?= (int)$pos['id'] ?>" class="rounded border-amber-300 text-amber-600">
+                                        <span class="eth"><?= htmlspecialchars($pos['title_am']) ?></span>
+                                        <span class="text-amber-600 font-mono">[<?= htmlspecialchars($pos['role_code']) ?>]</span>
                                     </label>
                                 <?php endforeach; ?>
                             </div>
+                            <?php endif; ?>
                         </div>
-
                         <!-- Personal Info -->
                         <div class="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 mb-4">
                             <h4 class="text-xs font-semibold text-slate-800 mb-3 flex items-center gap-2">
@@ -3170,15 +3180,6 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     function selectMemberTypeFull(type, btn) {
         const hidden = document.getElementById('memberTypeFieldFull');
         if (hidden) hidden.value = type;
-
-        const roleSection = document.getElementById('roleFlagsSection');
-        if (roleSection) {
-            if (type === 'special_regular') {
-                roleSection.classList.remove('hidden');
-            } else {
-                roleSection.classList.add('hidden');
-            }
-        }
 
         document.querySelectorAll('.member-type-btn').forEach(b => {
             b.classList.remove('ring-2', 'ring-emerald-500', 'bg-emerald-50', 'border-emerald-300');

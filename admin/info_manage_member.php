@@ -133,10 +133,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $guardian_phone1  = field('guardian_phone1', $cur['guardian_phone1'] ?? '');
     $guardian_phone2  = field('guardian_phone2', $cur['guardian_phone2'] ?? '');
     
-    $is_teacher   = isset($_POST['is_teacher']) ? 1 : 0;
-    $is_staff     = isset($_POST['is_staff']) ? 1 : 0;
-    $is_committee = isset($_POST['is_committee']) ? 1 : 0;
-    $is_volunteer = isset($_POST['is_volunteer']) ? 1 : 0;
 
     // File validation/storage is isolated from the UI and database update.
     $storeUpload = static function (string $field) use (&$newUploadedPaths): ?string {
@@ -158,6 +154,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $full_name_am = trim($student_name . ' ' . $father_name . ' ' . $grandfather_name);
 
     // Update the migration-backed member schema.
+        // Legacy role flags (is_teacher, …) are no longer written here:
+        // they are DERIVED from the member's positions right after the
+        // update (PositionSyncService), keeping every old consumer in sync.
         $sql = "UPDATE members SET 
             registration_type=?, member_type=?, status=?,
             student_name=?, baptismal_name=?, father_name=?, grandfather_name=?,
@@ -167,7 +166,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             city=?, sub_city=?, woreda=?, mender=?, block_number=?, house_number=?,
             phone_number=?, phone_primary=?, alt_phone_number=?,
             guardian_name=?, guardian_phone1=?, guardian_phone2=?, phone_guardian=?,
-            is_teacher=?, is_staff=?, is_committee=?, is_volunteer=?,
             student_photo_path=?, guardian_photo_path=?,
             doc_school_records_path=?, doc_spiritual_path=?, doc_signed_form_path=?
             WHERE id=?";
@@ -177,20 +175,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Member update prepare failed: ' . $conn->error);
         }
         $ageVal = $age !== null ? $age : 0;
-        $stmt->bind_param('sssssssssiiiissssssssssssssssssiiiisssssi',
+        $bindValues = [
             $registration_type, $member_type, $status,
             $student_name, $baptismal_name, $father_name, $grandfather_name,
-            $full_name_am, $gender, 
+            $full_name_am, $gender,
             $dob_day, $dob_month, $dob_year, $ageVal, $age_group, $current_section,
             $education_level, $spiritual_education, $work_profession,
             $city, $sub_city, $woreda, $mender, $block_number, $house_number,
             $phone_number, $phone_number, $alt_phone_number,
             $guardian_name, $guardian_phone1, $guardian_phone2, $guardian_phone1,
-            $is_teacher, $is_staff, $is_committee, $is_volunteer,
             $student_photo_path, $guardian_photo_path,
             $doc_school_records_path, $doc_spiritual_path, $doc_signed_form_path,
             $id
-        );
+        ];
+        $bindTypes = '';
+        foreach ($bindValues as $bv) {
+            $bindTypes .= is_int($bv) ? 'i' : 's';
+        }
+        $stmt->bind_param($bindTypes, ...$bindValues);
     
     if ($stmt->execute()) { 
         $uploadsCommitted = true;
@@ -206,15 +208,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 \App\Services\MemberFileService::discard($oldPath);
             }
         }
-        // Sync member_type based on role flags (cross-department sync)
-        if (file_exists(__DIR__ . '/backend/member_sync.php')) {
-            require_once __DIR__ . '/backend/member_sync.php';
-            syncMemberType($conn, $id, [
-                'is_teacher' => $is_teacher,
-                'is_staff' => $is_staff,
-                'is_committee' => $is_committee,
-                'is_volunteer' => $is_volunteer,
-            ]);
+        // Identity v2: apply submitted positions, re-code if needed and
+        // derive the legacy flags + member-type sync from them.
+        require_once __DIR__ . '/backend/services/PositionSyncService.php';
+        $editPositionIds = [];
+        if (isset($_POST['position_ids']) && is_array($_POST['position_ids'])) {
+            foreach ($_POST['position_ids'] as $pid) {
+                $pid = filter_var($pid, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($pid) { $editPositionIds[] = (int)$pid; }
+            }
+            $editPositionIds = array_values(array_unique($editPositionIds));
+            $posRes = \App\Services\PositionSyncService::applyPositions(
+                $conn, $id, $editPositionIds, (int)($_SESSION['admin_id'] ?? 0)
+            );
+            if (($posRes['status'] ?? '') !== 'success') {
+                error_log('Member edit position sync failed for #' . $id);
+            }
         }
         echo json_encode(['status' => 'success', 'message' => 'Member updated successfully']); 
     } else { 
@@ -954,11 +963,22 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                         <div class="mm-card-title">Roles</div>
                     </div>
                     <div class="mm-card-body">
+                        <?php
+                            require_once __DIR__ . '/backend/services/PositionSyncService.php';
+                            $mmCat = \App\Services\PositionSyncService::catalogue($conn);
+                            $mmHeld = \App\Services\PositionSyncService::currentPositionIds($conn, (int)$m['id']);
+                            ?>
                         <div class="mm-checks">
-                            <label class="mm-check"><input type="checkbox" name="is_teacher" value="1" <?= chk($m['is_teacher']) ?>><span>Teacher</span></label>
-                            <label class="mm-check"><input type="checkbox" name="is_staff" value="1" <?= chk($m['is_staff']) ?>><span>Staff</span></label>
-                            <label class="mm-check"><input type="checkbox" name="is_committee" value="1" <?= chk($m['is_committee']) ?>><span>Committee</span></label>
-                            <label class="mm-check"><input type="checkbox" name="is_volunteer" value="1" <?= chk($m['is_volunteer']) ?>><span>Volunteer</span></label>
+                            <?php if (empty($mmCat['departments']) && empty($mmCat['free'])): ?>
+                                <p style="font-size:.72rem;color:#94a3b8">No positions defined yet (Super Admin → Identity &amp; Codes).</p>
+                            <?php else: ?>
+                                <?php foreach ($mmCat['free'] as $pos): ?>
+                                <label class="mm-check"><input type="checkbox" name="position_ids[]" value="<?= (int)$pos['id'] ?>" <?= in_array((int)$pos['id'], $mmHeld, true) ? 'checked' : '' ?>><span class="eth"><?= htmlspecialchars($pos['title_am']) ?> [<?= htmlspecialchars($pos['role_code']) ?>]</span></label>
+                                <?php endforeach; ?>
+                                <?php foreach ($mmCat['departments'] as $pos): ?>
+                                <label class="mm-check"><input type="checkbox" name="position_ids[]" value="<?= (int)$pos['id'] ?>" <?= in_array((int)$pos['id'], $mmHeld, true) ? 'checked' : '' ?>><span class="eth"><?= htmlspecialchars($pos['dept_code']) ?> · <?= htmlspecialchars($pos['title_am']) ?> [<?= htmlspecialchars($pos['role_code']) ?>]</span></label>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

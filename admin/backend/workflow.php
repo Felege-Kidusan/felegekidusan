@@ -478,7 +478,17 @@ function autoUpdateTeacherStatus($conn, $memberId, $isTeacher = true) {
         $stmt = $conn->prepare("UPDATE members SET is_teacher = ? WHERE id = ?");
         $stmt->bind_param("ii", $flag, $memberId);
         $stmt->execute();
-        
+
+        // Identity v2 convergence: mirror the flag onto the mapped
+        // Teacher position and re-code (best-effort, never blocks the
+        // education workflow).
+        try {
+            require_once __DIR__ . '/services/PositionSyncService.php';
+            \App\Services\PositionSyncService::syncPositionFromFlag($conn, $memberId, 'is_teacher', (bool)$flag);
+        } catch (\Throwable $e) {
+            error_log('teacher position convergence skipped: ' . $e->getMessage());
+        }
+
         // Log the change
         $summary = $isTeacher ? 'Member assigned as teacher' : 'Teacher role removed';
         logMemberChange($conn, $memberId, 'role_changed', [

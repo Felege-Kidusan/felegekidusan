@@ -146,7 +146,17 @@ function syncMemberTeacherFlag(mysqli $conn, int $memberId, bool $isNowTeacher):
         $stmt->execute();
         $stmt->close();
     }
-    
+
+    // Identity v2 convergence: grant/remove the position mapped to
+    // is_teacher (when the school defined one) and re-code the member so
+    // flags, positions and codes never diverge. Best-effort.
+    try {
+        require_once __DIR__ . '/services/PositionSyncService.php';
+        \App\Services\PositionSyncService::syncPositionFromFlag($conn, $memberId, 'is_teacher', (bool)$flag);
+    } catch (\Throwable $e) {
+        error_log('teacher position convergence skipped: ' . $e->getMessage());
+    }
+
     // Now sync member_type
     return syncMemberType($conn, $memberId, ['is_teacher' => $flag]);
 }
