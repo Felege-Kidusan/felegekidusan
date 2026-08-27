@@ -25,9 +25,11 @@ if (!apiRoleIs($auth, $MEZMUR_ROLES)) {
     err('You cannot access the Mezmur module.', 403);
 }
 
-require_once dirname(__DIR__, 2) . '/admin/backend/services/MezmurAttendanceService.php';
+require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php';
+require_once __DIR__ . '/../../../admin/backend/services/MezmurHymnService.php';
 
 use App\Services\MezmurAttendanceService;
+use App\Services\MezmurHymnService;
 
 $action = $ROUTE['id'] ?? '';
 $method = $ROUTE['method'] ?? 'GET';
@@ -98,10 +100,13 @@ try {
         ok(['saved' => true, 'summary' => $summary]);
     }
 
-    // ── GET /mezmur/analytics ───────────────────────────────────
+    // ── GET /mezmur/analytics[/sections] ────────────────────────
     if ($method === 'GET' && $action === 'analytics') {
         if (!apiRoleIs($auth, $MEZMUR_ANALYTICS_ROLES)) {
             err('Analytics are available to Mezmur staff and admins only.', 403);
+        }
+        if (($ROUTE['parts'][2] ?? '') === 'sections') {
+            ok(MezmurAttendanceService::analyticsSections($conn, $_GET));
         }
         $out = MezmurAttendanceService::analyticsMembers($conn, $_GET);
         // Strip everything beyond decision fields.
@@ -110,6 +115,19 @@ try {
             return $r;
         }, $out['items']);
         ok($out);
+    }
+
+    // ── GET /mezmur/hymns ─────────────────────────────────────
+    if ($method === 'GET' && $action === 'hymns') {
+        $out = MezmurHymnService::listHymns($conn, $_GET);
+        ok($out);
+    }
+
+    // ── GET /mezmur/hymn?id=… ─────────────────────────────────
+    if ($method === 'GET' && $action === 'hymn') {
+        $item = MezmurHymnService::getHymn($conn, (int)($_GET['id'] ?? 0));
+        if ($item === null) err('Hymn not found.', 404);
+        ok(['item' => $item]);
     }
 
 } catch (\DomainException $e) {

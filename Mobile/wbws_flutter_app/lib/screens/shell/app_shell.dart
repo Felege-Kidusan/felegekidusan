@@ -24,6 +24,9 @@ import '../material/material_home.dart';
 import '../attendance/attendance_screen.dart';
 import '../members/member_list_screen.dart';
 import '../mezmur/mezmur_home.dart';
+import '../mezmur/mezmur_attendance.dart';
+import '../mezmur/mezmur_hymns.dart';
+import '../mezmur/mezmur_analytics.dart';
 import '../profile/profile_screen.dart';
 
 /// AppShell — Role-based bottom navigation with auto-refresh,
@@ -50,7 +53,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _materialHomeKey = GlobalKey<MaterialHomeScreenState>();
   final _attendanceKey = GlobalKey<AttendanceScreenState>();
   final _mezmurHomeKey = GlobalKey<MezmurHomeScreenState>();
-  final _mezmurAttKey = GlobalKey<MezmurHomeScreenState>();
+  final _mezmurAttKey = GlobalKey<MezmurAttendanceScreenState>();
   final _gradesKey = GlobalKey<TeacherGradesScreenState>();
   final Map<String, Widget> _openedTabs = {};
 
@@ -245,7 +248,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case 'attendance':
         return AttendanceScreen(key: _attendanceKey);
       case 'mezmur_attendance':
-        return MezmurHomeScreen(key: _mezmurAttKey);
+        return MezmurAttendanceScreen(key: _mezmurAttKey);
+      case 'mezmur_hymns':
+        return const MezmurHymnsScreen();
+      case 'mezmur_analytics':
+        return const MezmurAnalyticsScreen();
       case 'grades':
         return TeacherGradesScreen(key: _gradesKey);
       case 'members':

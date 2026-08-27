@@ -25,8 +25,8 @@ class SyncService {
 
   final _syncController = StreamController<SyncStatus>.broadcast();
   Stream<SyncStatus> get syncStream => _syncController.stream;
-  SyncStatus _lastStatus =
-      SyncStatus(pendingAttendance: 0, pendingGrades: 0, syncing: false);
+  SyncStatus _lastStatus = SyncStatus(
+      pendingAttendance: 0, pendingGrades: 0, pendingMezmur: 0, syncing: false);
   SyncStatus get lastStatus => _lastStatus;
   String lastError = '';
 
@@ -202,6 +202,46 @@ class SyncService {
         }
       }
 
+      final pendingMez = await _db.getPendingMezmur();
+      for (final batch in pendingMez) {
+        final date = '${batch['date'] ?? ''}';
+        if (date.isEmpty) continue;
+        final program = '${batch['program'] ?? ''}';
+        final opId = '${batch['client_op_id'] ?? ''}';
+        try {
+          final records = await _db.getPendingMezmurRecords(date);
+          if (records.isEmpty) continue;
+          // Label the day first (idempotent get-or-create); the sheet save
+          // would create it anyway, so a failed label is non-fatal.
+          if (program.isNotEmpty) {
+            try {
+              await _api.createMezmurDay(date: date, programType: program);
+            } catch (_) {}
+          }
+          final apiRecords = records
+              .map((r) => {
+                    'member_id': r['member_id'],
+                    'status': r['status'],
+                  })
+              .toList();
+          final res = await _api.saveMezmurSheet(date, apiRecords,
+              clientOpId: opId);
+          if (_accepted(res)) {
+            await _db.markMezmurSynced(date);
+            synced++;
+            didWork = true;
+            lastError = '';
+          } else {
+            failed++;
+            lastError = res.message ?? 'Mezmur attendance did not save.';
+            await _db.logSync('mezmur', lastError, 'error');
+          }
+        } catch (e) {
+          failed++;
+          await _db.logSync('mezmur', e.toString(), 'error');
+        }
+      }
+
       if (!didWork) break;
     } while (loops < 4);
 
@@ -255,9 +295,11 @@ class SyncService {
   Future<void> _emitStatus({bool? syncing}) async {
     final pa = await _db.getPendingAttendanceCount();
     final pg = await _db.getPendingGradesCount();
+    final pm = await _db.getPendingMezmurCount();
     _lastStatus = SyncStatus(
         pendingAttendance: pa,
         pendingGrades: pg,
+        pendingMezmur: pm,
         syncing: syncing ?? (_inflight != null));
     _syncController.add(_lastStatus);
   }
@@ -273,8 +315,10 @@ class SyncService {
 class SyncStatus {
   final int pendingAttendance;
   final int pendingGrades;
+  final int pendingMezmur;
   final bool syncing;
-  int get totalPending => pendingAttendance + pendingGrades;
+  int get totalPending =>
+      pendingAttendance + pendingGrades + pendingMezmur;
   String get breakdown {
     if (totalPending <= 0) return 'All synced';
     final parts = <String>[];
@@ -285,12 +329,16 @@ class SyncStatus {
     if (pendingGrades > 0) {
       parts.add('$pendingGrades grade list${pendingGrades == 1 ? '' : 's'}');
     }
+    if (pendingMezmur > 0) {
+      parts.add('$pendingMezmur mezmur sheet${pendingMezmur == 1 ? '' : 's'}');
+    }
     return parts.join(' · ');
   }
 
   SyncStatus(
       {required this.pendingAttendance,
       required this.pendingGrades,
+      this.pendingMezmur = 0,
       required this.syncing});
 }
 

@@ -103,6 +103,7 @@ List<NavTab> _baseTabsForRole(String role) {
       return const [
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
         NavTab(id: 'attendance', label: 'Attendance', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
+        NavTab(id: 'mezmur_attendance', label: 'Mezmur', icon: Icons.music_note_outlined, activeIcon: Icons.music_note),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
@@ -164,6 +165,8 @@ List<NavTab> _baseTabsForRole(String role) {
       return const [
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
         NavTab(id: 'mezmur_attendance', label: 'Attend.', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
+        NavTab(id: 'mezmur_hymns', label: 'Hymns', icon: Icons.music_note_outlined, activeIcon: Icons.music_note),
+        NavTab(id: 'mezmur_analytics', label: 'Insights', icon: Icons.insights_outlined, activeIcon: Icons.insights),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 

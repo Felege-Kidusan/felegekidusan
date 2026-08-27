@@ -1,0 +1,135 @@
+"""
+Mezmur mobile Phase 4 — regression gates
+═════════════════════════════════════════════════════════════
+Locks: WBSS-U01 root-cause fix, teachers-grade attendance clone,
+Ethiopian calendar usage, offline outbox parity, hymn/analytics
+read-only mobile surface, role-gated tabs.
+"""
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+M = ROOT / "Mobile/wbws_flutter_app/lib"
+
+
+class MobilePhase4Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        cls.hymn_svc = (ROOT / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
+        cls.db = (M / "services/local_db.dart").read_text(encoding="utf-8")
+        cls.sync = (M / "services/sync_service.dart").read_text(encoding="utf-8")
+        cls.api = (M / "services/api_service.dart").read_text(encoding="utf-8")
+        cls.shell = (M / "screens/shell/app_shell.dart").read_text(encoding="utf-8")
+        cls.config = (M / "utils/config.dart").read_text(encoding="utf-8")
+        cls.att = (M / "screens/mezmur/mezmur_attendance.dart").read_text(encoding="utf-8")
+        cls.hymns = (M / "screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+        cls.ana = (M / "screens/mezmur/mezmur_analytics.dart").read_text(encoding="utf-8")
+        cls.home = (M / "screens/mezmur/mezmur_home.dart").read_text(encoding="utf-8")
+
+    # ── WBSS-U01 root cause ───────────────────────────────────
+    def test_service_require_path_is_correct(self):
+        self.assertIn(
+            "require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php';",
+            self.route)
+        self.assertNotIn("dirname(__DIR__, 2)", self.route)
+
+    # ── mobile hymn surface: GET-only readers ─────────────────
+    def test_hymn_endpoints_are_read_only(self):
+        self.assertIn("MezmurHymnService::listHymns", self.route)
+        self.assertIn("MezmurHymnService::getHymn", self.route)
+        for verb in ["INSERT INTO", "UPDATE ", "DELETE FROM"]:
+            self.assertNotIn(verb, self.hymn_svc)
+        self.assertIn("$stmt = $conn->prepare(", self.hymn_svc)
+        self.assertIn("escapeLike(", self.hymn_svc)
+
+    def test_mobile_analytics_sections_exposed(self):
+        self.assertIn("analyticsSections($conn, $_GET)", self.route)
+        self.assertIn("$ROUTE['parts'][2]", self.route)
+
+    # ── offline outbox parity ─────────────────────────────────
+    def test_localdb_v9_mezmur_tables(self):
+        self.assertIn("version: 9,", self.db)
+        self.assertIn("CREATE TABLE pending_mezmur", self.db.replace("IF NOT EXISTS ", ""))
+        self.assertIn("CREATE TABLE cached_mezmur_sheet", self.db.replace("IF NOT EXISTS ", ""))
+        self.assertIn("if (oldVersion < 9)", self.db)
+
+    def test_localdb_mezmur_methods(self):
+        for m in [
+            "Future<void> saveMezmurLocal(",
+            "Future<List<Map<String, dynamic>>> getPendingMezmur(",
+            "Future<void> markMezmurSynced(",
+            "Future<int> getPendingMezmurCount(",
+            "Future<void> cacheMezmurSheet(",
+            "Future<Map<String, dynamic>?> getCachedMezmurSheet(",
+        ]:
+            self.assertIn(m, self.db)
+        # explicit-mark validation like the teachers pipeline
+        self.assertIn("const validStatuses = {'present', 'absent', 'late'};", self.db)
+        self.assertIn("(await getPendingMezmurCount());", self.db)
+
+    def test_sync_drains_mezmur_outbox(self):
+        self.assertIn("getPendingMezmurRecords(date)", self.sync)
+        self.assertIn("saveMezmurSheet(date, apiRecords", self.sync)
+        self.assertIn("markMezmurSynced(date)", self.sync)
+        self.assertIn("final int pendingMezmur;", self.sync)
+        # idempotency key flows with every delivery
+        self.assertIn("clientOpId: opId", self.sync)
+
+    # ── teachers-grade clone + Ethiopian calendar ─────────────
+    def test_attendance_screen_clones_teacher_ux(self):
+        for symbol in [
+            "showEthiopianDatePicker", "formatGregorianAsEthiopian",
+            "TeacherActionBar", "SubmittedBar", "PacketLock",
+            "showQuickConfirm", "showUndoToast", "StatusBanner.error",
+            "StudentListSkeleton", "EmptyState", "HapticFeedback",
+            "_requireCompleteSheet", "saveMezmurLocal",
+        ]:
+            self.assertIn(symbol, self.att)
+
+    def test_old_broken_sheet_screen_removed(self):
+        self.assertFalse((M / "screens/mezmur/mezmur_sheet.dart").exists())
+        self.assertNotIn("mezmur_sheet.dart", self.shell)
+
+    def test_hymns_and_analytics_screens_wired(self):
+        self.assertIn("getMezmurHymns", self.hymns)
+        self.assertIn("MezmurHymnDetailScreen", self.hymns)
+        self.assertIn("getMezmurAnalytics(params:", self.ana)
+        self.assertIn("showEthiopianDatePicker", self.ana)
+        self.assertIn("case 'mezmur_hymns':", self.shell)
+        self.assertIn("case 'mezmur_analytics':", self.shell)
+        self.assertIn("MezmurAttendanceScreen(key: _mezmurAttKey)", self.shell)
+
+    def test_hub_uses_ethiopian_greeting_and_tiles(self):
+        self.assertIn("getEthiopianGreeting()", self.home)
+        self.assertIn("getTodayEthiopian()", self.home)
+        self.assertIn("FeatureTile(", self.home)
+
+    # ── role-gated navigation ─────────────────────────────────
+    def test_mezmur_dept_tabs_full(self):
+        block = self.config.split("MEZMUR DEPARTMENT")[1].split("FALLBACK")[0]
+        for tab in ["'home'", "'mezmur_attendance'", "'mezmur_hymns'",
+                    "'mezmur_analytics'", "'profile'"]:
+            self.assertIn(tab, block)
+
+    def test_taker_gets_mezmur_attendance_only(self):
+        block = self.config.split("ATTENDANCE TAKER")[1].split("EDUCATION")[0]
+        self.assertIn("'mezmur_attendance'", block)
+        self.assertNotIn("'mezmur_analytics'", block)
+        self.assertNotIn("'mezmur_hymns'", block)
+
+    def test_privacy_wipe_covers_mezmur_tables(self):
+        wipe = self.db.split("clearAllUserData")[1]
+        self.assertIn("'pending_mezmur',", wipe)
+        self.assertIn("'cached_mezmur_sheet',", wipe)
+
+    # ── api surface additions ─────────────────────────────────
+    def test_api_service_hymn_readers(self):
+        self.assertIn("Future<ApiResponse> getMezmurHymns(", self.api)
+        self.assertIn("Future<ApiResponse> getMezmurHymn(int id)", self.api)
+        self.assertIn("get('/mezmur/hymns'", self.api)
+        self.assertIn("get('/mezmur/hymn'", self.api)
+
+
+if __name__ == "__main__":
+    unittest.main()

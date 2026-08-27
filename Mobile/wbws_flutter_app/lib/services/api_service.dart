@@ -628,6 +628,17 @@ class ApiService {
         idempotencyKey: clientOpId);
   }
 
+  Future<ApiResponse> getMezmurHymns(
+      {int page = 1, String? search, String? category}) {
+    final params = <String, String>{'page': '$page'};
+    if (search != null && search.isNotEmpty) params['search'] = search;
+    if (category != null && category.isNotEmpty) params['category'] = category;
+    return get('/mezmur/hymns', params: params);
+  }
+
+  Future<ApiResponse> getMezmurHymn(int id) =>
+      get('/mezmur/hymn', params: {'id': '$id'});
+
   Future<ApiResponse> getMezmurAnalytics(
       {Map<String, String>? params}) =>
       get('/mezmur/analytics', params: params);

@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -144,6 +144,30 @@ class LocalDb {
             )
           ''');
         }
+        if (oldVersion < 9) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS pending_mezmur (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              date TEXT NOT NULL,
+              program TEXT,
+              member_id INTEGER NOT NULL,
+              status TEXT NOT NULL,
+              packet_kind TEXT NOT NULL DEFAULT 'draft',
+              client_op_id TEXT,
+              synced INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              synced_at TEXT,
+              sync_error TEXT
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_mezmur_sheet (
+              date TEXT PRIMARY KEY,
+              response_json TEXT NOT NULL,
+              updated_at TEXT
+            )
+          ''');
+        }
       },
     );
   }
@@ -204,6 +228,28 @@ class LocalDb {
     ''');
 
     // ---- GRADES ----
+    await db.execute('''
+      CREATE TABLE pending_mezmur (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        program TEXT,
+        member_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        packet_kind TEXT NOT NULL DEFAULT 'draft',
+        client_op_id TEXT,
+        synced INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        synced_at TEXT,
+        sync_error TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE cached_mezmur_sheet (
+        date TEXT PRIMARY KEY,
+        response_json TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
     await db.execute('''
       CREATE TABLE pending_grades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -858,6 +904,119 @@ class LocalDb {
   // PENDING COUNTS
   // ============================================================
 
+  // ============================================================
+  // PENDING MEZMUR (offline outbox, date-keyed)
+  // ============================================================
+
+  Future<void> saveMezmurLocal(String date, String program,
+      List<Map<String, dynamic>> records,
+      {String packetKind = 'draft'}) async {
+    const validStatuses = {'present', 'absent', 'late'};
+    if (records.isEmpty) {
+      throw ArgumentError('Mezmur records are required.');
+    }
+    for (final record in records) {
+      final status = '${record['status'] ?? ''}'.trim().toLowerCase();
+      final memberId = record['member_id'] is int
+          ? record['member_id'] as int
+          : int.tryParse('${record['member_id'] ?? ''}');
+      if (memberId == null || memberId <= 0 || !validStatuses.contains(status)) {
+        throw ArgumentError('Attendance must explicitly mark every member.');
+      }
+    }
+
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
+    final opId = newClientOpId();
+    await db.transaction((txn) async {
+      await txn.delete('pending_mezmur',
+          where: 'date = ? AND synced = 0', whereArgs: [date]);
+      final batch = txn.batch();
+      for (final r in records) {
+        batch.insert('pending_mezmur', {
+          'date': date,
+          'program': program,
+          'member_id': r['member_id'],
+          'status': '${r['status']}'.trim().toLowerCase(),
+          'packet_kind': kind,
+          'client_op_id': opId,
+          'synced': 0,
+          'created_at': now,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingMezmur() async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT date, MAX(program) as program,
+             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                  THEN 'submitted' ELSE 'draft' END as packet_kind,
+             MAX(client_op_id) as client_op_id,
+             COUNT(*) as member_count, MIN(created_at) as created_at
+      FROM pending_mezmur WHERE synced = 0
+      GROUP BY date ORDER BY date DESC
+    ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingMezmurRecords(String date) async {
+    final db = await database;
+    return await db.query('pending_mezmur',
+        where: 'date = ? AND synced = 0', whereArgs: [date]);
+  }
+
+  Future<void> markMezmurSynced(String date) async {
+    final db = await database;
+    await db.update(
+        'pending_mezmur',
+        {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
+        where: 'date = ? AND synced = 0',
+        whereArgs: [date]);
+  }
+
+  Future<void> dropPendingMezmur(String date) async {
+    final db = await database;
+    await db.delete('pending_mezmur',
+        where: 'date = ? AND synced = 0', whereArgs: [date]);
+  }
+
+  Future<int> getPendingMezmurCount() async {
+    final db = await database;
+    final r = await db.rawQuery(
+        "SELECT COUNT(DISTINCT date) as cnt FROM pending_mezmur WHERE synced = 0");
+    return r.first['cnt'] as int? ?? 0;
+  }
+
+  Future<void> cacheMezmurSheet(String date, Map<String, dynamic> payload) async {
+    final db = await database;
+    await db.insert(
+        'cached_mezmur_sheet',
+        {
+          'date': date,
+          'response_json': jsonEncode(payload),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getCachedMezmurSheet(String date) async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_mezmur_sheet',
+          where: 'date = ?', whereArgs: [date]);
+      if (rows.isEmpty) return null;
+      final raw = rows.first['response_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<int> getPendingAttendanceCount() async {
     final db = await database;
     final r = await db.rawQuery(
@@ -874,12 +1033,19 @@ class LocalDb {
 
   Future<int> getTotalPendingCount() async {
     return (await getPendingAttendanceCount()) +
-        (await getPendingGradesCount());
+        (await getPendingGradesCount()) +
+        (await getPendingMezmurCount());
   }
 
   // ============================================================
   // CLEANUP
   // ============================================================
+
+  Future<void> cleanupSyncedMezmur() async {
+    final db = await database;
+    await db
+        .delete('pending_mezmur', where: 'synced = 1');
+  }
 
   Future<void> cleanupSynced() async {
     final db = await database;
@@ -888,6 +1054,8 @@ class LocalDb {
     await db.delete('pending_attendance',
         where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
     await db.delete('pending_grades',
+        where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
+    await db.delete('pending_mezmur',
         where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
   }
 
@@ -912,6 +1080,7 @@ class LocalDb {
     await db.delete('cached_members');
     try { await db.delete('cached_attendance'); } catch (_) {}
     try { await db.delete('cached_grade_sheets'); } catch (_) {}
+    try { await db.delete('cached_mezmur_sheet'); } catch (_) {}
   }
 
   /// Full transactional wipe for this device user — cache + unsynced rows.
@@ -928,8 +1097,10 @@ class LocalDb {
         'cached_members',
         'cached_attendance',
         'cached_grade_sheets',
+        'cached_mezmur_sheet',
         'pending_attendance',
         'pending_grades',
+        'pending_mezmur',
         'sync_log',
       ]) {
         await txn.delete(table);

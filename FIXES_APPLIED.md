@@ -530,3 +530,28 @@ unchanged except ONE additive field (`stats.members`).
 - **Accessibility** — labels/aria-labels on all controls, role=dialog + Esc/focus
   management, aria-live summaries, focus-visible rings.
 - Tests: +21 UI/UX gates (test_mezmur_uiux.py); suite 281 green.
+
+---
+
+## Feature 5 — Mezmur mobile: WBSS-U01 fix + teachers-grade UX + Ethiopian calendar + dept features
+
+Root cause of the app errors: api/v1/routes/mezmur.php loaded the service via
+`dirname(__DIR__, 2)` → non-existent path → every /mezmur/* request fataled (500 →
+WBSS-U01). Fixed to the house pattern `__DIR__ . '/../../../...'`.
+
+- **Mezmur Attendance (app)** — 1:1 clone of the teachers' attendance UX,
+  section-based: Ethiopian date picker (API stays Gregorian), program selector,
+  "N members · X unmarked" line, sticky section headers with per-section quick
+  marks, 34×34 P/A/L chips, complete-sheet gate, Save(draft)/Submit(+UNDO toast),
+  haptics, offline banner, StatusBanners, skeletons/empty/error states.
+- **Offline outbox parity** — pending_mezmur + cached_mezmur_sheet tables
+  (LocalDb v8→9), SyncService drains mezmur packets with Idempotency-Key;
+  privacy wipe (logout) covers the new tables.
+- **Hymn Library tab** — read-only server-paginated browser + Amharic lyrics
+  detail; new GET-only endpoints via new MezmurHymnService (prepared, LIKE-escaped).
+- **Analytics tab (staff)** — Ethiopian range pickers, program filter, member
+  ranking with threshold tones, section rollups; mobile sections endpoint
+  (GET /mezmur/analytics/sections), server role-gated.
+- **Hub** — Ethiopian greeting + feature tiles + recent days (Ethiopian dates).
+- Nav: mezmurDept 5 tabs; attendance_taker gains Mezmur tab (feature-gated).
+- Suite: +14 gates (test_mezmur_mobile_phase4.py); 295 green.
