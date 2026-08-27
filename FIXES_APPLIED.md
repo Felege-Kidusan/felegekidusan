@@ -466,3 +466,41 @@ for selecting members for የዝማሬ/service programs.
 Deploy: run `sql/022_mezmur_attendance.sql` → `git pull`. Mobile app
 users get the module on their next app update; the API is live and
 feature-flagged immediately. 258 tests passing (19 new).
+
+---
+
+## Feature 3 — Mezmur Attendance: DATE-based, section-grouped (v3 correction)
+
+Product decision (user): attendance is **section-based, NOT session-driven** — one sheet per
+**date** over the whole roster grouped by section, used to decide who joins የዝማሬ/service
+programs. Every member is previewed by number and percentage.
+
+### Backend
+- `sql/023_mezmur_date_attendance.sql` (run before deploy): idempotent —
+  `mezmur_days` (attendance_date UNIQUE + program_type + title/notes), guarded
+  `ALTER TABLE mezmur_attendance ADD attendance_date`, backfill from `mezmur_sessions`,
+  `UNIQUE (attendance_date, member_id)` + `KEY (attendance_date, status)` added via
+  prepared-statement guards; dedupe; old session tables preserved.
+- `MezmurAttendanceService` rewritten date-based: `listDays`, `ensureDay` (get-or-create),
+  `fetchSheet(date)` (section-grouped roster + marks), `saveSheet(date)` complete-sheet
+  validated, transactional replace, future-date rejected; analytics aggregate per date
+  (days_held = days in window), program-type filter, 2-year window cap, whitelisted sorts.
+- `admin/api_mezmur.php`: `days_list`, `day_create`, `sheet?date=`, `save_sheet` (date in
+  POST), schema probe checks `mezmur_days`.
+
+### Frontend
+- Sections carry `id="section-*"` (fixes the blank-tab bug: `core.js switchSection`
+  activates sections by element id).
+- Attendance tab: date picker + program select + **Take Attendance** (opens/creates the
+  day sheet); history list of days with marked/attended; sheet view grouped by section
+  with per-member present/late/absent segments and "All present" per section.
+
+### Mobile (API v1 + Flutter)
+- `GET/POST /mezmur/days`, `GET /mezmur/sheet?date=`, `POST /mezmur/sheet {date,records}`;
+  role gates + PII strip + idempotency unchanged.
+- `mezmur_home.dart` (day list + take-attendance dialog) and `mezmur_sheet.dart` rewritten;
+  the `mezmur_sheet.dart:191` unmatched-bracket compile error is fixed.
+
+### Tests
+- Suite now 260 tests; date-model assertions (023 guards, complete-sheet service,
+  date-based API/mobile surface).

@@ -594,37 +594,38 @@ class ApiService {
           },
           idempotencyKey: clientOpId);
 
-  // ── Mezmur department (session-based, section-grouped) ───────
-  Future<ApiResponse> getMezmurSessions(
+  // ── Mezmur department (date-based, section-grouped) ─────────
+  Future<ApiResponse> getMezmurDays(
       {int page = 1, String? from, String? to}) {
     final params = <String, String>{'page': '$page'};
     if (from != null && from.isNotEmpty) params['from'] = from;
     if (to != null && to.isNotEmpty) params['to'] = to;
-    return get('/mezmur/sessions', params: params);
+    return get('/mezmur/days', params: params);
   }
 
-  Future<ApiResponse> createMezmurSession({
-    required String sessionDate,
+  Future<ApiResponse> createMezmurDay({
+    required String date,
     required String programType,
-    required String title,
+    String? title,
     String? notes,
   }) {
-    return post('/mezmur/sessions', body: {
-      'session_date': sessionDate,
+    return post('/mezmur/days', body: {
+      'date': date,
       'program_type': programType,
-      'title': title,
+      if (title != null && title.isNotEmpty) 'title': title,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
     });
   }
 
-  Future<ApiResponse> getMezmurSheet(int sessionId) =>
-      get('/mezmur/sheet/$sessionId');
+  Future<ApiResponse> getMezmurSheet(String date) =>
+      get('/mezmur/sheet', params: {'date': date});
 
   Future<ApiResponse> saveMezmurSheet(
-      int sessionId, List<Map<String, dynamic>> records,
+      String date, List<Map<String, dynamic>> records,
       {String? clientOpId}) {
-    return post('/mezmur/sheet/$sessionId',
-        body: {'records': records}, idempotencyKey: clientOpId);
+    return post('/mezmur/sheet',
+        body: {'date': date, 'records': records},
+        idempotencyKey: clientOpId);
   }
 
   Future<ApiResponse> getMezmurAnalytics(

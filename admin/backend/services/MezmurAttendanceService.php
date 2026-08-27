@@ -1,27 +1,26 @@
 <?php
 /**
  * ════════════════════════════════════════════════════════════
- * MezmurAttendanceService — single writer for the Mezmur
- * session-attendance dataset (መዝሙር ክፍል).
+ * MezmurAttendanceService — single writer for Mezmur attendance
+ * (መዝሙር ክፍል). DATE-based, section-grouped (product decision:
+ * NOT session-driven — the department reasons per date over the
+ * whole roster, grouped by section).
  * ════════════════════════════════════════════════════════════
- * Domain rules (mirrors the class-attendance contract but on a
- * SEPARATE dataset — mezmur sessions are grouped by section,
- * not by class):
+ * Domain rules (same contract as class attendance, separate
+ * dataset):
  *
- *   - The roster is ALL active members, grouped by section.
- *   - A sheet save is COMPLETE and EXPLICIT: the submitted
- *     member set must exactly match the server roster. Stale or
- *     partial payloads are rejected (DomainException) — this is
- *     the same guard the mobile/class pipeline uses.
- *   - Saves are transactional replace operations; the UNIQUE
- *     (session_id, member_id) key makes resubmits idempotent.
- *   - Every mutation writes an audit row — attendance drives
- *     member selection for programs and must be reviewable.
- *   - Analytics are aggregated SERVER-side with date-bounded,
- *     indexed GROUP BY queries; raw mark rows never leave here.
+ *   - One attendance sheet per DATE; roster = ALL active members
+ *     grouped by section.
+ *   - A save is COMPLETE and EXPLICIT: submitted member set must
+ *     exactly equal the live roster (DomainException otherwise).
+ *   - Saves are transactional replaces; UNIQUE
+ *     (attendance_date, member_id) makes resubmits idempotent.
+ *   - Every mutation writes an audit row — these records drive
+ *     member selection for የዝማሬ/service programs.
+ *   - Analytics aggregate SERVER-side, date-bounded (2-year hard
+ *     cap), sort columns whitelisted; raw marks never leave here.
  *
- * All methods take an already-connected \mysqli and use prepared
- * statements exclusively.
+ * All methods take an open \mysqli and use prepared statements.
  */
 
 namespace App\Services;
@@ -32,46 +31,45 @@ final class MezmurAttendanceService
     public const STATUSES = ['present', 'late', 'absent'];
 
     private const SORTABLE = [
-        'name'         => 'm.student_name',
-        'section'      => 'm.current_section',
-        'attended'     => 'attended',
-        'present'      => 'present',
-        'late'         => 'late',
-        'absent'       => 'absent',
-        'rate'         => 'rate',
-        'last_attended'=> 'last_attended',
+        'name'          => 'm.student_name',
+        'section'       => 'm.current_section',
+        'attended'      => 'attended',
+        'present'       => 'present',
+        'late'          => 'late',
+        'absent'        => 'absent',
+        'rate'          => 'rate',
+        'last_attended' => 'last_attended',
     ];
 
     // ── helpers ─────────────────────────────────────────────────
 
     private static function clampPerPage(int $perPage): int
     {
-        if ($perPage < 1) return 25;
-        return min($perPage, 100);
+        return $perPage < 1 ? 25 : min($perPage, 100);
     }
 
-    /** @return array{from:string,to:string} validated, date-bounded window */
+    /** @return array{from:string,to:string} validated, hard-bounded window */
     private static function window(?string $from, ?string $to): array
     {
         $today = date('Y-m-d');
         $min = date('Y-m-d', strtotime('-2 years'));
         $validate = static function (?string $d, string $fallback): string {
-            if ($d && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) return $d;
-            return $fallback;
+            return ($d && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) ? $d : $fallback;
         };
         $f = $validate($from, date('Y-m-d', strtotime('-90 days')));
         $t = $validate($to, $today);
-        if ($f < $min) $f = $min;          // hard cap — keeps scans bounded
+        if ($f < $min) $f = $min;
         if ($t > $today) $t = $today;
         if ($f > $t) [$f, $t] = [$t, $f];
         return ['from' => $f, 'to' => $t];
     }
 
-    private static function audit(\mysqli $conn, ?int $sessionId, int $actorId, string $action, string $details): void
+    private static function audit(\mysqli $conn, ?string $date, int $actorId, string $action, string $details): void
     {
         try {
-            $stmt = $conn->prepare("INSERT INTO mezmur_attendance_audit (session_id, actor_id, action, details) VALUES (?,?,?,?)");
+            $sessionId = null; // audit.session_id is legacy-nullable; date goes in details
             $details = mb_substr($details, 0, 500);
+            $stmt = $conn->prepare("INSERT INTO mezmur_attendance_audit (session_id, actor_id, action, details) VALUES (?,?,?,?)");
             $stmt->bind_param('iiss', $sessionId, $actorId, $action, $details);
             $stmt->execute();
             $stmt->close();
@@ -82,10 +80,7 @@ final class MezmurAttendanceService
 
     // ── roster ──────────────────────────────────────────────────
 
-    /**
-     * All active members, grouped by section (ordered for the sheet UI).
-     * @return array<string, list<array{id:int,member_code:string,student_name:string,father_name:string,full_name_am:?string,photo_url:?string}>>
-     */
+    /** All active members grouped by section. */
     public static function rosterGroupedBySection(\mysqli $conn): array
     {
         $res = $conn->query(
@@ -107,7 +102,6 @@ final class MezmurAttendanceService
         return $groups;
     }
 
-    /** Flat id set of the current roster (for complete-sheet validation). */
     private static function rosterIds(\mysqli $conn): array
     {
         $ids = [];
@@ -118,18 +112,15 @@ final class MezmurAttendanceService
         return $ids;
     }
 
-    // ── sessions ────────────────────────────────────────────────
+    // ── days ────────────────────────────────────────────────────
 
-    public static function listSessions(\mysqli $conn, string $from, string $to, int $page, int $perPage): array
+    public static function listDays(\mysqli $conn, string $from, string $to, int $page, int $perPage): array
     {
         $perPage = self::clampPerPage($perPage);
-        $page = max(1, $page);
         $w = self::window($from, $to);
+        $page = max(1, $page);
 
-        $stmt = $conn->prepare(
-            "SELECT COUNT(*) c FROM mezmur_sessions
-             WHERE status = 'active' AND session_date BETWEEN ? AND ?"
-        );
+        $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_days WHERE attendance_date BETWEEN ? AND ?");
         $stmt->bind_param('ss', $w['from'], $w['to']);
         $stmt->execute();
         $total = (int)$stmt->get_result()->fetch_assoc()['c'];
@@ -140,12 +131,13 @@ final class MezmurAttendanceService
         $offset = ($page - 1) * $perPage;
 
         $stmt = $conn->prepare(
-            "SELECT s.id, s.session_date, s.program_type, s.title, s.notes, s.created_at,
-                    (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.session_id = s.id) AS marked,
-                    (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.session_id = s.id AND a.status IN ('present','late')) AS attended
-             FROM mezmur_sessions s
-             WHERE s.status = 'active' AND s.session_date BETWEEN ? AND ?
-             ORDER BY s.session_date DESC, s.id DESC
+            "SELECT d.id, d.attendance_date, d.program_type, d.title, d.notes, d.created_at,
+                    (SELECT COUNT(*) FROM mezmur_attendance a WHERE a.attendance_date = d.attendance_date) AS marked,
+                    (SELECT COUNT(*) FROM mezmur_attendance a
+                      WHERE a.attendance_date = d.attendance_date AND a.status IN ('present','late')) AS attended
+             FROM mezmur_days d
+             WHERE d.attendance_date BETWEEN ? AND ?
+             ORDER BY d.attendance_date DESC
              LIMIT ? OFFSET ?"
         );
         $stmt->bind_param('ssii', $w['from'], $w['to'], $perPage, $offset);
@@ -163,64 +155,45 @@ final class MezmurAttendanceService
         return ['items' => $items, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages];
     }
 
-    public static function createSession(\mysqli $conn, string $date, string $programType, string $title, ?string $notes, int $userId): int
+    /** Get-or-create the day record for a date. */
+    public static function ensureDay(\mysqli $conn, string $date, string $programType, ?string $title, ?string $notes, int $userId): array
     {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            throw new \DomainException('Invalid session date.');
+            throw new \DomainException('Invalid attendance date.');
         }
-        if (!in_array($programType, self::PROGRAM_TYPES, true)) {
-            throw new \DomainException('Invalid program type.');
+        $stmt = $conn->prepare("SELECT id, attendance_date, program_type, title, notes FROM mezmur_days WHERE attendance_date = ?");
+        $stmt->bind_param('s', $date);
+        $stmt->execute();
+        $day = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($day) {
+            $day['id'] = (int)$day['id'];
+            return $day;
         }
-        $title = trim($title);
-        if ($title === '' || mb_strlen($title) > 255) {
-            throw new \DomainException('Session title is required.');
-        }
+        if (!in_array($programType, self::PROGRAM_TYPES, true)) $programType = 'rehearsal';
+        $title = $title !== null && trim($title) !== '' ? mb_substr(trim($title), 0, 255) : null;
         $notes = $notes !== null && trim($notes) !== '' ? mb_substr(trim($notes), 0, 500) : null;
 
-        $stmt = $conn->prepare(
-            "INSERT INTO mezmur_sessions (session_date, program_type, title, notes, created_by) VALUES (?,?,?,?,?)"
-        );
+        $stmt = $conn->prepare("INSERT INTO mezmur_days (attendance_date, program_type, title, notes, created_by) VALUES (?,?,?,?,?)");
         $stmt->bind_param('ssssi', $date, $programType, $title, $notes, $userId);
         $stmt->execute();
         $id = (int)$stmt->insert_id;
         $stmt->close();
 
-        self::audit($conn, $id, $userId, 'session_created', "$programType on $date: $title");
-        return $id;
-    }
-
-    /** Soft delete — decision history is never destroyed. */
-    public static function deleteSession(\mysqli $conn, int $sessionId, int $userId): bool
-    {
-        $stmt = $conn->prepare("UPDATE mezmur_sessions SET status='deleted' WHERE id=? AND status='active'");
-        $stmt->bind_param('i', $sessionId);
-        $stmt->execute();
-        $ok = $stmt->affected_rows > 0;
-        $stmt->close();
-        if ($ok) self::audit($conn, $sessionId, $userId, 'session_deleted', "Session #$sessionId soft-deleted");
-        return $ok;
+        self::audit($conn, $date, $userId, 'day_created', "$programType on $date");
+        return ['id' => $id, 'attendance_date' => $date, 'program_type' => $programType, 'title' => $title, 'notes' => $notes];
     }
 
     // ── sheet ───────────────────────────────────────────────────
 
-    /**
-     * Sheet for one session: session meta + roster with current marks.
-     * @return array{session:?array,sections:array<string,list<array>>}
-     */
-    public static function fetchSheet(\mysqli $conn, int $sessionId): array
+    /** Sheet for one date: day meta + section-grouped roster with marks. */
+    public static function fetchSheet(\mysqli $conn, string $date, int $userId): array
     {
-        $stmt = $conn->prepare("SELECT id, session_date, program_type, title, notes, status FROM mezmur_sessions WHERE id = ?");
-        $stmt->bind_param('i', $sessionId);
-        $stmt->execute();
-        $session = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        if (!$session || $session['status'] !== 'active') {
-            return ['session' => null, 'sections' => []];
-        }
+        $day = self::ensureDay($conn, $date, 'rehearsal', null, null, $userId);
 
         $marks = [];
-        $stmt = $conn->prepare("SELECT member_id, status FROM mezmur_attendance WHERE session_id = ?");
-        $stmt->bind_param('i', $sessionId);
+        $stmt = $conn->prepare("SELECT member_id, status FROM mezmur_attendance WHERE attendance_date = ?");
+        $stmt->bind_param('s', $date);
         $stmt->execute();
         $res = $stmt->get_result();
         while ($r = $res->fetch_assoc()) $marks[(int)$r['member_id']] = $r['status'];
@@ -234,24 +207,23 @@ final class MezmurAttendanceService
             unset($m);
             $sections[$section] = $members;
         }
-        return ['session' => $session, 'sections' => $sections];
+        return ['day' => $day, 'sections' => $sections];
     }
 
     /**
-     * Complete-sheet save (transactional replace).
+     * Complete-sheet save (transactional replace by date).
      * @param list<array{member_id:int|string,status:string}> $records
      * @return array{marked:int,present:int,late:int,absent:int}
      */
-    public static function saveSheet(\mysqli $conn, int $sessionId, array $records, int $userId): array
+    public static function saveSheet(\mysqli $conn, string $date, array $records, int $userId): array
     {
-        $stmt = $conn->prepare("SELECT id FROM mezmur_sessions WHERE id = ? AND status = 'active'");
-        $stmt->bind_param('i', $sessionId);
-        $stmt->execute();
-        $exists = $stmt->get_result()->num_rows > 0;
-        $stmt->close();
-        if (!$exists) throw new \DomainException('Session not found.');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new \DomainException('Invalid attendance date.');
+        }
+        if ($date > date('Y-m-d')) {
+            throw new \DomainException('Attendance cannot be recorded for a future date.');
+        }
 
-        // Complete-sheet validation against the live server roster.
         $roster = self::rosterIds($conn);
         $submitted = [];
         foreach ($records as $rec) {
@@ -276,20 +248,21 @@ final class MezmurAttendanceService
 
         $conn->begin_transaction();
         try {
-            $del = $conn->prepare("DELETE FROM mezmur_attendance WHERE session_id = ?");
-            $del->bind_param('i', $sessionId);
+            $del = $conn->prepare("DELETE FROM mezmur_attendance WHERE attendance_date = ?");
+            $del->bind_param('s', $date);
             $del->execute();
             $del->close();
 
-            $ins = $conn->prepare("INSERT INTO mezmur_attendance (session_id, member_id, status, marked_by) VALUES (?,?,?,?)");
+            $sql = "INSERT INTO mezmur_attendance (session_id, attendance_date, member_id, status, marked_by) VALUES (NULL,?,?,?,?)";
+            $ins = $conn->prepare($sql);
             $batch = 0;
             foreach ($submitted as $memberId => $status) {
-                $ins->bind_param('iisi', $sessionId, $memberId, $status, $userId);
+                $ins->bind_param('sisi', $date, $memberId, $status, $userId);
                 $ins->execute();
                 // Recycle the statement periodically on very large rosters.
                 if (++$batch % 500 === 0) {
                     $ins->close();
-                    $ins = $conn->prepare("INSERT INTO mezmur_attendance (session_id, member_id, status, marked_by) VALUES (?,?,?,?)");
+                    $ins = $conn->prepare($sql);
                 }
             }
             $ins->close();
@@ -299,19 +272,20 @@ final class MezmurAttendanceService
             throw $e;
         }
 
-        self::audit($conn, $sessionId, $userId, 'sheet_saved', "marked=" . count($submitted) . " present=$present late=$late absent=$absent");
+        self::ensureDay($conn, $date, 'rehearsal', null, null, $userId);
+        self::audit($conn, $date, $userId, 'sheet_saved', "marked=" . count($submitted) . " present=$present late=$late absent=$absent");
         return ['marked' => count($submitted), 'present' => $present, 'late' => $late, 'absent' => $absent];
     }
 
     // ── analytics (server-side aggregation) ─────────────────────
 
-    private static function sessionsHeld(\mysqli $conn, array $w, string $programType): int
+    private static function daysHeld(\mysqli $conn, array $w, string $programType): int
     {
         if ($programType !== '') {
-            $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_sessions WHERE status='active' AND session_date BETWEEN ? AND ? AND program_type = ?");
+            $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_days WHERE attendance_date BETWEEN ? AND ? AND program_type = ?");
             $stmt->bind_param('sss', $w['from'], $w['to'], $programType);
         } else {
-            $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_sessions WHERE status='active' AND session_date BETWEEN ? AND ?");
+            $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_days WHERE attendance_date BETWEEN ? AND ?");
             $stmt->bind_param('ss', $w['from'], $w['to']);
         }
         $stmt->execute();
@@ -320,10 +294,18 @@ final class MezmurAttendanceService
         return $held;
     }
 
+    private static function programJoinFilter(string $programType): array
+    {
+        if ($programType === '') return ['', ''];
+        return [
+            " JOIN mezmur_days d ON d.attendance_date = a.attendance_date AND d.program_type = ? ",
+            's',
+        ];
+    }
+
     /**
      * Per-member aggregates — every count paired with percentages.
      * Filters: section, program_type, search, min_rate, min_attended.
-     * Sort whitelist only; pagination enforced.
      */
     public static function analyticsMembers(\mysqli $conn, array $filters): array
     {
@@ -339,7 +321,7 @@ final class MezmurAttendanceService
         $page = max(1, (int)($filters['page'] ?? 1));
         $perPage = self::clampPerPage((int)($filters['per_page'] ?? 25));
 
-        $held = self::sessionsHeld($conn, $w, $programType);
+        $held = self::daysHeld($conn, $w, $programType);
 
         $where = ["m.status = 'active'"];
         $types = '';
@@ -354,6 +336,8 @@ final class MezmurAttendanceService
             $types .= 'sss'; $params[] = $like; $params[] = $like; $params[] = $like;
         }
         $whereSql = implode(' AND ', $where);
+
+        [$pJoin, $pType] = self::programJoinFilter($programType);
 
         $sql = "
             SELECT m.id, m.member_code, m.student_name, m.father_name, m.full_name_am, m.photo_url,
@@ -373,14 +357,16 @@ final class MezmurAttendanceService
                        SUM(a.status = 'present') AS present,
                        SUM(a.status = 'late')    AS late,
                        SUM(a.status = 'absent')  AS absent,
-                       MAX(CASE WHEN a.status IN ('present','late') THEN s.session_date END) AS last_attended
+                       MAX(CASE WHEN a.status IN ('present','late') THEN a.attendance_date END) AS last_attended
                 FROM mezmur_attendance a
-                JOIN mezmur_sessions s ON s.id = a.session_id AND s.status = 'active'
-                WHERE s.session_date BETWEEN ? AND ?"
-            . ($programType !== '' ? " AND s.program_type = ?" : '') . "
+                $pJoin
+                WHERE a.attendance_date BETWEEN ? AND ?
                 GROUP BY a.member_id
             ) agg ON agg.member_id = m.id
             WHERE $whereSql";
+
+        $subTypes = $pType . 'ss';
+        $subParams = array_merge($programType !== '' ? [$programType] : [], [$w['from'], $w['to']]);
 
         $having = [];
         if ($minRate !== null) $having[] = "(rate IS NOT NULL AND rate >= $minRate)";
@@ -389,9 +375,7 @@ final class MezmurAttendanceService
         $sql .= " ORDER BY $sortCol $dir, m.student_name ASC LIMIT ? OFFSET ?";
 
         $stmt = $conn->prepare($sql);
-        $allTypes = 'ss' . ($programType !== '' ? 's' : '') . $types . 'ii';
-        $allParams = array_merge([$w['from'], $w['to']], $programType !== '' ? [$programType] : [], $params, [$perPage, ($page - 1) * $perPage]);
-        $stmt->bind_param($allTypes, ...$allParams);
+        $stmt->bind_param($subTypes . $types . 'ii', ...array_merge($subParams, $params, [$perPage, ($page - 1) * $perPage]));
         $stmt->execute();
         $res = $stmt->get_result();
         $items = [];
@@ -406,12 +390,14 @@ final class MezmurAttendanceService
         return ['items' => $items, 'page' => $page, 'sessions_held' => $held, 'window' => $w];
     }
 
-    /** Per-section rollup (counts + percentages against held sessions). */
+    /** Per-section rollup (counts + percentages vs held days). */
     public static function analyticsSections(\mysqli $conn, array $filters): array
     {
         $w = self::window($filters['from'] ?? null, $filters['to'] ?? null);
         $programType = in_array($filters['program_type'] ?? '', self::PROGRAM_TYPES, true) ? $filters['program_type'] : '';
-        $held = self::sessionsHeld($conn, $w, $programType);
+        $held = self::daysHeld($conn, $w, $programType);
+
+        [$pJoin, $pType] = self::programJoinFilter($programType);
 
         $sql = "
             SELECT COALESCE(NULLIF(TRIM(m.current_section), ''), '—') AS section,
@@ -420,10 +406,10 @@ final class MezmurAttendanceService
                    COALESCE(SUM(a.status = 'late'), 0)    AS late,
                    COALESCE(SUM(a.status = 'absent'), 0)  AS absent
             FROM members m
-            LEFT JOIN mezmur_attendance a ON a.member_id = m.id
-            LEFT JOIN mezmur_sessions s ON s.id = a.session_id AND s.status = 'active'
-                AND s.session_date BETWEEN ? AND ?"
-            . ($programType !== '' ? " AND s.program_type = ?" : '') . "
+            LEFT JOIN mezmur_attendance a ON a.member_id = m.id AND a.attendance_date BETWEEN ? AND ?"
+            . ($programType !== ''
+                ? " AND EXISTS (SELECT 1 FROM mezmur_days d WHERE d.attendance_date = a.attendance_date AND d.program_type = ?)"
+                : '') . "
             WHERE m.status = 'active'
             GROUP BY section
             ORDER BY members DESC";
@@ -441,13 +427,10 @@ final class MezmurAttendanceService
             $attended = (int)$r['present'] + (int)$r['late'];
             $r['members'] = $members;
             $r['sessions_held'] = $held;
-            $r['present'] = (int)$r['present'];
-            $r['late'] = (int)$r['late'];
-            $r['absent'] = (int)$r['absent'];
             $r['attended'] = $attended;
-            $r['present_pct'] = $capacity > 0 ? round($r['present'] * 100.0 / $capacity, 1) : null;
-            $r['late_pct']    = $capacity > 0 ? round($r['late'] * 100.0 / $capacity, 1) : null;
-            $r['absent_pct']  = $capacity > 0 ? round($r['absent'] * 100.0 / $capacity, 1) : null;
+            $r['present_pct'] = $capacity > 0 ? round(((int)$r['present']) * 100.0 / $capacity, 1) : null;
+            $r['late_pct']    = $capacity > 0 ? round(((int)$r['late']) * 100.0 / $capacity, 1) : null;
+            $r['absent_pct']  = $capacity > 0 ? round(((int)$r['absent']) * 100.0 / $capacity, 1) : null;
             $r['rate']        = $capacity > 0 ? round($attended * 100.0 / $capacity, 1) : null;
             $items[] = $r;
         }
@@ -455,21 +438,21 @@ final class MezmurAttendanceService
         return ['items' => $items, 'sessions_held' => $held, 'window' => $w];
     }
 
-    /** Monthly trend for charts: sessions held + overall attendance rate. */
+    /** Monthly trend: days held + overall attendance rate. */
     public static function analyticsTrends(\mysqli $conn, array $filters): array
     {
         $w = self::window($filters['from'] ?? null, $filters['to'] ?? null);
         $programType = in_array($filters['program_type'] ?? '', self::PROGRAM_TYPES, true) ? $filters['program_type'] : '';
 
         $sql = "
-            SELECT DATE_FORMAT(s.session_date, '%Y-%m') AS month,
-                   COUNT(DISTINCT s.id) AS sessions,
+            SELECT DATE_FORMAT(d.attendance_date, '%Y-%m') AS month,
+                   COUNT(DISTINCT d.id) AS sessions,
                    COUNT(a.id) AS marks,
                    COALESCE(SUM(a.status IN ('present','late')), 0) AS attended
-            FROM mezmur_sessions s
-            LEFT JOIN mezmur_attendance a ON a.session_id = s.id
-            WHERE s.status = 'active' AND s.session_date BETWEEN ? AND ?"
-            . ($programType !== '' ? " AND s.program_type = ?" : '') . "
+            FROM mezmur_days d
+            LEFT JOIN mezmur_attendance a ON a.attendance_date = d.attendance_date
+            WHERE d.attendance_date BETWEEN ? AND ?"
+            . ($programType !== '' ? " AND d.program_type = ?" : '') . "
             GROUP BY month
             ORDER BY month ASC";
 

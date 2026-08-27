@@ -212,24 +212,28 @@
     // ══════════════════════════════════════════════════════════
     // MODULE 2 — ATTENDANCE (sessions + section sheets)
     // ══════════════════════════════════════════════════════════
-    var att = { page: 1, totalPages: 1, sheet: null, marks: {} };
+    var att = { page: 1, totalPages: 1, date: null, sheet: null, marks: {} };
 
-    function loadSessions(page) {
+    function todayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padLeft(2, '0') + '-' + String(d.getDate()).padLeft(2, '0');
+    }
+    function loadDays(page) {
         att.page = page || 1;
         var tb = $('mzSessTbody');
-        tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading sessions…</td></tr>';
-        var q = 'action=sessions_list&page=' + att.page + '&per_page=' + PAGE_SIZE +
+        tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading attendance days…</td></tr>';
+        var q = 'action=days_list&page=' + att.page + '&per_page=' + PAGE_SIZE +
             '&from=' + encodeURIComponent($('mzSessFrom').value || '') + '&to=' + encodeURIComponent($('mzSessTo').value || '');
         SSMS.api.get('mezmur.php?' + q).then(function (d) {
             if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f87171;padding:1.5rem">' + esc(d.message || 'Unable to load sessions.') + '</td></tr>';
+                tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f87171;padding:1.5rem">' + esc(d.message || 'Unable to load days.') + '</td></tr>';
                 return;
             }
             att.totalPages = d.total_pages || 1;
-            renderSessionRows(d.items || []);
+            renderDayRows(d.items || []);
             var pg = $('mzSessPagination');
             pg.innerHTML = att.totalPages <= 1
-                ? '<span style="color:var(--school-text-dim);font-size:.8rem">' + d.total + ' session' + (d.total === 1 ? '' : 's') + '</span><span></span>'
+                ? '<span style="color:var(--school-text-dim);font-size:.8rem">' + d.total + ' attendance day' + (d.total === 1 ? '' : 's') + '</span><span></span>'
                 : '<button class="btn-secondary btn-sm" ' + (att.page <= 1 ? 'disabled' : '') + ' onclick="Mezmur.sessPage(' + (att.page - 1) + ')"><i class="fa-solid fa-chevron-left"></i></button>' +
                   '<span style="color:var(--school-text-dim);font-size:.8rem">Page ' + att.page + ' of ' + att.totalPages + '</span>' +
                   '<button class="btn-secondary btn-sm" ' + (att.page >= att.totalPages ? 'disabled' : '') + ' onclick="Mezmur.sessPage(' + (att.page + 1) + ')"><i class="fa-solid fa-chevron-right"></i></button>';
@@ -238,70 +242,56 @@
         });
     }
 
-    function renderSessionRows(items) {
+    function renderDayRows(items) {
         var tb = $('mzSessTbody');
         if (!items.length) {
-            tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:2rem"><i class="fa-solid fa-calendar-plus"></i> No sessions yet. Click <b>New Session</b> to start taking attendance.</td></tr>';
+            tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:2rem"><i class="fa-solid fa-calendar-check"></i> No attendance yet. Pick a date above and press <b>Take Attendance</b>.</td></tr>';
             return;
         }
-        tb.innerHTML = items.map(function (s) {
+        tb.innerHTML = items.map(function (d) {
             return '<tr style="border-top:1px solid var(--school-border,rgba(255,255,255,.06))">' +
-                '<td style="padding:.65rem .75rem;white-space:nowrap">' + fmtDate(s.session_date) + '</td>' +
-                '<td style="padding:.65rem .75rem"><span class="badge badge-info">' + esc(PROGRAM_LABELS[s.program_type] || s.program_type) + '</span></td>' +
-                '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + esc(s.title) + '</td>' +
-                '<td style="padding:.65rem .75rem">' + s.marked + '</td>' +
-                '<td style="padding:.65rem .75rem;color:#10b981;font-weight:600">' + s.attended + '</td>' +
+                '<td style="padding:.65rem .75rem;white-space:nowrap">' + fmtDate(d.attendance_date) + '</td>' +
+                '<td style="padding:.65rem .75rem"><span class="badge badge-info">' + esc(PROGRAM_LABELS[d.program_type] || d.program_type) + '</span></td>' +
+                '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + esc(d.title || '—') + '</td>' +
+                '<td style="padding:.65rem .75rem">' + d.marked + '</td>' +
+                '<td style="padding:.65rem .75rem;color:#10b981;font-weight:600">' + d.attended + '</td>' +
                 '<td style="padding:.65rem .75rem;text-align:right;white-space:nowrap">' +
-                '<button class="btn-primary btn-sm" onclick="Mezmur.openSheet(' + s.id + ')"><i class="fa-solid fa-clipboard-check"></i> ' + (s.marked > 0 ? 'Review' : 'Take') + '</button> ' +
-                '<button class="btn-secondary btn-sm" title="Delete" onclick="Mezmur.deleteSession(' + s.id + ')"><i class="fa-solid fa-trash"></i></button>' +
+                '<button class="btn-primary btn-sm" onclick="Mezmur.openExisting(\'' + esc(d.attendance_date) + '\')"><i class="fa-solid fa-clipboard-check"></i> ' + (d.marked > 0 ? 'Review' : 'Open') + '</button>' +
                 '</td></tr>';
         }).join('');
     }
 
-    function openSessionModal() {
-        $('mzSessDate').value = new Date().toISOString().slice(0, 10);
-        $('mzSessTitle').value = ''; $('mzSessNotes').value = '';
-        showError($('mzSessError'), '');
-        modal('mzSessionModal', true);
-    }
-
-    function createSession() {
-        var date = $('mzSessDate').value, title = $('mzSessTitle').value.trim();
-        if (!date || !title) { showError($('mzSessError'), 'Date and title are required.'); return; }
+    // Open (or start) the attendance sheet for a date. day_create is an
+    // idempotent get-or-create; the optional program label is stored once.
+    function openDay() {
+        var date = $('mzAttDate').value;
+        if (!date) { window.toast('Pick a date first.', 'e'); return; }
         SSMS.api.post('mezmur.php', {
-            action: 'session_create', session_date: date,
-            program_type: $('mzSessType').value, title: title, notes: $('mzSessNotes').value.trim()
+            action: 'day_create', date: date,
+            program_type: $('mzAttProgram').value
         }).then(function (d) {
-            if (d.status !== 'success') { showError($('mzSessError'), d.message || 'Unable to create session.'); return; }
-            modal('mzSessionModal', false);
-            window.toast('Session created.', 's');
-            loadSessions(1);
-        }).catch(function (err) { showError($('mzSessError'), (err && err.message) || 'Connection error.'); });
-    }
-
-    function deleteSession(id) {
-        if (!window.confirm('Delete this session? Its attendance history stays in the audit log.')) return;
-        SSMS.api.post('mezmur.php', { action: 'session_delete', id: id }).then(function (d) {
-            window.toast(d.message || 'Done.', d.status === 'success' ? 's' : 'e');
-            if (d.status === 'success') loadSessions(att.page);
+            if (d.status !== 'success') { window.toast(d.message || 'Unable to open that date.', 'e'); return; }
+            loadSheet(date);
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }
 
-    // ── sheet ──
-    function openSheet(id) {
+    function openExisting(date) { loadSheet(date); }
+
+    function loadSheet(date) {
         $('mzSheetBody').innerHTML = '<div style="text-align:center;color:var(--school-text-dim);padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading sheet…</div>';
         $('mzSessionListView').style.display = 'none';
         $('mzSheetView').style.display = 'block';
-        SSMS.api.get('mezmur.php?action=sheet&id=' + encodeURIComponent(id)).then(function (d) {
-            if (d.status !== 'success' || !d.session) { window.toast(d.message || 'Unable to load the sheet.', 'e'); closeSheet(); return; }
+        SSMS.api.get('mezmur.php?action=sheet&date=' + encodeURIComponent(date)).then(function (d) {
+            if (d.status !== 'success' || !d.day) { window.toast(d.message || 'Unable to load the sheet.', 'e'); closeSheet(); return; }
             att.sheet = d;
+            att.date = date;
             att.marks = {};
             // Default every roster member to present; takers flip exceptions.
             Object.keys(d.sections).forEach(function (sec) {
                 d.sections[sec].forEach(function (m) { att.marks[m.id] = m.mark || 'present'; });
             });
-            $('mzSheetTitle').textContent = d.session.title;
-            $('mzSheetMeta').textContent = fmtDate(d.session.session_date) + ' • ' + (PROGRAM_LABELS[d.session.program_type] || d.session.program_type);
+            $('mzSheetTitle').textContent = 'Attendance — ' + fmtDate(date);
+            $('mzSheetMeta').textContent = (PROGRAM_LABELS[d.day.program_type] || d.day.program_type) + (d.day.title ? ' • ' + d.day.title : '');
             renderSheet();
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); closeSheet(); });
     }
@@ -326,7 +316,7 @@
         var mark = att.marks[m.id] || 'present';
         function seg(status, label, color) {
             var on = mark === status;
-            return '<button type="button" onclick="Mezmur.setMark(' + m.id + ',\'' + status + '\')" style="padding:.3rem .7rem;font-size:.72rem;border:1px solid ' + (on ? color : 'var(--school-border,rgba(255,255,255,.12))') + ';background:' + (on ? color : 'transparent') + ';color:' + (on ? '#fff' : 'var(--school-text-dim)') + ';cursor:pointer;border-radius:' + '6px' + '">' + label + '</button>';
+            return '<button type="button" onclick="Mezmur.setMark(' + m.id + ',\'' + status + '\')" style="padding:.3rem .7rem;font-size:.72rem;border:1px solid ' + (on ? color : 'var(--school-border,rgba(255,255,255,.12))') + ';background:' + (on ? color : 'transparent') + ';color:' + (on ? '#fff' : 'var(--school-text-dim)') + ';cursor:pointer;border-radius:6px">' + label + '</button>';
         }
         return '<div data-mzrow="' + m.id + '" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;padding:.5rem .25rem;border-top:1px solid var(--school-border,rgba(255,255,255,.05))">' +
             '<div style="flex:1;min-width:180px;font-size:.85rem;color:var(--school-text-bright)">' + esc(m.student_name) + ' ' + esc(m.father_name || '') +
@@ -373,20 +363,19 @@
     }
 
     function saveSheet() {
-        if (!att.sheet) return;
-        var sessionId = att.sheet.session.id;
+        if (!att.sheet || !att.date) return;
         var records = Object.keys(att.marks).map(function (id) { return { member_id: parseInt(id, 10), status: att.marks[id] }; });
         var btn = $('mzSheetSaveBtn');
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
         SSMS.api.post('mezmur.php', {
-            action: 'save_sheet', session_id: sessionId, records: JSON.stringify(records)
+            action: 'save_sheet', date: att.date, records: JSON.stringify(records)
         }).then(function (d) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Attendance';
             if (d.status !== 'success') { window.toast(d.message || 'Unable to save attendance.', 'e'); return; }
-            var s = d.summary || {};
-            window.toast('Saved: ' + s.present + ' present, ' + s.late + ' late, ' + s.absent + ' absent.', 's');
+            var sum = d.summary || {};
+            window.toast('Saved: ' + sum.present + ' present, ' + sum.late + ' late, ' + sum.absent + ' absent.', 's');
             closeSheet();
-            loadSessions(att.page);
+            loadDays(att.page);
         }).catch(function (err) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Attendance';
             window.toast((err && err.message) || 'Connection error.', 'e');
@@ -624,9 +613,12 @@
         $('mzCategoryFilter').addEventListener('change', function () { lib.category = this.value; lib.page = 1; loadList(); });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });
 
+        $('mzAttDate').value = todayStr();
+        $('mzAttDate').max = todayStr();
+
         loadStats();
         loadList();
-        loadSessions(1);
+        loadDays(1);
         loadTakers();
     });
 
@@ -638,10 +630,10 @@
         closeView: function () { modal('mzViewModal', false); },
         libPage: function (p) { if (p >= 1 && p <= lib.totalPages) { lib.page = p; loadList(); } },
         // attendance
-        loadSessions: function () { loadSessions(1); },
-        sessPage: function (p) { loadSessions(p); },
-        openSessionModal: openSessionModal, createSession: createSession, deleteSession: deleteSession,
-        openSheet: openSheet, closeSheet: closeSheet, saveSheet: saveSheet,
+        loadDays: function () { loadDays(1); },
+        sessPage: function (p) { loadDays(p); },
+        openDay: openDay, openExisting: openExisting,
+        closeSheet: closeSheet, saveSheet: saveSheet,
         setMark: setMark, markAll: markAll, markSection: markSection,
         // analytics
         runAnalytics: runAnalytics, sortBy: sortBy, exportCsv: exportCsv,

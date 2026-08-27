@@ -62,7 +62,7 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'session_create', 'session_delete'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.'], 405);
 }
 
@@ -75,7 +75,7 @@ $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'session_create', 'session_delete'], true)
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create'], true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -89,13 +89,13 @@ try {
 } catch (\Throwable $e) {
     mezmur_respond(['status' => 'error', 'message' => 'Mezmur tables not found. Ask the administrator to run sql/021_mezmur_department.sql.']);
 }
-$__attendanceActions = ['sessions_list', 'session_create', 'session_delete', 'sheet', 'save_sheet',
+$__attendanceActions = ['days_list', 'day_create', 'sheet', 'save_sheet',
     'analytics_members', 'analytics_sections', 'analytics_trends', 'takers_list'];
 if (in_array($action, $__attendanceActions, true)) {
     try {
-        $conn->query("SELECT 1 FROM mezmur_sessions LIMIT 0");
+        $conn->query("SELECT 1 FROM mezmur_days LIMIT 0");
     } catch (\Throwable $e) {
-        mezmur_respond(['status' => 'error', 'message' => 'Mezmur attendance tables not found. Ask the administrator to run sql/022_mezmur_attendance.sql.']);
+        mezmur_respond(['status' => 'error', 'message' => 'Mezmur attendance tables not found. Ask the administrator to run sql/022_mezmur_attendance.sql and sql/023_mezmur_date_attendance.sql.']);
     }
 }
 
@@ -278,9 +278,9 @@ try {
             ]);
         }
 
-        // ── SESSIONS ───────────────────────────────────────────
-        case 'sessions_list': {
-            $out = MezmurAttendanceService::listSessions(
+        // ── DAYS (date-based attendance) ──────────────────────
+        case 'days_list': {
+            $out = MezmurAttendanceService::listDays(
                 $conn,
                 (string)($_GET['from'] ?? ''),
                 (string)($_GET['to'] ?? ''),
@@ -290,32 +290,30 @@ try {
             mezmur_respond(['status' => 'success'] + $out);
         }
 
-        case 'session_create': {
-            $id = MezmurAttendanceService::createSession(
+        // ── SHEET ──────────────────────────────────────────────
+        case 'day_create': {
+            $day = MezmurAttendanceService::ensureDay(
                 $conn,
-                (string)($_POST['session_date'] ?? ''),
-                (string)($_POST['program_type'] ?? ''),
-                (string)($_POST['title'] ?? ''),
+                (string)($_POST['date'] ?? ''),
+                (string)($_POST['program_type'] ?? 'rehearsal'),
+                isset($_POST['title']) ? (string)$_POST['title'] : null,
                 isset($_POST['notes']) ? (string)$_POST['notes'] : null,
                 $adminId
             );
-            mezmur_respond(['status' => 'success', 'message' => 'Session created.', 'id' => $id]);
+            mezmur_respond(['status' => 'success', 'message' => 'Attendance day ready.', 'day' => $day]);
         }
 
-        case 'session_delete': {
-            $ok = MezmurAttendanceService::deleteSession($conn, (int)($_POST['id'] ?? 0), $adminId);
-            if (!$ok) mezmur_respond(['status' => 'error', 'message' => 'Session not found or already deleted.']);
-            mezmur_respond(['status' => 'success', 'message' => 'Session deleted.']);
-        }
-
-        // ── SHEET ──────────────────────────────────────────────
         case 'sheet': {
-            $out = MezmurAttendanceService::fetchSheet($conn, (int)($_GET['id'] ?? 0));
-            if ($out['session'] === null) mezmur_respond(['status' => 'error', 'message' => 'Session not found.'], 404);
+            $date = (string)($_GET['date'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                mezmur_respond(['status' => 'error', 'message' => 'A valid date is required.']);
+            }
+            $out = MezmurAttendanceService::fetchSheet($conn, $date, $adminId);
             mezmur_respond(['status' => 'success'] + $out);
         }
 
         case 'save_sheet': {
+            $date = (string)($_POST['date'] ?? '');
             $records = $_POST['records'] ?? '';
             if (is_string($records)) {
                 $decoded = json_decode($records, true);
@@ -327,7 +325,7 @@ try {
             if (count($records) > 500000) {
                 mezmur_respond(['status' => 'error', 'message' => 'The sheet is too large.']);
             }
-            $result = MezmurAttendanceService::saveSheet($conn, (int)($_POST['session_id'] ?? 0), $records, $adminId);
+            $result = MezmurAttendanceService::saveSheet($conn, $date, $records, $adminId);
             mezmur_respond(['status' => 'success', 'message' => 'Attendance saved.', 'summary' => $result]);
         }
 

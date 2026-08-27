@@ -23,6 +23,7 @@ class MezmurAttendanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.sql = (ROOT / "sql/022_mezmur_attendance.sql").read_text(encoding="utf-8")
+        cls.sql23 = (ROOT / "sql/023_mezmur_date_attendance.sql").read_text(encoding="utf-8")
         cls.service = (
             ROOT / "admin/backend/services/MezmurAttendanceService.php"
         ).read_text(encoding="utf-8")
@@ -65,6 +66,14 @@ class MezmurAttendanceTests(unittest.TestCase):
     def test_dataset_is_separate_from_class_attendance(self):
         self.assertNotIn("`attendance`", self.sql.replace("`mezmur_attendance`", ""))
 
+    def test_date_based_migration_is_guarded_and_non_destructive(self):
+        self.assertIn("CREATE TABLE IF NOT EXISTS `mezmur_days`", self.sql23)
+        self.assertIn("UNIQUE KEY `uq_mezmur_days_date` (`attendance_date`)", self.sql23)
+        self.assertIn("`uq_mezmur_attendance_date_member` (`attendance_date`, `member_id`)", self.sql23)
+        self.assertIn("PREPARE stmt FROM @mz_add_date; EXECUTE stmt; DEALLOCATE PREPARE stmt;", self.sql23)
+        self.assertIn("SET a.attendance_date = s.session_date", self.sql23)
+        self.assertNotIn("DROP", self.sql23)
+
     # ── domain service ─────────────────────────────────────────
     def test_service_enforces_complete_sheet(self):
         self.assertIn("count($submitted) !== count($roster)", self.service)
@@ -81,11 +90,14 @@ class MezmurAttendanceTests(unittest.TestCase):
         self.assertIn("$conn->rollback()", self.service)
         self.assertIn("mezmur_attendance_audit", self.service)
         self.assertIn("'sheet_saved'", self.service)
-        self.assertIn("'session_deleted'", self.service)
+        self.assertIn("'day_created'", self.service)
 
-    def test_service_sessions_soft_delete_only(self):
-        self.assertIn("SET status='deleted'", self.service)
-        self.assertNotIn("DELETE FROM mezmur_sessions", self.service)
+    def test_service_is_date_based_not_session_based(self):
+        self.assertIn("saveSheet(\mysqli $conn, string $date", self.service)
+        self.assertIn("DELETE FROM mezmur_attendance WHERE attendance_date = ?", self.service)
+        self.assertIn("Attendance cannot be recorded for a future date.", self.service)
+        self.assertIn("ensureDay(", self.service)
+        self.assertIn("programJoinFilter(", self.service)
 
     def test_service_analytics_are_bounded_and_whitelisted(self):
         # date windows hard-capped at two years (scan bound)
@@ -105,8 +117,13 @@ class MezmurAttendanceTests(unittest.TestCase):
         self.assertIn("$__rlCheck['allowed']", self.api)
 
     def test_api_write_actions_are_post_only(self):
-        self.assertIn("'save_sheet', 'session_create', 'session_delete'", self.api)
+        self.assertIn("'save_sheet', 'day_create'", self.api)
         self.assertIn("$_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
+
+    def test_api_is_date_based_and_probes_023(self):
+        self.assertIn("case 'days_list':", self.api)
+        self.assertIn("case 'day_create':", self.api)
+        self.assertIn("sql/023_mezmur_date_attendance.sql", self.api)
 
     def test_api_sheet_size_and_domain_errors(self):
         self.assertIn("count($records) > 500000", self.api)
@@ -123,6 +140,8 @@ class MezmurAttendanceTests(unittest.TestCase):
         self.assertIn("apiRoleIs($auth, $MEZMUR_ANALYTICS_ROLES)", self.route)
         # reuses the single-writer service — no duplicated SQL domain
         self.assertIn("MezmurAttendanceService::saveSheet", self.route)
+        self.assertIn("$action === 'days'", self.route)
+        self.assertIn("(string)($input['date'] ?? '')", self.route)
         # idempotency + rate limiting on mobile saves
         self.assertIn("apiIdempotencyBegin(", self.route)
         self.assertIn("isApiRateLimited('mezmur_sheet_save'", self.route)
@@ -141,17 +160,22 @@ class MezmurAttendanceTests(unittest.TestCase):
     # ── web UI discipline ──────────────────────────────────────
     def test_shell_has_all_sections_and_gates(self):
         for section in ['library', 'attendance', 'analytics', 'takers']:
-            self.assertIn('data-section="%s"' % section, self.shell)
+            self.assertIn('id="section-%s"' % section, self.shell)
         self.assertIn("$requiredRoles = ['super_admin', 'school_admin', 'mezmur_dept'];", self.shell)
         self.assertIn("$requiredFeature = 'mezmur';", self.shell)
+        self.assertIn('id="mzAttDate"', self.shell)
+        self.assertIn('Mezmur.openDay()', self.shell)
+        self.assertNotIn('mzSessionModal', self.shell)
 
     def test_js_new_modules_escape_output(self):
-        self.assertIn("esc(s.title)", self.js)
         self.assertIn("esc(t.username)", self.js)
         self.assertIn("esc(m.student_name)", self.js)
         self.assertIn("esc(m.section)", self.js)
         # mutations go through POST helper (CSRF auto-appended)
         self.assertIn("action: 'save_sheet'", self.js)
+        self.assertIn("action: 'day_create'", self.js)
+        self.assertNotIn("openSessionModal", self.js)
+        self.assertNotIn("sessions_list", self.js)
         self.assertIn("SSMS.api.post('/admin/backend/user-save.php'", self.js)
 
     # ── flutter wiring ─────────────────────────────────────────
@@ -167,9 +191,9 @@ class MezmurAttendanceTests(unittest.TestCase):
 
     def test_flutter_api_surface(self):
         for method in [
-            "Future<ApiResponse> getMezmurSessions(",
-            "Future<ApiResponse> createMezmurSession(",
-            "Future<ApiResponse> getMezmurSheet(",
+            "Future<ApiResponse> getMezmurDays(",
+            "Future<ApiResponse> createMezmurDay(",
+            "Future<ApiResponse> getMezmurSheet(String date)",
             "Future<ApiResponse> saveMezmurSheet(",
             "Future<ApiResponse> getMezmurAnalytics(",
         ]:

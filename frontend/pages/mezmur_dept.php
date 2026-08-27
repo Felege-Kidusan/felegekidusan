@@ -90,7 +90,7 @@ ob_start();
         <div class="school-content">
 
             <!-- ═══ LIBRARY SECTION ═══ -->
-            <section class="school-section active" data-section="library">
+            <section id="section-library" class="school-section active" data-section="library">
 
                 <!-- Stats -->
                 <div class="grid-3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.25rem">
@@ -151,20 +151,28 @@ ob_start();
             </section>
 
             <!-- ═══ ATTENDANCE SECTION ═══ -->
-            <section class="school-section" data-section="attendance">
+            <section id="section-attendance" class="school-section" data-section="attendance">
 
                 <!-- Session list view -->
                 <div id="mzSessionListView">
                     <div class="school-card">
                         <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:1rem">
                             <div style="flex:1;min-width:200px">
-                                <h3 class="school-card-title" style="margin:0"><i class="fa-solid fa-calendar-check"></i> Mezmur Sessions</h3>
-                                <div style="color:var(--school-text-dim);font-size:.8rem" class="amharic">የዝማሬ እና የአገልግሎት መርሐግብሮች</div>
+                                <h3 class="school-card-title" style="margin:0"><i class="fa-solid fa-calendar-check"></i> Attendance Days</h3>
+                                <div style="color:var(--school-text-dim);font-size:.8rem" class="amharic">በቀን መሠረት • በክፍል (section) የተከፋፈለ</div>
                             </div>
+                            <input id="mzAttDate" class="school-input" type="date" style="min-width:160px" title="Attendance date">
+                            <select id="mzAttProgram" class="school-input" style="min-width:150px" title="Program type">
+                                <option value="rehearsal">Rehearsal (የዝማሬ ልምምድ)</option>
+                                <option value="service">Service (አገልግሎት)</option>
+                                <option value="feast">Feast (በዓል)</option>
+                                <option value="training">Training (ሥልጠና)</option>
+                                <option value="other">Other</option>
+                            </select>
+                            <button class="btn-primary" onclick="Mezmur.openDay()"><i class="fa-solid fa-clipboard-check"></i> Take Attendance</button>
                             <input id="mzSessFrom" class="school-input" type="date" style="min-width:150px" title="From date">
                             <input id="mzSessTo" class="school-input" type="date" style="min-width:150px" title="To date">
-                            <button class="btn-secondary" onclick="Mezmur.loadSessions()"><i class="fa-solid fa-filter"></i> Filter</button>
-                            <button class="btn-primary" onclick="Mezmur.openSessionModal()"><i class="fa-solid fa-plus"></i> New Session</button>
+                            <button class="btn-secondary" onclick="Mezmur.loadDays()"><i class="fa-solid fa-filter"></i> Filter</button>
                         </div>
                         <div style="overflow-x:auto">
                             <table style="width:100%;border-collapse:collapse;font-size:.85rem">
@@ -208,7 +216,7 @@ ob_start();
             </section>
 
             <!-- ═══ ANALYTICS SECTION ═══ -->
-            <section class="school-section" data-section="analytics">
+            <section id="section-analytics" class="school-section" data-section="analytics">
 
                 <!-- Filters -->
                 <div class="school-card">
@@ -288,7 +296,7 @@ ob_start();
             </section>
 
             <!-- ═══ ATTENDANCE TAKERS SECTION ═══ -->
-            <section class="school-section" data-section="takers">
+            <section id="section-takers" class="school-section" data-section="takers">
                 <div class="school-card">
                     <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:1rem">
                         <div style="flex:1;min-width:200px">
@@ -376,40 +384,6 @@ ob_start();
         <button class="school-bottom-nav-btn" data-section="takers"><i class="fa-solid fa-user-shield"></i><span>Takers</span></button>
     </div>
 </nav>
-
-<!-- ═══ MODAL: NEW SESSION ═══ -->
-<div class="school-modal" id="mzSessionModal">
-    <div class="school-modal-content">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 style="font-size:1.1rem;font-weight:700;color:var(--school-text-bright)"><i class="fa-solid fa-calendar-plus"></i> New Session</h3>
-            <button onclick="modal('mzSessionModal',false)" style="background:none;border:none;color:var(--school-text-dim);font-size:1.25rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Date *</label>
-            <input id="mzSessDate" class="school-input" type="date">
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Program type *</label>
-            <select id="mzSessType" class="school-input">
-                <option value="rehearsal">Rehearsal (የዝማሬ ልምምድ)</option>
-                <option value="service">Service (አገልግሎት)</option>
-                <option value="feast">Feast (በዓል)</option>
-                <option value="training">Training (ሥልጠና)</option>
-                <option value="other">Other</option>
-            </select>
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Title *</label>
-            <input id="mzSessTitle" class="school-input" maxlength="255" placeholder="e.g. የመስቀል በዓል ዝግጅት">
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Notes</label>
-            <input id="mzSessNotes" class="school-input" maxlength="500">
-        </div>
-        <div class="school-error-msg" id="mzSessError" style="display:none"></div>
-        <button class="btn-primary" onclick="Mezmur.createSession()" style="width:100%;justify-content:center"><i class="fa-solid fa-save"></i> Create Session</button>
-    </div>
-</div>
 
 <!-- ═══ MODAL: ADD TAKER ═══ -->
 <div class="school-modal" id="mzTakerModal">
