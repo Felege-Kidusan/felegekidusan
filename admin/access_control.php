@@ -99,6 +99,9 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'finance.php'       => ['super_admin', 'school_admin', 'finance_dept'],
             'finance_department.php' => ['super_admin', 'school_admin', 'finance_dept'],
             'finance_dept.php'  => ['super_admin', 'school_admin', 'finance_dept'],
+            'mezmur.php'        => ['super_admin', 'school_admin', 'mezmur_dept'],
+            'api_mezmur.php'    => ['super_admin', 'school_admin', 'mezmur_dept'],
+            'mezmur_dept.php'   => ['super_admin', 'school_admin', 'mezmur_dept'],
 
             // ---- Education / academics ----
             // Teachers & attendance-takers legitimately READ these and record

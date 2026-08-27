@@ -26,6 +26,7 @@ $dashboardMap = [
     'edu_dept'         => 'edu_dept.php',
     'finance_dept'     => 'finance_dept.php',
     'material_dept'    => 'material_dept.php',
+    'mezmur_dept'      => 'mezmur_dept.php',
     'teacher'          => 'teacher.php',
     'attendance_taker' => 'attendance_taker.php',
 ];

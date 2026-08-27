@@ -18,7 +18,7 @@ final class AdminSessionGuard
     /** Known application roles — an assumed role must be one of these. */
     private const KNOWN_ROLES = [
         'super_admin', 'school_admin', 'hr_dept', 'info_dept', 'edu_dept',
-        'finance_dept', 'material_dept', 'teacher', 'attendance_taker',
+        'finance_dept', 'material_dept', 'mezmur_dept', 'teacher', 'attendance_taker',
     ];
 
     private \PDO $database;

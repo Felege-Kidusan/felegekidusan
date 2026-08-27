@@ -36,7 +36,7 @@ if ($action !== 'status' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
 switch ($action) {
     case 'switch':
         $targetRole = $_POST['role'] ?? '';
-        $allowedRoles = ['school_admin','hr_dept','info_dept','edu_dept','finance_dept','material_dept','teacher','attendance_taker'];
+        $allowedRoles = ['school_admin','hr_dept','info_dept','edu_dept','finance_dept','material_dept','mezmur_dept','teacher','attendance_taker'];
         
         if (!in_array($targetRole, $allowedRoles)) {
             echo json_encode(['status' => 'error', 'message' => 'Invalid role']);

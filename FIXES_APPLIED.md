@@ -393,3 +393,38 @@ Immediate action for the live account (Super Admin → Users → edit the
 finance account → Role = Finance Dept, or on the server:
 `php admin/tools/repair_user_role.php --username=<name> --role=finance_dept --apply`).
 223 tests passing.
+
+## Feature 1 — Mezmur Department (መዝሙር ክፍል)  `(this commit)`
+
+New standalone department, built on the exact separated pattern the
+Finance module established — role + fail-closed feature flag + gate
+entries + separated shell + single-writer API:
+
+- **Data**: `sql/021_mezmur_department.sql` — new `mezmur_hymns`
+  library table (utf8mb4, scale indexes, FULLTEXT titles, FKs with
+  SET NULL — never cascades) + idempotent seed of Mezmur into the
+  staff-position department catalogue (`code 'MZ'`, so choir
+  positions participate in identity v2 codes). Creates NEW objects
+  only; touches nothing existing.
+- **Role wiring (defense in depth)**: `mezmur_dept` added to every
+  guard list — access_control ROLE_MAP, user-save/user-toggle
+  whitelists, AdminSessionGuard KNOWN_ROLES, impersonation allowlist,
+  both dashboard routers, repair-tool catalogue, super-admin &
+  school-admin user forms/tiles/dept cards, workflow + AI context.
+- **Feature gate**: `FEATURE_MEZMUR` (fail-closed, `=== true` only),
+  enforced by FeatureGate in the router, the central guard and the API.
+- **Front/back separation**: `frontend/pages/mezmur_dept.php` (pure
+  HTML shell), `frontend/js/mezmur.js` (UI only, all values escaped,
+  lyrics via textContent), `admin/api_mezmur.php` (single controller:
+  session + role re-check + feature gate + CSRF + POST-only mutations
+  + prepared statements + LIKE-wildcard escaping + clamped pagination
+  + soft-delete only + no exception internals), `backend/api/mezmur.php`
+  shim.
+- **v1 scope (approved)**: hymn library — titles (EN + Amharic),
+  category, reference, lyrics, search/filter, server-side pagination,
+  archive/restore. Text-only (audio deferred by design).
+- **16 new regression tests** pin every guard; 239 total passing.
+
+Deploy: run `sql/021_mezmur_department.sql` → `git pull` → create the
+first `mezmur_dept` user (Super Admin → Users). Module can be switched
+off per deployment with `define('FEATURE_MEZMUR', false)`.

@@ -72,6 +72,7 @@ define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password
 // define('FEATURE_AI_CHATBOT', false);
 // define('FEATURE_GROUPS', false);
 // define('FEATURE_FINANCE', false);
+// define('FEATURE_MEZMUR', false);
 // define('FEATURE_MATERIAL', false);
 // define('FEATURE_ID_CARDS', false);
 // define('FEATURE_ATTENDANCE', false);

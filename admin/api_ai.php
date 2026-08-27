@@ -204,6 +204,7 @@ function collectDataSnapshot($conn, $scope = 'overview') {
         'info_dept' => ['finance'],
         'edu_dept' => ['finance'],
         'material_dept' => ['finance', 'education'],
+        'mezmur_dept' => ['education'],
     ];
     
     $blocked = $blockedScopes[$role] ?? [];
@@ -358,6 +359,7 @@ function getSystemPrompt($conn = null) {
         'edu_dept' => 'You have access to education data: classes, enrollments, teachers, subjects, and grades. You do NOT have access to financial data.',
         'finance_dept' => 'You have access to financial data: income, expenses, and budgets. You do NOT have access to individual member details.',
         'material_dept' => 'You have access to material/resource inventory data. You have limited access to other data.',
+        'mezmur_dept' => 'You have access to the mezmur (hymn) library data. You have limited access to other data.',
         'teacher' => 'You have access to your class data, student attendance, and grades. You do NOT have access to finance or system settings. Do NOT reveal other teachers\' data or admin information.',
         'attendance_taker' => 'You have access to attendance records only. You do NOT have access to finance, grades, or system settings.',
     ];

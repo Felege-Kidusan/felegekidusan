@@ -88,6 +88,11 @@ switch ($role) {
         require __DIR__ . '/dashboards/material_department.php';
         break;
 
+    case 'mezmur_dept':
+        // ── Separated frontend shell (same pattern as finance) ──
+        header('Location: /frontend/pages/mezmur_dept.php');
+        exit;
+
     case 'teacher':
         require __DIR__ . '/dashboards/teacher.php';
         break;

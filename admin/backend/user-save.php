@@ -88,6 +88,7 @@ $validRoles = [
     'edu_dept',
     'finance_dept',
     'material_dept',
+    'mezmur_dept',
     'teacher',
     'attendance_taker',
 ];

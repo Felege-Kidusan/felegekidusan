@@ -54,12 +54,16 @@ class FeatureGateEnforcementTests(unittest.TestCase):
         self.assertEqual(result["id_route"], "id_cards")
         self.assertEqual(result["attendance_api"], "attendance")
         self.assertEqual(result["role_feature"], "material")
+        self.assertTrue(result["mezmur"])
+        self.assertEqual(result["mezmur_role_feature"], "mezmur")
+        self.assertEqual(result["mezmur_route"], "mezmur")
+        self.assertEqual(result["mezmur_page_route"], "mezmur")
         self.assertEqual(result["tiles"]["education"], ["classes", "grades"])
         self.assertEqual(result["tiles"]["invalid"], ["reports"])
 
     def test_environment_can_override_boolean_defaults(self):
         for name in [
-            "AI_CHATBOT", "GROUPS", "FINANCE", "MATERIAL", "ID_CARDS",
+            "AI_CHATBOT", "GROUPS", "FINANCE", "MATERIAL", "MEZMUR", "ID_CARDS",
             "ATTENDANCE", "GRADES", "REPORTS", "EXPORT_PDF", "MONITOR",
         ]:
             self.assertIn(

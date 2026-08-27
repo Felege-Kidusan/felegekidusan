@@ -32,6 +32,7 @@ $DEPT_ROLES = [
     'edu_dept' => 'Education Dept',
     'finance_dept' => 'Finance Dept',
     'material_dept' => 'Material Dept',
+    'mezmur_dept' => 'Mezmur Dept',
 ];
 
 /**
@@ -47,7 +48,7 @@ $NOTIFICATION_MATRIX = [
     'class_enrolled' => ['super_admin', 'school_admin', 'info_dept'],
     'grade_recorded' => ['super_admin', 'school_admin'],
     'attendance_issue' => ['super_admin', 'school_admin', 'info_dept'],
-    'document_shared' => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept', 'material_dept'],
+    'document_shared' => ['super_admin', 'school_admin', 'info_dept', 'edu_dept', 'finance_dept', 'material_dept', 'mezmur_dept'],
     'task_assigned' => [], // Specific to target
 ];
 

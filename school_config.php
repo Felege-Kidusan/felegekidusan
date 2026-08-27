@@ -196,6 +196,7 @@ if (!defined('FEATURE_AI_CHATBOT')) define('FEATURE_AI_CHATBOT', true);
 if (!defined('FEATURE_GROUPS')) define('FEATURE_GROUPS', true);
 if (!defined('FEATURE_FINANCE')) define('FEATURE_FINANCE', true);
 if (!defined('FEATURE_MATERIAL')) define('FEATURE_MATERIAL', true);
+if (!defined('FEATURE_MEZMUR')) define('FEATURE_MEZMUR', true);
 if (!defined('FEATURE_ID_CARDS')) define('FEATURE_ID_CARDS', true);
 if (!defined('FEATURE_ATTENDANCE')) define('FEATURE_ATTENDANCE', true);
 if (!defined('FEATURE_GRADES')) define('FEATURE_GRADES', true);

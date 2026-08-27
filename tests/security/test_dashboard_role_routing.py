@@ -46,10 +46,15 @@ class DashboardRoleRoutingTests(unittest.TestCase):
         # exactly one branch requires school_admin.php.
         self.assertEqual(self.admin_router.count("dashboards/school_admin.php"), 1)
 
+    def test_admin_router_sends_mezmur_to_frontend_page(self):
+        self.assertIn("case 'mezmur_dept':", self.admin_router)
+        self.assertIn("header('Location: /frontend/pages/mezmur_dept.php');", self.admin_router)
+
     # ── Layer 2: frontend router ────────────────────────────────────────
     def test_frontend_router_maps_finance_dept(self):
         self.assertIn("'finance_dept'     => 'finance_dept.php',", self.front_router)
         self.assertIn("'school_admin'     => 'school_admin.php',", self.front_router)
+        self.assertIn("'mezmur_dept'      => 'mezmur_dept.php',", self.front_router)
         # Unknown roles fall back to the legacy router, never silently to
         # another role's dashboard.
         self.assertIn("header('Location: /admin/dashboard.php');", self.front_router)
@@ -111,7 +116,7 @@ class DashboardRoleRoutingTests(unittest.TestCase):
         self.assertIn("$CANONICAL_ROLES = [", self.repair_tool)
         for role in [
             "'super_admin'", "'school_admin'", "'info_dept'", "'hr_dept'",
-            "'edu_dept'", "'finance_dept'", "'material_dept'", "'teacher'",
+            "'edu_dept'", "'finance_dept'", "'material_dept'", "'mezmur_dept'", "'teacher'",
             "'attendance_taker'",
         ]:
             self.assertIn(role, self.repair_tool)
@@ -126,6 +131,9 @@ class DashboardRoleRoutingTests(unittest.TestCase):
             "admin/dashboard.php",
             "frontend/pages/dashboard.php",
             "admin/tools/repair_user_role.php",
+            "admin/api_mezmur.php",
+            "backend/api/mezmur.php",
+            "frontend/pages/mezmur_dept.php",
         ]:
             proc = subprocess.run(
                 [php, "-l", str(ROOT / rel)],

@@ -371,6 +371,7 @@
             'edu_dept':       (APP.school && APP.school.depts && APP.school.depts.edu) ? APP.school.depts.edu.en : 'Education Dept',
             'finance_dept':   (APP.school && APP.school.depts && APP.school.depts.finance) ? APP.school.depts.finance.en : 'Finance Dept',
             'material_dept':  (APP.school && APP.school.depts && APP.school.depts.material) ? APP.school.depts.material.en : 'Material Dept',
+            'mezmur_dept':    (APP.school && APP.school.depts && APP.school.depts.mezmur) ? APP.school.depts.mezmur.en : 'Mezmur Dept',
             'teacher':        'Teacher',
             'attendance_taker': 'Attendance'
         };

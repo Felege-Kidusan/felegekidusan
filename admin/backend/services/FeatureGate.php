@@ -14,6 +14,7 @@ final class FeatureGate
         'groups' => 'FEATURE_GROUPS',
         'finance' => 'FEATURE_FINANCE',
         'material' => 'FEATURE_MATERIAL',
+        'mezmur' => 'FEATURE_MEZMUR',
         'id_cards' => 'FEATURE_ID_CARDS',
         'attendance' => 'FEATURE_ATTENDANCE',
         'grades' => 'FEATURE_GRADES',
@@ -83,6 +84,9 @@ final class FeatureGate
             'api_material.php' => 'material',
             'material.php' => 'material',
             'material_department.php' => 'material',
+            'api_mezmur.php' => 'mezmur',
+            'mezmur.php' => 'mezmur',
+            'mezmur_dept.php' => 'mezmur',
             'api_attendance.php' => 'attendance',
             'attendance.php' => 'attendance',
             'api_attendance_info.php' => 'attendance',
@@ -111,6 +115,7 @@ final class FeatureGate
         return match ($role) {
             'finance_dept' => 'finance',
             'material_dept' => 'material',
+            'mezmur_dept' => 'mezmur',
             'attendance_taker' => 'attendance',
             default => null,
         };
