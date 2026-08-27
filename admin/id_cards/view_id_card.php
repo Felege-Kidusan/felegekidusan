@@ -8,9 +8,18 @@ if (!empty($_GET['debug'])) {
     ini_set('display_startup_errors', 1);
 }
 
-require_once '../config.php';
-require_once 'libs/eth_date_helper.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/libs/eth_date_helper.php';
 require_once __DIR__ . '/../backend/services/IdCardLayout.php';
+
+// SECURITY (IDOR fix): this page renders member PII (photo, name, phone,
+// address, guardian). It used to rely on nothing but obscurity — anyone
+// could sweep ?member_id=1..N. Authenticated admin session is mandatory,
+// mirroring the dashboard router convention.
+if (!isLoggedIn()) {
+    header('Location: ../index.php');
+    exit;
+}
 
 $member_id = isset($_GET['member_id']) ? intval($_GET['member_id']) : 0;
 $backDashboard = match ((string)($_SESSION['admin_role'] ?? '')) {
@@ -187,12 +196,11 @@ if (!empty($member['qr_code_path'])) {
     $qr_absolute_check = __DIR__ . '/' . $qp;
     if (!file_exists($qr_absolute_check)) {
         // Try to regenerate QR code on-the-fly
-        $qr_lib = __DIR__ . '/libs/phpqrcode/qrlib.php';
-        if (file_exists($qr_lib)) {
-            require_once $qr_lib;
+        require_once __DIR__ . '/libs/qr_loader.php';
+        if (class_exists('QRcode')) {
             $qr_dir = __DIR__ . '/assets/qr/';
             if (!is_dir($qr_dir)) mkdir($qr_dir, 0755, true); // 0755, never world-writable
-            $qr_content = SITE_URL . '/member.php?code=' . $member['member_code'];
+            $qr_content = rtrim((string)SITE_URL, '/') . '/member.php?code=' . rawurlencode($member['member_code']);
             $qr_file = $qr_dir . 'qr_' . $member['member_code'] . '.png';
             QRcode::png($qr_content, $qr_file, QR_ECLEVEL_L, 4, 2);
             $member['qr_code_path'] = 'assets/qr/qr_' . $member['member_code'] . '.png';
@@ -202,12 +210,11 @@ if (!empty($member['qr_code_path'])) {
     // QR path is empty in DB — member card was never generated properly
     // Try to generate QR now if library exists
     if (!empty($member['member_code'])) {
-        $qr_lib = __DIR__ . '/libs/phpqrcode/qrlib.php';
-        if (file_exists($qr_lib)) {
-            require_once $qr_lib;
+        require_once __DIR__ . '/libs/qr_loader.php';
+        if (class_exists('QRcode')) {
             $qr_dir = __DIR__ . '/assets/qr/';
             if (!is_dir($qr_dir)) mkdir($qr_dir, 0755, true); // 0755, never world-writable
-            $qr_content = (defined('SITE_URL') ? SITE_URL : SITE_URL) . '/member.php?code=' . $member['member_code'];
+            $qr_content = rtrim((string)SITE_URL, '/') . '/member.php?code=' . rawurlencode($member['member_code']);
             $qr_file = $qr_dir . 'qr_' . $member['member_code'] . '.png';
             QRcode::png($qr_content, $qr_file, QR_ECLEVEL_L, 4, 2);
             $member['qr_code_path'] = 'assets/qr/qr_' . $member['member_code'] . '.png';

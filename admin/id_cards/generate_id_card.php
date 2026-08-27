@@ -12,6 +12,14 @@ require_once __DIR__ . '/../backend/services/SecurityAuditService.php';
 
 use App\Services\SecurityAuditService;
 
+// SECURITY: ID-card generation mutates member rows and writes assets —
+// an authenticated admin session is mandatory (CSRF alone is not enough,
+// anonymous sessions also receive CSRF tokens).
+if (!isLoggedIn()) {
+    http_response_code(401);
+    exit('Authentication required.');
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     header('Allow: POST');
     http_response_code(405);
@@ -31,13 +39,12 @@ if ($memberId === false || !in_array($action, ['generate', 'renew'], true)) {
     exit('Invalid ID-card request.');
 }
 
-$qrLibrary = __DIR__ . '/libs/phpqrcode/qrlib.php';
-if (!is_file($qrLibrary)) {
+require_once __DIR__ . '/libs/qr_loader.php';
+if (!class_exists('QRcode')) {
     error_log('ID-card QR library is unavailable.');
     http_response_code(503);
     exit('ID-card generation is temporarily unavailable.');
 }
-require_once $qrLibrary;
 
 $qrDirectory = __DIR__ . '/assets/qr';
 if (!is_dir($qrDirectory) || !is_writable($qrDirectory)) {

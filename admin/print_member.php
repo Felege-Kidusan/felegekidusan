@@ -7,6 +7,13 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
 
+// SECURITY (IDOR fix): full member dossier (PII incl. guardian contacts and
+// addresses) — requires an authenticated admin session.
+if (!isLoggedIn()) {
+    header('Location: index.php');
+    exit;
+}
+
 // Get member ID
 $memberId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($memberId <= 0) {

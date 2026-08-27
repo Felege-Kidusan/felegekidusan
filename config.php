@@ -69,6 +69,10 @@ if (!$_envLoaded) {
 // SCHOOL BRANDING (loaded from school_config.php)
 // ============================================================
 require_once __DIR__ . '/school_config.php';
+// Fail-soft guarded fallbacks: a deployment whose school_config.php drifts
+// behind the codebase must degrade gracefully, never throw "undefined
+// constant" fatals on PHP 8. Real config values always win.
+require_once __DIR__ . '/branding_defaults.php';
 
 // ============================================================
 // SITE CONFIGURATION (legacy aliases — school_config.php defines the real ones)
