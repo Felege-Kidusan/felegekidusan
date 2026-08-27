@@ -333,7 +333,7 @@ UI, form pickers, shared migration engine).
 Deployment: `git pull`; run `sql/020` in phpMyAdmin (idempotent); then
 Identity & Codes → Renumbering → dry run → execute.
 
-## Fix 11 — Pre-migration grace for sql/020 + section loading UX  `(this commit)`
+## Fix 11 — Pre-migration grace for sql/020 + section loading UX  `(ffd6b58, 75e45c6)`
 
 Production pulled the v2 code before running `sql/020`, so every query
 touching `staff_positions.legacy_flag` threw MySQL 1054 under PHP 8.2's
@@ -355,7 +355,7 @@ detection, the pattern used for safe staged rollouts at scale):
 
 2 new regression tests; 209 total passing.
 
-## Fix 12 — Tab navigation blanked the Identity section  `(this commit)`
+## Fix 12 — Tab navigation blanked the Identity section  `(dab395b)`
 
 The Fix-11 refactor of the tab handler deactivated every pane but never
 re-activated the clicked one, so any in-section navigation left the
@@ -363,3 +363,33 @@ section body blank ("it disappears when I navigate"). The handler now
 re-activates the target pane, and a regression test pins the exact
 activation line so a future refactor cannot drop it silently.
 211 tests passing.
+
+## Fix 13 — Finance admin landed on the School Admin dashboard  `(this commit)`
+
+Deep line-by-line audit of every routing layer proved the code is 100%
+correct at all four dispatch points — `admin/dashboard.php` (finance →
+`/frontend/pages/finance_dept.php`), `frontend/pages/dashboard.php`
+(role map), `admin/access_control.php` (finance pages admit
+`finance_dept`; `school_admin.php` admits only super/school admin) and
+`frontend/layouts/base.php` (`$requiredRoles` gate). Login copies
+`users.role` into the session **verbatim** (`AdminSessionGuard` re-reads
+it on every revalidation too), so a finance account that silently lands
+on the School Admin dashboard can only mean one thing: that account's
+stored `users.role` is `school_admin` in the database.
+
+Deliverables:
+
+- **`admin/tools/repair_user_role.php`** — CLI-only (HTTP 404) ops tool:
+  full role audit table with anomaly flags, per-role distribution, and
+  safe single-account repair (`--username=X --role=finance_dept`,
+  dry-run unless `--apply`), prepared statements, canonical whitelist
+  identical to `user-save.php`.
+- **12 new regression tests** (`test_dashboard_role_routing.py`) pin the
+  entire finance routing chain — both routers, the page gate, the access
+  map, the verbatim session-role copy, the creation whitelist, and the
+  repair tool's safety guards — so no layer can silently diverge again.
+
+Immediate action for the live account (Super Admin → Users → edit the
+finance account → Role = Finance Dept, or on the server:
+`php admin/tools/repair_user_role.php --username=<name> --role=finance_dept --apply`).
+223 tests passing.
