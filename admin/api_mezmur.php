@@ -62,15 +62,41 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'session_create', 'session_delete'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.'], 405);
 }
 
-// ── 5. Schema probe (clear message instead of a raw 1054) ─────
+require_once __DIR__ . '/backend/services/MezmurAttendanceService.php';
+
+use App\Services\MezmurAttendanceService;
+
+// ── 5. Rate limiting (per user; DB-backed with file fallback) ─
+$__rl = new \App\Services\SecurityRateLimiter(
+    $pdo ?? null,
+    sys_get_temp_dir() . '/ssms_ratelimit'
+);
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'session_create', 'session_delete'], true)
+    ? 'mezmur_write' : 'mezmur_read';
+$__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
+$__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
+if (!$__rlCheck['allowed']) {
+    mezmur_respond(['status' => 'error', 'message' => 'Too many requests. Please wait a moment and try again.'], 429);
+}
+
+// ── 6. Schema probes (clear message instead of a raw 1054) ────
 try {
     $conn->query("SELECT 1 FROM mezmur_hymns LIMIT 0");
 } catch (\Throwable $e) {
     mezmur_respond(['status' => 'error', 'message' => 'Mezmur tables not found. Ask the administrator to run sql/021_mezmur_department.sql.']);
+}
+$__attendanceActions = ['sessions_list', 'session_create', 'session_delete', 'sheet', 'save_sheet',
+    'analytics_members', 'analytics_sections', 'analytics_trends', 'takers_list'];
+if (in_array($action, $__attendanceActions, true)) {
+    try {
+        $conn->query("SELECT 1 FROM mezmur_sessions LIMIT 0");
+    } catch (\Throwable $e) {
+        mezmur_respond(['status' => 'error', 'message' => 'Mezmur attendance tables not found. Ask the administrator to run sql/022_mezmur_attendance.sql.']);
+    }
 }
 
 try {
@@ -88,6 +114,8 @@ try {
                 'active' => (int)$row['active'],
                 'categories' => (int)$row['categories'],
                 'category_list' => $cats,
+                'section_list' => MezmurAttendanceService::sectionList($conn),
+                'program_types' => MezmurAttendanceService::PROGRAM_TYPES,
             ]);
         }
 
@@ -250,9 +278,90 @@ try {
             ]);
         }
 
+        // ── SESSIONS ───────────────────────────────────────────
+        case 'sessions_list': {
+            $out = MezmurAttendanceService::listSessions(
+                $conn,
+                (string)($_GET['from'] ?? ''),
+                (string)($_GET['to'] ?? ''),
+                (int)($_GET['page'] ?? 1),
+                (int)($_GET['per_page'] ?? 25)
+            );
+            mezmur_respond(['status' => 'success'] + $out);
+        }
+
+        case 'session_create': {
+            $id = MezmurAttendanceService::createSession(
+                $conn,
+                (string)($_POST['session_date'] ?? ''),
+                (string)($_POST['program_type'] ?? ''),
+                (string)($_POST['title'] ?? ''),
+                isset($_POST['notes']) ? (string)$_POST['notes'] : null,
+                $adminId
+            );
+            mezmur_respond(['status' => 'success', 'message' => 'Session created.', 'id' => $id]);
+        }
+
+        case 'session_delete': {
+            $ok = MezmurAttendanceService::deleteSession($conn, (int)($_POST['id'] ?? 0), $adminId);
+            if (!$ok) mezmur_respond(['status' => 'error', 'message' => 'Session not found or already deleted.']);
+            mezmur_respond(['status' => 'success', 'message' => 'Session deleted.']);
+        }
+
+        // ── SHEET ──────────────────────────────────────────────
+        case 'sheet': {
+            $out = MezmurAttendanceService::fetchSheet($conn, (int)($_GET['id'] ?? 0));
+            if ($out['session'] === null) mezmur_respond(['status' => 'error', 'message' => 'Session not found.'], 404);
+            mezmur_respond(['status' => 'success'] + $out);
+        }
+
+        case 'save_sheet': {
+            $records = $_POST['records'] ?? '';
+            if (is_string($records)) {
+                $decoded = json_decode($records, true);
+                $records = is_array($decoded) ? $decoded : [];
+            }
+            if (!is_array($records) || $records === []) {
+                mezmur_respond(['status' => 'error', 'message' => 'The sheet is empty.']);
+            }
+            if (count($records) > 500000) {
+                mezmur_respond(['status' => 'error', 'message' => 'The sheet is too large.']);
+            }
+            $result = MezmurAttendanceService::saveSheet($conn, (int)($_POST['session_id'] ?? 0), $records, $adminId);
+            mezmur_respond(['status' => 'success', 'message' => 'Attendance saved.', 'summary' => $result]);
+        }
+
+        // ── ANALYTICS ──────────────────────────────────────────
+        case 'analytics_members': {
+            $out = MezmurAttendanceService::analyticsMembers($conn, $_GET);
+            // Analytics is for decisions — never more PII than name/section/photo.
+            $out['items'] = array_map(static function (array $r): array {
+                unset($r['full_name_am']);
+                return $r;
+            }, $out['items']);
+            mezmur_respond(['status' => 'success'] + $out);
+        }
+
+        case 'analytics_sections': {
+            $out = MezmurAttendanceService::analyticsSections($conn, $_GET);
+            mezmur_respond(['status' => 'success'] + $out);
+        }
+
+        case 'analytics_trends': {
+            $out = MezmurAttendanceService::analyticsTrends($conn, $_GET);
+            mezmur_respond(['status' => 'success'] + $out);
+        }
+
+        // ── ATTENDANCE TAKERS ──────────────────────────────────
+        case 'takers_list': {
+            mezmur_respond(['status' => 'success', 'items' => MezmurAttendanceService::takersList($conn)]);
+        }
+
         default:
             mezmur_respond(['status' => 'error', 'message' => 'Unknown action.'], 400);
     }
+} catch (\DomainException $e) {
+    mezmur_respond(['status' => 'error', 'message' => $e->getMessage()], 422);
 } catch (\Throwable $e) {
     error_log('[mezmur] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     mezmur_respond(['status' => 'error', 'message' => 'Unable to complete the request. Please try again.'], 500);

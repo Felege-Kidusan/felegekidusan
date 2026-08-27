@@ -54,6 +54,7 @@ $allowedToToggle = [
     'school_admin' => ['info_dept', 'hr_dept', 'edu_dept', 'finance_dept', 'material_dept', 'mezmur_dept', 'teacher', 'attendance_taker'],
     'info_dept' => ['attendance_taker'],
     'edu_dept' => ['teacher'],
+    'mezmur_dept' => ['attendance_taker'],
 ];
 
 // Get target user role

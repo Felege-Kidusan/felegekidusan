@@ -29,5 +29,6 @@ echo json_encode([
     'mezmur_role_feature' => FeatureGate::forRoleDashboard('mezmur_dept'),
     'mezmur_route' => FeatureGate::forAdminRequest('/admin/api_mezmur.php'),
     'mezmur_page_route' => FeatureGate::forAdminRequest('/frontend/pages/mezmur_dept.php'),
+    'mezmur_api' => FeatureGate::forApiResource('mezmur'),
     'tiles' => $tiles,
 ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), PHP_EOL;

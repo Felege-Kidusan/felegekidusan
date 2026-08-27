@@ -428,3 +428,41 @@ entries + separated shell + single-writer API:
 Deploy: run `sql/021_mezmur_department.sql` → `git pull` → create the
 first `mezmur_dept` user (Super Admin → Users). Module can be switched
 off per deployment with `define('FEATURE_MEZMUR', false)`.
+
+## Feature 2 — Mezmur Attendance + Analytics + Takers + Mobile  `(this commit)`
+
+The Mezmur department records **session-based attendance** (rehearsals,
+services, feasts) over the whole roster grouped by **section** — a
+separate dataset from class attendance — with decision-grade analytics
+for selecting members for የዝማሬ/service programs.
+
+- **Data** `sql/022_mezmur_attendance.sql` — `mezmur_sessions`,
+  `mezmur_attendance` (UNIQUE session+member → idempotent resubmits,
+  scale indexes, BIGINT), `mezmur_attendance_audit` (every change is
+  reviewable — attendance drives member selection). New objects only.
+- **Single writer** — `MezmurAttendanceService` (same architecture as
+  AttendanceRecordService): complete-sheet validation against the live
+  roster (stale payloads rejected), transactional replace, soft-delete
+  sessions, audit rows, date windows hard-capped at 2 years, sort
+  columns whitelisted, LIKE-escaped searches, clamped pagination.
+- **Analytics** — server-side aggregation, every number paired with its
+  percentage: per-member ranking (attended x/y, rate %, absent %,
+  streak-free last-attended, min-rate/min-attended filters, sortable
+  columns, CSV export), per-section rollups, monthly trend.
+- **Hardening** — per-user rate limiting on all mezmur endpoints
+  (SecurityRateLimiter), POST-only mutations, 422 for domain errors,
+  record-count caps, zero diagnostic leakage (disclosure suite clean).
+- **Attendance takers** — Mezmur can now create/toggle attendance_taker
+  accounts (scoped to that role only, reusing the hardened user-save /
+  user-toggle pipeline) — same pattern as HR/Info.
+- **Mobile** — `api/v1/mezmur` (sessions / sheet / save / analytics,
+  role-gated in core/acl, idempotent saves, rate limits, PII-stripped
+  rows) + Flutter: Mezmur role, tabs, home + sheet screens, capability
+  flag `mezmur` in mobileCapabilities.
+- **UI** — three new sections in the separated mezmur shell
+  (Attendance / Analytics / Attendance Takers), all rendering escaped,
+  theme-driven, mobile bottom nav included.
+
+Deploy: run `sql/022_mezmur_attendance.sql` → `git pull`. Mobile app
+users get the module on their next app update; the API is live and
+feature-flagged immediately. 258 tests passing (19 new).

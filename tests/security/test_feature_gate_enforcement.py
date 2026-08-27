@@ -58,6 +58,7 @@ class FeatureGateEnforcementTests(unittest.TestCase):
         self.assertEqual(result["mezmur_role_feature"], "mezmur")
         self.assertEqual(result["mezmur_route"], "mezmur")
         self.assertEqual(result["mezmur_page_route"], "mezmur")
+        self.assertEqual(result["mezmur_api"], "mezmur")
         self.assertEqual(result["tiles"]["education"], ["classes", "grades"])
         self.assertEqual(result["tiles"]["invalid"], ["reports"])
 

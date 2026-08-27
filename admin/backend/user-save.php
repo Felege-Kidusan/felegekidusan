@@ -99,6 +99,7 @@ $rolePermissions = [
     'school_admin' => $validRoles, // Can create all
     'edu_dept' => ['teacher'], // Can only create teacher accounts
     'info_dept' => ['attendance_taker'], // Can only create attendance taker accounts
+    'mezmur_dept' => ['attendance_taker'], // Mezmur creates its own attendance takers
 ];
 
 // Check if current user can create this role

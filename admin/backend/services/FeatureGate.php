@@ -54,7 +54,7 @@ final class FeatureGate
     public static function mobileCapabilities(): array
     {
         $result = [];
-        foreach (['attendance', 'grades', 'finance', 'material', 'groups', 'id_cards', 'reports'] as $feature) {
+        foreach (['attendance', 'grades', 'finance', 'material', 'groups', 'id_cards', 'reports', 'mezmur'] as $feature) {
             $result[$feature] = self::isEnabled($feature);
         }
         return $result;
@@ -106,6 +106,7 @@ final class FeatureGate
         return match ($resource) {
             'attendance' => 'attendance',
             'grades' => 'grades',
+            'mezmur' => 'mezmur',
             default => null,
         };
     }

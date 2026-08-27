@@ -28,6 +28,7 @@ class UserRoles {
   static const String eduDept = 'edu_dept';
   static const String financeDept = 'finance_dept';
   static const String materialDept = 'material_dept';
+  static const String mezmurDept = 'mezmur_dept';
   static const String teacher = 'teacher';
   static const String attendanceTaker = 'attendance_taker';
 
@@ -39,6 +40,7 @@ class UserRoles {
       case eduDept: return 'Education Department';
       case financeDept: return 'Finance Department';
       case materialDept: return 'Material Department';
+      case mezmurDept: return 'Mezmur Department';
       case teacher: return 'Teacher';
       case attendanceTaker: return 'Attendance Taker';
       default: return role;
@@ -53,6 +55,7 @@ class UserRoles {
       case eduDept: return 'የትምህርት ክፍል';
       case financeDept: return 'የፋይናንስ ክፍል';
       case materialDept: return 'የቁሳቁስ ክፍል';
+      case mezmurDept: return 'መዝሙር ክፍል';
       case teacher: return 'መምህር';
       case attendanceTaker: return 'ቅጥረት ያዥ';
       default: return role;
@@ -156,6 +159,14 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
+    // ---- MEZMUR DEPARTMENT ----
+    case UserRoles.mezmurDept:
+      return const [
+        NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
+        NavTab(id: 'mezmur_attendance', label: 'Attend.', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
+        NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
+      ];
+
     // ---- FALLBACK ----
     default:
       return const [
@@ -170,10 +181,12 @@ List<NavTab> getTabsForRole(
   String role, {
   bool attendanceEnabled = true,
   bool gradesEnabled = true,
+  bool mezmurEnabled = true,
 }) {
   return _baseTabsForRole(role).where((tab) {
     if (tab.id == 'attendance') return attendanceEnabled;
     if (tab.id == 'grades') return gradesEnabled;
+    if (tab.id == 'mezmur_attendance') return mezmurEnabled;
     return true;
   }).toList(growable: false);
 }

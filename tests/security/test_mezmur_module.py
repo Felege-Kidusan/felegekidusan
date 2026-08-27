@@ -84,10 +84,12 @@ class MezmurModuleTests(unittest.TestCase):
     def test_api_never_leaks_exception_internals(self):
         self.assertIn("catch (\\Throwable $e)", self.api)
         self.assertIn("error_log(", self.api)
-        # getMessage() appears exactly once — inside the error_log line,
-        # never in a client-facing response.
-        self.assertEqual(self.api.count("$e->getMessage()"), 1)
+        # getMessage() appears exactly twice: the server-side error_log
+        # line and the controlled DomainException 422 (strings thrown by
+        # our own service — never driver/diagnostic text).
+        self.assertEqual(self.api.count("$e->getMessage()"), 2)
         self.assertIn("error_log('[mezmur] ' . $e->getMessage()", self.api)
+        self.assertIn("catch (\DomainException $e)", self.api)
         self.assertNotIn("getTrace", self.api)
 
     def test_api_soft_deletes_only(self):

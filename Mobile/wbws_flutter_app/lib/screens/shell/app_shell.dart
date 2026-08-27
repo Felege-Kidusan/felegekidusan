@@ -23,6 +23,7 @@ import '../material/material_home.dart';
 // Shared screens
 import '../attendance/attendance_screen.dart';
 import '../members/member_list_screen.dart';
+import '../mezmur/mezmur_home.dart';
 import '../profile/profile_screen.dart';
 
 /// AppShell — Role-based bottom navigation with auto-refresh,
@@ -48,6 +49,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _financeHomeKey = GlobalKey<FinanceHomeScreenState>();
   final _materialHomeKey = GlobalKey<MaterialHomeScreenState>();
   final _attendanceKey = GlobalKey<AttendanceScreenState>();
+  final _mezmurHomeKey = GlobalKey<MezmurHomeScreenState>();
+  final _mezmurAttKey = GlobalKey<MezmurHomeScreenState>();
   final _gradesKey = GlobalKey<TeacherGradesScreenState>();
   final Map<String, Widget> _openedTabs = {};
 
@@ -88,6 +91,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _api.userRole,
       attendanceEnabled: config.featureEnabled('attendance'),
       gradesEnabled: config.featureEnabled('grades'),
+      mezmurEnabled: config.featureEnabled('mezmur'),
     );
   }
 
@@ -220,6 +224,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case UserRoles.materialDept:
         _materialHomeKey.currentState?.refresh();
         break;
+      case UserRoles.mezmurDept:
+        _mezmurHomeKey.currentState?.refresh();
+        break;
     }
   }
 
@@ -237,6 +244,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return _buildHomeForRole();
       case 'attendance':
         return AttendanceScreen(key: _attendanceKey);
+      case 'mezmur_attendance':
+        return MezmurHomeScreen(key: _mezmurAttKey);
       case 'grades':
         return TeacherGradesScreen(key: _gradesKey);
       case 'members':
@@ -253,6 +262,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       UserRoles.attendanceTaker: 'attendance',
       UserRoles.financeDept: 'finance',
       UserRoles.materialDept: 'material',
+      UserRoles.mezmurDept: 'mezmur',
     }[_api.userRole];
     if (roleFeature != null
         && !AppUpdateService().featureEnabled(roleFeature)) {
@@ -274,6 +284,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return FinanceHomeScreen(key: _financeHomeKey);
       case UserRoles.materialDept:
         return MaterialHomeScreen(key: _materialHomeKey);
+      case UserRoles.mezmurDept:
+        return MezmurHomeScreen(key: _mezmurHomeKey);
       default:
         return TeacherHomeScreen(key: _teacherHomeKey);
     }
