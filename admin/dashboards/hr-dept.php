@@ -1110,7 +1110,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
                         <div class="flex flex-wrap gap-2 md:justify-end w-full md:w-auto">
                             <div class="relative flex-1 min-w-[240px]">
-                                <input id="memberSearchInput"
+                                <input autocomplete="off" id="memberSearchInput"
                                        type="text"
                                        class="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 w-full"
                                        placeholder="Search any field (name, code, phone, profession, education, city...)">
@@ -2110,8 +2110,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         </div>
 
         <div class="flex flex-col sm:flex-row gap-2 mb-4">
-            <input type="text" inputmode="search" id="idCardMemberSearch" name="fkss_card_search"
-                   autocomplete="nope" data-form-type="other" data-1p-ignore
+            <input autocomplete="off" type="search" inputmode="search" id="idCardMemberSearch" name="fkss_card_search"
+                   data-form-type="other" data-1p-ignore
                    class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm"
                    placeholder="Search eligible members by name, code, or phone">
             <button type="button" onclick="loadIdCardMembers()" class="px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold">Refresh</button>
@@ -2803,13 +2803,12 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         <form id="attakerForm" class="p-5">
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Link to Member (Optional)</label>
-                <input type="text" inputmode="search"
-                       name="fkss_attaker_search" autocomplete="nope" data-form-type="other" data-1p-ignore
+                <input autocomplete="off" type="search" inputmode="search"
+                       name="fkss_attaker_search" data-form-type="other" data-1p-ignore
                        data-member-picker-target="attakerMemberId"
                        data-member-picker-status="active"
                        class="w-full px-3 py-2 mb-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                       placeholder="Search active members by name, code, or phone"
-                       autocomplete="off">
+                       placeholder="Search active members by name, code, or phone">
                 <select name="member_id" id="attakerMemberId" data-optional="true" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
                     <option value="">— None —</option>
                 </select>

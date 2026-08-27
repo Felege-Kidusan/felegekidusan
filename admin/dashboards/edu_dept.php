@@ -198,7 +198,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="btn btn-p" onclick="openCreateTeacher()"><i class="fa-solid fa-plus"></i> Add Teacher</button>
 </div>
 <div class="crd no-print" style="padding:.75rem"><div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-<input type="text" id="teacherSearch" class="inp" style="max-width:240px" placeholder="Search name, username, or code..." oninput="debounceTeacherSearch()">
+<input autocomplete="off" type="text" id="teacherSearch" class="inp" style="max-width:240px" placeholder="Search name, username, or code..." oninput="debounceTeacherSearch()">
 <select id="teacherStatus" class="inp" style="max-width:140px" onchange="loadTeachers()"><option value="active">Active</option><option value="all">All statuses</option><option value="inactive">Inactive</option></select>
 <select id="teacherSort" class="inp" style="max-width:160px" onchange="renderTeachers()"><option value="name">Sort: Name</option><option value="username">Sort: Username</option><option value="classes">Sort: Most classes</option></select>
 <button class="btn btn-o btn-xs" onclick="exportTeachers()"><i class="fa-solid fa-download"></i> Excel</button>
@@ -285,7 +285,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div class="crd" style="padding:1rem">
 <div id="unassignedFormAlert" class="form-alert" role="alert"></div>
 <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:.5rem;align-items:end;flex-wrap:wrap">
-<div><label class="lbl">Search Members</label><input type="text" id="unassignedSearch" class="inp" placeholder="Search by name or code..." oninput="debounceUnassigned()"></div>
+<div><label class="lbl">Search Members</label><input autocomplete="off" type="text" id="unassignedSearch" class="inp" placeholder="Search by name or code..." oninput="debounceUnassigned()"></div>
 <div><label class="lbl">Gender</label><select id="unassignedGender" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="male">Male â™‚</option><option value="female">Female â™€</option></select></div>
 <div><label class="lbl">Type</label><select id="unassignedMType" class="inp" onchange="loadUnassigned()"><option value="">All Types</option><option value="regular">Regular</option><option value="special_regular">Special</option><option value="honorary">Honorary</option></select></div>
 <div><label class="lbl">Age Group</label><select id="unassignedAge" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="7_13">7-13</option><option value="14_17">14-17</option><option value="18_plus">18+</option></select></div>
@@ -371,7 +371,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="tbn" id="subTabSubmitted" type="button" onclick="switchSubTab('submitted')"><i class="fa-solid fa-paper-plane"></i> Submitted</button>
 <button class="tbn" id="subTabInsights" type="button" onclick="switchSubTab('insights')"><i class="fa-solid fa-chart-line"></i> Insights</button>
 </div>
-<input type="hidden" id="subFilterStatus" value="draft">
+<input autocomplete="off" type="hidden" id="subFilterStatus" value="draft">
 <div id="subStatsRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1rem"></div>
 <div id="submissionsList" class="crd" style="padding:.5rem"><div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div></div>
 <div id="subInsights" class="crd" style="padding:1rem;display:none"></div>
@@ -401,7 +401,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div><label class="lbl">Subject</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All subjects</option><?php foreach ($subjects as $s): ?><option value="<?= (int)$s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 </div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-top:.65rem">
-<input type="text" id="rcSearch" class="inp" style="max-width:220px" placeholder="Search name or codeâ€¦" oninput="renderRcTable()">
+<input autocomplete="off" type="text" id="rcSearch" class="inp" style="max-width:220px" placeholder="Search name or codeâ€¦" oninput="renderRcTable()">
 <select id="rcFilter" class="inp" style="max-width:150px" onchange="renderRcTable()"><option value="">All students</option><option value="graded">Has scores</option><option value="blank">No scores yet</option><option value="A">Grade A</option><option value="B">Grade B</option><option value="C">Grade C</option><option value="D">Grade D</option><option value="F">Grade F</option></select>
 <select id="rcSort" class="inp" style="max-width:160px" onchange="renderRcTable()"><option value="rank">Sort: Rank</option><option value="name">Sort: Name</option><option value="average">Sort: Average</option><option value="attendance">Sort: Attendance</option></select>
 <button class="btn btn-o" type="button" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button>
@@ -1181,7 +1181,7 @@ async function loadEnrolled() {
                     <span style="font-size:.55rem;color:#64748b;border-left:1px solid #e2e8f0;padding-left:.5rem">Regular: ${st.regular||0} | Special: ${st.special_regular||0}${st.honorary?' | Honorary: '+st.honorary:''}${st.teachers?' | Teachers: '+st.teachers:''}</span>
                 </div>
                 <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-                    <input type="text" id="enrollFilterSearch" class="inp" style="max-width:140px;padding:.35rem .6rem;font-size:.75rem" placeholder="Filter..." value="${esc(search)}" oninput="loadEnrolled()">
+                    <input autocomplete="off" type="text" id="enrollFilterSearch" class="inp" style="max-width:140px;padding:.35rem .6rem;font-size:.75rem" placeholder="Filter..." value="${esc(search)}" oninput="loadEnrolled()">
                     <select id="enrollFilterGender" class="inp" style="max-width:85px;padding:.35rem .5rem;font-size:.75rem" onchange="loadEnrolled()"><option value="">Gender</option><option value="male" ${gender==='male'?'selected':''}>Male</option><option value="female" ${gender==='female'?'selected':''}>Female</option></select>
                     <select id="enrollFilterMType" class="inp" style="max-width:110px;padding:.35rem .5rem;font-size:.75rem" onchange="loadEnrolled()"><option value="">All Types</option><option value="regular" ${memberType==='regular'?'selected':''}>Regular</option><option value="special_regular" ${memberType==='special_regular'?'selected':''}>Special</option><option value="honorary" ${memberType==='honorary'?'selected':''}>Honorary</option></select>
                     <select id="enrollFilterSort" class="inp" style="max-width:100px;padding:.35rem .5rem;font-size:.75rem" onchange="loadEnrolled()"><option value="name" ${sort==='name'?'selected':''}>Name</option><option value="code" ${sort==='code'?'selected':''}>Code</option><option value="date" ${sort==='date'?'selected':''}>Date</option><option value="gender" ${sort==='gender'?'selected':''}>Gender</option></select>
@@ -1716,7 +1716,7 @@ function paintReviewShell(s){
         <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
             <h4 style="font-weight:700;font-size:.85rem;margin:0"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
             <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-                <input id="reviewSearch" class="inp" style="max-width:180px;padding:.35rem .6rem;font-size:.75rem" placeholder="Search name or codeâ€¦" oninput="renderReviewRows()">
+                <input autocomplete="off" id="reviewSearch" class="inp" style="max-width:180px;padding:.35rem .6rem;font-size:.75rem" placeholder="Search name or codeâ€¦" oninput="renderReviewRows()">
                 <select id="reviewFilter" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()">${isAtt?'<option value="">All marks</option><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="e/option><option value="late">Late</option><option value="excused">Excused</option>':'<option value="">All scores</option><option value="scored">Has score</option><option value="blank">No score</option><option value="high">8 and above</option><option value="low">Below 5</option>'}</select>
                 <select id="reviewSort" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()"><option value="name">Sort: Name</option><option value="code">Sort: Code</option>${isAtt?'<option value="mark">Sort: Mark</option>':'<option value="score">Sort: Score</option>'}</select>
             </div>

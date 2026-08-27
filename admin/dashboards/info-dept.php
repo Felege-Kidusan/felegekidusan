@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
@@ -885,7 +885,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
 
                         <div class="flex flex-wrap gap-2 md:justify-end w-full md:w-auto">
                             <div class="relative flex-1 min-w-[240px]">
-                                <input id="memberSearchInput"
+                                <input autocomplete="off" id="memberSearchInput"
                                        type="text"
                                        class="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 w-full"
                                        placeholder="Search any field (name, code, phone, profession, education, city...)">
@@ -1705,7 +1705,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
                             <div class="relative">
                                 <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-                                <input type="text" id="manageSearchInput" placeholder="Search anything: names, phone, address, guardian, profession, ID..."
+                                <input autocomplete="off" type="text" id="manageSearchInput" placeholder="Search anything: names, phone, address, guardian, profession, ID..."
                                        class="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-indigo-200 focus:border-indigo-400">
                             </div>
                             <select id="manageFilterType" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
@@ -1817,7 +1817,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     <div class="mb-4">
                         <div class="relative">
                             <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
-                            <input type="text" id="archiveSearch" placeholder="Search archived members..." 
+                            <input autocomplete="off" type="text" id="archiveSearch" placeholder="Search archived members..." 
                                    oninput="filterArchivedMembers()"
                                    class="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition">
                         </div>
@@ -1911,7 +1911,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     <div class="panel p-4 mb-4">
                         <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Search Member</label>
                         <div class="flex gap-2">
-                            <input type="text" id="attMemSearch" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" placeholder="Name, code, or phone..." onkeyup="if(event.key==='Enter')searchMemberAtt()">
+                            <input autocomplete="off" type="text" id="attMemSearch" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" placeholder="Name, code, or phone..." onkeyup="if(event.key==='Enter')searchMemberAtt()">
                             <button onclick="searchMemberAtt()" class="px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-semibold hover:bg-orange-600"><i class="fa-solid fa-search"></i></button>
                         </div>
                     </div>
@@ -1954,7 +1954,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         <h4 class="text-sm font-semibold text-slate-700 mb-1"><i class="fa-solid fa-user-pen mr-1 text-violet-500"></i>Update Member Status</h4>
                         <p class="text-[10px] text-slate-400 mb-3">Search for a member and update their status based on attendance patterns</p>
                         <div class="flex gap-2 mb-4">
-                            <input type="text" id="attStatusSearch" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" placeholder="Search member name, code, or phone..." onkeyup="if(event.key==='Enter')searchForStatus()">
+                            <input autocomplete="off" type="text" id="attStatusSearch" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" placeholder="Search member name, code, or phone..." onkeyup="if(event.key==='Enter')searchForStatus()">
                             <button onclick="searchForStatus()" class="px-4 py-2 bg-violet-500 text-white rounded-xl text-xs font-semibold hover:bg-violet-600"><i class="fa-solid fa-search"></i></button>
                         </div>
                         <div id="attStatusResults"></div>
@@ -2492,13 +2492,12 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         <form id="attakerForm" class="p-5">
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-500 mb-1">Link to Member (Optional)</label>
-                <input type="text" inputmode="search"
-                       name="fkss_attaker_search" autocomplete="nope" data-form-type="other" data-1p-ignore
+                <input autocomplete="off" type="search" inputmode="search"
+                       name="fkss_attaker_search" data-form-type="other" data-1p-ignore
                        data-member-picker-target="attakerMemberId"
                        data-member-picker-status="active"
                        class="w-full px-3 py-2 mb-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                       placeholder="Search active members by name, code, or phone"
-                       autocomplete="off">
+                       placeholder="Search active members by name, code, or phone">
                 <select name="member_id" id="attakerMemberId" data-optional="true" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
                     <option value="">â€” None â€”</option>
                 </select>

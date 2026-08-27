@@ -149,7 +149,7 @@ th{background:#f8fafc;color:#64748b;font-weight:600;font-size:.75rem;text-transf
             <div class="card-header">
                 <h3 class="font-semibold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-layer-group text-emerald-600"></i> Registered Groups</h3>
                 <div class="flex flex-wrap items-center gap-3">
-                    <div class="search-box"><i class="fa-solid fa-search"></i><input type="text" id="searchInput" placeholder="Search groups..." onkeyup="debounceSearch()"></div>
+                    <div class="search-box"><i class="fa-solid fa-search"></i><input autocomplete="off" type="text" id="searchInput" placeholder="Search groups..." onkeyup="debounceSearch()"></div>
                     <div class="tabs">
                         <button class="tab-btn active" onclick="filterCat('all',this)">All</button>
                         <button class="tab-btn" onclick="filterCat('ss',this)">Sunday School</button>

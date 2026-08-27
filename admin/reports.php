@@ -149,7 +149,7 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Phone</label><select id="fPhone" class="sel w-full"><option value="">All</option><option value="yes">Has Phone</option><option value="no">No Phone</option></select></div>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-                        <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Search</label><input id="fSearch" class="sel w-full" placeholder="Name, code, phone, guardian..."></div>
+                        <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Search</label><input autocomplete="off" id="fSearch" class="sel w-full" placeholder="Name, code, phone, guardian..."></div>
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Registered From</label><input type="date" id="fDateFrom" class="sel w-full"></div>
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Registered To</label><input type="date" id="fDateTo" class="sel w-full"></div>
                     </div>
