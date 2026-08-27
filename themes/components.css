@@ -1,0 +1,389 @@
+/* ═══════════════════════════════════════════════════════════════
+   SHARED DASHBOARD COMPONENTS — token-driven, theme-agnostic
+   ═══════════════════════════════════════════════════════════════
+   Loaded by frontend/layouts/base.php right after theme.css.
+   Uses ONLY var(--school-*) tokens → dark/light/print come free.
+   Reusable by every department dashboard (finance, mezmur, edu…).
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Focus visibility (WCAG 2.4.7) ───────────────────────────── */
+:focus-visible {
+    outline: 2px solid var(--school-accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* ═══ PAGE HEAD ══════════════════════════════════════════════
+   Section header row: title + subtitle on the left, actions right */
+.page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+.page-head h1, .page-head h2 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--school-text-bright);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.page-head h1 i, .page-head h2 i { color: var(--school-accent); }
+.page-head-sub {
+    color: var(--school-text-dim);
+    font-size: 0.78rem;
+    margin-top: 0.2rem;
+}
+.page-head-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* ═══ TOOLBAR ════════════════════════════════════════════════
+   Flex-wrap filter/search rows inside cards */
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.toolbar-grow { flex: 1; min-width: 220px; }
+.toolbar-title { margin: 0; }
+.search-wrap { position: relative; flex: 1; min-width: 220px; }
+.search-wrap > i {
+    position: absolute;
+    left: 0.8rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--school-text-dim);
+    font-size: 0.8rem;
+    pointer-events: none;
+}
+.search-wrap > input { padding-left: 2.2rem; width: 100%; }
+
+/* ═══ STAT GRID / KPI STRIP ══════════════════════════════════
+   Auto-fit KPI cards; caps visual noise at large widths */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+.stat-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    margin-top: 0.3rem;
+}
+.stat-delta.up   { color: var(--school-success); }
+.stat-delta.down { color: var(--school-danger); }
+.stat-delta.flat { color: var(--school-text-dim); }
+
+/* ═══ QUICK ACTION TILES (Overview) ══════════════════════════ */
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+.quick-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.85rem 0.95rem;
+    background: var(--school-surface);
+    border: 1px solid var(--school-border);
+    border-radius: var(--school-card-radius);
+    color: var(--school-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: var(--school-font-body);
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.quick-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--school-border-hover);
+    box-shadow: var(--school-shadow-md);
+}
+.quick-tile i {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+    background: var(--school-accent-a10);
+    color: var(--school-accent);
+}
+.quick-tile.qa-primary i   { background: var(--school-primary-a10); color: var(--school-primary-light); }
+.quick-tile.qa-accent2 i   { background: var(--school-accent2-a10); color: var(--school-accent-2); }
+.quick-tile.qa-warning i   { background: var(--school-warning-bg);  color: var(--school-warning); }
+.quick-tile.qa-info i      { background: var(--school-info-bg);     color: var(--school-info); }
+
+/* ═══ TABLE SHELL + SORTABLE HEADERS ═════════════════════════ */
+.table-shell { overflow-x: auto; }
+.th-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.th-sortable:hover { color: var(--school-text-bright); }
+.th-sortable::after {
+    content: "↕";
+    margin-left: 0.3rem;
+    opacity: 0.4;
+    font-size: 0.65rem;
+}
+.th-sortable.sort-asc::after  { content: "↑"; opacity: 1; color: var(--school-accent); }
+.th-sortable.sort-desc::after { content: "↓"; opacity: 1; color: var(--school-accent); }
+
+/* ═══ RATE BAR / RATE CHIP ═══════════════════════════════════
+   In-cell attendance visualization (data-ink, no chart lib) */
+.rate-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 110px;
+}
+.rate-bar-track {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--school-border);
+    overflow: hidden;
+}
+.rate-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--school-accent);
+    transition: width 0.3s ease;
+}
+.rate-bar.ok   .rate-bar-fill { background: var(--school-success); }
+.rate-bar.warn .rate-bar-fill { background: var(--school-warning); }
+.rate-bar.bad  .rate-bar-fill { background: var(--school-danger); }
+.rate-num { font-size: 0.75rem; font-weight: 600; color: var(--school-text-bright); white-space: nowrap; }
+.rate-chip {
+    display: inline-block;
+    padding: 0.18rem 0.55rem;
+    border-radius: var(--school-badge-radius);
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.rate-chip.ok   { background: var(--school-success-bg); color: var(--school-success); }
+.rate-chip.warn { background: var(--school-warning-bg); color: var(--school-warning); }
+.rate-chip.bad  { background: var(--school-danger-bg);  color: var(--school-danger); }
+
+/* ═══ SEGMENTED CONTROL (attendance marking) ═════════════════
+   ≥40px touch targets; state via aria-pressed */
+.seg-group { display: inline-flex; gap: 0.35rem; }
+.seg-btn {
+    min-height: 40px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-family: var(--school-font-body);
+    border-radius: 8px;
+    border: 1px solid var(--school-border-hover);
+    background: transparent;
+    color: var(--school-text-dim);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    white-space: nowrap;
+}
+.seg-btn:hover { color: var(--school-text-bright); border-color: var(--school-text-dim); }
+.seg-btn[aria-pressed="true"].seg-present { background: var(--school-success); border-color: var(--school-success); color: #fff; }
+.seg-btn[aria-pressed="true"].seg-late    { background: var(--school-warning); border-color: var(--school-warning); color: #fff; }
+.seg-btn[aria-pressed="true"].seg-absent  { background: var(--school-danger);  border-color: var(--school-danger);  color: #fff; }
+
+/* ═══ GROUP HEAD (sticky section header in sheet) ════════════ */
+.group-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.5rem;
+    margin: 0.4rem -0.5rem;
+    background: var(--school-bg);
+    border-bottom: 1px solid var(--school-border);
+}
+.group-head h4 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--school-text-bright);
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.group-head h4 i { color: var(--school-accent-2); font-size: 0.85rem; }
+.group-count {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--school-text-dim);
+    background: var(--school-surface);
+    border: 1px solid var(--school-border);
+    border-radius: var(--school-badge-radius);
+    padding: 0.12rem 0.5rem;
+}
+.group-head .group-actions { margin-left: auto; display: flex; gap: 0.4rem; align-items: center; }
+.group-body.is-collapsed { display: none; }
+.group-caret { border: none; background: none; color: var(--school-text-dim); cursor: pointer; font-size: 0.75rem; padding: 0.25rem; }
+
+/* ═══ SHEET SUMMARY BAR ══════════════════════════════════════ */
+.sheet-summarybar {
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    margin-top: 1rem;
+    background: var(--school-bg-alt);
+    border: 1px solid var(--school-border);
+    border-radius: var(--school-card-radius);
+    box-shadow: var(--school-shadow-md);
+    font-size: 0.8rem;
+}
+
+/* ═══ MEMBER ROW (sheet) ═════════════════════════════════════ */
+.member-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    padding: 0.45rem 0.25rem;
+    border-top: 1px solid var(--school-border);
+}
+.member-row:focus-within { background: var(--school-surface-hover); }
+.member-row.is-focused { background: var(--school-surface-hover); }
+.member-name { flex: 1; min-width: 180px; font-size: 0.85rem; color: var(--school-text-bright); }
+.member-name .member-am { color: var(--school-text-dim); font-size: 0.75rem; margin-left: 0.35rem; }
+
+/* ═══ EMPTY / ERROR STATES ═══════════════════════════════════
+   Industry convention: icon + one sentence + single CTA */
+.empty-state, .error-state {
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    color: var(--school-text-dim);
+}
+.empty-state i, .error-state i { font-size: 1.9rem; margin-bottom: 0.75rem; display: block; }
+.empty-state i { color: var(--school-accent); opacity: 0.7; }
+.error-state i { color: var(--school-danger); }
+.state-title { font-size: 0.95rem; font-weight: 600; color: var(--school-text-bright); margin-bottom: 0.3rem; }
+.state-text { font-size: 0.8rem; max-width: 420px; margin: 0 auto 1rem; line-height: 1.5; }
+
+/* ═══ SKELETON LOADING (shimmer, not spinners) ═══════════════ */
+.skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--school-surface-hover);
+    border-radius: 8px;
+}
+.skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, var(--school-border-hover), transparent);
+    animation: skeleton-shimmer 1.4s infinite;
+}
+@keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
+.skeleton-line { height: 12px; margin: 0.35rem 0; }
+.skeleton-line.w-40 { width: 40%; }
+.skeleton-line.w-60 { width: 60%; }
+.skeleton-line.w-80 { width: 80%; }
+.skeleton-row {
+    display: flex;
+    gap: 1rem;
+    padding: 0.7rem 0.5rem;
+    border-top: 1px solid var(--school-border);
+}
+.skeleton-row .skeleton { flex: 1; height: 14px; }
+.skeleton-row .skeleton:first-child { flex: 0 0 30%; }
+.skeleton-card { height: 90px; border-radius: var(--school-card-radius); }
+
+/* ═══ UTILITY ════════════════════════════════════════════════ */
+.text-dim   { color: var(--school-text-dim); }
+.text-ok    { color: var(--school-success); }
+.text-warn  { color: var(--school-warning); }
+.text-bad   { color: var(--school-danger); }
+.nowrap     { white-space: nowrap; }
+.mt-1 { margin-top: 1rem; }
+.visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.print-only { display: none; }
+
+/* ═══ PRINT ══════════════════════════════════════════════════ */
+@media print {
+    .no-print { display: none !important; }
+    .print-only { display: block; }
+    .group-body.is-collapsed { display: block !important; }
+    .sheet-summarybar { position: static; box-shadow: none; }
+    .member-row { break-inside: avoid; }
+}
+
+/* ═══ REDUCED MOTION ═════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+    .skeleton::after { animation: none; }
+    .quick-tile, .school-stat-card, .rate-bar-fill { transition: none; }
+    .quick-tile:hover, .school-stat-card:hover { transform: none; }
+}
+
+/* ═══ STAT ICON COLOR VARIANTS (token-based) ═════════════════ */
+.school-stat-icon.si-accent  { background: var(--school-accent-a10);  color: var(--school-accent); }
+.school-stat-icon.si-accent2 { background: var(--school-accent2-a10); color: var(--school-accent-2); }
+.school-stat-icon.si-primary { background: var(--school-primary-a10); color: var(--school-primary-light); }
+.school-stat-icon.si-ok      { background: var(--school-success-bg);  color: var(--school-success); }
+.school-stat-icon.si-warn    { background: var(--school-warning-bg);  color: var(--school-warning); }
+.school-stat-icon.si-bad     { background: var(--school-danger-bg);   color: var(--school-danger); }
+.school-stat-icon.si-info    { background: var(--school-info-bg);     color: var(--school-info); }
+
+/* ═══ MISC ═══════════════════════════════════════════════════ */
+.btn-block { width: 100%; justify-content: center; }
+.is-hidden { display: none !important; }
+.pager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1rem;
+}
+.lyrics-view {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--school-surface);
+    border: 1px solid var(--school-border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    max-height: 55vh;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    line-height: 1.8;
+    color: var(--school-text);
+    font-family: var(--school-font-amharic);
+}
+
+/* ═══ TREND CHART (pure-CSS columns, token colors) ═══════════ */
+.trend-wrap { display: flex; gap: 0.6rem; align-items: flex-end; overflow-x: auto; padding-bottom: 0.5rem; }
+.trend-col { text-align: center; min-width: 74px; }
+.trend-col-rate { font-size: 0.75rem; font-weight: 600; color: var(--school-text-bright); }
+.trend-col-bar { width: 34px; margin: 0.25rem auto; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--school-accent-2), var(--school-accent)); }
+.trend-col-month { font-size: 0.7rem; color: var(--school-text-dim); }
+.trend-col-sub { font-size: 0.68rem; color: var(--school-text-dim); }
+
+/* ═══ CLICKABLE ROWS (overview recent lists) ═════════════════ */
+.clickable-row { cursor: pointer; }
+.clickable-row:hover td { background: var(--school-surface-hover); }

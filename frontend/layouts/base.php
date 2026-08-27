@@ -126,6 +126,11 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     
     <!-- Theme CSS — this single file controls the entire visual design -->
     <link rel="stylesheet" href="<?= $_themeBase ?>/theme.css?v=<?= filemtime($_themeCssPath) ?>">
+
+    <!-- Shared dashboard components — token-driven, theme-agnostic -->
+    <?php $__componentsCss = ROOT_PATH . '/themes/components.css'; if (is_file($__componentsCss)): ?>
+    <link rel="stylesheet" href="/themes/components.css?v=<?= filemtime($__componentsCss) ?>">
+    <?php endif; ?>
     
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">

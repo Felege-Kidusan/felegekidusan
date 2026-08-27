@@ -504,3 +504,29 @@ programs. Every member is previewed by number and percentage.
 ### Tests
 - Suite now 260 tests; date-model assertions (023 guards, complete-sheet service,
   date-based API/mobile surface).
+
+---
+
+## Feature 4 — Mezmur Dashboard: full UI/UX upgrade (Phase 3, plan ANALYSIS/11)
+
+Industry-standard pass (Stripe/Linear/Notion "three states", NN/g progressive
+disclosure, token-driven design, WCAG affordances). Web only; backend surface
+unchanged except ONE additive field (`stats.members`).
+
+- **themes/components.css (NEW)** — shared, token-driven component library loaded by
+  base.php for ALL dashboards: page-head, toolbar, stat-grid, quick-tiles, rate-bar/
+  rate-chip, segmented control, sticky group-head, sheet summary bar, empty/error
+  states, skeleton shimmer, trend chart, pager, focus-visible, print, reduced-motion.
+- **Overview section (NEW landing)** — greeting, quick actions, 5-KPI strip with
+  month-over-month deltas, recent attendance days & hymns; composed from existing API
+  actions only.
+- **Shell fully de-inlined** — 0 inline `style=` attributes (was ~150); all ids kept.
+- **Attendance sheet UX** — sticky section headers with count chips, seg-control
+  marking (aria-pressed), keyboard marking (↑/↓ + P/L/A), sessionStorage draft with
+  auto-restore, unsaved-changes guard, sections collapse above 300 members (scale),
+  print-ready sheet.
+- **Analytics** — skeleton/error/empty states, in-cell rate bars with threshold tones,
+  sort indicators + aria-sort, token-based section cards & trend chart.
+- **Accessibility** — labels/aria-labels on all controls, role=dialog + Esc/focus
+  management, aria-live summaries, focus-visible rings.
+- Tests: +21 UI/UX gates (test_mezmur_uiux.py); suite 281 green.

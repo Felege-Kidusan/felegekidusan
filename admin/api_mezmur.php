@@ -113,6 +113,7 @@ try {
                 'total' => (int)$row['total'],
                 'active' => (int)$row['active'],
                 'categories' => (int)$row['categories'],
+                'members' => (int)($conn->query("SELECT COUNT(*) c FROM members WHERE status = 'active'")->fetch_assoc()['c'] ?? 0),
                 'category_list' => $cats,
                 'section_list' => MezmurAttendanceService::sectionList($conn),
                 'program_types' => MezmurAttendanceService::PROGRAM_TYPES,

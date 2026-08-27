@@ -7,7 +7,7 @@
  * This is an HTML shell. It contains:
  *   - Structure and layout (HTML only)
  *   - No database queries (those are in admin/api_mezmur.php)
- *   - No inline CSS (that's in themes/[school]/theme.css)
+ *   - No inline CSS (theme.css + themes/components.css)
  *   - No inline JavaScript logic (that's in frontend/js/mezmur.js)
  *   - School identity comes from window.APP (set by base.php)
  *
@@ -41,10 +41,11 @@ ob_start();
             </div>
         </div>
 
-        <nav class="school-nav-section">
+        <nav class="school-nav-section" aria-label="Mezmur sections">
             <div class="school-nav-title">Mezmur</div>
             <ul class="school-nav-list">
-                <li><button class="school-nav-link active" data-section="library"><i class="fa-solid fa-book-open"></i> Hymn Library</button></li>
+                <li><button class="school-nav-link active" data-section="overview"><i class="fa-solid fa-gauge-high"></i> Overview</button></li>
+                <li><button class="school-nav-link" data-section="library"><i class="fa-solid fa-book-open"></i> Hymn Library</button></li>
                 <li><button class="school-nav-link" data-section="attendance"><i class="fa-solid fa-calendar-check"></i> Attendance</button></li>
                 <li><button class="school-nav-link" data-section="analytics"><i class="fa-solid fa-chart-column"></i> Analytics</button></li>
                 <li><button class="school-nav-link" data-section="takers"><i class="fa-solid fa-user-shield"></i> Attendance Takers</button></li>
@@ -89,128 +90,267 @@ ob_start();
 
         <div class="school-content">
 
+            <!-- ═══ OVERVIEW SECTION ═══ -->
+            <section id="section-overview" class="school-section active" data-section="overview">
+
+                <div class="page-head">
+                    <div>
+                        <h1 id="mzGreeting">Welcome 🎵</h1>
+                        <div class="page-head-sub"><span data-today></span></div>
+                    </div>
+                </div>
+
+                <!-- Quick actions (taker tile hidden for non-managers by JS) -->
+                <div class="quick-actions">
+                    <button class="quick-tile qa-primary" onclick="Mezmur.quickTake()">
+                        <i class="fa-solid fa-clipboard-check"></i> Take Attendance
+                    </button>
+                    <button class="quick-tile" onclick="Mezmur.quickLibrary()">
+                        <i class="fa-solid fa-book-open"></i> Hymn Library
+                    </button>
+                    <button class="quick-tile qa-accent2" onclick="Mezmur.quickAnalytics()">
+                        <i class="fa-solid fa-chart-column"></i> Run Analytics
+                    </button>
+                    <button class="quick-tile qa-warning" id="mzQaTakers" onclick="Mezmur.quickTakers()">
+                        <i class="fa-solid fa-user-shield"></i> Attendance Takers
+                    </button>
+                </div>
+
+                <!-- KPI strip -->
+                <div class="stat-grid">
+                    <div class="school-stat-card">
+                        <div class="school-stat-icon si-accent2"><i class="fa-solid fa-calendar-day"></i></div>
+                        <div class="school-stat-value" id="mzOvDays">—</div>
+                        <div class="school-stat-label">Attendance days this month</div>
+                        <div class="stat-delta flat" id="mzOvDaysDelta"></div>
+                    </div>
+                    <div class="school-stat-card">
+                        <div class="school-stat-icon si-ok"><i class="fa-solid fa-percent"></i></div>
+                        <div class="school-stat-value" id="mzOvRate">—</div>
+                        <div class="school-stat-label">Average attendance rate (month)</div>
+                        <div class="stat-delta flat" id="mzOvRateDelta"></div>
+                    </div>
+                    <div class="school-stat-card">
+                        <div class="school-stat-icon si-accent"><i class="fa-solid fa-music"></i></div>
+                        <div class="school-stat-value" id="mzOvHymns">—</div>
+                        <div class="school-stat-label">Hymns in library</div>
+                    </div>
+                    <div class="school-stat-card">
+                        <div class="school-stat-icon si-info"><i class="fa-solid fa-users"></i></div>
+                        <div class="school-stat-value" id="mzOvMembers">—</div>
+                        <div class="school-stat-label">Active members</div>
+                    </div>
+                    <div class="school-stat-card">
+                        <div class="school-stat-icon si-warn"><i class="fa-solid fa-user-shield"></i></div>
+                        <div class="school-stat-value" id="mzOvTakers">—</div>
+                        <div class="school-stat-label">Attendance takers</div>
+                    </div>
+                </div>
+
+                <!-- Recent activity -->
+                <div class="grid-2">
+                    <div class="school-card">
+                        <div class="school-card-title"><i class="fa-solid fa-calendar-check"></i> Recent Attendance Days</div>
+                        <div class="table-shell">
+                            <table>
+                                <thead>
+                                    <tr><th>Date</th><th>Program</th><th>Attended</th><th>Rate</th></tr>
+                                </thead>
+                                <tbody id="mzOvRecentDays">
+                                    <tr><td colspan="4"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="school-card">
+                        <div class="school-card-title"><i class="fa-solid fa-music"></i> Recently Updated Hymns</div>
+                        <div class="table-shell">
+                            <table>
+                                <thead>
+                                    <tr><th>Title</th><th>Category</th><th>Updated</th></tr>
+                                </thead>
+                                <tbody id="mzOvRecentHymns">
+                                    <tr><td colspan="3"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ═══ LIBRARY SECTION ═══ -->
-            <section id="section-library" class="school-section active" data-section="library">
+            <section id="section-library" class="school-section" data-section="library">
+
+                <div class="page-head">
+                    <div>
+                        <h2><i class="fa-solid fa-book-open"></i> Hymn Library</h2>
+                        <div class="page-head-sub amharic">የመዝሙር መጻሕፍት ቤት</div>
+                    </div>
+                    <div class="page-head-actions">
+                        <button id="mzAddBtn" class="btn-primary" onclick="Mezmur.openAdd()"><i class="fa-solid fa-plus"></i> Add Hymn</button>
+                    </div>
+                </div>
 
                 <!-- Stats -->
-                <div class="grid-3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.25rem">
+                <div class="stat-grid">
                     <div class="school-stat-card">
-                        <div class="school-stat-icon" style="background:rgba(139,92,246,.12);color:#8b5cf6"><i class="fa-solid fa-music"></i></div>
-                        <div><div class="school-stat-value" id="mzStatTotal">—</div><div class="school-stat-label">Total Hymns</div></div>
+                        <div class="school-stat-icon si-accent2"><i class="fa-solid fa-music"></i></div>
+                        <div class="school-stat-value" id="mzStatTotal">—</div>
+                        <div class="school-stat-label">Total Hymns</div>
                     </div>
                     <div class="school-stat-card">
-                        <div class="school-stat-icon" style="background:rgba(16,185,129,.12);color:#10b981"><i class="fa-solid fa-circle-check"></i></div>
-                        <div><div class="school-stat-value" id="mzStatActive">—</div><div class="school-stat-label">Active</div></div>
+                        <div class="school-stat-icon si-ok"><i class="fa-solid fa-circle-check"></i></div>
+                        <div class="school-stat-value" id="mzStatActive">—</div>
+                        <div class="school-stat-label">Active</div>
                     </div>
                     <div class="school-stat-card">
-                        <div class="school-stat-icon" style="background:rgba(245,158,11,.12);color:#f59e0b"><i class="fa-solid fa-tags"></i></div>
-                        <div><div class="school-stat-value" id="mzStatCategories">—</div><div class="school-stat-label">Categories</div></div>
+                        <div class="school-stat-icon si-warn"><i class="fa-solid fa-tags"></i></div>
+                        <div class="school-stat-value" id="mzStatCategories">—</div>
+                        <div class="school-stat-label">Categories</div>
                     </div>
                 </div>
 
                 <div class="school-card">
                     <!-- Toolbar -->
-                    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:1rem">
-                        <div style="position:relative;flex:1;min-width:220px">
-                            <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:.8rem;top:50%;transform:translateY(-50%);color:var(--school-text-dim);font-size:.8rem"></i>
-                            <input id="mzSearch" class="school-input" style="padding-left:2.2rem;width:100%" type="search" placeholder="Search by title, Amharic title or reference…" autocomplete="off">
+                    <div class="toolbar">
+                        <div class="search-wrap">
+                            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                            <input id="mzSearch" class="school-input" type="search" placeholder="Search by title, Amharic title or reference…" autocomplete="off" aria-label="Search hymns">
                         </div>
-                        <select id="mzCategoryFilter" class="school-input" style="min-width:160px" title="Filter by category">
+                        <select id="mzCategoryFilter" class="school-input" aria-label="Filter by category">
                             <option value="">All categories</option>
                         </select>
-                        <select id="mzStatusFilter" class="school-input" style="min-width:120px" title="Filter by status">
+                        <select id="mzStatusFilter" class="school-input" aria-label="Filter by status">
                             <option value="active">Active</option>
                             <option value="archived">Archived</option>
                             <option value="">All</option>
                         </select>
-                        <button id="mzAddBtn" class="btn-primary" onclick="Mezmur.openAdd()"><i class="fa-solid fa-plus"></i> Add Hymn</button>
                     </div>
 
                     <!-- List -->
-                    <div style="overflow-x:auto">
-                        <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+                    <div class="table-shell">
+                        <table>
                             <thead>
-                                <tr style="text-align:left;color:var(--school-text-dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em">
-                                    <th style="padding:.6rem .75rem">Title</th>
-                                    <th style="padding:.6rem .75rem" class="amharic">ስም (አማርኛ)</th>
-                                    <th style="padding:.6rem .75rem">Category</th>
-                                    <th style="padding:.6rem .75rem">Reference</th>
-                                    <th style="padding:.6rem .75rem">Updated</th>
-                                    <th style="padding:.6rem .75rem;text-align:right">Actions</th>
+                                <tr>
+                                    <th>Title</th>
+                                    <th class="amharic">ስም (አማርኛ)</th>
+                                    <th>Category</th>
+                                    <th>Reference</th>
+                                    <th>Updated</th>
+                                    <th class="nowrap">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="mzTbody">
-                                <tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading hymns…</td></tr>
+                                <tr><td colspan="6"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                             </tbody>
                         </table>
                     </div>
 
                     <!-- Pagination -->
-                    <div id="mzPagination" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:space-between;margin-top:1rem"></div>
+                    <div id="mzPagination" class="pager" role="navigation" aria-label="Hymn list pagination"></div>
                 </div>
             </section>
 
             <!-- ═══ ATTENDANCE SECTION ═══ -->
             <section id="section-attendance" class="school-section" data-section="attendance">
 
-                <!-- Session list view -->
+                <!-- Day list view -->
                 <div id="mzSessionListView">
+                    <div class="page-head">
+                        <div>
+                            <h2><i class="fa-solid fa-calendar-check"></i> Attendance</h2>
+                            <div class="page-head-sub amharic">በቀን መሠረት • በክፍል (section) የተከፋፈለ</div>
+                        </div>
+                    </div>
+
+                    <!-- Take attendance hero -->
                     <div class="school-card">
-                        <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:1rem">
-                            <div style="flex:1;min-width:200px">
-                                <h3 class="school-card-title" style="margin:0"><i class="fa-solid fa-calendar-check"></i> Attendance Days</h3>
-                                <div style="color:var(--school-text-dim);font-size:.8rem" class="amharic">በቀን መሠረት • በክፍል (section) የተከፋፈለ</div>
+                        <div class="toolbar">
+                            <div class="toolbar-grow">
+                                <label class="school-label" for="mzAttDate">Attendance date</label>
+                                <input id="mzAttDate" class="school-input" type="date">
                             </div>
-                            <input id="mzAttDate" class="school-input" type="date" style="min-width:160px" title="Attendance date">
-                            <select id="mzAttProgram" class="school-input" style="min-width:150px" title="Program type">
-                                <option value="rehearsal">Rehearsal (የዝማሬ ልምምድ)</option>
-                                <option value="service">Service (አገልግሎት)</option>
-                                <option value="feast">Feast (በዓል)</option>
-                                <option value="training">Training (ሥልጠና)</option>
-                                <option value="other">Other</option>
-                            </select>
-                            <button class="btn-primary" onclick="Mezmur.openDay()"><i class="fa-solid fa-clipboard-check"></i> Take Attendance</button>
-                            <input id="mzSessFrom" class="school-input" type="date" style="min-width:150px" title="From date">
-                            <input id="mzSessTo" class="school-input" type="date" style="min-width:150px" title="To date">
+                            <div class="toolbar-grow">
+                                <label class="school-label" for="mzAttProgram">Program type</label>
+                                <select id="mzAttProgram" class="school-input">
+                                    <option value="rehearsal">Rehearsal (የዝማሬ ልምምድ)</option>
+                                    <option value="service">Service (አገልግሎት)</option>
+                                    <option value="feast">Feast (በዓል)</option>
+                                    <option value="training">Training (ሥልጠና)</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div class="page-head-actions">
+                                <button class="btn-primary" onclick="Mezmur.openDay()"><i class="fa-solid fa-clipboard-check"></i> Take Attendance</button>
+                            </div>
+                        </div>
+                        <div class="text-dim" aria-hidden="true">
+                            <i class="fa-regular fa-keyboard"></i>
+                            In the sheet: <b>↑ / ↓</b> move between members, <b>P</b> present, <b>L</b> late, <b>A</b> absent.
+                        </div>
+                    </div>
+
+                    <!-- History -->
+                    <div class="school-card">
+                        <div class="toolbar">
+                            <div class="toolbar-title">
+                                <h3 class="school-card-title"><i class="fa-solid fa-clock-rotate-left"></i> Attendance Days</h3>
+                            </div>
+                            <label class="school-label visually-hidden" for="mzSessFrom">From date</label>
+                            <input id="mzSessFrom" class="school-input" type="date" aria-label="From date">
+                            <label class="school-label visually-hidden" for="mzSessTo">To date</label>
+                            <input id="mzSessTo" class="school-input" type="date" aria-label="To date">
                             <button class="btn-secondary" onclick="Mezmur.loadDays()"><i class="fa-solid fa-filter"></i> Filter</button>
                         </div>
-                        <div style="overflow-x:auto">
-                            <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+                        <div class="table-shell">
+                            <table>
                                 <thead>
-                                    <tr style="text-align:left;color:var(--school-text-dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em">
-                                        <th style="padding:.6rem .75rem">Date</th>
-                                        <th style="padding:.6rem .75rem">Program</th>
-                                        <th style="padding:.6rem .75rem">Title</th>
-                                        <th style="padding:.6rem .75rem">Marked</th>
-                                        <th style="padding:.6rem .75rem">Attended</th>
-                                        <th style="padding:.6rem .75rem;text-align:right">Actions</th>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Program</th>
+                                        <th>Title</th>
+                                        <th>Marked</th>
+                                        <th>Attended</th>
+                                        <th>Rate</th>
+                                        <th class="nowrap">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="mzSessTbody">
-                                    <tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading sessions…</td></tr>
+                                    <tr><td colspan="7"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div id="mzSessPagination" style="display:flex;gap:.5rem;align-items:center;justify-content:space-between;margin-top:1rem;flex-wrap:wrap"></div>
+                        <div id="mzSessPagination" class="pager" role="navigation" aria-label="Attendance days pagination"></div>
                     </div>
                 </div>
 
-                <!-- Sheet view (hidden until a session is opened) -->
-                <div id="mzSheetView" style="display:none">
-                    <div class="school-card">
-                        <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:1rem">
-                            <button class="btn-secondary" onclick="Mezmur.closeSheet()"><i class="fa-solid fa-arrow-left"></i> Back</button>
-                            <div style="flex:1;min-width:180px">
-                                <h3 class="school-card-title" style="margin:0" id="mzSheetTitle">Attendance Sheet</h3>
-                                <div style="color:var(--school-text-dim);font-size:.8rem" id="mzSheetMeta"></div>
-                            </div>
+                <!-- Sheet view -->
+                <div id="mzSheetView" class="school-card">
+                    <div class="print-only">
+                        <h2 id="mzPrintTitle">Mezmur Attendance</h2>
+                        <div id="mzPrintMeta" class="text-dim"></div>
+                    </div>
+                    <div class="page-head no-print">
+                        <div>
+                            <h2 id="mzSheetTitle">Attendance</h2>
+                            <div class="page-head-sub" id="mzSheetMeta"></div>
+                        </div>
+                        <div class="page-head-actions">
                             <button class="btn-secondary" onclick="Mezmur.markAll('present')"><i class="fa-solid fa-check-double"></i> All Present</button>
+                            <button class="btn-secondary" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>
+                            <button class="btn-secondary" onclick="Mezmur.closeSheet()"><i class="fa-solid fa-arrow-left"></i> Back</button>
                         </div>
-                        <div id="mzSheetBody"></div>
-                        <div style="position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;padding:1rem 0 0;margin-top:1rem;border-top:1px solid var(--school-border,rgba(255,255,255,.08))">
-                            <div id="mzSheetSummary" style="color:var(--school-text-dim);font-size:.85rem"></div>
-                            <button class="btn-primary" id="mzSheetSaveBtn" onclick="Mezmur.saveSheet()"><i class="fa-solid fa-save"></i> Save Attendance</button>
-                        </div>
+                    </div>
+
+                    <div id="mzSheetBody" aria-live="polite">
+                        <div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div>
+                        <div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div>
+                        <div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div>
+                    </div>
+
+                    <div class="sheet-summarybar">
+                        <div id="mzSheetSummary" aria-live="polite"></div>
+                        <button class="btn-primary" id="mzSheetSaveBtn" onclick="Mezmur.saveSheet()"><i class="fa-solid fa-save"></i> Save Attendance</button>
                     </div>
                 </div>
             </section>
@@ -218,13 +358,23 @@ ob_start();
             <!-- ═══ ANALYTICS SECTION ═══ -->
             <section id="section-analytics" class="school-section" data-section="analytics">
 
+                <div class="page-head">
+                    <div>
+                        <h2><i class="fa-solid fa-chart-column"></i> Attendance Analytics</h2>
+                        <div class="page-head-sub">Every member with number <b>and</b> percentage — program eligibility at a glance.</div>
+                    </div>
+                    <div class="page-head-actions">
+                        <button class="btn-secondary" onclick="Mezmur.exportCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+                    </div>
+                </div>
+
                 <!-- Filters -->
                 <div class="school-card">
-                    <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center">
-                        <select id="mzAnSection" class="school-input" style="min-width:140px" title="Section">
+                    <div class="toolbar">
+                        <select id="mzAnSection" class="school-input" aria-label="Filter by section">
                             <option value="">All sections</option>
                         </select>
-                        <select id="mzAnProgram" class="school-input" style="min-width:140px" title="Program type">
+                        <select id="mzAnProgram" class="school-input" aria-label="Filter by program type">
                             <option value="">All programs</option>
                             <option value="rehearsal">Rehearsal</option>
                             <option value="service">Service</option>
@@ -232,93 +382,99 @@ ob_start();
                             <option value="training">Training</option>
                             <option value="other">Other</option>
                         </select>
-                        <input id="mzAnFrom" class="school-input" type="date" style="min-width:140px" title="From">
-                        <input id="mzAnTo" class="school-input" type="date" style="min-width:140px" title="To">
-                        <input id="mzAnSearch" class="school-input" type="search" placeholder="Search member…" style="min-width:150px;flex:1">
-                        <input id="mzAnMinRate" class="school-input" type="number" min="0" max="100" placeholder="Min rate %" style="max-width:110px" title="Minimum attendance rate %">
-                        <input id="mzAnMinAtt" class="school-input" type="number" min="0" placeholder="Min attended" style="max-width:130px" title="Minimum sessions attended">
+                        <input id="mzAnFrom" class="school-input" type="date" aria-label="From date">
+                        <input id="mzAnTo" class="school-input" type="date" aria-label="To date">
+                        <input id="mzAnSearch" class="school-input" type="search" placeholder="Search member…" aria-label="Search member">
+                        <input id="mzAnMinRate" class="school-input" type="number" min="0" max="100" placeholder="Min rate %" aria-label="Minimum attendance rate percent">
+                        <input id="mzAnMinAtt" class="school-input" type="number" min="0" placeholder="Min attended" aria-label="Minimum days attended">
                         <button class="btn-primary" onclick="Mezmur.runAnalytics()"><i class="fa-solid fa-magnifying-glass-chart"></i> Analyze</button>
-                        <button class="btn-secondary" onclick="Mezmur.exportCsv()"><i class="fa-solid fa-file-csv"></i> CSV</button>
                     </div>
                 </div>
 
                 <!-- Headline stats -->
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;margin:1.25rem 0">
+                <div class="stat-grid">
                     <div class="school-stat-card">
-                        <div class="school-stat-icon" style="background:rgba(139,92,246,.12);color:#8b5cf6"><i class="fa-solid fa-calendar-day"></i></div>
-                        <div><div class="school-stat-value" id="mzAnHeld">—</div><div class="school-stat-label">Sessions Held</div></div>
+                        <div class="school-stat-icon si-accent2"><i class="fa-solid fa-calendar-day"></i></div>
+                        <div class="school-stat-value" id="mzAnHeld">—</div>
+                        <div class="school-stat-label">Days Held</div>
                     </div>
                     <div class="school-stat-card">
-                        <div class="school-stat-icon" style="background:rgba(16,185,129,.12);color:#10b981"><i class="fa-solid fa-users"></i></div>
-                        <div><div class="school-stat-value" id="mzAnMembers">—</div><div class="school-stat-label">Members Ranked</div></div>
+                        <div class="school-stat-icon si-info"><i class="fa-solid fa-users"></i></div>
+                        <div class="school-stat-value" id="mzAnMembers">—</div>
+                        <div class="school-stat-label">Members Ranked</div>
                     </div>
                     <div class="school-stat-card">
-                        <div class="school-stat-icon" style="background:rgba(245,158,11,.12);color:#f59e0b"><i class="fa-solid fa-percent"></i></div>
-                        <div><div class="school-stat-value" id="mzAnAvgRate">—</div><div class="school-stat-label">Average Rate</div></div>
+                        <div class="school-stat-icon si-warn"><i class="fa-solid fa-percent"></i></div>
+                        <div class="school-stat-value" id="mzAnAvgRate">—</div>
+                        <div class="school-stat-label">Average Rate</div>
                     </div>
                 </div>
 
                 <!-- Section rollups -->
-                <div class="school-card" style="margin-bottom:1.25rem">
+                <div class="school-card">
                     <h3 class="school-card-title"><i class="fa-solid fa-layer-group"></i> By Section</h3>
-                    <div id="mzSectionCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:1rem;margin-top:.75rem"></div>
+                    <div id="mzSectionCards" class="stat-grid"></div>
                 </div>
 
                 <!-- Monthly trend -->
-                <div class="school-card" style="margin-bottom:1.25rem">
+                <div class="school-card">
                     <h3 class="school-card-title"><i class="fa-solid fa-chart-line"></i> Monthly Trend</h3>
-                    <div id="mzTrendBody" style="margin-top:.75rem"></div>
+                    <div id="mzTrendBody" class="mt-1"></div>
                 </div>
 
                 <!-- Member ranking table -->
                 <div class="school-card">
-                    <h3 class="school-card-title"><i class="fa-solid fa-ranking-star"></i> Member Ranking <span style="color:var(--school-text-dim);font-size:.75rem;font-weight:400">— every number with its percentage</span></h3>
-                    <div style="overflow-x:auto;margin-top:.5rem">
-                        <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+                    <h3 class="school-card-title"><i class="fa-solid fa-ranking-star"></i> Member Ranking
+                        <span class="text-dim">— every number with its percentage</span>
+                    </h3>
+                    <div class="table-shell mt-1">
+                        <table>
                             <thead>
-                                <tr style="text-align:left;color:var(--school-text-dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em">
-                                    <th style="padding:.6rem .75rem">#</th>
-                                    <th style="padding:.6rem .75rem;cursor:pointer" onclick="Mezmur.sortBy('name')">Member</th>
-                                    <th style="padding:.6rem .75rem;cursor:pointer" onclick="Mezmur.sortBy('section')">Section</th>
-                                    <th style="padding:.6rem .75rem;cursor:pointer" onclick="Mezmur.sortBy('attended')">Attended</th>
-                                    <th style="padding:.6rem .75rem;cursor:pointer" onclick="Mezmur.sortBy('rate')">Rate %</th>
-                                    <th style="padding:.6rem .75rem;cursor:pointer" onclick="Mezmur.sortBy('absent')">Absent</th>
-                                    <th style="padding:.6rem .75rem;cursor:pointer" onclick="Mezmur.sortBy('last_attended')">Last Attended</th>
+                                <tr>
+                                    <th>#</th>
+                                    <th class="th-sortable" onclick="Mezmur.sortBy('name')" aria-sort="none">Member</th>
+                                    <th class="th-sortable" onclick="Mezmur.sortBy('section')" aria-sort="none">Section</th>
+                                    <th class="th-sortable" onclick="Mezmur.sortBy('attended')" aria-sort="none">Attended</th>
+                                    <th class="th-sortable" onclick="Mezmur.sortBy('rate')" aria-sort="none">Rate %</th>
+                                    <th class="th-sortable" onclick="Mezmur.sortBy('absent')" aria-sort="none">Absent</th>
+                                    <th class="th-sortable" onclick="Mezmur.sortBy('last_attended')" aria-sort="none">Last Attended</th>
                                 </tr>
                             </thead>
                             <tbody id="mzAnTbody">
-                                <tr><td colspan="7" style="text-align:center;color:var(--school-text-dim);padding:1.5rem">Set filters and press <b>Analyze</b>.</td></tr>
+                                <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-sliders"></i><div class="state-title">No analysis yet</div><p class="state-text">Set your filters above and press <b>Analyze</b> to rank every member by attendance.</p></div></td></tr>
                             </tbody>
                         </table>
                     </div>
-                    <div id="mzAnPagination" style="display:flex;gap:.5rem;align-items:center;justify-content:space-between;margin-top:1rem;flex-wrap:wrap"></div>
+                    <div id="mzAnPagination" class="pager" role="navigation" aria-label="Analytics pagination"></div>
                 </div>
             </section>
 
             <!-- ═══ ATTENDANCE TAKERS SECTION ═══ -->
             <section id="section-takers" class="school-section" data-section="takers">
-                <div class="school-card">
-                    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin-bottom:1rem">
-                        <div style="flex:1;min-width:200px">
-                            <h3 class="school-card-title" style="margin:0"><i class="fa-solid fa-user-shield"></i> Attendance Takers</h3>
-                            <div style="color:var(--school-text-dim);font-size:.8rem">Accounts allowed to record Mezmur attendance from web or mobile.</div>
-                        </div>
+                <div class="page-head">
+                    <div>
+                        <h2><i class="fa-solid fa-user-shield"></i> Attendance Takers</h2>
+                        <div class="page-head-sub">Accounts allowed to record Mezmur attendance from web or mobile.</div>
+                    </div>
+                    <div class="page-head-actions">
                         <button class="btn-primary" onclick="Mezmur.openTakerModal()"><i class="fa-solid fa-user-plus"></i> Add Taker</button>
                     </div>
-                    <div style="overflow-x:auto">
-                        <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+                </div>
+                <div class="school-card">
+                    <div class="table-shell">
+                        <table>
                             <thead>
-                                <tr style="text-align:left;color:var(--school-text-dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em">
-                                    <th style="padding:.6rem .75rem">Name</th>
-                                    <th style="padding:.6rem .75rem">Username</th>
-                                    <th style="padding:.6rem .75rem">Linked Member</th>
-                                    <th style="padding:.6rem .75rem">Created</th>
-                                    <th style="padding:.6rem .75rem">Status</th>
-                                    <th style="padding:.6rem .75rem;text-align:right">Actions</th>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Linked Member</th>
+                                    <th>Created</th>
+                                    <th>Status</th>
+                                    <th class="nowrap">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="mzTakerTbody">
-                                <tr><td colspan="6" style="text-align:center;color:var(--school-text-dim);padding:1.5rem"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</td></tr>
+                                <tr><td colspan="6"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -330,84 +486,85 @@ ob_start();
 </div>
 
 <!-- ═══ MODAL: ADD / EDIT HYMN ═══ -->
-<div class="school-modal" id="mzHymnModal">
+<div class="school-modal" id="mzHymnModal" role="dialog" aria-modal="true" aria-labelledby="mzModalTitle">
     <div class="school-modal-content">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 id="mzModalTitle" style="font-size:1.1rem;font-weight:700;color:var(--school-text-bright)"><i class="fa-solid fa-music"></i> Add Hymn</h3>
-            <button onclick="Mezmur.closeModal()" style="background:none;border:none;color:var(--school-text-dim);font-size:1.25rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>
+        <div class="page-head">
+            <h3 id="mzModalTitle"><i class="fa-solid fa-music"></i> Add Hymn</h3>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.closeModal()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <input type="hidden" id="mzHymnId" value="0">
         <div class="school-form-group">
-            <label class="school-label">Title *</label>
+            <label class="school-label" for="mzTitle">Title *</label>
             <input id="mzTitle" class="school-input" maxlength="255" autocomplete="off">
         </div>
         <div class="school-form-group">
-            <label class="school-label">ስም በአማርኛ (Amharic title)</label>
+            <label class="school-label" for="mzTitleAm">ስም በአማርኛ (Amharic title)</label>
             <input id="mzTitleAm" class="school-input amharic" maxlength="255" autocomplete="off">
         </div>
         <div class="school-form-group">
-            <label class="school-label">Category</label>
+            <label class="school-label" for="mzCategory">Category</label>
             <input id="mzCategory" class="school-input" list="mzCategoryOptions" maxlength="50" placeholder="e.g. Feast, Praise, Lent…">
             <datalist id="mzCategoryOptions"></datalist>
         </div>
         <div class="school-form-group">
-            <label class="school-label">Reference (composer / book / source)</label>
+            <label class="school-label" for="mzReference">Reference (composer / book / source)</label>
             <input id="mzReference" class="school-input" maxlength="255">
         </div>
         <div class="school-form-group">
-            <label class="school-label">Lyrics</label>
+            <label class="school-label" for="mzLyrics">Lyrics</label>
             <textarea id="mzLyrics" class="school-input amharic" rows="9" placeholder="የመዝሙሩ ግጥም…"></textarea>
         </div>
-        <div class="school-error-msg" id="mzModalError" style="display:none"></div>
-        <button class="btn-primary" id="mzSaveBtn" onclick="Mezmur.save()" style="width:100%;justify-content:center"><i class="fa-solid fa-save"></i> Save Hymn</button>
+        <div class="school-error-msg is-hidden" id="mzModalError" role="alert"></div>
+        <button class="btn-primary btn-block" id="mzSaveBtn" onclick="Mezmur.save()"><i class="fa-solid fa-save"></i> Save Hymn</button>
     </div>
 </div>
 
 <!-- ═══ MODAL: VIEW HYMN ═══ -->
-<div class="school-modal" id="mzViewModal">
-    <div class="school-modal-content" style="max-width:640px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 id="mzViewTitle" style="font-size:1.1rem;font-weight:700;color:var(--school-text-bright)"><i class="fa-solid fa-book-open"></i> Hymn</h3>
-            <button onclick="Mezmur.closeView()" style="background:none;border:none;color:var(--school-text-dim);font-size:1.25rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>
+<div class="school-modal" id="mzViewModal" role="dialog" aria-modal="true" aria-labelledby="mzViewTitle">
+    <div class="school-modal-content">
+        <div class="page-head">
+            <h3 id="mzViewTitle"><i class="fa-solid fa-book-open"></i> Hymn</h3>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.closeView()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div id="mzViewMeta" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem"></div>
-        <pre class="amharic" id="mzViewLyrics" style="white-space:pre-wrap;word-break:break-word;background:var(--school-bg-hover,rgba(255,255,255,.03));border:1px solid var(--school-border,rgba(255,255,255,.08));border-radius:.75rem;padding:1rem;max-height:55vh;overflow-y:auto;font-size:.9rem;line-height:1.8;color:var(--school-text)"></pre>
+        <div id="mzViewMeta" class="toolbar"></div>
+        <pre class="amharic lyrics-view" id="mzViewLyrics"></pre>
+    </div>
+</div>
+
+<!-- ═══ MODAL: ADD TAKER ═══ -->
+<div class="school-modal" id="mzTakerModal" role="dialog" aria-modal="true" aria-labelledby="mzTakerModalTitle">
+    <div class="school-modal-content">
+        <div class="page-head">
+            <h3 id="mzTakerModalTitle"><i class="fa-solid fa-user-plus"></i> Add Attendance Taker</h3>
+            <button class="btn-secondary btn-sm" onclick="modal('mzTakerModal',false)" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzTkName">Full Name *</label>
+            <input id="mzTkName" class="school-input" maxlength="150" autocomplete="off">
+        </div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzTkUser">Username *</label>
+            <input id="mzTkUser" class="school-input" maxlength="50" autocomplete="off">
+        </div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzTkPass">Password * <span class="text-dim">(12+ characters)</span></label>
+            <input id="mzTkPass" class="school-input" type="password" minlength="12" maxlength="72" autocomplete="new-password">
+        </div>
+        <div class="school-error-msg is-hidden" id="mzTkError" role="alert"></div>
+        <button class="btn-primary btn-block" id="mzTkSaveBtn" onclick="Mezmur.createTaker()"><i class="fa-solid fa-save"></i> Create Account</button>
     </div>
 </div>
 
 <!-- ═══ MOBILE BOTTOM NAV ═══ -->
-<nav class="school-bottom-nav">
+<nav class="school-bottom-nav" aria-label="Mezmur sections">
     <div class="school-bottom-nav-inner">
-        <button class="school-bottom-nav-btn active" data-section="library"><i class="fa-solid fa-book-open"></i><span>Library</span></button>
-        <button class="school-bottom-nav-btn" data-section="attendance"><i class="fa-solid fa-calendar-check"></i><span>Attend</span></button>
-        <button class="school-bottom-nav-btn" data-section="analytics"><i class="fa-solid fa-chart-column"></i><span>Analyze</span></button>
-        <button class="school-bottom-nav-btn" data-section="takers"><i class="fa-solid fa-user-shield"></i><span>Takers</span></button>
+        <button class="school-bottom-nav-btn active" data-section="overview" aria-label="Overview"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
+        <button class="school-bottom-nav-btn" data-section="library" aria-label="Hymn Library"><i class="fa-solid fa-book-open"></i><span>Library</span></button>
+        <button class="school-bottom-nav-btn" data-section="attendance" aria-label="Attendance"><i class="fa-solid fa-calendar-check"></i><span>Attend</span></button>
+        <button class="school-bottom-nav-btn" data-section="analytics" aria-label="Analytics"><i class="fa-solid fa-chart-column"></i><span>Analyze</span></button>
+        <button class="school-bottom-nav-btn" data-section="takers" aria-label="Attendance takers"><i class="fa-solid fa-user-shield"></i><span>Takers</span></button>
     </div>
 </nav>
-
-<!-- ═══ MODAL: ADD TAKER ═══ -->
-<div class="school-modal" id="mzTakerModal">
-    <div class="school-modal-content">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 style="font-size:1.1rem;font-weight:700;color:var(--school-text-bright)"><i class="fa-solid fa-user-plus"></i> Add Attendance Taker</h3>
-            <button onclick="modal('mzTakerModal',false)" style="background:none;border:none;color:var(--school-text-dim);font-size:1.25rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Full Name *</label>
-            <input id="mzTkName" class="school-input" maxlength="150" autocomplete="off">
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Username *</label>
-            <input id="mzTkUser" class="school-input" maxlength="50" autocomplete="off">
-        </div>
-        <div class="school-form-group">
-            <label class="school-label">Password * <span style="font-weight:400;color:var(--school-text-dim)">(12+ characters)</span></label>
-            <input id="mzTkPass" class="school-input" type="password" minlength="12" maxlength="72" autocomplete="new-password">
-        </div>
-        <div class="school-error-msg" id="mzTkError" style="display:none"></div>
-        <button class="btn-primary" id="mzTkSaveBtn" onclick="Mezmur.createTaker()" style="width:100%;justify-content:center"><i class="fa-solid fa-save"></i> Create Account</button>
-    </div>
-</div>
 
 <?php
 $bodyContent = ob_get_clean();
