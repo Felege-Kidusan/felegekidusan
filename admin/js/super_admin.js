@@ -6,7 +6,7 @@
   'use strict';
 
   var ALLOWED = {
-    overview: 1, users: 1, departments: 1, health: 1, settings: 1,
+    overview: 1, users: 1, departments: 1, identity: 1, health: 1, settings: 1,
     branding: 1, logs: 1, backup: 1, syshealth: 1
   };
 

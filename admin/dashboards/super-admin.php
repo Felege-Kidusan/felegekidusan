@@ -1451,7 +1451,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/super_admin.js?v=20260819h"></script>
+    <script src="/admin/js/super_admin.js?v=20260827a"></script>
     <script>
         // Calendar mode save
         async function saveCalendarMode(mode){

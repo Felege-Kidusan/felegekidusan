@@ -202,6 +202,24 @@ class IdentityManagementTests(unittest.TestCase):
         self.assertIn("FALLBACK", self.type_service)
         self.assertIn("catch (\\Throwable $error)", self.type_service)
 
+    # ── client/server section allow-lists must never drift ──────────
+    def test_shell_js_allowlist_covers_php_sections(self):
+        js = (ROOT / "admin/js/super_admin.js").read_text(encoding="utf-8")
+        match = re.search(r"var ALLOWED = \{([^}]*)\}", js)
+        self.assertIsNotNone(match, "super_admin.js ALLOWED map not found")
+        js_sections = set(re.findall(r"(\w+):\s*1", match.group(1)))
+
+        php_match = re.search(r"\$saAllowedSections = \[([^\]]*)\]", self.super_admin)
+        self.assertIsNotNone(php_match, "$saAllowedSections not found")
+        php_sections = set(re.findall(r"'(\w+)'", php_match.group(1)))
+
+        missing = php_sections - js_sections
+        self.assertFalse(
+            missing,
+            f"super_admin.js ALLOWED map is missing sections {sorted(missing)} — "
+            f"their nav buttons would silently ignore clicks",
+        )
+
     # ── lint every PHP file touched by this batch ────────────────────
     def test_php_syntax_of_identity_files(self):
         if not PHP:
