@@ -1,383 +1,172 @@
 <?php
 /**
- * Identity code allocation for the ministry coding system.
+ * Identity code allocation — FORMAT v2 (ANALYSIS/08).
  *
- * Students:      {CategoryLetter}{Sequential}          → C1, C2, A15 …
- *   Sequential per letter, alphabetical order is applied by the migration
- *   tool; runtime allocation appends MAX+1 under a per-letter advisory lock
- *   so two registrations can never race to the same number.
+ * Every member code is `{PREFIX}-{5-digit tail}` where the tail is a
+ * RANDOM UNIQUE number (10000-99999). Sequential per-category numbers
+ * were retired by leadership decision; random tails never leak internal
+ * database ids (the enumeration-safe practice used for public
+ * identifiers at Google/Meta-scale products).
  *
- * Staff:         {DEPT}{H|N}{POSITIONS}-{5-digit}      → EDHT-83719
- *   Built from the member's active rows in member_staff_positions:
- *     DEPT       primary department's code (lowest sort_order wins)
- *     H | N      H when the member holds that department's head position,
- *                N (rendered smaller on ID cards) for ordinary members.
- *     POSITIONS  remaining active role codes, ordered by staff_positions
- *                sort_order, excluding the department's head marker.
- *   School-wide posts (department_id NULL) contribute their role_code
- *   directly; a member with no department gets {ROLES}-{5-digit}.
+ * Students:   {CategoryLetter}-{tail}                 → A-76392
+ * Staff:      {FREE…}{DEPT}{H|N}{DEPT-POSITIONS}-{tail}
+ *             DEDHT-98798  (Director + Education head + Teacher)
+ *             DEDH-98798   (Director + Education head)
+ *             DT-98798     (Director + Teacher, free positions)
+ *             EDHT-83719   (Education head + Teacher)
  *
- * Security & scale notes:
- *  - Every value that reaches SQL comes from ascii-code config tables or a
- *    validated A–Z letter; nothing user-supplied is interpolated raw.
- *  - GET_LOCK serializes the per-letter sequence; uniqueness is additionally
- *    guaranteed by the members.member_code UNIQUE key with bounded retries.
- *  - All lookups are covered by existing/added indexes; no table scans.
+ * Prefix composition order (single source of truth — composePrefix()):
+ *   1. FREE positions (department_id NULL) in the order the Super Admin
+ *      defines (sort_order, id);
+ *   2. the PRIMARY department segment: department code + H when the
+ *      member holds that department's head position, N otherwise
+ *      (N is rendered smaller on cards/verification page);
+ *   3. remaining department position letters (primary dept's non-head
+ *      roles first, then other departments, each in defined order).
+ *
+ * Ambiguity guard: a free position may never use a single letter that
+ * would collide with the student format — 'A', 'B', 'C' (categories) and
+ * 'N' (ordinary marker) are reserved for department-less positions.
+ *
+ * Security & scale:
+ *  - every value reaching SQL comes from ascii config tables or a
+ *    validated A–Z token; uniqueness enforced by the members.member_code
+ *    UNIQUE key with bounded retries over an indexed probe (O(1));
+ *  - no sequence tables and no table scans — the
+ *    retired per-letter sequence machinery (sql/018) remains in the
+ *    schema for rollback safety but is no longer read or written.
  */
 
 namespace App\Services;
 
 use RuntimeException;
 
+require_once __DIR__ . '/MemberCategory.php';
+
 final class IdentityCodeService
 {
-    private const STAFF_TAIL_MIN = 10000;
-    private const STAFF_TAIL_MAX = 99999;
-    private const MAX_ATTEMPTS = 12;
+    public const TAIL_MIN = 10000;
+    public const TAIL_MAX = 99999;
+    private const MAX_ATTEMPTS = 16;
+
     public const HEAD_MARKER = 'H';
     public const ORDINARY_MARKER = 'N';
 
-    /** Valid single-segment code token: 1-4 uppercase letters/digits. */
+    /** Letters a FREE (department-less) position may never take. */
+    public const RESERVED_FREE_CODES = ['N', 'A', 'B', 'C'];
+
+    /* ================================================================
+     * FORMAT CONTRACT (the only parser/serializer in the codebase)
+     * ================================================================ */
+
+    public const STUDENT_REGEX = '/^[ABC]-[1-9][0-9]{4}$/';
+    public const STAFF_REGEX   = '/^(?:[A-Z]{1,4})+-[1-9][0-9]{4}$/';
+
+    /** Valid single-segment code token: 1-4 uppercase letters. */
     public static function isValidToken(string $token): bool
     {
-        return (bool)preg_match('/^[A-Z0-9]{1,4}$/', $token);
+        return (bool)preg_match('/^[A-Z]{1,4}$/', $token);
     }
 
     /**
-     * Allocate the correct code for a member payload.
-     * Expected keys: age_group, id (optional), plus optional pre-resolved
-     * staff codes via $staffCodes to avoid a re-query inside transactions.
-     *
-     * @param list<string>|null $staffCodes Resolved code segments (ED,H,T…)
+     * @return array{kind:'student',letter:string,tail:string}
+     *       | array{kind:'staff',prefix:string,tail:string}
+     *       | null
      */
-    public static function forMember(
-        \mysqli $conn,
-        array $member,
-        ?array $staffCodes = null
-    ): string {
-        if ($staffCodes === null) {
-            $memberId = (int)($member['id'] ?? 0);
-            $resolved = self::resolveStaffSegments($conn, $memberId);
-            if ($resolved !== null && $resolved !== []) {
-                return self::allocateStaff($conn, $resolved);
-            }
-        } elseif ($staffCodes !== []) {
-            return self::allocateStaff($conn, $staffCodes);
+    public static function parse(?string $code): ?array
+    {
+        $code = trim((string)$code);
+        if ($code === '') {
+            return null;
         }
+        if (preg_match(self::STUDENT_REGEX, $code)) {
+            [$letter, $tail] = explode('-', $code, 2);
+            return ['kind' => 'student', 'letter' => $letter, 'tail' => $tail];
+        }
+        if (preg_match(self::STAFF_REGEX, $code)) {
+            [$prefix, $tail] = explode('-', $code, 2);
+            return ['kind' => 'staff', 'prefix' => $prefix, 'tail' => $tail];
+        }
+        return null;
+    }
 
-        $letter = MemberCategory::letterFor((string)($member['age_group'] ?? ''));
-        return self::allocateStudent($conn, $letter ?? MemberCategory::LETTER_A);
+    public static function isStudentCode(?string $code): bool
+    {
+        $parsed = self::parse($code);
+        return ($parsed['kind'] ?? '') === 'student';
+    }
+
+    public static function isStaffCode(?string $code): bool
+    {
+        $parsed = self::parse($code);
+        return ($parsed['kind'] ?? '') === 'staff';
+    }
+
+    public static function isValidV2(?string $code): bool
+    {
+        return self::parse($code) !== null;
+    }
+
+    /**
+     * Pure prefix composer — deterministic, unit-testable, and the ONLY
+     * place the ordering rule lives.
+     *
+     * @param list<string> $freeLetters   Free-position letters, defined order
+     * @param string|null  $deptCode      Primary department code
+     * @param string|null  $marker        'H'|'N' for the primary department
+     * @param list<string> $extraLetters  Dept position letters, defined order
+     */
+    public static function composePrefix(
+        array $freeLetters,
+        ?string $deptCode,
+        ?string $marker,
+        array $extraLetters
+    ): string {
+        $prefix = implode('', $freeLetters);
+        if ($deptCode !== null && $deptCode !== '' && $marker !== null) {
+            $prefix .= $deptCode . $marker;
+        }
+        foreach ($extraLetters as $letter) {
+            $prefix .= $letter;
+        }
+        return $prefix;
     }
 
     /* ================================================================
-     * STUDENTS — sequential per category letter
+     * ALLOCATION
      * ================================================================ */
 
+    /** Student code: category letter + random unique 5-digit tail. */
     public static function allocateStudent(\mysqli $conn, string $letter): string
     {
-        try {
-            return self::allocateStudentHeld($conn, $letter);
-        } finally {
-            self::releaseCodeLock($conn, strtoupper(trim($letter)));
+        if (!in_array($letter, MemberCategory::letters(), true)) {
+            throw new RuntimeException('Invalid category letter.');
         }
+        return self::allocateWithPrefix($conn, $letter);
     }
 
-    /**
-     * Allocate a student code while KEEPING the per-letter advisory lock
-     * held. Callers that INSERT the member inside a transaction MUST use
-     * this variant and release the lock only after commit/rollback —
-     * otherwise a second registration can read the pre-commit MAX and
-     * allocate the same number. Pair with releaseCodeLock().
-     */
-    public static function allocateStudentHeld(\mysqli $conn, string $letter): string
-    {
-        $letter = strtoupper(trim($letter));
-        if (!preg_match('/^[A-Z]$/', $letter)) {
-            throw new RuntimeException('Invalid member category letter.');
-        }
-
-        $lockName = 'ssms_member_code_' . $letter;
-        $lockStatement = $conn->prepare('SELECT GET_LOCK(?, 8)');
-        if (!$lockStatement) {
-            throw new RuntimeException('Could not prepare code lock.');
-        }
-        try {
-            $lockStatement->bind_param('si', $lockName, $timeout = 8);
-            $lockStatement->execute();
-            $row = $lockStatement->get_result()->fetch_row();
-            if ((int)($row[0] ?? 0) !== 1) {
-                throw new RuntimeException('Registration is busy. Try again.');
-            }
-        } finally {
-            $lockStatement->close();
-        }
-
-        // From here on the lock MUST stay held until the caller releases it.
-        try {
-            return self::nextStudentCode($conn, $letter);
-        } catch (\Throwable $error) {
-            self::releaseCodeLock($conn, $letter);
-            throw $error;
-        }
-    }
-
-    /** Release the per-letter advisory lock (safe to call when not held). */
-    public static function releaseCodeLock(\mysqli $conn, string $letter): void
-    {
-        $letter = strtoupper(trim($letter));
-        if (!preg_match('/^[A-Z]$/', $letter)) {
-            return;
-        }
-        $lockName = 'ssms_member_code_' . $letter;
-        $release = $conn->prepare('SELECT RELEASE_LOCK(?)');
-        if ($release) {
-            $release->bind_param('s', $lockName);
-            $release->execute();
-            $release->close();
-        }
-    }
-
-    /**
-     * Compute the next free {letter}{n} code. Assumes the per-letter
-     * advisory lock is already held.
-     *
-     * Scale: the dedicated member_code_sequences table (migration 018)
-     * gives O(1) atomic allocation per letter. The legacy REGEXP scan of
-     * members remains only as a fallback for deployments where the
-     * migration has not run yet.
-     */
-    private static function nextStudentCode(\mysqli $conn, string $letter): string
-    {
-        $sequenceN = self::bumpSequence($conn, $letter);
-        $start = $sequenceN ?? self::legacyMax($conn, $letter);
-
-        $existsStatement = $conn->prepare(
-            'SELECT 1 FROM members WHERE member_code = ? LIMIT 1'
-        );
-        if (!$existsStatement) {
-            throw new RuntimeException('Could not prepare code check.');
-        }
-        try {
-            // start+1 under the lock is collision-free in practice; the
-            // UNIQUE index + bounded retry covers exotic edge cases such as
-            // manually inserted legacy rows like "A12X" being renamed.
-            for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
-                $candidateN = $start + 1 + $attempt;
-                $code = $letter . (string)$candidateN;
-                $existsStatement->bind_param('s', $code);
-                if (!$existsStatement->execute()) {
-                    throw new RuntimeException('Could not verify member code.');
-                }
-                if (!$existsStatement->get_result()->fetch_row()) {
-                    // Keep the sequence in sync when legacy rows forced the
-                    // retry loop forward (no-op when already current).
-                    if ($sequenceN !== null && $candidateN > $sequenceN) {
-                        self::syncSequence($conn, $letter, $candidateN);
-                    }
-                    return $code;
-                }
-            }
-        } finally {
-            $existsStatement->close();
-        }
-        throw new RuntimeException('Could not allocate a unique member code.');
-    }
-
-    /**
-     * Atomically claim the next sequence number for a letter.
-     * Returns null when the sequence table does not exist yet (deployment
-     * has not run migration 018) so the caller falls back to the legacy
-     * MAX scan.
-     */
-    private static function bumpSequence(\mysqli $conn, string $letter): ?int
-    {
-        $bump = $conn->prepare(
-            'INSERT INTO member_code_sequences (letter, last_n) VALUES (?, 1)
-             ON DUPLICATE KEY UPDATE last_n = last_n + 1'
-        );
-        if (!$bump) {
-            return null; // prepare fails when the table is absent
-        }
-        $bump->bind_param('s', $letter);
-        $ok = false;
-        try {
-            $ok = $bump->execute();
-        } catch (\Throwable $error) {
-            $ok = false;
-        }
-        if (!$ok) {
-            $bump->close();
-            return null;
-        }
-        $bump->close();
-
-        $read = $conn->prepare('SELECT last_n FROM member_code_sequences WHERE letter = ?');
-        if (!$read) {
-            return null;
-        }
-        $read->bind_param('s', $letter);
-        if (!$read->execute()) {
-            $read->close();
-            return null;
-        }
-        $row = $read->get_result()->fetch_assoc();
-        $read->close();
-        return $row ? (int)$row['last_n'] : null;
-    }
-
-    /** Push the sequence forward after the retry loop skipped legacy codes. */
-    private static function syncSequence(\mysqli $conn, string $letter, int $n): void
-    {
-        $statement = $conn->prepare(
-            'UPDATE member_code_sequences SET last_n = ? WHERE letter = ? AND last_n < ?'
-        );
-        if (!$statement) {
-            return;
-        }
-        $statement->bind_param('isi', $n, $letter, $n);
-        try {
-            $statement->execute();
-        } catch (\Throwable $error) {
-            // Non-fatal: the lock + UNIQUE index still guarantee uniqueness.
-        }
-        $statement->close();
-    }
-
-    /** Legacy O(n) scan used only until migration 018 is deployed. */
-    private static function legacyMax(\mysqli $conn, string $letter): int
-    {
-        $statement = $conn->prepare(
-            "SELECT MAX(CAST(SUBSTRING(member_code, 2) AS UNSIGNED)) AS max_n
-             FROM members
-             WHERE member_code REGEXP CONCAT('^', ?, '[0-9]+$')"
-        );
-        if (!$statement) {
-            throw new RuntimeException('Could not prepare code lookup.');
-        }
-        try {
-            $statement->bind_param('s', $letter);
-            if (!$statement->execute()) {
-                throw new RuntimeException('Could not read last member code.');
-            }
-            return (int)($statement->get_result()->fetch_assoc()['max_n'] ?? 0);
-        } finally {
-            $statement->close();
-        }
-    }
-
-    /* ================================================================
-     * STAFF — {DEPT}{H|N}{POS*}-{random 5 digits}
-     * ================================================================ */
-
-    /**
-     * Resolve the code segments for a member from assignments.
-     * Returns null when the member has no staff assignment (student path),
-     * or a non-empty list of validated segments.
-     *
-     * @return list<string>|null
-     */
-    public static function resolveStaffSegments(\mysqli $conn, int $memberId): ?array
-    {
-        if ($memberId <= 0) {
-            return null;
-        }
-        $statement = $conn->prepare(
-            "SELECT d.code AS dept_code, sp.role_code, sp.department_id,
-                    (SELECT COUNT(*) FROM member_staff_positions peers
-                      JOIN staff_positions peer_pos ON peer_pos.id = peers.position_id
-                     WHERE peers.member_id = msp.member_id
-                       AND peer_pos.department_id = sp.department_id
-                       AND peer_pos.role_code = ?
-                       AND peer_pos.is_active = 1) AS is_head_of_dept
-             FROM member_staff_positions msp
-             JOIN staff_positions sp ON sp.id = msp.position_id AND sp.is_active = 1
-             LEFT JOIN departments d ON d.id = sp.department_id AND d.is_active = 1
-             WHERE msp.member_id = ? AND sp.role_code <> ?
-             ORDER BY (sp.department_id IS NULL) ASC, d.sort_order ASC,
-                      sp.sort_order ASC, sp.id ASC"
-        );
-        if (!$statement) {
-            throw new RuntimeException('Could not prepare staff code lookup.');
-        }
-        try {
-            $head = self::HEAD_MARKER;
-            $ordinary = self::ORDINARY_MARKER;
-            $statement->bind_param('sis', $head, $memberId, $ordinary);
-            $statement->execute();
-            $result = $statement->get_result();
-
-            $deptCode = null;
-            $isHead = false;
-            $extras = [];
-            while ($row = $result->fetch_assoc()) {
-                $role = strtoupper((string)$row['role_code']);
-                if (!self::isValidToken($role)) {
-                    continue;
-                }
-                if ($row['dept_code'] !== null && $deptCode === null) {
-                    // Primary (first sorted) department decides the prefix
-                    // and whether this member is its head.
-                    $dept = strtoupper((string)$row['dept_code']);
-                    if (!self::isValidToken($dept)) {
-                        continue;
-                    }
-                    $deptCode = $dept;
-                    $isHead = (int)$row['is_head_of_dept'] > 0;
-                    if ($role !== $head || !$isHead) {
-                        $extras[] = $role;
-                    }
-                    continue;
-                }
-                $extras[] = $role;
-            }
-            $statement->close();
-
-            if ($deptCode === null && $extras === []) {
-                return null;
-            }
-
-            $segments = [];
-            if ($deptCode !== null) {
-                $segments[] = $deptCode;
-                $segments[] = $isHead ? self::HEAD_MARKER : self::ORDINARY_MARKER;
-            }
-            foreach ($extras as $extra) {
-                if (!in_array($extra, $segments, true)) {
-                    $segments[] = $extra;
-                }
-            }
-            return $segments === [] ? null : $segments;
-        } catch (\Throwable $error) {
-            $statement->close();
-            throw $error;
-        }
-    }
-
-    /** @param list<string> $segments Validated A-Z tokens */
+    /** Staff code: composed prefix + random unique 5-digit tail. */
     public static function allocateStaff(\mysqli $conn, array $segments): string
     {
-        foreach ($segments as $segment) {
-            if (!self::isValidToken($segment)) {
-                throw new RuntimeException('Invalid staff code segment.');
-            }
-        }
         $prefix = implode('', $segments);
+        if (!preg_match('/^[A-Z]{1,16}$/', $prefix)) {
+            throw new RuntimeException('Invalid staff code segments.');
+        }
+        return self::allocateWithPrefix($conn, $prefix);
+    }
 
-        $statement = $conn->prepare(
-            'SELECT 1 FROM members WHERE member_code = ? LIMIT 1'
-        );
+    private static function allocateWithPrefix(\mysqli $conn, string $prefix): string
+    {
+        $statement = $conn->prepare('SELECT 1 FROM members WHERE member_code = ? LIMIT 1');
         if (!$statement) {
-            throw new RuntimeException('Could not prepare staff code check.');
+            throw new RuntimeException('Could not prepare code uniqueness probe.');
         }
         try {
             for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
-                $code = $prefix . '-' . (string)random_int(
-                    self::STAFF_TAIL_MIN,
-                    self::STAFF_TAIL_MAX
-                );
+                $code = $prefix . '-' . (string)random_int(self::TAIL_MIN, self::TAIL_MAX);
                 $statement->bind_param('s', $code);
                 if (!$statement->execute()) {
-                    throw new RuntimeException('Could not verify staff code.');
+                    throw new RuntimeException('Could not verify code uniqueness.');
                 }
                 if (!$statement->get_result()->fetch_row()) {
                     return $code;
@@ -386,14 +175,110 @@ final class IdentityCodeService
         } finally {
             $statement->close();
         }
-        throw new RuntimeException('Could not allocate a unique staff code.');
+        throw new RuntimeException('Could not allocate a unique identity code.');
     }
 
+    /* ================================================================
+     * RESOLUTION — member's active positions → prefix segments
+     * ================================================================ */
+
     /**
-     * Regenerate the QR PNG for one member using the canonical generator.
-     * Returns true when a fresh PNG exists at the canonical path. Used by
-     * the migration CLI and the Super Admin hub so QR art never drifts from
-     * the stored code.
+     * Build the prefix segment list for a member from their active
+     * position assignments (v2 order: free → dept segment → dept extras).
+     *
+     * @return list<string>|null Segments ready for allocateStaff()
+     */
+    public static function resolveStaffSegments(\mysqli $conn, int $memberId): ?array
+    {
+        if ($memberId <= 0) {
+            return null;
+        }
+        $statement = $conn->prepare(
+            "SELECT sp.role_code, sp.department_id, d.code AS dept_code, d.sort_order AS dept_sort
+             FROM member_staff_positions msp
+             JOIN staff_positions sp ON sp.id = msp.position_id AND sp.is_active = 1
+             LEFT JOIN departments d ON d.id = sp.department_id AND d.is_active = 1
+             WHERE msp.member_id = ?
+             ORDER BY (sp.department_id IS NULL) DESC, d.sort_order ASC,
+                      sp.sort_order ASC, sp.id ASC"
+        );
+        if (!$statement) {
+            throw new RuntimeException('Could not prepare staff code lookup.');
+        }
+        $statement->bind_param('i', $memberId);
+        $statement->execute();
+        $result = $statement->get_result();
+
+        $freeLetters = [];
+        /** @var array<int,array{code:string,head:bool,extras:list<string>}> $depts */
+        $depts = [];
+        $deptOrder = [];
+        while ($row = $result->fetch_assoc()) {
+            $role = strtoupper((string)$row['role_code']);
+            if (!self::isValidToken($role)) {
+                continue;
+            }
+            if ($row['department_id'] === null || $row['dept_code'] === null) {
+                if (!in_array($role, $freeLetters, true)) {
+                    $freeLetters[] = $role;
+                }
+                continue;
+            }
+            $deptId = (int)$row['department_id'];
+            $dept = strtoupper((string)$row['dept_code']);
+            if (!self::isValidToken($dept)) {
+                continue;
+            }
+            if (!isset($depts[$deptId])) {
+                $depts[$deptId] = ['code' => $dept, 'head' => false, 'extras' => []];
+                $deptOrder[] = $deptId;
+            }
+            if ($role === self::HEAD_MARKER) {
+                $depts[$deptId]['head'] = true;
+            } else {
+                if (!in_array($role, $depts[$deptId]['extras'], true)) {
+                    $depts[$deptId]['extras'][] = $role;
+                }
+            }
+        }
+        $statement->close();
+
+        if ($freeLetters === [] && $deptOrder === []) {
+            return null;
+        }
+
+        $extraLetters = [];
+        $deptCode = null;
+        $marker = null;
+        foreach ($deptOrder as $i => $deptId) {
+            $dept = $depts[$deptId];
+            if ($i === 0) {
+                $deptCode = $dept['code'];
+                $marker = $dept['head'] ? self::HEAD_MARKER : self::ORDINARY_MARKER;
+            }
+            foreach ($dept['extras'] as $letter) {
+                if (!in_array($letter, $extraLetters, true)) {
+                    $extraLetters[] = $letter;
+                }
+            }
+        }
+
+        $prefix = self::composePrefix($freeLetters, $deptCode, $marker, $extraLetters);
+        if ($prefix === '') {
+            return null;
+        }
+        // Segments for allocateStaff: single combined prefix token.
+        return [$prefix];
+    }
+
+    /* ================================================================
+     * QR REGENERATION (unchanged canonical generator)
+     * ================================================================ */
+
+    /**
+     * Regenerate the QR PNG for one member. Returns true when a fresh
+     * PNG exists at the canonical path so QR art never drifts from the
+     * stored code.
      */
     public static function regenerateQr(\mysqli $conn, int $memberId): bool
     {
@@ -439,9 +324,7 @@ final class IdentityCodeService
             @unlink($tmp);
             return is_file($path);
         } catch (\Throwable $error) {
-            if (is_file($tmp)) {
-                @unlink($tmp);
-            }
+            @unlink($tmp);
             return false;
         }
     }
