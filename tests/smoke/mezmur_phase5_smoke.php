@@ -126,10 +126,13 @@ MezmurSubmissionService::takerMayWrite($conn, $auth, '2026-08-25', 'ህናት') 
 $sheet2 = MezmurAttendanceService::fetchSectionSheet($conn, '2026-08-25', 'ህናት', $auth);
 $sheet2['locked'] === true or $fail('sheet must be locked after submit');
 $sheet2['submission_status'] === 'submitted' or $fail('sheet packet status');
-// dept override stays open on web
+// Least privilege (audit 2026-08-28): dept users review but cannot
+// override a lock; only admins can write through it.
 $sheet3 = MezmurAttendanceService::fetchSectionSheet($conn, '2026-08-25', 'ህናት', ['role' => 'mezmur_dept']);
-$sheet3['locked'] === false or $fail('dept must keep override power');
-$pass('submitted packet locks takers, dept keeps override');
+$sheet3['locked'] === true or $fail('dept must NOT override locks (least privilege)');
+$sheet4 = MezmurAttendanceService::fetchSectionSheet($conn, '2026-08-25', 'ህናት', ['role' => 'school_admin']);
+$sheet4['locked'] === false or $fail('school_admin keeps override power');
+$pass('submitted packet locks takers AND dept; only admins override');
 
 // locked upsert refuses without force
 $lockedTry = MezmurSubmissionService::upsert($conn, [
@@ -137,7 +140,7 @@ $lockedTry = MezmurSubmissionService::upsert($conn, [
     'status' => MezmurSubmissionService::STATUS_DRAFT, 'member_count' => 2,
 ]);
 $lockedTry['ok'] === false or $fail('locked upsert must refuse');
-str_contains($lockedTry['message'], 'Only the Mezmur department') or $fail('lock message: ' . $lockedTry['message']);
+str_contains($lockedTry['message'], 'already submitted') or $fail('lock message: ' . $lockedTry['message']);
 $pass('locked upsert refuses with the teacher-style message');
 
 // ── review: reason mandatory for returns ──────────────────────
@@ -166,9 +169,12 @@ $ap['ok'] or $fail('approve failed');
 MezmurSubmissionService::takerMayWrite($conn, $auth, '2026-08-25', 'ህናት') and $fail('approved packet must lock');
 $pass('approve finalizes the packet');
 
-// ── inbox + detail ────────────────────────────────────────────
-$list = MezmurSubmissionService::listPackets($conn, []);
+// ── inbox + detail (paginated contract) ───────────────────────
+$inbox = MezmurSubmissionService::listPackets($conn, []);
+$list = $inbox['items'];
 count($list) === 1 or $fail('inbox should list 1 packet, got ' . count($list));
+$inbox['total'] === 1 or $fail('inbox total');
+$inbox['page'] === 1 && $inbox['total_pages'] === 1 or $fail('inbox pagination shape');
 $list[0]['status'] === 'approved' or $fail('inbox status');
 $list[0]['taker_name'] === 'Taker One' or $fail('inbox taker join');
 $detail = MezmurSubmissionService::detail($conn, $pid);
@@ -190,5 +196,63 @@ $pass('UNIQUE(attendance_date, section) enforced');
 $an = MezmurAttendanceService::analyticsMembers($conn, ['from' => '2026-08-01', 'to' => '2026-08-28']);
 count($an['items']) >= 2 or $fail('analytics members missing');
 $pass('analytics unaffected');
+
+// ══ Audit-phase checks (end-to-end department audit, 2026-08-28) ══
+
+// ── packet lifecycle writes the module audit trail ────────────
+$auditBefore = (int)$conn->query("SELECT COUNT(*) c FROM mezmur_attendance_audit WHERE action = 'packet_upsert'")->fetch_assoc()['c'];
+$pk = MezmurSubmissionService::upsert($conn, [
+    'taker_id' => 1, 'date' => '2026-08-26', 'section' => 'ማዕከዋይ',
+    'status' => 'submitted', 'member_count' => 2,
+    'present' => 2, 'late' => 0, 'absent' => 0, 'excused' => 0,
+]);
+$pk['ok'] or $fail('audit-phase packet upsert');
+$auditAfter = (int)$conn->query("SELECT COUNT(*) c FROM mezmur_attendance_audit WHERE action = 'packet_upsert'")->fetch_assoc()['c'];
+$auditAfter === $auditBefore + 1 or $fail('packet_upsert audit row missing');
+$pass('packet lifecycle audited in mezmur_attendance_audit');
+
+// ── negative / absurd counts are clamped, never stored raw ────
+$pk2 = MezmurSubmissionService::upsert($conn, [
+    'taker_id' => 1, 'date' => '2026-08-27', 'section' => 'ማዕከዋይ',
+    'status' => 'submitted', 'member_count' => -5,
+    'present' => -3, 'late' => 0, 'absent' => 99999999, 'excused' => 0,
+]);
+$pk2['ok'] or $fail('clamped upsert should still succeed');
+$row = $conn->query("SELECT member_count, present_count, absent_count FROM mezmur_submissions WHERE id = " . (int)$pk2['id'])->fetch_assoc();
+(int)$row['member_count'] === 0 or $fail('negative member_count must clamp to 0');
+(int)$row['present_count'] === 0 or $fail('negative present must clamp to 0');
+(int)$row['absent_count'] === 1000000 or $fail('absurd absent must clamp to cap');
+$pass('packet counts clamped to sane bounds');
+
+// ── calendar-real dates only ──────────────────────────────────
+foreach (['2026-02-31', '9999-99-99', '2026-13-01'] as $badDate) {
+    try {
+        MezmurAttendanceService::ensureDay($conn, $badDate, 'rehearsal', null, null, 2);
+        $fail("invalid date $badDate must be rejected");
+    } catch (DomainException $e) { /* expected */ }
+}
+$pass('impossible calendar dates rejected');
+
+// ── inbox pagination is clamped and total-aware ───────────────
+$big = MezmurSubmissionService::listPackets($conn, ['per_page' => 100000]);
+$big['per_page'] === 100 or $fail('per_page must clamp to 100');
+$small = MezmurSubmissionService::listPackets($conn, ['per_page' => 1]);
+count($small['items']) === 1 or $fail('per_page=1 must return 1 item');
+$small['total'] >= 2 && $small['total_pages'] === $small['total'] or $fail('total/total_pages must be consistent');
+$pass('inbox pagination clamped + totals correct');
+
+// ── SQLi payloads stored literally, never executed ────────────
+$conn->query("DELETE FROM mezmur_hymns WHERE title LIKE 'AUDIT%'");
+$evilTitle = "AUDIT' OR 1=1; DROP TABLE mezmur_hymns; --";
+$st = $conn->prepare("INSERT INTO mezmur_hymns (title, category, lyrics, status) VALUES (?, 'general', ?, 'active')");
+$evilLyrics = "line with '; DELETE FROM members; -- inside";
+$st->bind_param('ss', $evilTitle, $evilLyrics);
+$st->execute();
+$st->close();
+$stillThere = (int)$conn->query("SELECT COUNT(*) c FROM mezmur_hymns WHERE title = '" . $conn->real_escape_string($evilTitle) . "'")->fetch_assoc()['c'];
+$stillThere === 1 or $fail('SQLi title must be stored literally');
+$membersAlive = (int)$conn->query("SELECT COUNT(*) c FROM members")->fetch_assoc()['c'];
+$membersAlive >= 5 or $fail('members table must survive');
+$pass('injection payloads stored as inert data');
 
 echo "\nALL FUNCTIONAL CHECKS PASSED\n";

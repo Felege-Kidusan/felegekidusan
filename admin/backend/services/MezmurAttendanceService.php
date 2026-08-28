@@ -51,6 +51,16 @@ final class MezmurAttendanceService
         return $perPage < 1 ? 25 : min($perPage, 100);
     }
 
+    /** Regex shape + calendar-real (rejects 2026-02-31, 9999-99-99). */
+    private static function validDate(string $date): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return false;
+        }
+        [$y, $m, $d] = array_map('intval', explode('-', $date));
+        return checkdate($m, $d, $y);
+    }
+
     /** @return array{from:string,to:string} validated, hard-bounded window */
     private static function window(?string $from, ?string $to): array
     {
@@ -192,7 +202,7 @@ final class MezmurAttendanceService
     /** Get-or-create the day record for a date. */
     public static function ensureDay(\mysqli $conn, string $date, string $programType, ?string $title, ?string $notes, int $userId): array
     {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        if (!self::validDate($date)) {
             throw new \DomainException('Invalid attendance date.');
         }
         $stmt = $conn->prepare("SELECT id, attendance_date, program_type, title, notes FROM mezmur_days WHERE attendance_date = ?");
@@ -253,7 +263,7 @@ final class MezmurAttendanceService
      */
     public static function saveSheet(\mysqli $conn, string $date, array $records, int $userId): array
     {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        if (!self::validDate($date)) {
             throw new \DomainException('Invalid attendance date.');
         }
         if ($date > date('Y-m-d')) {
@@ -394,7 +404,7 @@ final class MezmurAttendanceService
      */
     public static function fetchSectionSheet(\mysqli $conn, string $date, string $section, array $auth): array
     {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        if (!self::validDate($date)) {
             throw new \DomainException('Invalid attendance date.');
         }
         $section = trim($section);
@@ -469,7 +479,7 @@ final class MezmurAttendanceService
      */
     public static function saveSectionSheet(\mysqli $conn, string $date, string $section, array $records, int $userId, bool $ownTransaction = true): array
     {
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        if (!self::validDate($date)) {
             throw new \DomainException('Invalid attendance date.');
         }
         if ($date > date('Y-m-d')) {

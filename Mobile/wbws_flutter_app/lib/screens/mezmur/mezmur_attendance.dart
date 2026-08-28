@@ -771,7 +771,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
                 'Returned by the Mezmur department — you can edit and resubmit. $_returnNote'),
           if (_locked && _members.isNotEmpty && _error == null)
             StatusBanner.warning(
-                '${PacketLock.label(_packetStatus).isEmpty ? _packetStatus : PacketLock.label(_packetStatus)} — view only. Only the Mezmur department can change this.'),
+                '${PacketLock.label(_packetStatus).isEmpty ? _packetStatus : PacketLock.label(_packetStatus)} — view only. Only administrators can change this.'),
 
           if (_members.isNotEmpty)
             Padding(

@@ -749,3 +749,25 @@ boolean mode with prefix wildcards is the engine-side equivalent):
 
 Suite 344/344; live-DB verification: index detected→created→ranked search
 puts title matches first and lyrics are searchable.
+
+### 9. End-to-end department audit hardening (2026-08-28)
+
+Full feature-by-feature audit of the Mezmur module (web API, mobile API,
+services, clients) against SOC2/OWASP practice. Six gaps found & fixed:
+
+1. Audit trail completed — hymn create/update/archive/restore and schema
+   reconcile now write SecurityAuditService events (who/IP/UA/JSON);
+   packet lifecycle (draft/submit/resubmit) writes packet_upsert rows to
+   mezmur_attendance_audit on both insert and update paths.
+2. Least privilege — writing through a LOCKED packet is now an ADMIN
+   power only (WRITE_OVERRIDE_ROLES). The department reviews; it can no
+   longer override approvals. Lock message + app banner updated.
+3. Inbox scale — submissions inbox is paginated (clamped per_page ≤ 100,
+   total + total_pages) instead of an unbounded LIMIT 200.
+4. Integrity — packet counters clamped to [0, 1_000_000]; impossible
+   calendar dates rejected via checkdate() (single validDate helper).
+5. Version marker bumped to phase5-audit25 on web + mobile surfaces.
+
+Verified: suite 359/359; live-DB smoke ALL PASSED (audit rows, clamps,
+date rejection, pagination, injection payloads stored inert). Full report
+in ANALYSIS/14-mezmur-department-audit.md.

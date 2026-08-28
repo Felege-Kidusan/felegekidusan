@@ -117,7 +117,7 @@ class MezmurPhase5Tests(unittest.TestCase):
 
     def test_upsert_lock_semantics_match_teachers(self):
         self.assertIn(
-            "This attendance is already submitted. Only the Mezmur department can change it.",
+            "This attendance is already submitted. Only administrators can change it.",
             self.sub_service,
         )
         # open states: draft / incomplete / revision_needed
@@ -152,7 +152,7 @@ class MezmurPhase5Tests(unittest.TestCase):
         self.assertIn("saveSectionSheet", self.route)
         self.assertIn("MezmurSubmissionService::takerMayWrite", self.route)
         # 409 lock + idempotency + rate limiting intact
-        self.assertIn("err('This attendance is already submitted. Only the Mezmur department can change it.', 409);", self.route)
+        self.assertIn("err('This attendance is already submitted. Only administrators can change it.', 409);", self.route)
         self.assertIn("apiIdempotencyBegin(", self.route)
         self.assertIn("isApiRateLimited('mezmur_sheet_save'", self.route)
 
@@ -590,3 +590,121 @@ class MezmurAdvancedSearchTests(unittest.TestCase):
         self.assertIn("var seq = ++lib.seq", self.js)  # stale-response guard
         self.assertIn("<mark>$1</mark>", self.js)   # Telegram-style highlight
         self.assertIn("h.snippet", self.js)
+
+
+class MezmurAuditHardeningTests(unittest.TestCase):
+    """End-to-end department audit (2026-08-28): industry-standard
+    hardening applied after the full feature-by-feature review:
+    complete audit trail, least-privilege lock overrides, clamped
+    aggregates, calendar-real dates, and a scale-safe paginated inbox.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        cls.sub_service = (
+            ROOT / "admin/backend/services/MezmurSubmissionService.php"
+        ).read_text(encoding="utf-8")
+        cls.att_service = (
+            ROOT / "admin/backend/services/MezmurAttendanceService.php"
+        ).read_text(encoding="utf-8")
+
+    # ── audit trail: every decision-grade mutation is logged ──
+    def test_controller_loads_audit_service(self):
+        self.assertIn(
+            "require_once __DIR__ . '/backend/services/SecurityAuditService.php';",
+            self.api,
+        )
+
+    def test_hymn_library_writes_are_audited(self):
+        for action in (
+            "Mezmur Hymn Created",
+            "Mezmur Hymn Updated",
+            "Mezmur Hymn Archived",
+            "Mezmur Hymn Restored",
+        ):
+            self.assertIn(action, self.api)
+        self.assertIn("'mezmur_hymn', $id", self.api.replace("\n", " ").replace("  ", " ") or self.api)
+
+    def test_schema_reconcile_is_audited(self):
+        self.assertIn("Mezmur Schema Reconciled", self.api)
+
+    def test_review_decisions_are_audited(self):
+        self.assertIn("Mezmur Submission Reviewed", self.sub_service)
+        self.assertIn("previous_status", self.sub_service)
+
+    def test_packet_lifecycle_is_audited(self):
+        self.assertIn("packet_upsert", self.sub_service)
+        self.assertIn("auditPacket", self.sub_service)
+        # both write paths (update + insert) record the trail
+        self.assertEqual(self.sub_service.count("self::auditPacket("), 2)
+
+    # ── least privilege: lock override is an admin power ──────
+    def test_write_override_is_admin_only(self):
+        self.assertIn(
+            "private const WRITE_OVERRIDE_ROLES = ['school_admin', 'super_admin'];",
+            self.sub_service,
+        )
+        override_fn = self.sub_service.split("function staffCanOverride")[1].split("}")[0]
+        self.assertIn("WRITE_OVERRIDE_ROLES", override_fn)
+        # review stays open to the department...
+        self.assertIn(
+            "private const REVIEW_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];",
+            self.sub_service,
+        )
+
+    def test_web_save_sheet_force_gated_to_admins(self):
+        self.assertNotIn("'force' => true", self.api)
+        self.assertIn(
+            "in_array($mezmurRole, ['super_admin', 'school_admin'], true)",
+            self.api,
+        )
+
+    def test_mobile_route_never_force_overrides(self):
+        self.assertNotIn("'force'", self.route)
+
+    # ── integrity: clamps + calendar-real dates ───────────────
+    def test_packet_counts_are_clamped(self):
+        self.assertIn("max(0, min(1000000, (int)($opts['member_count'] ?? 0)))", self.sub_service)
+        self.assertIn("max(0, min(1000000, (int)($opts['absent'] ?? 0)))", self.sub_service)
+
+    def test_dates_are_calendar_real(self):
+        self.assertIn("checkdate($m, $d, $y)", self.att_service)
+        self.assertIn("checkdate($m, $d, $y)", self.sub_service)
+        # every date guard in the attendance service goes through the
+        # calendar-real helper (regex lives only inside validDate itself)
+        self.assertGreaterEqual(self.att_service.count("self::validDate($date)"), 4)
+        self.assertEqual(
+            self.att_service.count("preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $date)"), 1
+        )
+
+    # ── scale: inbox is paginated, bounded, total-aware ───────
+    def test_inbox_is_paginated(self):
+        self.assertIn("LIMIT ? OFFSET ?", self.sub_service)
+        self.assertIn("COUNT(*) c FROM mezmur_submissions", self.sub_service)
+        self.assertIn("if ($perPage > 100) $perPage = 100;", self.sub_service)
+        self.assertNotIn("LIMIT 200", self.sub_service)
+        self.assertIn("'total_pages'", self.sub_service)
+
+    def test_submissions_endpoint_exposes_pagination(self):
+        block = self.api.split("case 'submissions_list':")[1].split("case 'submission_detail':")[0]
+        self.assertIn("'page' =>", block)
+        self.assertIn("'per_page' =>", block)
+        self.assertIn("mezmur_respond(['status' => 'success'] + $out);", block)
+
+    def test_overview_uses_bounded_recent_packets(self):
+        self.assertIn("'per_page' => 5", self.api)
+
+    # ── deployment visibility ─────────────────────────────────
+    def test_version_marker_bumped_both_surfaces(self):
+        self.assertIn("'phase5-audit25'", self.api)
+        self.assertIn("'phase5-audit25'", self.route)
+
+    # ── prepared statements remain the only query path ────────
+    def test_no_string_interpolated_user_data_in_sql(self):
+        for src in (self.sub_service, self.att_service):
+            # no $_GET/$_POST/$_REQUEST reaching into SQL strings
+            self.assertNotIn("$_GET", src)
+            self.assertNotIn("$_POST", src)
+            self.assertNotIn("$_REQUEST", src)

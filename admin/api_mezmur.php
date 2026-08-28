@@ -57,7 +57,7 @@ set_exception_handler(static function (\Throwable $e): void {
  * error when the deployment is stale (missing migrations / old code).
  * Bump when the mezmur API contract changes.
  */
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-schema24');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-audit25');
 define('MEZMUR_SCHEMA_MIN', 24); // highest migration the mezmur module relies on
 
 function mezmur_respond(array $payload, int $code = 200): void
@@ -103,6 +103,7 @@ require_once __DIR__ . '/backend/services/MezmurSchemaReconciler.php';
 // fatals with "class not found" BEFORE the try/catch (the incident
 // the host masked as the generic ref-JSON).
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
+require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
@@ -212,6 +213,11 @@ try {
 
         case 'migrate': {
             $result = \App\Services\MezmurSchemaReconciler::apply($conn);
+            \App\Services\SecurityAuditService::record(
+                $conn, 'Mezmur Schema Reconciled',
+                ['applied' => $result['applied'], 'failed' => $result['failed']],
+                'mezmur_schema', null
+            );
             mezmur_respond([
                 'status' => 'success',
                 'message' => empty($result['failed'])
@@ -431,6 +437,11 @@ try {
                 $ok = $stmt->execute();
                 $stmt->close();
                 if (!$ok) mezmur_respond(['status' => 'error', 'message' => 'Unable to update the hymn.']);
+                \App\Services\SecurityAuditService::record(
+                    $conn, 'Mezmur Hymn Updated',
+                    ['id' => $id, 'title' => mb_substr($title, 0, 255), 'category' => $category],
+                    'mezmur_hymn', $id
+                );
                 mezmur_respond(['status' => 'success', 'message' => 'Hymn updated.', 'id' => $id]);
             } else {
                 $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE LOWER(title) = LOWER(?)");
@@ -447,6 +458,11 @@ try {
                 $newId = $ok ? (int)$stmt->insert_id : 0;
                 $stmt->close();
                 if (!$ok) mezmur_respond(['status' => 'error', 'message' => 'Unable to save the hymn.']);
+                \App\Services\SecurityAuditService::record(
+                    $conn, 'Mezmur Hymn Created',
+                    ['id' => $newId, 'title' => mb_substr($title, 0, 255), 'category' => $category],
+                    'mezmur_hymn', $newId
+                );
                 mezmur_respond(['status' => 'success', 'message' => 'Hymn added to the library.', 'id' => $newId]);
             }
         }
@@ -465,6 +481,11 @@ try {
             $affected = $stmt->affected_rows;
             $stmt->close();
             if (!$ok || $affected === 0) mezmur_respond(['status' => 'error', 'message' => 'Hymn not found or already in that state.']);
+            \App\Services\SecurityAuditService::record(
+                $conn, $status === 'archived' ? 'Mezmur Hymn Archived' : 'Mezmur Hymn Restored',
+                ['id' => $id, 'new_status' => $status],
+                'mezmur_hymn', $id
+            );
             mezmur_respond([
                 'status' => 'success',
                 'message' => $status === 'archived' ? 'Hymn archived.' : 'Hymn restored.',
@@ -547,7 +568,10 @@ try {
                         'late' => $counts['late'],
                         'absent' => $counts['absent'],
                         'excused' => $counts['excused'],
-                        'force' => true, // web dept users keep override power
+                        // Least privilege: only admins may override a
+                        // locked (approved/rejected) packet — the review
+                        // lock is what makes maker-checker meaningful.
+                        'force' => in_array($mezmurRole, ['super_admin', 'school_admin'], true),
                     ]);
                     if (empty($packet['ok'])) {
                         throw new \DomainException($packet['message'] ?? 'Could not update the attendance packet.');
@@ -677,19 +701,21 @@ try {
                 'prev_month' => $aggWindow($conn, $prevStart, $prevEnd),
                 'recent_days' => $recentDays,
                 'recent_hymns' => $recentHymns,
-                'recent_packets' => array_slice(MezmurSubmissionService::listPackets($conn, []), 0, 5),
+                'recent_packets' => array_slice(MezmurSubmissionService::listPackets($conn, ['per_page' => 5])['items'], 0, 5),
             ]);
         }
 
         // ── SUBMISSIONS INBOX (dept review queue) ──────────────
         case 'submissions_list': {
-            $items = MezmurSubmissionService::listPackets($conn, [
+            $out = MezmurSubmissionService::listPackets($conn, [
                 'status' => (string)($_GET['status'] ?? ''),
                 'from' => (string)($_GET['from'] ?? ''),
                 'to' => (string)($_GET['to'] ?? ''),
                 'section' => (string)($_GET['section'] ?? ''),
+                'page' => $_GET['page'] ?? 1,
+                'per_page' => $_GET['per_page'] ?? 50,
             ]);
-            mezmur_respond(['status' => 'success', 'items' => $items]);
+            mezmur_respond(['status' => 'success'] + $out);
         }
 
         case 'submission_detail': {

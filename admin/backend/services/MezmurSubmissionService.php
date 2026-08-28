@@ -33,6 +33,14 @@ final class MezmurSubmissionService
     /** Mezmur dept + admins review/override (edu_dept analogue). */
     private const REVIEW_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
 
+    /**
+     * Least privilege (audit 2026-08-28): REVIEWING a packet stays open
+     * to the whole department, but OVERRIDING a locked packet (writing
+     * through an approved/rejected state) is an admin power only — the
+     * lock is what makes maker-checker meaningful.
+     */
+    private const WRITE_OVERRIDE_ROLES = ['school_admin', 'super_admin'];
+
     private const SECTION_MAX = 80;
 
     public static function normalizeStatus(?string $status): string
@@ -60,7 +68,7 @@ final class MezmurSubmissionService
     public static function staffCanOverride(array $auth): bool
     {
         $role = (string)($auth['rol'] ?? $auth['role'] ?? '');
-        return in_array($role, self::REVIEW_ROLES, true);
+        return in_array($role, self::WRITE_OVERRIDE_ROLES, true);
     }
 
     public static function canReview(array $auth): bool
@@ -106,7 +114,31 @@ final class MezmurSubmissionService
 
     private static function validDate(string $date): bool
     {
-        return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $date);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return false;
+        }
+        // Calendar-real dates only (rejects 2026-02-31, 9999-99-99...).
+        [$y, $m, $d] = array_map('intval', explode('-', $date));
+        return checkdate($m, $d, $y);
+    }
+
+    /** Immutable module trail for packet lifecycle (draft/submit/lock overrides). */
+    private static function auditPacket(\mysqli $conn, string $date, string $section, int $takerId, string $status, int $count): void
+    {
+        try {
+            $details = mb_substr("section=$section status=$status marked=$count", 0, 500);
+            $stmt = $conn->prepare("INSERT INTO mezmur_attendance_audit (session_id, actor_id, action, details) VALUES (?,?,?,?)");
+            if (!$stmt) {
+                return;
+            }
+            $sessionId = null;
+            $action = 'packet_upsert';
+            $stmt->bind_param('iiss', $sessionId, $takerId, $action, $details);
+            $stmt->execute();
+            $stmt->close();
+        } catch (\Throwable $e) {
+            error_log('[mezmur-audit] ' . $e->getMessage());
+        }
     }
 
     // ── packet reads ────────────────────────────────────────────
@@ -242,11 +274,11 @@ final class MezmurSubmissionService
         if ($status === self::STATUS_DRAFT) {
             $status = self::STATUS_INCOMPLETE;
         }
-        $count = (int)($opts['member_count'] ?? 0);
-        $present = (int)($opts['present'] ?? 0);
-        $late = (int)($opts['late'] ?? 0);
-        $absent = (int)($opts['absent'] ?? 0);
-        $excused = (int)($opts['excused'] ?? 0);
+        $count = max(0, min(1000000, (int)($opts['member_count'] ?? 0)));
+        $present = max(0, min(1000000, (int)($opts['present'] ?? 0)));
+        $late = max(0, min(1000000, (int)($opts['late'] ?? 0)));
+        $absent = max(0, min(1000000, (int)($opts['absent'] ?? 0)));
+        $excused = max(0, min(1000000, (int)($opts['excused'] ?? 0)));
         $opId = isset($opts['client_op_id']) ? mb_substr((string)$opts['client_op_id'], 0, 64) : null;
         if ($opId === '') {
             $opId = null;
@@ -290,7 +322,7 @@ final class MezmurSubmissionService
                     'ok' => false,
                     'id' => $existingId,
                     'status' => self::normalizeStatus($curStatus),
-                    'message' => 'This attendance is already submitted. Only the Mezmur department can change it.',
+                    'message' => 'This attendance is already submitted. Only administrators can change it.',
                 ];
             }
             try {
@@ -310,6 +342,9 @@ final class MezmurSubmissionService
             $up->bind_param('siiiiiissi', $status, $takerId, $count, $present, $late, $absent, $excused, $opId, $submittedAt, $existingId);
             $ok = $up->execute();
             $up->close();
+            if ($ok) {
+                self::auditPacket($conn, $date, $section, $takerId, $status, $count);
+            }
             return [
                 'ok' => (bool)$ok,
                 'id' => $existingId,
@@ -352,6 +387,9 @@ final class MezmurSubmissionService
         $ok = $ins->execute();
         $id = (int)$ins->insert_id;
         $ins->close();
+        if ($ok) {
+            self::auditPacket($conn, $date, $section, $takerId, $status, $count);
+        }
         return [
             'ok' => (bool)$ok,
             'id' => $id,
@@ -449,11 +487,19 @@ final class MezmurSubmissionService
     // ── inbox / detail ──────────────────────────────────────────
 
     /**
-     * @param array{status?:string,from?:string,to?:string,section?:string} $filters
-     * @return list<array<string,mixed>>
+     * Paginated inbox. Scale-safe: clamped page sizes, total count for
+     * pagination UI, newest activity first.
+     *
+     * @param array{status?:string,from?:string,to?:string,section?:string,page?:int|string,per_page?:int|string} $filters
+     * @return array{items:list<array<string,mixed>>,total:int,page:int,total_pages:int,per_page:int}
      */
     public static function listPackets(\mysqli $conn, array $filters): array
     {
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $perPage = (int)($filters['per_page'] ?? 50);
+        if ($perPage < 1) $perPage = 50;
+        if ($perPage > 100) $perPage = 100;
+
         $where = ['1=1'];
         $params = [];
         $types = '';
@@ -484,6 +530,31 @@ final class MezmurSubmissionService
             $types .= 's';
         }
 
+        $whereSql = implode(' AND ', $where);
+        $empty = ['items' => [], 'total' => 0, 'page' => $page, 'total_pages' => 1, 'per_page' => $perPage];
+
+        try {
+            $cstmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_submissions ms WHERE $whereSql");
+            if (!$cstmt) {
+                return $empty;
+            }
+            if ($params) {
+                $cstmt->bind_param($types, ...$params);
+            }
+            $cstmt->execute();
+            $total = (int)$cstmt->get_result()->fetch_assoc()['c'];
+            $cstmt->close();
+        } catch (\Throwable $e) {
+            return $empty;
+        }
+        if ($total === 0) {
+            return $empty;
+        }
+
+        $totalPages = max(1, (int)ceil($total / $perPage));
+        if ($page > $totalPages) $page = $totalPages;
+        $offset = ($page - 1) * $perPage;
+
         $sql = "SELECT ms.id, ms.attendance_date, ms.section, ms.taker_id, ms.status,
                        ms.member_count, ms.present_count, ms.late_count, ms.absent_count,
                        ms.excused_count, ms.submitted_at, ms.reviewed_by, ms.reviewed_at,
@@ -493,18 +564,16 @@ final class MezmurSubmissionService
                 FROM mezmur_submissions ms
                 LEFT JOIN users u ON ms.taker_id = u.id
                 LEFT JOIN users rv ON ms.reviewed_by = rv.id
-                WHERE " . implode(' AND ', $where) . "
+                WHERE $whereSql
                 ORDER BY ms.updated_at DESC, ms.id DESC
-                LIMIT 200";
+                LIMIT ? OFFSET ?";
 
         try {
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
-                return [];
+                return $empty;
             }
-            if ($params) {
-                $stmt->bind_param($types, ...$params);
-            }
+            $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
             $stmt->execute();
             $rows = [];
             $r = $stmt->get_result();
@@ -512,9 +581,9 @@ final class MezmurSubmissionService
                 $rows[] = self::presentRow($row);
             }
             $stmt->close();
-            return $rows;
+            return ['items' => $rows, 'total' => $total, 'page' => $page, 'total_pages' => $totalPages, 'per_page' => $perPage];
         } catch (\Throwable $e) {
-            return [];
+            return $empty;
         }
     }
 
