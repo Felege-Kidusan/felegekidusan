@@ -1,0 +1,445 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
+import 'api_service.dart';
+import 'local_db.dart';
+
+/// Local-first hymn library (Telegram / Google Drive model).
+///
+///   UI ──read──▶ SQLite (0 ms, works in airplane mode)
+///   UI ──write─▶ SQLite + outbox (instant, then background push)
+///   sync engine ▶ delta pull (change-token cursor) + lazy lyrics
+///
+/// The server stays the authority: every pull upserts by id, every
+/// push carries an idempotency key, and offline edits that collide
+/// with a newer server revision surface as a conflict instead of a
+/// silent overwrite (server copy wins + audit-log entry).
+class HymnStore extends ChangeNotifier {
+  static final HymnStore _instance = HymnStore._internal();
+  factory HymnStore() => _instance;
+  HymnStore._internal();
+
+  final _api = ApiService();
+  final _db = LocalDb();
+
+  bool _pulling = false;
+  bool get pulling => _pulling;
+
+  /// Roles that curate the library (the server re-checks every write).
+  static const _writeRoles = {'mezmur_dept', 'school_admin', 'super_admin'};
+  bool get canEdit => _writeRoles.contains(_api.userRole);
+
+  // ── local reads (never touch the network) ───────────────────
+
+  Future<List<Map<String, dynamic>>> hymns({
+    String? search,
+    String? category,
+    bool includeArchived = false,
+  }) =>
+      _db.getLocalHymns(
+        search: search,
+        category: category,
+        includeArchived: includeArchived,
+      );
+
+  Future<Map<String, dynamic>?> hymn(int id) => _db.getLocalHymn(id);
+
+  Future<List<Map<String, dynamic>>> categories({bool activeOnly = true}) =>
+      _db.getLocalCategories(activeOnly: activeOnly);
+
+  Future<int> pendingOpsCount() => _db.getPendingHymnOpsCount();
+
+  // ── optimistic writes (instant UI, queued push) ─────────────
+
+  /// Save a hymn: local store first (0 ms), push queued in the outbox.
+  /// Returns an error string, or null when saved locally.
+  Future<String?> saveHymn(Map<String, dynamic> hymn,
+      {int? baseRevision}) async {
+    final title = '${hymn['title'] ?? ''}'.trim();
+    if (title.isEmpty) return 'Title is required.';
+    if (title.length > 255) return 'Title is too long.';
+
+    final opPayload = Map<String, dynamic>.from(hymn);
+    if (baseRevision != null) opPayload['base_revision'] = baseRevision;
+
+    final localId = _localId(hymn);
+    opPayload['id'] = localId;
+
+    // Coalesce: re-saving an unsynced row replaces its queued create
+    // instead of stacking a second one (offline create + offline edit).
+    if (localId < 0) {
+      final prior = await _db.getPendingHymnSavesForLocalId(localId);
+      if (prior.isNotEmpty) {
+        final oldest = prior.first;
+        for (final dup in prior.skip(1)) {
+          await _db.dropHymnOp(_asInt(dup['id']));
+        }
+        opPayload['client_op_id'] = '${oldest['client_op_id'] ?? ''}';
+        await _db.updateHymnOpPayload(_asInt(oldest['id']), opPayload);
+        await _db.upsertHymns([
+          {
+            'id': localId,
+            'title': title,
+            'title_am': '${hymn['title_am'] ?? ''}'.isEmpty
+                ? null
+                : hymn['title_am'],
+            'category': '${hymn['category'] ?? ''}'.isEmpty
+                ? 'general'
+                : hymn['category'],
+            'reference': '${hymn['reference'] ?? ''}'.isEmpty
+                ? null
+                : hymn['reference'],
+            'lyrics': '${hymn['lyrics'] ?? ''}'.isEmpty ? null : hymn['lyrics'],
+            'status': hymn['status'] ?? 'active',
+            'revision': baseRevision ?? _asInt(hymn['revision']),
+            'updated_at': '',
+          }
+        ]);
+        notifyListeners();
+        unawaited(pushPending().catchError((_) {}));
+        return null;
+      }
+    }
+
+    await _db.upsertHymns([
+      {
+        'id': localId,
+        'title': title,
+        'title_am':
+            '${hymn['title_am'] ?? ''}'.isEmpty ? null : hymn['title_am'],
+        'category': '${hymn['category'] ?? ''}'.isEmpty
+            ? 'general'
+            : hymn['category'],
+        'reference': '${hymn['reference'] ?? ''}'.isEmpty
+            ? null
+            : hymn['reference'],
+        'lyrics':
+            '${hymn['lyrics'] ?? ''}'.isEmpty ? null : hymn['lyrics'],
+        'status': hymn['status'] ?? 'active',
+        'revision': baseRevision ?? _asInt(hymn['revision']),
+        'updated_at': '',
+      }
+    ]);
+    await _db.enqueueHymnOp('hymn_save', opPayload);
+    notifyListeners();
+    unawaited(pushPending().catchError((_) {}));
+    return null;
+  }
+
+  Future<String?> setHymnStatus(int id, String status) async {
+    final local = await _db.getLocalHymn(id);
+    if (local == null) return 'Hymn not found on this device yet.';
+    await _db.upsertHymns([
+      {...local, 'status': status, 'revision': _asInt(local['revision']) + 1}
+    ]);
+    if (id < 0) {
+      // Unsynced local row: fold the status into its queued create.
+      final saves = await _db.getPendingHymnSavesForLocalId(id);
+      if (saves.isNotEmpty) {
+        try {
+          final payload = Map<String, dynamic>.from(
+              jsonDecode('${saves.first['payload_json'] ?? '{}'}'));
+          payload['status'] = status;
+          await _db.updateHymnOpPayload(_asInt(saves.first['id']), payload);
+        } catch (_) {}
+      }
+    } else {
+      await _db.enqueueHymnOp('hymn_status', {'id': id, 'status': status});
+    }
+    notifyListeners();
+    unawaited(pushPending().catchError((_) {}));
+    return null;
+  }
+
+  Future<String?> saveCategory(Map<String, dynamic> category) async {
+    final name = '${category['name'] ?? ''}'.trim();
+    if (name.isEmpty) return 'Category name is required.';
+    if (name.length > 50) return 'Category name is too long.';
+
+    final existing = await _db.getLocalCategories(activeOnly: false);
+    for (final c in existing) {
+      if ('${c['name']}'.toLowerCase() == name.toLowerCase() &&
+          _asInt(c['id']) != _asInt(category['id'])) {
+        return 'A category with this name already exists.';
+      }
+    }
+
+    final localId = _localId(category);
+    await _db.upsertCategoryLocal({
+      'id': localId,
+      'name': name,
+      'sort_order': _asInt(category['sort_order']),
+      'is_active': 1,
+    });
+    await _db.enqueueHymnOp(
+        'category_save', {'id': category['id'] ?? 0, 'name': name});
+    notifyListeners();
+    unawaited(pushPending().catchError((_) {}));
+    return null;
+  }
+
+  Future<String?> setCategoryStatus(int id, bool active) async {
+    final rows = await _db.getLocalCategories(activeOnly: false);
+    Map<String, dynamic>? row;
+    for (final c in rows) {
+      if (_asInt(c['id']) == id) {
+        row = c;
+        break;
+      }
+    }
+    if (row == null) return 'Category not found on this device yet.';
+    await _db.upsertCategoryLocal({...row, 'is_active': active ? 1 : 0});
+    await _db
+        .enqueueHymnOp('category_status', {'id': id, 'active': active});
+    notifyListeners();
+    unawaited(pushPending().catchError((_) {}));
+    return null;
+  }
+
+  // ── outbox drain (Gmail pattern: one worker, ordered push) ──
+
+  Completer<int>? _pushInflight;
+
+  Future<int> pushPending() async {
+    if (_pushInflight != null) return _pushInflight!.future;
+    final c = Completer<int>();
+    _pushInflight = c;
+    try {
+      var pushed = 0;
+      for (var guard = 0; guard < 50; guard++) {
+        final ops = await _db.getPendingHymnOps();
+        if (ops.isEmpty) break;
+        var progress = false;
+        for (final op in ops) {
+          final done = await _pushOne(op);
+          if (done) {
+            pushed++;
+            progress = true;
+          }
+        }
+        if (!progress) break;
+      }
+      if (!c.isCompleted) c.complete(pushed);
+      return pushed;
+    } finally {
+      _pushInflight = null;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> _pushOne(Map<String, dynamic> op) async {
+    final id = _asInt(op['id']);
+    final kind = '${op['op'] ?? ''}';
+    Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode('${op['payload_json'] ?? '{}'}');
+      payload = decoded is Map ? Map<String, dynamic>.from(decoded) : {};
+    } catch (_) {
+      await _db.dropHymnOp(id); // unreadable payload: drop, never loop
+      return false;
+    }
+    final opId = '${payload['client_op_id'] ?? op['client_op_id'] ?? ''}';
+
+    try {
+      switch (kind) {
+        case 'hymn_save':
+          final baseRevision = payload['base_revision'] is int
+              ? payload['base_revision'] as int
+              : int.tryParse('${payload['base_revision'] ?? ''}');
+          final localId = _asInt(payload['id']);
+          final res = await _api.saveMezmurHymn(payload,
+              clientOpId: opId,
+              baseRevision:
+                  baseRevision != null && baseRevision > 0 ? baseRevision : null);
+          if (res.success) {
+            final item = _itemFrom(res.data);
+            if (item != null) {
+              await _db.upsertHymns([item]);
+              await _dropLocalPlaceholder(localId);
+            }
+            await _db.markHymnOpSynced(id);
+            await _db.logSync('hymn_save', '${payload['title'] ?? ''}', 'ok');
+            return true;
+          }
+          if (res.statusCode == 409) {
+            // Server moved on while we were offline: server copy wins.
+            final item = _itemFrom(res.data);
+            if (item != null) await _db.upsertHymns([item]);
+            await _dropLocalPlaceholder(localId);
+            await _db.dropHymnOp(id);
+            await _db.logSync('hymn_save',
+                'conflict — server copy kept: ${payload['title'] ?? ''}',
+                'conflict');
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false;
+          }
+          // Permanent validation failure (duplicate title, too long…).
+          await _db.logSync('hymn_save',
+              '${res.message ?? 'Rejected'}: ${payload['title'] ?? ''}',
+              'error');
+          await _db.dropHymnOp(id);
+          return false;
+        case 'hymn_status':
+          if (_asInt(payload['id']) <= 0) {
+            await _db.dropHymnOp(id); // never reached the server: nothing to flip
+            return true;
+          }
+          final res = await _api.setMezmurHymnStatus(
+              _asInt(payload['id']), '${payload['status'] ?? ''}',
+              clientOpId: opId);
+          if (res.success || res.statusCode == 409) {
+            final item = _itemFrom(res.data);
+            if (item != null) await _db.upsertHymns([item]);
+            await _db.markHymnOpSynced(id);
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false;
+          }
+          await _db.logSync('hymn_status', res.message ?? 'Rejected', 'error');
+          await _db.dropHymnOp(id);
+          return false;
+        case 'category_save':
+          final res =
+              await _api.saveMezmurCategory(payload, clientOpId: opId);
+          if (res.success) {
+            final item = _itemFrom(res.data);
+            if (item != null) await _db.upsertCategoryLocal(item);
+            final catLocalId = _asInt(payload['id']);
+            if (catLocalId < 0) {
+              final db = await _db.database;
+              await db.delete('cached_mezmur_categories',
+                  where: 'id = ?', whereArgs: [catLocalId]);
+            }
+            await _db.markHymnOpSynced(id);
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false;
+          }
+          await _db.logSync('category_save', res.message ?? 'Rejected', 'error');
+          await _db.dropHymnOp(id);
+          return false;
+        case 'category_status':
+          final res = await _api.setMezmurCategoryStatus(
+              _asInt(payload['id']), payload['active'] == true,
+              clientOpId: opId);
+          if (res.success || res.statusCode == 409) {
+            await _db.markHymnOpSynced(id);
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false;
+          }
+          await _db.logSync(
+              'category_status', res.message ?? 'Rejected', 'error');
+          await _db.dropHymnOp(id);
+          return false;
+        default:
+          await _db.dropHymnOp(id);
+          return false;
+      }
+    } catch (_) {
+      await _db.failHymnOp(id, 'network');
+      return false;
+    }
+  }
+
+  Map<String, dynamic>? _itemFrom(dynamic data) {
+    if (data is Map && data['item'] is Map) {
+      return Map<String, dynamic>.from(data['item']);
+    }
+    return null;
+  }
+
+  Future<void> _dropLocalPlaceholder(int localId) async {
+    if (localId >= 0) return;
+    final db = await _db.database;
+    await db.delete('cached_hymns', where: 'id = ?', whereArgs: [localId]);
+  }
+
+  // ── delta pull (change-token cursor + lazy lyrics) ──────────
+
+  Future<void> pullChanges({int lyricsBatch = 15}) async {
+    if (!_api.isLoggedIn || _pulling) return;
+    _pulling = true;
+    try {
+      final cursor = await _db.getHymnSyncCursor();
+      // Rows with queued local edits are protected from server deltas.
+      final protect = <int>{};
+      for (final op in await _db.getPendingHymnOps()) {
+        try {
+          final payload = jsonDecode('${op['payload_json'] ?? '{}'}');
+          if (payload is Map) {
+            final pid = int.tryParse('${payload['id'] ?? 0}') ?? 0;
+            if (pid > 0) protect.add(pid);
+          }
+        } catch (_) {}
+      }
+      final res = await _api.getMezmurHymnsChanges(cursor: cursor);
+      if (res.success && res.data is Map) {
+        final data = Map<String, dynamic>.from(res.data);
+        final items = (data['items'] is List) ? data['items'] as List : [];
+        await _db.upsertHymns(items, protectIds: protect);
+        final next = '${data['next_cursor'] ?? ''}';
+        if (next.isNotEmpty) await _db.setHymnSyncCursor(next);
+      }
+      // Categories: small canonical list — refresh on every pull.
+      final cats = await _api.getMezmurCategories();
+      if (cats.success && cats.data is Map && cats.data['items'] is List) {
+        await _db.upsertCategories(cats.data['items'] as List);
+      }
+      // Lazy lyrics: bounded, resumable batch per cycle (Telegram-style
+      // "download media as you go" — keeps the first sync seconds-fast).
+      final missing = await _db.getHymnsMissingLyrics(lyricsBatch);
+      for (final h in missing) {
+        try {
+          final one = await _api.getMezmurHymn(_asInt(h['id']));
+          if (one.success && one.data is Map && one.data['item'] is Map) {
+            final item = Map<String, dynamic>.from(one.data['item']);
+            await _db.updateHymnLyrics(
+              _asInt(item['id']),
+              '${item['lyrics'] ?? ''}',
+              _asInt(item['revision']),
+            );
+          }
+        } catch (_) {}
+      }
+      notifyListeners();
+    } catch (_) {
+      // Offline or flaky link: the delta simply waits for next cycle.
+    } finally {
+      _pulling = false;
+    }
+  }
+
+  /// Pull-to-refresh: push everything queued, then pull the delta.
+  Future<void> refreshAll() async {
+    await pushPending();
+    await pullChanges();
+  }
+
+  // ── helpers ─────────────────────────────────────────────────
+
+  int _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse('$v') ?? 0;
+  }
+
+  /// Existing server ids stay; brand-new rows get a negative local id so
+  /// the optimistic row stays addressable until the server responds.
+  int _localId(Map<String, dynamic> row) {
+    final id = _asInt(row['id']);
+    if (id != 0) return id;
+    return -(DateTime.now().microsecondsSinceEpoch % 1000000007);
+  }
+}

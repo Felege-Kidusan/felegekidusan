@@ -771,3 +771,40 @@ services, clients) against SOC2/OWASP practice. Six gaps found & fixed:
 Verified: suite 359/359; live-DB smoke ALL PASSED (audit rows, clamps,
 date rejection, pagination, injection payloads stored inert). Full report
 in ANALYSIS/14-mezmur-department-audit.md.
+
+### 10. Offline-first hymn library on mobile (2026-08-28)
+
+The hymn library becomes fully offline-capable with add/edit/archive +
+category management from the phone, built on the local-first pattern
+used by Telegram/Google Drive (researched): device SQLite is the read
+path (0 ms, airplane-mode safe), mutations go through an idempotent
+outbox, and pulls use a change-token delta.
+
+Server (migration 025 + reconciler):
+- mezmur_categories table (UNIQUE name) seeded with the canonical
+  ህናት/ማዕከዊያን/ጣቶች; reconciler creates/dedupes/seeds on legacy DBs.
+- mezmur_hymns.revision (optimistic conflicts) + delta index
+  (updated_at, id) — both ensured by the reconciler too.
+- MezmurHymnService writers: saveHymn (validation + duplicate guard +
+  base_revision conflict returning the server copy), setStatusHymn,
+  category CRUD — all audit-logged with the acting uid.
+- Mobile routes: GET hymns/changes (delta, lyrics opt-in), POST hymn /
+  hymn-status / category / category-status — write-role gated
+  (mezmur_dept + admins), rate-limited, idempotency-keyed. 409 carries
+  the server copy in data.item.
+
+Mobile app:
+- LocalDb v11: cached_hymns + pending_hymn_ops + categories + cursor,
+  all covered by the logout wipe.
+- HymnStore: optimistic writes, coalesced offline edits (one create,
+  not two), outbox-protected delta merges, 409 → server copy wins
+  (logged), lazy lyrics prefetch in bounded batches.
+- SyncService drains the hymn outbox + pulls deltas each cycle; sync
+  status breakdown includes hymn changes.
+- UI: local-first library with 150 ms instant search, Add/Edit/Archive
+  (curator roles), categories manager, offline banners; detail reader
+  streams lyrics once then reads them offline.
+
+Verified: suite 378/378 (19 new offline-contract tests); live-DB probe
+ALL PASSED (revisions, conflicts, exactly-once deltas, category CRUD,
+reconciler legacy dedupe). Marker: phase5-offline26.

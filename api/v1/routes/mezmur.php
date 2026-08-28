@@ -20,10 +20,13 @@ $auth = apiRequireAuth();
 // Analytics & day labelling (decision data): mezmur staff + admins only.
 // Version handshake: every /mezmur/* response carries this marker so
 // clients can distinguish a current server from a stale deployment.
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-audit25');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-offline26');
 
 $MEZMUR_ROLES = ['mezmur_dept', 'school_admin', 'super_admin', 'attendance_taker'];
 $MEZMUR_ANALYTICS_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
+// Library writes (add/edit/archive hymns, manage categories) keep web
+// parity: mezmur staff + admins. Takers read; they do not curate.
+$MEZMUR_LIBRARY_WRITE_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
 
 if (!apiRoleIs($auth, $MEZMUR_ROLES)) {
     err('You cannot access the Mezmur module.', 403);
@@ -195,7 +198,7 @@ try {
     }
 
     // ── GET /mezmur/hymns ─────────────────────────────────────
-    if ($method === 'GET' && $action === 'hymns') {
+    if ($method === 'GET' && $action === 'hymns' && ($ROUTE['sub'] ?? '') === '') {
         $out = MezmurHymnService::listHymns($conn, $_GET);
         ok($out);
     }
@@ -205,6 +208,108 @@ try {
         $item = MezmurHymnService::getHymn($conn, (int)($_GET['id'] ?? 0));
         if ($item === null) err('Hymn not found.', 404);
         ok(['item' => $item]);
+    }
+
+    // ── GET /mezmur/hymns/changes — DELTA SYNC ─────────────────
+    // Telegram/Drive change-token pattern: the device sends its last
+    // cursor and receives only rows changed since (archived rows
+    // included — deletions arrive as archived deltas). Metadata only
+    // unless include_lyrics=1 (lyrics are heavy blobs pulled lazily).
+    // Router shape: id='hymns', sub='changes'.
+    if ($method === 'GET' && $action === 'hymns' && ($ROUTE['sub'] ?? '') === 'changes') {
+        $out = MezmurHymnService::listChangedSince(
+            $conn,
+            (string)($_GET['cursor'] ?? ''),
+            (int)($_GET['limit'] ?? 200),
+            ($_GET['include_lyrics'] ?? '') === '1'
+        );
+        ok($out);
+    }
+
+    // ── POST /mezmur/hymn — create / update (offline outbox) ───
+    if ($method === 'POST' && $action === 'hymn') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can edit the hymn library.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many hymn changes. Please wait a moment.', 429);
+        }
+        $result = MezmurHymnService::saveHymn($conn, $input, (int)$auth['uid']);
+        if (empty($result['ok'])) {
+            if (!empty($result['conflict'])) {
+                // data.item carries the server copy so the device can
+                // reconcile without a second round trip.
+                err($result['message'], 409, ['data' => ['item' => $result['item'] ?? null]]);
+            }
+            err($result['message'], 422);
+        }
+        ok([
+            'saved' => true,
+            'created' => !empty($result['created']),
+            'item' => $result['item'],
+        ], !empty($result['created']) ? 201 : 200);
+    }
+
+    // ── POST /mezmur/hymn-status — archive / restore ───────────
+    if ($method === 'POST' && $action === 'hymn-status') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can edit the hymn library.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many hymn changes. Please wait a moment.', 429);
+        }
+        $result = MezmurHymnService::setStatusHymn(
+            $conn,
+            (int)($input['id'] ?? 0),
+            (string)($input['status'] ?? ''),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true, 'item' => $result['item'] ?? null]);
+    }
+
+    // ── GET /mezmur/categories ─────────────────────────────────
+    if ($method === 'GET' && $action === 'categories') {
+        ok(['items' => MezmurHymnService::listCategories($conn)]);
+    }
+
+    // ── POST /mezmur/category — create / rename ─────────────────
+    if ($method === 'POST' && $action === 'category') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage categories.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many category changes. Please wait a moment.', 429);
+        }
+        $result = MezmurHymnService::saveCategory($conn, $input, (int)$auth['uid']);
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true, 'item' => $result['item'] ?? null]);
+    }
+
+    // ── POST /mezmur/category-status — activate / hide ─────────
+    if ($method === 'POST' && $action === 'category-status') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage categories.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many category changes. Please wait a moment.', 429);
+        }
+        $result = MezmurHymnService::setCategoryStatus(
+            $conn,
+            (int)($input['id'] ?? 0),
+            !empty($input['active']),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true]);
     }
 
 } catch (\DomainException $e) {

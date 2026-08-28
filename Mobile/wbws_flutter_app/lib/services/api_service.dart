@@ -651,6 +651,48 @@ class ApiService {
   Future<ApiResponse> getMezmurHymn(int id) =>
       get('/mezmur/hymn', params: {'id': '$id'});
 
+  // ── Hymn library offline sync (delta + outbox) ──────────────
+
+  /// Delta pull: rows changed after [cursor] ("ts|id" change token).
+  /// Metadata only unless [includeLyrics] — lyrics are heavy blobs
+  /// downloaded lazily.
+  Future<ApiResponse> getMezmurHymnsChanges(
+      {String cursor = '', int limit = 200, bool includeLyrics = false}) {
+    final params = <String, String>{'limit': '$limit'};
+    if (cursor.isNotEmpty) params['cursor'] = cursor;
+    if (includeLyrics) params['include_lyrics'] = '1';
+    return get('/mezmur/hymns/changes', params: params);
+  }
+
+  /// Create/update a hymn. [baseRevision] enables conflict detection
+  /// for offline edits (server returns 409 + the newest copy).
+  Future<ApiResponse> saveMezmurHymn(Map<String, dynamic> hymn,
+      {String? clientOpId, int? baseRevision}) {
+    final body = Map<String, dynamic>.from(hymn);
+    if (baseRevision != null) body['base_revision'] = baseRevision;
+    return post('/mezmur/hymn', body: body, idempotencyKey: clientOpId);
+  }
+
+  Future<ApiResponse> setMezmurHymnStatus(int id, String status,
+      {String? clientOpId}) {
+    return post('/mezmur/hymn-status',
+        body: {'id': id, 'status': status}, idempotencyKey: clientOpId);
+  }
+
+  Future<ApiResponse> getMezmurCategories() => get('/mezmur/categories');
+
+  Future<ApiResponse> saveMezmurCategory(Map<String, dynamic> category,
+      {String? clientOpId}) {
+    return post('/mezmur/category',
+        body: Map<String, dynamic>.from(category), idempotencyKey: clientOpId);
+  }
+
+  Future<ApiResponse> setMezmurCategoryStatus(int id, bool active,
+      {String? clientOpId}) {
+    return post('/mezmur/category-status',
+        body: {'id': id, 'active': active}, idempotencyKey: clientOpId);
+  }
+
   Future<ApiResponse> getMezmurAnalytics(
       {Map<String, String>? params}) =>
       get('/mezmur/analytics', params: params);

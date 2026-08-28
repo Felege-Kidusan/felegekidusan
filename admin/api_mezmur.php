@@ -57,7 +57,7 @@ set_exception_handler(static function (\Throwable $e): void {
  * error when the deployment is stale (missing migrations / old code).
  * Bump when the mezmur API contract changes.
  */
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-audit25');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-offline26');
 define('MEZMUR_SCHEMA_MIN', 24); // highest migration the mezmur module relies on
 
 function mezmur_respond(array $payload, int $code = 200): void

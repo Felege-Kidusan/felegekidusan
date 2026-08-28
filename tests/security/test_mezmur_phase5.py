@@ -698,8 +698,12 @@ class MezmurAuditHardeningTests(unittest.TestCase):
 
     # ── deployment visibility ─────────────────────────────────
     def test_version_marker_bumped_both_surfaces(self):
-        self.assertIn("'phase5-audit25'", self.api)
-        self.assertIn("'phase5-audit25'", self.route)
+        import re
+        m = re.search(r"MEZMUR_API_VERSION', '([^']+)'", self.api)
+        self.assertIsNotNone(m)
+        # web + mobile surfaces advertise the SAME marker
+        self.assertIn(m.group(1), self.route)
+        self.assertNotIn("'phase5-schema24'", self.api)
 
     # ── prepared statements remain the only query path ────────
     def test_no_string_interpolated_user_data_in_sql(self):
@@ -708,3 +712,172 @@ class MezmurAuditHardeningTests(unittest.TestCase):
             self.assertNotIn("$_GET", src)
             self.assertNotIn("$_POST", src)
             self.assertNotIn("$_REQUEST", src)
+
+
+class MezmurOfflineHymnTests(unittest.TestCase):
+    """Offline-first hymn library (2026-08-28): Telegram/Drive
+    local-first model — device SQLite is the read path, mutations go
+    through an idempotent outbox, pulls use a change-token delta.
+    Static contract tests; functional server behavior is covered by
+    the hymn offline probe (revisions, conflicts, deltas, categories).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sql25 = (ROOT / "sql/025_mezmur_hymn_offline.sql").read_text(encoding="utf-8")
+        cls.rec = (
+            ROOT / "admin/backend/services/MezmurSchemaReconciler.php"
+        ).read_text(encoding="utf-8")
+        cls.hymn_svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        M = ROOT / "Mobile/wbws_flutter_app/lib"
+        cls.store = (M / "services/hymn_store.dart").read_text(encoding="utf-8")
+        cls.sync = (M / "services/sync_service.dart").read_text(encoding="utf-8")
+        cls.db = (M / "services/local_db.dart").read_text(encoding="utf-8")
+        cls.api = (M / "services/api_service.dart").read_text(encoding="utf-8")
+        cls.screen = (M / "screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+        cls.editor = (M / "screens/mezmur/mezmur_hymn_editor.dart").read_text(encoding="utf-8")
+        cls.detail = (M / "screens/mezmur/mezmur_hymn_detail.dart").read_text(encoding="utf-8")
+        cls.cats = (M / "screens/mezmur/mezmur_categories.dart").read_text(encoding="utf-8")
+
+    # ── migration 025: additive, guarded, idempotent ──────────
+    def test_sql025_contract(self):
+        self.assertIn("CREATE TABLE IF NOT EXISTS `mezmur_categories`", self.sql25)
+        self.assertIn("UNIQUE KEY `uq_mezmur_categories_name`", self.sql25)
+        self.assertIn("INSERT IGNORE INTO `mezmur_categories`", self.sql25)
+        # guarded ALTER via information_schema probe (MySQL-safe)
+        self.assertIn("information_schema.columns", self.sql25)
+        self.assertIn("`revision` INT UNSIGNED NOT NULL DEFAULT 1", self.sql25)
+        self.assertIn("idx_mezmur_hymns_updated", self.sql25)
+        self.assertIn("(`updated_at`, `id`)", self.sql25)
+
+    def test_reconciler_covers_new_objects(self):
+        self.assertIn("'mezmur_categories' =>", self.rec)
+        self.assertIn("'revision'   =>", self.rec)
+        self.assertIn("INSERT IGNORE INTO mezmur_categories", self.rec)
+        # legacy tables get UNIQUE(name) + dedupe before seeding,
+        # and the delta BTREE index is ensured outside the migration
+        self.assertIn("uq_mezmur_categories_name", self.rec)
+        self.assertIn("DELETE c1 FROM mezmur_categories c1", self.rec)
+        self.assertIn("idx_mezmur_hymns_updated", self.rec)
+
+    # ── server service: writers + conflict + delta ────────────
+    def test_save_hymn_validation_and_conflict(self):
+        self.assertIn("Title is required.", self.hymn_svc)
+        self.assertIn("mb_strlen($lyrics) > 200000", self.hymn_svc)
+        self.assertIn("LOWER(title) = LOWER(?)", self.hymn_svc)
+        # revision-based conflict returns the server copy
+        self.assertIn("base_revision", self.hymn_svc)
+        self.assertIn("'conflict' => true", self.hymn_svc)
+        self.assertIn("revision = revision + 1", self.hymn_svc)
+        self.assertIn("Mezmur Hymn Created", self.hymn_svc)
+        self.assertIn("Mezmur Hymn Updated", self.hymn_svc)
+
+    def test_status_change_is_audited_revision_bumped(self):
+        self.assertIn("setStatusHymn", self.hymn_svc)
+        self.assertIn("Mezmur Hymn Archived", self.hymn_svc)
+        self.assertIn("Mezmur Hymn Restored", self.hymn_svc)
+
+    def test_delta_pull_is_cursor_ordered_and_bounded(self):
+        self.assertIn("ORDER BY updated_at ASC, id ASC", self.hymn_svc)
+        self.assertIn("next_cursor", self.hymn_svc)
+        self.assertIn("has_more", self.hymn_svc)
+        # archived rows travel in deltas (deletes are never silent)
+        self.assertNotIn("status = 'active'", self.hymn_svc.split("listChangedSince")[1].split("categories")[0])
+        # lyrics blob opt-in only
+        self.assertIn("includeLyrics", self.hymn_svc)
+        self.assertIn("min($limit, $includeLyrics ? 100 : 500)", self.hymn_svc.replace("max(1, ", ""))
+
+    def test_category_service_guards(self):
+        self.assertIn("saveCategory", self.hymn_svc)
+        self.assertIn("setCategoryStatus", self.hymn_svc)
+        self.assertIn("LOWER(name) = LOWER(?)", self.hymn_svc)
+        self.assertIn("categoriesReady", self.hymn_svc)
+
+    # ── mobile routes: gated + idempotent + rate-limited ──────
+    def test_routes_gate_writes_and_keep_reads_open(self):
+        self.assertIn("$MEZMUR_LIBRARY_WRITE_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];", self.route)
+        self.assertEqual(
+            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 4
+        )
+        self.assertEqual(self.route.count("apiIdempotencyBegin("), 5)  # sheet + 4 writers
+        self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_hymn_write'"), 4)
+
+    def test_routes_delta_and_conflict_shapes(self):
+        self.assertIn("($ROUTE['sub'] ?? '') === 'changes'", self.route)
+        self.assertIn("listChangedSince(", self.route)
+        # 409 conflict carries the server copy inside data.item
+        self.assertIn("err($result['message'], 409, ['data' => ['item' => $result['item'] ?? null]]);", self.route)
+
+    # ── client: local-first store ─────────────────────────────
+    def test_store_is_local_first_and_role_gated(self):
+        self.assertIn("mezmur_dept", self.store)
+        self.assertIn("bool get canEdit => _writeRoles.contains(_api.userRole)", self.store)
+        # optimistic local write precedes any network call
+        save_block = self.store.split("Future<String?> saveHymn(")[1].split("Future<String?> setHymnStatus")[0]
+        self.assertIn("_db.upsertHymns(", save_block)
+        self.assertIn("_db.enqueueHymnOp('hymn_save'", save_block)
+
+    def test_store_conflict_policy_server_copy_wins(self):
+        self.assertIn("res.statusCode == 409", self.store)
+        self.assertIn("conflict — server copy kept", self.store)
+
+    def test_store_protects_pending_rows_from_deltas(self):
+        self.assertIn("protectIds", self.store)
+        self.assertIn("upsertHymns(items, protectIds: protect)", self.store)
+
+    def test_store_coalesces_offline_edits_into_one_create(self):
+        self.assertIn("getPendingHymnSavesForLocalId", self.store)
+        self.assertIn("updateHymnOpPayload", self.store)
+
+    def test_delta_cursor_persisted_locally(self):
+        self.assertIn("getHymnSyncCursor", self.store)
+        self.assertIn("setHymnSyncCursor(next)", self.store)
+        self.assertIn("include_lyrics", self.api)
+
+    # ── sync engine integration ───────────────────────────────
+    def test_sync_engine_drains_hymn_outbox_and_pulls(self):
+        self.assertIn("HymnStore()", self.sync)
+        self.assertIn("pushPending()", self.sync)
+        self.assertIn("pullChanges()", self.sync)
+        self.assertIn("pendingHymns", self.sync)
+        self.assertIn("hymn change", self.sync)
+
+    # ── local DB contract ─────────────────────────────────────
+    def test_localdb_v11_hymn_tables(self):
+        self.assertIn("version: 11,", self.db)
+        for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
+                  "cached_mezmur_categories"):
+            self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)
+        self.assertIn("idx_cached_hymns_title", self.db)
+        # logout wipe covers hymn data + unsynced edits
+        wipe = self.db.split("clearAllUserData")[1]
+        for t in ("'cached_hymns',", "'pending_hymn_ops',", "'hymn_sync_meta',"):
+            self.assertIn(t, wipe)
+
+    # ── UI: instant search, curation actions, offline notes ──
+    def test_library_screen_local_first(self):
+        self.assertIn("_store.hymns(", self.screen)
+        self.assertIn("Duration(milliseconds: 150)", self.screen)  # debounce
+        self.assertIn("OfflineBanner", self.screen)
+        self.assertIn("RefreshIndicator", self.screen)
+        self.assertIn("_store.canEdit", self.screen)
+        self.assertIn("MezmurHymnEditorScreen", self.screen)
+        self.assertIn("cloud_upload_outlined", self.screen)  # pending badge
+
+    def test_editor_offline_contract(self):
+        self.assertIn("Will sync automatically", self.editor.replace("will sync automatically", "Will sync automatically"))
+        self.assertIn("_store.saveHymn(hymn, baseRevision: baseRevision)", self.editor)
+        self.assertIn("maxLength: 255", self.editor)
+
+    def test_detail_reader_is_local_first_with_lazy_lyrics(self):
+        self.assertIn("_store.hymn(widget.id)", self.detail)
+        self.assertIn("Lyrics not downloaded yet", self.detail)
+        self.assertIn("_db.upsertHymns([item])", self.detail)
+
+    def test_categories_screen_offline_crud(self):
+        self.assertIn("_store.saveCategory", self.cats)
+        self.assertIn("_store.setCategoryStatus", self.cats)
+        self.assertIn("maxLength: 50", self.cats)

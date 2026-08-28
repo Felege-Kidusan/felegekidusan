@@ -34,14 +34,22 @@ class MobilePhase4Tests(unittest.TestCase):
             self.route)
         self.assertNotIn("dirname(__DIR__, 2)", self.route)
 
-    # ── mobile hymn surface: GET-only readers ─────────────────
-    def test_hymn_endpoints_are_read_only(self):
+    # ── mobile hymn surface: curated writers, prepared-only ───
+    def test_hymn_endpoints_reads_and_gated_writers(self):
         self.assertIn("MezmurHymnService::listHymns", self.route)
         self.assertIn("MezmurHymnService::getHymn", self.route)
-        for verb in ["INSERT INTO", "UPDATE ", "DELETE FROM"]:
-            self.assertNotIn(verb, self.hymn_svc)
+        # Offline-first sync added curated writes (audit 2026-08-28):
+        # they stay role-gated + prepared + audited on the server.
+        self.assertIn("MezmurHymnService::saveHymn", self.route)
+        self.assertIn("MezmurHymnService::setStatusHymn", self.route)
+        self.assertIn("$MEZMUR_LIBRARY_WRITE_ROLES", self.route)
+        self.assertIn("apiIdempotencyBegin(", self.route)
+        self.assertIn("isApiRateLimited('mezmur_hymn_write'", self.route)
+        # The service itself never concatenates input into SQL.
         self.assertIn("$stmt = $conn->prepare(", self.hymn_svc)
         self.assertIn("escapeLike(", self.hymn_svc)
+        self.assertNotIn("$_GET", self.hymn_svc)
+        self.assertNotIn("$_POST", self.hymn_svc)
 
     def test_mobile_analytics_sections_exposed(self):
         self.assertIn("analyticsSections($conn, $_GET)", self.route)
@@ -51,7 +59,12 @@ class MobilePhase4Tests(unittest.TestCase):
     def test_localdb_v9_mezmur_tables(self):
         # v9 introduced the mezmur outbox; v10 (phase 5) made it
         # section-scoped. Both migration blocks must stay present.
-        self.assertIn("version: 10,", self.db)
+        self.assertIn("version: 11,", self.db)
+        self.assertIn("if (oldVersion < 11)", self.db)
+        # v11: offline-first hymn library tables
+        self.assertIn("CREATE TABLE IF NOT EXISTS cached_hymns", self.db)
+        self.assertIn("CREATE TABLE IF NOT EXISTS pending_hymn_ops", self.db)
+        self.assertIn("CREATE TABLE IF NOT EXISTS hymn_sync_meta", self.db)
         self.assertIn("CREATE TABLE pending_mezmur", self.db.replace("IF NOT EXISTS ", ""))
         self.assertIn("CREATE TABLE cached_mezmur_sheet", self.db.replace("IF NOT EXISTS ", ""))
         self.assertIn("if (oldVersion < 9)", self.db)
@@ -74,7 +87,8 @@ class MobilePhase4Tests(unittest.TestCase):
             self.assertIn(m, self.db)
         # explicit-mark validation like the teachers pipeline (P/A/L/E)
         self.assertIn("const validStatuses = {'present', 'absent', 'late', 'excused'};", self.db)
-        self.assertIn("(await getPendingMezmurCount());", self.db)
+        self.assertIn("(await getPendingMezmurCount())", self.db)
+        self.assertIn("(await getPendingHymnOpsCount());", self.db)
         # phase 5: outbox is keyed by (date, section)
         self.assertIn("where: 'date = ? AND section = ? AND synced = 0'", self.db)
 
@@ -105,8 +119,12 @@ class MobilePhase4Tests(unittest.TestCase):
         self.assertNotIn("mezmur_sheet.dart", self.shell)
 
     def test_hymns_and_analytics_screens_wired(self):
-        self.assertIn("getMezmurHymns", self.hymns)
+        # Local-first since the 2026-08-28 offline upgrade: the list
+        # reads the on-device store, never blocks on the network.
+        self.assertIn("HymnStore()", self.hymns)
         self.assertIn("MezmurHymnDetailScreen", self.hymns)
+        self.assertIn("MezmurHymnEditorScreen", self.hymns)
+        self.assertIn("OfflineBanner", self.hymns)
         self.assertIn("getMezmurAnalytics(params:", self.ana)
         self.assertIn("showEthiopianDatePicker", self.ana)
         self.assertIn("case 'mezmur_hymns':", self.shell)
@@ -136,6 +154,10 @@ class MobilePhase4Tests(unittest.TestCase):
         self.assertIn("'pending_mezmur',", wipe)
         self.assertIn("'cached_mezmur_sheet',", wipe)
         self.assertIn("'cached_mezmur_sections',", wipe)
+        # hymn offline store + unsynced edits wiped on logout too
+        self.assertIn("'pending_hymn_ops',", wipe)
+        self.assertIn("'cached_hymns',", wipe)
+        self.assertIn("'hymn_sync_meta',", wipe)
 
     # ── api surface additions ─────────────────────────────────
     def test_api_service_hymn_readers(self):

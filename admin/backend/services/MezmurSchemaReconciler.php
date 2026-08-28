@@ -31,6 +31,16 @@ final class MezmurSchemaReconciler
             'updated_by' => "INT UNSIGNED DEFAULT NULL",
             'created_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
             'updated_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            // 025: offline-first sync — monotonic row version + delta index.
+            'revision'   => "INT UNSIGNED NOT NULL DEFAULT 1",
+        ],
+        'mezmur_categories' => [
+            'name'       => "VARCHAR(50) NOT NULL",
+            'sort_order' => "INT NOT NULL DEFAULT 0",
+            'is_active'  => "TINYINT(1) NOT NULL DEFAULT 1",
+            'created_by' => "INT UNSIGNED DEFAULT NULL",
+            'created_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+            'updated_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
         ],
         'mezmur_days' => [
             'attendance_date' => "DATE DEFAULT NULL",
@@ -104,6 +114,14 @@ final class MezmurSchemaReconciler
         'mezmur_submissions' => "CREATE TABLE `mezmur_submissions` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             PRIMARY KEY (`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        'mezmur_categories' => "CREATE TABLE `mezmur_categories` (
+            `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `name` VARCHAR(50) NOT NULL,
+            `sort_order` INT NOT NULL DEFAULT 0,
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_mezmur_categories_name` (`name`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     ];
 
@@ -232,6 +250,23 @@ final class MezmurSchemaReconciler
                 }
             }
         }
+        // 025's delta-sync cursor index (BTREE, guarded) — keeps
+        // change-token pulls index-only on legacy DBs at scale.
+        try {
+            $r = $conn->query("SHOW INDEX FROM mezmur_hymns WHERE Key_name = 'idx_mezmur_hymns_updated'");
+            $has = $r ? (bool)$r->fetch_assoc() : false;
+            if ($r) { $r->close(); }
+            if (!$has) {
+                $sql = "ALTER TABLE mezmur_hymns ADD KEY `idx_mezmur_hymns_updated` (`updated_at`, `id`)";
+                if ($conn->query($sql) === false) {
+                    $failed['index:idx_mezmur_hymns_updated'] = (string)$conn->error;
+                } else {
+                    $applied[] = 'added index idx_mezmur_hymns_updated';
+                }
+            }
+        } catch (\Throwable $e) {
+            // table absent -> nothing to do
+        }
         // 024's excused-status guarantee: extend the enum if missing
         try {
             $r = $conn->query("SHOW COLUMNS FROM mezmur_attendance LIKE 'status'");
@@ -262,6 +297,49 @@ final class MezmurSchemaReconciler
             }
         } catch (\Throwable $e) {
             // table absent -> nothing to do
+        }
+        // 025's canonical categories: UNIQUE(name) + idempotent seed.
+        // Legacy tables created before the unique key existed may hold
+        // duplicate seed rows — dedupe first, then add the key, then
+        // INSERT IGNORE the canonical three.
+        try {
+            $r = $conn->query("SHOW INDEX FROM mezmur_categories WHERE Key_name = 'uq_mezmur_categories_name'");
+            $hasUnique = $r ? (bool)$r->fetch_assoc() : false;
+            if ($r) { $r->close(); }
+            if (!$hasUnique) {
+                // Keep the lowest id per name; drop later duplicates.
+                $conn->query(
+                    "DELETE c1 FROM mezmur_categories c1
+                     JOIN mezmur_categories c2
+                       ON c2.name = c1.name AND c2.id < c1.id"
+                );
+                if ($conn->query("ALTER TABLE mezmur_categories ADD UNIQUE KEY `uq_mezmur_categories_name` (`name`)") === false) {
+                    $failed['index:uq_mezmur_categories_name'] = (string)$conn->error;
+                } else {
+                    $applied[] = 'mezmur_categories.name now unique (duplicates removed)';
+                }
+            }
+            $seed = [
+                ['ህናት', 1],
+                ['ማዕከዊያን', 2],
+                ['ጣቶች', 3],
+            ];
+            $stmt = $conn->prepare("INSERT IGNORE INTO mezmur_categories (name, sort_order) VALUES (?, ?)");
+            if ($stmt) {
+                $added = 0;
+                foreach ($seed as [$name, $order]) {
+                    $stmt->bind_param('si', $name, $order);
+                    if ($stmt->execute() && $stmt->affected_rows > 0) {
+                        $added++;
+                    }
+                }
+                $stmt->close();
+                if ($added > 0) {
+                    $applied[] = "seeded $added canonical mezmur categor(y/ies)";
+                }
+            }
+        } catch (\Throwable $e) {
+            // table absent or seed already present -> nothing to do
         }
         return ['applied' => $applied, 'failed' => $failed];
     }

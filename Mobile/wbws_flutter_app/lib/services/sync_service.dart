@@ -2,6 +2,7 @@ import 'dart:async';
 import 'api_service.dart';
 import 'catalog_service.dart';
 import 'connectivity_service.dart';
+import 'hymn_store.dart';
 import 'local_db.dart';
 
 /// Outbox worker — Gmail / WhatsApp / Drive pattern.
@@ -26,7 +27,11 @@ class SyncService {
   final _syncController = StreamController<SyncStatus>.broadcast();
   Stream<SyncStatus> get syncStream => _syncController.stream;
   SyncStatus _lastStatus = SyncStatus(
-      pendingAttendance: 0, pendingGrades: 0, pendingMezmur: 0, syncing: false);
+      pendingAttendance: 0,
+      pendingGrades: 0,
+      pendingMezmur: 0,
+      pendingHymns: 0,
+      syncing: false);
   SyncStatus get lastStatus => _lastStatus;
   String lastError = '';
 
@@ -242,6 +247,30 @@ class SyncService {
         }
       }
 
+      // Hymn library outbox (offline-first edits) + delta pull.
+      // The store owns idempotency/conflict policy; here we count
+      // outcomes and refresh the change-token cursor.
+      try {
+        final hymnStore = HymnStore();
+        final before = await _db.getPendingHymnOpsCount();
+        if (before > 0) {
+          final pushed = await hymnStore.pushPending();
+          final after = await _db.getPendingHymnOpsCount();
+          if (pushed > 0 || after < before) {
+            if (pushed > 0) synced++;
+            didWork = true;
+          } else {
+            failed++;
+            lastError = 'Hymn changes are still waiting to send.';
+          }
+        }
+        if (ConnectivityService().hasLink) {
+          await hymnStore.pullChanges();
+        }
+      } catch (e) {
+        await _db.logSync('hymns', e.toString(), 'error');
+      }
+
       if (!didWork) break;
     } while (loops < 4);
 
@@ -296,10 +325,12 @@ class SyncService {
     final pa = await _db.getPendingAttendanceCount();
     final pg = await _db.getPendingGradesCount();
     final pm = await _db.getPendingMezmurCount();
+    final ph = await _db.getPendingHymnOpsCount();
     _lastStatus = SyncStatus(
         pendingAttendance: pa,
         pendingGrades: pg,
         pendingMezmur: pm,
+        pendingHymns: ph,
         syncing: syncing ?? (_inflight != null));
     _syncController.add(_lastStatus);
   }
@@ -316,9 +347,10 @@ class SyncStatus {
   final int pendingAttendance;
   final int pendingGrades;
   final int pendingMezmur;
+  final int pendingHymns;
   final bool syncing;
   int get totalPending =>
-      pendingAttendance + pendingGrades + pendingMezmur;
+      pendingAttendance + pendingGrades + pendingMezmur + pendingHymns;
   String get breakdown {
     if (totalPending <= 0) return 'All synced';
     final parts = <String>[];
@@ -332,6 +364,9 @@ class SyncStatus {
     if (pendingMezmur > 0) {
       parts.add('$pendingMezmur mezmur sheet${pendingMezmur == 1 ? '' : 's'}');
     }
+    if (pendingHymns > 0) {
+      parts.add('$pendingHymns hymn change${pendingHymns == 1 ? '' : 's'}');
+    }
     return parts.join(' · ');
   }
 
@@ -339,6 +374,7 @@ class SyncStatus {
       {required this.pendingAttendance,
       required this.pendingGrades,
       this.pendingMezmur = 0,
+      this.pendingHymns = 0,
       required this.syncing});
 }
 
