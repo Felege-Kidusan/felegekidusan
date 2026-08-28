@@ -83,11 +83,42 @@ final class MezmurAttendanceService
 
     // ── roster ──────────────────────────────────────────────────
 
+    /**
+     * Deployments disagree on the members photo column: newer schemas
+     * have `photo_url`, this production has `student_photo_path`, and a
+     * minimal schema may have neither. Detect once per request and build
+     * a SELECT expression that always yields the `photo_url` key, so a
+     * missing column can never 500 a roster query again (the
+     * "Unknown column 'photo_url'" incident).
+     */
+    private static ?string $photoColumnCache = null;
+
+    private static function photoSelectExpr(\mysqli $conn): string
+    {
+        if (self::$photoColumnCache === null) {
+            $col = '';
+            foreach (['photo_url', 'student_photo_path'] as $candidate) {
+                try {
+                    $r = $conn->query("SHOW COLUMNS FROM members LIKE '" . $candidate . "'");
+                    if ($r && $r->fetch_assoc()) { $col = $candidate; $r->close(); break; }
+                    if ($r) { $r->close(); }
+                } catch (\Throwable $e) {
+                    // keep probing other candidates
+                }
+            }
+            self::$photoColumnCache = $col;
+        }
+        return self::$photoColumnCache !== ''
+            ? self::$photoColumnCache . ' AS photo_url'
+            : 'NULL AS photo_url';
+    }
+
     /** All active members grouped by section. */
     public static function rosterGroupedBySection(\mysqli $conn): array
     {
+        $photo = self::photoSelectExpr($conn);
         $res = $conn->query(
-            "SELECT id, member_code, student_name, father_name, full_name_am, photo_url,
+            "SELECT id, member_code, student_name, father_name, full_name_am, $photo,
                     COALESCE(NULLIF(TRIM(current_section), ''), '—') AS section
              FROM members
              WHERE status = 'active'
@@ -317,8 +348,9 @@ final class MezmurAttendanceService
         if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
             throw new \DomainException('A valid section is required.');
         }
+        $photo = self::photoSelectExpr($conn);
         $stmt = $conn->prepare(
-            "SELECT id, member_code, student_name, father_name, photo_url
+            "SELECT id, member_code, student_name, father_name, $photo
              FROM members
              WHERE status = 'active'
                AND COALESCE(NULLIF(TRIM(current_section), ''), '—') = ?
@@ -567,9 +599,10 @@ final class MezmurAttendanceService
         $whereSql = implode(' AND ', $where);
 
         [$pJoin, $pType] = self::programJoinFilter($programType);
+        $photoExpr = self::photoSelectExpr($conn);
 
         $sql = "
-            SELECT m.id, m.member_code, m.student_name, m.father_name, m.full_name_am, m.photo_url,
+            SELECT m.id, m.member_code, m.student_name, m.father_name, m.full_name_am, $photoExpr,
                    COALESCE(NULLIF(TRIM(m.current_section), ''), '—') AS section,
                    $held AS sessions_held,
                    COALESCE(agg.present, 0) AS present,

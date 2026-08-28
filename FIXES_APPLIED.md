@@ -661,3 +661,25 @@ as a 302 with a plain-text body). Therefore:
   a status field, because the host demonstrably rewrites non-2xx bodies.
 - Real error text for any ref # is in the host's PHP error log (cPanel →
   Errors / ~/logs), keyed by the same number.
+
+### 7c. Incident #3 — THE root cause of the repetitive failures (found via
+host error log + diag)
+
+Prod error log (unmasked at last): `Unhandled API v1 exception: Unknown
+column 'photo_url' in 'SELECT'` — production's `members` table stores
+photos in `student_photo_path` (as the members/classes routes use), while
+the mezmur roster SELECTs hardcoded `photo_url`. PHP 8.2 mysqli throws on
+the unknown column → host handler masks it as the generic ref-JSON.
+This ONE bug explains the whole repeating pattern: sections/stats worked
+(they never select the photo column), every SHEET (web + app) died
+(sectionRoster does), analytics died.
+
+Fix: `MezmurAttendanceService::photoSelectExpr()` detects the photo column
+at runtime (`photo_url` → `student_photo_path` → `NULL AS photo_url`) and
+all three roster/analytics SELECTs use it. No migration needed — the code
+is now tolerant of every deployment schema. Verified by dropping
+photo_url from the sandbox DB (sheet + roster + sections all load) and by
+re-adding it as student_photo_path (same).
+
+(The Aug-27 `api/admin/backend/...` include-path error is already fixed in
+the current api/v1/routes/mezmur.php: includes use `/../../../admin/`.)

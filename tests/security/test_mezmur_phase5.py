@@ -470,3 +470,37 @@ class MezmurProdDiagTests(unittest.TestCase):
             capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class MezmurSchemaToleranceTests(unittest.TestCase):
+    """Incident #3 root cause: production members has
+    `student_photo_path`, not `photo_url`; every roster SELECT that
+    hardcoded photo_url threw mysqli_sql_exception (PHP 8.2) and the
+    host masked it as the generic ref-JSON. Roster queries must detect
+    the photo column at runtime and always emit the photo_url key.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.att = (
+            ROOT / "admin/backend/services/MezmurAttendanceService.php"
+        ).read_text(encoding="utf-8")
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+
+    def test_photo_column_is_detected_not_hardcoded(self):
+        self.assertIn("photoSelectExpr", self.att)
+        self.assertIn("student_photo_path", self.att)
+        self.assertIn("SHOW COLUMNS FROM members LIKE", self.att)
+        self.assertIn("NULL AS photo_url", self.att)
+        # no SELECT may hardcode the photo column any more
+        self.assertNotIn("full_name_am, photo_url", self.att)
+        self.assertNotIn("m.photo_url", self.att)
+        self.assertNotIn("father_name, photo_url", self.att)
+
+    def test_api_v1_service_includes_resolve_to_repo_root(self):
+        # the Aug-27 log showed require of .../api/admin/backend/... —
+        # includes must climb three levels from api/v1/routes/.
+        self.assertIn(
+            "__DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php'",
+            self.route,
+        )
