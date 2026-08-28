@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
+import '../../services/app_lock_service.dart';
 import '../../services/local_db.dart';
 import '../../services/session_service.dart';
 import '../../services/sync_service.dart';
@@ -21,14 +22,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _api = ApiService();
   final _db = LocalDb();
   final _sync = SyncService();
+  final _appLock = AppLockService();
   int _pendingSync = 0;
   bool _syncing = false;
+  bool _lockConfigured = false;
+  int _autoLockSecs = 300;
+  bool _biometricOn = false;
   StreamSubscription<SyncStatus>? _syncSub;
 
   @override
   void initState() {
     super.initState();
     _loadPendingCount();
+    _appLock.addListener(_refreshLockState);
+    _refreshLockState();
     _syncSub = _sync.syncStream.listen((s) {
       if (!mounted) return;
       setState(() {
@@ -39,8 +46,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _appLock.removeListener(_refreshLockState);
     _syncSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _refreshLockState() async {
+    final configured = await _appLock.isConfigured();
+    final secs = await _appLock.autoLockSeconds();
+    final bio = await _appLock.biometricEnabled();
+    if (!mounted) return;
+    setState(() {
+      _lockConfigured = configured;
+      _autoLockSecs = secs;
+      _biometricOn = bio;
+    });
   }
 
   Future<void> _loadPendingCount() async {
@@ -62,7 +82,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           title: const Text('Unsaved Data'),
           content: Text(
               'You still have ${_sync.lastStatus.breakdown} not yet sent. '
-              'If you logout, they will be lost. Sync first?'),
+              'If you logout, unsynced attendance/grades will be lost '
+              '(hymn library changes are kept and will sync for the next '
+              'curator). Sync first?'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -335,6 +357,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ]),
           const SizedBox(height: 12),
 
+          // App lock (Telegram-style passcode gate)
+          ..._buildAppLockSection(),
+          const SizedBox(height: 12),
+
           // App info
           _buildSection('App', [
             _infoTile(Icons.info_outline, 'Version', '${AppConfig.appVersion} (${AppConfig.appBuild})'),
@@ -380,6 +406,191 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  // ── App Lock (Telegram-style local passcode) ─────────────────
+
+  List<Widget> _buildAppLockSection() {
+    final tiles = <Widget>[
+      SwitchListTile(
+        secondary: const Icon(Icons.lock_outline, size: 20),
+        title: const Text('App Lock', style: TextStyle(fontSize: 13.5)),
+        subtitle: Text(
+          _lockConfigured
+              ? 'Passcode protects this app'
+              : 'Require a passcode to open the app',
+          style: const TextStyle(fontSize: 11.5),
+        ),
+        value: _lockConfigured,
+        onChanged: (v) async {
+          if (v) {
+            await _setupPasscode();
+          } else {
+            await _disablePasscode();
+          }
+        },
+      ),
+    ];
+
+    if (_lockConfigured) {
+      tiles.add(ListTile(
+        leading: const Icon(Icons.timer_outlined, size: 20),
+        title: const Text('Auto-lock', style: TextStyle(fontSize: 13.5)),
+        subtitle: Text(
+            '${AppLockService.autoLockOptions[_autoLockSecs] ?? 'Custom'}',
+            style: const TextStyle(fontSize: 11.5)),
+        trailing: const Icon(Icons.chevron_right, size: 18),
+        onTap: _chooseAutoLock,
+      ));
+      tiles.add(SwitchListTile(
+        secondary: const Icon(Icons.fingerprint, size: 20),
+        title:
+            const Text('Unlock with fingerprint', style: TextStyle(fontSize: 13.5)),
+        subtitle: const Text('When the phone supports it',
+            style: TextStyle(fontSize: 11.5)),
+        value: _biometricOn,
+        onChanged: (v) async {
+          if (v) {
+            final pin = await _pinDialog(title: 'Confirm your passcode');
+            if (pin == null) return;
+            if (!await _appLock.verifyPin(pin)) {
+              _toast('Wrong passcode.');
+              return;
+            }
+            await _appLock.setBiometricEnabled(true);
+          } else {
+            await _appLock.setBiometricEnabled(false);
+          }
+          await _refreshLockState();
+        },
+      ));
+      tiles.add(ListTile(
+        leading: const Icon(Icons.key_outlined, size: 20),
+        title:
+            const Text('Change passcode', style: TextStyle(fontSize: 13.5)),
+        trailing: const Icon(Icons.chevron_right, size: 18),
+        onTap: _changePasscode,
+      ));
+      tiles.add(ListTile(
+        leading: const Icon(Icons.lock_rounded, size: 20),
+        title: const Text('Lock now', style: TextStyle(fontSize: 13.5)),
+        onTap: () => _appLock.lockNow(),
+      ));
+    }
+
+    return [_buildSection('Privacy & Security', tiles)];
+  }
+
+  Future<void> _setupPasscode() async {
+    final first = await _pinDialog(title: 'Choose a passcode (4-8 digits)');
+    if (first == null) return;
+    final second = await _pinDialog(title: 'Confirm the passcode');
+    if (second == null) return;
+    if (first != second) {
+      _toast('Passcodes do not match.');
+      return;
+    }
+    final err = await _appLock.setPin(first);
+    if (err != null) {
+      _toast(err);
+      return;
+    }
+    _toast('App Lock is on.');
+    await _refreshLockState();
+  }
+
+  Future<void> _disablePasscode() async {
+    final pin = await _pinDialog(title: 'Enter passcode to turn off');
+    if (pin == null) return;
+    final err = await _appLock.disable(pin);
+    if (err != null) {
+      _toast(err);
+      return;
+    }
+    _toast('App Lock is off.');
+    await _refreshLockState();
+  }
+
+  Future<void> _changePasscode() async {
+    final current = await _pinDialog(title: 'Current passcode');
+    if (current == null) return;
+    final first = await _pinDialog(title: 'New passcode (4-8 digits)');
+    if (first == null) return;
+    final second = await _pinDialog(title: 'Confirm the new passcode');
+    if (second == null) return;
+    if (first != second) {
+      _toast('New passcodes do not match.');
+      return;
+    }
+    final err = await _appLock.changePin(current, first);
+    if (err != null) {
+      _toast(err);
+      return;
+    }
+    _toast('Passcode changed.');
+  }
+
+  Future<void> _chooseAutoLock() async {
+    final options = AppLockService.autoLockOptions;
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Auto-lock', style: TextStyle(fontSize: 15)),
+        children: [
+          for (final entry in options.entries)
+            RadioListTile<int>(
+              title: Text(entry.value, style: const TextStyle(fontSize: 13)),
+              value: entry.key,
+              groupValue: _autoLockSecs,
+              onChanged: (v) => Navigator.of(ctx).pop(v),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await _appLock.setAutoLockSeconds(picked);
+    await _refreshLockState();
+  }
+
+  Future<String?> _pinDialog({required String title}) async {
+    final ctrl = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title, style: const TextStyle(fontSize: 15)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          obscureText: true,
+          maxLength: 8,
+          decoration: const InputDecoration(
+            hintText: '• • • •',
+            counterText: '',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('CANCEL')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty) return null;
+    return result;
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Widget _buildProfileHeader(Map<String, dynamic> user) {

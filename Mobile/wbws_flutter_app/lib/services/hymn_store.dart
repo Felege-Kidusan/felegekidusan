@@ -204,6 +204,10 @@ class HymnStore extends ChangeNotifier {
 
   Future<int> pushPending() async {
     if (_pushInflight != null) return _pushInflight!.future;
+    // Queued hymn edits survive logout by design; they wait here until
+    // a curator (mezmur_dept/admin) signs in. Non-curators never push
+    // them, so nothing can be posted under the wrong identity.
+    if (!canEdit) return 0;
     final c = Completer<int>();
     _pushInflight = c;
     try {

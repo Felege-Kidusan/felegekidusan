@@ -808,3 +808,29 @@ Mobile app:
 Verified: suite 378/378 (19 new offline-contract tests); live-DB probe
 ALL PASSED (revisions, conflicts, exactly-once deltas, category CRUD,
 reconciler legacy dedupe). Marker: phase5-offline26.
+
+### 11. App Lock + logout boundary (2026-08-28)
+
+Telegram-style app lock researched and implemented so the long-lived
+session (15-min access + 90-day rotating refresh, unchanged) is safe:
+
+- AppLockService: PIN stored as sha256(salt ‖ pin) in platform secure
+  storage (never plaintext, never server-side); wrong-attempt throttle;
+  biometric unlock via local_auth that FAILS CLOSED to the PIN;
+  auto-lock ladder (Immediately/1m/5m/1h/1d); no recovery backdoor
+  ("forgot passcode" = sign out and back in, like Telegram).
+- Lock gate sits in front of the whole app (main.dart home swap), cold
+  start opens locked, AppShell lifecycle hooks drive auto-lock, and a
+  Lock now action is available in Profile → Privacy & Security.
+- Platform: local_auth added, MainActivity → FlutterFragmentActivity,
+  USE_BIOMETRIC permission.
+- Logout boundary corrected per product decision: the SHARED hymn
+  library (cache + categories + sync cursor) and queued hymn edits
+  SURVIVE logout; queued edits push only for curators (never under the
+  wrong identity). Member/attendance data wipe is unchanged.
+- Session length: refresh rotation already slides 90 days — users stay
+  signed in far beyond a week; the lock, not forced logouts, protects
+  the device.
+
+Verified: suite 389/389 (11 new AppLockSecurityTests); brace-checked
+all touched Dart; smoke still ALL PASSED.

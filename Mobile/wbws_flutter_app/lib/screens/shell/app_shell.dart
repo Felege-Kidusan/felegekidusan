@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
+import '../../services/app_lock_service.dart';
 import '../../services/app_nav.dart';
 import '../../services/sync_service.dart';
 import '../../services/session_service.dart';
@@ -138,6 +139,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // App lock (Telegram model): if we were away longer than the
+      // auto-lock interval, the gate appears before any content.
+      AppLockService().evaluateOnResume();
       _connectivity.startMonitoring();
       // Drain the outbox immediately — do not wait 90s or a tap.
       SyncService().startAutoSync();
@@ -148,6 +152,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // Keep the outbox. Android freezes timers in the background anyway;
       // killing it here meant a failed Save sat until the teacher tapped Sync.
       _connectivity.stopMonitoring();
+      AppLockService().recordBackgrounded();
     }
   }
 

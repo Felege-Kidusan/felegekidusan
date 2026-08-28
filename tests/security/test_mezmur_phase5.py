@@ -852,10 +852,15 @@ class MezmurOfflineHymnTests(unittest.TestCase):
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)
         self.assertIn("idx_cached_hymns_title", self.db)
-        # logout wipe covers hymn data + unsynced edits
+        # Logout boundary (product decision 2026-08-28): member data is
+        # wiped, the SHARED hymn library + queued hymn edits persist.
         wipe = self.db.split("clearAllUserData")[1]
-        for t in ("'cached_hymns',", "'pending_hymn_ops',", "'hymn_sync_meta',"):
-            self.assertIn(t, wipe)
+        self.assertIn("'pending_mezmur',", wipe)
+        self.assertNotIn("'cached_hymns',", wipe)
+        self.assertNotIn("'pending_hymn_ops',", wipe)
+        self.assertNotIn("'hymn_sync_meta',", wipe)
+        # Queued hymn edits push only for curators (identity-safe).
+        self.assertIn("if (!canEdit) return 0;", self.store)
 
     # ── UI: instant search, curation actions, offline notes ──
     def test_library_screen_local_first(self):

@@ -1487,13 +1487,16 @@ class LocalDb {
     try { await db.delete('cached_grade_sheets'); } catch (_) {}
     try { await db.delete('cached_mezmur_sheet'); } catch (_) {}
     try { await db.delete('cached_mezmur_sections'); } catch (_) {}
-    try { await db.delete('cached_hymns'); } catch (_) {}
-    try { await db.delete('cached_mezmur_categories'); } catch (_) {}
-    try { await db.delete('hymn_sync_meta'); } catch (_) {}
+    // NOTE: the hymn library (cached_hymns, cached_mezmur_categories,
+    // hymn_sync_meta, pending_hymn_ops) is deliberately NOT cleared —
+    // it is shared department content, not member data, and queued
+    // hymn edits must survive logout (product decision 2026-08-28).
   }
 
-  /// Full transactional wipe for this device user — cache + unsynced rows.
-  /// Prevents the next login on this phone from seeing the previous roster.
+  /// Full transactional wipe for this device user — member/attendance
+  /// cache + unsynced rows. Prevents the next login on this phone from
+  /// seeing the previous roster. The SHARED hymn library stays: it is
+  /// department content, not member data (and its queued edits survive).
   Future<void> clearAllUserData() async {
     final db = await database;
     await db.transaction((txn) async {
@@ -1511,10 +1514,10 @@ class LocalDb {
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',
-        'pending_hymn_ops',
-        'cached_hymns',
-        'cached_mezmur_categories',
-        'hymn_sync_meta',
+        // Intentionally kept on logout: cached_hymns,
+        // cached_mezmur_categories, hymn_sync_meta, pending_hymn_ops.
+        // Hymns are shared library content (no member PII); queued
+        // hymn edits wait here until a curator signs in again.
         'sync_log',
       ]) {
         await txn.delete(table);

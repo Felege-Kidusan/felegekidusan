@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 import 'services/api_service.dart';
+import 'services/app_lock_service.dart';
 import 'services/catalog_service.dart';
 import 'services/local_db.dart';
 import 'services/sync_service.dart';
+import 'screens/lock/lock_screen.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/warm_store.dart';
@@ -47,6 +49,9 @@ Future<void> runBootstrap() async {
       await LocalDb().clearAllUserData();
     }
     await CatalogService().hydrate();
+    // Telegram-style cold-start gate: if a passcode is set, the app
+    // opens locked (the long-lived session stays signed in).
+    await AppLockService().lockAtColdStartIfConfigured();
   } catch (error, stack) {
     // Local offline storage is the only genuinely blocking part. Never
     // reset or expose it; write the real error for diagnosis and offer a
@@ -171,12 +176,25 @@ class FKSSApp extends StatefulWidget {
 }
 
 class _FKSSAppState extends State<FKSSApp> {
+  final _appLock = AppLockService();
+
   @override
   void initState() {
     super.initState();
+    _appLock.addListener(_onLockChanged);
     AppUpdateService().check().then((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void dispose() {
+    _appLock.removeListener(_onLockChanged);
+    super.dispose();
+  }
+
+  void _onLockChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -185,7 +203,11 @@ class _FKSSAppState extends State<FKSSApp> {
     final update = AppUpdateService();
 
     Widget home;
-    if (update.decision.force) {
+    if (_appLock.isLocked && api.isLoggedIn) {
+      // Passcode gate sits in front of everything (Telegram model):
+      // the session is alive, but the content waits for the PIN.
+      home = const LockScreen();
+    } else if (update.decision.force) {
       home = const UpdateScreen(blocking: true);
     } else {
       home = api.isLoggedIn ? const AppShell() : const LoginScreen();

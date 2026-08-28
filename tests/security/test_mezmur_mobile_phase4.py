@@ -154,10 +154,10 @@ class MobilePhase4Tests(unittest.TestCase):
         self.assertIn("'pending_mezmur',", wipe)
         self.assertIn("'cached_mezmur_sheet',", wipe)
         self.assertIn("'cached_mezmur_sections',", wipe)
-        # hymn offline store + unsynced edits wiped on logout too
-        self.assertIn("'pending_hymn_ops',", wipe)
-        self.assertIn("'cached_hymns',", wipe)
-        self.assertIn("'hymn_sync_meta',", wipe)
+        # Boundary (2026-08-28): hymns are shared library content —
+        # they SURVIVE logout; only member/attendance data is wiped.
+        self.assertNotIn("'pending_hymn_ops',\n", wipe.replace("'", ""))
+        self.assertIn("Intentionally kept on logout", wipe)
 
     # ── api surface additions ─────────────────────────────────
     def test_api_service_hymn_readers(self):
