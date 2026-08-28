@@ -868,3 +868,24 @@ their data — never shared, never combined):
 
 Verified: PHP probe 25/25 (attribution, username matrix, boundaries),
 suite 400/400, smoke PASSED.
+
+### 13. Mezmur attendance section = edu Submissions workflow clone (2026-08-28)
+
+The old mezmur attendance page stacked a filter-dropdown review queue,
+a days history and a sheet view on one screen — confusing. Rebuilt as
+the exact edu Submissions workflow:
+- Nav item "Submissions"; header "Drafts are still being worked on.
+  Submitted means the taker finished."
+- Tabs: Drafts | Submitted | Insights (shared .sub-tab theme styles)
+- Insight strip: Drafts / Submitted / Approved / Today's marks — from
+  new MezmurSubmissionService::packetStats (two bounded indexed
+  queries, decoration never breaks the inbox)
+- Filters: section / from / to; table Date·Section·Taker·Members·
+  Result·Status(+return-note preview)·Updated·Actions with one-click
+  approve for submitted packets (reject/return keeps the note modal)
+- Insights tab: last 14 attendance days + pointer to full analytics
+- Excel export (SheetJS, same CDN as edu) with CSV fallback
+- History (days) + read-only sheet view kept below, unchanged
+
+Verified: suite 401/401 (new clone-contract test), packetStats probe
+OK, smoke ALL PASSED.

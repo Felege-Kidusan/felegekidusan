@@ -410,3 +410,50 @@
 /* Dept mezmur review console (read-only) */
 .mz-purpose-note { margin: .2rem 0 0; }
 .mz-view-select { max-width: 220px; }
+
+/* ────────────────────────────────────────────────────────────
+   Submissions workflow (edu ↔ mezmur parity, 2026-08-28)
+   Drafts | Submitted | Insights tabs + insight strip.
+   Tokens only → dark/light/print come free.
+   ──────────────────────────────────────────────────────────── */
+.sub-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border-bottom: 2px solid var(--school-border);
+    margin-bottom: 1rem;
+}
+.sub-tab {
+    appearance: none;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    padding: 0.6rem 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--school-text-dim);
+    cursor: pointer;
+}
+.sub-tab:hover { color: var(--school-text-bright); }
+.sub-tab.active {
+    color: var(--school-primary, var(--school-accent));
+    border-bottom-color: var(--school-primary, var(--school-accent));
+}
+.sub-stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.sub-stat {
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    color: #fff;
+    min-height: 64px;
+}
+.sub-stat b { display: block; font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
+.sub-stat span { font-size: 0.65rem; opacity: 0.85; }

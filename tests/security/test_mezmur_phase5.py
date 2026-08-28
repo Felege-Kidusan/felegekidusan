@@ -235,8 +235,33 @@ class MezmurPhase5Tests(unittest.TestCase):
         self.assertNotIn("Mezmur.setMark(", self.js)
         self.assertNotIn("saveSheet(kind)", self.js)
         self.assertNotIn("seg-btn", self.js)
-        # shell shows the read-only contract
-        self.assertIn("Recording happens on the app", self.shell)
+        # shell shows the read-only contract (record on mobile)
+        self.assertIn("taken by mezmur attendance takers in the mobile app", self.shell)
+
+    def test_attendance_section_is_edu_submissions_clone(self):
+        # 2026-08-28: the mezmur console mirrors the edu Submissions
+        # workflow — Drafts/Submitted/Insights tabs, insight strip,
+        # Excel export, detail + review modals.
+        for token in [
+            'id="mzSubTabDraft"', 'id="mzSubTabSubmitted"', 'id="mzSubTabInsights"',
+            'id="mzSubStatsRow"', 'id="mzSubInsights"', 'id="mzSubSection"',
+            'id="mzSubmissionsList"',
+        ]:
+            self.assertIn(token, self.shell)
+        for fn in [
+            "function switchSubTab(", "function loadSubmissions()",
+            "function renderSubStats(", "function exportSubmissions()",
+            "function loadSubInsights()", "function quickDecision(",
+        ]:
+            self.assertIn(fn, self.js)
+        # insight strip data comes from the governed stats block
+        self.assertIn("packetStats", self.sub_service)
+        self.assertIn("$out['stats'] = MezmurSubmissionService::packetStats($conn);", self.api)
+        # shared submission-tab styling lives in the component theme
+        self.assertIn(".sub-tab", self.css)
+        # Excel parity (SheetJS, same CDN as edu_dept)
+        self.assertIn("xlsx.full.min.js", self.shell)
+        self.assertIn("Mezmur.exportSubmissions()", self.shell)
         self.assertIn("Read-only — sheets are recorded and submitted from the mobile app.", self.shell)
         self.assertIn("Review Queue", self.shell)
         self.assertNotIn("Take Attendance", self.shell)

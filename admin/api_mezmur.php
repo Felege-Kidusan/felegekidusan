@@ -715,6 +715,9 @@ try {
                 'page' => $_GET['page'] ?? 1,
                 'per_page' => $_GET['per_page'] ?? 50,
             ]);
+            // Insight strip (edu Submissions parity): counts per state
+            // + today's marks, independent of the active filter.
+            $out['stats'] = MezmurSubmissionService::packetStats($conn);
             mezmur_respond(['status' => 'success'] + $out);
         }
 

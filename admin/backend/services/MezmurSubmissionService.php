@@ -675,6 +675,53 @@ final class MezmurSubmissionService
         return $out;
     }
 
+    /**
+     * Inbox insight strip (edu Submissions parity): counts per state
+     * plus today's marks. Two bounded queries on indexed columns —
+     * safe at scale, computed on demand (no stale caches).
+     */
+    public static function packetStats(\mysqli $conn): array
+    {
+        $stats = [
+            'drafts' => 0, 'submitted' => 0, 'approved' => 0, 'returned' => 0, 'rejected' => 0,
+            'today_packets' => 0, 'today_present' => 0, 'today_absent' => 0, 'today_late' => 0,
+        ];
+        try {
+            $res = $conn->query(
+                "SELECT status, COUNT(*) c FROM mezmur_submissions GROUP BY status"
+            );
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    $st = self::normalizeStatus($row['status']);
+                    if ($st === self::STATUS_INCOMPLETE) $st = self::STATUS_DRAFT;
+                    if ($st === self::STATUS_DRAFT) $stats['drafts'] += (int)$row['c'];
+                    elseif ($st === self::STATUS_SUBMITTED) $stats['submitted'] = (int)$row['c'];
+                    elseif ($st === self::STATUS_APPROVED) $stats['approved'] = (int)$row['c'];
+                    elseif ($st === self::STATUS_REVISION) $stats['returned'] = (int)$row['c'];
+                    elseif ($st === self::STATUS_REJECTED) $stats['rejected'] = (int)$row['c'];
+                }
+            }
+            $stmt = $conn->prepare(
+                "SELECT COUNT(*) packets,
+                        COALESCE(SUM(present_count),0) p,
+                        COALESCE(SUM(absent_count),0) a,
+                        COALESCE(SUM(late_count),0) l
+                 FROM mezmur_submissions WHERE attendance_date = CURDATE()"
+            );
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            if ($row) {
+                $stats['today_packets'] = (int)$row['packets'];
+                $stats['today_present'] = (int)$row['p'];
+                $stats['today_absent'] = (int)$row['a'];
+                $stats['today_late'] = (int)$row['l'];
+            }
+        } catch (\Throwable $e) {
+            // Stats are decorative — a failure must never break the inbox.
+        }
+        return $stats;
+    }
+
     private static function presentRow(array $row): array
     {
         $status = self::normalizeStatus($row['status'] ?? '');

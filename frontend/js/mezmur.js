@@ -215,6 +215,7 @@
         } else if (name === 'attendance' && !tabLoaded.attendance) {
             tabLoaded.attendance = true;
             loadSections();
+            loadSubSectionOptions();
             loadDays(1);
             loadSubmissions();
         } else if (name === 'analytics' && !tabLoaded.analytics) {
@@ -723,42 +724,175 @@
         $('mzSessionListView').style.display = 'block';
     }
 
-    // ── review inbox (department) ─────────────────────────────
+    // ── review inbox (department) — edu Submissions workflow clone ─
+    var _allPackets = [];
+
+    function switchSubTab(tab) {
+        ['draft', 'submitted', 'insights'].forEach(function (t) {
+            var id = 'mzSubTab' + (t === 'insights' ? 'Insights' : t.charAt(0).toUpperCase() + t.slice(1));
+            var b = $(id);
+            if (!b) return;
+            b.classList.toggle('active', t === tab);
+            b.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+        });
+        var hid = $('mzSubTabStatus');
+        if (tab === 'insights') {
+            $('mzSubmissionsList').classList.add('is-hidden');
+            $('mzSubInsights').classList.remove('is-hidden');
+            loadSubInsights();
+            return;
+        }
+        $('mzSubmissionsList').classList.remove('is-hidden');
+        $('mzSubInsights').classList.add('is-hidden');
+        hid.value = tab;
+        loadSubmissions();
+    }
+
     function loadSubmissions() {
         var tb = $('mzSubTbody');
         if (!tb) return;
         tb.innerHTML = skeletonRows(5);
-        var q = 'action=submissions_list&status=' + encodeURIComponent($('mzSubStatus').value || 'attention');
+        var status = $('mzSubTabStatus').value || 'draft';
+        var q = 'action=submissions_list&per_page=100&status=' + encodeURIComponent(status);
+        var sec = $('mzSubSection') ? $('mzSubSection').value : '';
+        var from = $('mzSubFrom') ? $('mzSubFrom').value : '';
+        var to = $('mzSubTo') ? $('mzSubTo').value : '';
+        if (sec) q += '&section=' + encodeURIComponent(sec);
+        if (from) q += '&from=' + encodeURIComponent(from);
+        if (to) q += '&to=' + encodeURIComponent(to);
         apiGet(q).then(function (d) {
             if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="7">' + errorState(d.message || 'Unable to load the queue.', 'Mezmur.loadSubmissions()') + '</td></tr>';
+                tb.innerHTML = '<tr><td colspan="8">' + errorState(d.message || 'Unable to load submissions.', 'Mezmur.loadSubmissions()') + '</td></tr>';
                 return;
             }
-            var items = d.items || [];
-            if (!items.length) {
-                tb.innerHTML = '<tr><td colspan="7">' + emptyState('fa-inbox', 'Nothing to review',
-                    'When a taker saves or submits a section sheet, the packet lands here.') + '</td></tr>';
+            _allPackets = d.items || [];
+            renderSubStats(d.stats || {});
+            if (!_allPackets.length) {
+                var empty = status === 'draft'
+                    ? 'No drafts yet. When a taker taps Save, the unfinished sheet appears here.'
+                    : 'No submitted sheets yet. Submit is used when the section sheet is complete.';
+                tb.innerHTML = '<tr><td colspan="8">' + emptyState('fa-inbox', status === 'draft' ? 'No drafts' : 'Nothing submitted', empty) + '</td></tr>';
                 return;
             }
-            tb.innerHTML = items.map(function (p) {
-                var open = p.status === 'submitted' || p.status === 'revision_needed' || p.status === 'draft';
+            tb.innerHTML = _allPackets.map(function (p) {
+                var result = p.present_count + 'P / ' + p.late_count + 'L / ' + p.absent_count + 'A' + (p.excused_count ? ' / ' + p.excused_count + 'E' : '');
+                var returned = p.status === 'revision_needed' && p.reviewer_name
+                    ? '<div class="text-dim" style="font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ' + esc(p.reviewer_name) +
+                      (p.review_notes ? ': ' + esc(String(p.review_notes).length > 60 ? String(p.review_notes).slice(0, 60) + '…' : p.review_notes) : '') + '</div>'
+                    : '';
+                var actions = '<button class="btn-secondary btn-sm" title="Open packet" onclick="Mezmur.viewPacket(' + p.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
+                    '<button class="btn-secondary btn-sm" title="Review" onclick="Mezmur.openReview(' + p.id + ')"><i class="fa-solid fa-gavel"></i></button>';
+                if (p.status === 'submitted') {
+                    actions += ' <button class="btn-primary btn-sm" title="Approve now" onclick="Mezmur.quickDecision(' + p.id + ',\'approved\')"><i class="fa-solid fa-check"></i></button>';
+                }
                 return '<tr>' +
                     '<td class="nowrap">' + fmtDate(p.attendance_date) + '</td>' +
                     '<td class="amharic">' + esc(p.section) + '</td>' +
                     '<td>' + esc(p.taker_name || '—') + '</td>' +
                     '<td>' + p.member_count + '</td>' +
-                    '<td>' + statusChip(p.status) + '</td>' +
+                    '<td style="font-weight:600;font-size:.78rem">' + result + '</td>' +
+                    '<td>' + statusChip(p.status) + returned + '</td>' +
                     '<td class="nowrap text-dim">' + fmtDate(p.updated_at) + '</td>' +
-                    '<td class="nowrap">' +
-                    '<button class="btn-secondary btn-sm" title="View rows" onclick="Mezmur.viewPacket(' + p.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
-                    (open
-                        ? '<button class="btn-primary btn-sm" onclick="Mezmur.openReview(' + p.id + ')"><i class="fa-solid fa-gavel"></i> Review</button>'
-                        : '<button class="btn-secondary btn-sm" onclick="Mezmur.openReview(' + p.id + ')"><i class="fa-solid fa-gavel"></i> Re-review</button>') +
-                    '</td></tr>';
+                    '<td class="nowrap">' + actions + '</td>' +
+                    '</tr>';
             }).join('');
         }).catch(function (err) {
-            tb.innerHTML = '<tr><td colspan="7">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadSubmissions()') + '</td></tr>';
+            tb.innerHTML = '<tr><td colspan="8">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.loadSubmissions()') + '</td></tr>';
         });
+    }
+
+    function renderSubStats(st) {
+        var row = $('mzSubStatsRow');
+        if (!row) return;
+        var today = st.today_packets
+            ? (st.today_present || 0) + ' P · ' + (st.today_absent || 0) + ' A · ' + (st.today_late || 0) + ' L'
+            : '—';
+        row.innerHTML =
+            '<div class="sub-stat" style="background:linear-gradient(135deg,#2563eb,#3b82f6)"><b>' + (st.drafts || 0) + '</b><span>Drafts (not finished)</span></div>' +
+            '<div class="sub-stat" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><b>' + (st.submitted || 0) + '</b><span>Submitted (needs review)</span></div>' +
+            '<div class="sub-stat" style="background:linear-gradient(135deg,#059669,#10b981)"><b>' + (st.approved || 0) + '</b><span>Approved</span></div>' +
+            '<div class="sub-stat" style="background:linear-gradient(135deg,#7c3aed,#6366f1)"><b style="font-size:1rem">' + today + '</b><span>Today\u2019s marks (' + (st.today_packets || 0) + ' sheets)</span></div>';
+    }
+
+    function quickDecision(id, decision) {
+        // Approve straight from the table. Anything else (reject /
+        // return) goes through the review modal so a note explains
+        // the decision to the taker.
+        if (decision !== 'approved') { openReview(id); return; }
+        apiPost({ action: 'submission_review', submission_id: id, new_status: decision, notes: '' }).then(function (d) {
+            if (d.status !== 'success') { window.toast(d.message || 'Unable to record the decision.', 'e'); return; }
+            window.toast(d.message || 'Approved.', 's');
+            loadSubmissions();
+        }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
+    }
+
+    function exportSubmissions() {
+        if (!_allPackets.length) { window.toast('Nothing to export on this tab.', 'e'); return; }
+        var head = ['Date', 'Section', 'Taker', 'Members', 'Present', 'Late', 'Absent', 'Excused', 'Status', 'Updated'];
+        var rows = _allPackets.map(function (p) {
+            return [p.attendance_date || '', p.section || '', p.taker_name || '', p.member_count || 0,
+                p.present_count || 0, p.late_count || 0, p.absent_count || 0, p.excused_count || 0,
+                p.status_label || p.status || '', p.updated_at || ''];
+        });
+        if (window.XLSX) {
+            var ws = XLSX.utils.aoa_to_sheet([head].concat(rows));
+            var wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Submissions');
+            XLSX.writeFile(wb, 'FKSS_Mezmur_Submissions.xlsx');
+        } else {
+            var csv = '\ufeff' + head.join(',') + '\n' + rows.map(function (r) {
+                return r.map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(',');
+            }).join('\n');
+            var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'mezmur-submissions-' + todayStr() + '.csv';
+            document.body.appendChild(a); a.click(); a.remove();
+        }
+        window.toast('Submissions exported.', 's');
+    }
+
+    function loadSubInsights() {
+        var box = $('mzSubInsights');
+        if (!box) return;
+        box.innerHTML = skeletonRows(3);
+        // Last 14 attendance days (existing bounded action) + packet
+        // status distribution — the same shape edu's Insights tab uses.
+        apiGet('action=days_list&per_page=14').then(function (d) {
+            var days = (d && d.items) || [];
+            var html = '<div class="toolbar"><div class="toolbar-title"><h3 class="school-card-title"><i class="fa-solid fa-chart-line"></i> Last 14 attendance days</h3></div></div>';
+            if (!days.length) {
+                html += emptyState('fa-calendar-check', 'No attendance days yet', 'Recorded days appear here once takers submit sheets.');
+            } else {
+                html += '<div class="table-shell"><table><thead><tr><th>Date</th><th>Marked</th><th>Attended</th><th>Rate</th></tr></thead><tbody>' +
+                    days.map(function (x) {
+                        var marked = Number(x.marked || 0), attended = Number(x.attended || 0);
+                        var rate = marked > 0 ? Math.round(attended * 1000 / marked) / 10 : null;
+                        return '<tr><td class="nowrap">' + fmtDate(x.attendance_date) + '</td><td>' + marked + '</td><td>' + attended + '</td><td>' + rateBar(rate) + '</td></tr>';
+                    }).join('') + '</tbody></table></div>';
+            }
+            html += '<p class="text-dim" style="margin-top:.75rem;font-size:.75rem">Full member / section / trend analytics live in the Analytics section.</p>';
+            box.innerHTML = html;
+        }).catch(function (err) {
+            box.innerHTML = errorState((err && err.message) || 'Connection error.', 'Mezmur.loadSubInsights()');
+        });
+    }
+
+    function loadSubSectionOptions() {
+        var sel = $('mzSubSection');
+        if (!sel || sel.dataset.loaded) return;
+        apiGet('action=sections').then(function (d) {
+            var items = (d && d.items) || [];
+            items.forEach(function (x) {
+                var name = x.section || x.name;
+                if (!name) return;
+                var opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name + (x.members != null ? ' (' + x.members + ')' : '');
+                sel.appendChild(opt);
+            });
+            sel.dataset.loaded = '1';
+        }).catch(function () { /* filter stays optional */ });
     }
 
     var _reviewMeta = {};
@@ -1100,7 +1234,8 @@
         openDay: openDay, viewSheet: viewSheet, quickReview: quickReview,
         closeSheet: function () { closeSheet(false); },
         // review inbox
-        loadSubmissions: loadSubmissions, openReview: openReview, submitReview: submitReview, viewPacket: viewPacket,
+        loadSubmissions: loadSubmissions, switchSubTab: switchSubTab, quickDecision: quickDecision,
+        exportSubmissions: exportSubmissions, openReview: openReview, submitReview: submitReview, viewPacket: viewPacket,
         // analytics
         runAnalytics: runAnalytics, sortBy: sortBy, exportCsv: exportCsv,
         // takers

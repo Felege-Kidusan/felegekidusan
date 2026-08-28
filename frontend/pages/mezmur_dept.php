@@ -46,7 +46,7 @@ ob_start();
             <ul class="school-nav-list">
                 <li><button class="school-nav-link active" data-section="overview"><i class="fa-solid fa-gauge-high"></i> Overview</button></li>
                 <li><button class="school-nav-link" data-section="library"><i class="fa-solid fa-book-open"></i> Hymn Library</button></li>
-                <li><button class="school-nav-link" data-section="attendance"><i class="fa-solid fa-calendar-check"></i> Attendance</button></li>
+                <li><button class="school-nav-link" data-section="attendance"><i class="fa-solid fa-inbox"></i> Submissions</button></li>
                 <li><button class="school-nav-link" data-section="analytics"><i class="fa-solid fa-chart-column"></i> Analytics</button></li>
                 <li><button class="school-nav-link" data-section="takers"><i class="fa-solid fa-user-shield"></i> Attendance Takers</button></li>
             </ul>
@@ -275,65 +275,83 @@ ob_start();
             </section>
 
             <!-- ═══ ATTENDANCE SECTION ═══ -->
-            <section id="section-attendance" class="school-section" data-section="attendance">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<section id="section-attendance" class="school-section" data-section="attendance">
 
                 <!-- Day list view -->
                 <div id="mzSessionListView">
                     <div class="page-head">
                         <div>
-                            <h2><i class="fa-solid fa-calendar-check"></i> Attendance</h2>
-                            <div class="page-head-sub amharic">በቀን መሠረት • በክፍል (section) — raw attendance, one sheet per section</div>
+                            <h2><i class="fa-solid fa-inbox"></i> Submissions</h2>
+                            <div class="page-head-sub amharic">በቀን መሠረት • በክፍል (section) — Drafts are still being worked on. Submitted means the taker finished.</div>
+                        </div>
+                        <div class="page-head-actions">
+                            <button class="btn-secondary" type="button" onclick="Mezmur.exportSubmissions()"><i class="fa-solid fa-download"></i> Excel</button>
+                            <button class="btn-secondary" type="button" onclick="Mezmur.loadSubmissions()"><i class="fa-solid fa-sync"></i> Refresh</button>
                         </div>
                     </div>
 
                     <!-- Department purpose notice (attendance is taken on mobile) -->
                     <div class="school-card">
-                        <div class="toolbar">
-                            <div class="toolbar-title">
-                                <h3 class="school-card-title"><i class="fa-solid fa-mobile-screen-button"></i> Recording happens on the app</h3>
-                            </div>
-                        </div>
                         <p class="text-dim mz-purpose-note">
-                            Attendance is taken by attendance takers in the mobile app, one sheet per
-                            section per day. This console reviews, approves or returns the submitted
-                            sheets and inspects any recorded day read-only.
+                            <i class="fa-solid fa-mobile-screen-button"></i>
+                            Attendance is taken by mezmur attendance takers in the mobile app, one sheet per
+                            section per day. This console reviews the packets — exactly the same workflow as
+                            teacher submissions in Education.
                         </p>
                     </div>
 
-                    <!-- Department review inbox -->
+                    <!-- ═══ SUBMISSIONS (edu workflow clone) ═══ -->
                     <div class="school-card">
                         <div class="toolbar">
                             <div class="toolbar-title">
-                                <h3 class="school-card-title"><i class="fa-solid fa-inbox"></i> Review Queue</h3>
+                                <h3 class="school-card-title"><i class="fa-solid fa-inbox"></i> Review Inbox</h3>
                             </div>
-                            <select id="mzSubStatus" class="school-input" aria-label="Filter packets by status">
-                                <option value="attention">Needs attention</option>
-                                <option value="submitted">Submitted</option>
-                                <option value="approved">Approved</option>
-                                <option value="revision_needed">Returned</option>
-                                <option value="rejected">Rejected</option>
-                                <option value="all">All</option>
+                            <label class="school-label visually-hidden" for="mzSubSection">Section</label>
+                            <select id="mzSubSection" class="school-input" aria-label="Filter by section">
+                                <option value="">All sections</option>
                             </select>
-                            <button class="btn-secondary" onclick="Mezmur.loadSubmissions()"><i class="fa-solid fa-filter"></i> Filter</button>
+                            <label class="school-label visually-hidden" for="mzSubFrom">From date</label>
+                            <input id="mzSubFrom" class="school-input" type="date" aria-label="From date">
+                            <label class="school-label visually-hidden" for="mzSubTo">To date</label>
+                            <input id="mzSubTo" class="school-input" type="date" aria-label="To date">
                         </div>
-                        <div class="table-shell">
+
+                        <!-- Drafts | Submitted | Insights tabs -->
+                        <div class="sub-tabs" role="tablist" aria-label="Submission tabs">
+                            <button class="sub-tab active" id="mzSubTabDraft" type="button" role="tab" aria-selected="true" onclick="Mezmur.switchSubTab('draft')"><i class="fa-solid fa-pen-to-square"></i> Drafts</button>
+                            <button class="sub-tab" id="mzSubTabSubmitted" type="button" role="tab" aria-selected="false" onclick="Mezmur.switchSubTab('submitted')"><i class="fa-solid fa-paper-plane"></i> Submitted</button>
+                            <button class="sub-tab" id="mzSubTabInsights" type="button" role="tab" aria-selected="false" onclick="Mezmur.switchSubTab('insights')"><i class="fa-solid fa-chart-line"></i> Insights</button>
+                        </div>
+                        <input autocomplete="off" type="hidden" id="mzSubTabStatus" value="draft">
+
+                        <!-- Insight strip -->
+                        <div id="mzSubStatsRow" class="sub-stats-row" aria-live="polite"></div>
+
+                        <!-- Packet table -->
+                        <div id="mzSubmissionsList" class="table-shell">
                             <table>
                                 <thead>
                                     <tr>
                                         <th>Date</th>
                                         <th>Section</th>
                                         <th>Taker</th>
-                                        <th>Marked</th>
+                                        <th>Members</th>
+                                        <th>Result</th>
                                         <th>Status</th>
                                         <th>Updated</th>
                                         <th class="nowrap">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="mzSubTbody">
-                                    <tr><td colspan="7"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                    <tr><td colspan="8"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                                 </tbody>
                             </table>
                         </div>
+
+                        <!-- Insights pane -->
+                        <div id="mzSubInsights" class="is-hidden" aria-live="polite"></div>
                     </div>
 
                     <!-- History -->
