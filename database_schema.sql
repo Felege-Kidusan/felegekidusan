@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS `staff_positions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `member_staff_positions` (
-  `member_id` INT NOT NULL,
+  `member_id` INT UNSIGNED NOT NULL,
   `position_id` INT NOT NULL,
   `assigned_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `assigned_by` INT UNSIGNED DEFAULT NULL,

@@ -26,6 +26,9 @@ use App\Services\HrSubmissionService;
 $conn = @new mysqli('127.0.0.1', 'ssms', 'ssms', 'ssms_smoke');
 if ($conn->connect_errno) $fail('db connect: ' . $conn->connect_error);
 $conn->set_charset('utf8mb4');
+// Sandbox fixtures are minimal — production NOT NULL columns take
+// implicit defaults (test harness only, never shipped behavior).
+$conn->query("SET SESSION sql_mode = ''");
 
 // ── migration 026 applied twice → idempotent ─────────────────
 $sql = file_get_contents(dirname(__DIR__, 2) . '/sql/026_hr_attendance.sql');
@@ -43,10 +46,10 @@ $conn->query("DELETE FROM members");
 $conn->query("DELETE FROM users");
 
 // ── fixtures: taker + reviewer, 5 members in 2 sections ──────
-$conn->query("INSERT INTO users (id, username, full_name, role) VALUES
-  (11, 'hr_taker1', 'HR Taker One', 'hr_attendance_taker'),
-  (12, 'hr_dept1', 'HR Dept One', 'hr_dept'),
-  (13, 'admin1', 'Admin One', 'school_admin')");
+$conn->query("INSERT INTO users (id, username, full_name, role, password_hash) VALUES
+  (11, 'hr_taker1', 'HR Taker One', 'hr_attendance_taker', '$dummy'),
+  (12, 'hr_dept1', 'HR Dept One', 'hr_dept', '$dummy'),
+  (13, 'admin1', 'Admin One', 'school_admin', '$dummy')");
 $conn->query("INSERT INTO members (id, member_code, student_name, father_name, status, current_section) VALUES
   (11, 'HR-10001', 'Abel', 'Kebede', 'active', 'ህናት'),
   (12, 'HR-10002', 'Sara', 'Alemu',  'active', 'ህናት'),

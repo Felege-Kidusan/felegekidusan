@@ -26,6 +26,9 @@ use App\Services\MezmurSubmissionService;
 $conn = @new mysqli('127.0.0.1', 'ssms', 'ssms', 'ssms_smoke');
 if ($conn->connect_errno) $fail('db connect: ' . $conn->connect_error);
 $conn->set_charset('utf8mb4');
+// Sandbox fixtures are minimal — production NOT NULL columns take
+// implicit defaults (test harness only, never shipped behavior).
+$conn->query("SET SESSION sql_mode = ''");
 
 // (base schema + migrations 022/023/024 already applied via mysql CLI)
 $conn->query("TRUNCATE mezmur_submissions");
@@ -36,9 +39,9 @@ $conn->query("TRUNCATE mezmur_days");
 $conn->query("DELETE FROM activity_logs");
 
 // ── fixtures: 2 users, 5 members in 2 sections ────────────────
-$conn->query("INSERT INTO users (id, username, full_name, role) VALUES
-  (1, 'taker1', 'Taker One', 'attendance_taker'),
-  (2, 'dept1', 'Dept One', 'mezmur_dept')");
+$conn->query("INSERT INTO users (id, username, full_name, role, password_hash) VALUES
+  (1, 'taker1', 'Taker One', 'attendance_taker', '$dummy'),
+  (2, 'dept1', 'Dept One', 'mezmur_dept', '$dummy')");
 $conn->query("INSERT INTO members (id, member_code, student_name, father_name, status, current_section) VALUES
   (1, 'MZ-10001', 'Abel', 'Kebede', 'active', 'ህናት'),
   (2, 'MZ-10002', 'Sara', 'Alemu',  'active', 'ህናት'),
