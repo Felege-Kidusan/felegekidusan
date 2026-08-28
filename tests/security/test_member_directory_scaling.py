@@ -108,8 +108,13 @@ class MemberDirectoryScalingTests(unittest.TestCase):
         hr = (ROOT / "admin/dashboards/hr-dept.php").read_text()
         self.assertNotIn("LIMIT 400", info)
         self.assertNotIn("$membersForAttaker", info + hr)
-        # Info keeps the member-picker pattern for its taker modal.
-        self.assertIn('data-member-picker-target="attakerMemberId"', info)
+        # The Information department is a READ-ONLY analytics hub: it
+        # has no attendance takers and no taker management at all.
+        # Its only member picker is the PDF member-report search.
+        self.assertNotIn('attakerModal', info)
+        self.assertNotIn("backend/user-save.php", info)
+        self.assertNotIn('data-member-picker-target="attakerMemberId"', info)
+        self.assertIn('data-member-picker-target="pdfMemberId"', info)
         self.assertIn('data-member-picker-status="active"', info)
         self.assertIn("input.dataset.memberPickerStatus", self.picker_js)
         # HR takers moved to the department-owned pipeline (2026-08):

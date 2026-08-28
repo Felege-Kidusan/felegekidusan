@@ -72,8 +72,12 @@ class SearchAutofillHardeningTests(unittest.TestCase):
         # search remains; the username field must not autofill.
         self.assertEqual(1, hr.count('type="search" inputmode="search"'))
         self.assertIn('id="attakerUsername" autocomplete="off"', hr)
+        # Info dept lost its taker modal when taker management was
+        # removed entirely (read-only department); its remaining
+        # search-type input is the PDF member-report picker.
         self.assertIn('type="search" inputmode="search"', info)
-        self.assertIn('name="fkss_attaker_search"', info)
+        self.assertNotIn('name="fkss_attaker_search"', info)
+        self.assertIn('data-member-picker-target="pdfMemberId"', info)
 
     def test_add_user_modal_fields_do_not_autofill(self):
         school = self.sources["admin/dashboards/school_admin.php"]

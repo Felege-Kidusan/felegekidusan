@@ -542,14 +542,6 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 <span class="font-semibold">Settings</span>
             </button>
 
-            <button data-section="attakers"
-                    class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
-                <span class="w-8 h-8 rounded-xl bg-amber-500/30 flex items-center justify-center">
-                    <i class="fa-solid fa-user-check text-sm"></i>
-                </span>
-                <span class="font-semibold">Attendance Takers</span>
-            </button>
-
         </nav>
 
         <div class="mt-5 space-y-2">
@@ -2275,77 +2267,6 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 </div>
             </section>
 
-            <!-- ATTENDANCE TAKERS -->
-            <section id="section-attakers" class="content-section">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                    <div>
-                        <h2 class="text-xl font-bold text-slate-800">Attendance Taker Accounts</h2>
-                        <p class="text-sm text-slate-500">Create login accounts for attendance takers</p>
-                    </div>
-                    <button onclick="openAttakerModal()" class="px-4 py-2 bg-amber-500 text-white rounded-xl font-medium hover:bg-amber-600 transition flex items-center gap-2">
-                        <i class="fa-solid fa-user-plus"></i> Create Attendance Taker
-                    </button>
-                </div>
-
-                <div class="panel overflow-hidden">
-                    <table class="w-full text-sm">
-                        <thead class="bg-slate-50">
-                            <tr>
-                                <th class="px-4 py-3 text-left font-semibold text-slate-600">Username</th>
-                                <th class="px-4 py-3 text-left font-semibold text-slate-600">Full Name</th>
-                                <th class="px-4 py-3 text-left font-semibold text-slate-600">Linked Member</th>
-                                <th class="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
-                                <th class="px-4 py-3 text-left font-semibold text-slate-600">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="attakersTableBody">
-                            <?php
-                            $attakersResult = $conn->query("SELECT u.*, m.student_name, m.father_name FROM users u LEFT JOIN members m ON u.member_id = m.id WHERE u.role = 'attendance_taker' ORDER BY u.full_name");
-                            $hasAttakers = false;
-                            if ($attakersResult):
-                                while ($att = $attakersResult->fetch_assoc()):
-                                    $hasAttakers = true;
-                            ?>
-                            <tr class="border-t border-slate-100 hover:bg-slate-50">
-                                <td class="px-4 py-3 font-medium"><?= e($att['username']) ?></td>
-                                <td class="px-4 py-3"><?= e($att['full_name']) ?></td>
-                                <td class="px-4 py-3">
-                                    <?php if ($att['member_id']): ?>
-                                        <span class="text-emerald-600"><?= e($att['student_name'] . ' ' . $att['father_name']) ?></span>
-                                    <?php else: ?>
-                                        <span class="text-slate-400">â€”</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <span class="px-2 py-1 rounded-full text-xs font-medium <?= $att['is_active'] ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700' ?>">
-                                        <?= $att['is_active'] ? 'Active' : 'Inactive' ?>
-                                    </span>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <button onclick="toggleAttakerStatus(<?= $att['id'] ?>, <?= $att['is_active'] ?>)" 
-                                            class="text-<?= $att['is_active'] ? 'red' : 'emerald' ?>-600 hover:text-<?= $att['is_active'] ? 'red' : 'emerald' ?>-800" 
-                                            title="<?= $att['is_active'] ? 'Deactivate' : 'Activate' ?>">
-                                        <i class="fa-solid fa-<?= $att['is_active'] ? 'ban' : 'check' ?>"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            <?php
-                                endwhile;
-                            endif;
-                            if (!$hasAttakers):
-                            ?>
-                            <tr>
-                                <td colspan="5" class="px-4 py-8 text-center text-slate-400">
-                                    <i class="fa-solid fa-user-check text-3xl mb-2"></i>
-                                    <p>No attendance taker accounts created yet</p>
-                                </td>
-                            </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
             <!-- SETTINGS -->
             <section id="section-settings" class="content-section">
 
@@ -2668,66 +2589,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     <i class="fa-solid fa-gear text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Settings</span>
                 </button>
-                <button data-section="attakers"
-                        class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
-                    <i class="fa-solid fa-user-check text-base mb-0.5"></i>
-                    <span class="text-[10px] whitespace-nowrap">Att. Takers</span>
-                </button>
             </div>
         </nav>
-    </div>
-</div>
-
-<!-- Attendance Taker Modal -->
-<div id="attakerModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl">
-        <div class="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-4 rounded-t-2xl">
-            <div class="flex items-center justify-between">
-                <h3 class="font-bold text-lg"><i class="fa-solid fa-user-check mr-2"></i> Create Attendance Taker</h3>
-                <button onclick="closeAttakerModal()" class="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center hover:bg-white/30">&times;</button>
-            </div>
-        </div>
-        <form id="attakerForm" class="p-5">
-            <div class="mb-4">
-                <label class="block text-xs font-medium text-slate-500 mb-1">Link to Member (Optional)</label>
-                <input autocomplete="off" type="search" inputmode="search"
-                       name="fkss_attaker_search" data-form-type="other" data-1p-ignore
-                       data-member-picker-target="attakerMemberId"
-                       data-member-picker-status="active"
-                       class="w-full px-3 py-2 mb-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                       placeholder="Search active members by name, code, or phone">
-                <select name="member_id" id="attakerMemberId" data-optional="true" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="">â€” None â€”</option>
-                </select>
-            </div>
-            
-            <div class="mb-4">
-                <label class="block text-xs font-medium text-slate-500 mb-1">Full Name *</label>
-                <input type="text" name="full_name" id="attakerFullName" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Full name">
-            </div>
-            
-            <div class="mb-4">
-                <label class="block text-xs font-medium text-slate-500 mb-1">Username *</label>
-                <input type="text" name="username" id="attakerUsername" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Login username">
-            </div>
-            
-            <div class="mb-4">
-                <label class="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                <input type="email" name="email" id="attakerEmail" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" placeholder="Email address (optional)">
-            </div>
-            
-            <div class="mb-5">
-                <label class="block text-xs font-medium text-slate-500 mb-1">Password *</label>
-                <input type="password" name="password" id="attakerPassword" minlength="12" maxlength="72" autocomplete="new-password" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500" required placeholder="Secure password">
-            </div>
-            
-            <div class="flex gap-3">
-                <button type="button" onclick="closeAttakerModal()" class="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition">Cancel</button>
-                <button type="submit" class="flex-1 px-4 py-2 bg-amber-500 text-white rounded-xl font-medium hover:bg-amber-600 transition flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-user-plus"></i> Create Account
-                </button>
-            </div>
-        </form>
     </div>
 </div>
 
@@ -4153,89 +4016,6 @@ function submitRegistrationForm(formData) {
 
 // Initialize duplicate check on page load
 document.addEventListener('DOMContentLoaded', setupDuplicateCheck);
-
-// ============================================================
-// ATTENDANCE TAKER ACCOUNT MANAGEMENT
-// ============================================================
-function openAttakerModal() {
-    document.getElementById('attakerModal').classList.remove('hidden');
-    document.getElementById('attakerModal').classList.add('flex');
-    document.getElementById('attakerForm').reset();
-}
-
-function closeAttakerModal() {
-    document.getElementById('attakerModal').classList.add('hidden');
-    document.getElementById('attakerModal').classList.remove('flex');
-}
-
-// Auto-fill name from selected member
-document.getElementById('attakerMemberId')?.addEventListener('change', function() {
-    const selected = this.options[this.selectedIndex];
-    if (selected && selected.value) {
-        const name = selected.textContent.split('(')[0].trim();
-        document.getElementById('attakerFullName').value = name;
-    }
-});
-
-// Handle form submission
-document.getElementById('attakerForm')?.addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData(this);
-    formData.append('role', 'attendance_taker');
-    formData.append('csrf_token', '<?= $csrfToken ?? '' ?>');
-    
-    fetch('<?= $ajaxPrefix ?>backend/user-save.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'success') {
-            closeAttakerModal();
-            // Show success toast
-            const toast = document.getElementById('memberSuccessToast');
-            const toastMsg = toast?.querySelector('span') || toast;
-            if (toastMsg) toastMsg.textContent = 'Attendance taker account created!';
-            toast?.classList.remove('hidden');
-            setTimeout(() => toast?.classList.add('hidden'), 3000);
-            // Reload page to show new user
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            alert(data.message || 'Error creating account');
-        }
-    })
-    .catch(err => {
-        console.error(err);
-        alert('Network error. Please try again.');
-    });
-});
-
-function toggleAttakerStatus(userId, currentStatus) {
-    if (!confirm(currentStatus ? 'Deactivate this account?' : 'Activate this account?')) return;
-    
-    const formData = new FormData();
-    formData.append('user_id', userId);
-    formData.append('action', 'toggle_status');
-    formData.append('csrf_token', '<?= $csrfToken ?? '' ?>');
-    
-    fetch('<?= $ajaxPrefix ?>backend/user-toggle.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'success' || data.success) {
-            location.reload();
-        } else {
-            alert(data.message || 'Error toggling status');
-        }
-    })
-    .catch(err => {
-        console.error(err);
-        alert('Network error');
-    });
-}
 
 // ============================================================
 // ATTENDANCE & STATUS SECTION FUNCTIONS
