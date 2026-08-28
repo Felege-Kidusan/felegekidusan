@@ -144,6 +144,19 @@ if (isset($_GET['diag'])) {
                 'logged_in' => !empty($_SESSION['admin_logged_in']),
                 'role'      => isset($_SESSION['admin_role']) ? $_SESSION['admin_role'] : '(none)',
             );
+            $recPath = $root . '/admin/backend/services/MezmurSchemaReconciler.php';
+            if (is_file($recPath)) {
+                try {
+                    require_once $recPath;
+                    $p2['schema_drift'] = \App\Services\MezmurSchemaReconciler::report($conn);
+                } catch (Throwable $e) {
+                    $p2['schema_drift'] = 'RECONCILER UNAVAILABLE';
+                } catch (Exception $e) {
+                    $p2['schema_drift'] = 'RECONCILER UNAVAILABLE';
+                }
+            } else {
+                $p2['schema_drift'] = 'reconciler file missing (server code older than this fix)';
+            }
         } else {
             $p2['tables'] = 'no $conn available (config.php did not complete)';
         }

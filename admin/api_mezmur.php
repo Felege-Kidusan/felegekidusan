@@ -73,12 +73,13 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
 require_once __DIR__ . '/backend/services/MezmurAttendanceService.php';
 require_once __DIR__ . '/backend/services/MezmurSubmissionService.php';
+require_once __DIR__ . '/backend/services/MezmurSchemaReconciler.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
@@ -88,7 +89,7 @@ $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review'], true)
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate'], true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -171,6 +172,31 @@ try {
                 'message' => empty($missing)
                     ? 'Mezmur deployment is current — all tables present.'
                     : 'Run these migrations on the server: ' . implode(', ', array_values($missing)),
+            ]);
+        }
+
+        // ── SCHEMA (drift report) / MIGRATE (guarded apply) ────
+        // The schema-drift killer: production broke repeatedly because
+        // legacy tables predate the repo and migrations lag the cron
+        // code pull. report() shows the drift; apply() closes it with
+        // idempotent guarded DDL. migrate is POST + CSRF + role-gated.
+        case 'schema': {
+            mezmur_respond([
+                'status' => 'success',
+                'drift' => \App\Services\MezmurSchemaReconciler::report($conn),
+            ]);
+        }
+
+        case 'migrate': {
+            $result = \App\Services\MezmurSchemaReconciler::apply($conn);
+            mezmur_respond([
+                'status' => 'success',
+                'message' => empty($result['failed'])
+                    ? (empty($result['applied']) ? 'Schema already current — nothing to do.' : 'Schema reconciled: ' . count($result['applied']) . ' change(s).')
+                    : 'Schema reconciled with issues — see failed.',
+                'applied' => $result['applied'],
+                'failed' => $result['failed'],
+                'drift_now' => \App\Services\MezmurSchemaReconciler::report($conn),
             ]);
         }
 
@@ -531,10 +557,14 @@ try {
             try {
                 $members = $conn->query("SELECT COUNT(*) c FROM members WHERE status = 'active'")->fetch_assoc()['c'] ?? 0;
             } catch (\Throwable $e) { $members = 0; }
-            $takers = MezmurAttendanceService::takersList($conn);
+            try {
+                $takers = MezmurAttendanceService::takersList($conn);
+            } catch (\Throwable $e) { $takers = []; }
             $takersActive = count(array_filter($takers, static fn($t) => (int)$t['is_active'] === 1));
 
-            $recentDays = MezmurAttendanceService::listDays($conn, $monthStart, $today, 1, 5)['items'];
+            try {
+                $recentDays = MezmurAttendanceService::listDays($conn, $monthStart, $today, 1, 5)['items'];
+            } catch (\Throwable $e) { $recentDays = []; }
             $recentHymns = [];
             try {
                 $rh = $conn->query("SELECT id, title, category, updated_at FROM mezmur_hymns WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 5");

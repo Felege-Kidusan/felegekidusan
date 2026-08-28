@@ -683,3 +683,25 @@ re-adding it as student_photo_path (same).
 
 (The Aug-27 `api/admin/backend/...` include-path error is already fixed in
 the current api/v1/routes/mezmur.php: includes use `/../../../admin/`.)
+
+### 7d. Incident #4 — legacy tables never upgraded (the last piece)
+
+Web still failed after the photo fix because production's `mezmur_hymns`
+(and friends) are LEGACY tables created before the repo existed;
+`CREATE TABLE IF NOT EXISTS` never upgrades them, and the cron pulls code
+while SQL migrations lag. Shipped the schema-drift killer:
+
+- `MezmurSchemaReconciler` — knows the exact column contract of every
+  mezmur table; report() lists drift; apply() closes it with guarded,
+  idempotent DDL (adds missing columns, creates missing tables, extends
+  the attendance enum to 'excused', makes session_id nullable). DDL built
+  only from constants — no user input.
+- `action=schema` (GET report) and `action=migrate` (POST + CSRF + role
+  gate + write rate limit) in admin/api_mezmur.php.
+- Web dashboard: one-click **"Sync DB schema"** button on Overview.
+- ?diag=2 now includes `schema_drift` so drift is visible in one request.
+- Overview takersList/listDays wrapped (no unguarded call remains).
+
+Verified on a simulated legacy DB (hymns with 3 columns, session-based
+attendance, members without photo_url): report finds drift → apply closes
+it → second apply does nothing → sheet loads. Suite 336/336.

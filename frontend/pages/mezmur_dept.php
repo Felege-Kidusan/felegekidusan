@@ -98,6 +98,12 @@ ob_start();
                         <h1 id="mzGreeting">Welcome 🎵</h1>
                         <div class="page-head-sub"><span data-today></span></div>
                     </div>
+                    <div class="page-head-actions">
+                        <button class="btn-secondary btn-sm" onclick="Mezmur.migrateSchema()"
+                                title="Align the database with the current code (safe, idempotent)">
+                            <i class="fa-solid fa-database"></i> Sync DB schema
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Quick actions (taker tile hidden for non-managers by JS) -->

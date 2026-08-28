@@ -10,6 +10,12 @@ DDL_TEXT_ALLOWLIST = {
     # This domain service serializes schema into an operator-requested backup;
     # it does not execute CREATE/ALTER statements against the live database.
     "admin/backend/services/BackupService.php",
+    # Explicit admin-triggered maintenance endpoint (POST + CSRF + role gate
+    # + write rate limit) whose DDL is built only from class constants (no
+    # user input). It exists to close the schema drift that repeatedly broke
+    # production (legacy tables never upgraded by CREATE TABLE IF NOT EXISTS,
+    # migrations lagging the cron code pull). Not a normal request path.
+    "admin/backend/services/MezmurSchemaReconciler.php",
 }
 
 

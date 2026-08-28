@@ -61,6 +61,21 @@
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     }
 
+    // ── schema reconciliation (one-click migration) ──────────
+    function migrateSchema() {
+        if (!window.confirm('Align the mezmur database schema with the current code? This is safe to run at any time.')) return;
+        apiPost({ action: 'migrate' }).then(function (d) {
+            if (d.status !== 'success') { window.toast(d.message || 'Schema sync failed.', 'e'); return; }
+            var applied = (d.applied || []).length;
+            var failed = Object.keys(d.failed || {}).length;
+            window.toast(d.message || ('Schema synced (' + applied + ' change(s)).'), failed ? 'e' : 's');
+            if (failed) console.error('mezmur migrate failures:', d.failed);
+            if (typeof Mezmur.loadOverview === 'function') Mezmur.loadOverview();
+        }).catch(function (err) {
+            window.toast(((err && err.message) || 'Connection error.') + staleHint(err), 'e');
+        });
+    }
+
     // ── bounded API access (the skeleton-forever fix) ─────────
     function apiGet(q) {
         var p = window.api.get('mezmur.php?' + q);
@@ -1174,7 +1189,8 @@
     // Public API (inline onclick handlers in the shell)
     window.Mezmur = {
         // overview
-        loadOverview: loadOverview, reloadTakers: loadTakers, libReload: loadList,
+        loadOverview: loadOverview,
+        migrateSchema: migrateSchema, reloadTakers: loadTakers, libReload: loadList,
         quickTake: quickTake, quickLibrary: quickLibrary, quickAnalytics: quickAnalytics, quickTakers: quickTakers,
         gotoAttendance: gotoAttendance, jumpToDate: jumpToDate,
         // library

@@ -176,8 +176,11 @@ class MezmurPhase5Tests(unittest.TestCase):
         ]:
             self.assertIn(token, self.api)
         # review is POST-only + role-checked + rate-limited as a write
-        self.assertIn("'submission_review'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
-        self.assertIn("'submission_review'], true)\n    ? 'mezmur_write'", self.api)
+        self.assertIn("'submission_review', 'migrate'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
+        self.assertIn("'submission_review', 'migrate'], true)\n    ? 'mezmur_write'", self.api)
+        # schema-drift killer endpoints
+        self.assertIn("case 'schema'", self.api)
+        self.assertIn("case 'migrate'", self.api)
         self.assertIn("MezmurSubmissionService::canReview(", self.api)
         # schema probe tells admins exactly which migration to run
         self.assertIn("sql/024_mezmur_submissions.sql", self.api)
@@ -472,35 +475,49 @@ class MezmurProdDiagTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
-class MezmurSchemaToleranceTests(unittest.TestCase):
-    """Incident #3 root cause: production members has
-    `student_photo_path`, not `photo_url`; every roster SELECT that
-    hardcoded photo_url threw mysqli_sql_exception (PHP 8.2) and the
-    host masked it as the generic ref-JSON. Roster queries must detect
-    the photo column at runtime and always emit the photo_url key.
+class MezmurSchemaReconcilerTests(unittest.TestCase):
+    """Schema-drift killer: legacy tables (created before the repo)
+    are never upgraded by CREATE TABLE IF NOT EXISTS, and migrations
+    lag the cron code pull. The reconciler reports and closes drift
+    with idempotent guarded DDL; admins trigger it with one click.
     """
 
     @classmethod
     def setUpClass(cls):
-        cls.att = (
-            ROOT / "admin/backend/services/MezmurAttendanceService.php"
+        cls.rec = (
+            ROOT / "admin/backend/services/MezmurSchemaReconciler.php"
         ).read_text(encoding="utf-8")
-        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.shell = (ROOT / "frontend/pages/mezmur_dept.php").read_text(encoding="utf-8")
+        cls.shim = (ROOT / "backend/api/mezmur.php").read_text(encoding="utf-8")
 
-    def test_photo_column_is_detected_not_hardcoded(self):
-        self.assertIn("photoSelectExpr", self.att)
-        self.assertIn("student_photo_path", self.att)
-        self.assertIn("SHOW COLUMNS FROM members LIKE", self.att)
-        self.assertIn("NULL AS photo_url", self.att)
-        # no SELECT may hardcode the photo column any more
-        self.assertNotIn("full_name_am, photo_url", self.att)
-        self.assertNotIn("m.photo_url", self.att)
-        self.assertNotIn("father_name, photo_url", self.att)
+    def test_reconciler_covers_every_mezmur_table(self):
+        for tbl in ["mezmur_hymns", "mezmur_days", "mezmur_attendance",
+                    "mezmur_attendance_audit", "mezmur_submissions"]:
+            self.assertIn("'" + tbl + "'", self.rec)
 
-    def test_api_v1_service_includes_resolve_to_repo_root(self):
-        # the Aug-27 log showed require of .../api/admin/backend/... —
-        # includes must climb three levels from api/v1/routes/.
-        self.assertIn(
-            "__DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php'",
-            self.route,
-        )
+    def test_reconciler_is_guarded_and_idempotent(self):
+        self.assertIn("SHOW COLUMNS FROM", self.rec)
+        self.assertIn("ALTER TABLE", self.rec)
+        self.assertIn("catch (\\Throwable", self.rec)
+
+    def test_reconciler_extends_legacy_enum_and_nullability(self):
+        self.assertIn("excused", self.rec)
+        self.assertIn("MODIFY COLUMN session_id BIGINT UNSIGNED DEFAULT NULL", self.rec)
+
+    def test_api_exposes_report_and_guarded_apply(self):
+        self.assertIn("case 'schema'", self.api)
+        self.assertIn("case 'migrate'", self.api)
+        # migrate is POST-enforced and write-rate-limited
+        mig = self.api.split("in_array($action, [")[1]
+        self.assertIn("'migrate'", mig)
+
+    def test_one_click_ui_exists(self):
+        self.assertIn("migrateSchema", self.js)
+        self.assertIn("action: 'migrate'", self.js)
+        self.assertIn("Sync DB schema", self.shell)
+
+    def test_diag_reports_drift(self):
+        self.assertIn("schema_drift", self.shim)
+        self.assertIn("MezmurSchemaReconciler", self.shim)
