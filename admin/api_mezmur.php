@@ -52,18 +52,18 @@ function mezmur_respond(array $payload, int $code = 200): void
 
 // ── 1. Session gate ───────────────────────────────────────────
 if (empty($_SESSION['admin_logged_in'])) {
-    mezmur_respond(['status' => 'session_expired', 'message' => 'Please log in to continue.', 'action' => 'reload'], 401);
+    mezmur_respond(['status' => 'session_expired', 'message' => 'Please log in to continue.', 'action' => 'reload']);
 }
 
 // ── 2. Role gate (defense in depth; central guard ran first) ──
 $mezmurRole = (string)($_SESSION['admin_role'] ?? '');
 if (!in_array($mezmurRole, ['super_admin', 'school_admin', 'mezmur_dept'], true)) {
-    mezmur_respond(['status' => 'error', 'message' => 'You do not have permission to use the Mezmur module.'], 403);
+    mezmur_respond(['status' => 'error', 'message' => 'You do not have permission to use the Mezmur module.']);
 }
 
 // ── 3. Feature gate (fail-closed) ─────────────────────────────
 if (!FeatureGate::isEnabled('mezmur')) {
-    mezmur_respond(['status' => 'error', 'message' => 'The Mezmur module is not enabled for this deployment.'], 403);
+    mezmur_respond(['status' => 'error', 'message' => 'The Mezmur module is not enabled for this deployment.']);
 }
 
 // ── 4. CSRF for all state-changing requests ───────────────────
@@ -74,7 +74,7 @@ $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
 if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.'], 405);
+    mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
 require_once __DIR__ . '/backend/services/MezmurAttendanceService.php';
@@ -93,7 +93,7 @@ $__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
 if (!$__rlCheck['allowed']) {
-    mezmur_respond(['status' => 'error', 'message' => 'Too many requests. Please wait a moment and try again.'], 429);
+    mezmur_respond(['status' => 'error', 'message' => 'Too many requests. Please wait a moment and try again.']);
 }
 
 // ── 6. Schema probes (clear message instead of a raw 1054) ────
@@ -270,7 +270,7 @@ try {
             $stmt->execute();
             $item = $stmt->get_result()->fetch_assoc();
             $stmt->close();
-            if (!$item) mezmur_respond(['status' => 'error', 'message' => 'Hymn not found.'], 404);
+            if (!$item) mezmur_respond(['status' => 'error', 'message' => 'Hymn not found.']);
             mezmur_respond(['status' => 'success', 'item' => $item]);
         }
 
@@ -435,7 +435,7 @@ try {
                     $conn->commit();
                 } catch (\DomainException $e) {
                     $conn->rollback();
-                    mezmur_respond(['status' => 'error', 'message' => $e->getMessage()], 409);
+                    mezmur_respond(['status' => 'error', 'message' => $e->getMessage()]);
                 } catch (\Throwable $e) {
                     $conn->rollback();
                     throw $e;
@@ -571,7 +571,7 @@ try {
         case 'submission_detail': {
             $item = MezmurSubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
             if ($item === null) {
-                mezmur_respond(['status' => 'error', 'message' => 'Submission not found.'], 404);
+                mezmur_respond(['status' => 'error', 'message' => 'Submission not found.']);
             }
             mezmur_respond(['status' => 'success', 'item' => $item]);
         }
@@ -581,7 +581,7 @@ try {
         // the taker (revision_needed) or finalizes the packet.
         case 'submission_review': {
             if (!MezmurSubmissionService::canReview(['role' => $mezmurRole])) {
-                mezmur_respond(['status' => 'error', 'message' => 'You do not have permission to review submissions.'], 403);
+                mezmur_respond(['status' => 'error', 'message' => 'You do not have permission to review submissions.']);
             }
             $result = MezmurSubmissionService::reviewPacket(
                 $conn,
@@ -591,17 +591,17 @@ try {
                 $adminId
             );
             if (!$result['ok']) {
-                mezmur_respond(['status' => 'error', 'message' => $result['message']], 422);
+                mezmur_respond(['status' => 'error', 'message' => $result['message']]);
             }
             mezmur_respond(['status' => 'success', 'message' => $result['message']]);
         }
 
         default:
-            mezmur_respond(['status' => 'error', 'message' => 'Unknown action.'], 400);
+            mezmur_respond(['status' => 'error', 'message' => 'Unknown action.']);
     }
 } catch (\DomainException $e) {
-    mezmur_respond(['status' => 'error', 'message' => $e->getMessage()], 422);
+    mezmur_respond(['status' => 'error', 'message' => $e->getMessage()]);
 } catch (\Throwable $e) {
     error_log('[mezmur] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-    mezmur_respond(['status' => 'error', 'message' => 'Unable to complete the request. Please try again.'], 500);
+    mezmur_respond(['status' => 'error', 'message' => 'Unable to complete the request. Please try again.']);
 }

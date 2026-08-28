@@ -643,3 +643,21 @@ zero exceptions).
 **Prod checklist:** (1) git pull to this commit; (2) run sql/024;
 (3) confirm via `…/backend/api/mezmur.php?action=ping` (logged in);
 (4) rebuild + reinstall the app.
+
+### 7b. Incident #2 (same day): host masks ALL failures as ref-JSON
+
+Even `action=ping` returned `{"status":"error","message":"Server error.
+Please try again.","ref":"#578"}` — a host-level handler (outside the repo)
+masks any uncaught throwable AND mangles non-2xx responses (a 401 came back
+as a 302 with a plain-text body). Therefore:
+
+- **`?diag=1` / `?diag=2`** in backend/api/mezmur.php: unmaskable
+  deployment diagnostic (always HTTP 200, ancient syntax, never includes
+  config in phase 1). Reports PHP version, OPcache state, parse-checks all
+  mezmur files under the server's own PHP (TOKEN_PARSE), disk-version
+  marker; phase 2 (logged in) adds table probes + feature constant +
+  session role.
+- **200-only responses**: every mezmur_respond error now uses HTTP 200 with
+  a status field, because the host demonstrably rewrites non-2xx bodies.
+- Real error text for any ref # is in the host's PHP error log (cPanel →
+  Errors / ~/logs), keyed by the same number.

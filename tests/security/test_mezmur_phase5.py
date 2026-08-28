@@ -423,3 +423,50 @@ class MezmurDeploymentResilienceTests(unittest.TestCase):
         self.assertIn("code_version", ping)
         self.assertIn("missing_tables", ping)
         self.assertIn("session_id_nullable", ping)
+
+
+class MezmurProdDiagTests(unittest.TestCase):
+    """Production incident #2 (2026-08-28, evening): the host runs a
+    handler that masks any failure as
+    {"status":"error","message":"Server error. Please try again.","ref":"#N"}
+    — it hijacked even action=ping. Two structural defenses:
+
+    1. backend/api/mezmur.php?diag=1 — dependency-free diagnostic that
+       always answers HTTP 200 (unmaskable), reports PHP version, OPcache
+       state, parse-checks every mezmur file under the server's own PHP,
+       probes every table and the feature constant.
+    2. The mezmur controller answers EVERY operational outcome with
+       HTTP 200 + a status field, because the host demonstrably mangles
+       non-2xx responses (401 came back as a 302 with a plain-text body).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.shim = (ROOT / "backend/api/mezmur.php").read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+
+    def test_diag_endpoint_exists_and_is_unmaskable(self):
+        self.assertIn("isset($_GET['diag'])", self.shim)
+        self.assertIn("TOKEN_PARSE", self.shim)
+        self.assertIn("opcache_get_status", self.shim)
+        self.assertIn("MEZMUR_API_VERSION", self.shim)  # disk-version probe
+        self.assertIn("FEATURE_MEZMUR", self.shim)
+        # diag runs BEFORE the real controller is required
+        self.assertLess(
+            self.shim.index("isset($_GET['diag'])"),
+            self.shim.index("admin/api_mezmur.php"),
+        )
+
+    def test_controller_is_200_only(self):
+        import re
+        bad = re.findall(r"mezmur_respond\([^;]*?,\s*[1-5]\d\d\);", self.api, re.S)
+        self.assertEqual(bad, [], "mezmur API must never emit non-2xx (host mangles them)")
+
+    def test_shim_php_lint(self):
+        if shutil.which("php") is None:
+            self.skipTest("php CLI not available")
+        r = subprocess.run(
+            ["php", "-l", str(ROOT / "backend/api/mezmur.php")],
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
