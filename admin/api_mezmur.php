@@ -266,39 +266,109 @@ try {
                 $types .= 's';
                 $params[] = mb_substr($category, 0, 50);
             }
+            // ── Telegram-grade search: FULLTEXT boolean mode with prefix
+            // wildcards (as-you-type feel), title-weighted ranking and a
+            // lyrics snippet; LIKE fallback when the index is absent or
+            // the term is shorter than the InnoDB token minimum.
+            $searchMode = 'none';
+            $boolQ = '';
+            $like = '';
+            $tokens = [];
+            $ftIndex = null; // 'full' when the combined FULLTEXT exists
             if ($search !== '') {
-                // Escape LIKE wildcards inside the user term.
-                $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_substr($search, 0, 100)) . '%';
-                $where[] = '(title LIKE ? ESCAPE \'\\\\\' OR title_am LIKE ? ESCAPE \'\\\\\' OR reference LIKE ? ESCAPE \'\\\\\')';
-                $types .= 'sss';
-                $params[] = $like;
-                $params[] = $like;
-                $params[] = $like;
+                $raw = mb_substr($search, 0, 100);
+                $clean = trim((string)preg_replace('/[+\-><()~*"@]+/u', ' ', $raw));
+                $tokens = array_values(array_filter(
+                    preg_split('/\s+/u', $clean),
+                    static fn ($t) => $t !== ''
+                ));
+                $tokens = array_slice($tokens, 0, 6);
+                $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $raw) . '%';
+                try {
+                    $ix = $conn->query("SHOW INDEX FROM mezmur_hymns WHERE Key_name = 'ft_mezmur_hymns_search'");
+                    $ftIndex = ($ix && $ix->fetch_assoc()) ? 'full' : null;
+                    if ($ix) { $ix->close(); }
+                } catch (\Throwable $e) { $ftIndex = null; }
+                $minLen = min(array_map(static fn ($t) => mb_strlen($t), $tokens) ?: [0]);
+                if ($ftIndex === 'full' && $tokens && $minLen >= 3) {
+                    $searchMode = 'fulltext';
+                    $boolQ = implode(' ', array_map(static fn ($t) => $t . '*', $tokens));
+                } else {
+                    $searchMode = 'like';
+                    $where[] = '(title LIKE ? ESCAPE \'\\\\\' OR title_am LIKE ? ESCAPE \'\\\\\' OR reference LIKE ? ESCAPE \'\\\\\' OR lyrics LIKE ? ESCAPE \'\\\\\')';
+                    $types .= 'ssss';
+                    $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
+                }
             }
             $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
-            // Total count for pagination
-            $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns $whereSql");
-            if ($params) $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $total = (int)$stmt->get_result()->fetch_assoc()['c'];
-            $stmt->close();
+            if ($searchMode === 'fulltext') {
+                $ftWhere = "MATCH(title, title_am, reference, lyrics) AGAINST(? IN BOOLEAN MODE)"
+                    . ($whereSql !== '' ? ' AND ' . substr($whereSql, 5) : '');
+                $ftTypes = 's' . $types;
+                $ftParams = array_merge([$boolQ], $params);
+                $scoreExpr = "(3.0 * MATCH(title, title_am) AGAINST(? IN BOOLEAN MODE)
+                               + MATCH(title, title_am, reference, lyrics) AGAINST(? IN BOOLEAN MODE))";
+                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE $ftWhere");
+                $stmt->bind_param($ftTypes, ...$ftParams);
+                $stmt->execute();
+                $total = (int)$stmt->get_result()->fetch_assoc()['c'];
+                $stmt->close();
+                $perPage = min($perPage, 50); // ranked search pages stay tight
+            } else {
+                // Total count for pagination
+                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns $whereSql");
+                if ($params) $stmt->bind_param($types, ...$params);
+                $stmt->execute();
+                $total = (int)$stmt->get_result()->fetch_assoc()['c'];
+                $stmt->close();
+            }
 
             $totalPages = max(1, (int)ceil($total / $perPage));
             if ($page > $totalPages) $page = $totalPages;
             $offset = ($page - 1) * $perPage;
 
-            $sql = "SELECT id, title, title_am, category, reference, status, updated_at
-                    FROM mezmur_hymns $whereSql
-                    ORDER BY updated_at DESC, id DESC
-                    LIMIT ? OFFSET ?";
-            $stmt = $conn->prepare($sql);
-            $allParams = array_merge($params, [$perPage, $offset]);
-            $stmt->bind_param($types . 'ii', ...$allParams);
+            if ($searchMode === 'fulltext') {
+                $sql = "SELECT id, title, title_am, category, reference, status, updated_at, lyrics,
+                        $scoreExpr AS score
+                        FROM mezmur_hymns
+                        WHERE $ftWhere
+                        ORDER BY score DESC, updated_at DESC, id DESC
+                        LIMIT ? OFFSET ?";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param('ss' . $ftTypes . 'ii', ...array_merge([$boolQ, $boolQ], $ftParams, [$perPage, $offset]));
+            } else {
+                $sql = "SELECT id, title, title_am, category, reference, status, updated_at, lyrics,
+                        0 AS score
+                        FROM mezmur_hymns $whereSql
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT ? OFFSET ?";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
+            }
             $stmt->execute();
             $res = $stmt->get_result();
             $items = [];
-            while ($r = $res->fetch_assoc()) $items[] = $r;
+            while ($r = $res->fetch_assoc()) {
+                // Lyrics never travel in list payloads; a tight context
+                // snippet around the first matched token instead.
+                $snippet = '';
+                if ($search !== '' && !empty($r['lyrics'])) {
+                    foreach ($tokens as $t) {
+                        $pos = mb_stripos((string)$r['lyrics'], $t);
+                        if ($pos !== false) {
+                            $start = max(0, $pos - 60);
+                            $snippet = ($start > 0 ? '…' : '')
+                                . trim(mb_substr((string)$r['lyrics'], $start, 160)) . '…';
+                            break;
+                        }
+                    }
+                }
+                unset($r['lyrics']);
+                $r['snippet'] = $snippet;
+                $r['score'] = round((float)($r['score'] ?? 0), 2);
+                $items[] = $r;
+            }
             $stmt->close();
 
             mezmur_respond([
@@ -307,6 +377,7 @@ try {
                 'total' => $total,
                 'page' => $page,
                 'total_pages' => $totalPages,
+                'search_mode' => $searchMode,
             ]);
         }
 

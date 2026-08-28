@@ -86,23 +86,24 @@ class MezmurUiUxTests(unittest.TestCase):
         self.assertNotIn("fa-spinner", self.shell)
 
     # ── attendance sheet UX ────────────────────────────────────
-    def test_sheet_ux_features_present(self):
+    def test_web_console_is_readonly_review_surface(self):
+        # 2026-08-28 product decision: the department dashboard reviews;
+        # marking lives exclusively in the mobile app.
         self.assertIn("GET_TIMEOUT = 12000", self.js)         # bounded GETs
-        self.assertIn("aria-pressed", self.js)                # seg control state
-        self.assertIn("ArrowDown", self.js)                   # keyboard marking
-        self.assertIn("sessionStorage.setItem(draftKey", self.js)  # draft resume
-        self.assertIn("beforeunload", self.js)                # unsaved guard
-        self.assertIn("seg('excused', 'Excused')", self.js)   # P/A/L/E parity
         self.assertIn("sheet-summarybar", self.shell)
         self.assertIn('aria-live="polite"', self.shell)
+        self.assertIn("Read-only", self.shell)
+        # the former editor machinery is gone from the web bundle
+        self.assertNotIn("seg-btn", self.js)
+        self.assertNotIn("ArrowDown", self.js)
+        self.assertNotIn("draftKey", self.js)
+        self.assertNotIn("beforeunload", self.js)
 
     def test_sheet_date_contract_untouched(self):
         # phase 5: sheets are section-scoped (teacher clone) and the
         # department reviews packets like Education does.
         self.assertIn("action=sheet&date=", self.js)
         self.assertIn("'&section=' + encodeURIComponent(section)", self.js)
-        self.assertIn("action: 'save_sheet'", self.js)
-        self.assertIn("section: att.section", self.js)
         self.assertIn("action: 'submission_review'", self.js)
 
     # ── accessibility ──────────────────────────────────────────

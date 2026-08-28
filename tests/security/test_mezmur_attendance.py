@@ -163,16 +163,18 @@ class MezmurAttendanceTests(unittest.TestCase):
             self.assertIn('id="section-%s"' % section, self.shell)
         self.assertIn("$requiredRoles = ['super_admin', 'school_admin', 'mezmur_dept'];", self.shell)
         self.assertIn("$requiredFeature = 'mezmur';", self.shell)
-        self.assertIn('id="mzAttDate"', self.shell)
-        self.assertIn('Mezmur.openDay()', self.shell)
+        self.assertIn('id="mzViewSection"', self.shell)
+        self.assertIn('Mezmur.viewSheet()', self.shell)
+        self.assertNotIn('Mezmur.openDay()', self.shell)  # taking moved to mobile
         self.assertNotIn('mzSessionModal', self.shell)
 
     def test_js_new_modules_escape_output(self):
         self.assertIn("esc(t.username)", self.js)
         self.assertIn("esc(m.student_name)", self.js)
         self.assertIn("esc(m.section)", self.js)
-        # mutations go through POST helper (CSRF auto-appended)
-        self.assertIn("action: 'save_sheet'", self.js)
+        # review mutations go through POST helper (CSRF auto-appended);
+        # taking attendance was removed from the web console (mobile-only)
+        self.assertNotIn("action: 'save_sheet'", self.js)
         self.assertIn("action: 'submission_review'", self.js)
         self.assertNotIn("openSessionModal", self.js)
         self.assertNotIn("sessions_list", self.js)

@@ -74,6 +74,14 @@ final class MezmurSchemaReconciler
         ],
     ];
 
+    /** FULLTEXT indexes the ranked search relies on. */
+    public const INDEXES = [
+        'mezmur_hymns' => [
+            'ft_mezmur_hymns_titles' => ['title', 'title_am'],
+            'ft_mezmur_hymns_search' => ['title', 'title_am', 'reference', 'lyrics'],
+        ],
+    ];
+
     /** Minimal CREATE for tables that do not exist at all. */
     private const CREATE = [
         'mezmur_hymns' => "CREATE TABLE `mezmur_hymns` (
@@ -133,7 +141,26 @@ final class MezmurSchemaReconciler
             }
             if ($missing) { $missingColumns[$table] = $missing; }
         }
-        return ['missing_tables' => $missingTables, 'missing_columns' => $missingColumns];
+        $missingIndexes = [];
+        foreach (self::INDEXES as $table => $indexes) {
+            if (isset($missingTables[$table])) { continue; }
+            foreach ($indexes as $name => $_cols) {
+                try {
+                    $r = $conn->query("SHOW INDEX FROM `$table` WHERE Key_name = '" . $conn->real_escape_string($name) . "'");
+                    $has = $r ? (bool)$r->fetch_assoc() : false;
+                    if ($r) { $r->close(); }
+                    if (!$has) { $missingIndexes[$table][] = $name; }
+                } catch (\Throwable $e) {
+                    // unreadable -> treat as missing
+                    $missingIndexes[$table][] = $name;
+                }
+            }
+        }
+        return [
+            'missing_tables' => $missingTables,
+            'missing_columns' => $missingColumns,
+            'missing_indexes' => $missingIndexes,
+        ];
     }
 
     /**
@@ -180,6 +207,28 @@ final class MezmurSchemaReconciler
                     }
                 } catch (\Throwable $e) {
                     $failed["alter:$table.$col"] = $e->getMessage();
+                }
+            }
+        }
+        foreach (self::INDEXES as $table => $indexes) {
+            foreach ($indexes as $name => $cols) {
+                try {
+                    $r = $conn->query("SHOW INDEX FROM `$table` WHERE Key_name = '" . $conn->real_escape_string($name) . "'");
+                    $has = $r ? (bool)$r->fetch_assoc() : false;
+                    if ($r) { $r->close(); }
+                    if ($has) { continue; }
+                } catch (\Throwable $e) {
+                    continue;
+                }
+                $sql = "ALTER TABLE `$table` ADD FULLTEXT INDEX `$name` (`" . implode('`, `', $cols) . "`)";
+                try {
+                    if ($conn->query($sql) === false) {
+                        $failed["index:$table.$name"] = (string)$conn->error;
+                    } else {
+                        $applied[] = "added index $table.$name";
+                    }
+                } catch (\Throwable $e) {
+                    $failed["index:$table.$name"] = $e->getMessage();
                 }
             }
         }

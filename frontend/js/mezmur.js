@@ -318,9 +318,34 @@
 
     function gotoAttendance() { window.switchSection('attendance'); }
     function jumpToDate(date) {
+        att.viewDate = date;
         window.switchSection('attendance');
-        $('mzAttDate').value = date;
-        window.toast('Date set to ' + fmtDate(date) + ' — pick a section and press Take Attendance.', 'i');
+        ensureViewSections();
+        $('mzSessionListView').style.display = 'none';
+        $('mzSheetView').style.display = 'block';
+        $('mzSheetTitle').textContent = 'Attendance — ' + fmtDate(date);
+        $('mzSheetMeta').textContent = 'Pick a section and press View to inspect the recorded sheet.';
+        $('mzSheetBody').innerHTML = emptyState('fa-eye', 'Read-only view', 'Select a section above to see the recorded marks for this day.');
+        $('mzSheetSummary').innerHTML = '';
+        renderSheetStatus('');
+    }
+
+    /** Populate the read-only section selector (cached per tab visit). */
+    function ensureViewSections() {
+        var sel = $('mzViewSection');
+        if (sel && sel.options.length <= 1) loadSections();
+    }
+
+    function viewSheet() {
+        var section = $('mzViewSection').value;
+        if (!section) { window.toast('Pick a section first.', 'e'); return; }
+        var date = att.viewDate || todayStr();
+        loadSheet(date, section);
+    }
+
+    function quickReview() {
+        window.switchSection('attendance');
+        loadSubmissions();
     }
     function quickTake() { window.switchSection('attendance'); }
     function quickLibrary() { window.switchSection('library'); }
@@ -330,7 +355,7 @@
     // ══════════════════════════════════════════════════════════
     // MODULE 1 — HYMN LIBRARY
     // ══════════════════════════════════════════════════════════
-    var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', loading: false };
+    var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', loading: false, seq: 0 };
 
     function loadStats() {
         return apiGet('action=stats').then(function (d) {
@@ -360,6 +385,7 @@
     function loadList() {
         if (lib.loading) return;
         lib.loading = true;
+        var seq = ++lib.seq; // as-you-type: only the latest response renders
         var tb = $('mzTbody');
         tb.innerHTML = skeletonRows(6);
         var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + PAGE_SIZE +
@@ -367,6 +393,7 @@
             '&status=' + encodeURIComponent(lib.status);
         apiGet(q).then(function (d) {
             lib.loading = false;
+            if (seq !== lib.seq) return;
             if (d.status !== 'success') {
                 tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
                 return;
@@ -382,6 +409,18 @@
         });
     }
 
+    /** Escape then wrap the user's search tokens in <mark> (Telegram-style). */
+    function hi(text) {
+        var out = esc(text == null ? '' : text);
+        if (!lib.search) return out;
+        var toks = lib.search.split(/\s+/).filter(function (t) { return t.length >= 2; });
+        if (!toks.length) return out;
+        var re = new RegExp('(' + toks.map(function (t) {
+            return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }).join('|') + ')', 'gi');
+        return out.replace(re, '<mark>$1</mark>');
+    }
+
     function renderHymnRows(items) {
         var tb = $('mzTbody');
         if (!items.length) {
@@ -394,10 +433,11 @@
         tb.innerHTML = items.map(function (h) {
             var archived = h.status === 'archived';
             return '<tr style="border-top:1px solid var(--school-border,rgba(255,255,255,.06))' + (archived ? ';opacity:.55' : '') + '">' +
-                '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + esc(h.title) + '</td>' +
-                '<td class="amharic" style="padding:.65rem .75rem">' + esc(h.title_am || '—') + '</td>' +
+                '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + hi(h.title) +
+                (h.snippet ? '<div class="text-dim" style="font-size:.72rem;font-weight:400;margin-top:2px">' + hi(h.snippet) + '</div>' : '') + '</td>' +
+                '<td class="amharic" style="padding:.65rem .75rem">' + hi(h.title_am || '—') + '</td>' +
                 '<td style="padding:.65rem .75rem">' + (h.category ? '<span class="badge badge-info">' + esc(h.category) + '</span>' : '—') + '</td>' +
-                '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + esc(h.reference || '—') + '</td>' +
+                '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + hi(h.reference || '—') + '</td>' +
                 '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + fmtDate(h.updated_at) + '</td>' +
                 '<td style="padding:.65rem .75rem;text-align:right;white-space:nowrap">' +
                 '<button class="btn-secondary btn-sm" title="View" onclick="Mezmur.view(' + h.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
@@ -496,27 +536,18 @@
         marks: {}, notes: {}, order: [], focusIdx: -1, dirty: false,
         packetStatus: '', reviewNote: ''
     };
-    var VALID_MARKS = ['present', 'late', 'absent', 'excused'];
-
-    function draftKey() { return 'mzDraft:' + att.date + ':' + att.section; }
-    function draftSave() {
-        if (!att.date || !att.section) return;
-        try { sessionStorage.setItem(draftKey(), JSON.stringify({ marks: att.marks, notes: att.notes })); } catch (e) { /* storage full/blocked */ }
-    }
-    function draftClear() {
-        if (!att.date || !att.section) return;
-        try { sessionStorage.removeItem(draftKey()); } catch (e) { /* ignore */ }
-    }
-    function markDirty() { att.dirty = true; draftSave(); }
 
     // ── section selector ([Section ▾] like teachers' [Class ▾]) ─
     function loadSections() {
         apiGet('action=sections').then(function (d) {
             if (d.status !== 'success') return;
-            var sel = $('mzAttSection'), cur = sel.value;
+            var sel = $('mzViewSection');
+            if (!sel) return;
+            var cur = sel.value;
             sel.innerHTML = '<option value="">Select section…</option>' +
                 (d.items || []).map(function (s) {
-                    return '<option value="' + esc(s.section) + '">' + esc(s.section) + ' · ' + s.members + '</option>';
+                    var n = (s.members != null ? s.members : s.count);
+                    return '<option value="' + esc(s.section) + '">' + esc(s.section) + (n != null ? ' · ' + n : '') + '</option>';
                 }).join('');
             if (cur) sel.value = cur;
         }).catch(function () { /* retried on tab re-entry */ });
@@ -562,18 +593,15 @@
                 '<td class="text-ok"><b>' + d.attended + '</b></td>' +
                 '<td>' + rateBar(rate) + '</td>' +
                 '<td class="nowrap"><button class="btn-primary btn-sm" onclick="Mezmur.jumpToDate(\'' + esc(d.attendance_date) + '\')">' +
-                '<i class="fa-solid fa-clipboard-check"></i> ' + (d.marked > 0 ? 'Review' : 'Open') + '</button></td></tr>';
+                '<i class="fa-solid fa-eye"></i> ' + (d.marked > 0 ? 'Review' : 'View') + '</button></td></tr>';
         }).join('');
     }
 
     // ── open / load sheet (section-scoped) ────────────────────
-    function openDay() {
-        var date = $('mzAttDate').value;
-        var section = $('mzAttSection').value;
-        if (!section) { window.toast('Pick a section first.', 'e'); $('mzAttSection').focus(); return; }
-        if (!date) { window.toast('Pick a date first.', 'e'); return; }
-        loadSheet(date, section);
-    }
+    // (attendance taking was removed from the department dashboard;
+    //  takers record sheets in the mobile app. openDay kept as a thin
+    //  alias for viewSheet so old bookmarks/quotes never fatal.)
+    function openDay() { viewSheet(); }
 
     function loadSheet(date, section) {
         $('mzSheetBody').innerHTML = skeletonRows(8);
@@ -602,34 +630,11 @@
             var pm = $('mzPrintMeta');
             if (pm) pm.textContent = section + ' • ' + fmtDate(date) + ' • ' + att.order.length + ' members';
             renderSheet();
-            restoreDraft();
             renderSheetStatus(att.packetStatus);
             updateSheetSummary();
         }).catch(function (err) { window.toast(((err && err.message) || 'Connection error.') + staleHint(err), 'e'); closeSheet(true); });
     }
 
-    function restoreDraft() {
-        var raw = null;
-        try { raw = sessionStorage.getItem(draftKey()); } catch (e) { /* ignore */ }
-        if (!raw) return;
-        var saved = {};
-        try { saved = JSON.parse(raw); } catch (e) { saved = {}; }
-        var applied = 0;
-        Object.keys(saved.marks || {}).forEach(function (id) {
-            if (att.marks.hasOwnProperty(id) && VALID_MARKS.indexOf(saved.marks[id]) !== -1 && att.marks[id] !== saved.marks[id]) {
-                att.marks[id] = saved.marks[id];
-                applied++;
-            }
-        });
-        Object.keys(saved.notes || {}).forEach(function (id) {
-            if (att.notes.hasOwnProperty(id)) att.notes[id] = saved.notes[id];
-        });
-        if (applied > 0) {
-            att.dirty = true;
-            renderSheet();
-            window.toast('Restored ' + applied + ' unsaved change' + (applied === 1 ? '' : 's') + ' from your draft.', 's');
-        }
-    }
 
     function renderSheetStatus(status) {
         var el = $('mzSheetStatus');
@@ -667,57 +672,21 @@
         $('mzSheetBody').innerHTML = html;
     }
 
+    /** Read-only roster row: the department INSPECTS recorded sheets;
+     *  marking lives exclusively in the mobile app (takers). */
     function memberRow(m) {
         var mark = att.marks[m.id] || '';
         var note = att.notes[m.id] || '';
-        function seg(status, label) {
-            return '<button type="button" class="seg-btn seg-' + status + '" aria-pressed="' + (mark === status) + '" ' +
-                'onclick="Mezmur.setMark(' + m.id + ',\'' + status + '\')" aria-label="' + label + '"><span aria-hidden="true">' +
-                (status === 'present' ? '✓ ' : '') + label + '</span></button>';
-        }
-        return '<div class="member-row" data-mzrow="' + m.id + '">' +
-            '<div class="member-name"><a href="#" onclick="Mezmur.editNote(' + m.id + ');return false;" style="color:inherit;text-decoration:none">' +
-            esc(m.student_name) + ' ' + esc(m.father_name || '') + '</a>' +
-            '<div class="text-dim" style="font-size:.68rem">' + (note ? esc(note) : '<i>tap name for note</i>') + '</div></div>' +
-            '<div class="seg-group" role="group" aria-label="Attendance status">' +
-            seg('present', 'Present') + seg('late', 'Late') + seg('absent', 'Absent') + seg('excused', 'Excused') +
-            '</div></div>';
+        var chip = mark
+            ? '<span class="rate-chip ' + (mark === 'present' || mark === 'late' ? 'ok' : mark === 'excused' ? 'warn' : 'bad') + '">' +
+              mark.charAt(0).toUpperCase() + mark.slice(1) + '</span>'
+            : '<span class="text-dim">not marked</span>';
+        return '<div class="member-row">' +
+            '<div class="member-name">' + esc(m.student_name) + ' ' + esc(m.father_name || '') +
+            '<div class="text-dim" style="font-size:.68rem">' + (note ? esc(note) : '') + '</div></div>' +
+            chip + '</div>';
     }
 
-    // ── marking (single-row update, no full re-render) ────────
-    function setMark(memberId, status) {
-        if (!att.sheet || !att.marks.hasOwnProperty(memberId)) return;
-        att.marks[memberId] = status;
-        markDirty();
-        var row = document.querySelector('[data-mzrow="' + memberId + '"]');
-        if (row) {
-            row.querySelectorAll('.seg-btn').forEach(function (btn) {
-                btn.setAttribute('aria-pressed', String(btn.classList.contains('seg-' + status)));
-            });
-        }
-        updateSheetSummary();
-    }
-
-    function markAll(status) {
-        if (!att.sheet) return;
-        Object.keys(att.marks).forEach(function (id) { att.marks[id] = status; });
-        markDirty();
-        renderSheet();
-        updateSheetSummary();
-    }
-
-    function editNote(memberId) {
-        if (!att.sheet || !att.notes.hasOwnProperty(memberId)) return;
-        var member = (att.sheet.members || []).filter(function (m) { return m.id === memberId; })[0];
-        var label = member ? member.student_name : 'Member';
-        var note = window.prompt('Note for ' + label + ' (optional):', att.notes[memberId] || '');
-        if (note === null) return;
-        note = note.trim().slice(0, 500);
-        if (note === (att.notes[memberId] || '')) return;
-        att.notes[memberId] = note;
-        markDirty();
-        renderSheet();
-    }
 
     function unmarkedCount() {
         var n = 0;
@@ -745,86 +714,14 @@
             ' • rate <b>' + rate + '%</b>';
     }
 
-    // ── keyboard marking: ↑/↓ move, P/L/A/E set ────────────────
-    document.addEventListener('keydown', function (e) {
-        if (!att.sheet || $('mzSheetView').style.display === 'none') return;
-        if (document.querySelector('.school-modal.show')) return;
-        var t = e.target;
-        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
-        var k = e.key;
-        if (k === 'ArrowDown' || k === 'ArrowUp') {
-            e.preventDefault();
-            var next = att.focusIdx + (k === 'ArrowDown' ? 1 : -1);
-            if (next < 0) next = 0;
-            if (next > att.order.length - 1) next = att.order.length - 1;
-            setFocusRow(next);
-        } else if (k === 'p' || k === 'P') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'present'); } }
-        else if (k === 'l' || k === 'L') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'late'); } }
-        else if (k === 'a' || k === 'A') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'absent'); } }
-        else if (k === 'e' || k === 'E') { if (att.focusIdx >= 0) { e.preventDefault(); setMark(att.order[att.focusIdx], 'excused'); } }
-    });
 
-    function setFocusRow(idx) {
-        att.focusIdx = idx;
-        document.querySelectorAll('.member-row.is-focused').forEach(function (el) { el.classList.remove('is-focused'); });
-        var el = document.querySelector('[data-mzrow="' + att.order[idx] + '"]');
-        if (el) {
-            el.classList.add('is-focused');
-            if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
-        }
-    }
-
-    // ── save / submit (teachers' Save & Submit semantics) ─────
-    function saveSheet(kind) {
-        if (!att.sheet || !att.date || !att.section) return;
-        kind = kind === 'submitted' ? 'submitted' : 'draft';
-        var unmarked = unmarkedCount();
-        if (unmarked > 0) {
-            window.toast('Mark every member first (' + unmarked + ' unmarked).', 'e');
-            return;
-        }
-        var records = Object.keys(att.marks).map(function (id) {
-            return { member_id: parseInt(id, 10), status: att.marks[id], notes: att.notes[id] || '' };
-        });
-        var btn = kind === 'submitted' ? $('mzSheetSubmitBtn') : $('mzSheetSaveBtn');
-        var orig = btn.innerHTML;
-        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + (kind === 'submitted' ? 'Submitting…' : 'Saving…');
-        apiPost({
-            action: 'save_sheet', date: att.date, section: att.section,
-            kind: kind, records: JSON.stringify(records)
-        }).then(function (d) {
-            btn.disabled = false; btn.innerHTML = orig;
-            if (d.status !== 'success') { window.toast(d.message || 'Unable to save attendance.', 'e'); return; }
-            var sum = d.summary || {};
-            att.dirty = false;
-            draftClear();
-            att.packetStatus = d.submission_status || (kind === 'submitted' ? 'submitted' : 'draft');
-            renderSheetStatus(att.packetStatus);
-            window.toast(d.message || ('Saved: ' + sum.present + ' present, ' + sum.late + ' late, ' + sum.absent + ' absent, ' + (sum.excused || 0) + ' excused.'), 's');
-            loadSubmissions();
-            if (kind === 'submitted') closeSheet(true);
-        }).catch(function (err) {
-            btn.disabled = false; btn.innerHTML = orig;
-            window.toast((err && err.message) || 'Connection error.', 'e');
-        });
-    }
 
     function closeSheet(force) {
-        if (!force && att.dirty && !window.confirm('You have unsaved attendance changes. Leave anyway? Your draft is kept for this date and section.')) {
-            return;
-        }
-        if (!att.dirty) draftClear();
         att.sheet = null;
-        att.dirty = false;
         att.focusIdx = -1;
         $('mzSheetView').style.display = 'none';
         $('mzSessionListView').style.display = 'block';
     }
-
-    // warn on page unload with unsaved marks
-    window.addEventListener('beforeunload', function (e) {
-        if (att.dirty && att.sheet) { e.preventDefault(); e.returnValue = ''; }
-    });
 
     // ── review inbox (department) ─────────────────────────────
     function loadSubmissions() {
@@ -1170,13 +1067,11 @@
         $('mzSearch').addEventListener('input', function () {
             clearTimeout(debounce);
             var v = this.value;
-            debounce = setTimeout(function () { lib.search = v.trim(); lib.page = 1; loadList(); }, 300);
+            debounce = setTimeout(function () { lib.search = v.trim(); lib.page = 1; loadList(); }, 160);
         });
         $('mzCategoryFilter').addEventListener('change', function () { lib.category = this.value; lib.page = 1; loadList(); });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });
 
-        $('mzAttDate').value = todayStr();
-        $('mzAttDate').max = todayStr();
 
         // Lazy loading: fetch only what the user is actually looking at.
         // core.js may restore the last-used section before this runs;
@@ -1191,7 +1086,7 @@
         // overview
         loadOverview: loadOverview,
         migrateSchema: migrateSchema, reloadTakers: loadTakers, libReload: loadList,
-        quickTake: quickTake, quickLibrary: quickLibrary, quickAnalytics: quickAnalytics, quickTakers: quickTakers,
+        quickTake: quickTake, quickReview: quickReview, quickLibrary: quickLibrary, quickAnalytics: quickAnalytics, quickTakers: quickTakers,
         gotoAttendance: gotoAttendance, jumpToDate: jumpToDate,
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
@@ -1201,9 +1096,8 @@
         // attendance
         loadDays: function () { loadDays(1); },
         sessPage: function (p) { loadDays(p); },
-        openDay: openDay,
-        closeSheet: function () { closeSheet(false); }, saveSheet: saveSheet,
-        setMark: setMark, markAll: markAll, editNote: editNote,
+        openDay: openDay, viewSheet: viewSheet, quickReview: quickReview,
+        closeSheet: function () { closeSheet(false); },
         // review inbox
         loadSubmissions: loadSubmissions, openReview: openReview, submitReview: submitReview, viewPacket: viewPacket,
         // analytics

@@ -724,3 +724,28 @@ Fixes:
   so a missing require is visible in one request forever.
 
 Suite 339/339; smoke ALL PASSED.
+
+### 8. Product decision + Telegram-grade search (2026-08-28)
+
+**Dept dashboard no longer takes attendance** (user directive): the
+Attendance tab is now a read-only review console — days list, review
+queue, and a per-section read-only sheet viewer (View + Print). Marking,
+drafts, keyboard P/A/L/E and Save/Submit were removed from the web bundle
+(they live exclusively in the mobile app). Overview's "Take Attendance"
+tile became "Review Queue".
+
+**Advanced hymn search** (research: Telegram desktop keeps a local
+full-text index for instant as-you-type results; MySQL InnoDB FULLTEXT
+boolean mode with prefix wildcards is the engine-side equivalent):
+- FULLTEXT(title,title_am,reference,lyrics) `ft_mezmur_hymns_search` +
+  weighted ranking (3× title match + combined match), ORDER BY score DESC.
+- Boolean operators sanitized from input; tokens get `*` prefix
+  (as-you-type); <3-char terms fall back to escaped LIKE incl. lyrics.
+- Server returns a tight lyrics SNIPPET around the first match (full
+  lyrics never travel in list payloads); client highlights tokens in
+  <mark> (Telegram-style), 160ms debounce + stale-response guard.
+- MezmurSchemaReconciler now also ensures the FULLTEXT indexes on legacy
+  DBs (report shows missing_indexes; apply creates them).
+
+Suite 344/344; live-DB verification: index detected→created→ranked search
+puts title matches first and lyrics are searchable.

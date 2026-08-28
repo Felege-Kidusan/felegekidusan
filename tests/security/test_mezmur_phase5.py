@@ -216,21 +216,31 @@ class MezmurPhase5Tests(unittest.TestCase):
         self.assertNotIn("loadTakers();", dom)
         self.assertNotIn("loadSubmissions();", dom)
 
-    def test_js_section_first_attendance(self):
+    def test_web_attendance_is_readonly_review_console(self):
+        # The department INSPECTS and REVIEWS; taking attendance lives
+        # exclusively in the mobile app (product decision 2026-08-28).
         for token in [
             "action=sections",
-            "mzAttSection",
-            "'&section=' + encodeURIComponent(section)",
-            "section: att.section",
-            "kind: kind",
-            "seg('present', 'Present') + seg('late', 'Late') + seg('absent', 'Absent') + seg('excused', 'Excused')",
-            "Mezmur.editNote",
+            "mzViewSection",
+            "viewSheet",
+            "quickReview",
             "mzRvDecision",
             "action: 'submission_review'",
+            "unmarkedCount()",
         ]:
             self.assertIn(token, self.js)
-        # completeness gate like teachers
-        self.assertIn("unmarkedCount()", self.js)
+        # no editing surface left on the web
+        self.assertNotIn("mzAttSection", self.js)
+        self.assertNotIn("mzAttDate", self.js)
+        self.assertNotIn("Mezmur.setMark(", self.js)
+        self.assertNotIn("saveSheet(kind)", self.js)
+        self.assertNotIn("seg-btn", self.js)
+        # shell shows the read-only contract
+        self.assertIn("Recording happens on the app", self.shell)
+        self.assertIn("Read-only — sheets are recorded and submitted from the mobile app.", self.shell)
+        self.assertIn("Review Queue", self.shell)
+        self.assertNotIn("Take Attendance", self.shell)
+        self.assertIn('id="mzViewSection"', self.shell)
 
     def test_program_types_removed_from_web_ui(self):
         self.assertNotIn("mzAttProgram", self.shell)
@@ -247,12 +257,9 @@ class MezmurPhase5Tests(unittest.TestCase):
             'id="mzReviewModal"',
             'id="mzPacketModal"',
             'id="mzOvQueue"',
-            'id="mzSheetSaveBtn"',
-            'id="mzSheetSubmitBtn"',
         ]:
             self.assertIn(token, self.shell)
-        self.assertIn('onclick="Mezmur.saveSheet(\'draft\')"', self.shell)
-        self.assertIn('onclick="Mezmur.saveSheet(\'submitted\')"', self.shell)
+        self.assertIn('onclick="Mezmur.viewSheet()"', self.shell)
 
     def test_css_supports_excused_and_banners(self):
         self.assertIn(".seg-btn[aria-pressed=\"true\"].seg-excused", self.css)
@@ -537,3 +544,49 @@ class MezmurSchemaReconcilerTests(unittest.TestCase):
     def test_diag_reports_drift(self):
         self.assertIn("schema_drift", self.shim)
         self.assertIn("MezmurSchemaReconciler", self.shim)
+
+
+class MezmurAdvancedSearchTests(unittest.TestCase):
+    """Telegram-grade hymn search (research 2026-08-28): Telegram keeps a
+    local full-text index for instant as-you-type results; we mirror that
+    with InnoDB FULLTEXT boolean mode (prefix wildcards), title-weighted
+    ranking, lyrics snippets, highlight marks, debounce + stale-response
+    guard, and LIKE fallback. Lyrics are searchable; lists never carry
+    full lyrics (snippet only).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.rec = (
+            ROOT / "admin/backend/services/MezmurSchemaReconciler.php"
+        ).read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+
+    def test_server_fulltext_ranked_search(self):
+        self.assertIn("IN BOOLEAN MODE", self.api)
+        self.assertIn("ft_mezmur_hymns_search", self.api)
+        self.assertIn("3.0 * MATCH(title, title_am)", self.api)  # title weight
+        self.assertIn("ORDER BY score DESC", self.api)
+        self.assertIn("mb_stripos", self.api)  # snippet around first match
+        self.assertIn("'snippet'", self.api)
+        # boolean operators stripped from user input (injection-safe)
+        self.assertIn('-><()~*', self.api)  # boolean operators stripped from user input
+
+    def test_like_fallback_and_token_minimum(self):
+        self.assertIn("searchMode = 'like'", self.api)
+        self.assertIn("OR lyrics LIKE", self.api)
+
+    def test_lists_never_carry_full_lyrics(self):
+        self.assertIn("unset($r['lyrics'])", self.api)
+
+    def test_reconciler_ensures_fulltext_indexes(self):
+        self.assertIn("ft_mezmur_hymns_search", self.rec)
+        self.assertIn("ADD FULLTEXT INDEX", self.rec)
+        self.assertIn("missing_indexes", self.rec)
+
+    def test_client_instant_search_ux(self):
+        self.assertIn("}, 160);", self.js)          # tight debounce
+        self.assertIn("var seq = ++lib.seq", self.js)  # stale-response guard
+        self.assertIn("<mark>$1</mark>", self.js)   # Telegram-style highlight
+        self.assertIn("h.snippet", self.js)

@@ -108,8 +108,8 @@ ob_start();
 
                 <!-- Quick actions (taker tile hidden for non-managers by JS) -->
                 <div class="quick-actions">
-                    <button class="quick-tile qa-primary" onclick="Mezmur.quickTake()">
-                        <i class="fa-solid fa-clipboard-check"></i> Take Attendance
+                    <button class="quick-tile qa-primary" onclick="Mezmur.quickReview()">
+                        <i class="fa-solid fa-inbox"></i> Review Queue
                     </button>
                     <button class="quick-tile" onclick="Mezmur.quickLibrary()">
                         <i class="fa-solid fa-book-open"></i> Hymn Library
@@ -286,27 +286,18 @@ ob_start();
                         </div>
                     </div>
 
-                    <!-- Take attendance hero (section-first, like teachers) -->
+                    <!-- Department purpose notice (attendance is taken on mobile) -->
                     <div class="school-card">
                         <div class="toolbar">
-                            <div class="toolbar-grow">
-                                <label class="school-label" for="mzAttSection">Section</label>
-                                <select id="mzAttSection" class="school-input" aria-label="Section">
-                                    <option value="">Select section…</option>
-                                </select>
-                            </div>
-                            <div class="toolbar-grow">
-                                <label class="school-label" for="mzAttDate">Attendance date</label>
-                                <input id="mzAttDate" class="school-input" type="date">
-                            </div>
-                            <div class="page-head-actions">
-                                <button class="btn-primary" onclick="Mezmur.openDay()"><i class="fa-solid fa-clipboard-check"></i> Take Attendance</button>
+                            <div class="toolbar-title">
+                                <h3 class="school-card-title"><i class="fa-solid fa-mobile-screen-button"></i> Recording happens on the app</h3>
                             </div>
                         </div>
-                        <div class="text-dim" aria-hidden="true">
-                            <i class="fa-regular fa-keyboard"></i>
-                            In the sheet: <b>↑ / ↓</b> move between members, <b>P</b> present, <b>L</b> late, <b>A</b> absent, <b>E</b> excused. Click a name to add a note.
-                        </div>
+                        <p class="text-dim mz-purpose-note">
+                            Attendance is taken by attendance takers in the mobile app, one sheet per
+                            section per day. This console reviews, approves or returns the submitted
+                            sheets and inspects any recorded day read-only.
+                        </p>
                     </div>
 
                     <!-- Department review inbox -->
@@ -389,7 +380,10 @@ ob_start();
                             <div class="page-head-sub" id="mzSheetMeta"></div>
                         </div>
                         <div class="page-head-actions">
-                            <button class="btn-secondary" onclick="Mezmur.markAll('present')"><i class="fa-solid fa-check-double"></i> All Present</button>
+                            <select id="mzViewSection" class="school-input mz-view-select" aria-label="Section">
+                                <option value="">Select section…</option>
+                            </select>
+                            <button class="btn-secondary" onclick="Mezmur.viewSheet()"><i class="fa-solid fa-eye"></i> View</button>
                             <button class="btn-secondary" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>
                             <button class="btn-secondary" onclick="Mezmur.closeSheet()"><i class="fa-solid fa-arrow-left"></i> Back</button>
                         </div>
@@ -406,10 +400,7 @@ ob_start();
 
                     <div class="sheet-summarybar">
                         <div id="mzSheetSummary" aria-live="polite"></div>
-                        <div class="page-head-actions">
-                            <button class="btn-secondary" id="mzSheetSaveBtn" onclick="Mezmur.saveSheet('draft')"><i class="fa-solid fa-save"></i> Save</button>
-                            <button class="btn-primary" id="mzSheetSubmitBtn" onclick="Mezmur.saveSheet('submitted')"><i class="fa-solid fa-paper-plane"></i> Submit</button>
-                        </div>
+                        <div class="text-dim"><i class="fa-solid fa-lock"></i> Read-only — sheets are recorded and submitted from the mobile app.</div>
                     </div>
                 </div>
             </section>

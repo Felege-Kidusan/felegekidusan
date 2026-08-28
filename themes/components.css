@@ -406,3 +406,7 @@
 .mz-banner.ok   { background: var(--school-success-bg); border-color: var(--school-success); color: var(--school-success); }
 .mz-banner.info { background: var(--school-info-bg);    border-color: var(--school-info);    color: var(--school-info); }
 .mz-banner.bad  { background: var(--school-danger-bg);  border-color: var(--school-danger);  color: var(--school-danger); }
+
+/* Dept mezmur review console (read-only) */
+.mz-purpose-note { margin: .2rem 0 0; }
+.mz-view-select { max-width: 220px; }
