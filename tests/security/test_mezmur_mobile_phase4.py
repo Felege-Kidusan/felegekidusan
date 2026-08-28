@@ -59,8 +59,9 @@ class MobilePhase4Tests(unittest.TestCase):
     def test_localdb_v9_mezmur_tables(self):
         # v9 introduced the mezmur outbox; v10 (phase 5) made it
         # section-scoped. Both migration blocks must stay present.
-        self.assertIn("version: 11,", self.db)
+        self.assertIn("version: 12,", self.db)
         self.assertIn("if (oldVersion < 11)", self.db)
+        self.assertIn("if (oldVersion < 12)", self.db)  # HR outbox (Phase B)
         # v11: offline-first hymn library tables
         self.assertIn("CREATE TABLE IF NOT EXISTS cached_hymns", self.db)
         self.assertIn("CREATE TABLE IF NOT EXISTS pending_hymn_ops", self.db)

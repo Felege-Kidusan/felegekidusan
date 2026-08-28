@@ -214,6 +214,9 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // service layer re-enforces the attribution server-side.
             'api_dept_takers.php' => ['super_admin', 'school_admin', 'mezmur_dept', 'hr_dept'],
 
+            // ---- HR attendance review console (HR data only) ----
+            'api_hr_attendance.php' => ['super_admin', 'school_admin', 'hr_dept'],
+
             // ---- ID cards ----
             'view_id_card.php'     => ['super_admin', 'school_admin', 'hr_dept'],
             'generate_id_card.php' => ['super_admin', 'school_admin', 'hr_dept'],

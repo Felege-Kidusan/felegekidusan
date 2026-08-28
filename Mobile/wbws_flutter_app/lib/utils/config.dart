@@ -124,9 +124,12 @@ List<NavTab> _baseTabsForRole(String role) {
       ];
 
     // ---- HR ATTENDANCE TAKER (department-owned) ----
+    // HR's own section-based attendance (hr_attendance on the server).
+    // Never shares data or takers with Education or Mezmur.
     case UserRoles.hrTaker:
       return const [
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
+        NavTab(id: 'hr_attendance', label: 'Attendance', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
@@ -213,6 +216,7 @@ List<NavTab> getTabsForRole(
     if (tab.id == 'attendance') return attendanceEnabled;
     if (tab.id == 'grades') return gradesEnabled;
     if (tab.id == 'mezmur_attendance') return mezmurEnabled;
+    if (tab.id == 'hr_attendance') return attendanceEnabled;
     return true;
   }).toList(growable: false);
 }

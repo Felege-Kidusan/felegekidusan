@@ -17,6 +17,7 @@ import '../teacher/teacher_home.dart';
 import '../teacher/teacher_grades.dart';
 import '../att_taker/att_taker_home.dart';
 import '../hr/hr_taker_home.dart';
+import '../hr/hr_attendance.dart';
 import '../admin/admin_home.dart';
 import '../edu_dept/edu_home.dart';
 import '../info_dept/info_home.dart';
@@ -56,6 +57,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _attendanceKey = GlobalKey<AttendanceScreenState>();
   final _mezmurHomeKey = GlobalKey<MezmurHomeScreenState>();
   final _mezmurAttKey = GlobalKey<MezmurAttendanceScreenState>();
+  final _hrAttKey = GlobalKey<HrAttendanceScreenState>();
   final _gradesKey = GlobalKey<TeacherGradesScreenState>();
   final Map<String, Widget> _openedTabs = {};
 
@@ -206,6 +208,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           _gradesKey.currentState?.refresh();
         }
         break;
+      case 'hr_attendance':
+        // Refresh the HR section list when the radio comes back.
+        _hrAttKey.currentState?.refresh();
+        break;
     }
   }
 
@@ -238,7 +244,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _mezmurHomeKey.currentState?.refresh();
         break;
       case UserRoles.hrTaker:
-        break; // HR taker home is static until Phase B.
+        break; // HR taker home is static guidance; the sheet lives in the Attendance tab.
     }
   }
 
@@ -258,6 +264,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return AttendanceScreen(key: _attendanceKey);
       case 'mezmur_attendance':
         return MezmurAttendanceScreen(key: _mezmurAttKey);
+      case 'hr_attendance':
+        return HrAttendanceScreen(key: _hrAttKey);
       case 'mezmur_hymns':
         return const MezmurHymnsScreen();
       case 'mezmur_analytics':

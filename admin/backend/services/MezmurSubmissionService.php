@@ -73,7 +73,14 @@ final class MezmurSubmissionService
 
     public static function canReview(array $auth): bool
     {
-        return self::staffCanOverride($auth);
+        // Reviewing (approve / return / reject a packet) is a department
+        // capability — REVIEW_ROLES includes mezmur_dept. This is NOT the
+        // same as staffCanOverride(), which stays admin-only and only
+        // governs re-editing sheets that are already locked.
+        // (Fixed 2026-08-28: previously delegated to staffCanOverride,
+        // which locked mezmur_dept out of its own review inbox.)
+        $role = (string)($auth['rol'] ?? $auth['role'] ?? '');
+        return in_array($role, self::REVIEW_ROLES, true);
     }
 
     public static function isLockedForTaker(?string $status, array $auth): bool

@@ -872,7 +872,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 11,", self.db)
+        self.assertIn("version: 12,", self.db)
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)
@@ -881,6 +881,8 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         # wiped, the SHARED hymn library + queued hymn edits persist.
         wipe = self.db.split("clearAllUserData")[1]
         self.assertIn("'pending_mezmur',", wipe)
+        # HR attendance is member data too — wiped on logout like the rest.
+        self.assertIn("'pending_hr',", wipe)
         self.assertNotIn("'cached_hymns',", wipe)
         self.assertNotIn("'pending_hymn_ops',", wipe)
         self.assertNotIn("'hymn_sync_meta',", wipe)

@@ -108,10 +108,18 @@ class MemberDirectoryScalingTests(unittest.TestCase):
         hr = (ROOT / "admin/dashboards/hr-dept.php").read_text()
         self.assertNotIn("LIMIT 400", info)
         self.assertNotIn("$membersForAttaker", info + hr)
-        for source in [info, hr]:
-            self.assertIn('data-member-picker-target="attakerMemberId"', source)
-            self.assertIn('data-member-picker-status="active"', source)
+        # Info keeps the member-picker pattern for its taker modal.
+        self.assertIn('data-member-picker-target="attakerMemberId"', info)
+        self.assertIn('data-member-picker-status="active"', info)
         self.assertIn("input.dataset.memberPickerStatus", self.picker_js)
+        # HR takers moved to the department-owned pipeline (2026-08):
+        # no embedded member roster AND no member-link picker — the
+        # governed api_dept_takers.php owns account creation, so there
+        # is nothing to scale and nothing to autofill.
+        self.assertIn("api_dept_takers.php", hr)
+        self.assertIn("hr_attendance_taker", hr)
+        self.assertNotIn("backend/user-save.php", hr)
+        self.assertNotIn('data-member-picker-target="attakerMemberId"', hr)
 
     def test_archive_directory_is_bounded_minimal_and_server_filtered(self):
         compatibility = (ROOT / "admin/info_get_archived_members.php").read_text()

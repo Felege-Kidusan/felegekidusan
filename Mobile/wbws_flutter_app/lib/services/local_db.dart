@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -210,6 +210,44 @@ class LocalDb {
           // full local copy + mutation outbox + delta-sync cursor.
           await _createHymnTables(db);
         }
+        if (oldVersion < 12) {
+          // Phase B (2026-08): HR department attendance — HR's OWN
+          // section-based domain. Structurally identical to the mezmur
+          // tables but fully separate: HR data never mixes with Mezmur
+          // or Education, on the server or on the phone.
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS pending_hr (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              date TEXT NOT NULL,
+              section TEXT NOT NULL DEFAULT '',
+              member_id INTEGER NOT NULL,
+              status TEXT NOT NULL,
+              notes TEXT,
+              packet_kind TEXT NOT NULL DEFAULT 'draft',
+              client_op_id TEXT,
+              synced INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              synced_at TEXT,
+              sync_error TEXT
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_hr_sheet (
+              date TEXT NOT NULL,
+              section TEXT NOT NULL DEFAULT '',
+              response_json TEXT NOT NULL,
+              updated_at TEXT,
+              PRIMARY KEY (date, section)
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_hr_sections (
+              id INTEGER PRIMARY KEY CHECK (id = 1),
+              sections_json TEXT NOT NULL,
+              updated_at TEXT
+            )
+          ''');
+        }
       },
     );
   }
@@ -348,6 +386,39 @@ class LocalDb {
     ''');
     await db.execute('''
       CREATE TABLE cached_mezmur_sections (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        sections_json TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
+    // ---- HR ATTENDANCE (HR's own section-based domain) ----
+    await db.execute('''
+      CREATE TABLE pending_hr (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        section TEXT NOT NULL DEFAULT '',
+        member_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        notes TEXT,
+        packet_kind TEXT NOT NULL DEFAULT 'draft',
+        client_op_id TEXT,
+        synced INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        synced_at TEXT,
+        sync_error TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE cached_hr_sheet (
+        date TEXT NOT NULL,
+        section TEXT NOT NULL DEFAULT '',
+        response_json TEXT NOT NULL,
+        updated_at TEXT,
+        PRIMARY KEY (date, section)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE cached_hr_sections (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         sections_json TEXT NOT NULL,
         updated_at TEXT
@@ -1186,7 +1257,171 @@ class LocalDb {
     return (await getPendingAttendanceCount()) +
         (await getPendingGradesCount()) +
         (await getPendingMezmurCount()) +
+        (await getPendingHrCount()) +
         (await getPendingHymnOpsCount());
+  }
+
+  // ============================================================
+  // HR DEPARTMENT ATTENDANCE (offline-first, section-scoped)
+  // Structural clone of the mezmur outbox — separate tables, so the
+  // two departments' data never touch each other on the phone either.
+  // ============================================================
+
+  Future<void> saveHrLocal(String date, String section,
+      List<Map<String, dynamic>> records,
+      {String packetKind = 'draft'}) async {
+    const validStatuses = {'present', 'absent', 'late', 'excused'};
+    if (records.isEmpty) {
+      throw ArgumentError('HR attendance records are required.');
+    }
+    for (final record in records) {
+      final status = '${record['status'] ?? ''}'.trim().toLowerCase();
+      final memberId = record['member_id'] is int
+          ? record['member_id'] as int
+          : int.tryParse('${record['member_id'] ?? ''}');
+      if (memberId == null || memberId <= 0 || !validStatuses.contains(status)) {
+        throw ArgumentError('Attendance must explicitly mark every member.');
+      }
+    }
+
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
+    final opId = newClientOpId();
+    await db.transaction((txn) async {
+      await txn.delete('pending_hr',
+          where: 'date = ? AND section = ? AND synced = 0',
+          whereArgs: [date, section]);
+      final batch = txn.batch();
+      for (final r in records) {
+        final note = '${r['notes'] ?? r['note'] ?? ''}'.trim();
+        batch.insert('pending_hr', {
+          'date': date,
+          'section': section,
+          'member_id': r['member_id'],
+          'status': '${r['status']}'.trim().toLowerCase(),
+          if (note.isNotEmpty) 'notes': note,
+          'packet_kind': kind,
+          'client_op_id': opId,
+          'synced': 0,
+          'created_at': now,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Pending HR packets grouped by (date, section).
+  Future<List<Map<String, dynamic>>> getPendingHr() async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT date, section,
+             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                  THEN 'submitted' ELSE 'draft' END as packet_kind,
+             MAX(client_op_id) as client_op_id,
+             COUNT(*) as member_count, MIN(created_at) as created_at
+      FROM pending_hr WHERE synced = 0
+      GROUP BY date, section ORDER BY date DESC
+    ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingHrRecords(
+      String date, String section) async {
+    final db = await database;
+    return await db.query('pending_hr',
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  Future<void> markHrSynced(String date, String section) async {
+    final db = await database;
+    await db.update(
+        'pending_hr',
+        {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  Future<void> dropPendingHr(String date, String section) async {
+    final db = await database;
+    await db.delete('pending_hr',
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  Future<int> getPendingHrCount() async {
+    final db = await database;
+    final r = await db.rawQuery(
+        "SELECT COUNT(DISTINCT date || '|' || IFNULL(section,'')) as cnt FROM pending_hr WHERE synced = 0");
+    return r.first['cnt'] as int? ?? 0;
+  }
+
+  Future<void> cacheHrSheet(
+      String date, String section, Map<String, dynamic> payload) async {
+    final db = await database;
+    await db.insert(
+        'cached_hr_sheet',
+        {
+          'date': date,
+          'section': section,
+          'response_json': jsonEncode(payload),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getCachedHrSheet(
+      String date, String section) async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_hr_sheet',
+          where: 'date = ? AND section = ?', whereArgs: [date, section]);
+      if (rows.isEmpty) return null;
+      final raw = rows.first['response_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Warm cache for the HR [Section ▾] picker (offline parity).
+  Future<void> cacheHrSections(List<Map<String, dynamic>> sections) async {
+    final db = await database;
+    await db.insert(
+        'cached_hr_sections',
+        {
+          'id': 1,
+          'sections_json': jsonEncode(sections),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>?> getCachedHrSections() async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_hr_sections', where: 'id = 1');
+      if (rows.isEmpty) return null;
+      final raw = rows.first['sections_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> cleanupSyncedHr() async {
+    final db = await database;
+    await db.delete('pending_hr', where: 'synced = 1');
   }
 
   // ============================================================
@@ -1460,6 +1695,8 @@ class LocalDb {
         where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
     await db.delete('pending_mezmur',
         where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
+    await db.delete('pending_hr',
+        where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
     await db.delete('pending_hymn_ops',
         where: 'synced = 1 AND synced_at < ?', whereArgs: [cutoff]);
   }
@@ -1487,6 +1724,8 @@ class LocalDb {
     try { await db.delete('cached_grade_sheets'); } catch (_) {}
     try { await db.delete('cached_mezmur_sheet'); } catch (_) {}
     try { await db.delete('cached_mezmur_sections'); } catch (_) {}
+    try { await db.delete('cached_hr_sheet'); } catch (_) {}
+    try { await db.delete('cached_hr_sections'); } catch (_) {}
     // NOTE: the hymn library (cached_hymns, cached_mezmur_categories,
     // hymn_sync_meta, pending_hymn_ops) is deliberately NOT cleared —
     // it is shared department content, not member data, and queued
@@ -1514,6 +1753,9 @@ class LocalDb {
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',
+        'pending_hr',
+        'cached_hr_sheet',
+        'cached_hr_sections',
         // Intentionally kept on logout: cached_hymns,
         // cached_mezmur_categories, hymn_sync_meta, pending_hymn_ops.
         // Hymns are shared library content (no member PII); queued

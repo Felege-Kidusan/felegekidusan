@@ -30,6 +30,7 @@ class SyncService {
       pendingAttendance: 0,
       pendingGrades: 0,
       pendingMezmur: 0,
+      pendingHr: 0,
       pendingHymns: 0,
       syncing: false);
   SyncStatus get lastStatus => _lastStatus;
@@ -247,6 +248,44 @@ class SyncService {
         }
       }
 
+      // HR department attendance outbox — HR's OWN section-based
+      // domain (/hr/sheet). Same packet model as mezmur; the data
+      // streams never cross.
+      final pendingHr = await _db.getPendingHr();
+      for (final batch in pendingHr) {
+        final date = '${batch['date'] ?? ''}';
+        if (date.isEmpty) continue;
+        final section = '${batch['section'] ?? ''}';
+        final kind = '${batch['packet_kind'] ?? 'draft'}';
+        final opId = '${batch['client_op_id'] ?? ''}';
+        try {
+          final records = await _db.getPendingHrRecords(date, section);
+          if (records.isEmpty) continue;
+          final apiRecords = records
+              .map((r) => {
+                    'member_id': r['member_id'],
+                    'status': r['status'],
+                    'notes': '${r['notes'] ?? ''}',
+                  })
+              .toList();
+          final res = await _api.saveHrSheet(date, apiRecords,
+              section: section, kind: kind, clientOpId: opId);
+          if (_accepted(res)) {
+            await _db.markHrSynced(date, section);
+            synced++;
+            didWork = true;
+            lastError = '';
+          } else {
+            failed++;
+            lastError = res.message ?? 'HR attendance did not save.';
+            await _db.logSync('hr_attendance', lastError, 'error');
+          }
+        } catch (e) {
+          failed++;
+          await _db.logSync('hr_attendance', e.toString(), 'error');
+        }
+      }
+
       // Hymn library outbox (offline-first edits) + delta pull.
       // The store owns idempotency/conflict policy; here we count
       // outcomes and refresh the change-token cursor.
@@ -325,11 +364,13 @@ class SyncService {
     final pa = await _db.getPendingAttendanceCount();
     final pg = await _db.getPendingGradesCount();
     final pm = await _db.getPendingMezmurCount();
+    final phr = await _db.getPendingHrCount();
     final ph = await _db.getPendingHymnOpsCount();
     _lastStatus = SyncStatus(
         pendingAttendance: pa,
         pendingGrades: pg,
         pendingMezmur: pm,
+        pendingHr: phr,
         pendingHymns: ph,
         syncing: syncing ?? (_inflight != null));
     _syncController.add(_lastStatus);
@@ -347,10 +388,14 @@ class SyncStatus {
   final int pendingAttendance;
   final int pendingGrades;
   final int pendingMezmur;
+  final int pendingHr;
   final int pendingHymns;
   final bool syncing;
-  int get totalPending =>
-      pendingAttendance + pendingGrades + pendingMezmur + pendingHymns;
+  int get totalPending => pendingAttendance +
+      pendingGrades +
+      pendingMezmur +
+      pendingHr +
+      pendingHymns;
   String get breakdown {
     if (totalPending <= 0) return 'All synced';
     final parts = <String>[];
@@ -364,6 +409,9 @@ class SyncStatus {
     if (pendingMezmur > 0) {
       parts.add('$pendingMezmur mezmur sheet${pendingMezmur == 1 ? '' : 's'}');
     }
+    if (pendingHr > 0) {
+      parts.add('$pendingHr HR sheet${pendingHr == 1 ? '' : 's'}');
+    }
     if (pendingHymns > 0) {
       parts.add('$pendingHymns hymn change${pendingHymns == 1 ? '' : 's'}');
     }
@@ -374,6 +422,7 @@ class SyncStatus {
       {required this.pendingAttendance,
       required this.pendingGrades,
       this.pendingMezmur = 0,
+      this.pendingHr = 0,
       this.pendingHymns = 0,
       required this.syncing});
 }

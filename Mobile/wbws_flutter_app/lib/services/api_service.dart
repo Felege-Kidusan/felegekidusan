@@ -640,6 +640,39 @@ class ApiService {
   /// Active sections with member counts (for the [Section ▾] picker).
   Future<ApiResponse> getMezmurSections() => get('/mezmur/sections');
 
+  // ── HR department attendance (section-based, HR's own domain) ──
+  // Isolation rule: HR data never mixes with Education or Mezmur.
+  // Available to hr_attendance_taker / hr_dept / admins only.
+  Future<ApiResponse> getHrDays({int page = 1, String? from, String? to}) {
+    final params = <String, String>{'page': '$page'};
+    if (from != null && from.isNotEmpty) params['from'] = from;
+    if (to != null && to.isNotEmpty) params['to'] = to;
+    return get('/hr/days', params: params);
+  }
+
+  Future<ApiResponse> getHrSheet(String date, {String? section}) {
+    final params = <String, String>{'date': date};
+    if (section != null && section.isNotEmpty) params['section'] = section;
+    return get('/hr/sheet', params: params);
+  }
+
+  /// Section-scoped save. [kind] = 'draft' | 'submitted'.
+  Future<ApiResponse> saveHrSheet(
+      String date, List<Map<String, dynamic>> records,
+      {String? section, String kind = 'draft', String? clientOpId}) {
+    return post('/hr/sheet',
+        body: {
+          'date': date,
+          'records': records,
+          if (section != null && section.isNotEmpty) 'section': section,
+          if (section != null && section.isNotEmpty) 'kind': kind,
+        },
+        idempotencyKey: clientOpId);
+  }
+
+  /// Active sections with member counts (for the [Section ▾] picker).
+  Future<ApiResponse> getHrSections() => get('/hr/sections');
+
   Future<ApiResponse> getMezmurHymns(
       {int page = 1, String? search, String? category}) {
     final params = <String, String>{'page': '$page'};

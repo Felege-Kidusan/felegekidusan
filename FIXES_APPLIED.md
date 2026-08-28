@@ -912,3 +912,53 @@ from the mezmur mechanics:
 Verified: PHP lifecycle probe 23/23 (roster→save→draft→submit→
 return→resubmit→approve, guards, isolation, audit), suite 406/406.
 Next: governed endpoint + hr-dept Submissions console + mobile flow.
+
+### 15. HR attendance — console, mobile & governed endpoints (2026-08-28, Phase B part 2)
+
+Completes the HR section-based attendance loop end-to-end, keeping the
+isolation rule (HR / Edu / Mezmur never share takers or data):
+
+Web console (admin/dashboards/hr-dept.php):
+- New "Attendance Submissions" section — exact edu/mezmur workflow:
+  Drafts / Submitted / Insights tabs, insight strip (drafts, awaiting
+  review, approved, today's marks), packet table, one-click approve,
+  note-required return/reject modal, packet detail modal, Excel export
+  (SheetJS + CSV fallback), last-14-days insights.
+- "Attendance Takers" section moved off the broken shared pipeline
+  (user-save.php rejects non-admin roles → the "no permission" bug):
+  list/create/toggle now go through api_dept_takers.php with the
+  hr_attendance_taker role; advanced username checking applies.
+
+Governed APIs:
+- admin/api_hr_attendance.php — review-only console endpoint
+  (sections / submissions_list+stats / submission_detail / days_list /
+  takers_list / submission_review). Session + role re-check, CSRF on
+  POST, per-user rate limits, schema probe, safe exception handler,
+  version marker phase6-hr26. ROLE_MAP restricted to super_admin /
+  school_admin / hr_dept.
+- api/v1/routes/hr.php — mobile recording route (sections / days /
+  sheet fetch / transactional sheet save with kind draft|submitted),
+  roles hr_attendance_taker + hr_dept + admins, idempotency +
+  rate limits, registered as /hr in api/v1/index.php.
+
+Mobile (Flutter):
+- HrAttendanceScreen — verbatim clone of the mezmur/teachers sheet UX
+  (section picker, Ethiopian date, P/A/L/E chips, tap-for-note,
+  Save/Submit, undo, return-note banner, lock states).
+- Offline parity on SEPARATE tables: local_db v12 adds pending_hr /
+  cached_hr_sheet / cached_hr_sections (never touches mezmur tables);
+  SyncService flushes HR packets via /hr/sheet with client_op_id.
+  Logout/device-wipe clears HR sheets too (member data discipline).
+- HR taker home launches the live sheet; bottom nav gains the
+  hr_attendance tab for hr_attendance_taker accounts.
+
+BUG FIXED (found while probing): canReview() in both Mezmur- and
+HrSubmissionService delegated to staffCanOverride() (admin-only),
+silently locking department staff out of their own review inboxes.
+Reviewing now checks REVIEW_ROLES (dept + admins); sheet-lock
+overrides stay admin-only. Regression-tested in
+test_hr_attendance_domain.py and tests/smoke/hr_phase6_smoke.php.
+
+Verified: endpoint CLI probe (reads, review approve/no-note guard,
+CSRF deny, unauth deny, cross-dept deny), PHP smoke ALL PASSED,
+mezmur smoke still ALL PASSED, suite 412/412.

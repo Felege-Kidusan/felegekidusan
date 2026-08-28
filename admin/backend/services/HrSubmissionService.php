@@ -72,7 +72,12 @@ final class HrSubmissionService
 
     public static function canReview(array $auth): bool
     {
-        return self::staffCanOverride($auth);
+        // Reviewing (approve / return / reject a packet) is a department
+        // capability — REVIEW_ROLES includes hr_dept. This is NOT the
+        // same as staffCanOverride(), which stays admin-only and only
+        // governs re-editing sheets that are already locked.
+        $role = (string)($auth['rol'] ?? $auth['role'] ?? '');
+        return in_array($role, self::REVIEW_ROLES, true);
     }
 
     public static function isLockedForTaker(?string $status, array $auth): bool
@@ -366,7 +371,7 @@ final class HrSubmissionService
         }
         if (!$ins) {
             return ['ok' => false, 'id' => 0, 'status' => $status,
-                'message' => 'The submission tables are not ready on this server. Ask the administrator to run sql/024_hr_submissions.sql.'];
+                'message' => 'The submission tables are not ready on this server. Ask the administrator to run sql/026_hr_attendance.sql.'];
         }
         $ins->bind_param(
             'ssisiiiiiss',
@@ -428,7 +433,7 @@ final class HrSubmissionService
             $stmt = false;
         }
         if (!$stmt) {
-            return ['ok' => false, 'message' => 'The submission tables are not ready on this server. Ask the administrator to run sql/024_hr_submissions.sql.'];
+            return ['ok' => false, 'message' => 'The submission tables are not ready on this server. Ask the administrator to run sql/026_hr_attendance.sql.'];
         }
         $stmt->bind_param('i', $packetId);
         $stmt->execute();
