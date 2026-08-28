@@ -217,6 +217,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // ---- HR attendance review console (HR data only) ----
             'api_hr_attendance.php' => ['super_admin', 'school_admin', 'hr_dept'],
             'api_info_analytics.php' => ['super_admin', 'school_admin', 'info_dept'],
+            'api_info_reports.php' => ['super_admin', 'school_admin', 'info_dept'],
 
             // ---- ID cards ----
             'view_id_card.php'     => ['super_admin', 'school_admin', 'hr_dept'],

@@ -2132,6 +2132,68 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     </div>
                 </div>
 
+                <!-- ════════════════════════════════════════════════
+                     ATTENDANCE PDF REPORTS (Phase D, read-only)
+                     Generated over the three independent attendance
+                     sources. The hub renders figures; it never edits.
+                ═════════════════════════════════════════════════ -->
+                <div class="panel p-5 mb-6">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h4 class="text-sm font-semibold text-slate-700"><i class="fa-solid fa-file-pdf mr-1 text-red-500"></i> Attendance PDF Reports</h4>
+                            <p class="text-[11px] text-slate-500 mt-0.5">Read-only reports over Education, Mezmur &amp; HR attendance — rendered with Amharic-capable PDF fonts. Sources stay separate.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Report type</label>
+                            <select id="pdfReportType" onchange="InfoReports.toggleFields()"
+                                    class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                                <option value="general">General (all departments)</option>
+                                <option value="sections">Section-based (Mezmur / HR)</option>
+                                <option value="classes">Class-based (Education)</option>
+                                <option value="member">Member-based (one member)</option>
+                                <option value="full">Full analysis (combined)</option>
+                            </select>
+                        </div>
+                        <div id="pdfSourceWrap" style="display:none">
+                            <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Source</label>
+                            <select id="pdfReportSource"
+                                    class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                                <option value="mezmur">Mezmur (sections)</option>
+                                <option value="hr">HR (sections)</option>
+                            </select>
+                        </div>
+                        <div id="pdfMemberWrap" style="display:none">
+                            <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Member</label>
+                            <input autocomplete="off" type="search" inputmode="search" id="pdfMemberSearch"
+                                   data-member-picker-target="pdfMemberId" data-member-picker-status="active"
+                                   class="w-full px-3 py-2 mb-1 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                                   placeholder="Search member…">
+                            <select id="pdfMemberId" data-optional="true" class="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                                <option value="">— pick member —</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">From</label>
+                            <input type="date" id="pdfFrom" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">To</label>
+                            <input type="date" id="pdfTo" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button type="button" onclick="InfoReports.download()"
+                                class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white text-xs font-semibold shadow hover:from-red-600 hover:to-rose-700 transition">
+                            <i class="fa-solid fa-file-arrow-down"></i> Generate &amp; Download PDF
+                        </button>
+                        <span class="text-[11px] text-slate-400"><i class="fa-solid fa-eye mr-1"></i>Reports render only — they never change attendance data.</span>
+                    </div>
+                </div>
+
                 <!-- Quick Export Buttons -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                     <a href="/admin/export_pdf.php?format=csv&filter=all" class="panel p-4 hover:shadow-md transition block">
@@ -4786,6 +4848,42 @@ const InfoHub = (function () {
         exportAll: exportAll,
         refresh: refresh
     };
+})();
+
+/* ════════════════════════════════════════════════════════════════
+   InfoReports — read-only PDF report downloads (Phase D)
+   Builds a query to the governed api_info_reports.php endpoint.
+════════════════════════════════════════════════════════════════ */
+const InfoReports = (function () {
+    'use strict';
+
+    function toggleFields() {
+        const type = document.getElementById('pdfReportType').value;
+        document.getElementById('pdfSourceWrap').style.display = (type === 'sections') ? '' : 'none';
+        document.getElementById('pdfMemberWrap').style.display = (type === 'member') ? '' : 'none';
+    }
+
+    function download() {
+        const type = document.getElementById('pdfReportType').value;
+        const params = new URLSearchParams();
+        params.set('type', type);
+        if (type === 'sections') {
+            params.set('source', document.getElementById('pdfReportSource').value);
+        }
+        if (type === 'member') {
+            const mid = document.getElementById('pdfMemberId').value;
+            if (!mid) { showToast('Pick a member first.', 'error'); return; }
+            params.set('member_id', mid);
+        }
+        const from = document.getElementById('pdfFrom').value;
+        const to = document.getElementById('pdfTo').value;
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+        // GET download — the endpoint writes nothing, only renders.
+        window.open('<?= $ajaxPrefix ?>api_info_reports.php?' + params.toString(), '_blank');
+    }
+
+    return { toggleFields: toggleFields, download: download };
 })();
 
 // Auto-load profile when settings section first opens
