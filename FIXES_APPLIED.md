@@ -889,3 +889,26 @@ the exact edu Submissions workflow:
 
 Verified: suite 401/401 (new clone-contract test), packetStats probe
 OK, smoke ALL PASSED.
+
+### 14. HR attendance domain — schema + services (2026-08-28, Phase B part 1)
+
+Per the confirmed product rule (HR / Edu / Mezmur each own takers +
+data, never combined), HR gets its own section-based domain cloned
+from the mezmur mechanics:
+- sql/026: hr_attendance (UNIQUE date+member, section snapshot on the
+  row, excused, notes), hr_submissions (packet table, UNIQUE
+  date+section, review fields, client_op_id), hr_attendance_audit.
+  Idempotent, FK-guarded, applied to both sandbox DBs.
+- HrAttendanceService: section roster/counts, fetchSectionSheet
+  (roster+marks+packet state), transactional saveSectionSheet with
+  stale-roster/future-date/duplicate guards, listDays derived from
+  marks, HR-owned takers list.
+- HrSubmissionService: full packet state machine (draft/incomplete/
+  submitted/approved/rejected/revision_needed), note-required
+  returns/rejects, admin-only lock overrides, rows-without-packet
+  legacy fallback, inbox packetStats.
+- Isolation proven: services reference zero mezmur/edu tables.
+
+Verified: PHP lifecycle probe 23/23 (roster→save→draft→submit→
+return→resubmit→approve, guards, isolation, audit), suite 406/406.
+Next: governed endpoint + hr-dept Submissions console + mobile flow.
