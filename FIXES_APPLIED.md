@@ -831,6 +831,11 @@ session (15-min access + 90-day rotating refresh, unchanged) is safe:
 - Session length: refresh rotation already slides 90 days — users stay
   signed in far beyond a week; the lock, not forced logouts, protects
   the device.
+- Forgot-passcode recovery (reachable, no backdoor): the lock screen
+  offers "Sign out & reset"; sign-out wipes member data AND the
+  device-local PIN (AppLockService.clearPin via SessionService.signOut),
+  matching Telegram's posture. iOS: NSFaceIDUsageDescription added for
+  local_auth.
 
 Verified: suite 389/389 (11 new AppLockSecurityTests); brace-checked
 all touched Dart; smoke still ALL PASSED.

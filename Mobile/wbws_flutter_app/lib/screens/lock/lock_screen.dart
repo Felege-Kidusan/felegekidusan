@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/app_lock_service.dart';
+import '../../services/session_service.dart';
 import '../../utils/theme.dart';
 
 /// Full-screen passcode gate (Telegram-style). Shown on cold start when
@@ -118,7 +119,19 @@ class _LockScreenState extends State<LockScreen>
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK')),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                await SessionService.signOut();
+              } catch (_) {
+                // Tokens + member data are already erased locally; the
+                // app gate will flip to the login screen either way.
+              }
+            },
+            child: const Text('Sign out & reset'),
+          ),
         ],
       ),
     );

@@ -47,5 +47,7 @@
 		<true/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSFaceIDUsageDescription</key>
+		<string>Unlock the FKSS app with Face ID instead of your passcode.</string>
 	</dict>
 </plist>

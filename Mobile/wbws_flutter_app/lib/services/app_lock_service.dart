@@ -95,6 +95,18 @@ class AppLockService extends ChangeNotifier {
     return null;
   }
 
+  /// Reset the device lock together with the session (sign-out). This
+  /// is the "forgot passcode" recovery path as well: the passcode is
+  /// device-local, so it goes away with the session it was protecting.
+  Future<void> clearPin() async {
+    await _secure.delete(key: _kPinHash);
+    await _secure.delete(key: _kSalt);
+    await _secure.delete(key: _kBiometric);
+    _locked = false;
+    _failedAttempts = 0;
+    notifyListeners();
+  }
+
   Future<void> setAutoLockSeconds(int seconds) async {
     await _secure.write(key: _kAutoLock, value: '$seconds');
     notifyListeners();

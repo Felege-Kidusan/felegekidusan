@@ -38,6 +38,8 @@ class AppLockSecurityTests(unittest.TestCase):
         cls.pubspec = (M / "pubspec.yaml").read_text(encoding="utf-8")
         cls.db = (M / "lib/services/local_db.dart").read_text(encoding="utf-8")
         cls.store = (M / "lib/services/hymn_store.dart").read_text(encoding="utf-8")
+        cls.session = (M / "lib/services/session_service.dart").read_text(encoding="utf-8")
+        cls.plist = (M / "ios/Runner/Info.plist").read_text(encoding="utf-8")
         cls.auth = (ROOT / "api/v1/core/auth.php").read_text(encoding="utf-8")
 
     # ── PIN handling: hashed, salted, secure-storage only ─────
@@ -115,6 +117,26 @@ class AppLockSecurityTests(unittest.TestCase):
         self.assertIn("FlutterFragmentActivity", self.main_activity)
         self.assertNotIn("class MainActivity : FlutterActivity()", self.main_activity)
         self.assertIn("USE_BIOMETRIC", self.manifest)
+
+    # ── forgot-passcode recovery (no backdoor, but reachable) ─
+    def test_forgot_passcode_can_sign_out_from_lock(self):
+        # The dialog offers a real action; sign-out erases member data
+        # AND resets the device-local PIN so the user can start over.
+        self.assertIn("Sign out & reset", self.lock_screen)
+        self.assertIn("SessionService.signOut()", self.lock_screen)
+        self.assertIn("import '../../services/session_service.dart';",
+                      self.lock_screen)
+        self.assertIn("await AppLockService().clearPin();", self.session)
+
+    def test_clear_pin_is_session_bound_only(self):
+        # clearPin exists, but disabling from settings still demands the
+        # current PIN — the only PIN-free reset rides on sign-out.
+        self.assertIn("Future<void> clearPin()", self.lock_svc)
+        self.assertIn("Future<String?> disable(String currentPin)", self.lock_svc)
+        self.assertIn("if (!await verifyPin(currentPin))", self.lock_svc)
+
+    def test_ios_face_id_usage_description(self):
+        self.assertIn("NSFaceIDUsageDescription", self.plist)
 
     # ── long session: server-side rotation stays long ─────────
     def test_server_session_is_long_lived_and_rotating(self):
