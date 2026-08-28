@@ -138,6 +138,18 @@ class AppLockSecurityTests(unittest.TestCase):
     def test_ios_face_id_usage_description(self):
         self.assertIn("NSFaceIDUsageDescription", self.plist)
 
+    # ── recent-apps masking (Telegram parity) ─────────────────
+    def test_recent_apps_preview_masked_when_locked(self):
+        # Android side: MainActivity toggles FLAG_SECURE on request.
+        self.assertIn("fkss.app/app_lock", self.main_activity)
+        self.assertIn("FLAG_SECURE", self.main_activity)
+        self.assertIn("clearFlags", self.main_activity)
+        # Dart side: every PIN state change re-syncs the flag.
+        self.assertIn("MethodChannel('fkss.app/app_lock')", self.lock_svc)
+        self.assertIn("_syncSecureFlag", self.lock_svc)
+        self.assertEqual(self.lock_svc.count("await _syncSecureFlag();"), 4,
+                         "setPin/disable/clearPin/cold-start must all sync the flag")
+
     # ── long session: server-side rotation stays long ─────────
     def test_server_session_is_long_lived_and_rotating(self):
         # 15-minute access token + 90-day rotating refresh session —

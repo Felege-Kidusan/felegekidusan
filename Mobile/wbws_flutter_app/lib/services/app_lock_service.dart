@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
@@ -40,6 +41,8 @@ class AppLockService extends ChangeNotifier {
 
   final _secure = const FlutterSecureStorage();
   final LocalAuthentication _localAuth = LocalAuthentication();
+  static const MethodChannel _secureFlagChannel =
+      MethodChannel('fkss.app/app_lock');
 
   bool _locked = false;
   bool get isLocked => _locked;
@@ -76,6 +79,7 @@ class AppLockService extends ChangeNotifier {
     await _secure.write(key: _kSalt, value: salt);
     await _secure.write(key: _kPinHash, value: _hash(clean, salt));
     await _secure.write(key: _kAutoLock, value: '300');
+    await _syncSecureFlag();
     notifyListeners();
     return null;
   }
@@ -91,6 +95,7 @@ class AppLockService extends ChangeNotifier {
     await _secure.delete(key: _kSalt);
     await _secure.delete(key: _kBiometric);
     _locked = false;
+    await _syncSecureFlag();
     notifyListeners();
     return null;
   }
@@ -104,6 +109,7 @@ class AppLockService extends ChangeNotifier {
     await _secure.delete(key: _kBiometric);
     _locked = false;
     _failedAttempts = 0;
+    await _syncSecureFlag();
     notifyListeners();
   }
 
@@ -202,9 +208,23 @@ class AppLockService extends ChangeNotifier {
 
   /// Cold start: if a passcode is set, the app opens locked.
   Future<void> lockAtColdStartIfConfigured() async {
+    await _syncSecureFlag();
     if (await isConfigured()) {
       _locked = true;
       notifyListeners();
+    }
+  }
+
+  // ── app-switcher privacy (Android FLAG_SECURE) ─────────────
+
+  /// While a passcode is set, keep the app content out of the OS
+  /// recent-apps preview — the same posture Telegram takes.
+  Future<void> _syncSecureFlag() async {
+    try {
+      await _secureFlagChannel.invokeMethod(
+          'setSecureFlag', {'on': await isConfigured()});
+    } catch (_) {
+      // Channel not registered on this platform (iOS, tests) — no-op.
     }
   }
 

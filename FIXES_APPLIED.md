@@ -836,6 +836,10 @@ session (15-min access + 90-day rotating refresh, unchanged) is safe:
   device-local PIN (AppLockService.clearPin via SessionService.signOut),
   matching Telegram's posture. iOS: NSFaceIDUsageDescription added for
   local_auth.
+- Recent-apps masking (Telegram parity): while a passcode is set the
+  app content is hidden from the Android app-switcher preview via
+  FLAG_SECURE, toggled on every PIN state change through the
+  fkss.app/app_lock MethodChannel.
 
 Verified: suite 389/389 (11 new AppLockSecurityTests); brace-checked
 all touched Dart; smoke still ALL PASSED.

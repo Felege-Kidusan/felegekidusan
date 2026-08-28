@@ -1,6 +1,7 @@
 package com.arkeonethiopia.fkss
 
 import android.content.Intent
+import android.view.WindowManager
 import androidx.core.content.FileProvider
 // FlutterFragmentActivity (not FlutterActivity): required by
 // local_auth so the App Lock can use BiometricPrompt / fingerprint.
@@ -11,9 +12,30 @@ import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
     private val channelName = "fkss.app/updater"
+    private val lockChannelName = "fkss.app/app_lock"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Telegram-style privacy: while a passcode is configured the app
+        // content must not appear in the OS recent-apps preview.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, lockChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "setSecureFlag" -> {
+                        val on = call.argument<Boolean>("on") ?: false
+                        if (on) {
+                            window.setFlags(
+                                WindowManager.LayoutParams.FLAG_SECURE,
+                                WindowManager.LayoutParams.FLAG_SECURE
+                            )
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
