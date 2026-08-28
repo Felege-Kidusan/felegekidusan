@@ -659,15 +659,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
 
 
-            <button data-section="attendance"
-                    class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
-                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
-                    <i class="fa-solid fa-clipboard-check text-sm"></i>
-                </span>
-                <span class="font-semibold">Attendance & Status</span>
-            </button>
-
-            <button data-section="submissions"
+                        <button data-section="submissions"
                     class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
                 <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
                     <i class="fa-solid fa-inbox text-sm"></i>
@@ -2246,132 +2238,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </div>
             </section>
 
-            <section id="section-attendance" class="content-section">
-
-                <!-- Header -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                    <div>
-                        <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-                            <span class="w-9 h-9 rounded-2xl bg-orange-100 flex items-center justify-center"><i class="fa-solid fa-clipboard-check text-orange-600"></i></span>
-                            Attendance & Status
-                        </h2>
-                        <p class="text-xs text-slate-500 amharic-text mt-1">የአባላት ቆጠራና ሁኔታ</p>
-                    </div>
-                </div>
-
-                <!-- Sub-Tabs -->
-                <div class="flex gap-2 mb-5 overflow-x-auto hide-scrollbar pb-1">
-                    <button onclick="showAttTab(this,'attOverview')" class="atab atab-on"><i class="fa-solid fa-chart-pie mr-1"></i>Overview</button>
-                    <button onclick="showAttTab(this,'attDaily')" class="atab"><i class="fa-solid fa-calendar-day mr-1"></i>Daily Report</button>
-                    <button onclick="showAttTab(this,'attMember')" class="atab"><i class="fa-solid fa-user-clock mr-1"></i>Member Lookup</button>
-                    <button onclick="showAttTab(this,'attRisk')" class="atab"><i class="fa-solid fa-triangle-exclamation mr-1"></i>At-Risk</button>
-                    <button onclick="showAttTab(this,'attStatus')" class="atab"><i class="fa-solid fa-user-pen mr-1"></i>Status Mgmt</button>
-                </div>
-
-                <!-- ===== OVERVIEW ===== -->
-                <div id="attOverview" class="att-pane">
-                    <div id="attOvLoad" class="text-center py-12"><div class="inline-block w-5 h-5 border-2 border-slate-200 border-t-orange-500 rounded-full animate-spin"></div><p class="text-xs text-slate-400 mt-2">Loading...</p></div>
-                    <div id="attOvContent" style="display:none">
-                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4" id="attKpis"></div>
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-                            <div class="panel p-4"><h4 class="text-xs font-semibold text-slate-600 mb-3"><i class="fa-solid fa-chart-bar mr-1 text-orange-400"></i>Last 7 Days</h4><div style="height:200px"><canvas id="attWeekChart"></canvas></div></div>
-                            <div class="panel p-4"><h4 class="text-xs font-semibold text-slate-600 mb-3"><i class="fa-solid fa-chart-line mr-1 text-blue-400"></i>Weekly Summary (4 Weeks)</h4><div style="height:200px"><canvas id="attMonthChart"></canvas></div></div>
-                        </div>
-                        <div class="panel p-4 mb-4">
-                            <h4 class="text-xs font-semibold text-slate-600 mb-3"><i class="fa-solid fa-user-xmark mr-1 text-red-400"></i>Top Absentees (Last 30 Days)</h4>
-                            <div id="attAbsentees" class="text-xs text-slate-400">Loading...</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ===== DAILY REPORT ===== -->
-                <div id="attDaily" class="att-pane" style="display:none">
-                    <div class="panel p-4 mb-4">
-                        <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
-                            <div>
-                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Select Date</label>
-                                <input type="date" id="attDailyDate" class="px-3 py-2 rounded-xl border border-slate-200 text-sm" onchange="loadDailyReport()">
-                            </div>
-                            <button onclick="loadDailyReport()" class="px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 mt-4 sm:mt-0"><i class="fa-solid fa-magnifying-glass mr-1"></i>Load</button>
-                        </div>
-                        <div id="attDailySummary" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3" style="display:none"></div>
-                        <div id="attDailyTable" style="display:none;max-height:400px;overflow:auto">
-                            <table class="w-full text-xs border-collapse">
-                                <thead class="sticky top-0 bg-slate-50"><tr><th class="px-3 py-2 text-left font-semibold text-slate-500">#</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Name</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Code</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Gender</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Attendance</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Notes</th></tr></thead>
-                                <tbody id="attDailyBody"></tbody>
-                            </table>
-                        </div>
-                        <div id="attDailyEmpty" class="text-center py-8 text-slate-400" style="display:none"><i class="fa-solid fa-calendar-xmark text-3xl mb-2"></i><p class="text-sm">No attendance recorded for this date</p></div>
-                    </div>
-                </div>
-
-                <!-- ===== MEMBER LOOKUP ===== -->
-                <div id="attMember" class="att-pane" style="display:none">
-                    <div class="panel p-4 mb-4">
-                        <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Search Member</label>
-                        <div class="flex gap-2">
-                            <input type="text" id="attMemSearch" autocomplete="off" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" placeholder="Name, code, or phone..." onkeyup="if(event.key==='Enter')searchMemberAtt()">
-                            <button onclick="searchMemberAtt()" class="px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-semibold hover:bg-orange-600"><i class="fa-solid fa-search"></i></button>
-                        </div>
-                    </div>
-                    <div id="attMemResults" style="display:none"></div>
-                    <div id="attMemDetail" style="display:none"></div>
-                </div>
-
-                <!-- ===== AT-RISK MEMBERS ===== -->
-                <div id="attRisk" class="att-pane" style="display:none">
-                    <div class="panel p-4 mb-4">
-                        <div class="flex flex-col sm:flex-row sm:items-end gap-3 mb-3">
-                            <div>
-                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Period (Days)</label>
-                                <select id="attRiskDays" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                                    <option value="14">Last 14 days</option>
-                                    <option value="30" selected>Last 30 days</option>
-                                    <option value="60">Last 60 days</option>
-                                    <option value="90">Last 90 days</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Attendance Below</label>
-                                <select id="attRiskThresh" class="px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                                    <option value="75">75%</option>
-                                    <option value="50" selected>50%</option>
-                                    <option value="25">25%</option>
-                                    <option value="1">Never attended</option>
-                                </select>
-                            </div>
-                            <button onclick="loadAtRisk()" class="px-4 py-2 bg-red-500 text-white rounded-xl text-xs font-semibold hover:bg-red-600"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Find At-Risk</button>
-                        </div>
-                        <div id="attRiskCount" class="text-xs text-slate-400 mb-2"></div>
-                        <div id="attRiskList" style="max-height:450px;overflow:auto"></div>
-                    </div>
-                </div>
-
-                <!-- ===== STATUS MANAGEMENT ===== -->
-                <div id="attStatus" class="att-pane" style="display:none">
-                    <div class="panel p-4 mb-4">
-                        <h4 class="text-sm font-semibold text-slate-700 mb-1"><i class="fa-solid fa-user-pen mr-1 text-violet-500"></i>Update Member Status</h4>
-                        <p class="text-[10px] text-slate-400 mb-3">Search for a member and update their status based on attendance patterns</p>
-                        <div class="flex gap-2 mb-4">
-                            <input type="text" id="attStatusSearch" autocomplete="off" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" placeholder="Search member name, code, or phone..." onkeyup="if(event.key==='Enter')searchForStatus()">
-                            <button onclick="searchForStatus()" class="px-4 py-2 bg-violet-500 text-white rounded-xl text-xs font-semibold hover:bg-violet-600"><i class="fa-solid fa-search"></i></button>
-                        </div>
-                        <div id="attStatusResults"></div>
-                    </div>
-                    <div class="panel p-4 mb-4">
-                        <h4 class="text-sm font-semibold text-slate-700 mb-3"><i class="fa-solid fa-users-gear mr-1 text-amber-500"></i>Quick Status Overview</h4>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="attStatusKpis">
-                            <div class="bg-emerald-50 p-3 rounded-xl text-center"><div class="text-lg font-bold text-emerald-700"><?= $statusCounts['active'] ?? 0 ?></div><div class="text-[10px] text-emerald-600">Active</div></div>
-                            <div class="bg-amber-50 p-3 rounded-xl text-center"><div class="text-lg font-bold text-amber-700"><?= $statusCounts['warning'] ?? 0 ?></div><div class="text-[10px] text-amber-600">Warning</div></div>
-                            <div class="bg-red-50 p-3 rounded-xl text-center"><div class="text-lg font-bold text-red-700"><?= $statusCounts['inactive'] ?? 0 ?></div><div class="text-[10px] text-red-600">Inactive</div></div>
-                            <div class="bg-slate-100 p-3 rounded-xl text-center"><div class="text-lg font-bold text-slate-500"><?= $statusCounts['archived'] ?? 0 ?></div><div class="text-[10px] text-slate-500">Archived</div></div>
-                        </div>
-                    </div>
-                </div>
-
-            </section>
-
-            <!-- REPORTS -->
+                        <!-- REPORTS -->
             <section id="section-reports" class="content-section">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                     <div>
@@ -2867,12 +2734,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-layer-group text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Groups</span>
                 </button>
-                <button data-section="attendance"
-                        class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
-                    <i class="fa-solid fa-clipboard-check text-base mb-0.5"></i>
-                    <span class="text-[10px] whitespace-nowrap">Attendance</span>
-                </button>
-                <button data-section="submissions"
+                                <button data-section="submissions"
                         class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
                     <i class="fa-solid fa-inbox text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Submissions</span>
@@ -3046,6 +2908,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     // Simple section navigation (sidebar + bottom nav)
     function navigateToSection(name) {
         closeManageSheet(); // Close any open modal
+        // Retired/unknown sections (old bookmarks) fall back to the dashboard.
+        if (!document.getElementById('section-' + name)) name = 'dashboard';
         document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
         const target = document.getElementById('section-' + name);
         if (target) target.classList.add('active');
@@ -4482,7 +4346,7 @@ document.getElementById('attakerForm')?.addEventListener('submit', function(e) {
     const formData = new FormData(this);
     formData.append('action', 'create');
     formData.append('role', 'hr_attendance_taker');
-    formData.append('csrf_token', '<?= $csrfToken ?? '' ?>');
+    formData.append('csrf_token', CSRF_TOKEN);
     
     fetch('<?= $ajaxPrefix ?>api_dept_takers.php', {
         method: 'POST',
@@ -4512,7 +4376,7 @@ function toggleAttakerStatus(userId, currentStatus) {
     const formData = new FormData();
     formData.append('user_id', userId);
     formData.append('action', 'toggle');
-    formData.append('csrf_token', '<?= $csrfToken ?? '' ?>');
+    formData.append('csrf_token', CSRF_TOKEN);
     
     fetch('<?= $ajaxPrefix ?>api_dept_takers.php', {
         method: 'POST',
@@ -4532,211 +4396,6 @@ function toggleAttakerStatus(userId, currentStatus) {
         showToast('Network error. Please try again.', 'error');
     });
 }
-
-// ============================================================
-// ATTENDANCE & STATUS SECTION FUNCTIONS
-// ============================================================
-const _aa = '/admin/api_attendance_info.php?action=';
-const hasChartJs = typeof Chart !== 'undefined';
-let _attCharts = {};
-
-function showAttTab(btn, id) {
-    document.querySelectorAll('.att-pane').forEach(p => p.style.display = 'none');
-    document.querySelectorAll('.atab').forEach(b => b.classList.remove('atab-on'));
-    document.getElementById(id).style.display = 'block';
-    btn.classList.add('atab-on');
-    if (id === 'attOverview') loadAttOverview();
-    if (id === 'attDaily' && !document.getElementById('attDailyDate').value) {
-        document.getElementById('attDailyDate').value = new Date().toISOString().split('T')[0];
-    }
-}
-
-function attToast(msg, ok) {
-    const t = document.createElement('div');
-    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:200;background:' + (ok !== false ? '#ea580c' : '#dc2626');
-    t.innerHTML = msg;
-    document.body.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
-}
-
-function attBadge(status) {
-    const m = {present:'att-present',absent:'att-absent',late:'att-late',excused:'att-excused'};
-    return '<span class="att-badge ' + (m[status]||'att-excused') + '">' + (status||'—') + '</span>';
-}
-
-function statusBadge(s) {
-    const m = {active:'background:#d1fae5;color:#065f46',warning:'background:#fef3c7;color:#92400e',inactive:'background:#fee2e2;color:#991b1b'};
-    return '<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;' + (m[s]||'') + '">' + (s||'—') + '</span>';
-}
-
-// --- Overview ---
-let _attOvLoaded = false;
-function loadAttOverview() {
-    if (_attOvLoaded) return;
-    fetch(_aa + 'overview', {credentials:'same-origin'}).then(r => r.json()).then(d => {
-        if (d.status !== 'success') { document.getElementById('attOvLoad').innerHTML = '<p class="text-red-400 text-xs">' + escapeHtml(d.message||'Error') + '</p>'; return; }
-        _attOvLoaded = true;
-        document.getElementById('attOvLoad').style.display = 'none';
-        document.getElementById('attOvContent').style.display = 'block';
-        const data = d.data, t = data.today, ms = data.member_status;
-        const todayRate = data.total_active > 0 ? Math.round((parseInt(t.present_cnt)||0) / data.total_active * 100) : 0;
-        document.getElementById('attKpis').innerHTML = [
-            {l:"Today's Present",v:t.present_cnt||0,c:'#16a34a',b:'#d1fae5'},
-            {l:"Today's Absent",v:t.absent_cnt||0,c:'#dc2626',b:'#fee2e2'},
-            {l:"Today's Late",v:t.late_cnt||0,c:'#d97706',b:'#fef3c7'},
-            {l:'Today Rate',v:todayRate+'%',c:'#2563eb',b:'#dbeafe'},
-            {l:'Never Attended',v:data.never_attended||0,c:'#7c3aed',b:'#ede9fe'},
-            {l:'At Warning',v:ms.warning_cnt||0,c:'#ea580c',b:'#ffedd5'}
-        ].map(k => '<div style="background:'+k.b+';padding:12px;border-radius:14px;text-align:center"><div style="font-size:20px;font-weight:700;color:'+k.c+'">'+k.v+'</div><div style="font-size:9px;font-weight:500;color:'+k.c+'80">'+k.l+'</div></div>').join('');
-
-        // Week chart
-        if (hasChartJs && data.week_trend.length > 0) {
-            const wt = data.week_trend;
-            if (_attCharts.week) _attCharts.week.destroy();
-            _attCharts.week = new Chart(document.getElementById('attWeekChart').getContext('2d'), {
-                type:'bar', data:{labels:wt.map(w=>w.day.slice(5)), datasets:[
-                    {label:'Present',data:wt.map(w=>w.present_cnt),backgroundColor:'#16a34a',borderRadius:4},
-                    {label:'Absent',data:wt.map(w=>w.absent_cnt),backgroundColor:'#ef4444',borderRadius:4}
-                ]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:10,font:{size:10}}}},scales:{y:{beginAtZero:true,stacked:true},x:{stacked:true,ticks:{font:{size:9}}}}}
-            });
-        }
-        // Monthly chart
-        if (hasChartJs && data.monthly_weeks.length > 0) {
-            const mw = data.monthly_weeks;
-            if (_attCharts.month) _attCharts.month.destroy();
-            _attCharts.month = new Chart(document.getElementById('attMonthChart').getContext('2d'), {
-                type:'line', data:{labels:mw.map(w=>'Wk '+w.week_start.slice(5)), datasets:[
-                    {label:'Present',data:mw.map(w=>w.present_cnt),borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.1)',fill:true,tension:.4,pointRadius:4},
-                    {label:'Absent',data:mw.map(w=>w.absent_cnt),borderColor:'#ef4444',backgroundColor:'transparent',tension:.4,borderDash:[4,4],pointRadius:3}
-                ]}, options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:10,font:{size:10}}}},scales:{y:{beginAtZero:true}}}
-            });
-        }
-        // Top absentees
-        const abs = data.top_absentees;
-        document.getElementById('attAbsentees').innerHTML = abs.length === 0 ? '<p class="text-xs text-emerald-500"><i class="fa-solid fa-check-circle mr-1"></i>No frequent absentees found!</p>' :
-            '<div style="max-height:250px;overflow:auto"><table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left font-semibold text-slate-500">Name</th><th class="px-2 py-1.5 text-left font-semibold text-slate-500">Code</th><th class="px-2 py-1.5 text-center font-semibold text-slate-500">Absent</th><th class="px-2 py-1.5 text-center font-semibold text-slate-500">Rate</th><th class="px-2 py-1.5 text-center font-semibold text-slate-500">Status</th></tr></thead><tbody>' +
-            abs.map(a => '<tr class="border-t border-slate-100 hover:bg-orange-50 cursor-pointer" onclick="viewMemberAtt('+a.member_id+')"><td class="px-2 py-1.5 font-medium">'+escapeHtml(a.student_name+' '+a.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(a.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+a.absent_days+'</td><td class="px-2 py-1.5 text-center"><span style="color:'+(a.rate<50?'#dc2626':a.rate<75?'#d97706':'#16a34a')+'">'+a.rate+'%</span></td><td class="px-2 py-1.5 text-center">'+statusBadge(a.member_status)+'</td></tr>').join('') +
-            '</tbody></table></div>';
-    }).catch(err => { document.getElementById('attOvLoad').innerHTML = '<p class="text-xs text-red-400">Error: '+escapeHtml(err.message)+'</p>'; });
-}
-
-// --- Daily Report ---
-function loadDailyReport() {
-    const date = document.getElementById('attDailyDate').value;
-    if (!date) return;
-    fetch(_aa + 'daily_report&date=' + date, {credentials:'same-origin'}).then(r => r.json()).then(d => {
-        if (d.status !== 'success') { attToast(d.message||'Error', false); return; }
-        const s = d.summary, recs = d.records;
-        if (recs.length === 0) {
-            document.getElementById('attDailySummary').style.display = 'none';
-            document.getElementById('attDailyTable').style.display = 'none';
-            document.getElementById('attDailyEmpty').style.display = 'block';
-            return;
-        }
-        document.getElementById('attDailyEmpty').style.display = 'none';
-        document.getElementById('attDailySummary').style.display = 'grid';
-        document.getElementById('attDailySummary').innerHTML = [
-            {l:'Total',v:s.total,c:'#1e293b',b:'#f1f5f9'},{l:'Present',v:s.present,c:'#16a34a',b:'#d1fae5'},
-            {l:'Absent',v:s.absent,c:'#dc2626',b:'#fee2e2'},{l:'Late',v:s.late,c:'#d97706',b:'#fef3c7'}
-        ].map(k => '<div style="background:'+k.b+';padding:10px;border-radius:12px;text-align:center"><div style="font-size:18px;font-weight:700;color:'+k.c+'">'+k.v+'</div><div style="font-size:9px;color:'+k.c+'80">'+k.l+'</div></div>').join('');
-        document.getElementById('attDailyTable').style.display = 'block';
-        document.getElementById('attDailyBody').innerHTML = recs.map((r,i) =>
-            '<tr class="border-t border-slate-100 hover:bg-slate-50"><td class="px-3 py-2">'+(i+1)+'</td><td class="px-3 py-2 font-medium">'+escapeHtml((r.student_name||'')+' '+(r.father_name||''))+'</td><td class="px-3 py-2"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(r.member_code||'—')+'</code></td><td class="px-3 py-2">'+(r.gender==='male'?'M':'F')+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'—')+'</td></tr>'
-        ).join('');
-    });
-}
-
-// --- Member Lookup ---
-function searchMemberAtt() {
-    const q = document.getElementById('attMemSearch').value.trim();
-    if (!q) return;
-    fetch(_aa + 'search_members&q=' + encodeURIComponent(q), {credentials:'same-origin'}).then(r => r.json()).then(d => {
-        if (d.members.length === 0) { document.getElementById('attMemResults').style.display = 'block'; document.getElementById('attMemResults').innerHTML = '<div class="panel p-4 text-center text-slate-400 text-xs">No members found</div>'; return; }
-        document.getElementById('attMemResults').style.display = 'block';
-        document.getElementById('attMemDetail').style.display = 'none';
-        document.getElementById('attMemResults').innerHTML = '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">' +
-            d.members.map(m => '<div class="panel p-3 cursor-pointer hover:shadow-md transition" onclick="viewMemberAtt('+m.id+')"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div><div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'—')+' · '+statusBadge(m.status)+'</div></div></div></div>').join('') +
-            '</div>';
-    });
-}
-
-function viewMemberAtt(memberId) {
-    fetch(_aa + 'member_attendance&member_id=' + memberId, {credentials:'same-origin'}).then(r => r.json()).then(d => {
-        if (d.status !== 'success') { attToast(d.message, false); return; }
-        const m = d.member, st = d.stats, recs = d.records;
-        // Switch to member tab if not there
-        document.querySelectorAll('.att-pane').forEach(p => p.style.display = 'none');
-        document.getElementById('attMember').style.display = 'block';
-        document.querySelectorAll('.atab').forEach(b => b.classList.remove('atab-on'));
-        document.querySelectorAll('.atab')[2].classList.add('atab-on');
-        document.getElementById('attMemResults').style.display = 'none';
-        document.getElementById('attMemDetail').style.display = 'block';
-        document.getElementById('attMemDetail').innerHTML =
-            '<div class="panel p-4 mb-3"><div class="flex items-center gap-3 mb-3"><div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div><div><h4 class="font-bold text-slate-800">'+escapeHtml(m.student_name+' '+m.father_name+(m.grandfather_name?' '+m.grandfather_name:''))+'</h4><div class="text-xs text-slate-400">'+(m.member_code||'—')+' · '+(m.age_group||'')+' · '+(m.phone_number||'No phone')+' · '+statusBadge(m.status)+'</div></div></div>' +
-            '<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">' +
-            '<div style="background:#f0fdf4;padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:#16a34a">'+st.present+'</div><div style="font-size:9px;color:#16a34a">Present</div></div>' +
-            '<div style="background:#fee2e2;padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:#dc2626">'+st.absent+'</div><div style="font-size:9px;color:#dc2626">Absent</div></div>' +
-            '<div style="background:#fef3c7;padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:#d97706">'+st.late+'</div><div style="font-size:9px;color:#d97706">Late</div></div>' +
-            '<div style="background:#f1f5f9;padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:#1e293b">'+st.total+'</div><div style="font-size:9px;color:#64748b">Total Days</div></div>' +
-            '<div style="background:'+(st.rate>=75?'#d1fae5':st.rate>=50?'#fef3c7':'#fee2e2')+';padding:8px;border-radius:10px;text-align:center"><div style="font-size:16px;font-weight:700;color:'+(st.rate>=75?'#065f46':st.rate>=50?'#92400e':'#991b1b')+'">'+st.rate+'%</div><div style="font-size:9px">Rate</div></div></div>' +
-            '<button onclick="document.getElementById(\'attMemDetail\').style.display=\'none\';document.getElementById(\'attMemResults\').style.display=\'block\'" class="text-xs text-orange-600 mb-3 hover:underline"><i class="fa-solid fa-arrow-left mr-1"></i>Back to results</button></div>' +
-            (recs.length === 0 ? '<div class="panel p-4 text-center text-slate-400 text-xs">No attendance records in the last 90 days</div>' :
-            '<div class="panel" style="max-height:350px;overflow:auto"><table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-3 py-2 text-left font-semibold text-slate-500">Date</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Status</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Check-in</th><th class="px-3 py-2 text-left font-semibold text-slate-500">Notes</th></tr></thead><tbody>' +
-            recs.map(r => '<tr class="border-t border-slate-100"><td class="px-3 py-2">'+r.attendance_date+'</td><td class="px-3 py-2">'+attBadge(r.status)+'</td><td class="px-3 py-2 text-slate-400">'+(r.check_in_time||'—')+'</td><td class="px-3 py-2 text-slate-400">'+(r.notes||'—')+'</td></tr>').join('') +
-            '</tbody></table></div>');
-    });
-}
-
-// --- At-Risk ---
-function loadAtRisk() {
-    const days = document.getElementById('attRiskDays').value;
-    const thresh = document.getElementById('attRiskThresh').value;
-    fetch(_aa + 'at_risk_members&days='+days+'&threshold='+thresh, {credentials:'same-origin'}).then(r => r.json()).then(d => {
-        if (d.status !== 'success') return;
-        const ms = d.members;
-        document.getElementById('attRiskCount').innerHTML = '<span class="font-semibold text-red-600">'+ms.length+'</span> members below '+thresh+'% attendance in last '+days+' days';
-        document.getElementById('attRiskList').innerHTML = ms.length === 0 ? '<div class="text-center py-8 text-emerald-500 text-xs"><i class="fa-solid fa-check-circle text-2xl mb-2"></i><p>All members have good attendance!</p></div>' :
-            '<table class="w-full text-xs"><thead class="sticky top-0 bg-slate-50"><tr><th class="px-2 py-1.5 text-left">Name</th><th class="px-2 py-1.5">Code</th><th class="px-2 py-1.5">Present</th><th class="px-2 py-1.5">Absent</th><th class="px-2 py-1.5">Rate</th><th class="px-2 py-1.5">Status</th><th class="px-2 py-1.5">Action</th></tr></thead><tbody>' +
-            ms.map(m => '<tr class="border-t border-slate-100 hover:bg-red-50"><td class="px-2 py-1.5 font-medium">'+escapeHtml(m.student_name+' '+m.father_name)+'</td><td class="px-2 py-1.5"><code class="text-[10px] bg-slate-100 px-1 rounded">'+(m.member_code||'—')+'</code></td><td class="px-2 py-1.5 text-center text-emerald-600">'+(m.present_days||0)+'</td><td class="px-2 py-1.5 text-center text-red-600 font-bold">'+(m.absent_days||0)+'</td><td class="px-2 py-1.5 text-center" style="color:'+(m.rate<50?'#dc2626':'#d97706')+'">'+(m.rate||0)+'%</td><td class="px-2 py-1.5 text-center">'+statusBadge(m.status)+'</td><td class="px-2 py-1.5 text-center"><button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name)+'\',\''+m.status+'\')" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"><i class="fa-solid fa-pen"></i></button></td></tr>').join('') +
-            '</tbody></table>';
-    });
-}
-
-// --- Status Management ---
-function searchForStatus() {
-    const q = document.getElementById('attStatusSearch').value.trim();
-    if (!q) return;
-    fetch(_aa + 'search_members&q=' + encodeURIComponent(q), {credentials:'same-origin'}).then(r => r.json()).then(d => {
-        document.getElementById('attStatusResults').innerHTML = d.members.length === 0 ? '<p class="text-xs text-slate-400 text-center py-4">No members found</p>' :
-            '<div class="space-y-2">' + d.members.map(m =>
-                '<div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition">' +
-                '<div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold '+(m.gender==='male'?'bg-blue-100 text-blue-600':'bg-pink-100 text-pink-600')+'">'+escapeHtml((m.student_name||'?').charAt(0))+'</div>' +
-                '<div><div class="text-xs font-semibold text-slate-700">'+escapeHtml(m.student_name+' '+m.father_name)+'</div><div class="text-[10px] text-slate-400">'+(m.member_code||'—')+' · '+(m.age_group||'')+'</div></div></div>' +
-                '<div class="flex items-center gap-2">'+statusBadge(m.status)+
-                '<button onclick="quickStatusChange('+m.id+',\''+escapeHtml(m.student_name+' '+m.father_name).replace(/'/g,"\\'")+'\',\''+m.status+'\')" class="px-3 py-1.5 bg-violet-100 text-violet-700 rounded-lg text-[10px] font-semibold hover:bg-violet-200"><i class="fa-solid fa-pen mr-1"></i>Change</button></div></div>'
-            ).join('') + '</div>';
-    });
-}
-
-function quickStatusChange(memberId, name, currentStatus) {
-    const opts = ['active','warning','inactive'].filter(s => s !== currentStatus);
-    const newStatus = prompt('Change status for ' + name + '\\nCurrent: ' + currentStatus + '\\n\\nType new status: ' + opts.join(', '));
-    if (!newStatus || !['active','warning','inactive'].includes(newStatus)) { if (newStatus !== null) attToast('Invalid status', false); return; }
-    const reason = prompt('Reason for change (optional):') || '';
-    fetch('/admin/api_attendance_info.php?action=update_status', {
-        method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({member_id: memberId, new_status: newStatus, reason: reason})
-    }).then(r => r.json()).then(d => {
-        attToast(d.message, d.status === 'success');
-        if (d.status === 'success') { searchForStatus(); _attOvLoaded = false; }
-    }).catch(() => attToast('Network error', false));
-}
-
-// Auto-load overview when attendance section opens
-(function() {
-    var ab = document.querySelector('[data-section="attendance"]');
-    if (ab) ab.addEventListener('click', function() { setTimeout(loadAttOverview, 200); });
-})();
 
 // ============================================================
 // SETTINGS SECTION FUNCTIONS
@@ -4913,7 +4572,7 @@ const HrSub = (function () {
     'use strict';
 
     const API = '<?= $ajaxPrefix ?>api_hr_attendance.php';
-    const csrfToken = '<?= $csrfToken ?? '' ?>';
+    const csrfToken = CSRF_TOKEN;
     let allPackets = [];
     let initialized = false;
 

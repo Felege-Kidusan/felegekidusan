@@ -236,7 +236,7 @@ class MezmurPhase5Tests(unittest.TestCase):
         self.assertNotIn("saveSheet(kind)", self.js)
         self.assertNotIn("seg-btn", self.js)
         # shell shows the read-only contract (record on mobile)
-        self.assertIn("taken by mezmur attendance takers in the mobile app", self.shell)
+        self.assertIn("Read-only — sheets are recorded and submitted from the mobile app", self.shell)
 
     def test_attendance_section_is_edu_submissions_clone(self):
         # 2026-08-28: the mezmur console mirrors the edu Submissions

@@ -2656,6 +2656,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         // Preserve old links while using the single server-paged directory.
         if (name === 'members') name = 'manage';
         closeManageSheet(); // Close any open modal
+        // Retired/unknown sections (old bookmarks) fall back to the dashboard.
+        if (!document.getElementById('section-' + name)) name = 'dashboard';
         document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
         const target = document.getElementById('section-' + name);
         if (target) target.classList.add('active');

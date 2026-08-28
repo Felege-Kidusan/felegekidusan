@@ -216,7 +216,6 @@
             tabLoaded.attendance = true;
             loadSections();
             loadSubSectionOptions();
-            loadDays(1);
             loadSubmissions();
         } else if (name === 'analytics' && !tabLoaded.analytics) {
             tabLoaded.analytics = true;
@@ -556,8 +555,9 @@
 
     // ── days list ─────────────────────────────────────────────
     function loadDays(page) {
-        att.page = page || 1;
         var tb = $('mzSessTbody');
+        if (!tb) return; // day-history card retired; submissions inbox + Insights cover it
+        att.page = page || 1;
         tb.innerHTML = skeletonRows(5);
         var q = 'action=days_list&page=' + att.page + '&per_page=' + PAGE_SIZE +
             '&from=' + encodeURIComponent($('mzSessFrom').value || '') + '&to=' + encodeURIComponent($('mzSessTo').value || '');
