@@ -41,6 +41,10 @@ dependencies:
   # Date formatting
   intl: ^0.19.0
 
+  # QR-scan attendance taking (Phase 8): on-device ML Kit decoding,
+  # works fully offline; scans persist via the sqflite outbox below.
+  mobile_scanner: ^5.2.3
+
   # Offline cache storage. The local DB is a sandboxed cache of server data;
   # at-rest protection comes from the OS (app sandbox + device file-based
   # encryption, the mainstream pattern). Tokens and the staff profile stay in

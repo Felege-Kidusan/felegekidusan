@@ -826,6 +826,14 @@
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }
 
+    // Printable QR tiles for the selected section (Phase 8 QR attendance).
+    // GET-only governed endpoint; the section picker doubles as the guard.
+    function printQrRoster() {
+        var sec = $('mzSubSection') ? $('mzSubSection').value : '';
+        if (!sec) { window.toast('Pick a section first.', 'e'); return; }
+        window.open('/admin/api_qr_roster.php?dept=mezmur&section=' + encodeURIComponent(sec), '_blank');
+    }
+
     function exportSubmissions() {
         if (!_allPackets.length) { window.toast('Nothing to export on this tab.', 'e'); return; }
         var head = ['Date', 'Section', 'Taker', 'Members', 'Present', 'Late', 'Absent', 'Excused', 'Status', 'Updated'];
@@ -1235,6 +1243,7 @@
         closeSheet: function () { closeSheet(false); },
         // review inbox
         loadSubmissions: loadSubmissions, switchSubTab: switchSubTab, quickDecision: quickDecision,
+        printQrRoster: printQrRoster,
         exportSubmissions: exportSubmissions, openReview: openReview, submitReview: submitReview, viewPacket: viewPacket,
         // analytics
         runAnalytics: runAnalytics, sortBy: sortBy, exportCsv: exportCsv,

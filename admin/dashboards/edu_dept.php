@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Education Department Dashboard â€” <?= SCHOOL_NAME ?>
  * PRODUCTION BUILD â€” All features complete
@@ -365,6 +365,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <select id="subFilterClass" class="inp" style="max-width:180px" onchange="loadSubmissions()"><option value="">All Classes</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select>
 <button class="btn btn-o btn-xs" type="button" onclick="exportSubmissions()"><i class="fa-solid fa-download"></i> Excel</button>
 <button class="btn btn-o btn-xs" type="button" onclick="loadSubmissions()"><i class="fa-solid fa-sync"></i> Refresh</button>
+<button class="btn btn-o btn-xs" type="button" onclick="printQrRoster()" title="Printable QR tiles for this class — scanned by takers in the mobile app"><i class="fa-solid fa-qrcode"></i> QR Roster</button>
 </div></div>
 <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1rem">
 <button class="tbn act" id="subTabDraft" type="button" onclick="switchSubTab('draft')"><i class="fa-solid fa-pen-to-square"></i> Drafts</button>
@@ -1627,6 +1628,14 @@ async function loadSubmissions(){
         toast(friendlyNetError(e),'err');
     }
 }
+// Printable QR tiles for the selected class (Phase 8 QR attendance).
+// GET-only governed endpoint; the class picker doubles as the guard.
+function printQrRoster(){
+    const c=document.getElementById('subFilterClass') ? document.getElementById('subFilterClass').value : '';
+    if(!c) return toast('Pick a class first.','err');
+    window.open('/admin/api_qr_roster.php?dept=edu&class_id='+encodeURIComponent(c),'_blank');
+}
+
 function exportSubmissions(){
     if(!allSubmissions.length) return toast('Nothing to export on this tab.','err');
     const h=['Type','Status','Teacher','Class','What','Students','Present','Absent','Late','Average','Updated'];

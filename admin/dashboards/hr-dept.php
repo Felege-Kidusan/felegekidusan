@@ -2199,6 +2199,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
                         <input id="hrSubTo" type="date" onchange="HrSub.loadSubmissions()" aria-label="To date"
                                class="px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <button onclick="printHrQrRoster()" type="button" title="Printable QR tiles for this section — scanned by takers in the mobile app"
+                                class="px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition"><i class="fa-solid fa-qrcode mr-1"></i> QR Roster</button>
                     </div>
 
                     <!-- Drafts | Submitted | Insights tabs -->
@@ -4321,6 +4323,14 @@ function submitRegistrationForm(formData) {
 
 // Initialize duplicate check on page load
 document.addEventListener('DOMContentLoaded', setupDuplicateCheck);
+
+// Printable QR tiles for the selected section (Phase 8 QR attendance).
+// GET-only governed endpoint; the section picker doubles as the guard.
+function printHrQrRoster() {
+    const s = document.getElementById('hrSubSection')?.value || '';
+    if (!s) { showToast('Pick a section first.', 'error'); return; }
+    window.open('<?= $ajaxPrefix ?>api_qr_roster.php?dept=hr&section=' + encodeURIComponent(s), '_blank');
+}
 
 // ============================================================
 // ATTENDANCE TAKER ACCOUNT MANAGEMENT

@@ -19,7 +19,9 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/fast_list.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/quick_confirm.dart';
+import '../../widgets/qr_scan_sheet.dart';
 import '../../widgets/status_banner.dart';
+import '../../services/qr_attendance.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final int? initialClassId;
@@ -57,6 +59,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// rebuilding the student list (ValueListenable -> action bar only).
   final ValueNotifier<bool> _dirty = ValueNotifier(false);
   StreamSubscription<bool>? _netSub;
+
+  // Phase 8: instant autosave (every mutation → durable local draft).
+  final Debounce _autoSave = Debounce();
+  DateTime _lastSyncPush = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const Set<String> _validStatuses = {
     'present',
@@ -100,6 +106,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void dispose() {
     _netSub?.cancel();
+    _autoSave.dispose();
     _dirty.dispose();
     super.dispose();
   }
@@ -452,6 +459,78 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         .toList();
   }
 
+  // ── Phase 8: instant autosave + QR scan ──────────────────────
+  void _scheduleAutoSave() {
+    _autoSave.run(const Duration(milliseconds: 700), _autoSaveNow);
+  }
+
+  /// SQLite write IS the save: persist the currently-marked rows as a
+  /// draft packet now (no completeness gate — drafts may be partial).
+  /// A dead battery after this point loses nothing; the outbox syncs.
+  Future<void> _autoSaveNow() async {
+    final classId = _selectedClassId;
+    if (classId == null || _students.isEmpty || _locked) return;
+    final marked =
+        _records().where((r) => '${r['status'] ?? ''}'.isNotEmpty).toList();
+    if (marked.isEmpty) return;
+    try {
+      await _db.saveAttendanceLocal(
+          classId, _selectedClassName ?? '', _selectedDate, marked,
+          packetKind: 'draft');
+    } catch (_) {
+      return; // storage refused; the manual Save surfaces the error
+    }
+    if (!mounted) return;
+    _dirty.value = true;
+    final now = DateTime.now();
+    if (now.difference(_lastSyncPush) > const Duration(seconds: 10)) {
+      _lastSyncPush = now;
+      unawaited(_sync.syncAll(force: false));
+    }
+  }
+
+  void _openQrScan() {
+    QrScanSheet.open(context,
+        onScan: _handleQrScan,
+        header: _selectedClassName ?? 'Attendance');
+  }
+
+  /// Apply the Education rules to one scan: roster membership for the
+  /// open class, duplicates, lock; success marks Present and autosaves
+  /// immediately. Mirrors the manual-tap path (last write wins).
+  Future<QrFeedback> _handleQrScan(String? raw) async {
+    final code = QrAttendance.extractMemberCode(raw);
+    if (code == null) return QrFeedback.invalid();
+    if (_locked) return QrFeedback.locked();
+    if (_selectedClassId == null || _students.isEmpty) {
+      return QrFeedback.notFound();
+    }
+    final idx =
+        _students.indexWhere((s) => '${s['member_code'] ?? ''}' == code);
+    if (idx < 0) {
+      final known = await _db.findCachedMemberByCode(code);
+      if (known == null) return QrFeedback.notFound();
+      final name = '${known['student_name'] ?? ''}';
+      final st = '${known['status'] ?? ''}';
+      if (st.isNotEmpty && st != 'active') {
+        return QrFeedback.inactive(name: name);
+      }
+      final own = await _db.cachedClassNameOfMember(
+          (known['id'] is int) ? known['id'] as int : int.tryParse('${known['id']}') ?? 0);
+      return QrFeedback.wrongGroup(name: name, ownGroup: own ?? '—');
+    }
+    final s = _students[idx];
+    final existing = _statusOf(s['status']);
+    if (existing.isNotEmpty) {
+      return QrFeedback.duplicate(
+          name: '${s['student_name'] ?? ''}', status: existing);
+    }
+    setState(() => s['status'] = 'present');
+    _dirty.value = true;
+    await _autoSaveNow(); // scan = instantly durable
+    return QrFeedback.ok(name: '${s['student_name'] ?? ''}');
+  }
+
   Future<void> _persistLocal() async {
     if (_selectedClassId == null || _students.isEmpty || _locked) return;
     await _db.cacheAttendanceResponse(
@@ -472,6 +551,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     });
     _dirty.value = true;
     _persistLocal();
+    _scheduleAutoSave();
   }
 
   Future<void> _pickDate() async {
@@ -537,6 +617,14 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
         ],
       ),
+      floatingActionButton: (_students.isEmpty || _locked)
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _openQrScan,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Scan QR'),
+              heroTag: 'edu-qr-scan',
+            ),
       bottomNavigationBar: _students.isEmpty
           ? null
           : _locked
@@ -865,6 +953,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
               setState(() => _students[index]['status'] = value);
               _dirty.value = true;
               _persistLocal();
+              _scheduleAutoSave();
             },
       child: Container(
         width: 34,

@@ -16,7 +16,9 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/fast_list.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/quick_confirm.dart';
+import '../../widgets/qr_scan_sheet.dart';
 import '../../widgets/status_banner.dart';
+import '../../services/qr_attendance.dart';
 
 /// Mezmur attendance — VERBATIM clone of the teachers' attendance
 /// workflow, keyed by (date, section) instead of (date, class):
@@ -62,6 +64,10 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   String? _returnNote;
   int _pendingCount = 0;
   final ValueNotifier<bool> _dirty = ValueNotifier(false);
+
+  // Phase 8: instant autosave (every mutation → durable local draft).
+  final Debounce _autoSave = Debounce();
+  DateTime _lastSyncPush = DateTime.fromMillisecondsSinceEpoch(0);
   StreamSubscription<bool>? _netSub;
 
   static const Set<String> _validStatuses = {
@@ -110,6 +116,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   @override
   void dispose() {
     _netSub?.cancel();
+    _autoSave.dispose();
     _dirty.dispose();
     super.dispose();
   }
@@ -350,6 +357,75 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     });
   }
 
+  // ── Phase 8: instant autosave + QR scan ──────────────────────
+  void _scheduleAutoSave() {
+    _autoSave.run(const Duration(milliseconds: 700), _autoSaveNow);
+  }
+
+  /// Persist the currently-marked rows as a draft packet right now
+  /// (partial drafts are valid; last write wins). Dead battery after
+  /// this point loses nothing; the outbox delivers when able.
+  Future<void> _autoSaveNow() async {
+    final section = _selectedSection;
+    if (section == null || _members.isEmpty || _locked) return;
+    final marked =
+        _records().where((r) => '${r['status'] ?? ''}'.isNotEmpty).toList();
+    if (marked.isEmpty) return;
+    try {
+      await _db.saveMezmurLocal(_selectedDate, section, marked,
+          packetKind: 'draft');
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    _dirty.value = true;
+    final now = DateTime.now();
+    if (now.difference(_lastSyncPush) > const Duration(seconds: 10)) {
+      _lastSyncPush = now;
+      unawaited(_sync.syncAll(force: false));
+    }
+  }
+
+  void _openQrScan() {
+    QrScanSheet.open(context,
+        onScan: _handleQrScan, header: _selectedSection ?? 'Mezmur');
+  }
+
+  /// Mezmur rules for one scan: member must belong to the open
+  /// section; duplicates and the packet lock are refused with big
+  /// Amharic feedback; success marks Present and autosaves at once.
+  Future<QrFeedback> _handleQrScan(String? raw) async {
+    final code = QrAttendance.extractMemberCode(raw);
+    if (code == null) return QrFeedback.invalid();
+    if (_locked) return QrFeedback.locked();
+    if (_selectedSection == null || _members.isEmpty) {
+      return QrFeedback.notFound();
+    }
+    final idx =
+        _members.indexWhere((m) => '${m['member_code'] ?? ''}' == code);
+    if (idx < 0) {
+      final known = await _db.findCachedMemberByCode(code);
+      if (known == null) return QrFeedback.notFound();
+      final name = '${known['student_name'] ?? ''}';
+      final st = '${known['status'] ?? ''}';
+      if (st.isNotEmpty && st != 'active') {
+        return QrFeedback.inactive(name: name);
+      }
+      return QrFeedback.wrongGroup(
+          name: name, ownGroup: '${known['current_section'] ?? '—'}');
+    }
+    final m = _members[idx];
+    final existing = _statusOf(m['status']);
+    if (existing.isNotEmpty) {
+      return QrFeedback.duplicate(
+          name: '${m['student_name'] ?? ''}', status: existing);
+    }
+    setState(() => m['status'] = 'present');
+    _dirty.value = true;
+    await _autoSaveNow();
+    return QrFeedback.ok(name: '${m['student_name'] ?? ''}');
+  }
+
   // ── Telegram-send model: SQLite write IS the save ─────────────
   Future<void> _save() async {
     final section = _selectedSection;
@@ -435,6 +511,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     });
     _dirty.value = true;
     _persistLocal();
+    _scheduleAutoSave();
   }
 
   void _markAll(String status) {
@@ -446,6 +523,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     });
     _dirty.value = true;
     _persistLocal();
+    _scheduleAutoSave();
   }
 
   Future<void> _editNote(int index) async {
@@ -655,6 +733,14 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             ),
         ],
       ),
+      floatingActionButton: (_members.isEmpty || _locked)
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _openQrScan,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Scan QR'),
+              heroTag: 'mezmur-qr-scan',
+            ),
       bottomNavigationBar: _members.isEmpty
           ? null
           : _locked

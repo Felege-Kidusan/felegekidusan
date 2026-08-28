@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- QR-scan attendance taking (Phase 8): camera is used only by the
+         in-app scanner (on-device decode, no images leave the phone). -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <!-- App Lock: fingerprint/face unlock (local_auth) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

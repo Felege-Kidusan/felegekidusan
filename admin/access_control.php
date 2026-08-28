@@ -219,6 +219,10 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'api_info_analytics.php' => ['super_admin', 'school_admin', 'info_dept'],
             'api_info_reports.php' => ['super_admin', 'school_admin', 'info_dept'],
 
+            // ---- QR roster printing (Phase 8): each department prints
+            // ONLY its own carrier; ownership re-checked in the endpoint.
+            'api_qr_roster.php' => ['super_admin', 'school_admin', 'edu_dept', 'mezmur_dept', 'hr_dept'],
+
             // ---- ID cards ----
             'view_id_card.php'     => ['super_admin', 'school_admin', 'hr_dept'],
             'generate_id_card.php' => ['super_admin', 'school_admin', 'hr_dept'],

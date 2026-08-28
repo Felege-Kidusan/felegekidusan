@@ -869,6 +869,28 @@ class LocalDb {
         whereArgs: [classId, date]);
   }
 
+  /// Phase 8 QR scan: offline resolve of a scanned member code. Used to
+  /// distinguish "member exists but not in THIS class/section" from
+  /// "unknown to this device". Indexed lookup (idx_members_code mirror).
+  Future<Map<String, dynamic>?> findCachedMemberByCode(String code) async {
+    final db = await database;
+    final rows = await db.query('cached_members',
+        where: 'member_code = ?', whereArgs: [code], limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Phase 8 QR scan (edu): the class a cached member is enrolled in,
+  /// so a wrong-class scan can name the member's real class.
+  Future<String?> cachedClassNameOfMember(int memberId) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        'SELECT cc.class_name FROM cached_students cs '
+        'JOIN cached_classes cc ON cc.id = cs.class_id '
+        'WHERE cs.member_id = ? LIMIT 1',
+        [memberId]);
+    return rows.isEmpty ? null : rows.first['class_name'] as String?;
+  }
+
   Future<void> markAttendanceSynced(int classId, String date) async {
     final db = await database;
     await db.update(

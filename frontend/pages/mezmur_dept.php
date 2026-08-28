@@ -298,6 +298,7 @@ ob_start();
                             <input id="mzSubTo" class="school-input" type="date" aria-label="To date" onchange="Mezmur.loadSubmissions()">
                             <button class="btn-secondary" type="button" onclick="Mezmur.exportSubmissions()"><i class="fa-solid fa-download"></i> Excel</button>
                             <button class="btn-secondary" type="button" onclick="Mezmur.loadSubmissions()"><i class="fa-solid fa-sync"></i> Refresh</button>
+                            <button class="btn-secondary" type="button" onclick="Mezmur.printQrRoster()" title="Printable QR tiles for this section — scanned by takers in the mobile app"><i class="fa-solid fa-qrcode"></i> QR Roster</button>
                         </div>
                     </div>
 
