@@ -32,6 +32,24 @@ require_once __DIR__ . '/config.php';
 
 use App\Services\FeatureGate;
 
+// Defense in depth: own the exception handler so an uncaught throwable
+// can never again be masked by the host's generic error page. The real
+// message goes to the error log with a short reference token; the client
+// gets a 200 JSON error it can render.
+set_exception_handler(static function (\Throwable $e): void {
+    $token = bin2hex(random_bytes(3));
+    error_log('[mezmur-unhandled #' . $token . '] ' . get_class($e) . ': '
+        . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(200);
+    }
+    echo json_encode([
+        'status' => 'error',
+        'message' => 'Unexpected server fault (log reference ' . $token . '). Please retry; if it persists, ask the administrator to check the error log.',
+    ]);
+});
+
 /**
  * Server/code version marker, present in EVERY mezmur response.
  * Clients compare this against what they were built for and show an
@@ -80,6 +98,11 @@ if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submis
 require_once __DIR__ . '/backend/services/MezmurAttendanceService.php';
 require_once __DIR__ . '/backend/services/MezmurSubmissionService.php';
 require_once __DIR__ . '/backend/services/MezmurSchemaReconciler.php';
+// NOTE: the rate limiter class is NOT loaded by the admin bootstrap
+// (only by api/v1 middleware) — without this require every request
+// fatals with "class not found" BEFORE the try/catch (the incident
+// the host masked as the generic ref-JSON).
+require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;

@@ -465,6 +465,22 @@ class MezmurProdDiagTests(unittest.TestCase):
         bad = re.findall(r"mezmur_respond\([^;]*?,\s*[1-5]\d\d\);", self.api, re.S)
         self.assertEqual(bad, [], "mezmur API must never emit non-2xx (host mangles them)")
 
+    def test_controller_requires_rate_limiter_class(self):
+        # The web-failure root cause: the admin bootstrap never loaded
+        # SecurityRateLimiter (only api/v1 middleware did), so every
+        # request fatals with class-not-found before the try/catch.
+        self.assertIn(
+            "require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';",
+            self.api,
+        )
+
+    def test_controller_owns_exception_handler(self):
+        self.assertIn("set_exception_handler", self.api)
+
+    def test_diag_checks_class_wiring(self):
+        self.assertIn("class_wiring", self.shim)
+        self.assertIn("controller_requires_rate_limiter", self.shim)
+
     def test_shim_php_lint(self):
         if shutil.which("php") is None:
             self.skipTest("php CLI not available")

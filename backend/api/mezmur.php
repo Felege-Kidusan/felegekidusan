@@ -88,6 +88,35 @@ if (isset($_GET['diag'])) {
     }
     $out['parse'] = $parse;
 
+    // Class-wiring check: parse-passes is not enough — every class the
+    // controller instantiates must actually be LOADABLE without the
+    // api/v1 middleware (the "class not found" incident).
+    $classes = array(
+        'admin/backend/services/SecurityRateLimiter.php' => 'App\\Services\\SecurityRateLimiter',
+        'admin/backend/services/MezmurAttendanceService.php' => 'App\\Services\\MezmurAttendanceService',
+        'admin/backend/services/MezmurSubmissionService.php' => 'App\\Services\\MezmurSubmissionService',
+        'admin/backend/services/MezmurSchemaReconciler.php' => 'App\\Services\\MezmurSchemaReconciler',
+        'admin/backend/services/FeatureGate.php' => 'App\\Services\\FeatureGate',
+    );
+    $wiring = array();
+    foreach ($classes as $rel => $class) {
+        $path = $root . '/' . $rel;
+        if (!is_file($path)) { $wiring[$class] = 'FILE MISSING'; continue; }
+        try {
+            require_once $path;
+            $wiring[$class] = class_exists($class) ? 'loadable' : 'CLASS MISSING AFTER REQUIRE';
+        } catch (Throwable $e) {
+            $wiring[$class] = 'REQUIRE FAILED: ' . get_class($e);
+        } catch (Exception $e) {
+            $wiring[$class] = 'REQUIRE FAILED: ' . get_class($e);
+        }
+    }
+    // Does the controller REQUIRE the rate limiter (the past fatal)?
+    $apiText2 = @file_get_contents($root . '/admin/api_mezmur.php');
+    $out['controller_requires_rate_limiter'] = ($apiText2 !== false
+        && strpos($apiText2, "backend/services/SecurityRateLimiter.php") !== false);
+    $out['class_wiring'] = $wiring;
+
     // Is the controller on DISK the current version?
     $apiText = @file_get_contents($root . '/admin/api_mezmur.php');
     $out['disk_controller'] = ($apiText !== false && strpos($apiText, 'MEZMUR_API_VERSION') !== false)

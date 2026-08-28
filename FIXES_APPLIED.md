@@ -705,3 +705,22 @@ while SQL migrations lag. Shipped the schema-drift killer:
 Verified on a simulated legacy DB (hymns with 3 columns, session-based
 attendance, members without photo_url): report finds drift → apply closes
 it → second apply does nothing → sheet loads. Suite 336/336.
+
+### 7e. Incident #5 — THE web-failure root cause: missing class require
+
+`admin/api_mezmur.php` instantiated `\App\Services\SecurityRateLimiter`
+but the admin bootstrap never REQUIRED that file (only api/v1 middleware
+does). Every web mezmur request therefore fatals with "class not found"
+BEFORE the try/catch → host masks it → the endless "Server error. Please
+try again." on every tab, while mobile (api/v1) worked. Parse-checks and
+static analysis cannot see a missing require.
+
+Fixes:
+- require_once SecurityRateLimiter.php in the controller.
+- Controller now owns set_exception_handler: any future uncaught
+  throwable answers 200 JSON with a short log token (real message goes to
+  error_log) — the host can never mask this endpoint again.
+- ?diag=1 gained class_wiring + controller_requires_rate_limiter checks,
+  so a missing require is visible in one request forever.
+
+Suite 339/339; smoke ALL PASSED.

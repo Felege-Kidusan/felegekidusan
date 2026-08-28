@@ -84,13 +84,17 @@ class MezmurModuleTests(unittest.TestCase):
     def test_api_never_leaks_exception_internals(self):
         self.assertIn("catch (\\Throwable $e)", self.api)
         self.assertIn("error_log(", self.api)
-        # getMessage() appears exactly three times, all controlled
-        # strings thrown by our own services (never driver/diagnostic
-        # text): the server-side error_log line, the DomainException
-        # 422 validator message, and the DomainException 409 packet
-        # lock/save message in the section sheet transaction.
-        self.assertEqual(self.api.count("$e->getMessage()"), 3)
+        # getMessage() appears exactly four times and never reaches the
+        # client in raw form: two server-side error_log lines (the
+        # catch-all and the unhandled-exception handler, which sends only
+        # a log token), plus the controlled DomainException 422 validator
+        # message and the DomainException 409 packet lock/save message
+        # thrown by our own services (never driver/diagnostic text).
+        self.assertEqual(self.api.count("$e->getMessage()"), 4)
         self.assertIn("error_log('[mezmur] ' . $e->getMessage()", self.api)
+        self.assertIn("error_log('[mezmur-unhandled #' . $token . '] ' . get_class($e) . ': '", self.api)
+        # the unhandled handler must answer 200 with a token, no internals
+        self.assertIn("Unexpected server fault (log reference", self.api)
         self.assertIn("catch (\DomainException $e)", self.api)
         self.assertNotIn("getTrace", self.api)
 
