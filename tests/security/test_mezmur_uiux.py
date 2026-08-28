@@ -67,8 +67,10 @@ class MezmurUiUxTests(unittest.TestCase):
 
     def test_overview_is_composed_from_existing_actions_only(self):
         # overview data comes from actions that already existed pre-Phase-3
-        for action in ["action=days_list", "action=stats", "action=list", "action=takers_list"]:
+        for action in ["action=days_list", "action=stats", "action=list"]:
             self.assertIn(action, self.js)
+        # takers are governed by the department-owned endpoint now
+        self.assertIn("/admin/api_dept_takers.php?action=list", self.js)
 
     def test_stats_exposes_member_count_for_overview(self):
         self.assertIn("'members' =>", self.api)

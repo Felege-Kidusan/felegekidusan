@@ -16,6 +16,7 @@ import '../update/update_screen.dart';
 import '../teacher/teacher_home.dart';
 import '../teacher/teacher_grades.dart';
 import '../att_taker/att_taker_home.dart';
+import '../hr/hr_taker_home.dart';
 import '../admin/admin_home.dart';
 import '../edu_dept/edu_home.dart';
 import '../info_dept/info_home.dart';
@@ -233,8 +234,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _materialHomeKey.currentState?.refresh();
         break;
       case UserRoles.mezmurDept:
+      case UserRoles.mezmurTaker:
         _mezmurHomeKey.currentState?.refresh();
         break;
+      case UserRoles.hrTaker:
+        break; // HR taker home is static until Phase B.
     }
   }
 
@@ -275,6 +279,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       UserRoles.financeDept: 'finance',
       UserRoles.materialDept: 'material',
       UserRoles.mezmurDept: 'mezmur',
+      UserRoles.mezmurTaker: 'mezmur',
     }[_api.userRole];
     if (roleFeature != null
         && !AppUpdateService().featureEnabled(roleFeature)) {
@@ -298,6 +303,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return MaterialHomeScreen(key: _materialHomeKey);
       case UserRoles.mezmurDept:
         return MezmurHomeScreen(key: _mezmurHomeKey);
+      case UserRoles.mezmurTaker:
+        // Department-owned mezmur takers use the mezmur home but are
+        // not staff — library curation / analytics / taker management
+        // stay hidden (see MezmurHomeScreen._isStaff).
+        return MezmurHomeScreen(key: _mezmurHomeKey);
+      case UserRoles.hrTaker:
+        return const HrTakerHomeScreen();
       default:
         return TeacherHomeScreen(key: _teacherHomeKey);
     }

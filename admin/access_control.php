@@ -209,6 +209,11 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'user-delete.php' => ['super_admin'],
             'user-toggle.php' => ['super_admin'],
 
+            // ---- Department-owned attendance takers ----
+            // Each department manages ONLY its own taker type; the
+            // service layer re-enforces the attribution server-side.
+            'api_dept_takers.php' => ['super_admin', 'school_admin', 'mezmur_dept', 'hr_dept'],
+
             // ---- ID cards ----
             'view_id_card.php'     => ['super_admin', 'school_admin', 'hr_dept'],
             'generate_id_card.php' => ['super_admin', 'school_admin', 'hr_dept'],

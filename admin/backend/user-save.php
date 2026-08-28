@@ -91,6 +91,10 @@ $validRoles = [
     'mezmur_dept',
     'teacher',
     'attendance_taker',
+    // Department-owned takers (2026-08-28): departments create these
+    // through api_dept_takers.php; admins may also create them here.
+    'mezmur_attendance_taker',
+    'hr_attendance_taker',
 ];
 
 // Role-based permissions for creating users
@@ -98,8 +102,12 @@ $rolePermissions = [
     'super_admin' => $validRoles, // Can create all
     'school_admin' => $validRoles, // Can create all
     'edu_dept' => ['teacher'], // Can only create teacher accounts
-    'info_dept' => ['attendance_taker'], // Can only create attendance taker accounts
-    'mezmur_dept' => ['attendance_taker'], // Mezmur creates its own attendance takers
+    // Department-owned attendance takers (mezmur_attendance_taker /
+    // hr_attendance_taker) are created ONLY through the governed
+    // api_dept_takers.php endpoint — the service layer enforces the
+    // department attribution server-side. (The old entries that let
+    // info/mezmur create shared attendance_takers here were dead code:
+    // ROLE_MAP restricts this file to super_admin.)
 ];
 
 // Check if current user can create this role

@@ -764,12 +764,15 @@ final class MezmurAttendanceService
     public static function takersList(\mysqli $conn): array
     {
         $out = [];
+        // Mezmur's OWN takers only — department-owned accounts
+        // (attendance data and takers are never shared across
+        // departments). Legacy shared takers live with super admin.
         $res = $conn->query(
             "SELECT u.id, u.username, u.full_name, u.is_active, u.created_at,
                     m.student_name, m.member_code
              FROM users u
              LEFT JOIN members m ON u.member_id = m.id
-             WHERE u.role = 'attendance_taker'
+             WHERE u.role = 'mezmur_attendance_taker'
              ORDER BY u.full_name
              LIMIT 500"
         );

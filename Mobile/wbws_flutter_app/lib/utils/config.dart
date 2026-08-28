@@ -31,6 +31,10 @@ class UserRoles {
   static const String mezmurDept = 'mezmur_dept';
   static const String teacher = 'teacher';
   static const String attendanceTaker = 'attendance_taker';
+  // Department-owned takers (2026-08-28): each department creates and
+  // manages ONLY its own taker accounts; datasets never combine.
+  static const String mezmurTaker = 'mezmur_attendance_taker';
+  static const String hrTaker = 'hr_attendance_taker';
 
   static String displayName(String role) {
     switch (role) {
@@ -43,6 +47,8 @@ class UserRoles {
       case mezmurDept: return 'Mezmur Department';
       case teacher: return 'Teacher';
       case attendanceTaker: return 'Attendance Taker';
+      case mezmurTaker: return 'Mezmur Attendance Taker';
+      case hrTaker: return 'HR Attendance Taker';
       default: return role;
     }
   }
@@ -58,6 +64,8 @@ class UserRoles {
       case mezmurDept: return 'መዝሙር ክፍል';
       case teacher: return 'መምህር';
       case attendanceTaker: return 'ቅጥረት ያዥ';
+      case mezmurTaker: return 'የመዝሙር ቅጥረት ያዥ';
+      case hrTaker: return 'የኤችአር ቅጥረት ያዥ';
       default: return role;
     }
   }
@@ -104,6 +112,21 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
         NavTab(id: 'attendance', label: 'Attendance', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'mezmur_attendance', label: 'Mezmur', icon: Icons.music_note_outlined, activeIcon: Icons.music_note),
+        NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
+      ];
+
+    // ---- MEZMUR ATTENDANCE TAKER (department-owned) ----
+    case UserRoles.mezmurTaker:
+      return const [
+        NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
+        NavTab(id: 'mezmur_attendance', label: 'Attendance', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
+        NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
+      ];
+
+    // ---- HR ATTENDANCE TAKER (department-owned) ----
+    case UserRoles.hrTaker:
+      return const [
+        NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 

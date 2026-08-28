@@ -100,6 +100,12 @@ switch ($role) {
     case 'attendance_taker':
         require __DIR__ . '/dashboards/attendance_taker.php';
         break;
+    case 'mezmur_attendance_taker':
+    case 'hr_attendance_taker':
+        // Department-owned takers record from the mobile app; this
+        // page is the web landing (account info + guidance).
+        require __DIR__ . '/dashboards/dept_taker.php';
+        break;
 
     case 'content_editor':
         require __DIR__ . '/dashboards/content_editor.php';

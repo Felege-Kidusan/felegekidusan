@@ -509,7 +509,7 @@ ob_start();
                                 <tr>
                                     <th>Name</th>
                                     <th>Username</th>
-                                    <th>Linked Member</th>
+                                    <th>Type</th>
                                     <th>Created</th>
                                     <th>Status</th>
                                     <th class="nowrap">Actions</th>

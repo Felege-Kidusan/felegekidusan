@@ -998,21 +998,21 @@
     function loadTakers() {
         var tb = $('mzTakerTbody');
         tb.innerHTML = skeletonRows(4);
-        apiGet('action=takers_list').then(function (d) {
+        window.api.get('/admin/api_dept_takers.php?action=list').then(function (d) {
             if (d.status !== 'success') {
                 tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load takers.', 'Mezmur.reloadTakers()') + '</td></tr>';
                 return;
             }
             var items = d.items || [];
             if (!items.length) {
-                tb.innerHTML = '<tr><td colspan="6">' + emptyState('fa-user-shield', 'No taker accounts yet', 'Create an account so a trusted member can record attendance from web or mobile.', '<button class="btn-primary btn-sm" onclick="Mezmur.openTakerModal()"><i class="fa-solid fa-user-plus"></i> Add Taker</button>') + '</td></tr>';
+                tb.innerHTML = '<tr><td colspan="6">' + emptyState('fa-user-shield', 'No mezmur takers yet', 'Create a mezmur attendance taker so a trusted member can record section attendance from the mobile app. These accounts belong to the mezmur department only.', '<button class="btn-primary btn-sm" onclick="Mezmur.openTakerModal()"><i class="fa-solid fa-user-plus"></i> Add Taker</button>') + '</td></tr>';
                 return;
             }
             tb.innerHTML = items.map(function (t) {
                 return '<tr>' +
                     '<td><b>' + esc(t.full_name || t.username) + '</b></td>' +
                     '<td class="text-dim">' + esc(t.username) + '</td>' +
-                    '<td class="amharic">' + esc(t.student_name ? t.student_name + (t.member_code ? ' (' + t.member_code + ')' : '') : '—') + '</td>' +
+                    '<td class="text-dim">' + esc(t.role_label || 'Mezmur Attendance Taker') + '</td>' +
                     '<td class="text-dim nowrap">' + fmtDate(t.created_at) + '</td>' +
                     '<td>' + (t.is_active ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Disabled</span>') + '</td>' +
                     '<td class="nowrap">' +
@@ -1036,16 +1036,17 @@
         if (pass.length < 12) { showError($('mzTkError'), 'Password must be at least 12 characters.'); return; }
         var btn = $('mzTkSaveBtn');
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating…';
-        // Reuses the hardened user pipeline — server re-checks that the
-        // mezmur_dept role may only create attendance_taker accounts.
-        window.api.post('/admin/backend/user-save.php', {
-            full_name: name, username: user, role: 'attendance_taker',
-            password: pass, confirm_password: pass, is_active: 1
+        // Governed department-taker endpoint: the server re-checks
+        // that mezmur_dept may only create mezmur_attendance_taker
+        // accounts, and runs advanced username validation.
+        window.api.post('/admin/api_dept_takers.php', {
+            action: 'create', role: 'mezmur_attendance_taker',
+            full_name: name, username: user, password: pass
         }).then(function (d) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Create Account';
             if (d.status !== 'success') { showError($('mzTkError'), d.message || 'Unable to create the account.'); return; }
             closeModalF('mzTakerModal');
-            window.toast('Attendance taker account created.', 's');
+            window.toast('Mezmur attendance taker created.', 's');
             loadTakers();
         }).catch(function (err) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Create Account';
@@ -1054,7 +1055,7 @@
     }
 
     function toggleTaker(id) {
-        window.api.post('/admin/backend/user-toggle.php', { user_id: id, action: 'toggle_status' }).then(function (d) {
+        window.api.post('/admin/api_dept_takers.php', { action: 'toggle', user_id: id }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Action failed.', 'e'); return; }
             window.toast(d.message || 'Done.', 's');
             loadTakers();

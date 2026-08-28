@@ -22,7 +22,10 @@ $auth = apiRequireAuth();
 // clients can distinguish a current server from a stale deployment.
 if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-offline26');
 
-$MEZMUR_ROLES = ['mezmur_dept', 'school_admin', 'super_admin', 'attendance_taker'];
+// mezmur_attendance_taker = department-owned taker (created by the
+// mezmur console). 'attendance_taker' stays for legacy accounts during
+// migration; edu keeps its own pipeline untouched.
+$MEZMUR_ROLES = ['mezmur_dept', 'school_admin', 'super_admin', 'attendance_taker', 'mezmur_attendance_taker'];
 $MEZMUR_ANALYTICS_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
 // Library writes (add/edit/archive hymns, manage categories) keep web
 // parity: mezmur staff + admins. Takers read; they do not curate.

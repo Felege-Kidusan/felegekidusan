@@ -150,12 +150,16 @@ class MezmurAttendanceTests(unittest.TestCase):
         self.assertIn("unset($m['full_name_am']);", self.route)
         self.assertIn("unset($r['full_name_am'], $r['photo_url']);", self.route)
 
-    # ── taker creation stays scoped ────────────────────────────
-    def test_mezmur_may_only_create_attendance_takers(self):
-        self.assertIn("'mezmur_dept' => ['attendance_taker'],", self.user_save)
-        self.assertIn("'mezmur_dept' => ['attendance_taker'],", self.user_toggle)
-        # and nothing broader was granted
-        self.assertNotIn("'mezmur_dept' => ['teacher']", self.user_save)
+    # ── taker creation stays scoped (department-owned, 2026-08-28) ─
+    def test_mezmur_creates_only_its_own_takers_via_governed_endpoint(self):
+        # mezmur.js goes through api_dept_takers.php with the
+        # department-owned role — never the super-admin user pipeline.
+        self.assertIn("window.api.post('/admin/api_dept_takers.php'", self.js)
+        self.assertIn("role: 'mezmur_attendance_taker'", self.js)
+        self.assertNotIn("window.api.post('/admin/backend/user-save.php'", self.js)
+        # the old dead mapping (mezmur_dept -> shared attendance_taker
+        # inside user-save.php) is gone
+        self.assertNotIn("'mezmur_dept' => ['attendance_taker']", self.user_save)
 
     # ── web UI discipline ──────────────────────────────────────
     def test_shell_has_all_sections_and_gates(self):
@@ -178,7 +182,7 @@ class MezmurAttendanceTests(unittest.TestCase):
         self.assertIn("action: 'submission_review'", self.js)
         self.assertNotIn("openSessionModal", self.js)
         self.assertNotIn("sessions_list", self.js)
-        self.assertIn("window.api.post('/admin/backend/user-save.php'", self.js)
+        self.assertIn("window.api.post('/admin/api_dept_takers.php'", self.js)
 
     # ── flutter wiring ─────────────────────────────────────────
     def test_flutter_role_and_navigation_wired(self):

@@ -843,3 +843,28 @@ session (15-min access + 90-day rotating refresh, unchanged) is safe:
 
 Verified: suite 389/389 (11 new AppLockSecurityTests); brace-checked
 all touched Dart; smoke still ALL PASSED.
+
+### 12. Department-owned attendance takers + mezmur permission bug (2026-08-28)
+
+Root cause of "you have no permission" when creating a mezmur taker:
+ROLE_MAP restricted user-save.php to super_admin, so the mezmur
+console's request died at the central gate before any logic ran.
+
+Fix (per product rule: HR / Edu / Mezmur each own their takers and
+their data — never shared, never combined):
+- New roles mezmur_attendance_taker / hr_attendance_taker (edu keeps
+  its existing pipeline untouched).
+- DeptTakerService: server-side creator→role attribution, advanced
+  username validation (format, reserved names, case-insensitive
+  uniqueness, normalized-collision rejection), password_hash only,
+  audit-logged create/toggle, department-scoped listing.
+- Governed endpoint api_dept_takers.php (ROLE_MAP + re-check + CSRF +
+  rate limit); mezmur console rewired to it; dead mezmur/info mappings
+  removed from user-save.php.
+- Web: dashboard routes the new roles to a read-only dept_taker.php
+  landing. Mobile: both roles get their own tabs/homes (mezmur takers
+  land on the mezmur home with staff extras hidden; HR landing until
+  Phase B). mezmur v1 routes accept mezmur_attendance_taker.
+
+Verified: PHP probe 25/25 (attribution, username matrix, boundaries),
+suite 400/400, smoke PASSED.
