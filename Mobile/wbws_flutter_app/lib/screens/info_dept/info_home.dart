@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
-import '../../services/app_update_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/stat_card.dart';
@@ -12,7 +11,6 @@ import '../../widgets/feature_tile.dart';
 import '../../widgets/use_website_note.dart';
 import '../../utils/transitions.dart';
 import '../members/member_list_screen.dart';
-import '../attendance/attendance_screen.dart';
 
 class InfoHomeScreen extends StatefulWidget {
   const InfoHomeScreen({super.key});
@@ -121,15 +119,39 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
         children: [
           FeatureTile(label: 'Members', icon: Icons.people_rounded, color: AppTheme.primary,
               onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const MemberListScreen()))),
-          if (AppUpdateService().featureEnabled('attendance'))
-            FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.warning,
-                onTap: () => Navigator.of(context).push(SmoothPageRoute(page: const AttendanceScreen()))),
         ],
       ),
       const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.info.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.info.withOpacity(0.25)),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: AppTheme.info.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.query_stats_rounded, size: 20, color: AppTheme.info),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Analytics is read-only here', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            const Text(
+              'The Information department views and compares attendance from Education, '
+              'Mezmur and HR — it never records attendance. Full charts, comparisons and '
+              'exports live in the Analytics Hub on the website.',
+              style: TextStyle(fontSize: 11.5, height: 1.4),
+            ),
+          ])),
+        ]),
+      ),
+      const SizedBox(height: 16),
       const UseWebsiteNote(
-        title: 'Register, ID cards, groups',
-        body: 'Those stay on the website so a child’s full record is only opened there.',
+        title: 'Register, ID cards & analytics',
+        body: 'Those stay on the website so a child’s full record and the cross-department analytics are only opened there.',
       ),
     ];
   }
