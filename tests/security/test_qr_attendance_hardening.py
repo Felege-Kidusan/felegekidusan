@@ -81,7 +81,13 @@ class MobileScanSurfaceTests(unittest.TestCase):
             self.assertIn("_scheduleAutoSave", src)
             self.assertIn("packetKind: 'draft'", src)
             self.assertIn(save, src)
-            self.assertIn("FloatingActionButton.extended", src)
+            # Scan lives in the top header — never a FAB covering data.
+            self.assertIn("onPressed: _openQrScan", src)
+            self.assertIn("Icons.qr_code_scanner", src)
+            self.assertNotIn("FloatingActionButton", src)
+            # Interactivity: animated chips + progress strip.
+            self.assertIn("AnimatedScale", src)
+            self.assertIn("_progressStrip", src)
 
     def test_payload_parser_formats(self):
         self.assertIn("member.php", self.svc)
@@ -101,6 +107,19 @@ class MobileScanSurfaceTests(unittest.TestCase):
             "\u1270\u1246\u120d\u1313\u12a0\u120d",  # locked
         ):
             self.assertIn(token, self.svc, token)
+
+    def test_scanner_is_one_hand_friendly(self):
+        # 64dp thumb-zone circles at the bottom, animated viewfinder,
+        # Amharic control labels (torch / close) \u2014 all \u2265 48dp rule.
+        self.assertIn("width: 64", self.wid)
+        self.assertIn("spaceAround", self.wid)
+        self.assertIn("_CornerPainter", self.wid)
+        self.assertIn("\u1265\u122d\u1203\u1295", self.wid)  # torch label
+        self.assertIn("\u12dd\u130b", self.wid)  # close label
+
+    def test_stale_backend_banner_removed(self):
+        self.assertNotIn("older version of the mezmur", self.mez)
+        self.assertNotIn("_staleServer", self.mez)
 
     def test_offline_resolution_helpers(self):
         db = rd("Mobile/wbws_flutter_app/lib/services/local_db.dart")

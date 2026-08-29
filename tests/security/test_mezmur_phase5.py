@@ -430,8 +430,11 @@ class MezmurDeploymentResilienceTests(unittest.TestCase):
         self.assertIn("sql/024_mezmur_submissions.sql", self.js)
 
     def test_app_detects_and_warns_about_stale_server(self):
-        self.assertIn("_staleServer", self.screen)
-        self.assertIn("server_meta", self.screen)
+        # 2026-08-28 UX decision: the ALWAYS-visible "older backend"
+        # banner was removed (it covered roster data and went stale);
+        # the outdated-server hint now lives only in the error path,
+        # and the warning banner family is still used for returns/lock.
+        self.assertNotIn("_staleServer", self.screen)
         self.assertIn("sql/024_mezmur_submissions.sql", self.screen)
         self.assertIn("StatusBanner.warning", self.screen)
 

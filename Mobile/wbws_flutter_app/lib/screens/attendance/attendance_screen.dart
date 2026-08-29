@@ -588,6 +588,15 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         title: const Text('Attendance'),
         automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
+          // Scan lives in the top header (never covers roster data).
+          if (!_locked)
+            TextButton.icon(
+              onPressed: _openQrScan,
+              icon: const Icon(Icons.qr_code_scanner, size: 22),
+              label: const Text('Scan',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+            ),
           // Pending sync badge
           if (_pendingCount > 0)
             Padding(
@@ -617,14 +626,6 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
         ],
       ),
-      floatingActionButton: (_students.isEmpty || _locked)
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _openQrScan,
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan QR'),
-              heroTag: 'edu-qr-scan',
-            ),
       bottomNavigationBar: _students.isEmpty
           ? null
           : _locked
@@ -744,6 +745,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           ),
 
           if (_error != null)
+          if (_students.isNotEmpty && _error == null) _progressStrip(),
             StatusBanner.error(_error!, onRetry: _loadAttendance),
           if (_successMsg != null)
             StatusBanner.success(_successMsg!, onDismiss: () {
@@ -950,26 +952,86 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       onTap: _locked
           ? null
           : () {
+              HapticFeedback.lightImpact();
               setState(() => _students[index]['status'] = value);
               _dirty.value = true;
               _persistLocal();
               _scheduleAutoSave();
             },
-      child: Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? color : color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? color : color.withOpacity(0.2)),
+      child: AnimatedScale(
+        scale: selected ? 1.08 : 1.0,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? color : color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border:
+                Border.all(color: selected ? color : color.withOpacity(0.2)),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                        color: color.withOpacity(0.35),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2))
+                  ]
+                : null,
+          ),
+          child: Text(label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: selected ? Colors.white : color,
+              )),
         ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: selected ? Colors.white : color,
-            )),
+      ),
+    );
+  }
+
+  /// Animated "marked so far" progress strip (fills as marks land).
+  Widget _progressStrip() {
+    final total = _students.length;
+    final marked =
+        _students.where((s) => _statusOf(s['status']).isNotEmpty).length;
+    final frac = total == 0 ? 0.0 : marked / total;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: Text(
+              '$marked / $total marked',
+              key: ValueKey(marked),
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 4),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: frac),
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOut,
+            builder: (context, v, child) => ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: v,
+                minHeight: 6,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                    frac >= 1 ? AppTheme.success : AppTheme.primary),
+                backgroundColor: AppTheme.primary.withOpacity(0.12),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

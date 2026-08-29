@@ -57,7 +57,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   bool _loading = true;
   bool _rosterReady = false;
   bool _loadFailed = false;
-  bool _staleServer = false; // backend older than this app build
   bool _isOffline = false;
   String? _error;
   String _packetStatus = '';
@@ -187,7 +186,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     setState(() {
       _error = null;
       _loadFailed = false;
-      _staleServer = false;
       if (!keepSheet) {
         _loading = true;
         _rosterReady = false;
@@ -237,9 +235,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     if (!mounted) return;
     if (res.success && res.data != null) {
       final data = res.data!;
-      // Version handshake: the current server stamps every mezmur
-      // response with server_meta. Missing marker => stale backend.
-      _staleServer = data['server_meta'] == null;
       final packet = '${data['submission_status'] ?? ''}';
       final locked =
           PacketLock.isLocked(packet, flagged: data['locked'] == true);
@@ -670,27 +665,92 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     );
   }
 
+  /// Animated P/A/L/E chip: 40dp target, spring-like scale + colour
+  /// tween on selection (implicit animations only — no controllers).
   Widget _statusBtn(
       String label, String value, String current, Color color, int id) {
     final selected = current == value;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _locked ? null : () => _setMark(id, value),
-      child: Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? color : color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? color : color.withOpacity(0.2)),
+      onTap: _locked
+          ? null
+          : () {
+              HapticFeedback.lightImpact();
+              _setMark(id, value);
+            },
+      child: AnimatedScale(
+        scale: selected ? 1.08 : 1.0,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? color : color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border:
+                Border.all(color: selected ? color : color.withOpacity(0.2)),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                        color: color.withOpacity(0.35),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2))
+                  ]
+                : null,
+          ),
+          child: Text(label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: selected ? Colors.white : color,
+              )),
         ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: selected ? Colors.white : color,
-            )),
+      ),
+    );
+  }
+
+  /// Animated "marked so far" progress strip (fills as takers mark).
+  Widget _progressStrip() {
+    final total = _members.length;
+    final marked = total - _unmarked;
+    final frac = total == 0 ? 0.0 : marked / total;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: Text(
+              '$marked / $total marked',
+              key: ValueKey(marked),
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 4),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: frac),
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOut,
+            builder: (context, v, child) => ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: v,
+                minHeight: 6,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                    frac >= 1 ? AppTheme.success : AppTheme.primary),
+                backgroundColor: AppTheme.primary.withOpacity(0.12),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -702,6 +762,15 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
         title: const Text('Mezmur Attendance'),
         automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
+          // Scan lives in the top header (never covers roster data).
+          if (!_locked)
+            TextButton.icon(
+              onPressed: _openQrScan,
+              icon: const Icon(Icons.qr_code_scanner, size: 22),
+              label: const Text('Scan',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+            ),
           if (_pendingCount > 0)
             Padding(
               padding: const EdgeInsets.only(right: 4),
@@ -733,14 +802,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             ),
         ],
       ),
-      floatingActionButton: (_members.isEmpty || _locked)
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _openQrScan,
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan QR'),
-              heroTag: 'mezmur-qr-scan',
-            ),
       bottomNavigationBar: _members.isEmpty
           ? null
           : _locked
@@ -845,10 +906,8 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
             ),
           ),
 
+          if (_members.isNotEmpty && _error == null) _progressStrip(),
           if (_error != null) StatusBanner.error(_error!, onRetry: _loadSheet),
-          if (_staleServer && _error == null)
-            StatusBanner.warning(
-                'This server is running an older version of the mezmur backend. Ask the administrator to pull the latest code and run sql/024_mezmur_submissions.sql.'),
           if (_returnNote != null &&
               _returnNote!.isNotEmpty &&
               !_locked &&
