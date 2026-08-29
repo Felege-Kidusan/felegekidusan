@@ -554,6 +554,37 @@ class ApiService {
   Future<ApiResponse> getMemberAttendance(int id, {int days = 90}) =>
       get('/members/$id/attendance', params: {'days': '$days'});
 
+  // ── Phase 9: department review inbox (approve / return) ───────
+  // dept ∈ {edu, mezmur, hr} — each department reviews ONLY its own
+  // packets; the server re-checks the bearer's role on every call.
+  String _reviewBase(String dept) =>
+      dept == 'edu' ? '/grades' : (dept == 'hr' ? '/hr' : '/mezmur');
+
+  Future<ApiResponse> getReviewSubmissions(String dept,
+      {String status = 'attention', int page = 1}) {
+    final params = <String, String>{'page': '$page', 'per_page': '50'};
+    if (dept == 'edu') {
+      params['status_filter'] = status;
+    } else {
+      params['status'] = status;
+    }
+    return get('${_reviewBase(dept)}/submissions', params: params);
+  }
+
+  Future<ApiResponse> getReviewSubmission(String dept, int id) =>
+      get('${_reviewBase(dept)}/submission', params: {'id': '$id'});
+
+  Future<ApiResponse> reviewSubmission(
+    String dept,
+    int id,
+    String status, {
+    String notes = '',
+    String? clientOpId,
+  }) =>
+      post('${_reviewBase(dept)}/submission-review',
+          body: {'id': id, 'status': status, 'notes': notes},
+          idempotencyKey: clientOpId);
+
   // ============================================================
   // CLASSES
   // ============================================================

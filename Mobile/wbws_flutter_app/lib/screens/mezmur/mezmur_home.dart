@@ -7,6 +7,7 @@ import '../../widgets/app_error.dart';
 import '../../widgets/feature_tile.dart';
 import '../../widgets/loading_skeleton.dart';
 import 'mezmur_analytics.dart';
+import '../reviews/review_inbox_screen.dart';
 import 'mezmur_attendance.dart';
 import 'mezmur_hymns.dart';
 
@@ -124,6 +125,17 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen> {
                   onTap: _isStaff
                       ? () => Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => const MezmurAnalyticsScreen()))
+                      : null,
+                ),
+                FeatureTile(
+                  label: 'Reviews',
+                  icon: Icons.inbox_rounded,
+                  color: AppTheme.success,
+                  enabled: _isStaff,
+                  onTap: _isStaff
+                      ? () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) =>
+                              const ReviewInboxScreen(dept: 'mezmur')))
                       : null,
                 ),
               ],

@@ -15,6 +15,7 @@ import '../teacher/teacher_grades.dart';
 import 'edu_classes_screen.dart';
 import 'edu_teachers_screen.dart';
 import 'edu_enrollment_screen.dart';
+import '../reviews/review_inbox_screen.dart';
 import 'edu_subjects_screen.dart';
 
 class EduHomeScreen extends StatefulWidget {
@@ -111,6 +112,7 @@ class EduHomeScreenState extends State<EduHomeScreen> {
       'enrollment': FeatureTile(label: 'Enrollment', icon: Icons.person_add_rounded, color: AppTheme.success, onTap: () => _open(const EduEnrollmentScreen())),
       'grades': FeatureTile(label: 'Grades', icon: Icons.grading_rounded, color: AppTheme.warning, onTap: () => _open(const TeacherGradesScreen())),
       'attendance': FeatureTile(label: 'Attendance', icon: Icons.fact_check_rounded, color: AppTheme.accent, onTap: () => _open(const AttendanceScreen())),
+      'reviews': FeatureTile(label: 'Reviews', icon: Icons.inbox_rounded, color: const Color(0xFF0F766E), onTap: () => _open(const ReviewInboxScreen(dept: 'edu'))),
     };
     return [
       for (final id in ids)

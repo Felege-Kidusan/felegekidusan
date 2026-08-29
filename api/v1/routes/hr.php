@@ -136,6 +136,62 @@ try {
         ]);
     }
 
+    // ════════════════════════════════════════════════════════════
+    // DEPARTMENT REVIEW INBOX (Phase 9) — HR's own packets.
+    // Same services the web console uses; HR staff + admins only.
+    // ════════════════════════════════════════════════════════════
+
+    // ── GET /hr/submissions — paginated review queue ─────────────
+    if ($method === 'GET' && $action === 'submissions') {
+        if (!HrSubmissionService::canReview($auth)) {
+            err('Only the HR department can review packets.', 403);
+        }
+        if (isApiRateLimited('hr_submissions_list', 60)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
+        $out = HrSubmissionService::listPackets($conn, [
+            'status'   => (string)($_GET['status'] ?? 'attention'),
+            'from'     => (string)($_GET['from'] ?? ''),
+            'to'       => (string)($_GET['to'] ?? ''),
+            'section'  => (string)($_GET['section'] ?? ''),
+            'page'     => $_GET['page'] ?? 1,
+            'per_page' => $_GET['per_page'] ?? 50,
+        ]);
+        $out['stats'] = HrSubmissionService::packetStats($conn);
+        ok($out);
+    }
+
+    // ── GET /hr/submission?id=N — full packet for review ─────────
+    if ($method === 'GET' && $action === 'submission') {
+        if (!HrSubmissionService::canReview($auth)) {
+            err('Only the HR department can review packets.', 403);
+        }
+        $item = HrSubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
+        if ($item === null) err('Submission not found.', 404);
+        ok(['submission' => $item]);
+    }
+
+    // ── POST /hr/submission-review — decide a packet ─────────────
+    if ($method === 'POST' && $action === 'submission-review') {
+        if (!HrSubmissionService::canReview($auth)) {
+            err('Only the HR department can review packets.', 403);
+        }
+        if (isApiRateLimited('hr_submission_review', 30)) {
+            err('Too many reviews. Please wait a moment.', 429);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        $result = HrSubmissionService::reviewPacket(
+            $conn,
+            (int)($input['id'] ?? 0),
+            (string)($input['status'] ?? ''),
+            (string)($input['notes'] ?? ''),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err((string)($result['message'] ?? 'Review failed.'), 409);
+        ok($result);
+    }
+
     err('Unknown HR attendance endpoint.', 404);
 } catch (\DomainException $e) {
     // Controlled service wording only (never stack/diagnostic text).

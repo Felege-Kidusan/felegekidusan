@@ -830,7 +830,8 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertEqual(
             self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 4
         )
-        self.assertEqual(self.route.count("apiIdempotencyBegin("), 5)  # sheet + 4 writers
+        # sheet + 4 library writers + submission review (Phase 9)
+        self.assertEqual(self.route.count("apiIdempotencyBegin("), 6)
         self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_hymn_write'"), 4)
 
     def test_routes_delta_and_conflict_shapes(self):

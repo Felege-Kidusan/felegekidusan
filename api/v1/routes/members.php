@@ -235,6 +235,36 @@ if ($method === 'POST' && $id === null) {
 
     $fullNameAm = trim($studentName . ' ' . $fatherName . ' ' . $grandfatherName);
 
+    // ── Duplicate guard (Phase 9 hardening) ─────────────────────
+    // Same strong-identity rule the web registration desk enforces:
+    // identical name + (DOB or phone signal) blocks a silent second
+    // record. The client may explicitly override WITH a reason, and
+    // the override is audited.
+    require_once __DIR__ . '/../../../admin/backend/services/MemberDuplicateService.php';
+    $overrideRequested = ((string)($input['duplicate_override'] ?? '')) === '1';
+    $strongMatch = \App\Services\MemberDuplicateService::findStrongMatch($conn, [
+        'student_name' => $studentName,
+        'father_name' => $fatherName,
+        'grandfather_name' => $grandfatherName,
+        'dob_ec_day' => $dobDay ?? 0,
+        'dob_ec_month' => $dobMonth ?? 0,
+        'dob_ec_year' => $dobYear ?? 0,
+        'phone_number' => $phone,
+    ], 0, false);
+    if ($strongMatch !== null && !$overrideRequested) {
+        err('A strongly matching member already exists. Review that record or explicitly authorize a duplicate.', 409, [
+            'data' => ['duplicate' => $strongMatch],
+        ]);
+    }
+    if ($strongMatch !== null && $overrideRequested) {
+        $overrideReason = trim((string)($input['duplicate_override_reason'] ?? ''));
+        if ($overrideReason === '' || mb_strlen($overrideReason) > 500) {
+            err('A valid duplicate override reason is required.', 422);
+        }
+        logApiAction($auth['uid'], $auth['usr'], 'Member Registration Duplicate Overridden',
+            'Matched member #' . $strongMatch['id'] . ' (' . $strongMatch['member_code'] . '). Reason: ' . $overrideReason);
+    }
+
     require_once __DIR__ . '/../../../admin/backend/services/EnrollmentService.php';
     $memberCode = \App\Services\EnrollmentService::generateMemberCode($conn, $ageGroup);
 

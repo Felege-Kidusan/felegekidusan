@@ -35,6 +35,7 @@ class UserRoles {
   // manages ONLY its own taker accounts; datasets never combine.
   static const String mezmurTaker = 'mezmur_attendance_taker';
   static const String hrTaker = 'hr_attendance_taker';
+  static const String hrDept = 'hr_dept';
 
   static String displayName(String role) {
     switch (role) {
@@ -49,6 +50,7 @@ class UserRoles {
       case attendanceTaker: return 'Attendance Taker';
       case mezmurTaker: return 'Mezmur Attendance Taker';
       case hrTaker: return 'HR Attendance Taker';
+      case hrDept: return 'HR Department';
       default: return role;
     }
   }
@@ -139,6 +141,7 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
         NavTab(id: 'attendance', label: 'Attend.', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'grades', label: 'Grades', icon: Icons.grading_outlined, activeIcon: Icons.grading_rounded),
+        NavTab(id: 'reviews', label: 'Reviews', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
         NavTab(id: 'members', label: 'Students', icon: Icons.people_outline, activeIcon: Icons.people_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
@@ -150,6 +153,7 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'members', label: 'Members', icon: Icons.people_outline, activeIcon: Icons.people_rounded),
         NavTab(id: 'attendance', label: 'Attend.', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'grades', label: 'Grades', icon: Icons.grading_outlined, activeIcon: Icons.grading_rounded),
+        NavTab(id: 'reviews', label: 'Reviews', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
@@ -160,6 +164,15 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'members', label: 'Members', icon: Icons.people_outline, activeIcon: Icons.people_rounded),
         NavTab(id: 'attendance', label: 'Attend.', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'grades', label: 'Grades', icon: Icons.grading_outlined, activeIcon: Icons.grading_rounded),
+        NavTab(id: 'reviews', label: 'Reviews', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
+        NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
+      ];
+
+    // ---- HR DEPARTMENT (Phase 9: mobile reviews) ----
+    case UserRoles.hrDept:
+      return const [
+        NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
+        NavTab(id: 'reviews', label: 'Reviews', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
@@ -193,6 +206,7 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'mezmur_attendance', label: 'Attend.', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'mezmur_hymns', label: 'Hymns', icon: Icons.music_note_outlined, activeIcon: Icons.music_note),
         NavTab(id: 'mezmur_analytics', label: 'Insights', icon: Icons.insights_outlined, activeIcon: Icons.insights),
+        NavTab(id: 'reviews', label: 'Reviews', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 

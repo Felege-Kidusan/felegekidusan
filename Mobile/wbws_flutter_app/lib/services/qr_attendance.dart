@@ -94,6 +94,10 @@ class QrFeedback {
   factory QrFeedback.inactive({required String name}) => QrFeedback._(
       QrFeedbackKind.inactive, 'ንቁ አይደለም!', '$name — የአባልነት ሁኔታው ንቁ አይደለም።');
 
+  /// Member lookup (Phase 9): the scanned code resolved to a member.
+  factory QrFeedback.memberFound({required String name}) =>
+      QrFeedback._(QrFeedbackKind.ok, '\u1270\u1308\u129d\u1270\u12cd\u120d', name);
+
   factory QrFeedback.invalid() => QrFeedback._(QrFeedbackKind.invalid,
       'ልክ ያልሆነ ኮድ!', 'ይህ ቁራጽ የአባል መገኛ ኪውአር ኮድ አይደለም። እባክዎ እንደገና ይሞክሩ።');
 

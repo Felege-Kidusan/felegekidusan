@@ -703,4 +703,118 @@ if ($action === 'summary' && $method === 'GET') {
     ok(['data' => $data, 'class_id' => $classId, 'subject_id' => $subjectId]);
 }
 
+// ════════════════════════════════════════════════════════════════
+// EDUCATION DEPARTMENT REVIEW INBOX (Phase 9)
+// Mobile mirror of the web console's Submissions workflow
+// (api_communication.php): list → detail → approve / reject /
+// return-with-reason. Server stays the single source of truth.
+// ════════════════════════════════════════════════════════════════
+
+$__eduReviewRoles = ['edu_dept', 'school_admin', 'super_admin'];
+
+// ── GET /grades/submissions — department review queue ───────────
+if ($method === 'GET' && $action === 'submissions') {
+    if (!in_array($userRole, $__eduReviewRoles, true)) {
+        err('Only the Education department can review submissions.', 403);
+    }
+    if (isApiRateLimited('edu_submissions_list', 60)) {
+        err('Too many requests. Please wait a moment.', 429);
+    }
+    require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
+    try {
+        $submissions = \App\Services\SubmissionService::list($conn, [
+            'class_id' => (int)($_GET['class_id'] ?? 0),
+            'status'   => (string)($_GET['status_filter'] ?? 'attention'),
+            'type'     => (string)($_GET['type'] ?? ''),
+        ]);
+        $stats = \App\Services\SubmissionService::stats($conn);
+        ok(['submissions' => $submissions, 'stats' => $stats]);
+    } catch (Throwable $e) {
+        err('Could not load submissions. Please try again.', 500);
+    }
+}
+
+// ── GET /grades/submission?id=N — full packet for review ────────
+if ($method === 'GET' && $action === 'submission') {
+    if (!in_array($userRole, $__eduReviewRoles, true)) {
+        err('Only the Education department can review submissions.', 403);
+    }
+    require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
+    $detail = \App\Services\SubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
+    if (!$detail) err('Submission not found.', 404);
+    ok(['submission' => $detail]);
+}
+
+// ── POST /grades/submission-review — decide a packet ────────────
+if ($method === 'POST' && $action === 'submission-review') {
+    if (!in_array($userRole, $__eduReviewRoles, true)) {
+        err('Only the Education department can review submissions.', 403);
+    }
+    if (isApiRateLimited('edu_submission_review', 30)) {
+        err('Too many reviews. Please wait a moment.', 429);
+    }
+    require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
+    require_once __DIR__ . '/../../../admin/backend/services/SecurityAuditService.php';
+
+    $input = getBody();
+    $submissionId = (int)($input['id'] ?? 0);
+    $newStatus = (string)($input['status'] ?? '');
+    $notes = trim((string)($input['notes'] ?? ''));
+
+    if (!$submissionId || !in_array($newStatus, ['approved', 'rejected', 'revision_needed'], true)) {
+        err('Invalid review parameters.', 422);
+    }
+    if ($newStatus !== 'approved' && mb_strlen($notes) < 3) {
+        err('Write a short reason so the teacher knows what to fix.', 422);
+    }
+    if (mb_strlen($notes) > 500) $notes = mb_substr($notes, 0, 500);
+
+    $stmt = $conn->prepare(
+        "SELECT teacher_id, class_id, submission_type, attendance_date,
+                assessment_id, status
+         FROM grade_submissions WHERE id = ? LIMIT 1"
+    );
+    if (!$stmt) err('Could not open the submission.', 500);
+    $stmt->bind_param('i', $submissionId);
+    $stmt->execute();
+    $packet = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$packet) err('Submission not found.', 404);
+    $previousStatus = (string)($packet['status'] ?? '');
+
+    $stmt = $conn->prepare("UPDATE grade_submissions
+        SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
+        WHERE id = ?");
+    if (!$stmt) err('Could not update the submission.', 500);
+    $stmt->bind_param('sisi', $newStatus, $userId, $notes, $submissionId);
+    $done = $stmt->execute();
+    $stmt->close();
+    if (!$done) err('Could not update the submission.', 500);
+
+    \App\Services\SecurityAuditService::record(
+        $conn,
+        'Submission Reviewed',
+        [
+            'new_status' => $newStatus,
+            'previous_status' => $previousStatus,
+            'reason' => $notes,
+            'kind' => (string)$packet['submission_type'],
+            'class_id' => (int)$packet['class_id'],
+            'attendance_date' => (string)($packet['attendance_date'] ?? ''),
+            'assessment_id' => (int)($packet['assessment_id'] ?? 0),
+            'teacher_id' => (int)$packet['teacher_id'],
+            'channel' => 'mobile',
+        ],
+        'grade_submission',
+        $submissionId
+    );
+
+    $friendly = [
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+        'revision_needed' => 'Returned to the teacher for correction',
+    ];
+    ok(['message' => $friendly[$newStatus]]);
+}
+
 err("No handler for {$method} /grades" . ($action ? "/{$action}" : ''), 404);

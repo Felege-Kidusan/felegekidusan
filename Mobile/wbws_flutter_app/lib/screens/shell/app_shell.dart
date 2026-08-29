@@ -18,6 +18,8 @@ import '../teacher/teacher_grades.dart';
 import '../att_taker/att_taker_home.dart';
 import '../hr/hr_taker_home.dart';
 import '../hr/hr_attendance.dart';
+import '../hr/hr_home.dart';
+import '../reviews/review_inbox_screen.dart';
 import '../admin/admin_home.dart';
 import '../edu_dept/edu_home.dart';
 import '../info_dept/info_home.dart';
@@ -274,6 +276,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return TeacherGradesScreen(key: _gradesKey);
       case 'members':
         return const MemberListScreen();
+      case 'reviews':
+        switch (_api.userRole) {
+          case UserRoles.eduDept:
+            return const ReviewInboxScreen(dept: 'edu');
+          case UserRoles.mezmurDept:
+            return const ReviewInboxScreen(dept: 'mezmur');
+          case UserRoles.hrDept:
+            return const ReviewInboxScreen(dept: 'hr');
+          default:
+            return const ReviewHubScreen();
+        }
       case 'profile':
         return const ProfileScreen();
       default:
@@ -318,6 +331,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return MezmurHomeScreen(key: _mezmurHomeKey);
       case UserRoles.hrTaker:
         return const HrTakerHomeScreen();
+      case UserRoles.hrDept:
+        return const HrDeptHomeScreen();
       default:
         return TeacherHomeScreen(key: _teacherHomeKey);
     }

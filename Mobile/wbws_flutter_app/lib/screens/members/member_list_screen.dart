@@ -8,6 +8,10 @@ import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/fast_list.dart';
 import 'member_detail_screen.dart';
+import 'register_member_screen.dart';
+import '../../widgets/qr_scan_sheet.dart';
+import '../../services/qr_attendance.dart';
+import '../../utils/config.dart';
 
 class MemberListScreen extends StatefulWidget {
   const MemberListScreen({super.key});
@@ -51,6 +55,56 @@ class _MemberListScreenState extends State<MemberListScreen> {
             _scrollController.position.maxScrollExtent - 200) {
       _loadMore();
     }
+  }
+
+  bool get _canRegister => const [
+        UserRoles.infoDept, UserRoles.schoolAdmin, UserRoles.superAdmin]
+    .contains(_api.userRole);
+
+  /// Phase 9 QR lookup: scan a member card, resolve locally first
+  /// (offline parity), then server; opens the member file directly.
+  void _openLookup() {
+    QrScanSheet.open(
+      context,
+      header: 'Scan member card',
+      onScan: (raw) async {
+        final code = QrAttendance.extractMemberCode(raw);
+        if (code == null) return QrFeedback.invalid();
+        final db = LocalDb();
+        var member = await db.findCachedMemberByCode(code);
+        int? id = member != null ? (member['id'] is int ? member['id'] as int : int.tryParse('${member['id']}')) : null;
+        String name = member != null
+            ? '${member['student_name'] ?? ''} ${member['father_name'] ?? ''}'
+            : '';
+        if (id == null) {
+          final res = await _api.getMembers(search: code, limit: 5);
+          if (res.success && res.data != null) {
+            final items = (res.data!['items'] as List? ?? [])
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
+            for (final m in items) {
+              if ('${m['member_code'] ?? ''}' == code) {
+                id = m['id'] is int ? m['id'] as int : int.tryParse('${m['id']}');
+                name = '${m['student_name'] ?? ''} ${m['father_name'] ?? ''}';
+                break;
+              }
+            }
+          }
+        }
+        if (id != null && mounted) {
+          final mid = id;
+          Future.delayed(const Duration(milliseconds: 350), () {
+            if (!mounted) return;
+            Navigator.of(context).pop(); // close the sheet
+            Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => MemberDetailScreen(memberId: mid)));
+          });
+          return QrFeedback.memberFound(name: name.trim());
+        }
+        return QrFeedback.notFound();
+      },
+    );
   }
 
   Future<void> _loadMembers({bool refresh = false}) async {
@@ -132,6 +186,21 @@ class _MemberListScreenState extends State<MemberListScreen> {
         title: const Text('Members'),
         automaticallyImplyLeading: Navigator.canPop(context),
         actions: [
+          // Phase 9: scan a member-card QR to jump straight to the file.
+          IconButton(
+              tooltip: 'Scan member QR',
+              icon: const Icon(Icons.qr_code_scanner, size: 20),
+              onPressed: _openLookup),
+          if (_canRegister)
+            IconButton(
+                tooltip: 'Register member',
+                icon: const Icon(Icons.person_add_alt, size: 20),
+                onPressed: () async {
+                  final created = await Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => const RegisterMemberScreen()));
+                  if (created == true) _loadMembers(refresh: true);
+                }),
           IconButton(
               icon: const Icon(Icons.refresh, size: 20),
               onPressed: () => _loadMembers(refresh: true)),
