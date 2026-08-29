@@ -82,10 +82,10 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo / Icon
+                // Logo — the Sunday School emblem (bundled asset).
                 Container(
-                  width: 90,
-                  height: 90,
+                  width: 120,
+                  height: 120,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
@@ -98,8 +98,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                     border: Border.all(color: AppTheme.accent, width: 2),
                   ),
-                  child: const Center(
-                    child: Icon(Icons.church_rounded, size: 45, color: AppTheme.primary),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Image.asset('assets/logo_school.png',
+                          width: 100,
+                          height: 100,
+                          fit: BoxFit.contain,
+                          semanticLabel: 'Spring of Saints Sunday School'),
+                    ),
                   ),
                 ),
 

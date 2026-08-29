@@ -117,6 +117,21 @@ class MobileScanSurfaceTests(unittest.TestCase):
         self.assertIn("\u1265\u122d\u1203\u1295", self.wid)  # torch label
         self.assertIn("\u12dd\u130b", self.wid)  # close label
 
+    def test_section_picker_reads_server_items_and_labels_unassigned(self):
+        # Server emits 'items'; takers must read it (with legacy fallback)
+        # and render the em-dash placeholder as a friendly label.
+        for src in (self.mez, self.hr):
+            self.assertIn("res.data!['items'] ?? res.data!['sections']", src)
+            self.assertIn("_sectionLabel", src)
+            self.assertIn("\u12eb\u120d\u1270\u1218\u12f0\u1261", src)
+
+    def test_login_uses_school_logo_asset(self):
+        logo = APP / "assets" / "logo_school.png"
+        self.assertTrue(logo.is_file() and logo.stat().st_size > 10000)
+        login = rd("Mobile/wbws_flutter_app/lib/screens/auth/login_screen.dart")
+        self.assertIn("assets/logo_school.png", login)
+        self.assertNotIn("Icons.church_rounded", login)
+
     def test_stale_backend_banner_removed(self):
         self.assertNotIn("older version of the mezmur", self.mez)
         self.assertNotIn("_staleServer", self.mez)

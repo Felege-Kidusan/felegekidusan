@@ -97,6 +97,15 @@ class HrAttendanceScreenState extends State<HrAttendanceScreen> {
   int get _unmarked =>
       _members.where((m) => _statusOf(m['status']).isEmpty).length;
 
+  /// Display label for a section wire value: the server groups members
+  /// without a manual section assignment under the em-dash placeholder;
+  /// takers see a friendly Amharic label instead of a bare dash.
+  String _sectionLabel(dynamic v) {
+    final s = '${v ?? ''}'.trim();
+    if (s.isEmpty || s == '\u2014' || s == '-') return 'ያልተመደቡ';
+    return s;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -142,7 +151,7 @@ class HrAttendanceScreenState extends State<HrAttendanceScreen> {
     final res = await _api.getHrSections();
     if (!mounted) return;
     if (res.success && res.data != null) {
-      final raw = res.data!['sections'];
+      final raw = res.data!['items'] ?? res.data!['sections'];
       final list = raw is List
           ? raw
               .whereType<Map>()
@@ -882,7 +891,7 @@ class HrAttendanceScreenState extends State<HrAttendanceScreen> {
                                   DropdownMenuItem(
                                     value: '${s['section']}',
                                     child: Text(
-                                        '${s['section']} · ${s['members'] ?? ''}',
+                                        '${_sectionLabel(s['section'])} · ${s['members'] ?? ''}',
                                         style: const TextStyle(fontSize: 13),
                                         overflow: TextOverflow.ellipsis),
                                   ))
