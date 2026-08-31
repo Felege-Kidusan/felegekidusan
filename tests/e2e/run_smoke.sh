@@ -4,11 +4,17 @@
 # Covers: login (all roles), page render integrity, encoding,
 # education APIs, and the standing security probes.
 # Exit code 0 = all pass. Any FAIL line = regression.
+# NOTE: logins are rate-limited (20 / 5 min / IP). Do NOT run manual
+# login probes right before this suite or sessions will 401.
 # ============================================================
 cd "$(dirname "$0")/../.." || exit 1
 PASS_CNT=0; FAIL_CNT=0
 ok()   { PASS_CNT=$((PASS_CNT+1)); echo "  PASS: $1"; }
 fail() { FAIL_CNT=$((FAIL_CNT+1)); echo "  FAIL: $1"; }
+
+# Deterministic runs: clear login rate-limit buckets (this suite logs in ~8x
+# and the limiter allows 20 / 5 min / IP — see SecurityRateLimiter).
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1 || true
 
 source tests/e2e/client.sh
 
@@ -48,6 +54,13 @@ DUPS=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM (SELECT member_id FROM a
 FINAL=$(sudo -n mariadb ssms -N -e "SELECT score FROM academic_records WHERE assessment_id=$AID AND member_id=900000")
 [ "$FINAL" = "71.00" ] && ok "final score is last saved value" || fail "final score: $FINAL"
 
+# --- 3b2. Teacher assignment scoping (Patch C3) ----------------------------
+# (edu session is still open here — create an assessment the teacher is NOT
+#  assigned to: grade_2 + history)
+G2=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_2'")
+ssms_post /admin/api_subjects.php action=create_assessment class_id=$G2 subject_id=3 assessment_name="C3 Probe" assessment_type=test max_score=100 weight_percentage=10 > /dev/null
+OUTA=$(sudo -n mariadb ssms -N -e "SELECT a.id FROM assessments a WHERE a.class_id=$G2 AND a.subject_id=3 ORDER BY a.id DESC LIMIT 1")
+
 # --- 3c. Submission workflow lock (Patch C2/H8) ----------------------------
 sudo -n mariadb ssms -e "DELETE FROM academic_records WHERE assessment_id=$AID; DELETE FROM grade_submissions WHERE assessment_id=$AID" >/dev/null 2>&1
 ssms_login audit_teach > /dev/null 2>&1
@@ -64,6 +77,19 @@ E=$(ssms_post /admin/api_subjects.php action=save_grades assessment_id=$AID "gra
 echo "$E" | grep -q '"saved":1' && ok "edu override still allowed" || fail "edu override: $E"
 LOCK2=$(sudo -n mariadb ssms -N -e "SELECT CONCAT(teacher_id,':',status) FROM grade_submissions WHERE assessment_id=$AID")
 [ "$LOCK2" = "3:submitted" ] && ok "edu correction keeps lock + ownership" || fail "packet after edu save: $LOCK2"
+
+# --- 3d. Teacher blocked outside their assignments (Patch C3) --------------
+ssms_login audit_teach > /dev/null 2>&1
+SCOPE=$(ssms_get "/admin/api_subjects.php?action=get_assessments&class_id=$G2")
+echo "$SCOPE" | grep -q '"assessments":\[\]' && ok "teacher sees no unassigned assessments" || fail "scope leak: $SCOPE"
+CS=$(ssms_get "/admin/api_subjects.php?action=get_class_subjects&class_id=$G2")
+echo "$CS" | grep -q '"subjects":\[\]' && ok "teacher sees no unassigned subjects" || fail "subject leak: $CS"
+B403=$(curl -s -o /tmp/c3_body -w '%{http_code}' -b "$JAR" -X POST "$BASE/admin/api_subjects.php" -d "action=save_grades" -d "assessment_id=$OUTA" -d "csrf_token=$(ssms_csrf)" --data-urlencode 'grades=[{"member_id":900000,"score":44}]')
+[ "$B403" = "403" ] && ok "teacher cannot write unassigned assessment (403)" || fail "expected 403, got $B403: $(cat /tmp/c3_body)"
+GS=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$BASE/admin/api_subjects.php?action=get_grade_summary&class_id=$G2")
+[ "$GS" = "403" ] && ok "teacher bulk grade summary blocked (403)" || fail "expected 403, got $GS"
+OWN=$(ssms_get "/admin/api_subjects.php?action=get_class_subjects&class_id=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")")
+echo "$OWN" | grep -q 'bible' && ok "teacher still sees own assigned subject" || fail "own subject missing: $OWN"
 
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1

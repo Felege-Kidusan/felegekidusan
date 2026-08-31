@@ -59,6 +59,37 @@ if (in_array($action, $__manageActions, true)) {
 // Effective academic year — single source of truth (resolver, time-travel aware)
 $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
+// ── Teacher assignment scoping (PATCH C3) ───────────────────────────────────
+// Web parity with the mobile API (api/v1 checkTeacherSubjectAccess): teachers
+// and attendance takers may only see and grade (class, subject) pairs they are
+// actively assigned to. Staff roles are not restricted.
+$__restrictedRole = in_array($_SESSION['admin_role'] ?? '', ['teacher', 'attendance_taker'], true);
+$__uid = (int)$_SESSION['admin_id'];
+
+/** 403 unless $teacherId actively teaches $subjectId in $classId for $yearId. */
+function edu_require_assignment(mysqli $conn, int $teacherId, int $classId, int $subjectId, $yearId): void
+{
+    $stmt = $conn->prepare(
+        "SELECT id FROM teacher_assignments
+         WHERE teacher_id = ? AND class_id = ? AND subject_id = ?
+           AND (academic_year_id IS NULL OR academic_year_id = ?)
+           AND is_active = 1
+         LIMIT 1"
+    );
+    $stmt->bind_param('iiii', $teacherId, $classId, $subjectId, $yearId);
+    $stmt->execute();
+    $has = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+    if (!$has) {
+        http_response_code(403);
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'You are not assigned to teach this subject in this class',
+        ]);
+        exit;
+    }
+}
+
 // ── STEP 3: write-protection ────────────────────────────────────────────────
 // Refuse writes while time-travelling. Year-scoped writes (assessments, grades,
 // class-subject assignment) additionally require an active year to stamp.
@@ -227,7 +258,32 @@ switch ($action) {
     
     case 'get_class_subjects':
         $classId = (int)($_GET['class_id'] ?? 0);
-        
+
+        // PATCH C3: restricted roles see only the subjects they teach in the
+        // class (same rule as the mobile bootstrap endpoint).
+        if ($__restrictedRole) {
+            $__scopedYear = (int)($currentYear['id'] ?? 0);
+            $stmt = $conn->prepare("
+                SELECT DISTINCT s.* FROM subjects s
+                JOIN teacher_assignments ta ON ta.subject_id = s.id
+                WHERE ta.teacher_id = ? AND ta.class_id = ?
+                  AND (ta.academic_year_id IS NULL OR ta.academic_year_id = ?)
+                  AND ta.is_active = 1 AND s.is_active = 1
+                ORDER BY s.subject_name
+            ");
+            $stmt->bind_param("iii", $__uid, $classId, $__scopedYear);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            $subjects = [];
+            while ($row = $result->fetch_assoc()) {
+                $subjects[] = $row;
+            }
+
+            echo json_encode(['status' => 'success', 'subjects' => $subjects]);
+            break;
+        }
+
         $stmt = $conn->prepare("
             SELECT s.* FROM subjects s
             JOIN class_subjects cs ON s.id = cs.subject_id
@@ -276,7 +332,22 @@ switch ($action) {
             $params[] = $subjectId;
             $types .= "i";
         }
-        
+
+        // PATCH C3: restricted roles only see assessments for (class, subject)
+        // pairs they actively teach.
+        if ($__restrictedRole) {
+            $sql .= " AND EXISTS (
+                SELECT 1 FROM teacher_assignments ta
+                WHERE ta.teacher_id = ? AND ta.class_id = a.class_id
+                  AND ta.subject_id = a.subject_id
+                  AND (ta.academic_year_id IS NULL OR ta.academic_year_id = ?)
+                  AND ta.is_active = 1
+            )";
+            $params[] = $__uid;
+            $params[] = (int)($currentYear['id'] ?? 0);
+            $types .= "ii";
+        }
+
         $sql .= " ORDER BY a.class_id, a.subject_id, a.assessment_order";
         
         $stmt = $conn->prepare($sql);
@@ -497,7 +568,17 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Assessment not found']);
             exit;
         }
-        
+
+        // PATCH C3: restricted roles may only read a roster for grading if
+        // they teach this class + subject.
+        if ($__restrictedRole) {
+            edu_require_assignment(
+                $conn, $__uid,
+                (int)$assessment['class_id'], (int)$assessment['subject_id'],
+                (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0))
+            );
+        }
+
         $classId = (int)$assessment['class_id'];
         $preferYear = (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0));
         $scope = class_exists('\\App\\Services\\EnrollmentService')
@@ -572,6 +653,15 @@ switch ($action) {
         if (!$assessment) {
             echo json_encode(['status' => 'error', 'message' => 'Assessment not found']);
             exit;
+        }
+
+        // PATCH C3: a teacher may only grade their own class + subject.
+        if ($__restrictedRole) {
+            edu_require_assignment(
+                $conn, $__uid,
+                (int)$assessment['class_id'], (int)$assessment['subject_id'],
+                (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0))
+            );
         }
 
         // PATCH C2: the web path used to write academic_records directly and
@@ -697,6 +787,17 @@ switch ($action) {
         if (!$currentYear) {
             echo json_encode(['status' => 'error', 'message' => 'No active academic year']);
             exit;
+        }
+
+        // PATCH C3: restricted roles must name the subject they teach — no
+        // bulk pulls of a whole class' gradebook.
+        if ($__restrictedRole) {
+            if (!$classId || !$subjectId) {
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'class_id and subject_id are required']);
+                exit;
+            }
+            edu_require_assignment($conn, $__uid, $classId, $subjectId, (int)$currentYear['id']);
         }
         
         // Get all assessments and grades for this class-subject
