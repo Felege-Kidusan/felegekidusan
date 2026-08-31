@@ -573,7 +573,23 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Assessment not found']);
             exit;
         }
-        
+
+        // PATCH C2: the web path used to write academic_records directly and
+        // never consulted the teacher→Education submission workflow, so a
+        // teacher could silently overwrite an already-submitted or approved
+        // mark list from the website even though the app locks it. Enforce
+        // the same rule the mobile API applies (staff may always override).
+        $auth = [
+            'uid' => (int)($_SESSION['admin_id']),
+            'usr' => (string)($_SESSION['admin_username'] ?? ''),
+            'rol' => (string)($_SESSION['admin_role'] ?? ''),
+        ];
+        if (!\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'message' => 'This test is already submitted. Only Education can change scores now.']);
+            exit;
+        }
+
         $recordedBy = (int)($_SESSION['admin_id']);
         $maxScore = (float)$assessment['max_score'];
         $yearId = (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0));
@@ -634,16 +650,45 @@ switch ($action) {
             }
         }
         
+        // PATCH C2: mirror the mobile flow — a web save also creates/updates
+        // the mark-list packet so Education's review inbox stays the single
+        // source of truth for what has and hasn't been graded.
+        $scoreSum = 0.0;
+        $scoreN = 0;
+        foreach ($grades as $grade) {
+            if (is_array($grade) && isset($grade['score']) && $grade['score'] !== '' && $grade['score'] !== null) {
+                $scoreSum += (float)$grade['score'];
+                $scoreN++;
+            }
+        }
+        $average = $scoreN > 0 ? $scoreSum / $scoreN : null;
+        $packet = \App\Services\SubmissionService::upsertMarklist($conn, [
+            'teacher_id' => $recordedBy,
+            'class_id' => (int)$assessment['class_id'],
+            'subject_id' => (int)$assessment['subject_id'],
+            'assessment_id' => $assessmentId,
+            'status' => \App\Services\SubmissionService::STATUS_DRAFT,
+            'student_count' => $successCount,
+            'average' => $average,
+            'year_id' => $yearId ?: null,
+            'term_id' => $termId,
+            'force' => \App\Services\SubmissionService::staffCanOverride($auth),
+        ]);
+        if (empty($packet['ok'])) {
+            // Should be unreachable thanks to the pre-check (race only).
+            $errors[] = $packet['message'] ?? 'Could not update the submission packet.';
+        }
+
+        $msg = $successCount > 0
+            ? ($packet['message'] ?? "$successCount grade(s) saved successfully")
+            : ($errors ? 'No grades could be saved.' : 'Nothing to save.');
         echo json_encode([
             'status' => 'success',
-            'message' => $successCount > 0
-                ? "$successCount grade(s) saved successfully"
-                : ($errors ? 'No grades could be saved.' : 'Nothing to save.'),
+            'message' => $msg,
             'saved' => $successCount,
             'errors' => $errors
         ]);
         break;
-    
     case 'get_grade_summary':
         $classId = (int)($_GET['class_id'] ?? 0);
         $subjectId = (int)($_GET['subject_id'] ?? 0);

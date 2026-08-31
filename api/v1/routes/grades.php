@@ -529,6 +529,7 @@ if ($action === 'save' && $method === 'POST') {
             'average' => $avg,
             'year_id' => (int)($assessment['academic_year_id'] ?? $yearId),
             'term_id' => $assessment['term_id'] ?? null,
+            'force' => \App\Services\SubmissionService::staffCanOverride($auth),
         ]);
     }
 
@@ -624,6 +625,7 @@ if ($action === 'submit' && $method === 'POST') {
             'average' => $avg,
             'year_id' => $ayId,
             'term_id' => $termId,
+            'force' => \App\Services\SubmissionService::staffCanOverride($auth),
         ]);
         if (empty($packet['ok'])) {
             err($packet['message'] ?? 'This test is already submitted. Only Education can change scores now.', 409);

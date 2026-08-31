@@ -48,10 +48,31 @@ DUPS=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM (SELECT member_id FROM a
 FINAL=$(sudo -n mariadb ssms -N -e "SELECT score FROM academic_records WHERE assessment_id=$AID AND member_id=900000")
 [ "$FINAL" = "71.00" ] && ok "final score is last saved value" || fail "final score: $FINAL"
 
+# --- 3c. Submission workflow lock (Patch C2/H8) ----------------------------
+sudo -n mariadb ssms -e "DELETE FROM academic_records WHERE assessment_id=$AID; DELETE FROM grade_submissions WHERE assessment_id=$AID" >/dev/null 2>&1
+ssms_login audit_teach > /dev/null 2>&1
+T=$(ssms_post /admin/api_subjects.php action=save_grades assessment_id=$AID "grades=[{\"member_id\":900000,\"score\":50}]")
+echo "$T" | grep -q '"saved":1' && ok "teacher web save -> draft packet" || fail "teacher web save: $T"
+PKT=$(sudo -n mariadb ssms -N -e "SELECT CONCAT(teacher_id,':',status) FROM grade_submissions WHERE assessment_id=$AID")
+[ "$PKT" = "3:draft" ] && ok "draft packet owned by teacher" || fail "packet: $PKT"
+ssms_api_login audit_teach > /dev/null 2>&1
+ssms_api POST grades/submit "{\"assessment_id\":$AID,\"grades\":[{\"member_id\":900000,\"score\":50}]}" | grep -q '"submission_status":"submitted"' && ok "mobile submit" || fail "mobile submit failed"
+LOCK=$(curl -s -o /tmp/lock_body -w '%{http_code}' -b "$JAR" -X POST "$BASE/admin/api_subjects.php" -d "action=save_grades" -d "assessment_id=$AID" -d "csrf_token=$(ssms_csrf)" --data-urlencode 'grades=[{"member_id":900000,"score":99}]')
+[ "$LOCK" = "409" ] && ok "teacher locked after submit (409)" || fail "expected 409, got $LOCK: $(cat /tmp/lock_body)"
+ssms_login audit_edu > /dev/null 2>&1
+E=$(ssms_post /admin/api_subjects.php action=save_grades assessment_id=$AID "grades=[{\"member_id\":900000,\"score\":71}]")
+echo "$E" | grep -q '"saved":1' && ok "edu override still allowed" || fail "edu override: $E"
+LOCK2=$(sudo -n mariadb ssms -N -e "SELECT CONCAT(teacher_id,':',status) FROM grade_submissions WHERE assessment_id=$AID")
+[ "$LOCK2" = "3:submitted" ] && ok "edu correction keeps lock + ownership" || fail "packet after edu save: $LOCK2"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")
-echo "$D" | grep -q "permission" && ok "finance blocked from api_subjects" || fail "finance reached api_subjects!"
+if echo "$D" | grep -q '"status":"success"\|"subjects"'; then
+  fail "finance reached api_subjects!"
+else
+  ok "finance blocked from api_subjects"
+fi
 
 # --- 5. Public pages still up ----------------------------------------------
 C=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/index.php")

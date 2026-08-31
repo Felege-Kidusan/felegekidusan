@@ -76,19 +76,33 @@ class SubmissionService
         if ($assessmentId <= 0) {
             return null;
         }
-        $stmt = $conn->prepare(
-            "SELECT status FROM grade_submissions
-             WHERE assessment_id = ? AND submission_type = 'marklist'
-             ORDER BY id DESC LIMIT 1"
-        );
-        if (!$stmt) {
-            return null;
+        // PATCH C2/H8: a submitted/approved packet is the workflow truth for
+        // the assessment — a *newer* draft packet (e.g. a staff correction)
+        // must never silently re-open a locked mark list.
+        foreach (
+            [
+                "SELECT status FROM grade_submissions
+                 WHERE assessment_id = ? AND submission_type = 'marklist'
+                   AND status IN ('submitted','approved')
+                 ORDER BY id DESC LIMIT 1",
+                "SELECT status FROM grade_submissions
+                 WHERE assessment_id = ? AND submission_type = 'marklist'
+                 ORDER BY id DESC LIMIT 1",
+            ] as $sql
+        ) {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                continue;
+            }
+            $stmt->bind_param('i', $assessmentId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row) {
+                return self::normalizeStatus($row['status'] ?? '');
+            }
         }
-        $stmt->bind_param('i', $assessmentId);
-        $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $row ? self::normalizeStatus($row['status'] ?? '') : null;
+        return null;
     }
 
     /**
@@ -473,21 +487,41 @@ class SubmissionService
             return ['ok' => false, 'id' => 0, 'status' => $status, 'message' => 'Class, teacher, and assessment are required.'];
         }
 
+        // PATCH C2/H8: the packet is the workflow record OF THE ASSESSMENT.
+        // Bind to the canonical packet regardless of which user is saving,
+        // preferring a locked (submitted/approved) one over newer drafts.
         $existingId = 0;
-        $stmt = $conn->prepare(
-            "SELECT id FROM grade_submissions
-             WHERE teacher_id = ? AND assessment_id = ? AND submission_type = 'marklist'
-             ORDER BY id DESC LIMIT 1"
-        );
-        if ($stmt) {
-            $stmt->bind_param('ii', $teacherId, $assessmentId);
+        $existingTeacherId = 0;
+        foreach (
+            [
+                "SELECT id, teacher_id FROM grade_submissions
+                 WHERE assessment_id = ? AND submission_type = 'marklist'
+                   AND status IN ('submitted','approved')
+                 ORDER BY id DESC LIMIT 1",
+                "SELECT id, teacher_id FROM grade_submissions
+                 WHERE assessment_id = ? AND submission_type = 'marklist'
+                 ORDER BY id DESC LIMIT 1",
+            ] as $sql
+        ) {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                continue;
+            }
+            $stmt->bind_param('i', $assessmentId);
             $stmt->execute();
             $row = $stmt->get_result()->fetch_assoc();
             $stmt->close();
-            $existingId = (int)($row['id'] ?? 0);
+            if ($row) {
+                $existingId = (int)$row['id'];
+                $existingTeacherId = (int)$row['teacher_id'];
+                break;
+            }
         }
 
-        $submittedAt = $status === self::STATUS_SUBMITTED ? date('Y-m-d H:i:s') : null;
+        $force = !empty($opts['force']);
+        // Staff corrections keep ownership with the responsible teacher;
+        // a teacher saving claims ownership of their own mark list.
+        $ownerId = $existingId > 0 && $force ? $existingTeacherId : $teacherId;
 
         if ($existingId > 0) {
             $cur = $conn->prepare("SELECT status FROM grade_submissions WHERE id = ? LIMIT 1");
@@ -498,7 +532,7 @@ class SubmissionService
                 $curStatus = (string)($cur->get_result()->fetch_assoc()['status'] ?? '');
                 $cur->close();
             }
-            if (!self::statusIsOpen($curStatus) && empty($opts['force'])) {
+            if (!self::statusIsOpen($curStatus) && !$force) {
                 return [
                     'ok' => false,
                     'id' => $existingId,
@@ -506,25 +540,54 @@ class SubmissionService
                     'message' => 'This mark list is already submitted. Only Education can change it.',
                 ];
             }
+            // Never regress a locked packet: a staff correction updates the
+            // numbers but the list stays submitted/approved. On an open
+            // packet, a draft save keeps the current open status (so a
+            // revision_needed signal is not erased); only a submit advances.
+            $curNorm = self::normalizeStatus($curStatus);
+            if (!self::statusIsOpen($curNorm)) {
+                $finalStatus = $curNorm;
+                $finalMessage = $curNorm === self::STATUS_APPROVED
+                    ? 'Correction saved to the approved list.'
+                    : 'Correction saved to the submitted list.';
+            } elseif ($status === self::STATUS_SUBMITTED) {
+                $finalStatus = $status;
+                $finalMessage = 'Mark list submitted.';
+            } else {
+                $finalStatus = $curNorm === '' ? $status : $curNorm;
+                $finalMessage = 'Saved as a draft for Education.';
+            }
+            $newSubmit = $finalStatus === self::STATUS_SUBMITTED && $curNorm !== self::STATUS_SUBMITTED
+                ? date('Y-m-d H:i:s') : null;
             $up = $conn->prepare(
                 "UPDATE grade_submissions
-                 SET status = ?, student_count = ?, average_score = ?, class_id = ?, subject_id = ?,
+                 SET teacher_id = ?, status = ?, student_count = ?, average_score = ?, class_id = ?, subject_id = ?,
                      academic_year_id = ?, term_id = ?, submitted_at = COALESCE(?, submitted_at), updated_at = NOW()
                  WHERE id = ?"
             );
             if (!$up) {
-                return ['ok' => false, 'id' => $existingId, 'status' => $status, 'message' => 'Could not update mark list.'];
+                return ['ok' => false, 'id' => $existingId, 'status' => $finalStatus, 'message' => 'Could not update mark list.'];
             }
-            $up->bind_param('sidiiiisi', $status, $count, $avg, $classId, $subjectId, $yearId, $termId, $submittedAt, $existingId);
+            $up->bind_param(
+                'isidiiiisi',
+                $ownerId,
+                $finalStatus,
+                $count,
+                $avg,
+                $classId,
+                $subjectId,
+                $yearId,
+                $termId,
+                $newSubmit,
+                $existingId
+            );
             $ok = $up->execute();
             $up->close();
             return [
                 'ok' => (bool)$ok,
                 'id' => $existingId,
-                'status' => $status,
-                'message' => $status === self::STATUS_SUBMITTED
-                    ? 'Mark list submitted.'
-                    : 'Saved as a draft for Education.',
+                'status' => $finalStatus,
+                'message' => $finalMessage,
             ];
         }
 
@@ -537,6 +600,7 @@ class SubmissionService
         if (!$ins) {
             return ['ok' => false, 'id' => 0, 'status' => $status, 'message' => 'Could not create mark list.'];
         }
+        $insSubmittedAt = $status === self::STATUS_SUBMITTED ? date('Y-m-d H:i:s') : null;
         $ins->bind_param(
             'iiiiiisids',
             $teacherId,
@@ -548,7 +612,7 @@ class SubmissionService
             $status,
             $count,
             $avg,
-            $submittedAt
+            $insSubmittedAt
         );
         $ok = $ins->execute();
         $id = (int)$ins->insert_id;
