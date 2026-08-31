@@ -35,6 +35,7 @@ class MezmurModuleTests(unittest.TestCase):
         cls.impersonate = (ROOT / "admin/api_impersonate.php").read_text(encoding="utf-8")
         cls.user_toggle = (ROOT / "admin/backend/user-toggle.php").read_text(encoding="utf-8")
         cls.user_save = (ROOT / "admin/backend/user-save.php").read_text(encoding="utf-8")
+        cls.hymn_svc = (ROOT / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
 
     # ── central gate ───────────────────────────────────────────
     def test_access_control_entries_admit_only_mezmur_roles(self):
@@ -104,8 +105,8 @@ class MezmurModuleTests(unittest.TestCase):
         self.assertNotIn("DELETE FROM mezmur_hymns", self.api)
 
     def test_api_input_bounds(self):
-        self.assertIn("mb_strlen($title) > 255", self.api)
-        self.assertIn("mb_strlen($lyrics) > 200000", self.api)
+        self.assertIn("mb_strlen($title) > 255", self.hymn_svc)
+        self.assertIn("mb_strlen($lyrics) > 200000", self.hymn_svc)
         self.assertIn("mb_substr($search, 0, 100)", self.api)
 
     # ── shim contract ──────────────────────────────────────────

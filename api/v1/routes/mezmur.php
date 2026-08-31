@@ -20,7 +20,7 @@ $auth = apiRequireAuth();
 // Analytics & day labelling (decision data): mezmur staff + admins only.
 // Version handshake: every /mezmur/* response carries this marker so
 // clients can distinguish a current server from a stale deployment.
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-offline26');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy01');
 
 // mezmur_attendance_taker = department-owned taker (created by the
 // mezmur console). 'attendance_taker' stays for legacy accounts during
@@ -306,6 +306,46 @@ try {
             err('Too many category changes. Please wait a moment.', 429);
         }
         $result = MezmurHymnService::setCategoryStatus(
+            $conn,
+            (int)($input['id'] ?? 0),
+            !empty($input['active']),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true]);
+    }
+
+    // ── GET /mezmur/zemarians — singer / artist catalogue ──────
+    if ($method === 'GET' && $action === 'zemarians') {
+        ok(['items' => MezmurHymnService::listZemarians($conn)]);
+    }
+
+    // ── POST /mezmur/zemarian — add / rename a singer ───────────
+    if ($method === 'POST' && $action === 'zemarian') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage singers.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many singer changes. Please wait a moment.', 429);
+        }
+        $result = MezmurHymnService::saveZemarian($conn, $input, (int)$auth['uid']);
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true, 'item' => $result['item'] ?? null]);
+    }
+
+    // ── POST /mezmur/zemarian-status — activate / hide ──────────
+    if ($method === 'POST' && $action === 'zemarian-status') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage singers.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many singer changes. Please wait a moment.', 429);
+        }
+        $result = MezmurHymnService::setZemarianStatus(
             $conn,
             (int)($input['id'] ?? 0),
             !empty($input['active']),

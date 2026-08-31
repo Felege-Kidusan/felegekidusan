@@ -176,8 +176,8 @@ class MezmurPhase5Tests(unittest.TestCase):
         ]:
             self.assertIn(token, self.api)
         # review is POST-only + role-checked + rate-limited as a write
-        self.assertIn("'submission_review', 'migrate'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
-        self.assertIn("'submission_review', 'migrate'], true)\n    ? 'mezmur_write'", self.api)
+        self.assertIn("'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
+        self.assertIn("'zemarian_status'], true)\n    ? 'mezmur_write'", self.api)
         # schema-drift killer endpoints
         self.assertIn("case 'schema'", self.api)
         self.assertIn("case 'migrate'", self.api)
@@ -637,6 +637,9 @@ class MezmurAuditHardeningTests(unittest.TestCase):
         cls.att_service = (
             ROOT / "admin/backend/services/MezmurAttendanceService.php"
         ).read_text(encoding="utf-8")
+        cls.hymn_svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
 
     # ── audit trail: every decision-grade mutation is logged ──
     def test_controller_loads_audit_service(self):
@@ -646,14 +649,16 @@ class MezmurAuditHardeningTests(unittest.TestCase):
         )
 
     def test_hymn_library_writes_are_audited(self):
+        # The canonical writer (MezmurHymnService) audits every mutation;
+        # the web controller delegates to it (see api_mezmur.php 'save').
         for action in (
             "Mezmur Hymn Created",
             "Mezmur Hymn Updated",
             "Mezmur Hymn Archived",
             "Mezmur Hymn Restored",
         ):
-            self.assertIn(action, self.api)
-        self.assertIn("'mezmur_hymn', $id", self.api.replace("\n", " ").replace("  ", " ") or self.api)
+            self.assertIn(action, self.hymn_svc)
+        self.assertIn("'mezmur_hymn'", self.hymn_svc)
 
     def test_schema_reconcile_is_audited(self):
         self.assertIn("Mezmur Schema Reconciled", self.api)
@@ -828,10 +833,10 @@ class MezmurOfflineHymnTests(unittest.TestCase):
     def test_routes_gate_writes_and_keep_reads_open(self):
         self.assertIn("$MEZMUR_LIBRARY_WRITE_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];", self.route)
         self.assertEqual(
-            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 4
+            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 6
         )
-        # sheet + 4 library writers + submission review (Phase 9)
-        self.assertEqual(self.route.count("apiIdempotencyBegin("), 6)
+        # sheet + 4 library writers + submission review + category/singer mgmt
+        self.assertEqual(self.route.count("apiIdempotencyBegin("), 8)
         self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_hymn_write'"), 4)
 
     def test_routes_delta_and_conflict_shapes(self):

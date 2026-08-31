@@ -73,8 +73,9 @@ final class MezmurHymnService
         $offset = ($page - 1) * $perPage;
 
         $rev = self::revisionExpr($conn);
+        $tax = self::taxonomyCols($conn);
         $stmt = $conn->prepare(
-            "SELECT id, title, title_am, category, reference, status, $rev, updated_at
+            "SELECT id, title, title_am, category, reference, status, $rev, $tax, updated_at
              FROM mezmur_hymns WHERE $whereSql
              ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?"
         );
@@ -105,13 +106,15 @@ final class MezmurHymnService
     {
         if ($id <= 0) return null;
         $rev = self::revisionExpr($conn);
-        $stmt = $conn->prepare("SELECT id, title, title_am, category, reference, lyrics, status, $rev, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
+        $tax = self::taxonomyCols($conn);
+        $stmt = $conn->prepare("SELECT id, title, title_am, category, reference, lyrics, status, $rev, $tax, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $item = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        if ($item) $item['id'] = (int)$item['id'];
-        return $item ?: null;
+        if (!$item) return null;
+        $item['id'] = (int)$item['id'];
+        return array_merge($item, self::attachTaxonomy($conn, $id));
     }
 
 
@@ -139,6 +142,23 @@ final class MezmurHymnService
         return self::$hasRevisionCache ? 'revision' : '1 AS revision';
     }
 
+    private static ?bool $hasTaxonomyCache = null;
+
+    /** SELECT fragment for the taxonomy flags, safe on a pre-030 schema. */
+    private static function taxonomyCols(\mysqli $conn): string
+    {
+        if (self::$hasTaxonomyCache === null) {
+            $has = false;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_hymns LIKE 'length'");
+                $has = $r ? (bool)$r->fetch_assoc() : false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $has = false; }
+            self::$hasTaxonomyCache = $has;
+        }
+        return self::$hasTaxonomyCache ? 'length, language' : "'long' AS length, 'amharic' AS language";
+    }
+
     private static function auditHymn(\mysqli $conn, string $action, array $details, int $hymnId, int $actorId): void
     {
         // Bearer-token callers have no admin session; the acting uid is
@@ -151,14 +171,149 @@ final class MezmurHymnService
         }
     }
 
+    /** longest safe id list length for taxonomy inputs (scale + abuse bound). */
+    private const MAX_TAXONOMY_IDS = 200;
+
+    /**
+     * Normalize a client-supplied id list (ints or numeric strings) to a
+     * clean, unique, bounded int list.
+     * @return list<int>
+     */
+    public static function normalizeIds(mixed $value): array
+    {
+        if ($value === null) return [];
+        if (!is_array($value)) {
+            if (is_string($value) && trim($value) !== '') {
+                $value = preg_split('/[\s,]+/', $value);
+            } else {
+                return [];
+            }
+        }
+        $ids = [];
+        foreach (array_slice($value, 0, self::MAX_TAXONOMY_IDS) as $raw) {
+            if (!is_scalar($raw)) continue;
+            $id = filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($id !== false) $ids[] = (int)$id;
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Resolve the legacy single `category` name into a canonical category
+     * id (creating the row if absent), so old clients keep working.
+     */
+    private static function resolveLegacyCategoryId(\mysqli $conn, string $name): ?int
+    {
+        $name = trim($name);
+        if ($name === '' || $name === 'general' || mb_strlen($name) > 50) return null;
+        $stmt = $conn->prepare("SELECT id FROM mezmur_categories WHERE name = ? LIMIT 1");
+        if (!$stmt) return null;
+        $stmt->bind_param('s', $name);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($row) return (int)$row['id'];
+        $stmt = $conn->prepare("INSERT IGNORE INTO mezmur_categories (name, sort_order) VALUES (?, 100)");
+        if (!$stmt) return null;
+        $stmt->bind_param('s', $name);
+        $stmt->execute();
+        $newId = (int)$stmt->insert_id;
+        $stmt->close();
+        if ($newId > 0) return $newId;
+        $stmt = $conn->prepare("SELECT id FROM mezmur_categories WHERE name = ? LIMIT 1");
+        $stmt->bind_param('s', $name);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? (int)$row['id'] : null;
+    }
+
+    /** Rebuild the hymn ↔ category join for one hymn (caller holds txn). */
+    private static function syncHymnCategories(\mysqli $conn, int $hymnId, array $categoryIds): void
+    {
+        $del = $conn->prepare("DELETE FROM mezmur_hymn_categories WHERE hymn_id = ?");
+        $del->bind_param('i', $hymnId);
+        $del->execute();
+        $del->close();
+        if (!$categoryIds) return;
+        $ins = $conn->prepare("INSERT IGNORE INTO mezmur_hymn_categories (hymn_id, category_id) VALUES (?,?)");
+        foreach ($categoryIds as $cid) {
+            $ins->bind_param('ii', $hymnId, $cid);
+            $ins->execute();
+        }
+        $ins->close();
+    }
+
+    /** Rebuild the hymn ↔ zemarian join for one hymn (caller holds txn). */
+    private static function syncHymnZemarians(\mysqli $conn, int $hymnId, array $zemarianIds): void
+    {
+        $del = $conn->prepare("DELETE FROM mezmur_hymn_zemarians WHERE hymn_id = ?");
+        $del->bind_param('i', $hymnId);
+        $del->execute();
+        $del->close();
+        if (!$zemarianIds) return;
+        $ins = $conn->prepare("INSERT IGNORE INTO mezmur_hymn_zemarians (hymn_id, zemarian_id) VALUES (?,?)");
+        foreach ($zemarianIds as $zid) {
+            $ins->bind_param('ii', $hymnId, $zid);
+            $ins->execute();
+        }
+        $ins->close();
+    }
+
+    /**
+     * Attach the full taxonomy (categories + zemarians) to a hymn row.
+     * @return array<string,mixed> with 'categories' and 'zemarians'
+     */
+    public static function attachTaxonomy(\mysqli $conn, int $hymnId): array
+    {
+        $cats = [];
+        try {
+            $rc = $conn->prepare(
+                "SELECT c.id, c.name FROM mezmur_hymn_categories mhc
+                 JOIN mezmur_categories c ON c.id = mhc.category_id
+                 WHERE mhc.hymn_id = ? ORDER BY c.sort_order, c.name LIMIT 200"
+            );
+            if ($rc) {
+                $rc->bind_param('i', $hymnId);
+                $rc->execute();
+                $res = $rc->get_result();
+                while ($r = $res->fetch_assoc()) { $r['id'] = (int)$r['id']; $cats[] = $r; }
+                $rc->close();
+            }
+        } catch (\Throwable $e) { $cats = []; }
+
+        $zem = [];
+        try {
+            $rz = $conn->prepare(
+                "SELECT z.id, z.name, z.name_am FROM mezmur_hymn_zemarians mhz
+                 JOIN mezmur_zemarians z ON z.id = mhz.zemarian_id
+                 WHERE mhz.hymn_id = ? ORDER BY z.sort_order, z.name LIMIT 200"
+            );
+            if ($rz) {
+                $rz->bind_param('i', $hymnId);
+                $rz->execute();
+                $res = $rz->get_result();
+                while ($r = $res->fetch_assoc()) { $r['id'] = (int)$r['id']; $zem[] = $r; }
+                $rz->close();
+            }
+        } catch (\Throwable $e) { $zem = []; }
+
+        return ['categories' => $cats, 'zemarians' => $zem];
+    }
+
     /**
      * Create or update one hymn (web dashboard + mobile parity).
+     *
+     * Accepts multi-category (`categories`: list of category ids),
+     * multi-singer (`zemarians`: list of zemarian ids), and the
+     * `length` / `language` flags. The legacy single `category` name is
+     * still honoured for backward compatibility.
      *
      * Conflict rule (offline edits): when the client supplies
      * base_revision and the row moved past it, the write is refused
      * with the current server copy so the device can reconcile.
      *
-     * @param array{id?:int|string,title?:string,title_am?:string,category?:string,reference?:string,lyrics?:string,status?:string,base_revision?:int|string|null} $input
+     * @param array{id?:int|string,title?:string,title_am?:string,category?:string,reference?:string,lyrics?:string,status?:string,length?:string,language?:string,categories?:mixed,zemarians?:mixed,base_revision?:int|string|null} $input
      * @return array{ok:bool,conflict?:bool,item?:array|null,message:string,created?:bool}
      */
     public static function saveHymn(\mysqli $conn, array $input, int $actorId): array
@@ -169,6 +324,32 @@ final class MezmurHymnService
         $category  = trim((string)($input['category'] ?? ''));
         $reference = trim((string)($input['reference'] ?? ''));
         $lyrics    = (string)($input['lyrics'] ?? '');
+        $length    = (string)($input['length'] ?? 'long');
+        $language  = (string)($input['language'] ?? 'amharic');
+
+        if (!in_array($length, ['long', 'short'], true)) $length = 'long';
+        if (!in_array($language, ['geez', 'amharic'], true)) $language = 'amharic';
+
+        $categoryIds = self::normalizeIds($input['categories'] ?? null);
+        $zemarianIds = self::normalizeIds($input['zemarians'] ?? null);
+
+        // Legacy single-name input becomes a category id (creates it).
+        if (!$categoryIds && $category !== '') {
+            $legacyId = self::resolveLegacyCategoryId($conn, $category);
+            if ($legacyId !== null) $categoryIds = [$legacyId];
+        }
+
+        // Keep the legacy column in sync for old readers.
+        $categoryName = '';
+        if ($categoryIds) {
+            $stmt = $conn->prepare("SELECT name FROM mezmur_categories WHERE id = ? LIMIT 1");
+            $stmt->bind_param('i', $categoryIds[0]);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            $categoryName = $row ? (string)$row['name'] : '';
+        }
+        if ($categoryName === '') $categoryName = $category === '' ? 'general' : $category;
 
         if ($title === '') {
             return ['ok' => false, 'message' => 'Title is required.'];
@@ -176,8 +357,7 @@ final class MezmurHymnService
         if (mb_strlen($title) > 255 || mb_strlen($titleAm) > 255 || mb_strlen($reference) > 255) {
             return ['ok' => false, 'message' => 'A field exceeds its maximum length.'];
         }
-        if (mb_strlen($category) > 50) $category = mb_substr($category, 0, 50);
-        if ($category === '') $category = 'general';
+        if (mb_strlen($categoryName) > 50) $categoryName = mb_substr($categoryName, 0, 50);
         if (mb_strlen($lyrics) > 200000) {
             return ['ok' => false, 'message' => 'Lyrics text is too long.'];
         }
@@ -213,20 +393,31 @@ final class MezmurHymnService
             if ($dup > 0) {
                 return ['ok' => false, 'message' => 'A hymn with this title already exists.'];
             }
-            $stmt = $conn->prepare(
-                "UPDATE mezmur_hymns
-                 SET title=?, title_am=?, category=?, reference=?, lyrics=?,
-                     updated_by=?, updated_at=NOW(), revision = revision + 1
-                 WHERE id=?"
-            );
-            $stmt->bind_param('sssssii', $title, $titleAm, $category, $reference, $lyrics, $actorId, $id);
-            $ok = $stmt->execute();
-            $stmt->close();
-            if (!$ok) {
-                return ['ok' => false, 'message' => 'Unable to update the hymn.'];
+
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare(
+                    "UPDATE mezmur_hymns
+                     SET title=?, title_am=?, category=?, reference=?, lyrics=?, length=?, language=?,
+                         updated_by=?, updated_at=NOW(), revision = revision + 1
+                     WHERE id=?"
+                );
+                $stmt->bind_param('sssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $actorId, $id);
+                $ok = $stmt->execute();
+                $stmt->close();
+                if (!$ok) {
+                    $conn->rollback();
+                    return ['ok' => false, 'message' => 'Unable to update the hymn.'];
+                }
+                self::syncHymnCategories($conn, $id, $categoryIds);
+                self::syncHymnZemarians($conn, $id, $zemarianIds);
+                $conn->commit();
+            } catch (\Throwable $e) {
+                try { $conn->rollback(); } catch (\Throwable $r) {}
+                throw $e;
             }
             self::auditHymn($conn, 'Mezmur Hymn Updated', [
-                'title' => mb_substr($title, 0, 255), 'category' => $category, 'source' => 'sync',
+                'title' => mb_substr($title, 0, 255), 'categories' => $categoryIds, 'zemarians' => $zemarianIds, 'source' => 'sync',
             ], $id, $actorId);
             return ['ok' => true, 'created' => false, 'item' => self::getHymn($conn, $id), 'message' => 'Hymn updated.'];
         }
@@ -241,19 +432,31 @@ final class MezmurHymnService
         }
         $status = in_array($input['status'] ?? 'active', ['active', 'archived'], true)
             ? (string)($input['status'] ?? 'active') : 'active';
-        $stmt = $conn->prepare(
-            "INSERT INTO mezmur_hymns (title, title_am, category, reference, lyrics, status, created_by, updated_by)
-             VALUES (?,?,?,?,?,?,?,?)"
-        );
-        $stmt->bind_param('ssssssii', $title, $titleAm, $category, $reference, $lyrics, $status, $actorId, $actorId);
-        $ok = $stmt->execute();
-        $newId = $ok ? (int)$stmt->insert_id : 0;
-        $stmt->close();
-        if (!$ok || $newId <= 0) {
-            return ['ok' => false, 'message' => 'Unable to save the hymn.'];
+
+        $conn->begin_transaction();
+        $newId = 0;
+        try {
+            $stmt = $conn->prepare(
+                "INSERT INTO mezmur_hymns (title, title_am, category, reference, lyrics, length, language, status, created_by, updated_by)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)"
+            );
+            $stmt->bind_param('ssssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $status, $actorId, $actorId);
+            $ok = $stmt->execute();
+            $newId = $ok ? (int)$stmt->insert_id : 0;
+            $stmt->close();
+            if (!$ok || $newId <= 0) {
+                $conn->rollback();
+                return ['ok' => false, 'message' => 'Unable to save the hymn.'];
+            }
+            self::syncHymnCategories($conn, $newId, $categoryIds);
+            self::syncHymnZemarians($conn, $newId, $zemarianIds);
+            $conn->commit();
+        } catch (\Throwable $e) {
+            try { $conn->rollback(); } catch (\Throwable $r) {}
+            throw $e;
         }
         self::auditHymn($conn, 'Mezmur Hymn Created', [
-            'title' => mb_substr($title, 0, 255), 'category' => $category, 'source' => 'sync',
+            'title' => mb_substr($title, 0, 255), 'categories' => $categoryIds, 'zemarians' => $zemarianIds, 'source' => 'sync',
         ], $newId, $actorId);
         return ['ok' => true, 'created' => true, 'item' => self::getHymn($conn, $newId), 'message' => 'Hymn added to the library.'];
     }
@@ -307,6 +510,7 @@ final class MezmurHymnService
         $limit = max(1, min($limit, $includeLyrics ? 100 : 500));
         $rev = self::revisionExpr($conn);
         $lyricsCol = $includeLyrics ? 'lyrics' : "'' AS lyrics";
+        $taxCols = self::taxonomyCols($conn);
 
         $cursorTs = null;
         $cursorId = 0;
@@ -317,7 +521,7 @@ final class MezmurHymnService
         }
 
         if ($cursorTs !== null) {
-            $sql = "SELECT id, title, title_am, category, reference, status, $rev,
+            $sql = "SELECT id, title, title_am, category, reference, status, $rev, $taxCols,
                            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol
                     FROM mezmur_hymns
                     WHERE updated_at > ? OR (updated_at = ? AND id > ?)
@@ -326,7 +530,7 @@ final class MezmurHymnService
             $stmt = $conn->prepare($sql);
             $stmt->bind_param('ssii', $cursorTs, $cursorTs, $cursorId, $limit);
         } else {
-            $sql = "SELECT id, title, title_am, category, reference, status, $rev,
+            $sql = "SELECT id, title, title_am, category, reference, status, $rev, $taxCols,
                            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol
                     FROM mezmur_hymns
                     ORDER BY updated_at ASC, id ASC
@@ -494,5 +698,104 @@ final class MezmurHymnService
             \App\Services\SecurityAuditService::record($conn, $active ? 'Mezmur Category Activated' : 'Mezmur Category Deactivated', ['actor' => $actorId], 'mezmur_category', $id);
         } catch (\Throwable $e) { /* fail-soft */ }
         return ['ok' => true, 'message' => $active ? 'Category restored.' : 'Category hidden.'];
+    }
+
+    // ── zemarians (singers / artists) ─────────────────────────
+
+    private static ?bool $hasZemarianCache = null;
+
+    private static function zemariansReady(\mysqli $conn): bool
+    {
+        if (self::$hasZemarianCache === null) {
+            $ok = false;
+            try {
+                $r = $conn->query("SELECT 1 FROM mezmur_zemarians LIMIT 0");
+                $ok = $r !== false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $ok = false; }
+            self::$hasZemarianCache = $ok;
+        }
+        return self::$hasZemarianCache;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public static function listZemarians(\mysqli $conn): array
+    {
+        if (!self::zemariansReady($conn)) return [];
+        $out = [];
+        $res = $conn->query("SELECT id, name, name_am, sort_order, is_active FROM mezmur_zemarians ORDER BY sort_order, name LIMIT 500");
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $r['id'] = (int)$r['id'];
+                $r['sort_order'] = (int)$r['sort_order'];
+                $r['is_active'] = (int)$r['is_active'];
+                $out[] = $r;
+            }
+        }
+        return $out;
+    }
+
+    /** @param array{id?:int|string,name?:string,name_am?:string,sort_order?:int|string} $input */
+    public static function saveZemarian(\mysqli $conn, array $input, int $actorId): array
+    {
+        if (!self::zemariansReady($conn)) {
+            return ['ok' => false, 'message' => 'Singer tables are not ready. Ask the administrator to run sql/030.'];
+        }
+        $id = (int)($input['id'] ?? 0);
+        $name = trim((string)($input['name'] ?? ''));
+        $nameAm = trim((string)($input['name_am'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 100) {
+            return ['ok' => false, 'message' => 'Singer name is required (max 100 characters).'];
+        }
+        $sortOrder = max(0, min(10000, (int)($input['sort_order'] ?? 0)));
+
+        $stmt = $conn->prepare("SELECT id FROM mezmur_zemarians WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
+        $stmt->bind_param('si', $name, $id);
+        $stmt->execute();
+        $dup = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($dup) {
+            return ['ok' => false, 'message' => 'A singer with this name already exists.'];
+        }
+        $nameAm = $nameAm === '' ? null : $nameAm;
+
+        if ($id > 0) {
+            $stmt = $conn->prepare("UPDATE mezmur_zemarians SET name=?, name_am=?, sort_order=? WHERE id=?");
+            $stmt->bind_param('ssii', $name, $nameAm, $sortOrder, $id);
+            $ok = $stmt->execute();
+            $stmt->close();
+            if (!$ok) return ['ok' => false, 'message' => 'Unable to update the singer.'];
+            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'name_am' => $nameAm, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Singer updated.'];
+        }
+
+        $stmt = $conn->prepare("INSERT INTO mezmur_zemarians (name, name_am, sort_order, created_by) VALUES (?,?,?,?)");
+        $stmt->bind_param('ssii', $name, $nameAm, $sortOrder, $actorId);
+        $ok = $stmt->execute();
+        $newId = $ok ? (int)$stmt->insert_id : 0;
+        $stmt->close();
+        if (!$ok || $newId <= 0) return ['ok' => false, 'message' => 'Unable to add the singer.'];
+        try {
+            \App\Services\SecurityAuditService::record($conn, 'Mezmur Singer Created', ['name' => $name, 'actor' => $actorId], 'mezmur_zemarian', $newId);
+        } catch (\Throwable $e) { /* fail-soft */ }
+        return ['ok' => true, 'item' => ['id' => $newId, 'name' => $name, 'name_am' => $nameAm, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Singer added.'];
+    }
+
+    public static function setZemarianStatus(\mysqli $conn, int $id, bool $active, int $actorId): array
+    {
+        if (!self::zemariansReady($conn)) {
+            return ['ok' => false, 'message' => 'Singer tables are not ready. Ask the administrator to run sql/030.'];
+        }
+        if ($id <= 0) return ['ok' => false, 'message' => 'Invalid singer id.'];
+        $stmt = $conn->prepare("UPDATE mezmur_zemarians SET is_active=? WHERE id=?");
+        $flag = $active ? 1 : 0;
+        $stmt->bind_param('ii', $flag, $id);
+        $ok = $stmt->execute();
+        $affected = $stmt->affected_rows;
+        $stmt->close();
+        if (!$ok || $affected === 0) return ['ok' => false, 'message' => 'Singer not found or unchanged.'];
+        try {
+            \App\Services\SecurityAuditService::record($conn, $active ? 'Mezmur Singer Activated' : 'Mezmur Singer Deactivated', ['actor' => $actorId], 'mezmur_zemarian', $id);
+        } catch (\Throwable $e) { /* fail-soft */ }
+        return ['ok' => true, 'message' => $active ? 'Singer restored.' : 'Singer hidden.'];
     }
 }

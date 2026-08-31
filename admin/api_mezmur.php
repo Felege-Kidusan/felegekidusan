@@ -57,8 +57,8 @@ set_exception_handler(static function (\Throwable $e): void {
  * error when the deployment is stale (missing migrations / old code).
  * Bump when the mezmur API contract changes.
  */
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase5-offline26');
-define('MEZMUR_SCHEMA_MIN', 24); // highest migration the mezmur module relies on
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy01');
+define('MEZMUR_SCHEMA_MIN', 30); // highest migration the mezmur module relies on
 
 function mezmur_respond(array $payload, int $code = 200): void
 {
@@ -91,7 +91,7 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'save_zemarian', 'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
@@ -104,16 +104,18 @@ require_once __DIR__ . '/backend/services/MezmurSchemaReconciler.php';
 // the host masked as the generic ref-JSON).
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+require_once __DIR__ . '/backend/services/MezmurHymnService.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
+use App\Services\MezmurHymnService;
 
 // ── 5. Rate limiting (per user; DB-backed with file fallback) ─
 $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate'], true)
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'save_zemarian', 'zemarian_status'], true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -166,6 +168,10 @@ try {
                 'mezmur_attendance' => 'sql/023_mezmur_date_attendance.sql',
                 'mezmur_attendance_audit' => 'sql/023_mezmur_date_attendance.sql',
                 'mezmur_submissions' => 'sql/024_mezmur_submissions.sql',
+                'mezmur_categories' => 'sql/025_mezmur_hymn_offline.sql',
+                'mezmur_hymn_categories' => 'sql/030_mezmur_taxonomy.sql',
+                'mezmur_zemarians' => 'sql/030_mezmur_taxonomy.sql',
+                'mezmur_hymn_zemarians' => 'sql/030_mezmur_taxonomy.sql',
             ];
             $missing = [];
             foreach ($tables as $tbl => $migration) {
@@ -335,7 +341,7 @@ try {
             $offset = ($page - 1) * $perPage;
 
             if ($searchMode === 'fulltext') {
-                $sql = "SELECT id, title, title_am, category, reference, status, updated_at, lyrics,
+                $sql = "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics,
                         $scoreExpr AS score
                         FROM mezmur_hymns
                         WHERE $ftWhere
@@ -344,7 +350,7 @@ try {
                 $stmt = $conn->prepare($sql);
                 $stmt->bind_param('ss' . $ftTypes . 'ii', ...array_merge([$boolQ, $boolQ], $ftParams, [$perPage, $offset]));
             } else {
-                $sql = "SELECT id, title, title_am, category, reference, status, updated_at, lyrics,
+                $sql = "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics,
                         0 AS score
                         FROM mezmur_hymns $whereSql
                         ORDER BY updated_at DESC, id DESC
@@ -391,80 +397,93 @@ try {
         case 'get': {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) mezmur_respond(['status' => 'error', 'message' => 'Invalid hymn id.']);
-            $stmt = $conn->prepare("SELECT id, title, title_am, category, reference, lyrics, status, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
-            $stmt->bind_param('i', $id);
-            $stmt->execute();
-            $item = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
+            $item = MezmurHymnService::getHymn($conn, $id);
             if (!$item) mezmur_respond(['status' => 'error', 'message' => 'Hymn not found.']);
             mezmur_respond(['status' => 'success', 'item' => $item]);
         }
 
+        // ── CATEGORIES (canonical list + management) ────────
+        case 'categories': {
+            mezmur_respond(['status' => 'success', 'items' => MezmurHymnService::listCategories($conn)]);
+        }
+
+        case 'save_category': {
+            $result = MezmurHymnService::saveCategory($conn, [
+                'id' => (int)($_POST['id'] ?? 0),
+                'name' => (string)($_POST['name'] ?? ''),
+                'sort_order' => (int)($_POST['sort_order'] ?? 0),
+            ], $adminId);
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message'], 'item' => $result['item'] ?? null]);
+        }
+
+        case 'category_status': {
+            $result = MezmurHymnService::setCategoryStatus(
+                $conn,
+                (int)($_POST['id'] ?? 0),
+                ((string)($_POST['active'] ?? '1') === '1'),
+                $adminId
+            );
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
+        }
+
+        // ── ZEMARIANS / SINGERS (list + management) ─────────
+        case 'zemarians': {
+            mezmur_respond(['status' => 'success', 'items' => MezmurHymnService::listZemarians($conn)]);
+        }
+
+        case 'save_zemarian': {
+            $result = MezmurHymnService::saveZemarian($conn, [
+                'id' => (int)($_POST['id'] ?? 0),
+                'name' => (string)($_POST['name'] ?? ''),
+                'name_am' => (string)($_POST['name_am'] ?? ''),
+                'sort_order' => (int)($_POST['sort_order'] ?? 0),
+            ], $adminId);
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message'], 'item' => $result['item'] ?? null]);
+        }
+
+        case 'zemarian_status': {
+            $result = MezmurHymnService::setZemarianStatus(
+                $conn,
+                (int)($_POST['id'] ?? 0),
+                ((string)($_POST['active'] ?? '1') === '1'),
+                $adminId
+            );
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
+        }
+
         // ── SAVE (create / update) ─────────────────────────────
         case 'save': {
-            $id        = (int)($_POST['id'] ?? 0);
-            $title     = trim((string)($_POST['title'] ?? ''));
-            $titleAm   = trim((string)($_POST['title_am'] ?? ''));
-            $category  = trim((string)($_POST['category'] ?? ''));
-            $reference = trim((string)($_POST['reference'] ?? ''));
-            $lyrics    = (string)($_POST['lyrics'] ?? '');
-
-            if ($title === '') mezmur_respond(['status' => 'error', 'message' => 'Title is required.']);
-            if (mb_strlen($title) > 255 || mb_strlen($titleAm) > 255 || mb_strlen($reference) > 255) {
-                mezmur_respond(['status' => 'error', 'message' => 'A field exceeds its maximum length.']);
+            $input = [
+                'id'        => (int)($_POST['id'] ?? 0),
+                'title'     => (string)($_POST['title'] ?? ''),
+                'title_am'  => (string)($_POST['title_am'] ?? ''),
+                'category'  => (string)($_POST['category'] ?? ''),
+                'reference' => (string)($_POST['reference'] ?? ''),
+                'lyrics'    => (string)($_POST['lyrics'] ?? ''),
+                'length'    => (string)($_POST['length'] ?? 'long'),
+                'language'  => (string)($_POST['language'] ?? 'amharic'),
+                'categories' => MezmurHymnService::normalizeIds($_POST['categories'] ?? null),
+                'zemarians'  => MezmurHymnService::normalizeIds($_POST['zemarians'] ?? null),
+            ];
+            $result = MezmurHymnService::saveHymn($conn, $input, $adminId);
+            if (!$result['ok']) {
+                mezmur_respond([
+                    'status' => 'error',
+                    'message' => $result['message'],
+                    'conflict' => $result['conflict'] ?? false,
+                    'item' => $result['item'] ?? null,
+                ]);
             }
-            if (mb_strlen($category) > 50) $category = mb_substr($category, 0, 50);
-            if ($category === '') $category = 'general';
-            // Lyrics cap — generous but bounded (protects storage at scale).
-            if (mb_strlen($lyrics) > 200000) {
-                mezmur_respond(['status' => 'error', 'message' => 'Lyrics text is too long.']);
-            }
-            $titleAm   = $titleAm === '' ? null : $titleAm;
-            $reference = $reference === '' ? null : $reference;
-            $lyrics    = trim($lyrics) === '' ? null : $lyrics;
-
-            if ($id > 0) {
-                // Duplicate-title guard (excluding self) — case-insensitive.
-                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE LOWER(title) = LOWER(?) AND id <> ?");
-                $stmt->bind_param('si', $title, $id);
-                $stmt->execute();
-                $dup = (int)$stmt->get_result()->fetch_assoc()['c'];
-                $stmt->close();
-                if ($dup > 0) mezmur_respond(['status' => 'error', 'message' => 'A hymn with this title already exists.']);
-
-                $stmt = $conn->prepare("UPDATE mezmur_hymns SET title=?, title_am=?, category=?, reference=?, lyrics=?, updated_by=?, updated_at=NOW() WHERE id=?");
-                $stmt->bind_param('sssssii', $title, $titleAm, $category, $reference, $lyrics, $adminId, $id);
-                $ok = $stmt->execute();
-                $stmt->close();
-                if (!$ok) mezmur_respond(['status' => 'error', 'message' => 'Unable to update the hymn.']);
-                \App\Services\SecurityAuditService::record(
-                    $conn, 'Mezmur Hymn Updated',
-                    ['id' => $id, 'title' => mb_substr($title, 0, 255), 'category' => $category],
-                    'mezmur_hymn', $id
-                );
-                mezmur_respond(['status' => 'success', 'message' => 'Hymn updated.', 'id' => $id]);
-            } else {
-                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE LOWER(title) = LOWER(?)");
-                $stmt->bind_param('s', $title);
-                $stmt->execute();
-                $dup = (int)$stmt->get_result()->fetch_assoc()['c'];
-                $stmt->close();
-                if ($dup > 0) mezmur_respond(['status' => 'error', 'message' => 'A hymn with this title already exists.']);
-
-                $status = 'active';
-                $stmt = $conn->prepare("INSERT INTO mezmur_hymns (title, title_am, category, reference, lyrics, status, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?)");
-                $stmt->bind_param('ssssssii', $title, $titleAm, $category, $reference, $lyrics, $status, $adminId, $adminId);
-                $ok = $stmt->execute();
-                $newId = $ok ? (int)$stmt->insert_id : 0;
-                $stmt->close();
-                if (!$ok) mezmur_respond(['status' => 'error', 'message' => 'Unable to save the hymn.']);
-                \App\Services\SecurityAuditService::record(
-                    $conn, 'Mezmur Hymn Created',
-                    ['id' => $newId, 'title' => mb_substr($title, 0, 255), 'category' => $category],
-                    'mezmur_hymn', $newId
-                );
-                mezmur_respond(['status' => 'success', 'message' => 'Hymn added to the library.', 'id' => $newId]);
-            }
+            mezmur_respond([
+                'status' => 'success',
+                'id' => isset($result['item']['id']) ? (int)$result['item']['id'] : (int)($_POST['id'] ?? 0),
+                'message' => $result['message'],
+                'item' => $result['item'] ?? null,
+            ]);
         }
 
         // ── ARCHIVE / RESTORE (soft delete) ────────────────────
