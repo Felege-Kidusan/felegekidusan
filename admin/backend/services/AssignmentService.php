@@ -1057,6 +1057,97 @@ class AssignmentService
         return $row ?: null;
     }
 
+    /**
+     * Suspend a teacher's assignments: snapshot the ACTIVE assignment ids,
+     * deactivate exactly those rows, and return the snapshot so the caller
+     * can persist it in the audit trail for a precise restore later.
+     *
+     * @return int[] the deactivated assignment ids
+     */
+    public static function suspendTeacherAssignments(\mysqli $conn, int $teacherId): array
+    {
+        $ids = [];
+        $stmt = $conn->prepare("SELECT id FROM teacher_assignments WHERE teacher_id = ? AND is_active = 1");
+        if (!$stmt) {
+            return $ids;
+        }
+        $stmt->bind_param('i', $teacherId);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $ids[] = (int)$row['id'];
+        }
+        $stmt->close();
+        if (!$ids) {
+            return $ids;
+        }
+        $stmt = $conn->prepare("UPDATE teacher_assignments SET is_active = 0 WHERE id = ?");
+        foreach ($ids as $aid) {
+            $stmt->bind_param('i', $aid);
+            $stmt->execute();
+        }
+        $stmt->close();
+        return $ids;
+    }
+
+    /**
+     * Reactivate EXACTLY the snapshotted assignment ids (still owned by the
+     * teacher). Assignments that were removed individually before the
+     * suspension stay removed — the snapshot is the source of truth.
+     *
+     * @return int number of assignments restored
+     */
+    public static function restoreTeacherAssignments(\mysqli $conn, int $teacherId, array $assignmentIds): int
+    {
+        $ids = array_values(array_unique(array_map('intval', $assignmentIds)));
+        if (!$ids) {
+            return 0;
+        }
+        $restored = 0;
+        $stmt = $conn->prepare(
+            "UPDATE teacher_assignments SET is_active = 1 WHERE id = ? AND teacher_id = ? AND is_active = 0"
+        );
+        foreach ($ids as $aid) {
+            if ($aid <= 0) {
+                continue;
+            }
+            $stmt->bind_param('ii', $aid, $teacherId);
+            $stmt->execute();
+            $restored += $stmt->affected_rows;
+        }
+        $stmt->close();
+        return $restored;
+    }
+
+    /**
+     * The assignment snapshot recorded when the teacher account was last
+     * suspended ('Teacher Suspended' entry in activity_logs). Empty array
+     * when the account was never suspended through the lifecycle.
+     *
+     * @return int[] assignment ids to restore on reactivation
+     */
+    public static function latestSuspensionSnapshot(\mysqli $conn, int $teacherUserId): array
+    {
+        $stmt = $conn->prepare(
+            "SELECT details FROM activity_logs
+             WHERE entity_type = 'user' AND entity_id = ? AND action = 'Teacher Suspended'
+             ORDER BY id DESC LIMIT 1"
+        );
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->bind_param('i', $teacherUserId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return [];
+        }
+        $details = json_decode((string)$row['details'], true);
+        $ids = is_array($details['assignment_ids'] ?? null) ? $details['assignment_ids'] : [];
+        return array_map('intval', $ids);
+    }
+
     private static function findRow(\mysqli $conn, int $teacherId, int $classId, ?int $subjectId, int $yearId, bool $activeOnly): ?array
     {
         // H12 family: legacy rows were created without a year stamp; treat

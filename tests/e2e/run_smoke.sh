@@ -192,7 +192,11 @@ H3U=$(sudo -n mariadb ssms -N -e "SELECT CONCAT(username,':',is_active) FROM use
 [ "$H3U" = "h3_smoke:0" ] && ok "teacher row retained, deactivated" || fail "user state: $H3U"
 H3S=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM grade_submissions gs LEFT JOIN users u ON u.id=gs.teacher_id WHERE gs.teacher_id=$H3T AND u.full_name IS NOT NULL")
 [ "$H3S" = "1" ] && ok "submission history stays attributed" || fail "orphaned submission ($H3S)"
-sudo -n mariadb ssms -e "DELETE FROM grade_submissions WHERE teacher_id=$H3T; DELETE FROM teacher_assignments WHERE teacher_id=$H3T; DELETE FROM users WHERE id=$H3T" >/dev/null 2>&1
+H3RX=$(ssms_post /admin/api_teachers.php action=toggle_status teacher_id=$H3T)
+echo "$H3RX" | grep -q "1 assignment(s) restored" && ok "reactivation restores suspended assignments" || fail "reactivation: $H3RX"
+H3A=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM teacher_assignments WHERE teacher_id=$H3T AND is_active=1")
+[ "$H3A" = "1" ] && ok "teacher got the assignment back (data restored)" || fail "assignments after reactivation: $H3A"
+sudo -n mariadb ssms -e "DELETE FROM grade_submissions WHERE teacher_id=$H3T; DELETE FROM teacher_assignments WHERE teacher_id=$H3T; DELETE FROM activity_logs WHERE entity_type='user' AND entity_id=$H3T; DELETE FROM users WHERE id=$H3T" >/dev/null 2>&1
 
 # --- 3k. Review transitions + resubmission hygiene (Patch 13: H9/H10) -------
 G1C=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")

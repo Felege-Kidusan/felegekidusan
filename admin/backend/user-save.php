@@ -217,6 +217,13 @@ try {
 
     } else {
         // Update existing user
+        // Capture the previous account state first: teacher accounts carry a
+        // suspend/restore lifecycle (assignments pause and come back), and the
+        // super admin must get the same behaviour here as the teacher screens.
+        $prev = $pdo->prepare("SELECT role, is_active FROM users WHERE id = :id LIMIT 1");
+        $prev->execute([':id' => $userId]);
+        $prevRow = $prev->fetch() ?: [];
+
         $fieldsSql = "
             full_name = :full_name,
             username  = :username,
@@ -244,6 +251,43 @@ try {
         $sql = "UPDATE users SET {$fieldsSql} WHERE id = :id";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
+
+        // Teacher lifecycle: activating a suspended teacher restores exactly
+        // the assignments that were paused with the account; deactivating
+        // pauses them (snapshotted). Implemented against the shared mysqli
+        // handle from config.php — one source of truth for both screens.
+        $wasActive = (int)($prevRow['is_active'] ?? 1) === 1;
+        if ($role === 'teacher' && isset($conn) && ($conn instanceof mysqli)) {
+            require_once __DIR__ . '/services/AssignmentService.php';
+            require_once __DIR__ . '/services/SecurityAuditService.php';
+            require_once __DIR__ . '/member_sync.php';
+            if ($isActive === 1 && !$wasActive) {
+                $ids = \App\Services\AssignmentService::latestSuspensionSnapshot($conn, (int)$userId);
+                $restored = \App\Services\AssignmentService::restoreTeacherAssignments($conn, (int)$userId, $ids);
+                \App\Services\SecurityAuditService::record(
+                    $conn,
+                    'Teacher Reactivated',
+                    ['restored_assignments' => $restored, 'from_snapshot' => $ids, 'via' => 'user-save'],
+                    'user',
+                    (int)$userId
+                );
+                if ($memberId) {
+                    syncMemberTeacherFlag($conn, (int)$memberId, true);
+                }
+            } elseif ($isActive === 0 && $wasActive) {
+                $ids = \App\Services\AssignmentService::suspendTeacherAssignments($conn, (int)$userId);
+                \App\Services\SecurityAuditService::record(
+                    $conn,
+                    'Teacher Suspended',
+                    ['assignment_ids' => $ids, 'via' => 'user-save'],
+                    'user',
+                    (int)$userId
+                );
+                if ($memberId) {
+                    syncMemberTeacherFlag($conn, (int)$memberId, false);
+                }
+            }
+        }
 
         respond('success', 'User updated successfully.');
     }

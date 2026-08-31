@@ -407,27 +407,72 @@ switch ($action) {
             exit;
         }
         
-        $stmt = $conn->prepare("SELECT is_active FROM users WHERE id = ? AND role = 'teacher'");
+        $stmt = $conn->prepare("SELECT is_active, member_id FROM users WHERE id = ? AND role = 'teacher'");
         $stmt->bind_param("i", $teacherId);
         $stmt->execute();
         $teacher = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
         
         if (!$teacher) {
             echo json_encode(['status' => 'error', 'message' => 'Teacher not found']);
             exit;
         }
         
+        if (!class_exists('\\App\\Services\\SecurityAuditService')) {
+            require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+        }
+
         $newStatus = $teacher['is_active'] ? 0 : 1;
         $stmt = $conn->prepare("UPDATE users SET is_active = ? WHERE id = ?");
         $stmt->bind_param("ii", $newStatus, $teacherId);
         
         if ($stmt->execute()) {
+            $stmt->close();
+
+            // Symmetric teacher lifecycle: suspending pauses the teacher's
+            // assignments (snapshotted in the audit trail); reactivating
+            // restores EXACTLY those — so a teacher who comes back gets
+            // their classes, subjects and homerooms back, while assignments
+            // removed individually before the suspension stay removed.
+            $message = $newStatus ? 'Teacher activated' : 'Teacher deactivated';
+            if (!$newStatus) {
+                $ids = \App\Services\AssignmentService::suspendTeacherAssignments($conn, $teacherId);
+                \App\Services\SecurityAuditService::record(
+                    $conn,
+                    'Teacher Suspended',
+                    ['assignment_ids' => $ids, 'via' => 'toggle_status'],
+                    'user',
+                    $teacherId
+                );
+                if (!empty($teacher['member_id'])) {
+                    syncMemberTeacherFlag($conn, (int)$teacher['member_id'], false);
+                }
+                $message = 'Teacher deactivated — ' . count($ids) . ' assignment(s) paused. Reactivating will restore them.';
+            } else {
+                $ids = \App\Services\AssignmentService::latestSuspensionSnapshot($conn, $teacherId);
+                $restored = \App\Services\AssignmentService::restoreTeacherAssignments($conn, $teacherId, $ids);
+                \App\Services\SecurityAuditService::record(
+                    $conn,
+                    'Teacher Reactivated',
+                    ['restored_assignments' => $restored, 'from_snapshot' => $ids],
+                    'user',
+                    $teacherId
+                );
+                if (!empty($teacher['member_id'])) {
+                    syncMemberTeacherFlag($conn, (int)$teacher['member_id'], true);
+                }
+                $message = $restored > 0
+                    ? "Teacher activated — {$restored} assignment(s) restored."
+                    : 'Teacher activated';
+            }
+
             echo json_encode([
                 'status' => 'success',
-                'message' => $newStatus ? 'Teacher activated' : 'Teacher deactivated',
+                'message' => $message,
                 'new_status' => $newStatus
             ]);
         } else {
+            $stmt->close();
             echo json_encode(['status' => 'error', 'message' => 'Database error']);
         }
         break;
@@ -471,14 +516,15 @@ switch ($action) {
         // submitter names and audit history lost accountability. Deactivating
         // the account (login refuses inactive users) and the assignments keeps
         // every historical record attributed and queryable.
+        // The deactivated assignment ids are SNAPSHOTTED in the audit trail so
+        // reactivating the account restores exactly what was suspended.
+        if (!class_exists('\\App\\Services\\SecurityAuditService')) {
+            require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+        }
+        $suspendedIds = \App\Services\AssignmentService::suspendTeacherAssignments($conn, $teacherId);
         try {
             $conn->begin_transaction();
             $stmt = $conn->prepare("UPDATE users SET is_active = 0 WHERE id = ? AND role = 'teacher'");
-            $stmt->bind_param("i", $teacherId);
-            $stmt->execute();
-            $stmt->close();
-
-            $stmt = $conn->prepare("UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?");
             $stmt->bind_param("i", $teacherId);
             $stmt->execute();
             $stmt->close();
@@ -487,6 +533,13 @@ switch ($action) {
             $conn->rollback();
             throw $e;
         }
+        \App\Services\SecurityAuditService::record(
+            $conn,
+            'Teacher Suspended',
+            ['assignment_ids' => $suspendedIds, 'via' => 'delete_teacher'],
+            'user',
+            $teacherId
+        );
 
         // Sync member is_teacher flag and member_type
         if ($teacher['member_id']) {
