@@ -744,8 +744,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             ),
           ),
 
-          if (_error != null)
           if (_students.isNotEmpty && _error == null) _progressStrip(),
+          if (_error != null)
             StatusBanner.error(_error!, onRetry: _loadAttendance),
           if (_successMsg != null)
             StatusBanner.success(_successMsg!, onDismiss: () {

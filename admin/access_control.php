@@ -147,7 +147,6 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'members.php'             => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept', 'finance_dept'],
             'api_check_duplicate.php' => ['super_admin', 'school_admin', 'hr_dept'],
             'members_check.php'       => ['super_admin', 'school_admin', 'hr_dept'],
-            'hr_register_member.php'  => ['super_admin', 'school_admin', 'hr_dept'],
             'info_manage_member.php'        => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'member_file.php'               => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],
             'info_archive_member.php'       => ['super_admin', 'school_admin', 'info_dept', 'hr_dept'],

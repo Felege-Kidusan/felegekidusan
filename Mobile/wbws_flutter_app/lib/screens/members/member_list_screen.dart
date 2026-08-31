@@ -8,10 +8,8 @@ import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/fast_list.dart';
 import 'member_detail_screen.dart';
-import 'register_member_screen.dart';
 import '../../widgets/qr_scan_sheet.dart';
 import '../../services/qr_attendance.dart';
-import '../../utils/config.dart';
 
 class MemberListScreen extends StatefulWidget {
   const MemberListScreen({super.key});
@@ -56,10 +54,6 @@ class _MemberListScreenState extends State<MemberListScreen> {
       _loadMore();
     }
   }
-
-  bool get _canRegister => const [
-        UserRoles.infoDept, UserRoles.schoolAdmin, UserRoles.superAdmin]
-    .contains(_api.userRole);
 
   /// Phase 9 QR lookup: scan a member card, resolve locally first
   /// (offline parity), then server; opens the member file directly.
@@ -191,16 +185,6 @@ class _MemberListScreenState extends State<MemberListScreen> {
               tooltip: 'Scan member QR',
               icon: const Icon(Icons.qr_code_scanner, size: 20),
               onPressed: _openLookup),
-          if (_canRegister)
-            IconButton(
-                tooltip: 'Register member',
-                icon: const Icon(Icons.person_add_alt, size: 20),
-                onPressed: () async {
-                  final created = await Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const RegisterMemberScreen()));
-                  if (created == true) _loadMembers(refresh: true);
-                }),
           IconButton(
               icon: const Icon(Icons.refresh, size: 20),
               onPressed: () => _loadMembers(refresh: true)),
