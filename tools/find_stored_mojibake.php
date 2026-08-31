@@ -22,6 +22,10 @@ $targets = [
     'academic_years' => ['id', ['year_name']],
     'academic_terms' => ['id', ['term_name']],
     'members'        => ['id', ['student_name', 'father_name', 'grandfather_name', 'full_name_am', 'baptismal_name', 'current_section']],
+    // CMS content (2026-08-31): gallery sample rows were applied through a
+    // mis-charset channel once — keep the public-facing captions covered.
+    'cms_gallery_categories' => ['id', ['name', 'name_am', 'description']],
+    'cms_gallery_photos'     => ['id', ['caption', 'caption_am']],
 ];
 
 /**

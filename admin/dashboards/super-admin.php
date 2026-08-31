@@ -182,7 +182,7 @@ $departments = [
     ['name' => 'Mezmur Dept', 'icon' => 'fa-music', 'color' => '#06b6d4', 'amharic' => 'መዝሙር ክፍል'],
 ];
 
-$roles = ['super_admin' => 'Super Admin', 'school_admin' => 'School Admin', 'hr_dept' => 'HR Dept', 'info_dept' => 'Info Dept', 'edu_dept' => 'Edu Dept', 'finance_dept' => 'Finance Dept', 'material_dept' => 'Material Dept', 'mezmur_dept' => 'Mezmur Dept', 'teacher' => 'Teacher', 'attendance_taker' => 'Attendance Taker'];
+$roles = ['super_admin' => 'Super Admin', 'school_admin' => 'School Admin', 'hr_dept' => 'HR Dept', 'info_dept' => 'Info Dept', 'edu_dept' => 'Edu Dept', 'finance_dept' => 'Finance Dept', 'material_dept' => 'Material Dept', 'mezmur_dept' => 'Mezmur Dept', 'teacher' => 'Teacher', 'attendance_taker' => 'Attendance Taker', 'content_editor' => 'Content Editor (Website)'];
 
 $checks = [
     ['name' => 'PHP', 'status' => version_compare($phpVersion, '7.4', '>=') ? 'good' : 'warning', 'value' => $phpVersion],
@@ -625,6 +625,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
             <ul class="nav-list">
                 <li><button class="nav-link <?= $activeSection === 'overview' ? 'active' : '' ?>" data-section="overview"><i class="fa-solid fa-gauge-high"></i> Overview</button></li>
                 <li><button class="nav-link <?= $activeSection === 'users' ? 'active' : '' ?>" data-section="users"><i class="fa-solid fa-users"></i> User Management</button></li>
+                <li><a class="nav-link" href="/admin/dashboards/content_editor.php" title="Open the Website Content (CMS) dashboard"><i class="fa-solid fa-globe"></i> Website Content</a></li>
             </ul>
         </nav>
         

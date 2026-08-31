@@ -145,6 +145,22 @@ CLEFT=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM class_subjects WHERE cl
 CGONE=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM classes WHERE id=$PC")
 [ "$CLEFT" = "0" ] && [ "$CGONE" = "0" ] && ok "class hard-delete cascades links (H4)" || fail "class delete left orphans ($CLEFT links, class=$CGONE)"
 
+# --- 3g. CMS admin flow (Patch 10): super admin provisions, editor logs in ---
+ssms_login audit_super > /dev/null 2>&1
+ST=$(ssms_get "/admin/dashboard.php" | grep -oE 'csrf_token" value="[a-f0-9]+"' | head -1 | sed 's/.*value="//;s/"//')
+curl -s -o /tmp/cmsprobe -b "$JAR" -c "$JAR" -L "$BASE/admin/backend/user-save.php" \
+  -d "csrf_token=$ST" -d "full_name=CMS Probe" -d "username=cms_probe" \
+  -d "role=content_editor" -d "password=CmsProbe#2026x" -d "confirm_password=CmsProbe#2026x" -d "is_active=1" > /dev/null
+CMSROW=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM users WHERE username='cms_probe' AND role='content_editor'")
+[ "$CMSROW" = "1" ] && ok "super admin can create content_editor account" || fail "content_editor creation failed"
+PASS="CmsProbe#2026x" bash -c '. tests/e2e/client.sh
+  ssms_login cms_probe > /dev/null 2>&1
+  ssms_get /admin/dashboard.php > /tmp/cmsdash
+  curl -s -o /dev/null -w "%{http_code}" -b "$JAR" "$BASE/admin/api_subjects.php?action=get_subjects" > /tmp/cmsdeny'
+grep -q "Content Manager" /tmp/cmsdash && ok "content editor lands on CMS dashboard" || fail "CMS dashboard not served"
+[ "$(cat /tmp/cmsdeny)" = "403" ] && ok "content editor blocked from education APIs" || fail "CMS role reached edu API ($(cat /tmp/cmsdeny))"
+sudo -n mariadb ssms -e "DELETE FROM users WHERE username IN ('cms_probe','cms_manager')" > /dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

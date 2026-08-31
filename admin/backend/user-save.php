@@ -91,6 +91,9 @@ $validRoles = [
     'mezmur_dept',
     'teacher',
     'attendance_taker',
+    // Website/CMS manager (2026-08-31): created by the super admin here;
+    // content editors log in and land on the Website Content dashboard.
+    'content_editor',
     // Department-owned takers (2026-08-28): departments create these
     // through api_dept_takers.php; admins may also create them here.
     'mezmur_attendance_taker',
