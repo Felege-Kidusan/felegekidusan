@@ -845,14 +845,22 @@ if ($method === 'POST' && $action === 'submission-review') {
     if (!$packet) err('Submission not found.', 404);
     $previousStatus = (string)($packet['status'] ?? '');
 
+    // H9: only packets AWAITING review may be decided — no approving
+    // rejected lists, rejecting approved ones, or "reviewing" drafts.
+    $transitionError = \App\Services\SubmissionService::reviewTransitionError($previousStatus, $newStatus);
+    if ($transitionError !== null) {
+        err($transitionError, 422);
+    }
+
+    // Guarded update: race-safe against a concurrent decision/resubmission.
     $stmt = $conn->prepare("UPDATE grade_submissions
         SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-        WHERE id = ?");
+        WHERE id = ? AND status = 'submitted'");
     if (!$stmt) err('Could not update the submission.', 500);
     $stmt->bind_param('sisi', $newStatus, $userId, $notes, $submissionId);
-    $done = $stmt->execute();
+    $done = $stmt->execute() && $stmt->affected_rows > 0;
     $stmt->close();
-    if (!$done) err('Could not update the submission.', 500);
+    if (!$done) err('This list is no longer awaiting review. Refresh and try again.', 409);
 
     \App\Services\SecurityAuditService::record(
         $conn,

@@ -194,6 +194,35 @@ H3S=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM grade_submissions gs LEFT
 [ "$H3S" = "1" ] && ok "submission history stays attributed" || fail "orphaned submission ($H3S)"
 sudo -n mariadb ssms -e "DELETE FROM grade_submissions WHERE teacher_id=$H3T; DELETE FROM teacher_assignments WHERE teacher_id=$H3T; DELETE FROM users WHERE id=$H3T" >/dev/null 2>&1
 
+# --- 3k. Review transitions + resubmission hygiene (Patch 13: H9/H10) -------
+G1C=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")
+ssms_post /admin/api_subjects.php action=create_assessment class_id=$G1C subject_id=1 assessment_name="H9 Probe" assessment_type=test max_score=100 weight_percentage=5 > /dev/null
+H9A=$(sudo -n mariadb ssms -N -e "SELECT id FROM assessments WHERE class_id=$G1C AND subject_id=1 ORDER BY id DESC LIMIT 1")
+sudo -n mariadb ssms -e "DELETE FROM academic_records WHERE assessment_id=$H9A; DELETE FROM grade_submissions WHERE assessment_id=$H9A" >/dev/null 2>&1
+ssms_login audit_teach > /dev/null 2>&1
+ssms_post /admin/api_subjects.php action=save_grades assessment_id=$H9A "grades=[{\"member_id\":900000,\"score\":60}]" > /dev/null
+H9S=$(sudo -n mariadb ssms -N -e "SELECT id FROM grade_submissions WHERE assessment_id=$H9A")
+ssms_login audit_edu > /dev/null 2>&1
+H9C=$(curl -s -o /tmp/h9c -w '%{http_code}' -b "$JAR" -X POST "$BASE/admin/api_communication.php" -d "action=review_submission" -d "submission_id=$H9S" -d "new_status=approved" -d "csrf_token=$(ssms_csrf)")
+[ "$H9C" = "422" ] && grep -q "invalid_transition" /tmp/h9c && ok "cannot approve a draft (422, H9)" || fail "draft approve: $H9C $(cat /tmp/h9c)"
+ssms_api_login audit_teach > /dev/null 2>&1
+ssms_api POST grades/submit "{\"assessment_id\":$H9A,\"grades\":[{\"member_id\":900000,\"score\":60}]}" > /dev/null
+ssms_login audit_edu > /dev/null 2>&1
+ssms_post /admin/api_communication.php action=review_submission submission_id=$H9S new_status=revision_needed notes="Fix the top score." > /dev/null
+H9N=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM grade_submissions WHERE id=$H9S AND review_notes IS NOT NULL")
+[ "$H9N" = "1" ] && ok "review note recorded on return" || fail "review note missing"
+ssms_api_login audit_teach > /dev/null 2>&1
+ssms_api POST grades/submit "{\"assessment_id\":$H9A,\"grades\":[{\"member_id\":900000,\"score\":75}]}" > /dev/null
+H10=$(sudo -n mariadb ssms -N -e "SELECT CONCAT(status,':',IF(review_notes IS NULL AND reviewed_by IS NULL,'clean','stale')) FROM grade_submissions WHERE id=$H9S")
+[ "$H10" = "submitted:clean" ] && ok "resubmission clears review note (H10)" || fail "resubmit state: $H10"
+ssms_login audit_edu > /dev/null 2>&1
+H9AP=$(ssms_post /admin/api_communication.php action=review_submission submission_id=$H9S new_status=approved)
+echo "$H9AP" | grep -q '"status":"success"' && ok "approve after resubmission works" || fail "approve: $H9AP"
+H9R=$(curl -s -o /tmp/h9r -w '%{http_code}' -b "$JAR" -X POST "$BASE/admin/api_communication.php" -d "action=review_submission" -d "submission_id=$H9S" -d "new_status=rejected" -d "notes=late try" -d "csrf_token=$(ssms_csrf)")
+[ "$H9R" = "422" ] && ok "cannot reject an approved list (422, H9)" || fail "reject approved: $H9R"
+HP=$(ssms_get "/admin/dashboards/edu_dept.php")
+echo "$HP" | grep -q "scorePct" && echo "$HP" | grep -q "80% and above" && ok "review filters are percentage-based (H6)" || fail "H6 filters missing"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

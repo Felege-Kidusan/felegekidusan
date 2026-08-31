@@ -260,6 +260,33 @@ class SubmissionService
         return $status !== null && $status !== '' && !self::statusIsOpen($status);
     }
 
+    /**
+     * H9: reviewer decisions are only valid on packets AWAITING review.
+     * Returns null when the transition is allowed, or a user-safe reason
+     * explaining why the packet cannot be decided in its current state
+     * (reviewing a draft, approving a rejected list, rejecting an approved
+     * one, …). Shared by the web and mobile review endpoints.
+     */
+    public static function reviewTransitionError(?string $current, string $target): ?string
+    {
+        $cur = self::normalizeStatus($current);
+        if ($cur === self::STATUS_SUBMITTED) {
+            return null; // awaiting review — approve / return / reject are all valid
+        }
+        if ($cur === '' || self::statusIsOpen($cur)) {
+            return 'This list has not been submitted for review yet. The teacher must submit it first.';
+        }
+        switch ($cur) {
+            case self::STATUS_APPROVED:
+                return 'This list is already approved.';
+            case self::STATUS_REJECTED:
+                return 'This list was rejected. Ask the teacher to submit a corrected list.';
+            case self::STATUS_REVISION:
+                return 'This list was returned to the teacher and has not been resubmitted yet.';
+        }
+        return 'This list cannot be reviewed in its current state.';
+    }
+
     /** One score per student per test. Always update the existing row. */
     public static function upsertScore(\mysqli $conn, array $row): int
     {
@@ -559,10 +586,16 @@ class SubmissionService
             }
             $newSubmit = $finalStatus === self::STATUS_SUBMITTED && $curNorm !== self::STATUS_SUBMITTED
                 ? date('Y-m-d H:i:s') : null;
+            // H10: a (re)submission means the teacher addressed the review
+            // note — clear the stale reviewer feedback so the packet's next
+            // review cycle starts clean. Corrections that keep the current
+            // status leave the review trail untouched.
+            $clearReview = $newSubmit !== null ? ', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL' : '';
             $up = $conn->prepare(
                 "UPDATE grade_submissions
                  SET teacher_id = ?, status = ?, student_count = ?, average_score = ?, class_id = ?, subject_id = ?,
                      academic_year_id = ?, term_id = ?, submitted_at = COALESCE(?, submitted_at), updated_at = NOW()
+                     $clearReview
                  WHERE id = ?"
             );
             if (!$up) {

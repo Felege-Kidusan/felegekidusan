@@ -286,12 +286,21 @@ switch ($action) {
         }
         $previousStatus = (string)($packet['status'] ?? '');
 
+        // H9: only packets AWAITING review may be decided — no approving
+        // rejected lists, rejecting approved ones, or "reviewing" drafts.
+        $transitionError = \App\Services\SubmissionService::reviewTransitionError($previousStatus, $newStatus);
+        if ($transitionError !== null) {
+            respondApiError($transitionError, 422, 'invalid_transition');
+        }
+
+        // Guarded update: the status must still be 'submitted' when the write
+        // lands (race-safe against a concurrent decision or resubmission).
         $stmt = $conn->prepare("UPDATE grade_submissions
             SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-            WHERE id = ?");
+            WHERE id = ? AND status = 'submitted'");
         $stmt->bind_param("sisi", $newStatus, $userId, $notes, $submissionId);
 
-        if ($stmt->execute()) {
+        if ($stmt->execute() && $stmt->affected_rows > 0) {
             $stmt->close();
             // Immutable trail: who decided, from which state, and why.
             \App\Services\SecurityAuditService::record(
@@ -318,7 +327,10 @@ switch ($action) {
             echo json_encode(['status' => 'success', 'message' => $friendly[$newStatus]]);
         } else {
             $stmt->close();
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+            // affected_rows = 0 means the packet stopped awaiting review
+            // between our read and this write (concurrent decision/resubmit).
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'code' => 'not_awaiting_review', 'message' => 'This list is no longer awaiting review. Refresh the inbox and try again.']);
         }
         break;
 
