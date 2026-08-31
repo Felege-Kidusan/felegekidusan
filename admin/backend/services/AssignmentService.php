@@ -695,7 +695,8 @@ class AssignmentService
                            u.full_name
                     FROM teacher_assignments ta
                     JOIN users u ON u.id = ta.teacher_id
-                    WHERE ta.is_active = 1 AND ta.academic_year_id = ?";
+                    WHERE ta.is_active = 1
+                      AND (ta.academic_year_id = ? OR ta.academic_year_id IS NULL)";
             $stmt = $conn->prepare($sql);
             if ($stmt) {
                 $stmt->bind_param('i', $yearId);
@@ -1058,13 +1059,18 @@ class AssignmentService
 
     private static function findRow(\mysqli $conn, int $teacherId, int $classId, ?int $subjectId, int $yearId, bool $activeOnly): ?array
     {
+        // H12 family: legacy rows were created without a year stamp; treat
+        // them as matching (system-wide convention: year IS NULL OR = ?) so
+        // they are UPDATED instead of duplicated. Year-stamped rows win the
+        // ordering so the specific year's row is preferred over a legacy one.
         if ($subjectId) {
             $sql = "SELECT * FROM teacher_assignments
-                    WHERE teacher_id = ? AND class_id = ? AND subject_id = ? AND academic_year_id = ?";
+                    WHERE teacher_id = ? AND class_id = ? AND subject_id = ?
+                      AND (academic_year_id = ? OR academic_year_id IS NULL)";
             if ($activeOnly) {
                 $sql .= " AND is_active = 1";
             }
-            $sql .= " ORDER BY is_active DESC, id DESC LIMIT 1";
+            $sql .= " ORDER BY (academic_year_id IS NOT NULL) DESC, is_active DESC, id DESC LIMIT 1";
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
                 return null;
@@ -1072,11 +1078,12 @@ class AssignmentService
             $stmt->bind_param('iiii', $teacherId, $classId, $subjectId, $yearId);
         } else {
             $sql = "SELECT * FROM teacher_assignments
-                    WHERE teacher_id = ? AND class_id = ? AND subject_id IS NULL AND academic_year_id = ?";
+                    WHERE teacher_id = ? AND class_id = ? AND subject_id IS NULL
+                      AND (academic_year_id = ? OR academic_year_id IS NULL)";
             if ($activeOnly) {
                 $sql .= " AND is_active = 1";
             }
-            $sql .= " ORDER BY is_active DESC, id DESC LIMIT 1";
+            $sql .= " ORDER BY (academic_year_id IS NOT NULL) DESC, is_active DESC, id DESC LIMIT 1";
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
                 return null;

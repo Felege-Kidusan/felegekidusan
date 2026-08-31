@@ -358,6 +358,28 @@ if ($action === 'assessments' && $method === 'POST') {
         if ($r && $r['mx']) $order = (int)$r['mx'] + 1;
         $stmt->close();
     } catch (Exception $e) {}
+
+    // H11 (audit): the web create/update blocks a class-subject's TOTAL
+    // weight from exceeding 100%, but the mobile path only validated each
+    // item — a phone could push the total to 300% and skew every weighted
+    // aggregate. Same rule, same honest message, both channels now.
+    try {
+        $stmt = $conn->prepare(
+            "SELECT COALESCE(SUM(weight_percentage), 0) AS total
+             FROM assessments
+             WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?"
+        );
+        $stmt->bind_param('iii', $classId, $subjectId, $yearId);
+        $stmt->execute();
+        $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
+        $stmt->close();
+    } catch (Exception $e) {
+        $currentTotal = 0.0;
+    }
+    if ($currentTotal + $weight > 100) {
+        $remaining = max(0, 100 - $currentTotal);
+        err("Total weight for this class-subject would exceed 100%. Remaining: {$remaining}%. Please adjust the weight.", 422);
+    }
     
     try {
         $stmt = $conn->prepare("INSERT INTO assessments 

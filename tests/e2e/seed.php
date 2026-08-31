@@ -190,7 +190,7 @@ $eduId = (int)$conn->query("SELECT id FROM users WHERE username = 'audit_edu' LI
 $stmt = $conn->prepare(
     "INSERT INTO assessments (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type,
                               weight_percentage, max_score, assessment_order, is_published, created_by)
-     VALUES (?, ?, ?, ?, 'Quiz 1', 'quiz', 100.00, 100.00, 1, 0, ?)");
+     VALUES (?, ?, ?, ?, 'Quiz 1', 'quiz', 20.00, 100.00, 1, 0, ?)");
 $stmt->bind_param('iiiii', $c1, $bible, $yearId, $termId, $eduId);
 $stmt->execute();
 $assessmentId = (int)$stmt->insert_id;

@@ -196,8 +196,9 @@ sudo -n mariadb ssms -e "DELETE FROM grade_submissions WHERE teacher_id=$H3T; DE
 
 # --- 3k. Review transitions + resubmission hygiene (Patch 13: H9/H10) -------
 G1C=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")
-ssms_post /admin/api_subjects.php action=create_assessment class_id=$G1C subject_id=1 assessment_name="H9 Probe" assessment_type=test max_score=100 weight_percentage=5 > /dev/null
-H9A=$(sudo -n mariadb ssms -N -e "SELECT id FROM assessments WHERE class_id=$G1C AND subject_id=1 ORDER BY id DESC LIMIT 1")
+H9C1=$(ssms_post /admin/api_subjects.php action=create_assessment class_id=$G1C subject_id=1 assessment_name="H9 Probe" assessment_type=test max_score=100 weight_percentage=5)
+echo "$H9C1" | grep -q '"status":"success"' && ok "H9 probe assessment created" || fail "H9 probe create: $H9C1"
+H9A=$(sudo -n mariadb ssms -N -e "SELECT id FROM assessments WHERE class_id=$G1C AND subject_id=1 AND assessment_name='H9 Probe' ORDER BY id DESC LIMIT 1")
 sudo -n mariadb ssms -e "DELETE FROM academic_records WHERE assessment_id=$H9A; DELETE FROM grade_submissions WHERE assessment_id=$H9A" >/dev/null 2>&1
 ssms_login audit_teach > /dev/null 2>&1
 ssms_post /admin/api_subjects.php action=save_grades assessment_id=$H9A "grades=[{\"member_id\":900000,\"score\":60}]" > /dev/null
@@ -220,8 +221,25 @@ H9AP=$(ssms_post /admin/api_communication.php action=review_submission submissio
 echo "$H9AP" | grep -q '"status":"success"' && ok "approve after resubmission works" || fail "approve: $H9AP"
 H9R=$(curl -s -o /tmp/h9r -w '%{http_code}' -b "$JAR" -X POST "$BASE/admin/api_communication.php" -d "action=review_submission" -d "submission_id=$H9S" -d "new_status=rejected" -d "notes=late try" -d "csrf_token=$(ssms_csrf)")
 [ "$H9R" = "422" ] && ok "cannot reject an approved list (422, H9)" || fail "reject approved: $H9R"
+sudo -n mariadb ssms -e "DELETE FROM academic_records WHERE assessment_id=$H9A; DELETE FROM grade_submissions WHERE assessment_id=$H9A; DELETE FROM assessments WHERE id=$H9A" >/dev/null 2>&1
 HP=$(ssms_get "/admin/dashboards/edu_dept.php")
 echo "$HP" | grep -q "scorePct" && echo "$HP" | grep -q "80% and above" && ok "review filters are percentage-based (H6)" || fail "H6 filters missing"
+
+# --- 3m. Mobile weight-sum rule + legacy assignments (Patch 14: H11/H12) ----
+G1W=$(sudo -n mariadb ssms -N -e "SELECT 101 - COALESCE(SUM(a.weight_percentage),0) FROM assessments a JOIN classes c ON c.id=a.class_id WHERE c.class_code='grade_1' AND a.subject_id=1")
+ssms_api_login audit_teach > /dev/null 2>&1
+H11R=$(ssms_api POST grades/assessments "{\"class_id\":$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'"),\"subject_id\":1,\"assessment_name\":\"H11 smoke over\",\"weight_percentage\":$G1W,\"max_score\":100}")
+echo "$H11R" | grep -q "exceed 100%" && ok "mobile blocks over-budget weight (H11)" || fail "H11: $H11R"
+G3C=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_3'")
+sudo -n mariadb ssms -e "INSERT INTO teacher_assignments (teacher_id, class_id, subject_id, academic_year_id, is_class_teacher, is_primary, is_active, assigned_at) VALUES (3,$G3C,2,NULL,0,1,1,NOW())" >/dev/null
+ssms_login audit_edu > /dev/null 2>&1
+H12M=$(ssms_get "/admin/api_assignments.php?action=matrix")
+H12K=$(echo "$H12M" | G3="$G3C" python3 -c 'import json,sys,os;d=json.load(sys.stdin);c=(d.get("cells") or {}).get(os.environ["G3"]+"-2",[]);print(1 if any(x.get("teacher_id")==3 for x in c) else 0)')
+[ "$H12K" = "1" ] && ok "legacy NULL-year assignment visible on matrix (H12)" || fail "H12 matrix missing legacy row"
+ssms_post /admin/api_assignments.php action=assign teacher_id=3 class_id=$G3C subject_id=2 role=primary > /dev/null
+H12D=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM teacher_assignments WHERE teacher_id=3 AND class_id=$G3C AND subject_id=2")
+[ "$H12D" = "1" ] && ok "assign() reuses legacy row, no duplicate (H12)" || fail "H12 duplicates: $H12D"
+sudo -n mariadb ssms -e "DELETE FROM teacher_assignments WHERE teacher_id=3 AND class_id=$G3C AND subject_id=2" >/dev/null 2>&1
 
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
