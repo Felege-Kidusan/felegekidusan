@@ -1322,17 +1322,42 @@ switch ($action) {
             $t .= 'ssssss';
         }
 
+        // H2: dedupe enrollments to ONE row per member BEFORE joining, so a
+        // member with active enrollments in two classes appears once and the
+        // row count matches COUNT(DISTINCT m.id). The dedupe is scoped the
+        // same way the roster is (year, class, teacher) so class rosters and
+        // teacher rosters keep every legitimate member.
+        $innerW = ["e0.status = 'active'"];
+        $innerP = [];
+        $innerT = '';
         if ($yearId) {
-            $join = "LEFT JOIN class_enrollments ce
-                        ON ce.member_id = m.id AND ce.status = 'active' AND ce.academic_year_id = ?
-                     LEFT JOIN classes c ON c.id = ce.class_id";
-            $p = array_merge([$yearId], $p);
-            $t = 'i' . $t;
-        } else {
-            $join = "LEFT JOIN class_enrollments ce
-                        ON ce.member_id = m.id AND ce.status = 'active'
-                     LEFT JOIN classes c ON c.id = ce.class_id";
+            $innerW[] = 'e0.academic_year_id = ?';
+            $innerP[] = $yearId;
+            $innerT .= 'i';
         }
+        if ($classId > 0) {
+            $innerW[] = 'e0.class_id = ?';
+            $innerP[] = $classId;
+            $innerT .= 'i';
+        }
+        if ($teacherId > 0 && $yearId) {
+            $innerW[] = 'e0.class_id IN (SELECT ta.class_id FROM teacher_assignments ta'
+                . ' WHERE ta.teacher_id = ? AND ta.is_active = 1 AND ta.academic_year_id = ?)';
+            $innerP[] = $teacherId;
+            $innerP[] = $yearId;
+            $innerT .= 'ii';
+        }
+        $join = "LEFT JOIN (
+                    SELECT e1.member_id, e1.id, e1.class_id, e1.enrolled_at, e1.status
+                    FROM class_enrollments e1
+                    JOIN (SELECT member_id, MIN(id) AS pick_id
+                          FROM class_enrollments e0
+                          WHERE " . implode(' AND ', $innerW) . "
+                          GROUP BY member_id) ep ON ep.pick_id = e1.id
+                 ) ce ON ce.member_id = m.id
+                 LEFT JOIN classes c ON c.id = ce.class_id";
+        $p = array_merge($innerP, $p);
+        $t = $innerT . $t;
 
         if ($unassigned) {
             $w[] = 'ce.id IS NULL';

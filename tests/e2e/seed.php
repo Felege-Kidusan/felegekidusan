@@ -130,6 +130,19 @@ $names = [
     ['ሕይወት', 'አለሙ', 'female', 'grade_2'],
     ['ሉቅስ', 'ወልደ', 'male',   'grade_2'],
     ['ማርያም', 'ስመርት', 'female', 'grade_1'],
+    // H5 fixture: deliberately UNENROLLED members so the unassigned-list
+    // pagination is covered by the smoke suite (900007-900011).
+    ['ያዕቁብ', 'ኃይሉ', 'male',   null],
+    ['ሰላምያ', 'በቀለ', 'female', null],
+    ['ኤልያስ', 'ጋቢሶ', 'male',   null],
+    ['ስሳይ', 'ወርቁ', 'female', null],
+    ['ናትናኤል', 'ተክለ', 'male',  null],
+    ['ዮሐንስ', 'አበባ', 'male',   null],
+    ['ርትዬ', 'ገዳይ', 'female',  null],
+    ['አብርሃም', 'ሚካኤል', 'male', null],
+    ['ጽዮን', 'መንግስቱ', 'female', null],
+    ['እስራኤል', 'ደስታ', 'male', null],
+    ['ራሄል', 'በዘው', 'female',  null],
 ];
 $stmtM = $conn->prepare(
     "INSERT INTO members (id, member_code, full_name_am, student_name, father_name, gender, status, member_type, age_group, created_at)
@@ -147,14 +160,15 @@ $stmtP->close();
 $i = 0;
 foreach ($names as [$sn, $fn, $g, $cc]) {
     $id = 900000 + $i;
-    $code = sprintf('FK-T%04d', $i + 1);
+    $i++;
+    $code = sprintf('FK-T%04d', $i);
     $fullAm = $sn . ' ' . $fn;
     $stmtM->bind_param('isssss', $id, $code, $fullAm, $sn, $fn, $g);
     $stmtM->execute();
+    if ($cc === null) { continue; }   // H5 fixture: member stays unenrolled
     $cid = $classIds[$cc];
     $stmtE->bind_param('iii', $id, $cid, $yearId);
     $stmtE->execute();
-    $i++;
 }
 $stmtM->close();
 $stmtE->close();

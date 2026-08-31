@@ -161,6 +161,24 @@ grep -q "Content Manager" /tmp/cmsdash && ok "content editor lands on CMS dashbo
 [ "$(cat /tmp/cmsdeny)" = "403" ] && ok "content editor blocked from education APIs" || fail "CMS role reached edu API ($(cat /tmp/cmsdeny))"
 sudo -n mariadb ssms -e "DELETE FROM users WHERE username IN ('cms_probe','cms_manager')" > /dev/null 2>&1
 
+# --- 3i. Roster dedupe + unassigned pagination (Patch 11: H2/H5) -----------
+YR=$(sudo -n mariadb ssms -N -e "SELECT id FROM academic_years ORDER BY id LIMIT 1")
+sudo -n mariadb ssms -e "INSERT IGNORE INTO class_enrollments (member_id, class_id, academic_year_id, status, enrolled_at) SELECT 900000, id, $YR, 'active', CURDATE() FROM classes WHERE class_code='grade_2'" >/dev/null
+ROS=$(ssms_get "/admin/api_education.php?action=roster&per_page=100")
+DUP=$(echo "$ROS" | python3 -c 'import json,sys;d=json.load(sys.stdin);rows=d.get("rows") or [];print(sum(1 for r in rows if int(r.get("id",0))==900000))')
+[ "$DUP" = "1" ] && ok "roster: dual-enrolled member appears once (H2)" || fail "roster duplicate: x$DUP"
+CM=$(echo "$ROS" | python3 -c 'import json,sys;d=json.load(sys.stdin);rows=d.get("rows") or [];print(1 if d.get("total")==len(rows) else 0)')
+[ "$CM" = "1" ] && ok "roster: count matches rows (H2)" || fail "roster count/rows mismatch"
+sudo -n mariadb ssms -e "DELETE FROM class_enrollments WHERE member_id=900000 AND class_id=(SELECT id FROM classes WHERE class_code='grade_2')" >/dev/null
+UP1=$(ssms_get "/admin/api_education.php?action=get_unassigned_members&limit=10&offset=0")
+U1=$(echo "$UP1" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(len(d["members"]),d["total"])')
+[ "$U1" = "10 11" ] && ok "unassigned page 1 = 10 of 11 (H5)" || fail "unassigned page1: $U1"
+UP2=$(ssms_get "/admin/api_education.php?action=get_unassigned_members&limit=10&offset=10")
+U2=$(echo "$UP2" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(len(d["members"]))')
+[ "$U2" = "1" ] && ok "unassigned page 2 = 1 row (H5)" || fail "unassigned page2: $U2"
+HP=$(ssms_get "/admin/dashboards/edu_dept.php")
+echo "$HP" | grep -q "function pagerButtons" && echo "$HP" | grep -q "unassignedFooter" && ok "unassigned UI has pager + page-size controls" || fail "pager missing from edu_dept UI"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

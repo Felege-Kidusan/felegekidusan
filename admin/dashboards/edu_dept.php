@@ -1061,7 +1061,7 @@ function roleTags(m) {
 }
 
 // ═══ ENROLLMENT (ADVANCED) ═══
-let _enrollSearchTimer=null, _selectedEnrollMember=null, _unassignedTimer=null, _bulkSelected=new Set();
+let _enrollSearchTimer=null, _selectedEnrollMember=null, _unassignedTimer=null, _bulkSelected=new Set(), _bulkModalSelected=new Set();
 
 function switchEnrollTab(tab) {
     ['classes','roster','unassigned','teachers'].forEach(t => {
@@ -1300,30 +1300,40 @@ async function executeTransfer() {
 
 // --- Unassigned Members ---
 function debounceUnassigned() { clearTimeout(_unassignedTimer); _unassignedTimer=setTimeout(loadUnassigned, 350); }
-async function loadUnassigned(offset=0) {
+let _unassignedPage=1, _unassignedLimit=50;
+async function loadUnassigned(page=1) {
     const area=document.getElementById('unassignedArea');
+    if(!area) return;
+    _unassignedPage=Math.max(1,page|0);
     area.innerHTML='<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading unassigned members...</div>';
     const search=document.getElementById('unassignedSearch').value;
     const gender=document.getElementById('unassignedGender').value;
     const memberType=document.getElementById('unassignedMType').value;
     const age=document.getElementById('unassignedAge').value;
-    let url=`/admin/api_education.php?action=get_unassigned_members&offset=${offset}&limit=50`;
+    const offset=(_unassignedPage-1)*_unassignedLimit;
+    let url=`/admin/api_education.php?action=get_unassigned_members&offset=${offset}&limit=${_unassignedLimit}`;
     if(search) url+=`&search=${encodeURIComponent(search)}`;
     if(gender) url+=`&gender=${gender}`;
     if(memberType) url+=`&member_type=${memberType}`;
     if(age) url+=`&age_group=${age}`;
     try { const d=await getAPI(url);
     if(d.status==='success') {
-        const m=d.members||[], total=d.total||0;
-        _bulkSelected=new Set();
+        const m=d.members||[], total=d.total||0, pages=Math.max(1,Math.ceil(total/_unassignedLimit));
+        if(_unassignedPage>pages) _unassignedPage=pages;
+        const from=total?offset+1:0, to=Math.min(offset+_unassignedLimit,total);
+        const allOnPage=m.length>0&&m.every(x=>_bulkSelected.has(parseInt(x.id,10)));
+        const selBar=_bulkSelected.size?`<div style="padding:.5rem 1rem;background:#f5f3ff;border-bottom:1px solid #ddd6fe;display:flex;justify-content:space-between;align-items:center;font-size:.75rem">
+            <span><i class="fa-solid fa-check-double" style="color:#6d28d9"></i> <strong>${_bulkSelected.size}</strong> selected${_bulkSelected.size>m.length?' (across pages)':''}</span>
+            <button class="btn btn-o btn-xs" onclick="clearBulkSelection()">Clear selection</button></div>`:'';
         area.innerHTML=`
         <div class="crd">
             <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center">
                 <span style="font-weight:700;font-size:.9rem"><i class="fa-solid fa-user-xmark" style="color:#ef4444"></i> ${total} unassigned member${total!==1?'s':''}</span>
                 <span style="font-size:.7rem;color:#64748b">Not enrolled in any class this year</span>
             </div>
-            ${m.length?`<div class="tw"><table class="dt"><thead><tr><th><input type="checkbox" onchange="toggleBulkPage(this.checked)"></th><th>Name</th><th>Code</th><th>Type</th><th>Gender</th><th>Age Group</th><th>Phone</th></tr></thead><tbody>${m.map(x=>`<tr>
-                <td><input type="checkbox" class="unassigned-cb" value="${x.id}" onchange="updateBulkCount()"></td>
+            ${selBar}
+            ${m.length?`<div class="tw"><table class="dt"><thead><tr><th><input type="checkbox" ${allOnPage?'checked':''} onchange="toggleBulkPage(this.checked)"></th><th>Name</th><th>Code</th><th>Type</th><th>Gender</th><th>Age Group</th><th>Phone</th></tr></thead><tbody>${m.map(x=>`<tr>
+                <td><input type="checkbox" class="unassigned-cb" value="${x.id}" ${_bulkSelected.has(parseInt(x.id,10))?'checked':''} onchange="unassignedToggle(this)"></td>
                 <td><div style="font-weight:600">${esc(x.student_name)} <span style="color:#64748b;font-weight:400">${esc(x.father_name)}</span></div><div style="margin-top:1px">${roleTags(x)}</div></td>
                 <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
                 <td>${mtBadge(x.member_type)}</td>
@@ -1331,17 +1341,42 @@ async function loadUnassigned(offset=0) {
                 <td style="font-size:.75rem">${esc((x.age_group||'').replace(/_/g,' '))}</td>
                 <td style="font-size:.75rem">${esc(x.phone_number||x.phone_primary||'—')}</td>
             </tr>`).join('')}</tbody></table></div>`:'<div style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-check-circle" style="font-size:2rem;color:#059669;display:block;margin-bottom:.5rem"></i>All members are enrolled!</div>'}
-            ${total>50?`<div style="padding:.75rem;text-align:center;border-top:1px solid #f1f5f9"><span style="font-size:.7rem;color:#64748b">Showing ${Math.min(50,m.length)} of ${total}</span></div>`:''}
+            ${unassignedFooter(from,to,total,pages)}
         </div>`;
-    }} catch(e){ area.innerHTML=`<div class="crd" style="padding:1.5rem;text-align:center;color:#ef4444">Error loading: ${e.message||'Unknown error'}</div>`; }
+        updateBulkCount();
+    }} catch(e){ area.innerHTML=`<div class="crd" style="padding:1.5rem;text-align:center;color:#ef4444">Error loading: ${e.message||'Unknown'}</div>`; }
 }
-function toggleBulkPage(checked) { document.querySelectorAll('.unassigned-cb').forEach(cb=>{cb.checked=checked;}); updateBulkCount(); }
-function updateBulkCount() { const cnt=document.querySelectorAll('.unassigned-cb:checked').length; const el=document.querySelector('#enrPanelUnassigned .btn-s'); if(el) el.innerHTML=`<i class="fa-solid fa-users"></i> Enroll Selected (${cnt})`; }
+function unassignedFooter(from,to,total,pages){
+    if(total<=0) return '';
+    const sizeSel=`<select class="inp" style="width:auto;padding:.15rem .4rem;font-size:.7rem" onchange="_unassignedLimit=parseInt(this.value,10)||50;loadUnassigned(1)">
+        ${[25,50,100].map(n=>`<option value="${n}" ${n===_unassignedLimit?'selected':''}>${n} / page</option>`).join('')}</select>`;
+    return `<div style="padding:.6rem .75rem;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
+        <span style="font-size:.7rem;color:#64748b">Showing <strong>${from}–${to}</strong> of ${total}</span>${sizeSel}</div>
+        ${pagerButtons(_unassignedPage,pages,'loadUnassigned')}`;
+}
+/** Compact numbered pager shared by paginated lists (H5). */
+function pagerButtons(page,pages,fnName){
+    if(pages<=1) return '';
+    const start=Math.max(1,page-2), end=Math.min(pages,start+4), win=[];
+    for(let i=start;i<=end;i++) win.push(i);
+    const b=(label,target,dis,active)=>`<button class="btn ${active?'btn-s':'btn-o'} btn-xs" ${dis?'disabled':''} onclick="${fnName}(${target})">${label}</button>`;
+    let out='<div style="padding:.6rem;display:flex;justify-content:center;align-items:center;gap:.3rem;flex-wrap:wrap;border-top:1px solid #f1f5f9">';
+    out+=b('‹ Prev',page-1,page<=1,false);
+    if(start>1){out+=b('1',1,false,false); if(start>2)out+='<span style="font-size:.7rem;color:#94a3b8">…</span>';}
+    win.forEach(i=>out+=b(i,i,false,i===page));
+    if(end<pages){if(end<pages-1)out+='<span style="font-size:.7rem;color:#94a3b8">…</span>';out+=b(pages,pages,false,false);}
+    out+=b('Next ›',page+1,page>=pages,false)+'</div>';
+    return out;
+}
+function unassignedToggle(cb){ const id=parseInt(cb.value,10); if(cb.checked)_bulkSelected.add(id); else _bulkSelected.delete(id); updateBulkCount(); }
+function toggleBulkPage(checked) { document.querySelectorAll('.unassigned-cb').forEach(cb=>{const id=parseInt(cb.value,10); if(checked)_bulkSelected.add(id); else _bulkSelected.delete(id); cb.checked=checked;}); updateBulkCount(); }
+function clearBulkSelection(){ _bulkSelected.clear(); document.querySelectorAll('.unassigned-cb').forEach(cb=>cb.checked=false); updateBulkCount(); }
+function updateBulkCount() { const cnt=_bulkSelected.size; const el=document.querySelector('#enrPanelUnassigned .btn-s'); if(el) el.innerHTML=`<i class="fa-solid fa-users"></i> Enroll Selected (${cnt})`; }
 async function bulkEnrollSelected() {
     setFormAlert('unassignedFormAlert','');
     const cls=document.getElementById('unassignedTargetClass').value;
     if(!cls){ setFormAlert('unassignedFormAlert','Pick the class these members should join.','err'); toast('Pick a class first.','err'); return; }
-    const ids=[]; document.querySelectorAll('.unassigned-cb:checked').forEach(cb=>ids.push(parseInt(cb.value)));
+    const ids=[..._bulkSelected];
     if(!ids.length){ setFormAlert('unassignedFormAlert','Tick at least one member.','err'); toast('Tick at least one member.','err'); return; }
     if(!confirm(`Enroll ${ids.length} student(s) into the selected class?`)) return;
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
@@ -1349,7 +1384,7 @@ async function bulkEnrollSelected() {
         const d=await postAPI('/admin/api_education.php',fd);
         if(d.status==='success'||d.status==='partial'){
             toast(d.message||'Students enrolled.', d.status==='partial'?'w':'ok');
-            loadUnassigned(); loadEnrollOverview();
+            _bulkSelected.clear(); loadUnassigned(1); loadEnrollOverview();
         }else{
             setFormAlert('unassignedFormAlert',d.message||'Could not enroll those members.','err');
             toast(d.message||'Could not enroll those members.','err');
@@ -1364,17 +1399,21 @@ function openBulkEnrollModal() {
     setFormAlert('bulkFormAlert','');
     const btn=document.getElementById('bulkEnrollBtn');
     if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check-double"></i> Enroll selected';}
+    _bulkModalSelected.clear();
     const sa=document.getElementById('bulkSelectAll'); if(sa) sa.checked=false;
     document.getElementById('bulkEnrollModal').classList.add('show');
-    loadBulkCandidates();
+    loadBulkCandidates(1);
 }
-async function loadBulkCandidates() {
+let _bulkModalPage=1;
+async function loadBulkCandidates(page=1) {
     const list=document.getElementById('bulkCandidateList');
     if(!list) return;
+    _bulkModalPage=Math.max(1,page|0);
     list.innerHTML='<div style="padding:1rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading unassigned members…</div>';
     const search=document.getElementById('bulkSearch')?.value||'';
     const filter=document.getElementById('bulkFilter')?.value||'';
-    let url=`/admin/api_education.php?action=get_unassigned_members&limit=100`;
+    const limit=50, offset=(_bulkModalPage-1)*limit;
+    let url=`/admin/api_education.php?action=get_unassigned_members&limit=${limit}&offset=${offset}`;
     if(search.trim()) url+=`&search=${encodeURIComponent(search.trim())}`;
     if(['male','female'].includes(filter)) url+=`&gender=${filter}`;
     if(['7_13','14_17','18_plus'].includes(filter)) url+=`&age_group=${filter}`;
@@ -1385,25 +1424,31 @@ async function loadBulkCandidates() {
             return;
         }
         const m=d.members||[];
-        const total=d.total||m.length;
-        list.innerHTML=m.length?m.map(x=>`<label style="display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-bottom:1px solid #f8fafc;cursor:pointer;font-size:.8rem" onmouseover="this.style.background='#faf5ff'" onmouseout="this.style.background=''">
-            <input type="checkbox" class="bulk-cb" value="${x.id}" onchange="updateBulkModalCount()">
+        const total=d.total||m.length, pages=Math.max(1,Math.ceil(total/limit));
+        if(_bulkModalPage>pages) _bulkModalPage=pages;
+        const from=total?offset+1:0, to=Math.min(offset+limit,total);
+        const allOn=m.length>0&&m.every(x=>_bulkModalSelected.has(parseInt(x.id,10)));
+        list.innerHTML=(m.length?m.map(x=>`<label style="display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-bottom:1px solid #f8fafc;cursor:pointer;font-size:.8rem" onmouseover="this.style.background='#faf5ff'" onmouseout="this.style.background=''">
+            <input type="checkbox" class="bulk-cb" value="${x.id}" ${_bulkModalSelected.has(parseInt(x.id,10))?'checked':''} onchange="bulkModalToggle(this)">
             <div style="flex:1"><strong>${esc(x.student_name)}</strong> ${esc(x.father_name||'')} <span class="ch ch-i" style="font-size:.5rem">${esc(x.member_code||'')}</span> ${mtBadge(x.member_type)} ${roleTags(x)}</div>
             <span style="color:${x.gender==='male'?'#2563eb':'#ec4899'};font-size:.7rem">${x.gender==='male'?'♂':'♀'}</span>
-        </label>`).join('')+'<div style="padding:.45rem .5rem;font-size:.68rem;color:#94a3b8">Showing '+m.length+(total>m.length?' of '+total:'')+' unassigned member(s).</div>':'<div style="padding:1rem;text-align:center;color:#94a3b8">No unassigned members match this search.</div>';
-        const sa=document.getElementById('bulkSelectAll'); if(sa) sa.checked=false;
+        </label>`).join(''):'<div style="padding:1rem;text-align:center;color:#94a3b8">No unassigned members match this search.</div>')
+        +(total>0?`<div style="padding:.45rem .5rem;font-size:.68rem;color:#94a3b8">Showing ${from}–${to} of ${total} unassigned member(s).</div>`:'')
+        +pagerButtons(_bulkModalPage,pages,'loadBulkCandidates');
+        const sa=document.getElementById('bulkSelectAll'); if(sa) sa.checked=allOn;
         updateBulkModalCount();
     } catch(e){
         list.innerHTML=`<div style="padding:1rem;text-align:center;color:#dc2626">${esc(friendlyNetError(e))}</div>`;
     }
 }
-function toggleBulkAll() { const c=document.getElementById('bulkSelectAll').checked; document.querySelectorAll('.bulk-cb').forEach(cb=>{cb.checked=c;}); updateBulkModalCount(); }
-function updateBulkModalCount() { const cnt=document.querySelectorAll('.bulk-cb:checked').length; const el=document.getElementById('bulkCount'); if(el) el.textContent=cnt+' selected'; }
+function bulkModalToggle(cb){ const id=parseInt(cb.value,10); if(cb.checked)_bulkModalSelected.add(id); else _bulkModalSelected.delete(id); updateBulkModalCount(); }
+function toggleBulkAll() { const c=document.getElementById('bulkSelectAll').checked; document.querySelectorAll('.bulk-cb').forEach(cb=>{const id=parseInt(cb.value,10); if(c)_bulkModalSelected.add(id); else _bulkModalSelected.delete(id); cb.checked=c;}); updateBulkModalCount(); }
+function updateBulkModalCount() { const cnt=_bulkModalSelected.size; const el=document.getElementById('bulkCount'); if(el) el.textContent=cnt+' selected'; }
 async function executeBulkEnroll() {
     setFormAlert('bulkFormAlert','');
     markField('bulkClass',false);
     const cls=document.getElementById('bulkClass').value;
-    const ids=[]; document.querySelectorAll('.bulk-cb:checked').forEach(cb=>ids.push(parseInt(cb.value)));
+    const ids=[..._bulkModalSelected];
     if(!cls){ setFormAlert('bulkFormAlert','Pick the class these students should join.','err'); markField('bulkClass',true); toast('Pick a class first.','err'); return; }
     if(!ids.length){ setFormAlert('bulkFormAlert','Tick at least one member.','err'); toast('Tick at least one member.','err'); return; }
     const btn=document.getElementById('bulkEnrollBtn');
@@ -1413,13 +1458,14 @@ async function executeBulkEnroll() {
         const d=await postAPI('/admin/api_education.php',fd);
         if(d.status==='success'||d.status==='partial'){
             toast(d.message||'Students enrolled.', d.status==='partial'?'w':'ok');
+            _bulkModalSelected.clear();
             if(d.status==='success') closeModal('bulkEnrollModal');
-            else { setFormAlert('bulkFormAlert',d.message,'warn'); loadBulkCandidates(); }
+            else { setFormAlert('bulkFormAlert',d.message,'warn'); loadBulkCandidates(1); }
             loadEnrollOverview();
-            if(document.getElementById('enrPanelUnassigned')?.style.display==='block') loadUnassigned();
+            if(document.getElementById('enrPanelUnassigned')?.style.display==='block') loadUnassigned(1);
         }else{
-            setFormAlert('bulkFormAlert',d.message||'Could not enroll those members.','err');
-            toast(d.message||'Could not enroll those members.','err');
+            setFormAlert('bulkFormAlert',d.message||'Could not enroll those members.','err'); toast(d.message||'Could not enroll those members.','err');
+            if(d.error_ref) console.warn('Ref', d.error_ref);
         }
     } catch(e){ const msg=friendlyNetError(e); setFormAlert('bulkFormAlert',msg,'err'); toast(msg,'err'); }
     if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check-double"></i> Enroll selected';}
