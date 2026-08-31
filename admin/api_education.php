@@ -1446,10 +1446,10 @@ switch ($action) {
     default:
         echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
 }
-} catch (Exception $e) {
-    error_log("api_education error [{$action}]: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
-    http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'Server error. Please try again or contact admin.']);
+} catch (Throwable $e) {
+    // Enterprise error handling (audit patch 8): mapped friendly message +
+    // correlation reference; internals only in the server log.
+    respondApiThrowable("api_education error [{$action}]", $e);
 }
 
 $conn->close();

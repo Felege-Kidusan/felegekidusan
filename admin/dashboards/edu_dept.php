@@ -66,6 +66,13 @@ $csrfToken = generateCsrfToken();
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
+/* Field footer: inline validation errors + live character counters (patch 8) */
+.field-foot{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;margin-top:.2rem;min-height:1rem}
+.field-hint{font-size:.65rem;color:#94a3b8;margin-left:auto;white-space:nowrap}
+.field-hint.warn{color:#b45309}
+.field-hint.over{color:#dc2626;font-weight:600}
+.field-err{font-size:.68rem;color:#dc2626;line-height:1.2}
+.inp.err{border-color:#dc2626 !important}
 body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 .amharic{font-family:'Noto Serif Ethiopic',serif}
 .sb{background:linear-gradient(180deg,#6d28d9,#5b21b6);width:260px;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;padding:1.25rem;display:flex;flex-direction:column;gap:1.25rem}
@@ -472,9 +479,9 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <form id="subjectForm" style="padding:1.25rem">
 <input type="hidden" id="subjectFormId">
 <div style="display:flex;flex-direction:column;gap:.75rem">
-<div><label class="lbl">Name (Amharic) *</label><input id="subjectName" class="inp amharic" required placeholder="e.g. ቅዱስ ቁርባን"></div>
-<div><label class="lbl">Name (English)</label><input id="subjectNameEn" class="inp" placeholder="e.g. Holy Communion"></div>
-<div><label class="lbl">Description</label><textarea id="subjectDesc" class="inp" rows="2"></textarea></div>
+<div><label class="lbl" for="subjectName">Name (Amharic) *</label><input id="subjectName" class="inp amharic" required maxlength="150" placeholder="e.g. ቅዱስ ቁርባን" aria-describedby="subjectNameCnt"><div class="field-foot"><span class="field-err" id="subjectNameErr" role="alert"></span><span class="field-hint" id="subjectNameCnt">0/150</span></div></div>
+<div><label class="lbl" for="subjectNameEn">Name (English)</label><input id="subjectNameEn" class="inp" maxlength="150" placeholder="e.g. Holy Communion" aria-describedby="subjectNameEnCnt"><div class="field-foot"><span class="field-err" id="subjectNameEnErr" role="alert"></span><span class="field-hint" id="subjectNameEnCnt">0/150</span></div></div>
+<div><label class="lbl" for="subjectDesc">Description</label><textarea id="subjectDesc" class="inp" rows="2" maxlength="2000" aria-describedby="subjectDescCnt"></textarea><div class="field-foot"><span class="field-err" id="subjectDescErr" role="alert"></span><span class="field-hint" id="subjectDescCnt">0/2000</span></div></div>
 <div><label class="lbl">Taught in classes</label>
 <div id="subjectClassChecks" style="display:grid;grid-template-columns:1fr 1fr;gap:.3rem;max-height:160px;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;padding:.5rem">
 <?php foreach ($classes as $c): ?>
@@ -646,6 +653,25 @@ document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click'
 
 // ═══ HELPERS ═══
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+// ── Field-level validation helpers (patch 8) ─────────────────────────────
+// Reusable everywhere: live counters, inline errors, error-ref display.
+function bindCharCounter(inputId,max){
+    const el=document.getElementById(inputId),cnt=document.getElementById(inputId+'Cnt');
+    if(!el||!cnt)return;
+    const upd=()=>{const n=[...el.value].length;cnt.textContent=n+'/'+max;
+        cnt.classList.toggle('warn',n>=max*0.9&&n<=max);cnt.classList.toggle('over',n>max);
+        if(n>max){el.classList.add('err');}else if(!el.dataset.errLock){el.classList.remove('err');}};
+    el.addEventListener('input',upd);el.addEventListener('change',upd);el._updCounter=upd;upd();
+}
+function setFieldError(inputId,msg){
+    const el=document.getElementById(inputId),err=document.getElementById(inputId+'Err');
+    if(err)err.textContent=msg||'';
+    if(el){el.dataset.errLock=msg?'1':'';el.classList.toggle('err',!!msg);}
+}
+function clearFieldErrors(ids){(ids||[]).forEach(id=>setFieldError(id,''))}
+function refreshCounters(ids){(ids||[]).forEach(id=>{const el=document.getElementById(id);if(el&&el._updCounter)el._updCounter();})}
+function apiErrorMessage(d){let m=d&&d.message?d.message:'Something went wrong. Please try again.';if(d&&d.error_ref)m+=' (Ref: '+d.error_ref+')';return m;}
+['subjectName','subjectNameEn','subjectDesc'].forEach(id=>bindCharCounter(id,{'subjectName':150,'subjectNameEn':150,'subjectDesc':2000}[id]));
 function fD(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'medium'):(d||'—');}
 function fDL(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'long'):(d||'—');}
 function toast(m,t='ok'){
@@ -978,9 +1004,46 @@ async function saveClass(){const fd=new FormData();fd.append('action','save_clas
 async function deleteClass(id){if(!confirm('Delete this class?'))return;const fd=new FormData();fd.append('action','delete_class');fd.append('class_id',id);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadClasses();}catch(e){toast('Error','err');}}
 
 // ═══ SUBJECTS ═══
-function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');}
-function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
-document.getElementById('subjectForm')?.addEventListener('submit',function(e){e.preventDefault();const sid=document.getElementById('subjectFormId').value;const fd=new FormData();fd.append('action',sid?'update_subject':'create_subject');if(sid)fd.append('subject_id',sid);fd.append('subject_name',document.getElementById('subjectName').value);fd.append('subject_name_en',document.getElementById('subjectNameEn').value);fd.append('description',document.getElementById('subjectDesc').value);postAPI('/admin/api_subjects.php',fd).then(async d=>{if(d.status!=='success'){toast(d.message,'err');return;}const subjectId=sid||d.subject_id;if(subjectId){const ids=[];document.querySelectorAll('.subj-class-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));const cfd=new FormData();cfd.append('action','assign_subject_to_classes');cfd.append('subject_id',subjectId);cfd.append('class_ids',JSON.stringify(ids));await postAPI('/admin/api_subjects.php',cfd);}toast(d.message);closeModal('subjectModal');location.reload();});});
+function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);}
+function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
+document.getElementById('subjectForm')?.addEventListener('submit',function(e){
+    e.preventDefault();
+    const sid=document.getElementById('subjectFormId').value;
+    const fields={'subjectName':150,'subjectNameEn':150,'subjectDesc':2000};
+    clearFieldErrors(Object.keys(fields));
+    // Client-side validation mirrors the server rules (fast feedback, patch 8).
+    let firstBad=null;
+    const nameEl=document.getElementById('subjectName');
+    if(!nameEl.value.trim()){setFieldError('subjectName','Subject name is required.');firstBad=firstBad||nameEl;}
+    for(const[fid,max]of Object.entries(fields)){
+        const el=document.getElementById(fid);
+        const n=[...el.value].length;
+        if(n>max){setFieldError(fid,`Too long: ${n} characters (maximum is ${max}).`);firstBad=firstBad||el;}
+    }
+    if(firstBad){firstBad.focus();return;}
+    const btn=this.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
+    const fd=new FormData();fd.append('action',sid?'update_subject':'create_subject');if(sid)fd.append('subject_id',sid);
+    fd.append('subject_name',nameEl.value.trim());
+    fd.append('subject_name_en',document.getElementById('subjectNameEn').value.trim());
+    fd.append('description',document.getElementById('subjectDesc').value.trim());
+    postAPI('/admin/api_subjects.php',fd).then(async d=>{
+        if(d.status!=='success'){
+            // Server field error -> inline; everything else -> toast with ref.
+            const f=d.details&&d.details.field;
+            if(f&&document.getElementById(f+'Err')!==null){setFieldError(f,d.message);document.getElementById(f).focus();}
+            else toast(apiErrorMessage(d),'err');
+            return;
+        }
+        const subjectId=sid||d.subject_id;
+        if(subjectId){
+            const ids=[];document.querySelectorAll('.subj-class-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));
+            const cfd=new FormData();cfd.append('action','assign_subject_to_classes');cfd.append('subject_id',subjectId);cfd.append('class_ids',JSON.stringify(ids));
+            const cd=await postAPI('/admin/api_subjects.php',cfd);
+            if(cd.status!=='success'){toast(apiErrorMessage(cd),'err');return;}
+        }
+        toast(d.message);closeModal('subjectModal');location.reload();
+    }).catch(err=>{toast(err.message||'Could not reach the server.','err');}).finally(()=>{if(btn)btn.disabled=false;});
+});
 
 // ═══ MEMBER TYPE HELPERS ═══
 function mtBadge(type) {

@@ -751,6 +751,98 @@ function getErrorMessage($code) {
 }
 
 // ============================================================
+// STRUCTURED API ERROR HANDLING (audit patch 8)
+// Enterprise pattern: every failure returns a stable JSON envelope
+//   { status:'error', code:'machine_readable', message:'friendly',
+//     error_ref:'SSMS:xxxxxxxxxxxx' (server errors only), details?:{...} }
+// plus a correct HTTP status. The message is safe to show to any user;
+// internals go to the log under error_ref so support can correlate.
+// ============================================================
+
+/**
+ * Emit a structured API error and stop.
+ *
+ * @param string $message user-safe, actionable message
+ * @param int    $http    HTTP status (422 validation, 409 conflict, 500 server)
+ * @param string $code    machine-readable code for clients
+ * @param array  $details optional extra context (e.g. ['field'=>'subject_name'])
+ */
+function respondApiError(string $message, int $http = 422, string $code = 'validation_error', array $details = []): void
+{
+    if (!headers_sent()) {
+        http_response_code($http);
+    }
+    $payload = ['status' => 'error', 'code' => $code, 'message' => $message];
+    if ($details !== []) {
+        $payload['details'] = $details;
+    }
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+/**
+ * Map a database/storage failure to a user-safe message + HTTP status.
+ * Never leaks SQL, table or column names to the client.
+ *
+ * @return array{message:string, http:int, code:string}
+ */
+function mapDbErrorForApi(Throwable $e): array
+{
+    $msg = $e->getMessage();
+    if ($e instanceof \mysqli_sql_exception || stripos($msg, 'mysqli') !== false || stripos($msg, 'SQLSTATE') !== false) {
+        if (stripos($msg, 'Data too long') !== false || stripos($msg, '1406') !== false || stripos($msg, '22001') !== false) {
+            return [
+                'message' => 'One of the fields is too long for the system. Please shorten the longest entries and try again.',
+                'http' => 422, 'code' => 'field_too_long',
+            ];
+        }
+        if (stripos($msg, 'Duplicate entry') !== false || stripos($msg, '1062') !== false || stripos($msg, '23000') !== false) {
+            return [
+                'message' => 'A record with the same unique value already exists. Please use a different name or code.',
+                'http' => 409, 'code' => 'duplicate',
+            ];
+        }
+        if (stripos($msg, 'foreign key') !== false || stripos($msg, '1451') !== false || stripos($msg, '1452') !== false) {
+            return [
+                'message' => 'This record is linked to other data, so it cannot be changed this way. Remove the links first.',
+                'http' => 409, 'code' => 'linked_records',
+            ];
+        }
+        if (stripos($msg, 'Deadlock') !== false || stripos($msg, '1213') !== false) {
+            return [
+                'message' => 'The server was busy for a moment. Please try again — your data was not saved twice.',
+                'http' => 503, 'code' => 'retry',
+            ];
+        }
+    }
+    return [
+        'message' => 'Server error. Please try again.',
+        'http' => 500, 'code' => 'server_error',
+    ];
+}
+
+/**
+ * Uniform handler for the top-level catch of an admin API endpoint:
+ * logs internals with a correlation reference and answers with the
+ * structured envelope (friendly message + error_ref for support).
+ */
+function respondApiThrowable(string $context, Throwable $e): void
+{
+    $ref = reportInternalError($context, $e);
+    $mapped = mapDbErrorForApi($e);
+    if (!headers_sent()) {
+        http_response_code($mapped['http']);
+    }
+    echo json_encode([
+        'status' => 'error',
+        'code' => $mapped['code'],
+        'message' => $mapped['message'],
+        'error_ref' => 'SSMS:' . $ref,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ============================================================
 // ROLE DEFINITIONS (for reference)
 // ============================================================
 /*

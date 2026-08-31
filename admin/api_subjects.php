@@ -134,38 +134,51 @@ switch ($action) {
         $nameEn = trim($_POST['subject_name_en'] ?? '');
         $code = trim($_POST['subject_code'] ?? '');
         $description = trim($_POST['description'] ?? '');
-        
-        if (empty($name)) {
-            echo json_encode(['status' => 'error', 'message' => 'Subject name is required']);
-            exit;
+
+        // ---- Validation (audit patch 8): friendly, field-level, Amharic-aware.
+        // mb_strlen counts CHARACTERS, so Amharic letters are never over-counted.
+        if ($name === '') {
+            respondApiError('Subject name is required.', 422, 'validation_error', ['field' => 'subject_name']);
         }
-        
-        // Generate code if not provided
-        if (empty($code)) {
-            $code = strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $nameEn ?: $name));
-            $code = substr($code, 0, 20);
+        if (mb_strlen($name, 'UTF-8') > 150) {
+            respondApiError(
+                'The subject name is too long: ' . mb_strlen($name, 'UTF-8') . ' characters (maximum is 150). Please shorten it.',
+                422, 'validation_error', ['field' => 'subject_name', 'max' => 150]
+            );
         }
-        
-        // Check if code exists
-        $stmt = $conn->prepare("SELECT id FROM subjects WHERE subject_code = ?");
-        $stmt->bind_param("s", $code);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            $code .= '_' . time();
+        if (mb_strlen($nameEn, 'UTF-8') > 150) {
+            respondApiError(
+                'The English name is too long: ' . mb_strlen($nameEn, 'UTF-8') . ' characters (maximum is 150).',
+                422, 'validation_error', ['field' => 'subject_name_en', 'max' => 150]
+            );
         }
-        
+        if (mb_strlen($description, 'UTF-8') > 2000) {
+            respondApiError(
+                'The description is too long: ' . mb_strlen($description, 'UTF-8') . ' characters (maximum is 2000).',
+                422, 'validation_error', ['field' => 'description', 'max' => 2000]
+            );
+        }
+
+        // Subject code: script-safe generation (never underscores-only, never
+        // longer than the column). Fixes "Data too long" on long Amharic names.
+        if (!class_exists('\\App\\Services\\CodeGenService')) {
+            require_once __DIR__ . '/backend/services/CodeGenService.php';
+        }
+        $code = \App\Services\CodeGenService::subjectCode($conn, $name, $nameEn, $code);
+
         $stmt = $conn->prepare("INSERT INTO subjects (subject_name, subject_name_en, subject_code, description, is_active) VALUES (?, ?, ?, ?, 1)");
         $stmt->bind_param("ssss", $name, $nameEn, $code, $description);
-        
+
         if ($stmt->execute()) {
             echo json_encode([
-                'status' => 'success', 
+                'status' => 'success',
                 'message' => 'Subject created successfully!',
-                'subject_id' => $conn->insert_id
+                'subject_id' => $conn->insert_id,
+                'subject_code' => $code,
             ]);
         } else {
             reportInternalError('Subject creation failed', $conn->error);
-            echo json_encode(['status' => 'error', 'message' => 'Unable to save the record.']);
+            respondApiError('Unable to save the subject. Please try again.', 500, 'server_error');
         }
         break;
     
@@ -176,9 +189,26 @@ switch ($action) {
         $description = trim($_POST['description'] ?? '');
         $isActive = isset($_POST['is_active']) ? (int)$_POST['is_active'] : 1;
         
-        if (!$id || empty($name)) {
-            echo json_encode(['status' => 'error', 'message' => 'Subject ID and name are required']);
-            exit;
+        if (!$id || $name === '') {
+            respondApiError('Subject ID and name are required.', 422, 'validation_error');
+        }
+        if (mb_strlen($name, 'UTF-8') > 150) {
+            respondApiError(
+                'The subject name is too long: ' . mb_strlen($name, 'UTF-8') . ' characters (maximum is 150). Please shorten it.',
+                422, 'validation_error', ['field' => 'subject_name', 'max' => 150]
+            );
+        }
+        if (mb_strlen($nameEn, 'UTF-8') > 150) {
+            respondApiError(
+                'The English name is too long: ' . mb_strlen($nameEn, 'UTF-8') . ' characters (maximum is 150).',
+                422, 'validation_error', ['field' => 'subject_name_en', 'max' => 150]
+            );
+        }
+        if (mb_strlen($description, 'UTF-8') > 2000) {
+            respondApiError(
+                'The description is too long: ' . mb_strlen($description, 'UTF-8') . ' characters (maximum is 2000).',
+                422, 'validation_error', ['field' => 'description', 'max' => 2000]
+            );
         }
         
         $stmt = $conn->prepare("UPDATE subjects SET subject_name = ?, subject_name_en = ?, description = ?, is_active = ? WHERE id = ?");
@@ -187,7 +217,8 @@ switch ($action) {
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'message' => 'Subject updated successfully!']);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+            reportInternalError('api_subjects db write failed', $conn->error);
+            respondApiError('The change could not be saved. Please try again.', 500, 'server_error');
         }
         break;
     
@@ -511,7 +542,8 @@ switch ($action) {
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'message' => 'Assessment updated!']);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+            reportInternalError('api_subjects db write failed', $conn->error);
+            respondApiError('The change could not be saved. Please try again.', 500, 'server_error');
         }
         break;
     
@@ -540,7 +572,8 @@ switch ($action) {
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'message' => 'Assessment deleted']);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+            reportInternalError('api_subjects db write failed', $conn->error);
+            respondApiError('The change could not be saved. Please try again.', 500, 'server_error');
         }
         break;
 
@@ -843,11 +876,9 @@ switch ($action) {
         echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
 }
 } catch (Throwable $e) {
-    // Throwable (not Exception): a PHP TypeError/Error must also come back as
-    // stable JSON, never as an HTML error page that breaks the frontend.
-    reportInternalError('api_subjects error', $e);
-    http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'Server error. Please try again.']);
+    // Enterprise error handling (audit patch 8): friendly mapped message +
+    // correlation reference; internals only in the server log.
+    respondApiThrowable('api_subjects error', $e);
 }
 
 $conn->close();

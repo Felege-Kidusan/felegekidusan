@@ -67,6 +67,21 @@ DUPS=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM (SELECT member_id FROM a
 FINAL=$(sudo -n mariadb ssms -N -e "SELECT score FROM academic_records WHERE assessment_id=$AID AND member_id=900000")
 [ "$FINAL" = "71.00" ] && ok "final score is last saved value" || fail "final score: $FINAL"
 
+# --- 3a2. Subject creation: long Amharic names + error envelope (Patch 8) --
+LNG1="የብሔረ ቅዱሳን ሰንበት ትምህርት ታሪክ እና ትምህርት ስርዓት"
+LNG2="የድንግል ማርያም ሥርዓተ ትምህርት በቀን ሰላም እና ምስጋና ጸሎት"
+S1=$(ssms_post /admin/api_subjects.php action=create_subject "subject_name=$LNG1")
+S2=$(ssms_post /admin/api_subjects.php action=create_subject "subject_name=$LNG2")
+echo "$S1" | grep -q '"status":"success"' && ok "long Amharic subject #1 created" || fail "long subject #1: $S1"
+echo "$S2" | grep -q '"status":"success"' && ok "long Amharic subject #2 (old Data-too-long path)" || fail "long subject #2: $S2"
+BADCODE=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM subjects WHERE subject_code REGEXP '^_+$'")
+[ "$BADCODE" = "0" ] && ok "no underscore-only codes" || fail "$BADCODE underscore-only codes remain"
+OVLEN=$(python3 -c "print('ትምህርት'*34)")
+OVC=$(curl -s -o /tmp/p8ov -w '%{http_code}' -b "$JAR" -X POST "$BASE/admin/api_subjects.php" -d "action=create_subject" -d "csrf_token=$(ssms_csrf)" --data-urlencode "subject_name=$OVLEN")
+[ "$OVC" = "422" ] && grep -q "maximum is 150" /tmp/p8ov && ok "over-limit name -> 422 + friendly message" || fail "over-limit: $OVC $(cat /tmp/p8ov)"
+grep -q '"code":"validation_error"' /tmp/p8ov && ok "structured error code present" || fail "no error code in envelope"
+sudo -n mariadb ssms -e "DELETE FROM subjects WHERE subject_code LIKE 'subj_%'" >/dev/null 2>&1
+
 # --- 3b2. Teacher assignment scoping (Patch C3) ----------------------------
 # (edu session is still open here — create an assessment the teacher is NOT
 #  assigned to: grade_2 + history)
