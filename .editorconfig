@@ -1,0 +1,27 @@
+# EditorConfig — https://editorconfig.org
+# Root config for SSMS. The 2026-08 mojibake incident came from an editor
+# re-saving UTF-8 files as Windows-1252; these rules make every mainstream
+# editor (VS Code, JetBrains, Sublime, Notepad++) save as UTF-8 by default.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.php]
+indent_style = space
+indent_size = 4
+
+[*.{js,css,html}]
+indent_style = space
+indent_size = 2
+
+[*.{sql,md,yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.dart]
+indent_style = space
+indent_size = 2

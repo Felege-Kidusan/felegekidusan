@@ -1,14 +1,14 @@
 <?php
 /**
- * Education Department Dashboard â€” <?= SCHOOL_NAME ?>
- * PRODUCTION BUILD â€” All features complete
+ * Education Department Dashboard — <?= SCHOOL_NAME ?>
+ * PRODUCTION BUILD — All features complete
  * Teacher CRUD, Classes CRUD, Subjects, Assessments, Grades, Enrollment, Academic Years
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
 
-// Practice members are loaded only from Super Admin â†’ Load button.
+// Practice members are loaded only from Super Admin → Load button.
 // Never write on a GET. That used to hold the only PHP worker and
 // make /admin/ time out for everyone.
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && session_status() === PHP_SESSION_ACTIVE) {
@@ -59,7 +59,7 @@ $csrfToken = generateCsrfToken();
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Education Department â€” <?= SCHOOL_NAME_SHORT ?></title>
+<title>Education Department — <?= SCHOOL_NAME_SHORT ?></title>
 <script>const CSRF_TOKEN='<?= $csrfToken ?>';</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -128,7 +128,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="display:flex;min-height:100vh">
 <!-- SIDEBAR -->
 <aside class="sb school-sidebar">
-<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem"><div style="width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:12px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-graduation-cap" style="color:#fff;font-size:1.1rem"></i></div><div><div style="color:#fff;font-weight:700;font-size:.9rem">Education Dept</div><div class="amharic" style="color:rgba(255,255,255,.6);font-size:.65rem">á‹¨á‰µáˆáˆ…áˆ­á‰µ áŠ­ááˆ</div></div></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem"><div style="width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:12px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-graduation-cap" style="color:#fff;font-size:1.1rem"></i></div><div><div style="color:#fff;font-weight:700;font-size:.9rem">Education Dept</div><div class="amharic" style="color:rgba(255,255,255,.6);font-size:.65rem">የትምህርት ክፍል</div></div></div>
 <div>
 <div class="nt">Main</div>
 <button class="nl act" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
@@ -166,9 +166,9 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:#7c3aed;margin-bottom:1rem"></i><h2 style="margin-bottom:.5rem">Setup Required</h2><p style="color:#64748b;margin-bottom:1.5rem">Education tables need to be created first.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>
 <?php else: ?>
 
-<!-- â•â•â• DASHBOARD â•â•â• -->
+<!-- ═══ DASHBOARD ═══ -->
 <div id="sec-dashboard" class="sec act">
-<div style="margin-bottom:1.5rem"><h1 style="font-size:1.4rem;font-weight:700;color:#1e293b"><?= $greeting ?>, <?= e(explode(' ',$userName)[0]) ?> ðŸ“š</h1><p style="color:#64748b;font-size:.8rem"><?= $todayFormatted ?> â€¢ Education Department<?php if($currentYear): ?> â€¢ <span class="ch ch-p"><?= e($currentYear['year_name']) ?></span><?php endif; ?></p></div>
+<div style="margin-bottom:1.5rem"><h1 style="font-size:1.4rem;font-weight:700;color:#1e293b"><?= $greeting ?>, <?= e(explode(' ',$userName)[0]) ?> 📚</h1><p style="color:#64748b;font-size:.8rem"><?= $todayFormatted ?> • Education Department<?php if($currentYear): ?> • <span class="ch ch-p"><?= e($currentYear['year_name']) ?></span><?php endif; ?></p></div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem">
 <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalStudents ?></div><div style="font-size:.75rem;opacity:.8">Total Students</div></div><i class="fa-solid fa-users" style="font-size:1.5rem;opacity:.3"></i></div></div>
 <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalTeachers ?></div><div style="font-size:.75rem;opacity:.8">Teachers</div></div><i class="fa-solid fa-chalkboard-teacher" style="font-size:1.5rem;opacity:.3"></i></div></div>
@@ -191,10 +191,10 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <?php endforeach; endif; ?></div></div>
 </div>
 
-<!-- â•â•â• TEACHERS â•â•â• -->
+<!-- ═══ TEACHERS ═══ -->
 <div id="sec-teachers" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b" class="amharic">áˆ˜áˆáˆ…áˆ«áŠ• áŠ áˆµá‰°á‹³á‹°áˆ­</p></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-chalkboard-teacher" style="color:#7c3aed"></i> Teachers</h2><p style="font-size:.75rem;color:#64748b" class="amharic">መምህራን አስተዳደር</p></div>
 <button class="btn btn-p" onclick="openCreateTeacher()"><i class="fa-solid fa-plus"></i> Add Teacher</button>
 </div>
 <div class="crd no-print" style="padding:.75rem"><div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -206,27 +206,27 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div class="crd" style="margin-top:.75rem"><div class="tw"><table class="dt"><thead><tr><th>Teacher</th><th>Username</th><th>Email</th><th>Member Link</th><th>Assignments</th><th>Status</th><th class="text-center">Actions</th></tr></thead><tbody id="teacherBody"><tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 </div>
 
-<!-- â•â•â• CLASSES â•â•â• -->
+<!-- ═══ CLASSES ═══ -->
 <div id="sec-classes" class="sec">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-school" style="color:#0ea5e9"></i> Classes</h2><p style="font-size:.75rem;color:#64748b" class="amharic">áŠ­ááˆŽá‰½ áŠ áˆµá‰°á‹³á‹°áˆ­</p></div><button class="btn btn-p" onclick="openClassModal()"><i class="fa-solid fa-plus"></i> Add Class</button></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-school" style="color:#0ea5e9"></i> Classes</h2><p style="font-size:.75rem;color:#64748b" class="amharic">ክፍሎች አስተዳደር</p></div><button class="btn btn-p" onclick="openClassModal()"><i class="fa-solid fa-plus"></i> Add Class</button></div>
 <div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Order</th><th>Name (Amharic)</th><th>Name (English)</th><th>Code</th><th>Section</th><th>Age Group</th><th>Students</th><th>Status</th><th>Actions</th></tr></thead><tbody id="classBody"></tbody></table></div></div>
 </div>
 
-<!-- â•â•â• SUBJECTS â•â•â• -->
+<!-- ═══ SUBJECTS ═══ -->
 <div id="sec-subjects" class="sec">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-book" style="color:#f59e0b"></i> Subjects</h2><p style="font-size:.75rem;color:#64748b" class="amharic">á‹¨á‰µáˆáˆ…áˆ­á‰µ á‹“á‹­áŠá‰¶á‰½</p></div><button class="btn btn-p" onclick="openSubjectModal()"><i class="fa-solid fa-plus"></i> Add Subject</button></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-book" style="color:#f59e0b"></i> Subjects</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዓይነቶች</p></div><button class="btn btn-p" onclick="openSubjectModal()"><i class="fa-solid fa-plus"></i> Add Subject</button></div>
 <div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Subject (Amharic)</th><th>Subject (English)</th><th>Code</th><th>Classes</th><th>Actions</th></tr></thead><tbody>
 <?php foreach ($subjects as $s): $cnt=0;try{$r2=$conn->query("SELECT COUNT(*) c FROM class_subjects WHERE subject_id={$s['id']}");if($r2)$cnt=(int)$r2->fetch_assoc()['c'];}catch(Exception $e){} ?>
-<tr><td class="amharic" style="font-weight:600"><?= e($s['subject_name']) ?></td><td><?= e($s['subject_name_en'] ?? 'â€”') ?></td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px"><?= e($s['subject_code'] ?? 'â€”') ?></code></td><td><span class="ch ch-i"><?= $cnt ?> classes</span></td><td><button onclick='editSubject(<?= json_encode($s) ?>)' class="ab" style="background:#ede9fe;color:#7c3aed" title="Edit"><i class="fa-solid fa-pen"></i></button></td></tr>
+<tr><td class="amharic" style="font-weight:600"><?= e($s['subject_name']) ?></td><td><?= e($s['subject_name_en'] ?? '—') ?></td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px"><?= e($s['subject_code'] ?? '—') ?></code></td><td><span class="ch ch-i"><?= $cnt ?> classes</span></td><td><button onclick='editSubject(<?= json_encode($s) ?>)' class="ab" style="background:#ede9fe;color:#7c3aed" title="Edit"><i class="fa-solid fa-pen"></i></button></td></tr>
 <?php endforeach; if(empty($subjects)): ?><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">No subjects yet</td></tr><?php endif; ?>
 </tbody></table></div></div>
 </div>
 
-<!-- â•â•â• ENROLLMENT (ADVANCED) â•â•â• -->
+<!-- ═══ ENROLLMENT (ADVANCED) ═══ -->
 <div id="sec-enrollment" class="sec">
 <!-- Enrollment Overview Stats -->
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-user-graduate" style="color:#ec4899"></i> Student Enrollment</h2><p style="font-size:.75rem;color:#64748b" class="amharic">á‹¨á‰°áˆ›áˆª áˆá‹áŒˆá‰£ áŠ áˆµá‰°á‹³á‹°áˆ­</p></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-user-graduate" style="color:#ec4899"></i> Student Enrollment</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የተማሪ ምዝገባ አስተዳደር</p></div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap">
 <button class="btn btn-p" onclick="openBulkEnrollModal()"><i class="fa-solid fa-users"></i> Bulk Enroll</button>
 <button class="btn btn-o btn-xs" onclick="loadEnrollOverview()"><i class="fa-solid fa-sync"></i> Refresh</button>
@@ -248,7 +248,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="enrPanelClasses">
 <div class="crd" style="padding:1rem">
 <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:.75rem;align-items:end">
-<div><label class="lbl">Select Class</label><select id="enrollClass" class="inp" onchange="loadEnrolled()"><option value="">â€” Select Class â€”</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?> (<?= e($c['class_name_en'] ?? '') ?>)</option><?php endforeach; ?></select></div>
+<div><label class="lbl">Select Class</label><select id="enrollClass" class="inp" onchange="loadEnrolled()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?> (<?= e($c['class_name_en'] ?? '') ?>)</option><?php endforeach; ?></select></div>
 <div><label class="lbl">Search & Add Student</label>
 <div style="position:relative"><input type="text" id="enrollSearchInput" class="inp" placeholder="Type name or code to search..." autocomplete="off" oninput="liveSearchEnroll(this.value)">
 <div id="enrollSearchResults" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:250px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:0 0 10px 10px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:20"></div></div></div>
@@ -265,15 +265,15 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div class="crd" style="padding:1rem">
 <div id="rosterFormAlert" class="form-alert" role="alert"></div>
 <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:.5rem;align-items:end;flex-wrap:wrap">
-<div><label class="lbl">Search</label><input type="text" id="rosterQ" class="inp" placeholder="Name or codeâ€¦" autocomplete="off" oninput="debounceRoster()"></div>
+<div><label class="lbl">Search</label><input type="text" id="rosterQ" class="inp" placeholder="Name or code…" autocomplete="off" oninput="debounceRoster()"></div>
 <div><label class="lbl">Class</label><select id="rosterClass" class="inp" onchange="loadRoster(1)"><option value="">All classes</option><option value="unassigned">Unassigned</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Gender</label><select id="rosterGender" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="male">Male</option><option value="female">Female</option></select></div>
 <div><label class="lbl">Type</label><select id="rosterType" class="inp" onchange="loadRoster(1)"><option value="">All types</option><option value="regular">Regular</option><option value="special_regular">Special</option><option value="honorary">Honorary</option></select></div>
-<div><label class="lbl">Age</label><select id="rosterAge" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="7_13">7â€“13</option><option value="14_17">14â€“17</option><option value="18_plus">18+</option></select></div>
+<div><label class="lbl">Age</label><select id="rosterAge" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="7_13">7–13</option><option value="14_17">14–17</option><option value="18_plus">18+</option></select></div>
 <div><label class="lbl">Sort</label><select id="rosterSort" class="inp" onchange="loadRoster(1)"><option value="name">Name</option><option value="code">Code</option><option value="class">Class</option></select></div>
 </div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-top:.65rem">
-<div style="min-width:180px"><label class="lbl">Enroll selected into</label><select id="rosterTargetClass" class="inp"><option value="">â€” Class â€”</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div style="min-width:180px"><label class="lbl">Enroll selected into</label><select id="rosterTargetClass" class="inp"><option value="">— Class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <button class="btn btn-s" type="button" onclick="rosterBulkEnroll()"><i class="fa-solid fa-users"></i> Enroll selected</button>
 </div>
 </div>
@@ -286,10 +286,10 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="unassignedFormAlert" class="form-alert" role="alert"></div>
 <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:.5rem;align-items:end;flex-wrap:wrap">
 <div><label class="lbl">Search Members</label><input autocomplete="off" type="text" id="unassignedSearch" class="inp" placeholder="Search by name or code..." oninput="debounceUnassigned()"></div>
-<div><label class="lbl">Gender</label><select id="unassignedGender" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="male">Male â™‚</option><option value="female">Female â™€</option></select></div>
+<div><label class="lbl">Gender</label><select id="unassignedGender" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="male">Male ♂</option><option value="female">Female ♀</option></select></div>
 <div><label class="lbl">Type</label><select id="unassignedMType" class="inp" onchange="loadUnassigned()"><option value="">All Types</option><option value="regular">Regular</option><option value="special_regular">Special</option><option value="honorary">Honorary</option></select></div>
 <div><label class="lbl">Age Group</label><select id="unassignedAge" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="7_13">7-13</option><option value="14_17">14-17</option><option value="18_plus">18+</option></select></div>
-<div><label class="lbl">Enroll To</label><select id="unassignedTargetClass" class="inp"><option value="">â€” Class â€”</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Enroll To</label><select id="unassignedTargetClass" class="inp"><option value="">— Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <button class="btn btn-s" onclick="bulkEnrollSelected()"><i class="fa-solid fa-users"></i> Enroll Selected</button>
 </div>
 </div>
@@ -300,15 +300,15 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="enrPanelTeachers" style="display:none">
 <div class="crd" style="padding:.85rem 1rem;margin-bottom:.75rem;border-left:4px solid #7c3aed;background:#faf5ff">
 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
-<div style="font-size:.82rem;color:#5b21b6"><i class="fa-solid fa-chalkboard-teacher"></i> Create a teacher login and assign classes from Teachers â€” one section.</div>
+<div style="font-size:.82rem;color:#5b21b6"><i class="fa-solid fa-chalkboard-teacher"></i> Create a teacher login and assign classes from Teachers — one section.</div>
 <button class="btn btn-p btn-xs" type="button" onclick="nav('teachers')"><i class="fa-solid fa-arrow-right"></i> Open Teachers</button>
 </div>
 </div>
 <div class="crd" style="padding:1rem">
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.5rem;align-items:end">
-<div><label class="lbl">Teacher</label><select id="taTeacher" class="inp"><option value="">â€” Select Teacher â€”</option></select></div>
-<div><label class="lbl">Assign to Class</label><select id="taClass" class="inp"><option value="">â€” Select Class â€”</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject</label><select id="taSubject" class="inp"><option value="">â€” Optional â€”</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Teacher</label><select id="taTeacher" class="inp"><option value="">— Select Teacher —</option></select></div>
+<div><label class="lbl">Assign to Class</label><select id="taClass" class="inp"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Subject</label><select id="taSubject" class="inp"><option value="">— Optional —</option><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 <button class="btn btn-s" onclick="assignTeacherFromPanel()"><i class="fa-solid fa-link"></i> Assign</button>
 </div>
 <div style="margin-top:.5rem"><label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b"><input type="checkbox" id="taClassTeacher"> Set as Class Teacher (homeroom)</label></div>
@@ -320,30 +320,30 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 </div>
 
-<!-- â•â•â• GRADES â•â•â• -->
+<!-- ═══ GRADES ═══ -->
 <div id="sec-grades" class="sec">
-<h2 style="font-size:1.2rem;font-weight:700;color:#1e293b;margin-bottom:1rem"><i class="fa-solid fa-star" style="color:#f59e0b"></i> Grade Entry <span class="amharic" style="font-size:.8rem;color:#64748b">á‹¨á‹áŒ¤á‰µ áˆ›áˆµáŒˆá‰¢á‹«</span></h2>
+<h2 style="font-size:1.2rem;font-weight:700;color:#1e293b;margin-bottom:1rem"><i class="fa-solid fa-star" style="color:#f59e0b"></i> Grade Entry <span class="amharic" style="font-size:.8rem;color:#64748b">የውጤት ማስገቢያ</span></h2>
 <div class="crd" style="padding:1rem"><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem">
-<div><label class="lbl">Class</label><select id="gradeClass" class="inp" onchange="loadGradeSubjects()"><option value="">â€” Select â€”</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject</label><select id="gradeSubject" class="inp" onchange="loadGradeAssessments()"><option value="">â€” Select â€”</option></select></div>
-<div><label class="lbl">Assessment</label><select id="gradeAssessment" class="inp" onchange="loadGradeStudents()"><option value="">â€” Select â€”</option></select></div>
+<div><label class="lbl">Class</label><select id="gradeClass" class="inp" onchange="loadGradeSubjects()"><option value="">— Select —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Subject</label><select id="gradeSubject" class="inp" onchange="loadGradeAssessments()"><option value="">— Select —</option></select></div>
+<div><label class="lbl">Assessment</label><select id="gradeAssessment" class="inp" onchange="loadGradeStudents()"><option value="">— Select —</option></select></div>
 </div></div>
 <div id="gradeArea" style="margin-top:.75rem"></div>
 </div>
 
-<!-- â•â•â• ASSESSMENTS â•â•â• -->
+<!-- ═══ ASSESSMENTS ═══ -->
 <div id="sec-assessments" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-clipboard-list" style="color:#7c3aed"></i> Assessment Management</h2><p style="font-size:.75rem;color:#64748b">Configure tests, exams, quizzes</p></div><button class="btn btn-p" onclick="openAssessmentModal()"><i class="fa-solid fa-plus"></i> Add Assessment</button></div>
 <div class="crd" style="padding:1rem"><div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-<div><label class="lbl">Class</label><select id="asmtClass" class="inp" onchange="loadAsmtSubjects()"><option value="">â€” Select â€”</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject</label><select id="asmtSubject" class="inp" onchange="loadAssessments()"><option value="">â€” Select â€”</option></select></div>
+<div><label class="lbl">Class</label><select id="asmtClass" class="inp" onchange="loadAsmtSubjects()"><option value="">— Select —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Subject</label><select id="asmtSubject" class="inp" onchange="loadAssessments()"><option value="">— Select —</option></select></div>
 </div></div>
 <div id="assessmentList" style="margin-top:.75rem"></div>
 </div>
 
-<!-- â•â•â• SETTINGS (Academic Year + Semesters) â•â•â• -->
+<!-- ═══ SETTINGS (Academic Year + Semesters) ═══ -->
 <div id="sec-settings" class="sec">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-calendar" style="color:#7c3aed"></i> Academic Year Setup</h2><p style="font-size:.75rem;color:#64748b" class="amharic">á‹¨á‰µáˆáˆ…áˆ­á‰µ á‹˜áˆ˜áŠ• áŠ¥áŠ“ áˆ´áˆšáˆµá‰°áˆ­ áŠ áˆµá‰°á‹³á‹°áˆ­</p></div><span style="font-size:.72rem;color:#64748b;background:#f1f5f9;padding:.45rem .75rem;border-radius:8px"><i class="fa-solid fa-lock" style="color:#94a3b8"></i> Managed by School Admin</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-calendar" style="color:#7c3aed"></i> Academic Year Setup</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዘመን እና ሴሚስተር አስተዳደር</p></div><span style="font-size:.72rem;color:#64748b;background:#f1f5f9;padding:.45rem .75rem;border-radius:8px"><i class="fa-solid fa-lock" style="color:#94a3b8"></i> Managed by School Admin</span></div>
 <?php if($currentYear): ?>
 <div class="crd" style="padding:1rem;margin-bottom:1rem;border-left:4px solid #7c3aed;background:#faf5ff">
 <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
@@ -356,7 +356,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="termArea" style="margin-top:.75rem"></div>
 </div>
 
-<!-- â•â•â• SUBMISSIONS REVIEW â•â•â• -->
+<!-- ═══ SUBMISSIONS REVIEW ═══ -->
 <div id="sec-submissions" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
 <div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-inbox" style="color:#7c3aed"></i> Teacher Submissions</h2><p style="font-size:.75rem;color:#64748b">Drafts are still being worked on. Submitted means the teacher finished.</p></div>
@@ -378,31 +378,31 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="subInsights" class="crd" style="padding:1rem;display:none"></div>
 </div>
 
-<!-- â•â•â• REVIEW MODAL â•â•â• -->
+<!-- ═══ REVIEW MODAL ═══ -->
 <div class="mo" id="reviewModal"><div class="mc" style="max-width:1100px">
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="reviewModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-check"></i> Review Submission</h3><button onclick="closeModal('reviewModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div id="reviewModalContent" style="padding:1.25rem"><p style="text-align:center;color:#94a3b8">Loading...</p></div>
 </div></div>
 
-<!-- â•â•â• REPORT CARDS â•â•â• -->
+<!-- ═══ REPORT CARDS ═══ -->
 <div id="sec-reportcards" class="sec">
 <div class="rc-print-banner" id="rcPrintBanner">
-<div class="am">áˆáˆˆáŒˆ á‰…á‹±áˆ³áŠ• áˆ°áŠ•á‰ á‰µ á‰µáˆáˆ…áˆ­á‰µ á‰¤á‰µ</div>
-<div class="en">Felege Kidusan Sunday School Â· Class report</div>
+<div class="am">ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት</div>
+<div class="en">Felege Kidusan Sunday School · Class report</div>
 <div class="en" id="rcPrintBannerMeta"></div>
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-file-lines" style="color:#600000"></i> Report Cards</h2><p style="font-size:.75rem;color:#64748b" class="amharic">á‹¨á‰°áˆ›áˆª áˆªá–áˆ­á‰µ áŠ«áˆ­á‹µ â€” totals, average, rank, print</p></div>
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-file-lines" style="color:#600000"></i> Report Cards</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የተማሪ ሪፖርት ካርድ — totals, average, rank, print</p></div>
 </div>
 <div class="crd no-print" style="padding:1rem;margin-bottom:1rem">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.65rem;align-items:end">
-<div><label class="lbl">Class</label><select id="rcClass" class="inp" onchange="loadClassPerformance()"><option value="">â€” Select Class â€”</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Class</label><select id="rcClass" class="inp" onchange="loadClassPerformance()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Year</label><select id="rcYear" class="inp" onchange="filterRcTerms();loadClassPerformance()"><option value="">Current year</option><?php foreach ($years as $y): ?><option value="<?= (int)$y['id'] ?>"<?= !empty($y['is_current'])?' selected':''; ?>><?= e($y['year_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Term</label><select id="rcTerm" class="inp" onchange="loadClassPerformance()"><option value="">All / current</option><?php foreach ($terms as $tm): ?><option value="<?= (int)$tm['id'] ?>" data-year="<?= (int)$tm['academic_year_id'] ?>"><?= e($tm['term_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Subject</label><select id="rcSubject" class="inp" onchange="loadClassPerformance()"><option value="">All subjects</option><?php foreach ($subjects as $s): ?><option value="<?= (int)$s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 </div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-top:.65rem">
-<input autocomplete="off" type="text" id="rcSearch" class="inp" style="max-width:220px" placeholder="Search name or codeâ€¦" oninput="renderRcTable()">
+<input autocomplete="off" type="text" id="rcSearch" class="inp" style="max-width:220px" placeholder="Search name or code…" oninput="renderRcTable()">
 <select id="rcFilter" class="inp" style="max-width:150px" onchange="renderRcTable()"><option value="">All students</option><option value="graded">Has scores</option><option value="blank">No scores yet</option><option value="A">Grade A</option><option value="B">Grade B</option><option value="C">Grade C</option><option value="D">Grade D</option><option value="F">Grade F</option></select>
 <select id="rcSort" class="inp" style="max-width:160px" onchange="renderRcTable()"><option value="rank">Sort: Rank</option><option value="name">Sort: Name</option><option value="average">Sort: Average</option><option value="attendance">Sort: Attendance</option></select>
 <button class="btn btn-o" type="button" onclick="exportPerformance()"><i class="fa-solid fa-download"></i> Excel</button>
@@ -418,14 +418,14 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="rcTableArea" style="display:none" class="crd"><div class="tw"><table class="dt"><thead><tr><th>Rank</th><th>Student</th><th>Code</th><th>Obtained</th><th>Average</th><th>Grade</th><th>Attendance</th><th class="no-print">Actions</th></tr></thead><tbody id="rcTableBody"></tbody></table></div></div>
 <div id="rcEmptyMsg" class="crd" style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-chart-bar" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>Select a class to view performance and open report cards</div>
 <div class="mo" id="rcModal" onclick="if(event.target===this)closeModal('rcModal')"><div class="mc" style="max-width:920px;padding:0;background:transparent;box-shadow:none">
-<div id="rcModalBody" style="background:#fff;border-radius:8px;padding:0 0 .85rem"><p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report cardâ€¦</p></div>
+<div id="rcModalBody" style="background:#fff;border-radius:8px;padding:0 0 .85rem"><p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report card…</p></div>
 </div></div>
 </div>
 
 <?php endif; ?>
 </main>
 </div>
-<!-- TEACHER MODAL â€” one form: login + class/subject + homeroom -->
+<!-- TEACHER MODAL — one form: login + class/subject + homeroom -->
 <div class="mo" id="teacherModal"><div class="mc" style="max-width:720px">
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="teacherModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-user-plus"></i> Add Teacher</h3><button onclick="closeModal('teacherModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem">
@@ -435,7 +435,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="margin-bottom:.75rem"><label class="lbl">Link an existing member (optional)</label>
 <input id="teacherMemberQ" class="inp" placeholder="Search member name or code..." autocomplete="off" oninput="searchTeacherMembers(this.value)">
 <div id="teacherMemberHits" class="t-hits" style="display:none"></div>
-<div id="teacherMemberPicked" style="font-size:.72rem;color:#64748b;margin-top:.35rem">Not linked â€” you can still type a name below.</div>
+<div id="teacherMemberPicked" style="font-size:.72rem;color:#64748b;margin-top:.35rem">Not linked — you can still type a name below.</div>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
 <div><label class="lbl">Full Name *</label><input id="teacherFullName" class="inp" required></div>
@@ -446,7 +446,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 <div style="margin-top:1.15rem;padding-top:1rem;border-top:1px solid #f1f5f9">
 <div style="font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7c3aed;margin-bottom:.35rem">Teaching this year</div>
-<p style="font-size:.72rem;color:#64748b;margin:0 0 .6rem">Each row is one class + one subject. Add as many as you need. Class Teacher is separate â€” tap the class chips.</p>
+<p style="font-size:.72rem;color:#64748b;margin:0 0 .6rem">Each row is one class + one subject. Add as many as you need. Class Teacher is separate — tap the class chips.</p>
 <div id="asgRows"></div>
 <button type="button" class="btn btn-o btn-xs" onclick="addAsgRow()" style="margin-top:.25rem"><i class="fa-solid fa-plus"></i> Add class &amp; subject</button>
 <div style="margin-top:1rem">
@@ -470,7 +470,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <form id="subjectForm" style="padding:1.25rem">
 <input type="hidden" id="subjectFormId">
 <div style="display:flex;flex-direction:column;gap:.75rem">
-<div><label class="lbl">Name (Amharic) *</label><input id="subjectName" class="inp amharic" required placeholder="e.g. á‰…á‹±áˆµ á‰áˆ­á‰£áŠ•"></div>
+<div><label class="lbl">Name (Amharic) *</label><input id="subjectName" class="inp amharic" required placeholder="e.g. ቅዱስ ቁርባን"></div>
 <div><label class="lbl">Name (English)</label><input id="subjectNameEn" class="inp" placeholder="e.g. Holy Communion"></div>
 <div><label class="lbl">Description</label><textarea id="subjectDesc" class="inp" rows="2"></textarea></div>
 <div><label class="lbl">Taught in classes</label>
@@ -491,12 +491,12 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="padding:1.25rem">
 <input type="hidden" id="classFormId" value="0">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-<div><label class="lbl">Name (Amharic) *</label><input id="className" class="inp amharic" required placeholder="1áŠ› áŠ­ááˆ"></div>
+<div><label class="lbl">Name (Amharic) *</label><input id="className" class="inp amharic" required placeholder="1ኛ ክፍል"></div>
 <div><label class="lbl">Name (English)</label><input id="classNameEn" class="inp" placeholder="Grade 1"></div>
 <div><label class="lbl">Code *</label><input id="classCode" class="inp" placeholder="grade_1"></div>
 <div><label class="lbl">Level Order</label><input type="number" id="classLevel" class="inp" value="1" min="1"></div>
-<div><label class="lbl">Section</label><select id="classSection" class="inp"><option value="">â€”</option><option value="áˆáŒ†á‰½">áˆáŒ†á‰½ (Children)</option><option value="áˆ›áŠ¥áŠ¨áˆ‹á‹Š">áˆ›áŠ¥áŠ¨áˆ‹á‹Š (Middle)</option><option value="áˆ°á‰ áŠ«">áˆ°á‰ áŠ« (Parish)</option></select></div>
-<div><label class="lbl">Age Group</label><select id="classAge" class="inp"><option value="">â€”</option><option value="7_13">7-13</option><option value="14_17">14-17</option><option value="18_plus">18+</option></select></div>
+<div><label class="lbl">Section</label><select id="classSection" class="inp"><option value="">—</option><option value="ልጆች">ልጆች (Children)</option><option value="ማእከላዊ">ማእከላዊ (Middle)</option><option value="ሰበካ">ሰበካ (Parish)</option></select></div>
+<div><label class="lbl">Age Group</label><select id="classAge" class="inp"><option value="">—</option><option value="7_13">7-13</option><option value="14_17">14-17</option><option value="18_plus">18+</option></select></div>
 </div>
 <div style="margin-top:.75rem"><label class="lbl">Description</label><textarea id="classDesc" class="inp" rows="2"></textarea></div>
 <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem"><button class="btn btn-o" onclick="closeModal('classModal')">Cancel</button><button class="btn btn-p" onclick="saveClass()"><i class="fa-solid fa-save"></i> Save</button></div>
@@ -524,7 +524,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
 <input type="hidden" id="yearFormId" value="0">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-<div><label class="lbl">Year Name * <span class="amharic" style="font-size:.6rem;color:#94a3b8">á‹“.áˆ.</span></label><input id="yearName" class="inp amharic" placeholder="e.g. 2018 á‹“.áˆ."></div>
+<div><label class="lbl">Year Name * <span class="amharic" style="font-size:.6rem;color:#94a3b8">ዓ.ም.</span></label><input id="yearName" class="inp amharic" placeholder="e.g. 2018 ዓ.ም."></div>
 <div><label class="lbl">EC Year (Ethiopian)</label><input type="number" id="yearEc" class="inp" value="<?= (int)ethio_date_format($now, 'Y') ?>"></div>
 </div>
 <div><label class="lbl">GC Year (Gregorian)</label><input id="yearGc" class="inp" placeholder="e.g. 2025/2026"></div>
@@ -538,8 +538,8 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.75rem">
 <div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters (Auto-created)</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
-<div style="background:#ede9fe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#5b21b6">1áŠ› áˆ´áˆšáˆµá‰°áˆ­</div><div style="font-size:.6rem;color:#7c3aed">Meskerem â€” Yekatit</div></div>
-<div style="background:#dbeafe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#1e40af">2áŠ› áˆ´áˆšáˆµá‰°áˆ­</div><div style="font-size:.6rem;color:#2563eb">Megabit â€” Hamle</div></div>
+<div style="background:#ede9fe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#5b21b6">1ኛ ሴሚስተር</div><div style="font-size:.6rem;color:#7c3aed">Meskerem — Yekatit</div></div>
+<div style="background:#dbeafe;padding:.5rem .75rem;border-radius:8px"><div style="font-size:.7rem;font-weight:600;color:#1e40af">2ኛ ሴሚስተር</div><div style="font-size:.6rem;color:#2563eb">Megabit — Hamle</div></div>
 </div>
 <p style="font-size:.6rem;color:#94a3b8;margin-top:.3rem">Two semesters will be auto-created when you save a new academic year</p>
 </div>
@@ -554,13 +554,13 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div id="bulkFormAlert" class="form-alert" role="alert"></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
 <div><label class="lbl">Target class *</label>
-<select id="bulkClass" class="inp"><option value="">â€” Select class â€”</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select></div>
+<select id="bulkClass" class="inp"><option value="">— Select class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Search members</label>
-<input type="text" id="bulkSearch" class="inp" placeholder="Name or member codeâ€¦" autocomplete="off" oninput="debounceBulkSearch()"></div>
+<input type="text" id="bulkSearch" class="inp" placeholder="Name or member code…" autocomplete="off" oninput="debounceBulkSearch()"></div>
 </div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-bottom:.75rem">
 <div style="min-width:140px"><label class="lbl">Filter</label>
-<select id="bulkFilter" class="inp" onchange="loadBulkCandidates()"><option value="">All unassigned</option><option value="male">Male</option><option value="female">Female</option><option value="7_13">7â€“13</option><option value="14_17">14â€“17</option><option value="18_plus">18+</option></select></div>
+<select id="bulkFilter" class="inp" onchange="loadBulkCandidates()"><option value="">All unassigned</option><option value="male">Male</option><option value="female">Female</option><option value="7_13">7–13</option><option value="14_17">14–17</option><option value="18_plus">18+</option></select></div>
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
 <label style="font-size:.75rem;color:#64748b"><input type="checkbox" id="bulkSelectAll" onchange="toggleBulkAll()"> Select all on this list</label>
@@ -615,7 +615,7 @@ const EDU_SUBJECTS=<?= json_encode(array_map(static function ($s) {
     return ['id' => (int)$s['id'], 'name' => (string)$s['subject_name']];
 }, $subjects), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]' ?>;
 
-// â•â•â• NAVIGATION â•â•â•
+// ═══ NAVIGATION ═══
 function nav(n){
     try{
         const secs=document.querySelectorAll('.sec');
@@ -642,10 +642,10 @@ function nav(n){
 document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-sec');if(n)nav(n);});});
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
 
-// â•â•â• HELPERS â•â•â•
+// ═══ HELPERS ═══
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
-function fD(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'medium'):(d||'â€”');}
-function fDL(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'long'):(d||'â€”');}
+function fD(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'medium'):(d||'—');}
+function fDL(d){return (typeof WBWSCalendar!=='undefined')?WBWSCalendar.formatDate(d,'long'):(d||'—');}
 function toast(m,t='ok'){
     const box=document.getElementById('toastC');
     if(!box)return;
@@ -690,9 +690,9 @@ function setFormAlert(id,msg,kind){
 }
 function markField(id,on){const el=document.getElementById(id);if(el)el.classList.toggle('fld-err',!!on);}
 function closeModal(id){document.getElementById(id).classList.remove('show');}
-function showTab(){/* teacher form is one scroll â€” no tabs */}
+function showTab(){/* teacher form is one scroll — no tabs */}
 
-// â•â•â• TEACHERS â•â•â•
+// ═══ TEACHERS ═══
 let _teacherSearchTimer=null,_memberSearchTimer=null;
 function debounceTeacherSearch(){ clearTimeout(_teacherSearchTimer); _teacherSearchTimer=setTimeout(loadTeachers, 300); }
 async function loadTeachers(){
@@ -721,8 +721,8 @@ function renderTeachers(){
     });
     document.getElementById('teacherBody').innerHTML=list.length?list.map(t=>`<tr style="${t.is_active==0?'opacity:.5':''}">
         <td><div style="display:flex;align-items:center;gap:.5rem"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.7rem">${esc((t.full_name||'?')[0].toUpperCase())}</div><div><div style="font-weight:600;font-size:.8rem">${esc(t.full_name)}</div></div></div></td>
-        <td style="font-size:.8rem">${esc(t.username)}</td><td style="font-size:.8rem">${esc(t.email||'â€”')}</td>
-        <td>${t.member_code?`<span class="ch ch-i">${esc(t.member_code)}</span>`:'â€”'}</td>
+        <td style="font-size:.8rem">${esc(t.username)}</td><td style="font-size:.8rem">${esc(t.email||'—')}</td>
+        <td>${t.member_code?`<span class="ch ch-i">${esc(t.member_code)}</span>`:'—'}</td>
         <td><span class="ch ch-p" style="cursor:pointer" onclick="viewTeacher(${t.id})" title="Click to view assignments">${t.assigned_classes||0} class${(t.assigned_classes||0)!=1?'es':''}, ${t.assigned_subjects||0} subj</span></td>
         <td><span class="ch ${t.is_active==1?'ch-ok':'ch-d'}">${t.is_active==1?'Active':'Inactive'}</span></td>
         <td style="text-align:center;white-space:nowrap">
@@ -734,10 +734,10 @@ function renderTeachers(){
 }
 function filterTeachers(){renderTeachers();}
 function classOptionsHtml(selected){
-    return `<option value="">Select classâ€¦</option>`+EDU_CLASSES.map(c=>`<option value="${c.id}" ${String(c.id)===String(selected)?'selected':''}>${esc(c.name)}</option>`).join('');
+    return `<option value="">Select class…</option>`+EDU_CLASSES.map(c=>`<option value="${c.id}" ${String(c.id)===String(selected)?'selected':''}>${esc(c.name)}</option>`).join('');
 }
 function subjectOptionsHtml(selected){
-    return `<option value="">Select subjectâ€¦</option>`+EDU_SUBJECTS.map(s=>`<option value="${s.id}" ${String(s.id)===String(selected)?'selected':''}>${esc(s.name)}</option>`).join('');
+    return `<option value="">Select subject…</option>`+EDU_SUBJECTS.map(s=>`<option value="${s.id}" ${String(s.id)===String(selected)?'selected':''}>${esc(s.name)}</option>`).join('');
 }
 function addAsgRow(classId,subjectId){asgRows.push({class_id:classId||'',subject_id:subjectId||''});renderAsgRows();}
 function removeAsgRow(i){asgRows.splice(i,1);renderAsgRows();}
@@ -766,7 +766,7 @@ function renderHomeroomChips(){
     box.innerHTML=EDU_CLASSES.map(c=>{
         const on=homeroomClassIds.indexOf(c.id)>=0;
         const holder=homeroomHolders[c.id];
-        const other=holder&&!on?` Â· ${esc(holder)}`:'';
+        const other=holder&&!on?` · ${esc(holder)}`:'';
         return `<button type="button" class="hr-chip${on?' on':''}" onclick="toggleHomeroom(${c.id})" title="${holder?'Currently: '+esc(holder):'No Class Teacher yet'}">${esc(c.name)}${other}</button>`;
     }).join('');
 }
@@ -800,7 +800,7 @@ function resetTeacherForm(){
     document.getElementById('teacherMemberQ').value='';
     document.getElementById('teacherMemberHits').style.display='none';
     document.getElementById('teacherMemberHits').innerHTML='';
-    document.getElementById('teacherMemberPicked').textContent='Not linked â€” you can still type a name below.';
+    document.getElementById('teacherMemberPicked').textContent='Not linked — you can still type a name below.';
     const btn=document.getElementById('teacherSubmitBtn');
     if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-save"></i> Save teacher';}
 }
@@ -820,7 +820,7 @@ function pickTeacherMember(id,name,code){
 function clearTeacherMember(){
     document.getElementById('teacherMemberId').value='';
     document.getElementById('teacherMemberQ').value='';
-    document.getElementById('teacherMemberPicked').textContent='Not linked â€” you can still type a name below.';
+    document.getElementById('teacherMemberPicked').textContent='Not linked — you can still type a name below.';
 }
 function searchTeacherMembers(q){
     clearTimeout(_memberSearchTimer);
@@ -902,7 +902,7 @@ async function saveTeacher(){
     fd.append('assignments',JSON.stringify(assignments));
     fd.append('homeroom_class_ids',JSON.stringify(homeroomClassIds));
     const btn=document.getElementById('teacherSubmitBtn');
-    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Savingâ€¦';}
+    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Saving…';}
     try{
         const d=await postAPI('/admin/api_teachers.php',fd);
         if(d.status==='success' || d.status==='partial'){
@@ -937,7 +937,7 @@ async function viewTeacher(id){
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .75rem;font-size:.8rem">
                     <div style="color:#64748b"><i class="fa-solid fa-user" style="width:14px;color:#94a3b8"></i> ${esc(t.username)}</div>
                     <div style="color:#64748b"><i class="fa-solid fa-envelope" style="width:14px;color:#94a3b8"></i> ${esc(t.email||'No email')}</div>
-                    <div style="color:#64748b"><i class="fa-solid fa-phone" style="width:14px;color:#94a3b8"></i> ${esc(t.phone_number||'â€”')}</div>
+                    <div style="color:#64748b"><i class="fa-solid fa-phone" style="width:14px;color:#94a3b8"></i> ${esc(t.phone_number||'—')}</div>
                     <div style="color:#64748b"><i class="fa-solid fa-calendar" style="width:14px;color:#94a3b8"></i> ${fD(t.created_at)}</div>
                 </div>
             </div>
@@ -953,7 +953,7 @@ async function viewTeacher(id){
                     <div style="flex:1;min-width:0">
                         <div style="font-weight:700;font-size:.82rem;color:#1e293b" class="amharic">${esc(x.class_name||'Class')}</div>
                         <div style="font-size:.72rem;color:#7c3aed" class="amharic">${esc(x.subject_name||'Subject')}</div>
-                        <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">${x.student_count||0} students enrolled${x.is_primary==1?' â€¢ <span style="color:#059669;font-weight:600">Primary</span>':''}</div>
+                        <div style="font-size:.62rem;color:#94a3b8;margin-top:.2rem">${x.student_count||0} students enrolled${x.is_primary==1?' • <span style="color:#059669;font-weight:600">Primary</span>':''}</div>
                     </div>
                 </div>`).join('')}</div>`
             :`<div style="text-align:center;padding:1.5rem;color:#94a3b8;background:#f8fafc;border-radius:12px">
@@ -968,23 +968,23 @@ async function toggleTeacher(id,cur){const act=cur==1?'deactivate':'activate';if
 async function deleteTeacher(id,name){if(!confirm(`Delete teacher "${name}"? This cannot be undone.`))return;const fd=new FormData();fd.append('action','delete_teacher');fd.append('teacher_id',id);try{const d=await postAPI('/admin/api_teachers.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadTeachers();}catch(e){toast('Error','err');}}
 function exportTeachers(){if(!allTeachers.length)return toast('No data','err');const h=['Name','Username','Email','Status','Assignments'];const r=allTeachers.map(t=>[t.full_name,t.username,t.email||'',t.is_active==1?'Active':'Inactive',t.assigned_classes||0]);const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Teachers');XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_Teachers.xlsx');}
 
-// â•â•â• CLASSES â•â•â•
-async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'â€”')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td>${esc(c.section||'â€”')}</td><td>${esc((c.age_group||'').replace(/_/g,' '))}</td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
+// ═══ CLASSES ═══
+async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td>${esc(c.section||'—')}</td><td>${esc((c.age_group||'').replace(/_/g,' '))}</td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
 function openClassModal(){document.getElementById('classFormId').value=0;document.getElementById('className').value='';document.getElementById('classNameEn').value='';document.getElementById('classCode').value='';document.getElementById('classLevel').value='1';document.getElementById('classSection').value='';document.getElementById('classAge').value='';document.getElementById('classDesc').value='';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-school"></i> Add Class';document.getElementById('classModal').classList.add('show');}
 function editClass(c){document.getElementById('classFormId').value=c.id;document.getElementById('className').value=c.class_name||'';document.getElementById('classNameEn').value=c.class_name_en||'';document.getElementById('classCode').value=c.class_code||'';document.getElementById('classLevel').value=c.level_order||1;document.getElementById('classSection').value=c.section||'';document.getElementById('classAge').value=c.age_group||'';document.getElementById('classDesc').value=c.description||'';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Class';document.getElementById('classModal').classList.add('show');}
 async function saveClass(){const fd=new FormData();fd.append('action','save_class');fd.append('id',document.getElementById('classFormId').value);fd.append('class_name',document.getElementById('className').value);fd.append('class_name_en',document.getElementById('classNameEn').value);fd.append('class_code',document.getElementById('classCode').value);fd.append('level_order',document.getElementById('classLevel').value);fd.append('section',document.getElementById('classSection').value);fd.append('age_group',document.getElementById('classAge').value);fd.append('description',document.getElementById('classDesc').value);fd.append('is_active','1');try{const d=await postAPI('/admin/api_education.php',fd);if(d.status==='success'){toast('Class saved!');closeModal('classModal');loadClasses();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
 async function deleteClass(id){if(!confirm('Delete this class?'))return;const fd=new FormData();fd.append('action','delete_class');fd.append('class_id',id);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadClasses();}catch(e){toast('Error','err');}}
 
-// â•â•â• SUBJECTS â•â•â•
+// ═══ SUBJECTS ═══
 function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');}
 function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
 document.getElementById('subjectForm')?.addEventListener('submit',function(e){e.preventDefault();const sid=document.getElementById('subjectFormId').value;const fd=new FormData();fd.append('action',sid?'update_subject':'create_subject');if(sid)fd.append('subject_id',sid);fd.append('subject_name',document.getElementById('subjectName').value);fd.append('subject_name_en',document.getElementById('subjectNameEn').value);fd.append('description',document.getElementById('subjectDesc').value);postAPI('/admin/api_subjects.php',fd).then(async d=>{if(d.status!=='success'){toast(d.message,'err');return;}const subjectId=sid||d.subject_id;if(subjectId){const ids=[];document.querySelectorAll('.subj-class-cb:checked').forEach(cb=>ids.push(parseInt(cb.value,10)));const cfd=new FormData();cfd.append('action','assign_subject_to_classes');cfd.append('subject_id',subjectId);cfd.append('class_ids',JSON.stringify(ids));await postAPI('/admin/api_subjects.php',cfd);}toast(d.message);closeModal('subjectModal');location.reload();});});
 
-// â•â•â• MEMBER TYPE HELPERS â•â•â•
+// ═══ MEMBER TYPE HELPERS ═══
 function mtBadge(type) {
-    if(type==='special_regular') return '<span class="ch" style="background:#fef3c7;color:#92400e;font-size:.5rem;padding:1px 5px">áˆá‹© Special</span>';
-    if(type==='honorary') return '<span class="ch" style="background:#ede9fe;color:#5b21b6;font-size:.5rem;padding:1px 5px">áŠ­á‰¥áˆ­ Honorary</span>';
-    return '<span class="ch" style="background:#ecfdf5;color:#065f46;font-size:.5rem;padding:1px 5px">áˆ˜á‹°á‰ áŠ› Regular</span>';
+    if(type==='special_regular') return '<span class="ch" style="background:#fef3c7;color:#92400e;font-size:.5rem;padding:1px 5px">ልዩ Special</span>';
+    if(type==='honorary') return '<span class="ch" style="background:#ede9fe;color:#5b21b6;font-size:.5rem;padding:1px 5px">ክብር Honorary</span>';
+    return '<span class="ch" style="background:#ecfdf5;color:#065f46;font-size:.5rem;padding:1px 5px">መደበኛ Regular</span>';
 }
 function roleTags(m) {
     let t='';
@@ -995,7 +995,7 @@ function roleTags(m) {
     return t;
 }
 
-// â•â•â• ENROLLMENT (ADVANCED) â•â•â•
+// ═══ ENROLLMENT (ADVANCED) ═══
 let _enrollSearchTimer=null, _selectedEnrollMember=null, _unassignedTimer=null, _bulkSelected=new Set();
 
 function switchEnrollTab(tab) {
@@ -1039,7 +1039,7 @@ async function loadRoster(page){
         <div class="crd">
             <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">
                 <span style="font-weight:700">${total} student${total===1?'':'s'}</span>
-                <span style="font-size:.7rem;color:#64748b">Page ${_rosterPage} of ${pages}${d.year_name?' â€¢ '+esc(d.year_name):''}</span>
+                <span style="font-size:.7rem;color:#64748b">Page ${_rosterPage} of ${pages}${d.year_name?' • '+esc(d.year_name):''}</span>
             </div>
             ${rows.length?`<div class="tw"><table class="dt"><thead><tr>
                 <th><input type="checkbox" onchange="document.querySelectorAll('.roster-cb').forEach(c=>c.checked=this.checked)"></th>
@@ -1047,11 +1047,11 @@ async function loadRoster(page){
             </tr></thead><tbody>${rows.map(x=>`<tr>
                 <td><input type="checkbox" class="roster-cb" value="${x.id}"></td>
                 <td><div style="font-weight:600">${esc(x.student_name||'')} ${x.baptismal_name?'<span style="font-size:.65rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div></td>
-                <td><span class="ch ch-i">${esc(x.member_code||'â€”')}</span></td>
+                <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
                 <td class="amharic">${x.class_name?esc(x.class_name)+' <span style="font-size:.6rem;color:#94a3b8">'+esc(x.class_code||'')+'</span>':'<span style="color:#f59e0b">Unassigned</span>'}</td>
                 <td>${mtBadge(x.member_type)}</td>
-                <td>${x.gender==='male'?'â™‚':'â™€'}</td>
-                <td>${esc(x.age||x.age_group||'â€”')}</td>
+                <td>${x.gender==='male'?'♂':'♀'}</td>
+                <td>${esc(x.age||x.age_group||'—')}</td>
             </tr>`).join('')}</tbody></table></div>`:'<div style="padding:1.5rem;text-align:center;color:#94a3b8">No matching students</div>'}
             ${pages>1?`<div style="padding:.75rem;display:flex;justify-content:center;gap:.4rem;border-top:1px solid #f1f5f9">
                 <button class="btn btn-o btn-xs" ${_rosterPage<=1?'disabled':''} onclick="loadRoster(${_rosterPage-1})">Prev</button>
@@ -1091,9 +1091,9 @@ async function loadEnrollOverview() {
             <div class="sc" style="background:linear-gradient(135deg,#ef4444,#f97316);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.unassigned_members||0}</div><div style="font-size:.6rem;opacity:.8">Unassigned</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.assigned_teachers||0}<span style="font-size:.65rem;opacity:.7">/${s.total_teachers||0}</span></div><div style="font-size:.6rem;opacity:.8">Teachers</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#0ea5e9,#3b82f6);padding:.85rem"><div style="font-size:1.4rem;font-weight:700">${s.total_classes||0}</div><div style="font-size:.6rem;opacity:.8">Classes</div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#10b981,#34d399);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">áˆ˜á‹°á‰ áŠ› Regular</div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);padding:.85rem;color:#78350f"><div style="font-size:1.2rem;font-weight:700">${tb.special_regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.special_regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">áˆá‹© áˆ˜á‹°á‰ áŠ› Special</div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.honorary||0}<span style="font-size:.6rem;opacity:.7"> (${eb.honorary||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">áŠ­á‰¥áˆ­ Honorary</div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#10b981,#34d399);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">መደበኛ Regular</div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#fbbf24);padding:.85rem;color:#78350f"><div style="font-size:1.2rem;font-weight:700">${tb.special_regular||0}<span style="font-size:.6rem;opacity:.7"> (${eb.special_regular||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">ልዩ መደበኛ Special</div></div>
+            <div class="sc" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa);padding:.85rem"><div style="font-size:1.2rem;font-weight:700">${tb.honorary||0}<span style="font-size:.6rem;opacity:.7"> (${eb.honorary||0} enrolled)</span></div><div style="font-size:.6rem;opacity:.8">ክብር Honorary</div></div>
             <div class="sc" style="background:linear-gradient(135deg,#64748b,#94a3b8);padding:.85rem;cursor:pointer" onclick="runMemberTypeSync()"><div style="font-size:1rem;font-weight:700"><i class="fa-solid fa-sync"></i></div><div style="font-size:.6rem;opacity:.8">Sync Types</div></div>`;
     }} catch(e){ toast(friendlyNetError(e),'err'); }
 }
@@ -1119,7 +1119,7 @@ function liveSearchEnroll(q) {
         if(d.status==='success' && d.members.length) {
             res.innerHTML=d.members.map(m=>`<div style="padding:.5rem .75rem;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:.8rem;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='#faf5ff'" onmouseout="this.style.background=''" onclick="selectEnrollMember(${m.id},'${esc(m.student_name)} ${esc(m.father_name)}','${esc(m.member_code||'')}')">
                 <div><strong>${esc(m.student_name)}</strong> <span style="color:#64748b">${esc(m.father_name)}</span> ${mtBadge(m.member_type)} ${m.is_teacher?'<span class="ch ch-w" style="font-size:.45rem">Teacher</span>':''}</div>
-                <div style="display:flex;gap:.3rem;align-items:center"><span class="ch ch-i" style="font-size:.55rem">${esc(m.member_code||'')}</span><span style="color:${m.gender==='male'?'#2563eb':'#ec4899'};font-size:.7rem">${m.gender==='male'?'â™‚':'â™€'}</span></div>
+                <div style="display:flex;gap:.3rem;align-items:center"><span class="ch ch-i" style="font-size:.55rem">${esc(m.member_code||'')}</span><span style="color:${m.gender==='male'?'#2563eb':'#ec4899'};font-size:.7rem">${m.gender==='male'?'♂':'♀'}</span></div>
             </div>`).join('');
             res.style.display='block';
         } else { res.innerHTML='<div style="padding:.75rem;text-align:center;color:#94a3b8;font-size:.8rem">No matching members found</div>'; res.style.display='block'; }
@@ -1128,7 +1128,7 @@ function liveSearchEnroll(q) {
 }
 function selectEnrollMember(id, name, code) {
     _selectedEnrollMember=id;
-    document.getElementById('enrollSearchInput').value=`${name} â€” ${code}`;
+    document.getElementById('enrollSearchInput').value=`${name} — ${code}`;
     document.getElementById('enrollSearchResults').style.display='none';
     document.getElementById('enrollBtn').disabled=false;
 }
@@ -1148,7 +1148,7 @@ async function loadEnrolled() {
     const area=document.getElementById('enrollArea');
     const cid=document.getElementById('enrollClass').value;
     if(!cid) { if(area) area.innerHTML=''; return; }
-    if(area) area.innerHTML='<div class="crd" style="padding:1.75rem;text-align:center;color:#64748b"><i class="fa-solid fa-spinner fa-spin" style="color:#7c3aed"></i><div style="margin-top:.55rem;font-size:.8rem">Loading studentsâ€¦</div></div>';
+    if(area) area.innerHTML='<div class="crd" style="padding:1.75rem;text-align:center;color:#64748b"><i class="fa-solid fa-spinner fa-spin" style="color:#7c3aed"></i><div style="margin-top:.55rem;font-size:.8rem">Loading students…</div></div>';
     const search=document.getElementById('enrollFilterSearch')?.value||'';
     const gender=document.getElementById('enrollFilterGender')?.value||'';
     const memberType=document.getElementById('enrollFilterMType')?.value||'';
@@ -1166,7 +1166,7 @@ async function loadEnrolled() {
             return;
         }
         const s=d.students||[], st=d.stats||{};
-        const yearNote=d.roster_fallback?`<div style="margin:.65rem 1rem 0;padding:.55rem .75rem;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:.75rem;color:#92400e"><i class="fa-solid fa-circle-info"></i> Showing students from <b class="amharic">${esc(d.roster_year_name||'a previous year')}</b>. They are not yet enrolled in the current year â€” use Bulk Enroll if this year should have them too.</div>`:'';
+        const yearNote=d.roster_fallback?`<div style="margin:.65rem 1rem 0;padding:.55rem .75rem;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:.75rem;color:#92400e"><i class="fa-solid fa-circle-info"></i> Showing students from <b class="amharic">${esc(d.roster_year_name||'a previous year')}</b>. They are not yet enrolled in the current year — use Bulk Enroll if this year should have them too.</div>`:'';
         const empty=s.length?'':`<div style="padding:2rem 1.25rem;text-align:center">
             <i class="fa-solid fa-user-graduate" style="font-size:1.8rem;color:#c4b5fd;display:block;margin-bottom:.55rem"></i>
             <div style="font-weight:600;color:#334155">No students in this class yet</div>
@@ -1177,8 +1177,8 @@ async function loadEnrolled() {
             <div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
                 <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
                     <span style="font-weight:700;font-size:.95rem">${st.total||0} student${(st.total||0)===1?'':'s'}</span>
-                    <span class="ch ch-i" style="font-size:.6rem">â™‚ ${st.male||0}</span>
-                    <span class="ch ch-p" style="font-size:.6rem">â™€ ${st.female||0}</span>
+                    <span class="ch ch-i" style="font-size:.6rem">♂ ${st.male||0}</span>
+                    <span class="ch ch-p" style="font-size:.6rem">♀ ${st.female||0}</span>
                     <span style="font-size:.55rem;color:#64748b;border-left:1px solid #e2e8f0;padding-left:.5rem">Regular: ${st.regular||0} | Special: ${st.special_regular||0}${st.honorary?' | Honorary: '+st.honorary:''}${st.teachers?' | Teachers: '+st.teachers:''}</span>
                 </div>
                 <div style="display:flex;gap:.4rem;flex-wrap:wrap">
@@ -1195,8 +1195,8 @@ async function loadEnrolled() {
                 <td><div style="font-weight:600">${esc(x.student_name)}${x.baptismal_name?' <span style="font-size:.6rem;color:#94a3b8">('+esc(x.baptismal_name)+')</span>':''}</div><div style="font-size:.65rem;color:#64748b">${esc(x.father_name||'')} ${esc(x.grandfather_name||'')}</div><div style="margin-top:2px">${roleTags(x)}</div></td>
                 <td><span class="ch ch-i">${esc(x.member_code||'')}</span></td>
                 <td>${mtBadge(x.member_type)}</td>
-                <td>${x.gender==='male'?'<span style="color:#2563eb">â™‚</span>':'<span style="color:#ec4899">â™€</span>'}</td>
-                <td style="font-size:.75rem">${x.age||'â€”'}</td>
+                <td>${x.gender==='male'?'<span style="color:#2563eb">♂</span>':'<span style="color:#ec4899">♀</span>'}</td>
+                <td style="font-size:.75rem">${x.age||'—'}</td>
                 <td style="font-size:.7rem;color:#64748b">${fD(x.enrolled_at)}</td>
                 <td style="text-align:center;white-space:nowrap">
                     <button class="ab" style="background:#dbeafe;color:#2563eb" onclick="openTransfer(${x.enrollment_id},'${esc(x.student_name)} ${esc(x.father_name)}','${esc(x.member_code||'')}')" title="Transfer"><i class="fa-solid fa-exchange-alt"></i></button>
@@ -1260,11 +1260,11 @@ async function loadUnassigned(offset=0) {
             ${m.length?`<div class="tw"><table class="dt"><thead><tr><th><input type="checkbox" onchange="toggleBulkPage(this.checked)"></th><th>Name</th><th>Code</th><th>Type</th><th>Gender</th><th>Age Group</th><th>Phone</th></tr></thead><tbody>${m.map(x=>`<tr>
                 <td><input type="checkbox" class="unassigned-cb" value="${x.id}" onchange="updateBulkCount()"></td>
                 <td><div style="font-weight:600">${esc(x.student_name)} <span style="color:#64748b;font-weight:400">${esc(x.father_name)}</span></div><div style="margin-top:1px">${roleTags(x)}</div></td>
-                <td><span class="ch ch-i">${esc(x.member_code||'â€”')}</span></td>
+                <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
                 <td>${mtBadge(x.member_type)}</td>
-                <td>${x.gender==='male'?'<span style="color:#2563eb">â™‚ Male</span>':'<span style="color:#ec4899">â™€ Female</span>'}</td>
+                <td>${x.gender==='male'?'<span style="color:#2563eb">♂ Male</span>':'<span style="color:#ec4899">♀ Female</span>'}</td>
                 <td style="font-size:.75rem">${esc((x.age_group||'').replace(/_/g,' '))}</td>
-                <td style="font-size:.75rem">${esc(x.phone_number||x.phone_primary||'â€”')}</td>
+                <td style="font-size:.75rem">${esc(x.phone_number||x.phone_primary||'—')}</td>
             </tr>`).join('')}</tbody></table></div>`:'<div style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-check-circle" style="font-size:2rem;color:#059669;display:block;margin-bottom:.5rem"></i>All members are enrolled!</div>'}
             ${total>50?`<div style="padding:.75rem;text-align:center;border-top:1px solid #f1f5f9"><span style="font-size:.7rem;color:#64748b">Showing ${Math.min(50,m.length)} of ${total}</span></div>`:''}
         </div>`;
@@ -1306,7 +1306,7 @@ function openBulkEnrollModal() {
 async function loadBulkCandidates() {
     const list=document.getElementById('bulkCandidateList');
     if(!list) return;
-    list.innerHTML='<div style="padding:1rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading unassigned membersâ€¦</div>';
+    list.innerHTML='<div style="padding:1rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading unassigned members…</div>';
     const search=document.getElementById('bulkSearch')?.value||'';
     const filter=document.getElementById('bulkFilter')?.value||'';
     let url=`/admin/api_education.php?action=get_unassigned_members&limit=100`;
@@ -1324,7 +1324,7 @@ async function loadBulkCandidates() {
         list.innerHTML=m.length?m.map(x=>`<label style="display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-bottom:1px solid #f8fafc;cursor:pointer;font-size:.8rem" onmouseover="this.style.background='#faf5ff'" onmouseout="this.style.background=''">
             <input type="checkbox" class="bulk-cb" value="${x.id}" onchange="updateBulkModalCount()">
             <div style="flex:1"><strong>${esc(x.student_name)}</strong> ${esc(x.father_name||'')} <span class="ch ch-i" style="font-size:.5rem">${esc(x.member_code||'')}</span> ${mtBadge(x.member_type)} ${roleTags(x)}</div>
-            <span style="color:${x.gender==='male'?'#2563eb':'#ec4899'};font-size:.7rem">${x.gender==='male'?'â™‚':'â™€'}</span>
+            <span style="color:${x.gender==='male'?'#2563eb':'#ec4899'};font-size:.7rem">${x.gender==='male'?'♂':'♀'}</span>
         </label>`).join('')+'<div style="padding:.45rem .5rem;font-size:.68rem;color:#94a3b8">Showing '+m.length+(total>m.length?' of '+total:'')+' unassigned member(s).</div>':'<div style="padding:1rem;text-align:center;color:#94a3b8">No unassigned members match this search.</div>';
         const sa=document.getElementById('bulkSelectAll'); if(sa) sa.checked=false;
         updateBulkModalCount();
@@ -1342,7 +1342,7 @@ async function executeBulkEnroll() {
     if(!cls){ setFormAlert('bulkFormAlert','Pick the class these students should join.','err'); markField('bulkClass',true); toast('Pick a class first.','err'); return; }
     if(!ids.length){ setFormAlert('bulkFormAlert','Tick at least one member.','err'); toast('Tick at least one member.','err'); return; }
     const btn=document.getElementById('bulkEnrollBtn');
-    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Enrollingâ€¦';}
+    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Enrolling…';}
     const fd=new FormData(); fd.append('action','bulk_enroll'); fd.append('class_id',cls); fd.append('member_ids',JSON.stringify(ids));
     try {
         const d=await postAPI('/admin/api_education.php',fd);
@@ -1363,11 +1363,11 @@ async function executeBulkEnroll() {
 // --- Unassigned Teachers & Class-Teacher Grid ---
 async function loadUnassignedTeachers() {
     const sel=document.getElementById('taTeacher');
-    sel.innerHTML='<option value="">â€” Select Teacher â€”</option>';
+    sel.innerHTML='<option value="">— Select Teacher —</option>';
     try { const d=await getAPI('/admin/api_education.php?action=get_unassigned_teachers');
     if(d.status==='success') {
         const t=d.teachers||[];
-        t.forEach(x=>{ sel.innerHTML+=`<option value="${x.id}">${esc(x.full_name)}${x.member_code?' â€” '+esc(x.member_code):''}</option>`; });
+        t.forEach(x=>{ sel.innerHTML+=`<option value="${x.id}">${esc(x.full_name)}${x.member_code?' — '+esc(x.member_code):''}</option>`; });
         document.getElementById('unassignedTeachersArea').innerHTML=t.length?`<div class="crd" style="padding:.75rem 1rem;border-left:4px solid #f59e0b;background:#fffbeb"><div style="font-size:.8rem;font-weight:600;color:#92400e"><i class="fa-solid fa-exclamation-triangle"></i> ${t.length} teacher(s) not assigned to any class</div><div style="display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem">${t.map(x=>`<span class="at">${esc(x.full_name)}</span>`).join('')}</div></div>`:'<div class="crd" style="padding:.75rem 1rem;border-left:4px solid #059669;background:#f0fdf4"><div style="font-size:.8rem;font-weight:600;color:#065f46"><i class="fa-solid fa-check-circle"></i> All teachers are assigned</div></div>';
     }} catch(e){}
 }
@@ -1383,7 +1383,7 @@ async function loadClassTeacherGrid() {
                     <span class="ch ${c.enrolled_count>0?'ch-ok':'ch-w'}" style="font-size:.55rem">${c.enrolled_count} students</span>
                 </div>
                 <div style="display:flex;gap:.5rem;font-size:.65rem;color:#64748b;margin-bottom:.4rem">
-                    <span>â™‚ ${c.male_count}</span><span>â™€ ${c.female_count}</span><span>|</span><span>${c.teacher_count} teacher(s)</span>
+                    <span>♂ ${c.male_count}</span><span>♀ ${c.female_count}</span><span>|</span><span>${c.teacher_count} teacher(s)</span>
                 </div>
                 ${c.class_teacher_name?`<div style="font-size:.7rem;color:#059669"><i class="fa-solid fa-user-tie" style="width:12px"></i> ${esc(c.class_teacher_name)}</div>`:'<div style="font-size:.7rem;color:#f59e0b"><i class="fa-solid fa-exclamation-circle" style="width:12px"></i> No class teacher</div>'}
             </div>`).join('')}</div></div>`;
@@ -1406,23 +1406,23 @@ async function assignTeacherFromPanel() {
 
 function exportEnrolled(){const rows=[];document.querySelectorAll('#enrollArea .dt tbody tr').forEach(tr=>{rows.push([...tr.querySelectorAll('td')].map(td=>td.textContent.trim()));});if(!rows.length)return;const ws=XLSX.utils.aoa_to_sheet([['#','Name','Code','Father','Gender','Age','Enrolled',''],...rows]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Enrolled');XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_Enrollment.xlsx');}
 
-// â•â•â• GRADES â•â•â•
-async function loadGradeSubjects(){const cid=document.getElementById('gradeClass').value;const sel=document.getElementById('gradeSubject');sel.innerHTML='<option value="">â€” Select â€”</option>';document.getElementById('gradeAssessment').innerHTML='<option value="">â€” Select â€”</option>';document.getElementById('gradeArea').innerHTML='';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success')(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});}catch(e){}}
-async function loadGradeAssessments(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value;const sel=document.getElementById('gradeAssessment');sel.innerHTML='<option value="">â€” Select â€”</option>';document.getElementById('gradeArea').innerHTML='';if(!cid||!sid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);if(d.status==='success')(d.assessments||[]).forEach(a=>{sel.innerHTML+=`<option value="${a.id}" data-max="${a.max_score}">${esc(a.assessment_name)} (max: ${a.max_score})</option>`;});}catch(e){}}
-async function loadGradeStudents(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value,aid=document.getElementById('gradeAssessment').value;if(!cid||!sid||!aid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_students_for_grading&class_id=${cid}&subject_id=${sid}&assessment_id=${aid}`);if(d.status==='success'){const st=d.students||[],mx=document.getElementById('gradeAssessment').selectedOptions[0]?.dataset?.max||100;document.getElementById('gradeArea').innerHTML=st.length?`<div class="crd"><div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;font-weight:600;font-size:.9rem">Grade Entry â€” Max: ${mx}</div><div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${st.map((s,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(s.student_name)}</td><td>${esc(s.member_code||'')}</td><td><input type="number" class="inp grade-input" data-mid="${s.member_id||s.id}" style="width:80px" min="0" max="${mx}" value="${s.score||''}"></td><td><input type="text" class="inp grade-remark" data-mid="${s.member_id||s.id}" style="width:120px" value="${esc(s.remark||'')}"></td></tr>`).join('')}</tbody></table></div><div style="padding:1rem;text-align:right"><button class="btn btn-p" onclick="saveAllGrades(${aid})"><i class="fa-solid fa-save"></i> Save All Grades</button></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8">No students found</div>';}}catch(e){toast('Error','err');}}
+// ═══ GRADES ═══
+async function loadGradeSubjects(){const cid=document.getElementById('gradeClass').value;const sel=document.getElementById('gradeSubject');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('gradeAssessment').innerHTML='<option value="">— Select —</option>';document.getElementById('gradeArea').innerHTML='';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success')(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});}catch(e){}}
+async function loadGradeAssessments(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value;const sel=document.getElementById('gradeAssessment');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('gradeArea').innerHTML='';if(!cid||!sid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);if(d.status==='success')(d.assessments||[]).forEach(a=>{sel.innerHTML+=`<option value="${a.id}" data-max="${a.max_score}">${esc(a.assessment_name)} (max: ${a.max_score})</option>`;});}catch(e){}}
+async function loadGradeStudents(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value,aid=document.getElementById('gradeAssessment').value;if(!cid||!sid||!aid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_students_for_grading&class_id=${cid}&subject_id=${sid}&assessment_id=${aid}`);if(d.status==='success'){const st=d.students||[],mx=document.getElementById('gradeAssessment').selectedOptions[0]?.dataset?.max||100;document.getElementById('gradeArea').innerHTML=st.length?`<div class="crd"><div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;font-weight:600;font-size:.9rem">Grade Entry — Max: ${mx}</div><div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${st.map((s,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(s.student_name)}</td><td>${esc(s.member_code||'')}</td><td><input type="number" class="inp grade-input" data-mid="${s.member_id||s.id}" style="width:80px" min="0" max="${mx}" value="${s.score||''}"></td><td><input type="text" class="inp grade-remark" data-mid="${s.member_id||s.id}" style="width:120px" value="${esc(s.remark||'')}"></td></tr>`).join('')}</tbody></table></div><div style="padding:1rem;text-align:right"><button class="btn btn-p" onclick="saveAllGrades(${aid})"><i class="fa-solid fa-save"></i> Save All Grades</button></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8">No students found</div>';}}catch(e){toast('Error','err');}}
 async function saveAllGrades(aid){const grades=[];document.querySelectorAll('.grade-input').forEach(inp=>{const mid=inp.dataset.mid,score=inp.value,remark=document.querySelector(`.grade-remark[data-mid="${mid}"]`)?.value||'';if(score!=='')grades.push({member_id:mid,score:parseFloat(score),remark});});if(!grades.length)return toast('No grades entered','err');const fd=new FormData();fd.append('action','save_grades');fd.append('assessment_id',aid);fd.append('grades',JSON.stringify(grades));try{const d=await postAPI('/admin/api_subjects.php',fd);toast(d.message,d.status==='success'?'ok':'err');}catch(e){toast('Error','err');}}
 
-// â•â•â• ASSESSMENTS â•â•â•
-async function loadAsmtSubjects(){const cid=document.getElementById('asmtClass').value;const sel=document.getElementById('asmtSubject');sel.innerHTML='<option value="">â€” Select â€”</option>';document.getElementById('assessmentList').innerHTML='';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success')(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});}catch(e){}}
+// ═══ ASSESSMENTS ═══
+async function loadAsmtSubjects(){const cid=document.getElementById('asmtClass').value;const sel=document.getElementById('asmtSubject');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('assessmentList').innerHTML='';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success')(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});}catch(e){}}
 async function loadAssessments(){const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;if(!cid||!sid){document.getElementById('assessmentList').innerHTML='';return;}
 try{const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);if(d.status==='success'){const a=d.assessments||[];document.getElementById('assessmentList').innerHTML=a.length?`<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Name</th><th>Max Score</th><th>Weight</th><th>Actions</th></tr></thead><tbody>${a.map(x=>`<tr><td style="font-weight:600">${esc(x.assessment_name)}</td><td>${x.max_score}</td><td>${x.weight||100}%</td><td><button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteAssessment(${x.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8">No assessments created yet</div>';}}catch(e){}}
 function openAssessmentModal(){document.getElementById('assessmentModal').classList.add('show');}
 async function saveAssessment(){const fd=new FormData();fd.append('action','create_assessment');fd.append('assessment_name',document.getElementById('asmtName').value);fd.append('max_score',document.getElementById('asmtMax').value);fd.append('weight',document.getElementById('asmtWeight').value);fd.append('class_id',document.getElementById('asmtModalClass').value);fd.append('subject_id',document.getElementById('asmtModalSubject').value);try{const d=await postAPI('/admin/api_subjects.php',fd);if(d.status==='success'){toast('Assessment created!');closeModal('assessmentModal');document.getElementById('asmtClass').value=document.getElementById('asmtModalClass').value;document.getElementById('asmtSubject').value=document.getElementById('asmtModalSubject').value;loadAssessments();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
 async function deleteAssessment(id){if(!confirm('Delete assessment?'))return;const fd=new FormData();fd.append('action','delete_assessment');fd.append('assessment_id',id);try{const d=await postAPI('/admin/api_subjects.php',fd);toast(d.message,d.status==='success'?'ok':'err');loadAssessments();}catch(e){toast('Error','err');}}
 
-// â•â•â• ACADEMIC YEARS + SEMESTERS â•â•â•
+// ═══ ACADEMIC YEARS + SEMESTERS ═══
 function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-async function loadYears(){try{const d=await getAPI('/admin/api_education.php?action=get_academic_years');if(d.status==='success'){const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);document.getElementById('yearBody').innerHTML=y.length?y.map(x=>`<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${x.ec_year||'â€”'}</td><td style="font-size:.75rem">${esc(x.year_gc||'â€”')}</td><td style="font-size:.75rem">${fD(x.start_date)}</td><td style="font-size:.75rem">${fD(x.end_date)}</td><td><span class="ch ch-i">${x.term_count||0} semesters</span></td><td>${x.is_current==1?'<span class="ch ch-ok">Current</span>':'<span class="ch ch-w">No</span>'}</td><td style="white-space:nowrap"><button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="viewYearTermsById(${x.id})" title="View Semesters"><i class="fa-solid fa-calendar-week"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No academic years. Create one to get started.</td></tr>';}}catch(e){toast('Error loading years','err');}}
+async function loadYears(){try{const d=await getAPI('/admin/api_education.php?action=get_academic_years');if(d.status==='success'){const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);document.getElementById('yearBody').innerHTML=y.length?y.map(x=>`<tr><td style="font-weight:600" class="amharic">${esc(x.year_name)}</td><td>${x.ec_year||'—'}</td><td style="font-size:.75rem">${esc(x.year_gc||'—')}</td><td style="font-size:.75rem">${fD(x.start_date)}</td><td style="font-size:.75rem">${fD(x.end_date)}</td><td><span class="ch ch-i">${x.term_count||0} semesters</span></td><td>${x.is_current==1?'<span class="ch ch-ok">Current</span>':'<span class="ch ch-w">No</span>'}</td><td style="white-space:nowrap"><button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="viewYearTermsById(${x.id})" title="View Semesters"><i class="fa-solid fa-calendar-week"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No academic years. Create one to get started.</td></tr>';}}catch(e){toast('Error loading years','err');}}
 function viewYearTermsById(id){const y=window._yearData?.[id];if(y)viewYearTerms(id,y.year_name||'');}
 function editYearById(id){const y=window._yearData?.[id];if(y)editYear(y);}
 function openYearModal(){
@@ -1430,14 +1430,14 @@ function openYearModal(){
     let ecYear=currentEc, gcYear=new Date().getFullYear();
     /* Suggest a year name that does NOT already exist. If the current
        Ethiopian year (or a later one) is already saved, suggest the NEXT
-       year â€” otherwise the prefill always collided with the UNIQUE
+       year — otherwise the prefill always collided with the UNIQUE
        year_name constraint and every save after the first one failed. */
     try{
         let maxEc=0;Object.values(window._yearData||{}).forEach(y=>{const e=parseInt(y.ec_year,10);if(!isNaN(e)&&e>maxEc)maxEc=e;});
         if(maxEc>=currentEc){const bump=(maxEc+1)-currentEc;ecYear=maxEc+1;gcYear=gcYear+bump;}
     }catch(e){}
     document.getElementById('yearFormId').value=0;
-    document.getElementById('yearName').value=ecYear+' á‹“.áˆ.';
+    document.getElementById('yearName').value=ecYear+' ዓ.ም.';
     document.getElementById('yearEc').value=ecYear;
     document.getElementById('yearGc').value=gcYear+'/'+(gcYear+1);
     document.getElementById('yearStart').value='';
@@ -1478,7 +1478,7 @@ async function viewYearTerms(yearId,yearName){
     try{const d=await getAPI(`/admin/api_education.php?action=get_terms&year_id=${yearId}`);
     if(d.status==='success'){const terms=d.terms||[];
     window._termData={};terms.forEach(t=>window._termData[t.id]=t);
-    document.getElementById('termArea').innerHTML=`<div class="crd" style="padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem"><h3 style="font-size:.9rem;font-weight:600;color:#1e293b"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters â€” <span class="amharic">${esc(yearName)}</span></h3><span style="font-size:.62rem;color:#94a3b8"><i class="fa-solid fa-lock"></i> View only â€” managed by School Admin</span></div>
+    document.getElementById('termArea').innerHTML=`<div class="crd" style="padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem"><h3 style="font-size:.9rem;font-weight:600;color:#1e293b"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters — <span class="amharic">${esc(yearName)}</span></h3><span style="font-size:.62rem;color:#94a3b8"><i class="fa-solid fa-lock"></i> View only — managed by School Admin</span></div>
     ${terms.length?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem">${terms.map(t=>`<div class="crd" style="padding:1rem;border-left:4px solid ${t.is_current==1?'#7c3aed':'#e2e8f0'}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
     <div><span class="amharic" style="font-weight:700;font-size:.9rem;color:#1e293b">${esc(t.term_name)}</span><br><span style="font-size:.65rem;color:#94a3b8">Semester ${t.term_number}</span></div>
@@ -1504,7 +1504,7 @@ function openTermModal(yearId,termIdOrNull){
     <div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem .75rem;font-size:.75rem;color:#64748b"><i class="fa-solid fa-info-circle" style="color:#7c3aed"></i> Academic Year: <strong class="amharic">${esc(yearName)}</strong></div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:.75rem">
-    <div><label class="lbl">Semester Name * <span class="amharic" style="font-size:.55rem;color:#94a3b8">áˆ´áˆšáˆµá‰°áˆ­ áˆµáˆ</span></label><input id="termName" class="inp amharic" value="${isEdit?esc(term.term_name):''}" placeholder="e.g. 1áŠ› áˆ´áˆšáˆµá‰°áˆ­"></div>
+    <div><label class="lbl">Semester Name * <span class="amharic" style="font-size:.55rem;color:#94a3b8">ሴሚስተር ስም</span></label><input id="termName" class="inp amharic" value="${isEdit?esc(term.term_name):''}" placeholder="e.g. 1ኛ ሴሚስተር"></div>
     <div><label class="lbl">Semester #</label><input type="number" id="termNumber" class="inp" value="${isEdit?term.term_number:'1'}" min="1" max="4"></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
@@ -1541,12 +1541,12 @@ async function doDeleteTerm(termId){if(!confirm('Delete this semester? Grades li
     try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')viewYearTerms(yid,yn);}catch(e){toast('Error','err');}
 }
 
-// â•â•â• SUBMISSIONS REVIEW â•â•â•
+// ═══ SUBMISSIONS REVIEW ═══
 let allSubmissions=[], _subAnalytics=null;
 function subStatusChip(st){
     const map={incomplete:'ch-i',draft:'ch-i',submitted:'ch-w',approved:'ch-ok',rejected:'ch-d',revision_needed:'ch-w'};
     const label={incomplete:'Draft',draft:'Draft',submitted:'Submitted',approved:'Approved',rejected:'Rejected',revision_needed:'Needs revision'};
-    return `<span class="ch ${map[st]||'ch-w'}">${label[st]||esc(st||'â€”')}</span>`;
+    return `<span class="ch ${map[st]||'ch-w'}">${label[st]||esc(st||'—')}</span>`;
 }
 function switchSubTab(tab){
     ['draft','submitted','insights'].forEach(t=>{
@@ -1594,7 +1594,7 @@ async function loadSubmissions(){
             <div class="sc" style="background:linear-gradient(135deg,#2563eb,#3b82f6);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${drafts}</div><div style="font-size:.65rem;opacity:.8">Drafts (not finished)</div></div></div>
             <div class="sc" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${pending}</div><div style="font-size:.65rem;opacity:.8">Submitted</div></div></div>
             <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981);padding:1rem"><div><div style="font-size:1.5rem;font-weight:700">${approved}</div><div style="font-size:.65rem;opacity:.8">Approved</div></div></div>
-            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:1rem"><div><div style="font-size:1.05rem;font-weight:700">${st.today_recorded?((st.today_present||0)+' P Â· '+(st.today_absent||0)+' A Â· '+(st.today_late||0)+' L'):'â€”'}</div><div style="font-size:.65rem;opacity:.8">Todayâ€™s marks</div></div></div>`;
+            <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1);padding:1rem"><div><div style="font-size:1.05rem;font-weight:700">${st.today_recorded?((st.today_present||0)+' P · '+(st.today_absent||0)+' A · '+(st.today_late||0)+' L'):'—'}</div><div style="font-size:.65rem;opacity:.8">Today’s marks</div></div></div>`;
         if(!list) return;
         if(!allSubmissions.length){
             const empty=sf==='draft'?'No drafts yet. When a teacher taps Save, the unfinished sheet appears here.':'No submitted work yet. Submit is used after class or after a test.';
@@ -1604,17 +1604,17 @@ async function loadSubmissions(){
         list.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>Type</th><th>Teacher</th><th>Class</th><th>What</th><th>Students</th><th>Result</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${allSubmissions.map(s=>{
             const isAtt=s.submission_type==='attendance';
             const what=isAtt?(s.attendance_date?fD(s.attendance_date):'Attendance'):(s.assessment_name||s.subject_name||'Mark list');
-            const result=isAtt?`${s.present_count||0}P / ${s.absent_count||0}A / ${s.late_count||0}L`:(s.average_score!=null?parseFloat(s.average_score).toFixed(1):'â€”');
+            const result=isAtt?`${s.present_count||0}P / ${s.absent_count||0}A / ${s.late_count||0}L`:(s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—');
             const dt=s.updated_at||s.submitted_at||s.created_at;
             return `<tr>
                 <td><span class="ch ${isAtt?'ch-i':'ch-p'}">${isAtt?'Attendance':'Mark list'}</span></td>
-                <td style="font-weight:600;font-size:.8rem">${esc(s.teacher_name||'â€”')}</td>
-                <td class="amharic">${esc(s.class_name||'â€”')}</td>
+                <td style="font-weight:600;font-size:.8rem">${esc(s.teacher_name||'—')}</td>
+                <td class="amharic">${esc(s.class_name||'—')}</td>
                 <td class="amharic" style="font-size:.78rem">${esc(what)}</td>
                 <td><span class="ch ch-i">${s.student_count||0}</span></td>
                 <td style="font-weight:700;font-size:.8rem">${esc(result)}</td>
                 <td>${subStatusChip(s.status)}</td>
-                <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'â€”'}${s.status==='revision_needed'&&s.reviewer_name?`<div style="color:#c2410c;font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ${esc(s.reviewer_name)}${s.review_notes?': '+esc(s.review_notes.length>60?s.review_notes.slice(0,60)+'â€¦':s.review_notes):''}</div>`:''}</td>
+                <td style="font-size:.75rem;color:#64748b">${dt?fD(dt):'—'}${s.status==='revision_needed'&&s.reviewer_name?`<div style="color:#c2410c;font-size:.68rem;margin-top:2px"><i class="fa-solid fa-arrow-rotate-left"></i> ${esc(s.reviewer_name)}${s.review_notes?': '+esc(s.review_notes.length>60?s.review_notes.slice(0,60)+'…':s.review_notes):''}</div>`:''}</td>
                 <td style="white-space:nowrap">
                     <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="reviewSubmission(${s.id})" title="Open"><i class="fa-solid fa-eye"></i></button>
                     ${s.status==='submitted'?`
@@ -1658,7 +1658,7 @@ function exportSubmissions(){
 async function loadSubInsights(){
     const box=document.getElementById('subInsights');
     if(!box) return;
-    box.innerHTML='<div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Building analysisâ€¦</div>';
+    box.innerHTML='<div style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Building analysis…</div>';
     try{
         const d=await getAPI('/admin/api_communication.php?action=get_submission_analytics');
         if(d.status!=='success'){ box.innerHTML=`<p style="color:#dc2626">${esc(d.message||'Could not load analysis.')}</p>`; return; }
@@ -1684,7 +1684,7 @@ async function loadSubInsights(){
             <td style="color:#059669;font-weight:700">${c.present||0}</td>
             <td style="color:#dc2626">${c.absent||0}</td>
             <td style="color:#d97706">${c.late||0}</td>
-            <td>${c.rate==null?'â€”':c.rate+'%'}</td>
+            <td>${c.rate==null?'—':c.rate+'%'}</td>
         </tr>`).join(''):'<tr><td colspan="6" style="text-align:center;color:#94a3b8">No class marks today</td></tr>';
         box.innerHTML=`
             <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:1rem;margin-bottom:1rem">
@@ -1708,29 +1708,29 @@ function paintReviewShell(s){
     const isAtt=s.submission_type==='attendance';
     window._reviewRows=rows;
     window._reviewIsAtt=isAtt;
-    document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${isAtt?'Attendance':'Mark list'} Â· ${esc(s.class_name||'')}`;
+    document.getElementById('reviewModalTitle').innerHTML=`<i class="fa-solid fa-clipboard-check"></i> ${isAtt?'Attendance':'Mark list'} · ${esc(s.class_name||'')}`;
     document.getElementById('reviewModalContent').innerHTML=`
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;font-size:.82rem;margin-bottom:1rem;background:#f8fafc;padding:.85rem;border-radius:12px">
-            <div><strong style="color:#64748b">Teacher:</strong> ${esc(s.teacher_name||'â€”')}</div>
-            <div><strong style="color:#64748b">Class:</strong> <span class="amharic">${esc(s.class_name||'â€”')}</span></div>
-            <div><strong style="color:#64748b">${isAtt?'Date':'Subject'}:</strong> <span class="amharic">${esc(isAtt?(s.attendance_date?fD(s.attendance_date):'â€”'):(s.subject_name||'â€”'))}</span></div>
-            <div><strong style="color:#64748b">${isAtt?'Marks':'Assessment'}:</strong> ${esc(isAtt?((s.present_count||0)+' P Â· '+(s.absent_count||0)+' A Â· '+(s.late_count||0)+' L'):(s.assessment_name||'â€”'))}</div>
+            <div><strong style="color:#64748b">Teacher:</strong> ${esc(s.teacher_name||'—')}</div>
+            <div><strong style="color:#64748b">Class:</strong> <span class="amharic">${esc(s.class_name||'—')}</span></div>
+            <div><strong style="color:#64748b">${isAtt?'Date':'Subject'}:</strong> <span class="amharic">${esc(isAtt?(s.attendance_date?fD(s.attendance_date):'—'):(s.subject_name||'—'))}</span></div>
+            <div><strong style="color:#64748b">${isAtt?'Marks':'Assessment'}:</strong> ${esc(isAtt?((s.present_count||0)+' P · '+(s.absent_count||0)+' A · '+(s.late_count||0)+' L'):(s.assessment_name||'—'))}</div>
             <div><strong style="color:#64748b">Students:</strong> ${s.student_count||rows.length||0}</div>
-            <div><strong style="color:#64748b">${isAtt?'Status':'Average'}:</strong> ${isAtt?subStatusChip(s.status):`<span style="font-weight:700;color:#7c3aed">${s.average_score!=null?parseFloat(s.average_score).toFixed(1):'â€”'}</span>`}</div>
+            <div><strong style="color:#64748b">${isAtt?'Status':'Average'}:</strong> ${isAtt?subStatusChip(s.status):`<span style="font-weight:700;color:#7c3aed">${s.average_score!=null?parseFloat(s.average_score).toFixed(1):'—'}</span>`}</div>
             <div><strong style="color:#64748b">Progress:</strong> <span style="padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;color:#fff;background:${sc[s.status]||'#94a3b8'}">${esc(s.status_label||s.status||'')}</span></div>
-            <div><strong style="color:#64748b">Updated:</strong> ${s.updated_at?fD(s.updated_at):(s.submitted_at?fD(s.submitted_at):'â€”')}</div>
+            <div><strong style="color:#64748b">Updated:</strong> ${s.updated_at?fD(s.updated_at):(s.submitted_at?fD(s.submitted_at):'—')}</div>
             ${s.reviewer_name?`<div><strong style="color:#64748b">Reviewed by:</strong> ${esc(s.reviewer_name)}</div>`:''}
             ${s.review_notes?`<div style="grid-column:1/-1"><strong style="color:#64748b">Notes:</strong> ${esc(s.review_notes)}</div>`:''}
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
             <h4 style="font-weight:700;font-size:.85rem;margin:0"><i class="fa-solid fa-list-ol" style="color:#7c3aed"></i> ${isAtt?'Attendance sheet':'Student scores'}</h4>
             <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-                <input autocomplete="off" id="reviewSearch" class="inp" style="max-width:180px;padding:.35rem .6rem;font-size:.75rem" placeholder="Search name or codeâ€¦" oninput="renderReviewRows()">
+                <input autocomplete="off" id="reviewSearch" class="inp" style="max-width:180px;padding:.35rem .6rem;font-size:.75rem" placeholder="Search name or code…" oninput="renderReviewRows()">
                 <select id="reviewFilter" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()">${isAtt?'<option value="">All marks</option><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="e/option><option value="late">Late</option><option value="excused">Excused</option>':'<option value="">All scores</option><option value="scored">Has score</option><option value="blank">No score</option><option value="high">8 and above</option><option value="low">Below 5</option>'}</select>
                 <select id="reviewSort" class="inp" style="max-width:130px;padding:.35rem .5rem;font-size:.75rem" onchange="renderReviewRows()"><option value="name">Sort: Name</option><option value="code">Sort: Code</option>${isAtt?'<option value="mark">Sort: Mark</option>':'<option value="score">Sort: Score</option>'}</select>
             </div>
         </div>
-        <div id="reviewRowsBox">${rows.length?'':'<p style="text-align:center;color:#94a3b8">Loading studentsâ€¦</p>'}</div>
+        <div id="reviewRowsBox">${rows.length?'':'<p style="text-align:center;color:#94a3b8">Loading students…</p>'}</div>
         ${s.status==='submitted'?`
         <div style="border-top:1px solid #f1f5f9;padding-top:1rem;margin-top:1rem">
             <label class="lbl">Review Notes</label>
@@ -1782,9 +1782,9 @@ function renderReviewRows(){
     if(!rows.length){ box.innerHTML='<p style="text-align:center;color:#94a3b8">No matching students.</p>'; return; }
     const color={present:'#059669',absent:'#dc2626',late:'#d97706',excused:'#2563eb'};
     if(isAtt){
-        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Mark</th><th>Note</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td><span style="font-weight:700;color:${color[st.status]||'#64748b'};text-transform:capitalize">${esc(st.status||'â€”')}</span></td><td style="font-size:.75rem;color:#64748b">${esc(st.notes||'')}</td></tr>`).join('')}</tbody></table></div>`;
+        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Mark</th><th>Note</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td><span style="font-weight:700;color:${color[st.status]||'#64748b'};text-transform:capitalize">${esc(st.status||'—')}</span></td><td style="font-size:.75rem;color:#64748b">${esc(st.notes||'')}</td></tr>`).join('')}</tbody></table></div>`;
     }else{
-        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):'â€”'}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`;
+        box.innerHTML=`<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${rows.map((st,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(st.student_name||'')} ${esc(st.father_name||'')}</td><td><span class="ch ch-i">${esc(st.member_code||'')}</span></td><td style="font-weight:700">${st.score!=null?st.score+(st.max_score?' / '+st.max_score:''):'—'}</td><td style="font-size:.75rem;color:#64748b">${esc(st.remarks||'')}</td></tr>`).join('')}</tbody></table></div>`;
     }
 }
 async function quickReview(id,status){
@@ -1793,7 +1793,7 @@ async function quickReview(id,status){
 }
 async function doReview(id,status){
     const notes=(document.getElementById('reviewNotes')?.value||'').trim();
-    // Maker-checker discipline: returning/rejecting MUST carry a reason â€”
+    // Maker-checker discipline: returning/rejecting MUST carry a reason —
     // it is the teacher's instruction for what to fix before resubmitting.
     if(status!=='approved' && notes.length<3){
         toast('Write a short reason so the teacher knows what to fix.','err');
@@ -1806,7 +1806,7 @@ async function doReview(id,status){
     if(d.status==='success'){closeModal('reviewModal');loadSubmissions();}}catch(e){toast('Error','err');}
 }
 
-// â•â•â• REPORT CARDS (Edu Dept) â•â•â•
+// ═══ REPORT CARDS (Edu Dept) ═══
 let rcData=[], rcStats={};
 function rcQs(){
     const y=document.getElementById('rcYear')?.value||'';
@@ -1841,7 +1841,7 @@ async function loadClassPerformance(){
     }
     document.getElementById('rcEmptyMsg').style.display='none';
     document.getElementById('rcTableArea').style.display='block';
-    document.getElementById('rcTableBody').innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading classâ€¦</td></tr>';
+    document.getElementById('rcTableBody').innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading class…</td></tr>';
     try{
         const d=await getAPI(`/admin/api_communication.php?action=get_class_report&class_id=${cid}${rcQs()}`);
         if(d.status!=='success'){
@@ -1860,7 +1860,7 @@ async function loadClassPerformance(){
         const yrName=document.getElementById('rcYear')?.selectedOptions?.[0]?.text||'';
         const tmName=document.getElementById('rcTerm')?.selectedOptions?.[0]?.text||'';
         const banner=document.getElementById('rcPrintBannerMeta');
-        if(banner) banner.textContent=[clsName,yrName,tmName].filter(Boolean).join(' Â· ');
+        if(banner) banner.textContent=[clsName,yrName,tmName].filter(Boolean).join(' · ');
         document.getElementById('rcStatsCards').innerHTML=`
             <div class="rc-sem" style="grid-column:1/-1">
                 <div class="rc-sem-title">How much of this semester the teacher has recorded (each subject is 100%)</div>
@@ -1869,17 +1869,17 @@ async function loadClassPerformance(){
                     <div><span class="left">${semLeft}%</span><small>Still left</small></div>
                 </div>
                 <div class="rc-donebar"><i style="width:${semRec}%"></i><em></em></div>
-                <div class="rc-done-lbl">${semRec}% of the semester weight is recorded Â· <span class="left">${semLeft}% still left</span>${sem.subjects_left?` Â· ${sem.subjects_left} subject(s) not finished`:''}</div>
+                <div class="rc-done-lbl">${semRec}% of the semester weight is recorded · <span class="left">${semLeft}% still left</span>${sem.subjects_left?` · ${sem.subjects_left} subject(s) not finished`:''}</div>
             </div>
             <div class="rc-stat"><b>${st.total_students||0}</b><span>Students</span></div>
-            <div class="rc-stat"><b>${st.class_average!=null?st.class_average+'%':'â€”'}</b><span>Class average</span></div>
-            <div class="rc-stat"><b>${st.median!=null?st.median+'%':'â€”'}</b><span>Median</span></div>
-            <div class="rc-stat"><b>${st.pass_rate!=null?st.pass_rate+'%':'â€”'}</b><span>Pass rate</span></div>
-            <div class="rc-stat"><b>${st.highest!=null?st.highest+'%':'â€”'}</b><span>Highest</span></div>
-            <div class="rc-stat"><b>${st.lowest!=null?st.lowest+'%':'â€”'}</b><span>Lowest</span></div>`;
+            <div class="rc-stat"><b>${st.class_average!=null?st.class_average+'%':'—'}</b><span>Class average</span></div>
+            <div class="rc-stat"><b>${st.median!=null?st.median+'%':'—'}</b><span>Median</span></div>
+            <div class="rc-stat"><b>${st.pass_rate!=null?st.pass_rate+'%':'—'}</b><span>Pass rate</span></div>
+            <div class="rc-stat"><b>${st.highest!=null?st.highest+'%':'—'}</b><span>Highest</span></div>
+            <div class="rc-stat"><b>${st.lowest!=null?st.lowest+'%':'—'}</b><span>Lowest</span></div>`;
         const gd=st.grade_distribution||{A:0,B:0,C:0,D:0,F:0};
         const parts=[{l:'A',c:'#047857',n:gd.A},{l:'B',c:'#0369a1',n:gd.B},{l:'C',c:'#b45309',n:gd.C},{l:'D',c:'#c2410c',n:gd.D},{l:'F',c:'#b91c1c',n:gd.F}].filter(x=>x.n>0);
-        document.getElementById('rcDistBar').innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Grade distribution Â· ${st.graded_students||0} with scores</div>
+        document.getElementById('rcDistBar').innerHTML=`<div style="font-size:.75rem;font-weight:600;color:#64748b;margin-bottom:.5rem">Grade distribution · ${st.graded_students||0} with scores</div>
             <div style="display:flex;height:32px;border-radius:10px;overflow:hidden;font-size:.65rem;font-weight:700;color:#fff">${
                 parts.length?parts.map(x=>`<div style="flex:${x.n};background:${x.c};display:flex;align-items:center;justify-content:center;min-width:30px">${x.l}: ${x.n}</div>`).join(''):'<div style="flex:1;background:#e2e8f0;color:#64748b;display:flex;align-items:center;justify-content:center">No scores yet</div>'
             }</div>`;
@@ -1888,18 +1888,18 @@ async function loadClassPerformance(){
         if(box){
             if(subj.length){
                 box.style.display='block';
-                box.innerHTML=`<div style="font-size:.8rem;font-weight:800;color:#3b0000;margin-bottom:.55rem">Each subject is out of 100% this semester â€” recorded vs still left</div>
+                box.innerHTML=`<div style="font-size:.8rem;font-weight:800;color:#3b0000;margin-bottom:.55rem">Each subject is out of 100% this semester — recorded vs still left</div>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.65rem">${subj.map(x=>{
                         const c=x.completion||{};
                         const rec=Number(c.recorded||0);
                         const left=Number(c.remaining||0);
                         const items=c.items||[];
-                        const list=items.length?`<ul class="rc-items">${items.map(it=>`<li class="${it.recorded?'ok':'wait'}"><span>${esc(it.name||'')}${it.weight!=null?' Â· '+it.weight+'%':''}</span><span>${it.recorded?'Recorded':'Still left'}</span></li>`).join('')}</ul>`:((c.missing||[]).length?`<div class="rc-done-miss">Still left: ${esc(c.missing.join(', '))}</div>`:'');
+                        const list=items.length?`<ul class="rc-items">${items.map(it=>`<li class="${it.recorded?'ok':'wait'}"><span>${esc(it.name||'')}${it.weight!=null?' · '+it.weight+'%':''}</span><span>${it.recorded?'Recorded':'Still left'}</span></li>`).join('')}</ul>`:((c.missing||[]).length?`<div class="rc-done-miss">Still left: ${esc(c.missing.join(', '))}</div>`:'');
                         return `<div class="rc-subj-card">
                             <div class="nm amharic">${esc(x.subject_name)}</div>
-                            <div class="av">${x.average!=null?x.average+'%':'â€”'}<small>Class average Â· ${x.graded||0} graded</small></div>
+                            <div class="av">${x.average!=null?x.average+'%':'—'}<small>Class average · ${x.graded||0} graded</small></div>
                             <div class="rc-donebar"><i style="width:${rec}%"></i><em></em></div>
-                            <div class="rc-done-lbl">${rec}% of this semester recorded Â· <span class="left">${left}% still left</span></div>
+                            <div class="rc-done-lbl">${rec}% of this semester recorded · <span class="left">${left}% still left</span></div>
                             ${list}
                         </div>`;
                     }).join('')}</div>`;
@@ -1931,14 +1931,14 @@ function renderRcTable(){
     document.getElementById('rcTableBody').innerHTML=list.length?list.map(s=>{
         const pct=s.overall_average??s.avg_percentage;
         const attR=s.attendance_rate||0;
-        const obt=(s.total_obtained!=null&&s.total_max!=null)?(`${s.total_obtained} / ${s.total_max}`):'â€”';
+        const obt=(s.total_obtained!=null&&s.total_max!=null)?(`${s.total_obtained} / ${s.total_max}`):'—';
         return `<tr>
-            <td><span style="display:inline-flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.7rem;${s.rank&&s.rank<=3?'background:#F0C000;color:#600000':'background:#f1f5f9;color:#64748b'}">${s.rank||'â€”'}${s.tied?'=':''}</span></td>
+            <td><span style="display:inline-flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.7rem;${s.rank&&s.rank<=3?'background:#F0C000;color:#600000':'background:#f1f5f9;color:#64748b'}">${s.rank||'—'}${s.tied?'=':''}</span></td>
             <td style="font-weight:600;font-size:.82rem">${esc(s.student_name||'')} ${esc(s.father_name||'')}${s.christian_name?`<div style="font-size:.62rem;color:#94a3b8">Christian name: ${esc(s.christian_name)}</div>`:''}</td>
             <td><span class="ch ch-i" style="font-size:.65rem">${esc(s.member_code||'')}</span></td>
             <td style="font-size:.8rem">${esc(obt)}</td>
-            <td style="font-weight:700;font-size:.9rem">${pct!=null?Number(pct).toFixed(1)+'%':'â€”'}</td>
-            <td><span style="display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${gc[s.grade_letter]||'#94a3b8'}">${s.grade_letter||'â€”'}</span></td>
+            <td style="font-weight:700;font-size:.9rem">${pct!=null?Number(pct).toFixed(1)+'%':'—'}</td>
+            <td><span style="display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${gc[s.grade_letter]||'#94a3b8'}">${s.grade_letter||'—'}</span></td>
             <td><div style="display:flex;align-items:center;gap:.4rem"><div style="width:50px;height:6px;background:#e2e8f0;border-radius:99px"><div style="height:100%;border-radius:99px;background:${attR>=80?'#047857':attR>=60?'#d97706':'#b91c1c'};width:${Math.min(100,attR)}%"></div></div><span style="font-size:.7rem;color:#64748b">${attR}%</span></div></td>
             <td class="no-print"><button class="btn btn-o btn-xs" type="button" onclick="viewStudentReport(${s.id})"><i class="fa-solid fa-file-lines"></i> Report</button></td></tr>`;
     }).join(''):'<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8">No matching students</td></tr>';
@@ -1946,7 +1946,7 @@ function renderRcTable(){
 async function viewStudentReport(memberId){
     const cid=document.getElementById('rcClass')?.value||0;
     document.getElementById('rcModal').classList.add('show');
-    document.getElementById('rcModalBody').innerHTML='<p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report cardâ€¦</p>';
+    document.getElementById('rcModalBody').innerHTML='<p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report card…</p>';
     try{
         const d=await getAPI(`/admin/api_communication.php?action=get_report_card&member_id=${memberId}&class_id=${cid}${rcQs()}`);
         if(d.status!=='success'){
@@ -1986,7 +1986,7 @@ async function generateBulkReports(){
     const cid=document.getElementById('rcClass')?.value;
     if(!cid) return toast('Select a class first.','err');
     if(!rcData.length) return toast('Load the class first.','err');
-    toast('Preparing class report cardsâ€¦','ok');
+    toast('Preparing class report cards…','ok');
     try{
         const d=await getAPI(`/admin/api_communication.php?action=get_class_cards&class_id=${cid}${rcQs()}`);
         if(d.status!=='success' || !(d.cards||[]).length){
@@ -1998,7 +1998,7 @@ async function generateBulkReports(){
     }catch(e){ toast(friendlyNetError(e),'err'); }
 }
 
-// â•â•â• NAV EXTENSION â•â•â•
+// ═══ NAV EXTENSION ═══
 const _origNav=nav;
 nav=function(n){try{_origNav(n);}catch(e){console.error(e);}try{if(n==='submissions')loadSubmissions();}catch(e){console.error(e);}try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}};
 try{
@@ -2010,7 +2010,7 @@ if(!document.querySelector('.sec.act')){
     if(_dash) _dash.classList.add('act');
 }
 
-// â•â•â• INIT â•â•â•
+// ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',()=>{loadTeachers();try{filterRcTerms();}catch(e){}
 document.addEventListener('click',e=>{
     const sr=document.getElementById('enrollSearchResults');
