@@ -45,8 +45,11 @@ done
 # --- 3. Education APIs still answer ----------------------------------------
 ssms_login audit_edu > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_class_subjects&class_id=$(sudo -n mariadb --default-character-set=utf8mb4 ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")")
-echo "$D" | python3 -c 'import sys,json;d=json.load(sys.stdin);exit(0 if d["status"]=="success" and len(d["subjects"])==2 else 1)' \
+echo "$D" | python3 -c 'import sys,json;d=json.load(sys.stdin);exit(0 if d["status"]=="success" and len(d["subjects"])==2 and d.get("linked") is True else 1)' \
   && ok "get_class_subjects (grade_1 = 2 subjects)" || fail "get_class_subjects: $D"
+D=$(ssms_get "/admin/api_subjects.php?action=get_class_subjects&class_id=$(sudo -n mariadb --default-character-set=utf8mb4 ssms -N -e "SELECT id FROM classes WHERE class_code='grade_3'")")
+echo "$D" | python3 -c 'import sys,json;d=json.load(sys.stdin);exit(0 if d["status"]=="success" and len(d["subjects"])>0 and d.get("linked") is False and bool(d.get("message")) else 1)' \
+  && ok "unlinked class falls back to all subjects + notice" || fail "grade_3 fallback: $D"
 D=$(ssms_get "/admin/api_education.php?action=enrollment_overview")
 echo "$D" | python3 -c 'import sys,json;d=json.load(sys.stdin);exit(0 if d["status"]=="success" else 1)' \
   && ok "enrollment_overview" || fail "enrollment_overview"

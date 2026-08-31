@@ -280,26 +280,24 @@ switch ($action) {
                 $subjects[] = $row;
             }
 
-            echo json_encode(['status' => 'success', 'subjects' => $subjects]);
+            echo json_encode([
+                'status' => 'success',
+                'subjects' => $subjects,
+                'linked' => true,
+                'message' => $subjects ? null : 'You have no subject assignments in this class yet. Ask Education to assign you.',
+            ]);
             break;
         }
 
-        $stmt = $conn->prepare("
-            SELECT s.* FROM subjects s
-            JOIN class_subjects cs ON s.id = cs.subject_id
-            WHERE cs.class_id = ? AND s.is_active = 1
-            ORDER BY s.subject_name
-        ");
-        $stmt->bind_param("i", $classId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $subjects = [];
-        while ($row = $result->fetch_assoc()) {
-            $subjects[] = $row;
-        }
-        
-        echo json_encode(['status' => 'success', 'subjects' => $subjects]);
+        // Staff: class_subjects links, with an all-subjects fallback when the
+        // class has none configured (audit: empty-dropdown symptom).
+        $catalog = \App\Services\AssignmentService::subjectsForClass($conn, $classId);
+        echo json_encode([
+            'status' => 'success',
+            'subjects' => $catalog['subjects'],
+            'linked' => $catalog['linked'],
+            'message' => $catalog['message'],
+        ]);
         break;
 
     // ============================================================

@@ -73,6 +73,8 @@ if ($action === 'bootstrap' && $method === 'GET') {
     checkTeacherClassAccess($conn, $userId, $userRole, $classId, $yearId);
 
     $subjects = [];
+    $linked = true;
+    $notice = null;
     if ($isRestricted) {
         $stmt = $conn->prepare(
             "SELECT DISTINCT s.id, s.subject_name, s.subject_name_en, s.subject_code
@@ -85,22 +87,33 @@ if ($action === 'bootstrap' && $method === 'GET') {
         );
         $stmt->bind_param('iii', $userId, $classId, $yearId);
     } else {
-        $stmt = $conn->prepare(
-            "SELECT s.id, s.subject_name, s.subject_name_en, s.subject_code
-             FROM class_subjects cs
-             JOIN subjects s ON cs.subject_id = s.id
-             WHERE cs.class_id = ? AND s.is_active = 1
-             ORDER BY s.subject_name"
-        );
-        $stmt->bind_param('i', $classId);
+        // Subjects linked to the class, falling back to all active subjects
+        // when none are linked yet (empty-dropdown fix).
+        if (!class_exists('\\App\\Services\\AssignmentService')) {
+            require_once __DIR__ . '/../../../admin/backend/services/AssignmentService.php';
+        }
+        $catalog = \App\Services\AssignmentService::subjectsForClass($conn, $classId);
+        $linked = $catalog['linked'];
+        $notice = $catalog['message'];
+        $subjects = array_map(static function ($s) {
+            return [
+                'id' => (int)$s['id'],
+                'subject_name' => $s['subject_name'],
+                'subject_name_en' => $s['subject_name_en'] ?? null,
+                'subject_code' => $s['subject_code'] ?? null,
+            ];
+        }, $catalog['subjects']);
+        $stmt = null;
     }
-    $stmt->execute();
-    $r = $stmt->get_result();
-    while ($row = $r->fetch_assoc()) {
-        $row['id'] = (int)$row['id'];
-        $subjects[] = $row;
+    if ($stmt) {
+        $stmt->execute();
+        $r = $stmt->get_result();
+        while ($row = $r->fetch_assoc()) {
+            $row['id'] = (int)$row['id'];
+            $subjects[] = $row;
+        }
+        $stmt->close();
     }
-    $stmt->close();
 
     $assessments = [];
     $ids = array_map(static fn($s) => (int)$s['id'], $subjects);
@@ -150,6 +163,8 @@ if ($action === 'bootstrap' && $method === 'GET') {
         'subjects' => $subjects,
         'assessments' => $assessments,
         'class_id' => $classId,
+        'linked' => $linked,
+        'notice' => $notice,
     ]);
 }
 
@@ -177,28 +192,45 @@ if ($action === 'subjects' && $method === 'GET') {
                                     ORDER BY s.subject_name");
             $stmt->bind_param('iii', $userId, $classId, $yearId);
         } else {
-            // ADMIN/EDU_DEPT: All subjects for the class
-            $stmt = $conn->prepare("SELECT s.id, s.subject_name, s.subject_name_en, s.subject_code
-                                    FROM class_subjects cs
-                                    JOIN subjects s ON cs.subject_id = s.id
-                                    WHERE cs.class_id = ? AND s.is_active = 1
-                                    ORDER BY s.subject_name");
-            $stmt->bind_param('i', $classId);
+            // ADMIN/EDU_DEPT: subjects linked to the class, falling back to
+            // all active subjects when none are linked yet (empty-dropdown fix)
+            if (!class_exists('\\App\\Services\\AssignmentService')) {
+                require_once __DIR__ . '/../../../admin/backend/services/AssignmentService.php';
+            }
+            $catalog = \App\Services\AssignmentService::subjectsForClass($conn, $classId);
+            $linked = $catalog['linked'];
+            $notice = $catalog['message'];
+            $subjects = array_map(static function ($s) {
+                return [
+                    'id' => (int)$s['id'],
+                    'subject_name' => $s['subject_name'],
+                    'subject_name_en' => $s['subject_name_en'] ?? null,
+                    'subject_code' => $s['subject_code'] ?? null,
+                ];
+            }, $catalog['subjects']);
+            $stmt = null;
         }
         
-        $stmt->execute();
-        $r = $stmt->get_result();
-        while ($row = $r->fetch_assoc()) {
-            $row['id'] = (int)$row['id'];
-            $subjects[] = $row;
+        if ($stmt) {
+            $stmt->execute();
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $row['id'] = (int)$row['id'];
+                $subjects[] = $row;
+            }
+            $stmt->close();
         }
-        $stmt->close();
     } catch (Exception $e) {
         reportInternalError('API grades subject list failed', $e);
         err('Unable to load subjects.', 500);
     }
     
-    ok(['subjects' => $subjects, 'count' => count($subjects)]);
+    ok([
+        'subjects' => $subjects,
+        'count' => count($subjects),
+        'linked' => $linked ?? true,
+        'notice' => $notice ?? null,
+    ]);
 }
 
 // ============================================================

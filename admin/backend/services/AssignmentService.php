@@ -27,6 +27,59 @@ class AssignmentService
     {
     }
 
+    /**
+     * Subjects teachable in a class (audit: empty-dropdown symptom).
+     *
+     * Source of truth is the class_subjects link table, but when a class has
+     * no links configured yet we fall back to every active subject so grade
+     * entry is never blocked by missing setup. The caller can tell the two
+     * cases apart via 'linked' and show the returned guidance message.
+     *
+     * @return array{subjects: array[], linked: bool, message: ?string}
+     */
+    public static function subjectsForClass(\mysqli $conn, int $classId): array
+    {
+        $subjects = [];
+        $stmt = $conn->prepare(
+            "SELECT s.* FROM subjects s
+             JOIN class_subjects cs ON s.id = cs.subject_id
+             WHERE cs.class_id = ? AND s.is_active = 1
+             ORDER BY s.subject_name"
+        );
+        if ($stmt) {
+            $stmt->bind_param('i', $classId);
+            $stmt->execute();
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $subjects[] = $row;
+            }
+            $stmt->close();
+        }
+        if ($subjects) {
+            return ['subjects' => $subjects, 'linked' => true, 'message' => null];
+        }
+
+        // Fallback: nothing linked yet — offer every active subject.
+        $stmt = $conn->prepare(
+            "SELECT * FROM subjects WHERE is_active = 1 ORDER BY subject_name"
+        );
+        if ($stmt) {
+            $stmt->execute();
+            $r = $stmt->get_result();
+            while ($row = $r->fetch_assoc()) {
+                $subjects[] = $row;
+            }
+            $stmt->close();
+        }
+        return [
+            'subjects' => $subjects,
+            'linked' => false,
+            'message' => $subjects
+                ? 'No subjects are linked to this class yet — showing all subjects. Link them under Subjects → Edit → "Taught in classes".'
+                : 'No active subjects exist yet — create subjects first under Subjects.',
+        ];
+    }
+
     public static function effectiveYear(\mysqli $conn): ?array
     {
         if (function_exists('ay_resolve')) {
