@@ -91,6 +91,12 @@ GS=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$BASE/admin/api_subjects.
 OWN=$(ssms_get "/admin/api_subjects.php?action=get_class_subjects&class_id=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")")
 echo "$OWN" | grep -q 'bible' && ok "teacher still sees own assigned subject" || fail "own subject missing: $OWN"
 
+# --- 3e. PII minimization (Patch H7) ---------------------------------------
+RPH=$(ssms_get "/admin/api_education.php?action=roster&class_id=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")")
+echo "$RPH" | grep -q '251911000001' && fail "teacher roster leaks phone PII" || ok "teacher roster phone masked"
+NPH=$(echo "$RPH" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d.get("rows",[]) if r.get("phone_number") is not None))')
+[ "$NPH" = "0" ] && ok "teacher roster all phones null" || fail "$NPH roster phones visible"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

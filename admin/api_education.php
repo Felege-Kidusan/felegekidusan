@@ -83,6 +83,31 @@ if (in_array($action, $__manageActions, true)) {
 // Effective academic year — single source of truth (resolver, time-travel aware)
 $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
+// ── PII minimization (PATCH H7) ─────────────────────────────────────────────
+// Teachers and attendance takers receive rosters to teach, not contact
+// details: member/teacher phone numbers are stripped from every payload
+// for those roles. Staff roles keep full contact data.
+$__maskPhone = in_array($__role, ['teacher', 'attendance_taker'], true);
+
+/** Strip phone columns from row arrays unless the caller is staff. */
+function edu_scrub_phone(array $rows, bool $mask): array
+{
+    if (!$mask) {
+        return $rows;
+    }
+    foreach ($rows as &$r) {
+        if (is_array($r)) {
+            foreach (['phone', 'phone_number', 'phone_primary'] as $k) {
+                if (array_key_exists($k, $r)) {
+                    $r[$k] = null;
+                }
+            }
+        }
+    }
+    unset($r);
+    return $rows;
+}
+
 // Education schema is deployment-managed by migrations 004, 006, and 013.
 
 // ── STEP 3: write-protection ────────────────────────────────────────────────
@@ -1099,7 +1124,7 @@ switch ($action) {
         $fp=array_merge($p,[$currentYear['id'],$limit,$offset]); $ft=$t.'iii';
         $stmt=$conn->prepare($sql); $stmt->bind_param($ft,...$fp); $stmt->execute();
         $members=[]; $r=$stmt->get_result(); while($row=$r->fetch_assoc()) $members[]=$row;
-        echo json_encode(['status'=>'success','members'=>$members,'total'=>$total,'limit'=>$limit,'offset'=>$offset]);
+        echo json_encode(['status'=>'success','members'=>edu_scrub_phone($members, $__maskPhone),'total'=>$total,'limit'=>$limit,'offset'=>$offset]);
         break;
 
     // ============================================================
@@ -1115,7 +1140,7 @@ switch ($action) {
         if (!empty($p)) { $stmt=$conn->prepare($sql); $stmt->bind_param($t,...$p); $stmt->execute(); $result=$stmt->get_result(); }
         else $result=$conn->query($sql);
         $teachers=[]; if($result) while($row=$result->fetch_assoc()) $teachers[]=$row;
-        echo json_encode(['status'=>'success','teachers'=>$teachers]);
+        echo json_encode(['status'=>'success','teachers'=>edu_scrub_phone($teachers, $__maskPhone)]);
         break;
 
     // ============================================================
@@ -1200,7 +1225,7 @@ switch ($action) {
         $sql="SELECT m.id, m.student_name, m.father_name, m.member_code, m.gender, m.age_group, m.phone_number, m.current_section, m.is_teacher, m.member_type FROM members m WHERE $wc ORDER BY m.student_name LIMIT ?";
         $stmt=$conn->prepare($sql); $stmt->bind_param($t,...$p); $stmt->execute();
         $members=[]; $r=$stmt->get_result(); while($row=$r->fetch_assoc()) $members[]=$row;
-        echo json_encode(['status'=>'success','members'=>$members]);
+        echo json_encode(['status'=>'success','members'=>edu_scrub_phone($members, $__maskPhone)]);
         break;
 
     // ============================================================
@@ -1335,7 +1360,7 @@ switch ($action) {
 
         echo json_encode([
             'status' => 'success',
-            'rows' => $rows,
+            'rows' => edu_scrub_phone($rows, $__maskPhone),
             'total' => $total,
             'page' => $page,
             'per_page' => $perPage,
@@ -1410,7 +1435,7 @@ switch ($action) {
 
         echo json_encode([
             'status' => 'success',
-            'teachers' => $teachers,
+            'teachers' => edu_scrub_phone($teachers, $__maskPhone),
             'total' => $total,
             'page' => $page,
             'per_page' => $perPage,

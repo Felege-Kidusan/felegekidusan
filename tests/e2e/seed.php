@@ -137,6 +137,13 @@ $stmtM = $conn->prepare(
 $stmtE = $conn->prepare(
     "INSERT INTO class_enrollments (member_id, class_id, academic_year_id, status, enrolled_at)
      VALUES (?, ?, ?, 'active', CURDATE())");
+// H7 fixture: first test member carries a phone so PII masking is testable.
+$stmtP = $conn->prepare("UPDATE members SET phone_number = ? WHERE id = ?");
+$stmtP->bind_param('si', $probePhone, $probeMemberId);
+$probePhone = '+251911000001';
+$probeMemberId = 900000;
+$stmtP->execute();
+$stmtP->close();
 $i = 0;
 foreach ($names as [$sn, $fn, $g, $cc]) {
     $id = 900000 + $i;
