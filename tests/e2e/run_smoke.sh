@@ -35,6 +35,19 @@ D=$(ssms_get "/admin/api_education.php?action=enrollment_overview")
 echo "$D" | python3 -c 'import sys,json;d=json.load(sys.stdin);exit(0 if d["status"]=="success" else 1)' \
   && ok "enrollment_overview" || fail "enrollment_overview"
 
+# --- 3b. Web grade save/re-save (Patch C1) ---------------------------------
+php tests/e2e/seed.php 2>&1 >/dev/null | tail -1 > /tmp/seed.json
+AID=$(python3 -c 'import json;print(json.load(open("/tmp/seed.json"))["assessment_id"])')
+ssms_login audit_edu > /dev/null 2>&1
+R1=$(ssms_post /admin/api_subjects.php action=save_grades assessment_id=$AID "grades=[{\"member_id\":900000,\"score\":62,\"remark\":\"s1\"}]")
+R2=$(ssms_post /admin/api_subjects.php action=save_grades assessment_id=$AID "grades=[{\"member_id\":900000,\"score\":71,\"remark\":\"s2\"}]")
+echo "$R1" | grep -q '"saved":1' && ok "grade save #1" || fail "grade save #1: $R1"
+echo "$R2" | grep -q '"saved":1' && ok "grade re-save (was C1 bug)" || fail "grade re-save: $R2"
+DUPS=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM (SELECT member_id FROM academic_records WHERE assessment_id=$AID GROUP BY member_id HAVING COUNT(*)>1) t")
+[ "$DUPS" = "0" ] && ok "no duplicate grade rows" || fail "duplicate rows: $DUPS"
+FINAL=$(sudo -n mariadb ssms -N -e "SELECT score FROM academic_records WHERE assessment_id=$AID AND member_id=900000")
+[ "$FINAL" = "71.00" ] && ok "final score is last saved value" || fail "final score: $FINAL"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

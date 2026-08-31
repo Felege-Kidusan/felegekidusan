@@ -551,7 +551,7 @@ switch ($action) {
     
     case 'save_grades':
         $assessmentId = (int)($_POST['assessment_id'] ?? 0);
-        $grades = $_POST['grades'] ?? []; // Array of {member_id, score, remarks}
+        $grades = $_POST['grades'] ?? []; // Array of {member_id, score, remarks, record_id?}
         
         if (!$assessmentId || empty($grades)) {
             echo json_encode(['status' => 'error', 'message' => 'Assessment ID and grades required']);
@@ -567,66 +567,79 @@ switch ($action) {
         $stmt->bind_param("i", $assessmentId);
         $stmt->execute();
         $assessment = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
         
         if (!$assessment) {
             echo json_encode(['status' => 'error', 'message' => 'Assessment not found']);
             exit;
         }
         
-        $recordedBy = $_SESSION['admin_id'];
+        $recordedBy = (int)($_SESSION['admin_id']);
+        $maxScore = (float)$assessment['max_score'];
+        $yearId = (int)($assessment['academic_year_id'] ?: ($currentYear['id'] ?? 0));
+        $termId = !empty($assessment['term_id']) ? (int)$assessment['term_id'] : null;
         $successCount = 0;
         $errors = [];
         
-        // Prepare statements
-        $insertStmt = $conn->prepare("
-            INSERT INTO academic_records 
-            (member_id, class_id, subject_id, academic_year_id, term_id, assessment_id, score, max_score, remarks, recorded_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        
-        $updateStmt = $conn->prepare("
-            UPDATE academic_records SET score = ?, remarks = ?, recorded_by = ? WHERE id = ?
-        ");
-        
+        // PATCH C1: re-saving a sheet used to run a blind INSERT that hit the
+        // uq_ar_assessment_member unique key and failed for every existing
+        // row. All writes now go through the same canonical upsert the mobile
+        // app uses (lookup by assessment+member, then update-or-insert), so
+        // first save and every re-save behave identically.
         foreach ($grades as $grade) {
+            if (!is_array($grade)) {
+                continue;
+            }
             $memberId = (int)($grade['member_id'] ?? 0);
             $score = isset($grade['score']) && $grade['score'] !== '' ? (float)$grade['score'] : null;
-            $remarks = trim($grade['remarks'] ?? '');
-            $recordId = isset($grade['record_id']) ? (int)$grade['record_id'] : 0;
+            $remarks = trim((string)($grade['remarks'] ?? $grade['remark'] ?? ''));
             
-            if (!$memberId) continue;
+            if (!$memberId) {
+                continue;
+            }
             
-            // Validate score
-            if ($score !== null && ($score < 0 || $score > $assessment['max_score'])) {
-                $errors[] = "Invalid score for member $memberId";
+            // Validate score against the assessment's max
+            if ($score !== null && ($score < 0 || $score > $maxScore)) {
+                $errors[] = "Invalid score for member $memberId (max: $maxScore)";
+                continue;
+            }
+            
+            // Nothing to store (blank score, no remark) — skip silently,
+            // matching the previous behaviour of not inserting empty rows.
+            if ($score === null && $remarks === '') {
                 continue;
             }
             
             try {
-                if ($recordId > 0) {
-                    // Update existing
-                    $updateStmt->bind_param("dsii", $score, $remarks, $recordedBy, $recordId);
-                    $updateStmt->execute();
-                } else if ($score !== null) {
-                    // Insert new
-                    $insertStmt->bind_param(
-                        "iiiiiiddsi",
-                        $memberId, $assessment['class_id'], $assessment['subject_id'], 
-                        $assessment['academic_year_id'], $assessment['term_id'], $assessmentId,
-                        $score, $assessment['max_score'], $remarks, $recordedBy
-                    );
-                    $insertStmt->execute();
+                $rid = \App\Services\SubmissionService::upsertScore($conn, [
+                    'assessment_id' => $assessmentId,
+                    'member_id' => $memberId,
+                    'score' => $score,
+                    'remarks' => $remarks,
+                    'recorded_by' => $recordedBy,
+                    'class_id' => (int)$assessment['class_id'],
+                    'subject_id' => (int)$assessment['subject_id'],
+                    'year_id' => $yearId ?: null,
+                    'term_id' => $termId,
+                    'max_score' => $maxScore,
+                ]);
+                if ($rid > 0) {
+                    $successCount++;
+                } else {
+                    $errors[] = "Could not save the grade for member $memberId.";
                 }
-                $successCount++;
-            } catch (Exception $e) {
-                reportInternalError('Grade save failed for member ' . $memberId, $e);
+            } catch (Throwable $e) {
+                reportInternalError('Web grade save failed for member ' . $memberId, $e);
                 $errors[] = "Could not save the grade for member $memberId.";
             }
         }
         
         echo json_encode([
             'status' => 'success',
-            'message' => "$successCount grade(s) saved successfully",
+            'message' => $successCount > 0
+                ? "$successCount grade(s) saved successfully"
+                : ($errors ? 'No grades could be saved.' : 'Nothing to save.'),
+            'saved' => $successCount,
             'errors' => $errors
         ]);
         break;
@@ -685,8 +698,11 @@ switch ($action) {
     default:
         echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
 }
-} catch (Exception $e) {
-    error_log("api_subjects error: " . $e->getMessage());
+} catch (Throwable $e) {
+    // Throwable (not Exception): a PHP TypeError/Error must also come back as
+    // stable JSON, never as an HTML error page that breaks the frontend.
+    reportInternalError('api_subjects error', $e);
+    http_response_code(500);
     echo json_encode(['status' => 'error', 'message' => 'Server error. Please try again.']);
 }
 
