@@ -447,37 +447,68 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Teacher ID required']);
             exit;
         }
+
+        // Never deactivate your own account through this endpoint.
+        if ((int)($_SESSION['admin_id'] ?? 0) === $teacherId) {
+            respondApiError('You cannot remove your own account here. Ask another administrator.', 422, 'self_delete');
+        }
         
-        // Get member_id before deletion
+        // Get member_id before removal
         $stmt = $conn->prepare("SELECT member_id FROM users WHERE id = ? AND role = 'teacher'");
         $stmt->bind_param("i", $teacherId);
         $stmt->execute();
         $teacher = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
         
         if (!$teacher) {
             echo json_encode(['status' => 'error', 'message' => 'Teacher not found']);
             exit;
         }
-        
-        // Delete assignments first
-        $stmt = $conn->prepare("DELETE FROM teacher_assignments WHERE teacher_id = ?");
-        $stmt->bind_param("i", $teacherId);
-        $stmt->execute();
-        
-        // Delete user
-        $stmt = $conn->prepare("DELETE FROM users WHERE id = ? AND role = 'teacher'");
-        $stmt->bind_param("i", $teacherId);
-        
-        if ($stmt->execute()) {
-            // Sync member is_teacher flag and member_type
-            if ($teacher['member_id']) {
-                syncMemberTeacherFlag($conn, (int)$teacher['member_id'], false);
-            }
-            
-            echo json_encode(['status' => 'success', 'message' => 'Teacher deleted successfully']);
-        } else {
-            echo json_encode(['status' => 'error', 'message' => 'Database error']);
+
+        // H3 (audit): soft-remove only. The old code ran hard DELETEs on
+        // teacher_assignments and users, orphaning grade_submissions.teacher_id
+        // and academic_records.recorded_by — the review inbox then showed blank
+        // submitter names and audit history lost accountability. Deactivating
+        // the account (login refuses inactive users) and the assignments keeps
+        // every historical record attributed and queryable.
+        try {
+            $conn->begin_transaction();
+            $stmt = $conn->prepare("UPDATE users SET is_active = 0 WHERE id = ? AND role = 'teacher'");
+            $stmt->bind_param("i", $teacherId);
+            $stmt->execute();
+            $stmt->close();
+
+            $stmt = $conn->prepare("UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?");
+            $stmt->bind_param("i", $teacherId);
+            $stmt->execute();
+            $stmt->close();
+            $conn->commit();
+        } catch (Throwable $e) {
+            $conn->rollback();
+            throw $e;
         }
+
+        // Sync member is_teacher flag and member_type
+        if ($teacher['member_id']) {
+            syncMemberTeacherFlag($conn, (int)$teacher['member_id'], false);
+        }
+        
+        $hadHistory = false;
+        $hist = $conn->prepare(
+            "SELECT 1 FROM grade_submissions WHERE teacher_id = ? LIMIT 1"
+        );
+        if ($hist) {
+            $hist->bind_param("i", $teacherId);
+            $hist->execute();
+            $hadHistory = $hist->get_result()->num_rows > 0;
+            $hist->close();
+        }
+        echo json_encode([
+            'status' => 'success',
+            'message' => $hadHistory
+                ? 'Teacher removed. The account is deactivated and their submitted mark lists and grades remain attributed for audit.'
+                : 'Teacher removed. The account is deactivated and can be re-enabled later if needed.',
+        ]);
         break;
 
     // ============================================================
