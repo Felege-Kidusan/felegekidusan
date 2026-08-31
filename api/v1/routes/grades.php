@@ -63,6 +63,29 @@ function checkTeacherSubjectAccess($conn, $userId, $userRole, $classId, $subject
     $stmt->close();
 }
 
+/**
+ * H1: honest empty-state for a teacher with NO subject rows for a class.
+ * Class-level (subject_id NULL) assignments grant class access — the
+ * teacher deserves to know WHY the subject list is empty and what to do.
+ */
+function teacherNoSubjectsNotice($conn, $userId, $classId) {
+    $notice = 'No subjects are assigned to you for this class yet. Ask the Education department to assign you subjects.';
+    try {
+        $stmt = $conn->prepare("SELECT COUNT(*) c FROM teacher_assignments
+                                 WHERE teacher_id = ? AND class_id = ? AND subject_id IS NULL AND is_active = 1");
+        $stmt->bind_param('ii', $userId, $classId);
+        $stmt->execute();
+        $c = (int)$stmt->get_result()->fetch_assoc()['c'];
+        $stmt->close();
+        if ($c > 0) {
+            $notice = 'You are registered as a class teacher for this class, but no subjects are assigned to you yet. Ask the Education department to assign you subjects.';
+        }
+    } catch (Exception $e) {
+        reportInternalError('teacherNoSubjectsNotice failed', $e);
+    }
+    return $notice;
+}
+
 // ============================================================
 // GET /grades/bootstrap?class_id=X
 // One round-trip: subjects the teacher may see + their assessments.
@@ -159,6 +182,9 @@ if ($action === 'bootstrap' && $method === 'GET') {
         $stmt->close();
     }
 
+    if (empty($subjects) && $isRestricted) {
+        $notice = teacherNoSubjectsNotice($conn, $userId, $classId);
+    }
     ok([
         'subjects' => $subjects,
         'assessments' => $assessments,
@@ -225,6 +251,9 @@ if ($action === 'subjects' && $method === 'GET') {
         err('Unable to load subjects.', 500);
     }
     
+    if (empty($subjects) && $isRestricted) {
+        $notice = teacherNoSubjectsNotice($conn, $userId, $classId);
+    }
     ok([
         'subjects' => $subjects,
         'count' => count($subjects),

@@ -237,17 +237,38 @@ switch ($action) {
         $count = $stmt->get_result()->fetch_assoc()['cnt'];
         
         if ($count > 0) {
-            // Soft delete - just deactivate
+            // Soft delete - just deactivate (grade history must survive)
             $stmt = $conn->prepare("UPDATE subjects SET is_active = 0 WHERE id = ?");
             $stmt->bind_param("i", $id);
             $stmt->execute();
             echo json_encode(['status' => 'success', 'message' => 'Subject deactivated (has existing grades)']);
         } else {
-            // Hard delete
-            $stmt = $conn->prepare("DELETE FROM subjects WHERE id = ?");
-            $stmt->bind_param("i", $id);
-            $stmt->execute();
-            echo json_encode(['status' => 'success', 'message' => 'Subject deleted']);
+            // Hard delete — no grade history exists, so remove the subject AND
+            // every link row in one transaction (H4: orphan links used to break
+            // other teachers' dropdowns and the assignment matrix).
+            try {
+                $conn->begin_transaction();
+                foreach (
+                    [
+                        "DELETE FROM class_subjects WHERE subject_id = ?",
+                        "DELETE FROM teacher_assignments WHERE subject_id = ?",
+                        "DELETE FROM grade_submissions WHERE subject_id = ?",
+                        "DELETE FROM timetable_entries WHERE subject_id = ?",
+                        "DELETE FROM assessments WHERE subject_id = ?",
+                        "DELETE FROM subjects WHERE id = ?",
+                    ] as $sql
+                ) {
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bind_param("i", $id);
+                    $stmt->execute();
+                    $stmt->close();
+                }
+                $conn->commit();
+                echo json_encode(['status' => 'success', 'message' => 'Subject deleted']);
+            } catch (Throwable $e) {
+                $conn->rollback();
+                throw $e;
+            }
         }
         break;
     
@@ -311,11 +332,26 @@ switch ($action) {
                 $subjects[] = $row;
             }
 
+            // H1: explain WHY the list is empty — class teachers (subject_id
+            // NULL assignment) get a specific, actionable message.
+            $noSubjNotice = 'You have no subject assignments in this class yet. Ask Education to assign you.';
+            if (!$subjects) {
+                $nullStmt = $conn->prepare(
+                    "SELECT id FROM teacher_assignments
+                     WHERE teacher_id = ? AND class_id = ? AND subject_id IS NULL AND is_active = 1 LIMIT 1"
+                );
+                $nullStmt->bind_param("ii", $__uid, $classId);
+                $nullStmt->execute();
+                if ($nullStmt->get_result()->num_rows > 0) {
+                    $noSubjNotice = 'You are the class teacher here, but no subjects are assigned to you yet. Ask Education to assign you subjects.';
+                }
+                $nullStmt->close();
+            }
             echo json_encode([
                 'status' => 'success',
                 'subjects' => $subjects,
                 'linked' => true,
-                'message' => $subjects ? null : 'You have no subject assignments in this class yet. Ask Education to assign you.',
+                'message' => $subjects ? null : $noSubjNotice,
             ]);
             break;
         }

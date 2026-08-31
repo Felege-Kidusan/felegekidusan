@@ -671,12 +671,54 @@ switch ($action) {
         
         if ($cnt > 0) {
             echo json_encode(['status'=>'error','message'=>"Cannot delete: $cnt active enrollments"]);
+        } elseif (class_exists('\\App\\Services\\EnrollmentService')
+            && \App\Services\EnrollmentService::classHasGradeHistory($conn, $id)) {
+            // H4: the class carries grade/assessment history — deactivate it so
+            // reports and transcripts stay intact instead of orphaning them.
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("UPDATE classes SET is_active = 0 WHERE id = ?");
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+                $stmt->close();
+                // Assignments to a deactivated class stop appearing everywhere.
+                $stmt = $conn->prepare("UPDATE teacher_assignments SET is_active = 0 WHERE class_id = ?");
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+                $stmt->close();
+                $conn->commit();
+                echo json_encode(['status'=>'success','message'=>'Class deactivated (it has grade history). Records are preserved.']);
+            } catch (Throwable $e) {
+                $conn->rollback();
+                throw $e;
+            }
         } else {
-            $stmt = $conn->prepare("DELETE FROM classes WHERE id = ?");
-            $stmt->bind_param("i", $id);
-            $stmt->execute();
-            $stmt->close();
-            echo json_encode(['status'=>'success','message'=>'Class deleted']);
+            // No active enrollments, no grade history: hard delete the class
+            // AND every dependent row in one transaction (H4 orphan cleanup).
+            try {
+                $conn->begin_transaction();
+                foreach (
+                    [
+                        "DELETE FROM class_subjects WHERE class_id = ?",
+                        "DELETE FROM teacher_assignments WHERE class_id = ?",
+                        "DELETE FROM timetable_entries WHERE class_id = ?",
+                        "DELETE FROM grade_submissions WHERE class_id = ?",
+                        "DELETE FROM assessments WHERE class_id = ?",
+                        "DELETE FROM class_enrollments WHERE class_id = ?",
+                        "DELETE FROM classes WHERE id = ?",
+                    ] as $sql
+                ) {
+                    $stmt = $conn->prepare($sql);
+                    $stmt->bind_param("i", $id);
+                    $stmt->execute();
+                    $stmt->close();
+                }
+                $conn->commit();
+                echo json_encode(['status'=>'success','message'=>'Class deleted']);
+            } catch (Throwable $e) {
+                $conn->rollback();
+                throw $e;
+            }
         }
         break;
 

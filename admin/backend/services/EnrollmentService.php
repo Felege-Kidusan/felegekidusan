@@ -310,6 +310,36 @@ class EnrollmentService
      * When $includeUnscoped is true, also count rows with NULL/0 year
      * (legacy imports that never stamped a year).
      */
+    /**
+     * Does this class carry grade history that must survive a delete?
+     * True when any of its assessments has entered grades, or any teacher
+     * submission packet exists for it (audit H4: history-preserving delete).
+     */
+    public static function classHasGradeHistory(\mysqli $conn, int $classId): bool
+    {
+        foreach (
+            [
+                "SELECT 1 FROM academic_records ar
+                  JOIN assessments a ON a.id = ar.assessment_id
+                 WHERE a.class_id = ? LIMIT 1",
+                "SELECT 1 FROM grade_submissions WHERE class_id = ? LIMIT 1",
+            ] as $sql
+        ) {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                continue;
+            }
+            $stmt->bind_param('i', $classId);
+            $stmt->execute();
+            $has = $stmt->get_result()->num_rows > 0;
+            $stmt->close();
+            if ($has) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static function countActive(\mysqli $conn, int $classId, ?int $yearId, bool $includeUnscoped = true): int
     {
         if ($classId <= 0) {

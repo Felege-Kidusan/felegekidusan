@@ -125,6 +125,26 @@ echo "$RPH" | grep -q '251911000001' && fail "teacher roster leaks phone PII" ||
 NPH=$(echo "$RPH" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d.get("rows",[]) if r.get("phone_number") is not None))')
 [ "$NPH" = "0" ] && ok "teacher roster all phones null" || fail "$NPH roster phones visible"
 
+# --- 3f. H1 honest empty-state + H4 delete cascades (Patch 9) --------------
+ssms_api_login audit_teach > /dev/null 2>&1
+NB=$(ssms_api GET "grades/bootstrap&class_id=$G2" | python3 -c 'import json,sys;d=json.load(sys.stdin)["data"];print("1" if (len(d["subjects"])==0 and "class teacher" in (d.get("notice") or "")) else "0")')
+[ "$NB" = "1" ] && ok "class-teacher gets honest empty-state (mobile)" || fail "H1 notice missing on bootstrap"
+G1C=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='grade_1'")
+ssms_login audit_edu > /dev/null 2>&1
+DS=$(ssms_post /admin/api_subjects.php action=create_subject "subject_name=የመጥፋት ሙከራ" "subject_name_en=DelProbe")
+DSID=$(echo "$DS" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("subject_id","0"))')
+ssms_post /admin/api_subjects.php action=assign_subject_to_classes subject_id=$DSID "class_ids=[$G1C]" > /dev/null
+ssms_post /admin/api_subjects.php action=delete_subject subject_id=$DSID > /dev/null
+ORP=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM class_subjects WHERE subject_id=$DSID")
+[ "$ORP" = "0" ] && ok "subject hard-delete cascades links (H4)" || fail "$ORP orphan links after subject delete"
+ssms_post /admin/api_education.php action=save_class class_name="Probe" class_name_en="Probe" class_code="smoke_probe" level_order=9 > /dev/null
+PC=$(sudo -n mariadb ssms -N -e "SELECT id FROM classes WHERE class_code='smoke_probe' LIMIT 1")
+ssms_post /admin/api_subjects.php action=assign_subject_to_classes subject_id=3 "class_ids=[$PC]" > /dev/null
+ssms_post /admin/api_education.php action=delete_class class_id=$PC > /dev/null
+CLEFT=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM class_subjects WHERE class_id=$PC")
+CGONE=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM classes WHERE id=$PC")
+[ "$CLEFT" = "0" ] && [ "$CGONE" = "0" ] && ok "class hard-delete cascades links (H4)" || fail "class delete left orphans ($CLEFT links, class=$CGONE)"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")
