@@ -575,9 +575,9 @@ select.inp{cursor:pointer}
 const CSRF='<?=$csrfToken?>';
 let allMembers=[],filteredMembers=[],curPage=1,sortCol='id',sortDir='desc';
 let memberTotal=0,memberPages=1,memberNextCursor=null,memberCursors={1:null},memberFilterTimer=null,memberOptionsLoaded=false,globalSearchMembers=[];
-const secDist=<?=json_encode($sectionDist)?>;
-const memberStats=<?=json_encode($stats)?>;
-const usersData=<?=json_encode($usersList)?>;
+const secDist=<?=json_encode($sectionDist, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)?>;
+const memberStats=<?=json_encode($stats, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)?>;
+const usersData=<?=json_encode($usersList, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)?>;
 
 // ANIMATED COUNTERS
 function animateCounters(){document.querySelectorAll('.count-up').forEach(el=>{const target=parseInt(el.dataset.target)||0;if(!target){el.textContent='0';return;}const dur=800,start=performance.now();const step=ts=>{const p=Math.min((ts-start)/dur,1);el.textContent=Math.floor(p*target).toLocaleString();if(p<1)requestAnimationFrame(step);else el.textContent=target.toLocaleString();};requestAnimationFrame(step);});}

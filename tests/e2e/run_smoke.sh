@@ -26,6 +26,16 @@ echo "$HTML" | grep -q 'የትምህርት ክፍል' && ok "edu_dept.php: sideb
 echo "$HTML" | grep -q 'ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት' && ok "edu_dept.php: report banner" || fail "report banner wrong"
 echo "$HTML" | grep -q '<title>Education Department — FKSS</title>' && ok "edu_dept.php: title em-dash" || fail "title wrong"
 
+# --- 1b. Stored-XSS canary (Patch C5): seed class xss_test carries
+# "<img src=x onerror=alert(1)>" in its name; it must NEVER reach the
+# browser as a raw "<img" (only &lt; or \u003C forms are acceptable).
+XS=$(printf '%s' "$HTML" | python3 -c '
+import re,sys
+s = sys.stdin.read()
+raw = len(re.findall(r"(?<![&\\\\])<img src=x onerror", s))
+print(raw)')
+[ "$XS" = "0" ] && ok "edu_dept.php: no raw XSS payload (canary class)" || fail "$XS raw XSS payload occurrences"
+
 # --- 2. All roles can log in -----------------------------------------------
 for U in audit_super audit_teach audit_fin; do
   CODE=$(ssms_login "$U" | awk '{print $1}')
