@@ -524,18 +524,26 @@
         }).catch(function () {});
     }
 
+    /** P23: hidden catalog entries stay pickable (a hymn may legitimately
+     *  carry one) but are labelled — web and mobile curators now see the
+     *  same truth instead of an invisible difference. */
+    function catLabel(i) {
+        var hidden = Number(i.is_active) !== 1;
+        return esc(i.name) + (hidden ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '');
+    }
+
     function renderCatalogBoxes(selCats, selZem) {
         var cbox = $('mzCategoriesBox');
         if (cbox) cbox.innerHTML = (catalog.categories || []).map(function (c) {
             var checked = selCats && selCats.some(function (s) { return String(s.id) === String(c.id); });
             return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
-                '<input type="checkbox" name="mzCat" value="' + c.id + '"' + (checked ? ' checked' : '') + '>' + esc(c.name) + '</label>';
+                '<input type="checkbox" name="mzCat" value="' + c.id + '"' + (checked ? ' checked' : '') + '> ' + catLabel(c) + '</label>';
         }).join('') || '<span class="text-dim" style="font-size:.75rem">No categories yet.</span>';
         var zbox = $('mzZemariansBox');
         if (zbox) zbox.innerHTML = (catalog.zemarians || []).map(function (z) {
             var checked = selZem && selZem.some(function (s) { return String(s.id) === String(z.id); });
             return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
-                '<input type="checkbox" name="mzZem" value="' + z.id + '"' + (checked ? ' checked' : '') + '>' + esc(z.name) + '</label>';
+                '<input type="checkbox" name="mzZem" value="' + z.id + '"' + (checked ? ' checked' : '') + '> ' + catLabel(z) + '</label>';
         }).join('') || '<span class="text-dim" style="font-size:.75rem">No singers yet.</span>';
     }
 

@@ -372,6 +372,28 @@ P22C=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&search=Q")
 echo "$P22C" | grep -q "P22 Smoke Selamawit" && ok "1-char query ignored server-side (no unindexable scan)" || fail "1-char still filtering: $P22C"
 sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P22 Smoke%' OR title LIKE 'Qz1%'; DELETE FROM mezmur_hymns WHERE title IN ('Selamawit Guad','Kidus Giorgis'); DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P22%'" >/dev/null 2>&1
 
+# --- 3v. Taxonomy sync (Patch 23: natural-key resolution) -------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+# 1) idempotent create: same name twice -> SAME row (no duplicates)
+P23A=$(ssms_api POST mezmur/category '{"id":0,"name":"P23 Smoke Cat"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])' 2>/dev/null)
+P23B=$(ssms_api POST mezmur/category '{"id":0,"name":"P23 Smoke Cat"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])' 2>/dev/null)
+[ -n "$P23A" ] && [ "$P23A" = "$P23B" ] && ok "category create idempotent (id $P23A twice)" || fail "idempotent create: A=$P23A B=$P23B"
+# 2) hymn save with an offline {id:-77,name} ref -> category created + JOINED
+ssms_api POST mezmur/hymn '{"title":"P23 Smoke Hymn","categories":[{"id":-77,"name":"P23 Smoke OffCat"}]}' >/dev/null
+P23J=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM mezmur_hymns h JOIN mezmur_hymn_categories mhc ON mhc.hymn_id=h.id JOIN mezmur_categories c ON c.id=mhc.category_id WHERE h.title='P23 Smoke Hymn' AND c.name='P23 Smoke OffCat'")
+[ "$P23J" = "1" ] && ok "offline name-ref resolved + joined server-side" || fail "name-ref join missing ($P23J)"
+# 3) ref to an EXISTING name links to the existing row (no duplicate created)
+ssms_api POST mezmur/hymn '{"title":"P23 Smoke Hymn2","categories":[{"id":-88,"name":"P23 Smoke Cat"}]}' >/dev/null
+P23N=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM mezmur_categories WHERE name='P23 Smoke Cat'")
+[ "$P23N" = "1" ] && ok "existing-name ref linked (still exactly 1 row)" || fail "duplicate category created ($P23N)"
+# 4) renaming a HIDDEN category echoes is_active=0 (was hardcoded 1)
+P23S=$(ssms_api POST mezmur/category-status "{\"id\":$P23A,\"active\":false}")
+P23R=$(ssms_api POST mezmur/category "{\"id\":$P23A,\"name\":\"P23 Smoke Cat R\"}")
+P23H=$(printf '%s' "$P23R" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["is_active"])' 2>/dev/null)
+[ "$P23H" = "0" ] && ok "hidden category rename echoes is_active=0" || fail "rename echo is_active=$P23H hide=$P23S rename=$P23R"
+sudo -n mariadb ssms -e "DELETE mhc FROM mezmur_hymn_categories mhc JOIN mezmur_hymns h ON h.id=mhc.hymn_id WHERE h.title LIKE 'P23 Smoke%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P23 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P23 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P23 Smoke%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

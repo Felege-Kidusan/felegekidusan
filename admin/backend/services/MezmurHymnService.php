@@ -373,6 +373,82 @@ final class MezmurHymnService
     }
 
     /**
+     * P23 (taxonomy sync): parse a client taxonomy reference list. Plain
+     * ids (>= 1) pass through; offline-created refs arrive as
+     * `{'id': -42, 'name': 'X'}` maps (negative placeholder ids from the
+     * device's optimistic store) and are collected for NATURAL-KEY (name)
+     * resolution — the industry outbox pattern adapted to this int-id
+     * schema, which already carries unique name keys on both tables.
+     * @return array{ids: list<int>, pendingNames: list<string>}
+     */
+    public static function parseTaxonomyRefs(mixed $value): array
+    {
+        $ids = [];
+        $pending = [];
+        if (is_array($value)) {
+            foreach (array_slice($value, 0, self::MAX_TAXONOMY_IDS) as $raw) {
+                if (is_array($raw)) {
+                    $name = trim((string)($raw['name'] ?? ''));
+                    $refId = (int)($raw['id'] ?? 0);
+                    if ($name !== '' && $refId < 1 && mb_strlen($name) <= 100) {
+                        $pending[] = $name;
+                    }
+                    continue;
+                }
+                if (!is_scalar($raw)) continue;
+                $id = filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($id !== false) $ids[] = (int)$id;
+            }
+        } elseif (is_string($value) && trim($value) !== '') {
+            foreach (preg_split('/[\s,]+/', $value) as $raw) {
+                $id = filter_var($raw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($id !== false) $ids[] = (int)$id;
+            }
+        }
+        return [
+            'ids' => array_values(array_unique($ids)),
+            'pendingNames' => array_values(array_unique($pending)),
+        ];
+    }
+
+    /** Case-insensitive natural-key lookup (categories + singers only). */
+    private static function resolveNameToId(\mysqli $conn, string $table, string $name): ?int
+    {
+        if (!in_array($table, ['mezmur_categories', 'mezmur_zemarians'], true) || $name === '') {
+            return null;
+        }
+        $stmt = $conn->prepare("SELECT id FROM `$table` WHERE LOWER(name) = LOWER(?) LIMIT 1");
+        $stmt->bind_param('s', $name);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ? (int)$row['id'] : null;
+    }
+
+    /**
+     * Create a taxonomy row by name (P23). MUST be called inside the
+     * caller's transaction (MZ-10: never orphan rows on a failed save).
+     */
+    private static function createNamedTaxonomy(\mysqli $conn, string $table, string $name, int $actorId): ?int
+    {
+        if (!in_array($table, ['mezmur_categories', 'mezmur_zemarians'], true) || $name === '') {
+            return null;
+        }
+        $isCategory = $table === 'mezmur_categories';
+        $sort = 0;
+        $stmt = $conn->prepare(
+            "INSERT INTO `$table` (name, sort_order, created_by) VALUES (?,?,?)"
+        );
+        $stmt->bind_param('sii', $name, $sort, $actorId);
+        $ok = $stmt->execute();
+        $newId = $ok ? (int)$stmt->insert_id : 0;
+        $stmt->close();
+        if (!$ok || $newId <= 0) return null;
+        self::audit($conn, $isCategory ? 'Mezmur Category Created (offline sync)' : 'Mezmur Singer Created (offline sync)', ['name' => $name], $isCategory ? 'mezmur_category' : 'mezmur_zemarian', $newId, $actorId);
+        return $newId;
+    }
+
+    /**
      * Resolve the legacy single `category` name into a canonical category
      * id (creating the row if absent), so old clients keep working.
      */
@@ -606,8 +682,29 @@ final class MezmurHymnService
         if (!in_array($length, ['long', 'short'], true)) $length = 'long';
         if (!in_array($language, ['geez', 'amharic'], true)) $language = 'amharic';
 
-        $categoryIds = self::normalizeIds($input['categories'] ?? null);
-        $zemarianIds = self::normalizeIds($input['zemarians'] ?? null);
+        // P23: taxonomy refs may mix real ids with offline-created
+        // {id: -42, name: 'X'} placeholder refs. Real ids validate as
+        // before (MZ-9); placeholder refs resolve by NAME below.
+        $catRefs = self::parseTaxonomyRefs($input['categories'] ?? null);
+        $zemRefs = self::parseTaxonomyRefs($input['zemarians'] ?? null);
+        $categoryIds = $catRefs['ids'];
+        $zemarianIds = $zemRefs['ids'];
+        $pendingCategoryNames = $catRefs['pendingNames'];
+        $pendingZemarianNames = $zemRefs['pendingNames'];
+        // Pre-resolve names that already exist server-side (read-only);
+        // only genuinely new ones wait for in-transaction creation.
+        foreach ($pendingCategoryNames as $k => $n) {
+            $rid = self::resolveNameToId($conn, 'mezmur_categories', $n);
+            if ($rid !== null) { $categoryIds[] = $rid; unset($pendingCategoryNames[$k]); }
+        }
+        foreach ($pendingZemarianNames as $k => $n) {
+            $rid = self::resolveNameToId($conn, 'mezmur_zemarians', $n);
+            if ($rid !== null) { $zemarianIds[] = $rid; unset($pendingZemarianNames[$k]); }
+        }
+        $categoryIds = array_values(array_unique($categoryIds));
+        $zemarianIds = array_values(array_unique($zemarianIds));
+        $pendingCategoryNames = array_values($pendingCategoryNames);
+        $pendingZemarianNames = array_values($pendingZemarianNames);
 
         // MZ-9 whitelist validation (OWASP): taxonomy ids must reference
         // existing rows. The FKs already stop unknown ids at the storage
@@ -698,6 +795,21 @@ final class MezmurHymnService
                     $legacyId = self::resolveLegacyCategoryId($conn, $category, true);
                     if ($legacyId !== null) $categoryIds = [$legacyId];
                 }
+                // P23: resolve offline-created taxonomy refs by name,
+                // creating any that are still absent — inside this
+                // transaction (same MZ-10 no-orphan guarantee).
+                foreach ($pendingCategoryNames as $pname) {
+                    $nid = self::resolveNameToId($conn, 'mezmur_categories', $pname)
+                        ?? self::createNamedTaxonomy($conn, 'mezmur_categories', $pname, $actorId);
+                    if ($nid !== null) $categoryIds[] = $nid;
+                }
+                foreach ($pendingZemarianNames as $pname) {
+                    $nid = self::resolveNameToId($conn, 'mezmur_zemarians', $pname)
+                        ?? self::createNamedTaxonomy($conn, 'mezmur_zemarians', $pname, $actorId);
+                    if ($nid !== null) $zemarianIds[] = $nid;
+                }
+                $categoryIds = array_values(array_unique($categoryIds));
+                $zemarianIds = array_values(array_unique($zemarianIds));
                 // Optimistic concurrency (MZ-6): when the client supplied a
                 // base_revision the guard lives IN the UPDATE itself. The
                 // old SELECT-then-UPDATE pair was a check-then-act race —
@@ -786,6 +898,20 @@ final class MezmurHymnService
                 $legacyId = self::resolveLegacyCategoryId($conn, $category, true);
                 if ($legacyId !== null) $categoryIds = [$legacyId];
             }
+            // P23: resolve offline-created taxonomy refs by name (see the
+            // update path — same in-transaction no-orphan guarantee).
+            foreach ($pendingCategoryNames as $pname) {
+                $nid = self::resolveNameToId($conn, 'mezmur_categories', $pname)
+                    ?? self::createNamedTaxonomy($conn, 'mezmur_categories', $pname, $actorId);
+                if ($nid !== null) $categoryIds[] = $nid;
+            }
+            foreach ($pendingZemarianNames as $pname) {
+                $nid = self::resolveNameToId($conn, 'mezmur_zemarians', $pname)
+                    ?? self::createNamedTaxonomy($conn, 'mezmur_zemarians', $pname, $actorId);
+                if ($nid !== null) $zemarianIds[] = $nid;
+            }
+            $categoryIds = array_values(array_unique($categoryIds));
+            $zemarianIds = array_values(array_unique($zemarianIds));
             $stmt = $conn->prepare(
                 "INSERT INTO mezmur_hymns (title, title_am, category, reference, lyrics, length, language, status, created_by, updated_by)
                  VALUES (?,?,?,?,?,?,?,?,?,?)"
@@ -1019,11 +1145,18 @@ final class MezmurHymnService
         }
         $sortOrder = max(0, min(10000, (int)($input['sort_order'] ?? 0)));
 
-        $stmt = $conn->prepare("SELECT id FROM mezmur_categories WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT id, name, sort_order, is_active FROM mezmur_categories WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
         $stmt->bind_param('si', $name, $id);
         $stmt->execute();
         $dup = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+        if ($dup && $id <= 0) {
+            // P23 idempotent create: another device already created this
+            // name. Link to the existing row (natural-key convergence)
+            // instead of erroring — the old 422 made the device drop the
+            // op and keep its placeholder, ending up with duplicate rows.
+            return ['ok' => true, 'item' => ['id' => (int)$dup['id'], 'name' => (string)$dup['name'], 'sort_order' => (int)$dup['sort_order'], 'is_active' => (int)$dup['is_active']], 'message' => 'Category already exists — linked.'];
+        }
         if ($dup) {
             return ['ok' => false, 'message' => 'A category with this name already exists.'];
         }
@@ -1031,7 +1164,7 @@ final class MezmurHymnService
         if ($id > 0) {
             // Capture the previous state for the audit trail (before/after
             // on every administrative change — OWASP A09) and refuse no-ops.
-            $stmt = $conn->prepare("SELECT name, sort_order FROM mezmur_categories WHERE id = ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT name, sort_order, is_active FROM mezmur_categories WHERE id = ? LIMIT 1");
             $stmt->bind_param('i', $id);
             $stmt->execute();
             $old = $stmt->get_result()->fetch_assoc();
@@ -1078,7 +1211,9 @@ final class MezmurHymnService
                 'to' => $name,
                 'hymns_relabelled' => $relabelled,
             ], 'mezmur_category', $id, $actorId);
-            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Category updated.'];
+            // P23: echo the REAL is_active — the hardcoded 1 un-hid a
+            // hidden category on the device that renamed it.
+            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => (int)$old['is_active']], 'message' => 'Category updated.'];
         }
 
         $stmt = $conn->prepare("INSERT INTO mezmur_categories (name, sort_order, created_by) VALUES (?,?,?)");
@@ -1164,11 +1299,15 @@ final class MezmurHymnService
         }
         $sortOrder = max(0, min(10000, (int)($input['sort_order'] ?? 0)));
 
-        $stmt = $conn->prepare("SELECT id FROM mezmur_zemarians WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT id, name, name_am, sort_order, is_active FROM mezmur_zemarians WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
         $stmt->bind_param('si', $name, $id);
         $stmt->execute();
         $dup = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+        if ($dup && $id <= 0) {
+            // P23 idempotent create (see saveCategory).
+            return ['ok' => true, 'item' => ['id' => (int)$dup['id'], 'name' => (string)$dup['name'], 'name_am' => $dup['name_am'], 'sort_order' => (int)$dup['sort_order'], 'is_active' => (int)$dup['is_active']], 'message' => 'Singer already exists — linked.'];
+        }
         if ($dup) {
             return ['ok' => false, 'message' => 'A singer with this name already exists.'];
         }
@@ -1179,7 +1318,7 @@ final class MezmurHymnService
             // and fail honestly when the row does not exist — previously a
             // rename of a missing id reported success (affected_rows 0
             // was never checked) and left no audit entry at all (MZ-7).
-            $stmt = $conn->prepare("SELECT name, name_am FROM mezmur_zemarians WHERE id = ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT name, name_am, is_active FROM mezmur_zemarians WHERE id = ? LIMIT 1");
             $stmt->bind_param('i', $id);
             $stmt->execute();
             $old = $stmt->get_result()->fetch_assoc();
@@ -1197,7 +1336,8 @@ final class MezmurHymnService
                 'to' => $name,
                 'name_am' => $nameAm,
             ], 'mezmur_zemarian', $id, $actorId);
-            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'name_am' => $nameAm, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Singer updated.'];
+            // P23: echo the REAL is_active (was hardcoded 1).
+            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'name_am' => $nameAm, 'sort_order' => $sortOrder, 'is_active' => (int)$old['is_active']], 'message' => 'Singer updated.'];
         }
 
         $stmt = $conn->prepare("INSERT INTO mezmur_zemarians (name, name_am, sort_order, created_by) VALUES (?,?,?,?)");

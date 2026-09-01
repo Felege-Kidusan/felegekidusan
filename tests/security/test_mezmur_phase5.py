@@ -434,6 +434,93 @@ class TypoTolerantSearchTests(unittest.TestCase):
         self.assertIn("scored.sort(", self.store)
 
 
+class TaxonomySyncTests(unittest.TestCase):
+    """Patch 23 (2026-09-01): seamless bidirectional taxonomy sync.
+
+    Deep-analysis findings fixed (web <-> mobile categories/singers):
+    - S1 normalizeIds silently dropped negative placeholder ids, so a
+      hymn saved offline with a just-created category synced WITHOUT it.
+      Fix: placeholder refs travel as {id, name} and the server resolves
+      by natural key (name) INSIDE the hymn save, creating when absent.
+    - S2 create was not idempotent: a second device creating the same
+      name got a 422, dropped its op, kept the placeholder -> duplicate
+      rows after the next pull. Fix: id <= 0 + existing name links to
+      the existing row (natural-key convergence).
+    - S3 renames echoed a hardcoded is_active=1, un-hiding hidden
+      rows on the renaming device. Fix: echo the real value.
+    - M1 placeholder replacement orphaned on-device join rows; they are
+      now repointed at the real server id before the placeholder drops.
+    - M2 queued hymn payloads still referenced placeholder ids; they are
+      rewritten to synced twin ids at push time.
+    - M3 the editor reloaded selections through a >0 filter, silently
+      forgetting placeholder picks (re-save erased the links).
+    - M4 hide/show ops on never-synced placeholders resolved by name.
+    - Visibility: the web picker labels hidden entries "(hidden)"
+      instead of offering them unlabeled (mobile hides them from
+      picking; both preserve existing links).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+        cls.db = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart"
+        ).read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+
+    def test_hymn_save_resolves_offline_refs_by_name(self):
+        self.assertIn("parseTaxonomyRefs", self.svc)
+        self.assertIn("'pendingNames'", self.svc)
+        # resolve-then-create, inside the save transaction (MZ-10 pattern)
+        self.assertIn("resolveNameToId($conn, 'mezmur_categories', $pname)", self.svc)
+        self.assertIn("createNamedTaxonomy($conn, 'mezmur_zemarians', $pname, $actorId)", self.svc)
+        self.assertIn("Mezmur Category Created (offline sync)", self.svc)
+
+    def test_taxonomy_creates_are_idempotent(self):
+        self.assertIn("if ($dup && $id <= 0) {", self.svc)
+        self.assertIn("Category already exists — linked.", self.svc)
+        self.assertIn("Singer already exists — linked.", self.svc)
+        # rename collisions (id > 0) stay honest errors
+        self.assertIn("'A category with this name already exists.'", self.svc)
+
+    def test_rename_echoes_real_is_active(self):
+        self.assertIn("SELECT name, sort_order, is_active FROM mezmur_categories", self.svc)
+        self.assertIn("SELECT name, name_am, is_active FROM mezmur_zemarians", self.svc)
+        self.assertIn("'is_active' => (int)$old['is_active']", self.svc)
+
+    def test_mobile_placeholder_refs_travel_with_names(self):
+        self.assertIn("_taxonomyRefPayload", self.store)
+        self.assertIn("out.add({'id': id, 'name': name});", self.store)
+        # queued payloads are rewritten to synced twin ids at push time
+        self.assertIn("await _rewritePlaceholderRefs(payload);", self.store)
+
+    def test_mobile_joins_repointed_before_placeholder_drop(self):
+        self.assertIn("Future<void> _repointJoin(", self.store)
+        self.assertIn(
+            "_repointJoin('cached_hymn_categories', 'category_id',", self.store
+        )
+        self.assertIn(
+            "_repointJoin('cached_hymn_zemarians', 'zemarian_id',", self.store
+        )
+        # duplicate (hymn_id, real_id) pairs removed first — PK is that pair
+        self.assertIn("DELETE FROM $table WHERE $col = ? AND hymn_id IN", self.store)
+
+    def test_mobile_preserves_placeholder_selections(self):
+        self.assertIn(".where((e) => e != 0).toList()", self.db)
+        # hide/show ops on placeholders resolve by name at push time
+        self.assertIn("'name': row['name']", self.store)
+        self.assertIn("_localIdByName", self.store)
+
+    def test_web_picker_labels_hidden_entries(self):
+        self.assertIn("function catLabel(i)", self.js)
+        self.assertIn("(hidden)", self.js)
+
+
 if __name__ == "__main__":
     unittest.main()
 

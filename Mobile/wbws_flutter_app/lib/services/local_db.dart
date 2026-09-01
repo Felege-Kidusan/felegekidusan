@@ -1777,14 +1777,17 @@ class LocalDb {
     final db = await database;
     final rows = await db.query('cached_hymn_categories',
         columns: ['category_id'], where: 'hymn_id = ?', whereArgs: [hymnId]);
-    return rows.map((r) => _asIntLocal(r['category_id'])).where((e) => e > 0).toList();
+    // P23: placeholder ids (< 0, offline-created taxonomy) are returned
+    // too — filtering them out made the editor silently forget the
+    // selection, and re-saving erased the links on-device.
+    return rows.map((r) => _asIntLocal(r['category_id'])).where((e) => e != 0).toList();
   }
 
   Future<List<int>> getHymnZemarianIds(int hymnId) async {
     final db = await database;
     final rows = await db.query('cached_hymn_zemarians',
         columns: ['zemarian_id'], where: 'hymn_id = ?', whereArgs: [hymnId]);
-    return rows.map((r) => _asIntLocal(r['zemarian_id'])).where((e) => e > 0).toList();
+    return rows.map((r) => _asIntLocal(r['zemarian_id'])).where((e) => e != 0).toList();
   }
 
   // ── outbox: queued hymn mutations ───────────────────────────
