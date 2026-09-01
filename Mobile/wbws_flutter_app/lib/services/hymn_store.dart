@@ -42,8 +42,17 @@ class HymnStore extends ChangeNotifier {
     int? categoryId,
     int? zemarianId,
   }) async {
+    // Keystroke hygiene: single-character queries are ignored (a 1-char
+    // match can never produce a meaningful ranking) — server-side parity.
+    if (search != null && search.trim().length < 2) search = null;
+
+    // Two-stage typo-tolerant search (P22, mirrors MezmurHymnService):
+    // SQL applies ONLY the structural filters; the text match happens in
+    // memory via _similarity, whose fuzzy tier (Levenshtein >= 0.6 word
+    // similarity) rescues misspellings a LIKE scan silently drops. The
+    // on-device cache is bounded (LIMIT 500) so this stays instant; the
+    // server keeps a strict SQL prefilter for its larger corpus.
     final items = await _db.getLocalHymns(
-      search: search,
       category: category,
       includeArchived: includeArchived,
       length: length,
@@ -52,8 +61,16 @@ class HymnStore extends ChangeNotifier {
       zemarianId: zemarianId,
     );
     if (search != null && search.trim().isNotEmpty) {
-      items.sort((a, b) =>
-          _similarity(search, b).compareTo(_similarity(search, a)));
+      final scored = <Map<String, dynamic>>[];
+      for (final h in items) {
+        final score = _similarity(search, h);
+        if (score <= 0) continue;
+        h['similarity'] = score;
+        scored.add(h);
+      }
+      scored.sort((a, b) => ((b['similarity'] as num?) ?? 0)
+          .compareTo((a['similarity'] as num?) ?? 0));
+      return scored;
     }
     return items;
   }
@@ -123,6 +140,34 @@ class HymnStore extends ChangeNotifier {
   Future<List<int>> hymnCategoryIds(int hymnId) => _db.getHymnCategoryIds(hymnId);
   Future<List<int>> hymnZemarianIds(int hymnId) => _db.getHymnZemarianIds(hymnId);
 
+  /// P24: resolved names for a hymn's attached taxonomy (chips in the
+  /// reader; tapping one opens the filtered hymn list).
+  Future<List<Map<String, dynamic>>> categoryNamesFor(int hymnId) async =>
+      _resolveTaxonomyNames(await _db.getHymnCategoryIds(hymnId),
+          await _db.getLocalCategories(activeOnly: false));
+
+  Future<List<Map<String, dynamic>>> zemarianNamesFor(int hymnId) async =>
+      _resolveTaxonomyNames(await _db.getHymnZemarianIds(hymnId),
+          await _db.getLocalZemarians(activeOnly: false));
+
+  List<Map<String, dynamic>> _resolveTaxonomyNames(
+      List<int> ids, List<Map<String, dynamic>> rows) {
+    final byId = <int, String>{};
+    for (final r in rows) {
+      byId[_asInt(r['id'])] = '${r['name']}';
+    }
+    final out = <Map<String, dynamic>>[];
+    for (final id in ids) {
+      final name = byId[id];
+      if (name != null && name.isNotEmpty) out.add({'id': id, 'name': name});
+    }
+    return out;
+  }
+
+  /// P24: per-category / per-singer hymn counts for the browse tiles.
+  Future<Map<int, int>> categoryHymnCounts() => _db.getCategoryHymnCounts();
+  Future<Map<int, int>> zemarianHymnCounts() => _db.getZemarianHymnCounts();
+
   Future<List<Map<String, dynamic>>> categories({bool activeOnly = true}) =>
       _db.getLocalCategories(activeOnly: activeOnly);
 
@@ -140,6 +185,14 @@ class HymnStore extends ChangeNotifier {
 
     final opPayload = Map<String, dynamic>.from(hymn);
     if (baseRevision != null) opPayload['base_revision'] = baseRevision;
+    // P23 (taxonomy sync): refs to offline-created taxonomy carry negative
+    // placeholder ids the server cannot know. They travel as {id, name}
+    // maps — the server resolves/creates by NAME inside the hymn save, so
+    // the link survives even if the separate category op never lands.
+    opPayload['categories'] = await _taxonomyRefPayload(
+        hymn['categories'], await _db.getLocalCategories(activeOnly: false));
+    opPayload['zemarians'] = await _taxonomyRefPayload(
+        hymn['zemarians'], await _db.getLocalZemarians(activeOnly: false));
 
     final localId = _localId(hymn);
     opPayload['id'] = localId;
@@ -276,8 +329,8 @@ class HymnStore extends ChangeNotifier {
     }
     if (row == null) return 'Category not found on this device yet.';
     await _db.upsertCategoryLocal({...row, 'is_active': active ? 1 : 0});
-    await _db
-        .enqueueHymnOp('category_status', {'id': id, 'active': active});
+    await _db.enqueueHymnOp(
+        'category_status', {'id': id, 'active': active, 'name': row['name']});
     notifyListeners();
     unawaited(pushPending().catchError((_) {}));
     return null;
@@ -329,7 +382,8 @@ class HymnStore extends ChangeNotifier {
     }
     if (row == null) return 'Singer not found on this device yet.';
     await _db.upsertZemarianLocal({...row, 'is_active': active ? 1 : 0});
-    await _db.enqueueHymnOp('zemarian_status', {'id': id, 'active': active});
+    await _db.enqueueHymnOp(
+        'zemarian_status', {'id': id, 'active': active, 'name': row['name']});
     notifyListeners();
     unawaited(pushPending().catchError((_) {}));
     return null;
@@ -390,6 +444,8 @@ class HymnStore extends ChangeNotifier {
               ? payload['base_revision'] as int
               : int.tryParse('${payload['base_revision'] ?? ''}');
           final localId = _asInt(payload['id']);
+          // P23: swap placeholder refs for synced twin ids when possible.
+          await _rewritePlaceholderRefs(payload);
           final res = await _api.saveMezmurHymn(payload,
               clientOpId: opId,
               baseRevision:
@@ -454,6 +510,13 @@ class HymnStore extends ChangeNotifier {
             if (item != null) await _db.upsertCategoryLocal(item);
             final catLocalId = _asInt(payload['id']);
             if (catLocalId < 0) {
+              // P23: repoint hymn joins at the real server id BEFORE
+              // dropping the placeholder — they used to be orphaned, so
+              // the hymn silently lost its category on-device.
+              if (item != null) {
+                await _repointJoin('cached_hymn_categories', 'category_id',
+                    catLocalId, _asInt(item['id']));
+              }
               final db = await _db.database;
               await db.delete('cached_mezmur_categories',
                   where: 'id = ?', whereArgs: [catLocalId]);
@@ -469,9 +532,19 @@ class HymnStore extends ChangeNotifier {
           await _db.dropHymnOp(id);
           return false;
         case 'category_status':
+          // P23: the op may reference a placeholder id; resolve it to the
+          // synced twin's id by NAME (the placeholder row is already gone).
+          var catId = _asInt(payload['id']);
+          if (catId < 0) {
+            catId = _localIdByName(await _db.getLocalCategories(activeOnly: false),
+                '${payload['name'] ?? ''}');
+            if (catId <= 0) {
+              await _db.dropHymnOp(id); // never synced: nothing to flip
+              return true;
+            }
+          }
           final res = await _api.setMezmurCategoryStatus(
-              _asInt(payload['id']), payload['active'] == true,
-              clientOpId: opId);
+              catId, payload['active'] == true, clientOpId: opId);
           if (res.success || res.statusCode == 409) {
             await _db.markHymnOpSynced(id);
             return true;
@@ -491,6 +564,11 @@ class HymnStore extends ChangeNotifier {
             if (item != null) await _db.upsertZemarianLocal(item);
             final zLocalId = _asInt(payload['id']);
             if (zLocalId < 0) {
+              // P23: repoint hymn joins first (see category_save).
+              if (item != null) {
+                await _repointJoin('cached_hymn_zemarians', 'zemarian_id',
+                    zLocalId, _asInt(item['id']));
+              }
               final db = await _db.database;
               await db.delete('cached_mezmur_zemarians',
                   where: 'id = ?', whereArgs: [zLocalId]);
@@ -506,9 +584,17 @@ class HymnStore extends ChangeNotifier {
           await _db.dropHymnOp(id);
           return false;
         case 'zemarian_status':
+          var zemId = _asInt(payload['id']);
+          if (zemId < 0) {
+            zemId = _localIdByName(await _db.getLocalZemarians(activeOnly: false),
+                '${payload['name'] ?? ''}');
+            if (zemId <= 0) {
+              await _db.dropHymnOp(id); // never synced: nothing to flip
+              return true;
+            }
+          }
           final res = await _api.setMezmurZemarianStatus(
-              _asInt(payload['id']), payload['active'] == true,
-              clientOpId: opId);
+              zemId, payload['active'] == true, clientOpId: opId);
           if (res.success || res.statusCode == 409) {
             await _db.markHymnOpSynced(id);
             return true;
@@ -624,6 +710,90 @@ class HymnStore extends ChangeNotifier {
     if (v is int) return v;
     if (v is num) return v.toInt();
     return int.tryParse('$v') ?? 0;
+  }
+
+  List<int> _asIntList(dynamic v) => (v is List ? v : const [])
+      .map(_asInt)
+      .where((e) => e != 0)
+      .toList();
+
+  /// Real ids pass through; negative placeholder ids become {id, name}
+  /// maps resolved server-side by natural key (P23).
+  Future<List<dynamic>> _taxonomyRefPayload(
+      dynamic raw, List<Map<String, dynamic>> localRows) async {
+    final namesById = <int, String>{};
+    for (final r in localRows) {
+      namesById[_asInt(r['id'])] = '${r['name']}';
+    }
+    final out = <dynamic>[];
+    for (final id in _asIntList(raw)) {
+      if (id > 0) {
+        out.add(id);
+        continue;
+      }
+      final name = (namesById[id] ?? '').trim();
+      if (name.isEmpty) continue; // unknown placeholder: nothing to send
+      out.add({'id': id, 'name': name});
+    }
+    return out;
+  }
+
+  /// Replace placeholder refs in a queued payload with the positive id of
+  /// a local row carrying the same NAME (the synced twin) — belt-and-
+  /// braces on top of server-side name resolution.
+  Future<void> _rewritePlaceholderRefs(Map<String, dynamic> payload) async {
+    final catalogs = <String, List<Map<String, dynamic>>>{
+      'categories': await _db.getLocalCategories(activeOnly: false),
+      'zemarians': await _db.getLocalZemarians(activeOnly: false),
+    };
+    for (final entry in catalogs.entries) {
+      final raw = payload[entry.key];
+      if (raw is! List) continue;
+      final idByName = <String, int>{};
+      for (final r in entry.value) {
+        final id = _asInt(r['id']);
+        if (id > 0) idByName['${r['name']}'.trim().toLowerCase()] = id;
+      }
+      final fixed = <dynamic>[];
+      for (final ref in raw) {
+        if (ref is Map) {
+          final rid = _asInt(ref['id']);
+          final name = '${ref['name'] ?? ''}'.trim().toLowerCase();
+          final real = name.isEmpty ? null : idByName[name];
+          if (rid < 1 && real != null) {
+            fixed.add(real); // synced twin exists locally: use its id
+          } else if (rid < 1 && name.isNotEmpty) {
+            fixed.add(ref); // still unknown: server resolves by name
+          }
+          continue;
+        }
+        final rid = _asInt(ref);
+        if (rid > 0) fixed.add(rid);
+      }
+      payload[entry.key] = fixed;
+    }
+  }
+
+  int _localIdByName(List<Map<String, dynamic>> rows, String name) {
+    final n = name.trim().toLowerCase();
+    if (n.isEmpty) return 0;
+    for (final r in rows) {
+      if ('${r['name']}'.trim().toLowerCase() == n) return _asInt(r['id']);
+    }
+    return 0;
+  }
+
+  /// Repoint on-device hymn joins from a placeholder taxonomy id to the
+  /// real server id (P23). Rows that would duplicate an existing
+  /// (hymn_id, real_id) pair are removed first — the PK is that pair.
+  Future<void> _repointJoin(
+      String table, String col, int oldId, int newId) async {
+    if (newId <= 0) return;
+    final db = await _db.database;
+    await db.rawDelete(
+        'DELETE FROM $table WHERE $col = ? AND hymn_id IN '
+        '(SELECT hymn_id FROM $table WHERE $col = ?)', [oldId, newId]);
+    await db.update(table, {col: newId}, where: '$col = ?', whereArgs: [oldId]);
   }
 
   /// Existing server ids stay; brand-new rows get a negative local id so

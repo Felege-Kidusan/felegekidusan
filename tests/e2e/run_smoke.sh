@@ -350,6 +350,65 @@ echo "$P20R" | grep -q "Only administrators" && ok "schema reconcile restricted 
 sudo -n mariadb ssms -e "DELETE FROM users WHERE username='p20_mez'; DELETE FROM mezmur_hymns WHERE title LIKE 'P20 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P20 Smoke%'; DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P20 Smoke%'" >/dev/null 2>&1
 rm -f /tmp/p20jar /tmp/p20t
 
+# --- 3u. Typo-tolerant search (Patch 22: two-stage + fuzzy rescue) ----------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+ssms_api POST mezmur/hymn '{"title":"P22 Smoke Selamawit"}' >/dev/null
+ssms_api POST mezmur/hymn '{"title":"P22 Smoke Zerihun"}' >/dev/null
+ssms_api POST mezmur/hymn '{"title":"Qz1 P22 Needle"}' >/dev/null
+# 1) service API: misspelled query (LIKE can never match 'Selamwit')
+P22S=$(ssms_api GET "mezmur/hymns&search=Selamwit")
+echo "$P22S" | grep -q "P22 Smoke Selamawit" && ok "service fuzzy rescue finds typo 'Selamwit'" || fail "service typo search: $P22S"
+# 2) web API: same typo + ranked best-first (exact 'Zerihun' above fuzzy 'Selamwit')
+ssms_login audit_super >/dev/null 2>&1
+P22W=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&search=Zerihun%20Selamwit")
+P22F=$(printf '%s' "$P22W" | python3 -c 'import sys,json;d=json.load(sys.stdin);its=d["items"];print(its[0]["title"] if its else "-", "|", its[1]["title"] if len(its)>1 else "-")' 2>/dev/null)
+case "$P22F" in
+  *Zerihun*|*Selamawit*) [ "${P22F%%|*}" != "$P22F" ] && case "$P22F" in *Zerihun*\|*Selamawit*) ok "web ranked best-first (exact > fuzzy): $P22F";; *) fail "web ranking order: $P22F";; esac || fail "web rescue returned 1 row: $P22F" ;;
+  *) fail "web typo search: $P22W" ;;
+esac
+# 3) 1-char query dropped: 'Q' must NOT filter to the needle only
+P22C=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&search=Q")
+echo "$P22C" | grep -q "P22 Smoke Selamawit" && ok "1-char query ignored server-side (no unindexable scan)" || fail "1-char still filtering: $P22C"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P22 Smoke%' OR title LIKE 'Qz1%'; DELETE FROM mezmur_hymns WHERE title IN ('Selamawit Guad','Kidus Giorgis'); DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P22%'" >/dev/null 2>&1
+
+# --- 3v. Taxonomy sync (Patch 23: natural-key resolution) -------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+# 1) idempotent create: same name twice -> SAME row (no duplicates)
+P23A=$(ssms_api POST mezmur/category '{"id":0,"name":"P23 Smoke Cat"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])' 2>/dev/null)
+P23B=$(ssms_api POST mezmur/category '{"id":0,"name":"P23 Smoke Cat"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])' 2>/dev/null)
+[ -n "$P23A" ] && [ "$P23A" = "$P23B" ] && ok "category create idempotent (id $P23A twice)" || fail "idempotent create: A=$P23A B=$P23B"
+# 2) hymn save with an offline {id:-77,name} ref -> category created + JOINED
+ssms_api POST mezmur/hymn '{"title":"P23 Smoke Hymn","categories":[{"id":-77,"name":"P23 Smoke OffCat"}]}' >/dev/null
+P23J=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM mezmur_hymns h JOIN mezmur_hymn_categories mhc ON mhc.hymn_id=h.id JOIN mezmur_categories c ON c.id=mhc.category_id WHERE h.title='P23 Smoke Hymn' AND c.name='P23 Smoke OffCat'")
+[ "$P23J" = "1" ] && ok "offline name-ref resolved + joined server-side" || fail "name-ref join missing ($P23J)"
+# 3) ref to an EXISTING name links to the existing row (no duplicate created)
+ssms_api POST mezmur/hymn '{"title":"P23 Smoke Hymn2","categories":[{"id":-88,"name":"P23 Smoke Cat"}]}' >/dev/null
+P23N=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM mezmur_categories WHERE name='P23 Smoke Cat'")
+[ "$P23N" = "1" ] && ok "existing-name ref linked (still exactly 1 row)" || fail "duplicate category created ($P23N)"
+# 4) renaming a HIDDEN category echoes is_active=0 (was hardcoded 1)
+P23S=$(ssms_api POST mezmur/category-status "{\"id\":$P23A,\"active\":false}")
+P23R=$(ssms_api POST mezmur/category "{\"id\":$P23A,\"name\":\"P23 Smoke Cat R\"}")
+P23H=$(printf '%s' "$P23R" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["is_active"])' 2>/dev/null)
+[ "$P23H" = "0" ] && ok "hidden category rename echoes is_active=0" || fail "rename echo is_active=$P23H hide=$P23S rename=$P23R"
+sudo -n mariadb ssms -e "DELETE mhc FROM mezmur_hymn_categories mhc JOIN mezmur_hymns h ON h.id=mhc.hymn_id WHERE h.title LIKE 'P23 Smoke%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P23 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P23 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P23 Smoke%'" >/dev/null 2>&1
+
+# --- 3w. Lyrics markup + styled delivery (Patch 24) -------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+# 1) markup round-trips VERBATIM (plain text stored; clients render)
+ssms_api POST mezmur/hymn '{"title":"P24 Smoke Hymn","lyrics":"[Verse 1]\n**bold** line and *italic* word\n\n[Chorus]\nnormal stanza"}' >/dev/null
+P24G=$(curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE/api/v1/index.php?_route=mezmur/hymn&id=$(sudo -n mariadb ssms -N -e "SELECT id FROM mezmur_hymns WHERE title='P24 Smoke Hymn'")" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["lyrics"])' 2>/dev/null)
+case "$P24G" in
+  *"[Verse 1]"*"*bold*"*"*italic*"*"[Chorus]"*) ok "markup lyrics round-trip verbatim (render-time parsing)";;
+  *) fail "lyrics round-trip: $P24G";;
+esac
+# 2) the styled web assets are actually served
+curl -s "$BASE/frontend/js/mezmur.js" | grep -q "function renderLyrics" && ok "web lyrics renderer served" || fail "renderLyrics missing from served JS"
+curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -q "\*\*bold\*\*" && ok "web editor markup hint served" || fail "markup hint missing from served page"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P24 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P24 Smoke%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

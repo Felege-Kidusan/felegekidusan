@@ -102,6 +102,9 @@
                 if (!done) { done = true; reject(new Error('The server took too long to answer. Your changes may not have been saved — check the list before saving again.')); }
             }, POST_TIMEOUT);
             p.then(function (d) {
+                // Every mutation (save, set_status, catalog, migrate,
+                // submission review) lands here — drop cached list results.
+                if (d && d.status === 'success') listCache = {};
                 if (!done) { done = true; clearTimeout(timer); resolve(d); }
             }).catch(function (e) {
                 if (!done) { done = true; clearTimeout(timer); reject(e); }
@@ -357,6 +360,16 @@
     // ══════════════════════════════════════════════════════════
     var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', length: '', language: '', categoryId: 0, zemarianId: 0, loading: false, seq: 0 };
 
+    /** Keystroke cache (P22): identical search queries are answered from
+     *  memory instead of re-hitting the server; every successful mutation
+     *  (all of which travel through apiPost) drops it. Bounded to 10 keys. */
+    var listCache = {};
+    function cachePut(key, data) {
+        var keys = Object.keys(listCache);
+        if (keys.length >= 10) delete listCache[keys[0]];
+        listCache[key] = data;
+    }
+
     function loadStats() {
         return apiGet('action=stats').then(function (d) {
             if (d.status !== 'success') return;
@@ -384,32 +397,40 @@
     }
 
     function loadList() {
-        if (lib.loading) return;
-        lib.loading = true;
         var seq = ++lib.seq; // as-you-type: only the latest response renders
         var tb = $('mzTbody');
-        tb.innerHTML = skeletonRows(6);
         var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + PAGE_SIZE +
             '&search=' + encodeURIComponent(lib.search) + '&category=' + encodeURIComponent(lib.category) +
             '&length=' + encodeURIComponent(lib.length) + '&language=' + encodeURIComponent(lib.language) +
             '&category_id=' + encodeURIComponent(lib.categoryId || '') + '&zemarian_id=' + encodeURIComponent(lib.zemarianId || '') +
             '&status=' + encodeURIComponent(lib.status);
+        // Cached answer (same query typed again): render immediately, no
+        // server round trip — the seq guard above still applies.
+        if (listCache[q]) {
+            applyList(seq, tb, listCache[q]);
+            return;
+        }
+        tb.innerHTML = skeletonRows(6);
         apiGet(q).then(function (d) {
-            lib.loading = false;
-            if (seq !== lib.seq) return;
-            if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
-                return;
-            }
-            lib.totalPages = d.total_pages || 1;
-            lib.total = d.total || 0;
-            renderHymnRows(d.items || []);
-            renderLibPagination();
+            if (seq === lib.seq && d.status === 'success') cachePut(q, d);
+            applyList(seq, tb, d);
         }).catch(function (err) {
-            lib.loading = false;
+            if (seq !== lib.seq) return;
             var msg = ((err && err.message) || 'Connection error.') + staleHint(err);
             tb.innerHTML = '<tr><td colspan="6">' + errorState(msg, 'Mezmur.libReload()') + '</td></tr>';
         });
+    }
+
+    function applyList(seq, tb, d) {
+        if (seq !== lib.seq) return;
+        if (d.status !== 'success') {
+            tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
+            return;
+        }
+        lib.totalPages = d.total_pages || 1;
+        lib.total = d.total || 0;
+        renderHymnRows(d.items || []);
+        renderLibPagination();
     }
 
     /** Escape then wrap the user's search tokens in <mark> (Telegram-style). */
@@ -503,18 +524,26 @@
         }).catch(function () {});
     }
 
+    /** P23: hidden catalog entries stay pickable (a hymn may legitimately
+     *  carry one) but are labelled — web and mobile curators now see the
+     *  same truth instead of an invisible difference. */
+    function catLabel(i) {
+        var hidden = Number(i.is_active) !== 1;
+        return esc(i.name) + (hidden ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '');
+    }
+
     function renderCatalogBoxes(selCats, selZem) {
         var cbox = $('mzCategoriesBox');
         if (cbox) cbox.innerHTML = (catalog.categories || []).map(function (c) {
             var checked = selCats && selCats.some(function (s) { return String(s.id) === String(c.id); });
             return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
-                '<input type="checkbox" name="mzCat" value="' + c.id + '"' + (checked ? ' checked' : '') + '>' + esc(c.name) + '</label>';
+                '<input type="checkbox" name="mzCat" value="' + c.id + '"' + (checked ? ' checked' : '') + '> ' + catLabel(c) + '</label>';
         }).join('') || '<span class="text-dim" style="font-size:.75rem">No categories yet.</span>';
         var zbox = $('mzZemariansBox');
         if (zbox) zbox.innerHTML = (catalog.zemarians || []).map(function (z) {
             var checked = selZem && selZem.some(function (s) { return String(s.id) === String(z.id); });
             return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
-                '<input type="checkbox" name="mzZem" value="' + z.id + '"' + (checked ? ' checked' : '') + '>' + esc(z.name) + '</label>';
+                '<input type="checkbox" name="mzZem" value="' + z.id + '"' + (checked ? ' checked' : '') + '> ' + catLabel(z) + '</label>';
         }).join('') || '<span class="text-dim" style="font-size:.75rem">No singers yet.</span>';
     }
 
@@ -657,6 +686,36 @@
         });
     }
 
+    /** P24: Genius/Spotify-style lyrics rendering. Plain text is stored;
+     *  [Section] lines become headers, **bold** / *italic* become emphasis.
+     *  ESCAPE FIRST — everything after that only adds our own safe tags. */
+    function renderLyrics(src) {
+        var txt = esc(src == null ? '' : String(src));
+        if (!txt) return '<div style="font-size:.9rem;opacity:.65;font-style:italic">(No lyrics recorded)</div>';
+        var out = [], buf = [];
+        function flush() {
+            if (!buf.length) return;
+            out.push('<div style="font-size:.95rem;line-height:2;white-space:pre-wrap">' + buf.join('<br>') + '</div>');
+            buf = [];
+        }
+        txt.split(/\r?\n/).forEach(function (raw) {
+            var line = raw.trim();
+            if (line === '') { flush(); return; }
+            var m = line.match(/^\[(.+)\]$/);
+            if (m) {
+                flush();
+                out.push('<div style="margin-top:18px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:.78rem;color:var(--school-primary,#4f46e5)">' + m[1] + '</div>');
+                return;
+            }
+            // bold first, then italic on what remains
+            buf.push(line
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>'));
+        });
+        flush();
+        return out.join('');
+    }
+
     function viewHymn(id) {
         apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
@@ -667,7 +726,7 @@
             if (h.status === 'archived') meta += '<span class="badge badge-inactive">Archived</span>';
             $('mzViewTitle').textContent = h.title;
             $('mzViewMeta').innerHTML = meta;
-            $('mzViewLyrics').textContent = h.lyrics || '(No lyrics recorded)';
+            $('mzViewLyrics').innerHTML = renderLyrics(h.lyrics);
             openModalF('mzViewModal', null);
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }
@@ -1364,7 +1423,11 @@
         $('mzSearch').addEventListener('input', function () {
             clearTimeout(debounce);
             var v = this.value;
-            debounce = setTimeout(function () { lib.search = v.trim(); lib.page = 1; loadList(); }, 160);
+            debounce = setTimeout(function () {
+                var t = v.trim();
+                if (t.length === 1) return; // P22: wait for the 2nd character
+                lib.search = t; lib.page = 1; loadList();
+            }, 160);
         });
         $('mzCategoryFilter').addEventListener('change', function () { lib.category = this.value; lib.page = 1; loadList(); });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });

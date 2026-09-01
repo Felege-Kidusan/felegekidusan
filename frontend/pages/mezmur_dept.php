@@ -565,6 +565,7 @@ ob_start();
         <div class="school-form-group">
             <label class="school-label" for="mzLyrics">Lyrics</label>
             <textarea id="mzLyrics" class="school-input amharic" rows="9" placeholder="የመዝሙሩ ግጥም…"></textarea>
+            <p class="text-dim" style="font-size:.72rem;margin-top:.25rem">Styling: <code>[Verse 1]</code> section header &middot; <code>**bold**</code> &middot; <code>*italic*</code> &mdash; rendered like Genius/Spotify.</p>
         </div>
         <div class="school-error-msg is-hidden" id="mzModalError" role="alert"></div>
         <button class="btn-primary btn-block" id="mzSaveBtn" onclick="Mezmur.save()"><i class="fa-solid fa-save"></i> Save Hymn</button>

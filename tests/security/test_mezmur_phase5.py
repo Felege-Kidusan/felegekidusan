@@ -347,6 +347,272 @@ class MezmurPhase5Tests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, f"php -l failed for {rel}: {r.stdout}{r.stderr}")
 
 
+class TypoTolerantSearchTests(unittest.TestCase):
+    """Patch 22 (2026-09-01): Telegram-style typo-tolerant search.
+
+    Root cause fixed: the fuzzy (Levenshtein) ranking tier could never
+    fire because the strict pass (FULLTEXT / LIKE) must MATCH first — a
+    misspelled query matched zero rows, so there was nothing to rank.
+    Two-stage retrieval (bounded candidate pool under the STRUCTURAL
+    filters, then fuzzy rescue + rerank) on every surface:
+
+    - service (MezmurHymnService::listHymns): strict LIKE pass, then a
+      fuzzy-rescue pool under the same filters minus the text condition
+    - web (admin/api_mezmur.php list): the same rescue around the
+      FULLTEXT/LIKE pass — first page only, honest totals, page-size cap
+    - web JS: 160ms debounce + 2-char minimum + bounded query cache
+      (every successful mutation drops it, via the apiPost choke point)
+    - mobile (hymn_store.dart): structural filters in SQL, text match
+      fully in memory so the fuzzy tier actually fires; 2-char clamp
+
+    Keystroke hygiene: 1-char queries are dropped server-side (service
+    AND web clamp) and client-side (web JS + Dart store) — a '%x%' scan
+    cannot use an index.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+
+    def test_service_two_stage_with_fuzzy_rescue(self):
+        # structural filters are built separately from the text condition
+        self.assertIn("$filterSql = $where ? implode(' AND ', $where) : '1=1'", self.svc)
+        # stage 1: strict LIKE candidates, bounded
+        self.assertIn(
+            "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?)",
+            self.svc,
+        )
+        # stage 2: rescue pool = same filters WITHOUT the text condition
+        self.assertIn(
+            '$conn->prepare($selectBase . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500")',
+            self.svc,
+        )
+        # 1-char queries never reach SQL
+        self.assertIn("if (mb_strlen($search) < 2) {", self.svc)
+
+    def test_web_two_stage_with_fuzzy_rescue(self):
+        self.assertIn("if (mb_strlen($search) < 2) $search = '';", self.api)
+        self.assertIn("$filterSql = $where ? ('WHERE ' . implode(' AND ', $where)) : ''", self.api)
+        self.assertIn("$rescued = 0;", self.api)
+        self.assertIn("FROM mezmur_hymns $filterSql", self.api)
+        # rescue only fills page 1 (honest totals), then respects page size
+        self.assertIn("$search !== '' && $page === 1 && count($items) < $perPage", self.api)
+        self.assertIn("$items = array_slice($items, 0, $perPage);", self.api)
+
+    def test_web_client_min_length_and_query_cache(self):
+        # a single character waits for the second keystroke
+        self.assertIn("if (t.length === 1) return;", self.js)
+        # identical queries are served from memory, not the server
+        self.assertIn("if (listCache[q]) {", self.js)
+        self.assertIn("cachePut(q, d);", self.js)
+        self.assertIn("keys.length >= 10", self.js)  # bounded
+        # every successful mutation invalidates the cache (apiPost = the
+        # single choke point all mutations travel through)
+        post = self.js.split("POST_TIMEOUT);")[1][:800]
+        self.assertIn("if (d && d.status === 'success') listCache = {};", post)
+
+    def test_mobile_in_memory_text_match(self):
+        # 1-char clamp mirrors the server
+        self.assertIn("search.trim().length < 2", self.store)
+        # the text match happens in memory (LIKE would drop typos before
+        # the fuzzy tier could fire) — the store no longer pushes the
+        # search string into SQL
+        self.assertIn("if (score <= 0) continue;", self.store)
+        self.assertIn("h['similarity'] = score;", self.store)
+        self.assertNotIn("search: search,", self.store)
+
+    def test_ranked_best_first_on_all_surfaces(self):
+        # every surface sorts by similarity, descending
+        self.assertIn("usort($items", self.api)
+        self.assertIn("scored.sort(", self.store)
+
+
+class TaxonomySyncTests(unittest.TestCase):
+    """Patch 23 (2026-09-01): seamless bidirectional taxonomy sync.
+
+    Deep-analysis findings fixed (web <-> mobile categories/singers):
+    - S1 normalizeIds silently dropped negative placeholder ids, so a
+      hymn saved offline with a just-created category synced WITHOUT it.
+      Fix: placeholder refs travel as {id, name} and the server resolves
+      by natural key (name) INSIDE the hymn save, creating when absent.
+    - S2 create was not idempotent: a second device creating the same
+      name got a 422, dropped its op, kept the placeholder -> duplicate
+      rows after the next pull. Fix: id <= 0 + existing name links to
+      the existing row (natural-key convergence).
+    - S3 renames echoed a hardcoded is_active=1, un-hiding hidden
+      rows on the renaming device. Fix: echo the real value.
+    - M1 placeholder replacement orphaned on-device join rows; they are
+      now repointed at the real server id before the placeholder drops.
+    - M2 queued hymn payloads still referenced placeholder ids; they are
+      rewritten to synced twin ids at push time.
+    - M3 the editor reloaded selections through a >0 filter, silently
+      forgetting placeholder picks (re-save erased the links).
+    - M4 hide/show ops on never-synced placeholders resolved by name.
+    - Visibility: the web picker labels hidden entries "(hidden)"
+      instead of offering them unlabeled (mobile hides them from
+      picking; both preserve existing links).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+        cls.db = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart"
+        ).read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+
+    def test_hymn_save_resolves_offline_refs_by_name(self):
+        self.assertIn("parseTaxonomyRefs", self.svc)
+        self.assertIn("'pendingNames'", self.svc)
+        # resolve-then-create, inside the save transaction (MZ-10 pattern)
+        self.assertIn("resolveNameToId($conn, 'mezmur_categories', $pname)", self.svc)
+        self.assertIn("createNamedTaxonomy($conn, 'mezmur_zemarians', $pname, $actorId)", self.svc)
+        self.assertIn("Mezmur Category Created (offline sync)", self.svc)
+
+    def test_taxonomy_creates_are_idempotent(self):
+        self.assertIn("if ($dup && $id <= 0) {", self.svc)
+        self.assertIn("Category already exists — linked.", self.svc)
+        self.assertIn("Singer already exists — linked.", self.svc)
+        # rename collisions (id > 0) stay honest errors
+        self.assertIn("'A category with this name already exists.'", self.svc)
+
+    def test_rename_echoes_real_is_active(self):
+        self.assertIn("SELECT name, sort_order, is_active FROM mezmur_categories", self.svc)
+        self.assertIn("SELECT name, name_am, is_active FROM mezmur_zemarians", self.svc)
+        self.assertIn("'is_active' => (int)$old['is_active']", self.svc)
+
+    def test_mobile_placeholder_refs_travel_with_names(self):
+        self.assertIn("_taxonomyRefPayload", self.store)
+        self.assertIn("out.add({'id': id, 'name': name});", self.store)
+        # queued payloads are rewritten to synced twin ids at push time
+        self.assertIn("await _rewritePlaceholderRefs(payload);", self.store)
+
+    def test_mobile_joins_repointed_before_placeholder_drop(self):
+        self.assertIn("Future<void> _repointJoin(", self.store)
+        self.assertIn(
+            "_repointJoin('cached_hymn_categories', 'category_id',", self.store
+        )
+        self.assertIn(
+            "_repointJoin('cached_hymn_zemarians', 'zemarian_id',", self.store
+        )
+        # duplicate (hymn_id, real_id) pairs removed first — PK is that pair
+        self.assertIn("DELETE FROM $table WHERE $col = ? AND hymn_id IN", self.store)
+
+    def test_mobile_preserves_placeholder_selections(self):
+        self.assertIn(".where((e) => e != 0).toList()", self.db)
+        # hide/show ops on placeholders resolve by name at push time
+        self.assertIn("'name': row['name']", self.store)
+        self.assertIn("_localIdByName", self.store)
+
+    def test_web_picker_labels_hidden_entries(self):
+        self.assertIn("function catLabel(i)", self.js)
+        self.assertIn("(hidden)", self.js)
+
+
+class LyricsStylingBrowseTests(unittest.TestCase):
+    """Patch 24 (2026-09-01): modern lyrics styling + Spotify-like
+    browsing (user item 6).
+
+    Genius/Spotify standard (research 2026-08-31): [Section] square-
+    bracket headers, **bold** / *italic* emphasis, PLAIN TEXT stored —
+    parsing happens at render time only, so old data and old clients
+    keep working (no migration, no schema change).
+
+    - web: mezmur.js renderLyrics() — escape FIRST then transform
+      (XSS-safe by construction); view modal renders through it; the
+      editor shows a markup hint.
+    - mobile: _LyricsView widget (section headers + bold/italic spans
+      + stanza spacing); tappable category/singer chips open the
+      filtered hymn list; the library is a self-standing screen with a
+      bottom nav (Hymns | Categories | Singers) and Spotify-style
+      gradient tiles carrying on-device hymn counts.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.page = (
+            ROOT / "frontend/pages/mezmur_dept.php"
+        ).read_text(encoding="utf-8")
+        cls.detail = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymn_detail.dart"
+        ).read_text(encoding="utf-8")
+        cls.lib = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymns.dart"
+        ).read_text(encoding="utf-8")
+        cls.editor = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymn_editor.dart"
+        ).read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+        cls.db = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart"
+        ).read_text(encoding="utf-8")
+
+    def test_web_renderer_escapes_before_transform(self):
+        self.assertIn("function renderLyrics(", self.js)
+        # escape FIRST — everything after only adds our own safe tags
+        # the escape happens inside the function head, before any
+        # transform can emit markup
+        body = self.js.split("function renderLyrics(")[1][:400]
+        self.assertIn("var txt = esc(", body)
+        self.assertIn("<strong>$1</strong>", self.js)
+        self.assertIn("<em>$1</em>", self.js)
+
+    def test_web_view_renders_through_parser(self):
+        self.assertIn("$('mzViewLyrics').innerHTML = renderLyrics(", self.js)
+
+    def test_markup_hints_present(self):
+        self.assertIn("**bold**", self.page)      # web editor hint
+        self.assertIn("**bold**", self.editor)    # mobile editor hint
+
+    def test_mobile_lyrics_widget(self):
+        self.assertIn("class _LyricsView", self.detail)
+        self.assertIn("_sectionRe", self.detail)   # [Section] headers
+        self.assertIn("_inlineRe", self.detail)    # **bold** / *italic*
+        self.assertIn("TextSpan", self.detail)     # rich spans, not flat text
+
+    def test_mobile_taxonomy_chips_open_filtered_list(self):
+        self.assertIn("categoryNamesFor", self.detail)
+        self.assertIn("zemarianNamesFor", self.detail)
+        self.assertIn("ActionChip", self.detail)
+        self.assertIn("initialCategoryId: singer ? null : id", self.detail)
+
+    def test_library_self_standing_with_bottom_nav(self):
+        self.assertIn("BottomNavigationBar", self.lib)
+        for label in ("'Hymns'", "'Categories'", "'Singers'"):
+            self.assertIn(label, self.lib)
+        self.assertIn("initialCategoryId", self.lib)
+        self.assertIn("initialZemarianId", self.lib)
+        self.assertIn("_browseGrid", self.lib)
+
+    def test_browse_tiles_carry_on_device_counts(self):
+        self.assertIn("getCategoryHymnCounts", self.db)
+        self.assertIn("getZemarianHymnCounts", self.db)
+        # counts consider ACTIVE hymns only
+        self.assertIn("h.status = 'active'", self.db)
+        self.assertIn("Future<Map<int, int>> categoryHymnCounts()", self.store)
+
+    def test_active_filter_is_clearable(self):
+        self.assertIn("InputChip", self.lib)
+        self.assertIn("onDeleted: () {", self.lib)
+        # the legacy name-chip filter is gone (id-based browse instead)
+        self.assertNotIn("_chip('All', '')", self.lib)
+
+
 if __name__ == "__main__":
     unittest.main()
 
