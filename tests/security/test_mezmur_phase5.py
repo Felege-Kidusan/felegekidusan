@@ -648,6 +648,17 @@ class MezmurAuditHardeningTests(unittest.TestCase):
             self.api,
         )
 
+    def test_every_entry_point_loads_audit_service(self):
+        # MZ-1 regression guard (2026-09-01): the mobile route and both
+        # auditing services must declare the audit dependency themselves —
+        # a missing require made every mobile mezmur write silently
+        # unaudited (and made mobile submission review fail AFTER the
+        # packet update). Source-level guard; behaviour is covered live by
+        # smoke block 3p.
+        self.assertIn("SecurityAuditService.php", self.route)
+        self.assertIn("SecurityAuditService.php", self.hymn_svc)
+        self.assertIn("SecurityAuditService.php", self.sub_service)
+
     def test_hymn_library_writes_are_audited(self):
         # The canonical writer (MezmurHymnService) audits every mutation;
         # the web controller delegates to it (see api_mezmur.php 'save').
@@ -659,6 +670,20 @@ class MezmurAuditHardeningTests(unittest.TestCase):
         ):
             self.assertIn(action, self.hymn_svc)
         self.assertIn("'mezmur_hymn'", self.hymn_svc)
+
+    def test_catalog_writes_are_audited(self):
+        # MZ-7 regression guard: singer RENAME used to leave no audit
+        # entry; category renames must carry before/after state.
+        for action in (
+            "Mezmur Singer Created",
+            "Mezmur Singer Renamed",
+            "Mezmur Singer Activated",
+            "Mezmur Singer Deactivated",
+            "Mezmur Category Renamed",
+        ):
+            self.assertIn(action, self.hymn_svc)
+        self.assertIn("'from'", self.hymn_svc)
+        self.assertIn("'to'", self.hymn_svc)
 
     def test_schema_reconcile_is_audited(self):
         self.assertIn("Mezmur Schema Reconciled", self.api)

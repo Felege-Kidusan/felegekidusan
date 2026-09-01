@@ -527,20 +527,21 @@ try {
             if (!in_array($status, ['active', 'archived'], true)) {
                 mezmur_respond(['status' => 'error', 'message' => 'Invalid status.']);
             }
-            $stmt = $conn->prepare("UPDATE mezmur_hymns SET status=?, updated_by=?, updated_at=NOW() WHERE id=?");
-            $stmt->bind_param('sii', $status, $adminId, $id);
-            $ok = $stmt->execute();
-            $affected = $stmt->affected_rows;
-            $stmt->close();
-            if (!$ok || $affected === 0) mezmur_respond(['status' => 'error', 'message' => 'Hymn not found or already in that state.']);
-            \App\Services\SecurityAuditService::record(
-                $conn, $status === 'archived' ? 'Mezmur Hymn Archived' : 'Mezmur Hymn Restored',
-                ['id' => $id, 'new_status' => $status],
-                'mezmur_hymn', $id
-            );
+            // Single writer (MZ-2): the service owns status changes so the
+            // revision counter that guards offline conflict detection is
+            // bumped on EVERY path. This controller used to inline a copy
+            // of the UPDATE without the bump, so a device that was offline
+            // during an archival silently overwrote the archived hymn on
+            // its next sync. Delegating also keeps the audit trail shape
+            // identical across web and mobile.
+            $result = MezmurHymnService::setStatusHymn($conn, $id, $status, $adminId);
+            if (empty($result['ok'])) {
+                mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            }
             mezmur_respond([
                 'status' => 'success',
-                'message' => $status === 'archived' ? 'Hymn archived.' : 'Hymn restored.',
+                'message' => $result['message'],
+                'item' => $result['item'] ?? null,
             ]);
         }
 

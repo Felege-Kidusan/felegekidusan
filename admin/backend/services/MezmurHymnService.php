@@ -14,6 +14,16 @@
 
 namespace App\Services;
 
+// MZ-1 hardening: every mutation this service commits is audited, so the
+// service must be SELF-SUFFICIENT about its audit dependency — the codebase
+// has no autoloader and a missing require in any entry point previously
+// silenced the whole trail (class-not-found was swallowed by the fail-soft
+// catch). The web controller and the mobile route also declare this
+// dependency explicitly (defense in depth), but the writer itself is the
+// guarantee — Google's admin-activity model: audit is a property of the
+// writer, not a courtesy of the caller.
+require_once __DIR__ . '/SecurityAuditService.php';
+
 final class MezmurHymnService
 {
     private static function clampPerPage(int $perPage): int
@@ -193,16 +203,36 @@ final class MezmurHymnService
         return self::$hasTaxonomyCache ? 'length, language' : "'long' AS length, 'amharic' AS language";
     }
 
-    private static function auditHymn(\mysqli $conn, string $action, array $details, int $hymnId, int $actorId): void
+    /**
+     * Central audit writer for the mezmur module (MZ-1 hardening).
+     *
+     * Contract — one place, one behaviour, every mutation:
+     *  - GUARANTEED: the audit service class is loaded even if the entry
+     *    point forgot to declare it (see the require_once above).
+     *  - NEVER SILENT: an audit failure must not break the business
+     *    operation (fail-soft for availability), but it always lands in
+     *    the error log with action + entity context so it is observable
+     *    (OWASP A09: "events not logged" is the #1 detection gap).
+     *  - COMPLETE: actor, action, target entity, before/after detail —
+     *    bearer-token callers have no admin session, so the acting uid
+     *    rides in the detail payload.
+     */
+    private static function audit(\mysqli $conn, string $action, array $details, string $entityType, ?int $entityId, int $actorId): void
     {
-        // Bearer-token callers have no admin session; the acting uid is
-        // carried in the detail payload so the trail stays complete.
+        if (!class_exists('\App\Services\SecurityAuditService')) {
+            require_once __DIR__ . '/SecurityAuditService.php';
+        }
         $details['actor'] = $actorId;
         try {
-            \App\Services\SecurityAuditService::record($conn, $action, $details, 'mezmur_hymn', $hymnId);
+            \App\Services\SecurityAuditService::record($conn, $action, $details, $entityType, $entityId);
         } catch (\Throwable $e) {
-            error_log('[mezmur-hymn-audit] ' . $e->getMessage());
+            error_log('[mezmur-audit] ' . $action . ' ' . $entityType . '#' . ($entityId ?? 0) . ' failed: ' . $e->getMessage());
         }
+    }
+
+    private static function auditHymn(\mysqli $conn, string $action, array $details, int $hymnId, int $actorId): void
+    {
+        self::audit($conn, $action, $details, 'mezmur_hymn', $hymnId, $actorId);
     }
 
     /** longest safe id list length for taxonomy inputs (scale + abuse bound). */
@@ -568,13 +598,18 @@ final class MezmurHymnService
         }
         try {
             $stmt = $conn->prepare(
-                "UPDATE mezmur_hymns SET status=?, updated_by=?, updated_at=NOW(), revision = revision + 1 WHERE id=?"
+                "UPDATE mezmur_hymns SET status=?, updated_by=?, updated_at=NOW(), revision = revision + 1
+                 WHERE id=? AND status <> ?"
             );
         } catch (\Throwable $e) {
             // Stale schema without revision column: plain status update.
-            $stmt = $conn->prepare("UPDATE mezmur_hymns SET status=?, updated_by=?, updated_at=NOW() WHERE id=?");
+            $stmt = $conn->prepare("UPDATE mezmur_hymns SET status=?, updated_by=?, updated_at=NOW() WHERE id=? AND status <> ?");
         }
-        $stmt->bind_param('sii', $status, $actorId, $id);
+        // No-op transitions are refused (affected_rows 0 below): a repeat
+        // archive used to "succeed" because the unconditional revision
+        // bump made every UPDATE count as changed — burning revisions and
+        // pushing phantom sync deltas to every device for nothing.
+        $stmt->bind_param('siis', $status, $actorId, $id, $status);
         $ok = $stmt->execute();
         $affected = $stmt->affected_rows;
         $stmt->close();
@@ -753,6 +788,16 @@ final class MezmurHymnService
         }
 
         if ($id > 0) {
+            // Capture the previous name for the audit trail (before/after
+            // state on every administrative change — OWASP A09).
+            $stmt = $conn->prepare("SELECT name FROM mezmur_categories WHERE id = ? LIMIT 1");
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $old = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$old) {
+                return ['ok' => false, 'message' => 'Category not found or unchanged.'];
+            }
             $stmt = $conn->prepare("UPDATE mezmur_categories SET name=?, sort_order=?, created_by=COALESCE(created_by, ?) WHERE id=?");
             $stmt->bind_param('siii', $name, $sortOrder, $actorId, $id);
             $ok = $stmt->execute();
@@ -761,9 +806,7 @@ final class MezmurHymnService
             if (!$ok || $affected === 0) {
                 return ['ok' => false, 'message' => 'Category not found or unchanged.'];
             }
-            try {
-                \App\Services\SecurityAuditService::record($conn, 'Mezmur Category Renamed', ['name' => $name, 'actor' => $actorId], 'mezmur_category', $id);
-            } catch (\Throwable $e) { /* fail-soft */ }
+            self::audit($conn, 'Mezmur Category Renamed', ['from' => $old['name'], 'to' => $name], 'mezmur_category', $id, $actorId);
             return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Category updated.'];
         }
 
@@ -775,9 +818,7 @@ final class MezmurHymnService
         if (!$ok || $newId <= 0) {
             return ['ok' => false, 'message' => 'Unable to create the category.'];
         }
-        try {
-            \App\Services\SecurityAuditService::record($conn, 'Mezmur Category Created', ['name' => $name, 'actor' => $actorId], 'mezmur_category', $newId);
-        } catch (\Throwable $e) { /* fail-soft */ }
+        self::audit($conn, 'Mezmur Category Created', ['name' => $name], 'mezmur_category', $newId, $actorId);
         return ['ok' => true, 'item' => ['id' => $newId, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Category added.'];
     }
 
@@ -799,9 +840,7 @@ final class MezmurHymnService
         if (!$ok || $affected === 0) {
             return ['ok' => false, 'message' => 'Category not found or unchanged.'];
         }
-        try {
-            \App\Services\SecurityAuditService::record($conn, $active ? 'Mezmur Category Activated' : 'Mezmur Category Deactivated', ['actor' => $actorId], 'mezmur_category', $id);
-        } catch (\Throwable $e) { /* fail-soft */ }
+        self::audit($conn, $active ? 'Mezmur Category Activated' : 'Mezmur Category Deactivated', [], 'mezmur_category', $id, $actorId);
         return ['ok' => true, 'message' => $active ? 'Category restored.' : 'Category hidden.'];
     }
 
@@ -865,11 +904,28 @@ final class MezmurHymnService
         $nameAm = $nameAm === '' ? null : $nameAm;
 
         if ($id > 0) {
+            // Capture previous names for the audit trail (before/after)
+            // and fail honestly when the row does not exist — previously a
+            // rename of a missing id reported success (affected_rows 0
+            // was never checked) and left no audit entry at all (MZ-7).
+            $stmt = $conn->prepare("SELECT name, name_am FROM mezmur_zemarians WHERE id = ? LIMIT 1");
+            $stmt->bind_param('i', $id);
+            $stmt->execute();
+            $old = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$old) {
+                return ['ok' => false, 'message' => 'Singer not found.'];
+            }
             $stmt = $conn->prepare("UPDATE mezmur_zemarians SET name=?, name_am=?, sort_order=? WHERE id=?");
             $stmt->bind_param('ssii', $name, $nameAm, $sortOrder, $id);
             $ok = $stmt->execute();
             $stmt->close();
             if (!$ok) return ['ok' => false, 'message' => 'Unable to update the singer.'];
+            self::audit($conn, 'Mezmur Singer Renamed', [
+                'from' => $old['name'],
+                'to' => $name,
+                'name_am' => $nameAm,
+            ], 'mezmur_zemarian', $id, $actorId);
             return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'name_am' => $nameAm, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Singer updated.'];
         }
 
@@ -879,9 +935,7 @@ final class MezmurHymnService
         $newId = $ok ? (int)$stmt->insert_id : 0;
         $stmt->close();
         if (!$ok || $newId <= 0) return ['ok' => false, 'message' => 'Unable to add the singer.'];
-        try {
-            \App\Services\SecurityAuditService::record($conn, 'Mezmur Singer Created', ['name' => $name, 'actor' => $actorId], 'mezmur_zemarian', $newId);
-        } catch (\Throwable $e) { /* fail-soft */ }
+        self::audit($conn, 'Mezmur Singer Created', ['name' => $name], 'mezmur_zemarian', $newId, $actorId);
         return ['ok' => true, 'item' => ['id' => $newId, 'name' => $name, 'name_am' => $nameAm, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Singer added.'];
     }
 
@@ -898,9 +952,7 @@ final class MezmurHymnService
         $affected = $stmt->affected_rows;
         $stmt->close();
         if (!$ok || $affected === 0) return ['ok' => false, 'message' => 'Singer not found or unchanged.'];
-        try {
-            \App\Services\SecurityAuditService::record($conn, $active ? 'Mezmur Singer Activated' : 'Mezmur Singer Deactivated', ['actor' => $actorId], 'mezmur_zemarian', $id);
-        } catch (\Throwable $e) { /* fail-soft */ }
+        self::audit($conn, $active ? 'Mezmur Singer Activated' : 'Mezmur Singer Deactivated', [], 'mezmur_zemarian', $id, $actorId);
         return ['ok' => true, 'message' => $active ? 'Singer restored.' : 'Singer hidden.'];
     }
 }

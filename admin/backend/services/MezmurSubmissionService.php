@@ -21,6 +21,13 @@
 
 namespace App\Services;
 
+// MZ-1: review decisions are audited after the packet UPDATE commits; on
+// the mobile path this class was never loaded, so the audit call threw
+// "Class not found" AFTER the state change (failed request, mutated row,
+// no trail). The service declares its own dependency — see
+// MezmurHymnService for the same hardening.
+require_once __DIR__ . '/SecurityAuditService.php';
+
 final class MezmurSubmissionService
 {
     public const STATUS_INCOMPLETE = 'incomplete';

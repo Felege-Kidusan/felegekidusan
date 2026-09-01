@@ -245,6 +245,34 @@ H12D=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM teacher_assignments WHER
 [ "$H12D" = "1" ] && ok "assign() reuses legacy row, no duplicate (H12)" || fail "H12 duplicates: $H12D"
 sudo -n mariadb ssms -e "DELETE FROM teacher_assignments WHERE teacher_id=3 AND class_id=$G3C AND subject_id=2" >/dev/null 2>&1
 
+# --- 3p. Mezmur single-writer + audit parity (Patch 16: MZ-1/2/7) ----------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P16Z=$(ssms_api POST mezmur/zemarian '{"name":"P16 Smoke Singer"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+ssms_api POST mezmur/zemarian "{\"id\":$P16Z,\"name\":\"P16 Smoke Renamed\"}" >/dev/null
+P16H=$(ssms_api POST mezmur/hymn '{"title":"P16 Smoke Hymn"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P16R1=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P16H")
+ssms_api POST mezmur/hymn-status "{\"id\":$P16H,\"status\":\"archived\"}" >/dev/null
+P16R2=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P16H")
+[ "$P16R2" -gt "$P16R1" ] && ok "mobile archive bumps revision (sync contract)" || fail "mobile archive revision $P16R1->$P16R2"
+# web path: super-admin login-page token flow (super dashboard has no CSRF const)
+P16HTML=$(curl -s -c "$JAR" "$BASE/admin/index.php")
+P16TOK=$(printf '%s' "$P16HTML" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"$//')
+curl -s -b "$JAR" -c "$JAR" -o /dev/null -d "csrf_token=$P16TOK" -d "username=audit_super" -d "password=$PASS" "$BASE/admin/backend/login.php"
+P16W=$(curl -s -b "$JAR" -d "csrf_token=$P16TOK" -d "action=set_status" -d "id=$P16H" -d "status=active" "$BASE/admin/api_mezmur.php")
+P16R3=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P16H")
+echo "$P16W" | grep -q '"success"' && [ "$P16R3" -gt "$P16R2" ] && ok "web restore bumps revision via single writer (MZ-2)" || fail "web set_status: $P16W rev $P16R2->$P16R3"
+P16NOOP=$(curl -s -b "$JAR" -d "csrf_token=$P16TOK" -d "action=set_status" -d "id=$P16H" -d "status=active" "$BASE/admin/api_mezmur.php")
+P16R4=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P16H")
+echo "$P16NOOP" | grep -q "already in that state" && [ "$P16R4" = "$P16R3" ] && ok "no-op transition refused, no phantom revision" || fail "no-op guard: $P16NOOP rev $P16R3->$P16R4"
+P16A1=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM activity_logs WHERE entity_type='mezmur_zemarian' AND entity_id=$P16Z AND action='Mezmur Singer Created'")
+P16A2=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM activity_logs WHERE entity_type='mezmur_zemarian' AND entity_id=$P16Z AND action='Mezmur Singer Renamed'")
+[ "$P16A1" = "1" ] && ok "mobile singer create is audited (MZ-1)" || fail "singer create audit rows: $P16A1"
+[ "$P16A2" = "1" ] && ok "singer rename is audited with from/to (MZ-7)" || fail "singer rename audit rows: $P16A2"
+P16A3=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM activity_logs WHERE entity_type='mezmur_hymn' AND entity_id=$P16H")
+[ "$P16A3" = "3" ] && ok "hymn trail exact: create+archive+restore, no phantoms" || fail "hymn audit rows: $P16A3 (expect 3)"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE id=$P16H; DELETE FROM mezmur_zemarians WHERE id=$P16Z; DELETE FROM activity_logs WHERE (entity_type='mezmur_hymn' AND entity_id=$P16H) OR (entity_type='mezmur_zemarian' AND entity_id=$P16Z)" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

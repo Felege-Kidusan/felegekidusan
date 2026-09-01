@@ -38,6 +38,10 @@ if (!apiRoleIs($auth, $MEZMUR_ROLES)) {
 require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurSubmissionService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurHymnService.php';
+// MZ-1: every mezmur write below audits through SecurityAuditService.
+// The services also self-load it now, but the route declares the
+// dependency explicitly like grades.php does (defense in depth).
+require_once __DIR__ . '/../../../admin/backend/services/SecurityAuditService.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
