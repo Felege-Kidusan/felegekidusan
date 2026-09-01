@@ -200,7 +200,7 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     <script src="/frontend/js/core.js"></script>
     
     <?php if ($pageScript): ?>
-    <script src="/frontend/js/<?= e($pageScript) ?>.js"></script>
+    <script src="/frontend/js/<?= e($pageScript) ?>.js?v=<?= filemtime(ROOT_PATH . '/frontend/js/' . $pageScript . '.js') ?>"></script>
     <?php endif; ?>
     
     <?php if ($_isImpersonating): ?>

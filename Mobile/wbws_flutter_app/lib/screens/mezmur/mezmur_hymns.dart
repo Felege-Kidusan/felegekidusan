@@ -124,14 +124,27 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
 
   Future<void> _reload() async {
     final query = _searchCtrl.text;
-    final items = await _store.hymns(
-      search: query,
-      categoryId: _categoryId,
-      includeArchived: _showArchived,
-      length: _length.isEmpty ? null : _length,
-      language: _language.isEmpty ? null : _language,
-      zemarianId: _zemarianId,
-    );
+    final searching = query.trim().length >= 2;
+    // P27: while searching, the store merges the on-device index with
+    // the SERVER word index (lyrics blobs are lazily downloaded, so
+    // the local copy alone cannot see most lyrics yet).
+    final items = searching
+        ? await _store.searchHymnsUnified(
+            query,
+            categoryId: _categoryId,
+            includeArchived: _showArchived,
+            length: _length.isEmpty ? null : _length,
+            language: _language.isEmpty ? null : _language,
+            zemarianId: _zemarianId,
+          )
+        : await _store.hymns(
+            search: query,
+            categoryId: _categoryId,
+            includeArchived: _showArchived,
+            length: _length.isEmpty ? null : _length,
+            language: _language.isEmpty ? null : _language,
+            zemarianId: _zemarianId,
+          );
     final cats = await _store.categories();
     final zem = await _store.zemarians();
     final catCounts = await _store.categoryHymnCounts();
@@ -145,6 +158,10 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
       zemResults = await _store.searchZemarians(query);
     }
     if (!mounted) return;
+    // Stale guard (P27): the unified search round-trips the server; if
+    // the query moved on while we were awaiting, the newer load is on
+    // its way — never let the slower response clobber it.
+    if (searching && _searchCtrl.text.trim() != query.trim()) return;
     setState(() {
       _items = items;
       _categories = cats;

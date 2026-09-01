@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'api_service.dart';
+import 'connectivity_service.dart';
 import 'local_db.dart';
 
 /// Local-first hymn library (Telegram / Google Drive model).
@@ -106,6 +107,92 @@ class HymnStore extends ChangeNotifier {
       }
     }
     return '';
+  }
+
+  /// P27 unified hymn search (Telegram/Spotify model). The on-device
+  /// index answers instantly; when the radio is up the SERVER word
+  /// index contributes results the local copy cannot know yet (lyrics
+  /// blobs download lazily — 15/sync cycle — so most cached rows have
+  /// no lyrics locally for a long time; the server sees every word of
+  /// every hymn). Results are merged, deduped by id and ranked; rows
+  /// with queued local edits stay authoritative; server-discovered
+  /// rows are upserted so they are on-device from now on.
+  Future<List<Map<String, dynamic>>> searchHymnsUnified(
+    String query, {
+    bool includeArchived = false,
+    String? length,
+    String? language,
+    int? categoryId,
+    int? zemarianId,
+  }) async {
+    final q = query.trim();
+    final local = await hymns(
+      search: q,
+      includeArchived: includeArchived,
+      length: length,
+      language: language,
+      categoryId: categoryId,
+      zemarianId: zemarianId,
+    );
+    if (q.length < 2) return local; // 1-char never searches (parity)
+    if (!ConnectivityService().hasLink || !_api.isLoggedIn) return local;
+
+    final res = await _api.getMezmurHymns(
+      search: q,
+      perPage: 25,
+      categoryId: categoryId,
+      zemarianId: zemarianId,
+      length: length?.isEmpty == true ? null : length,
+      language: language?.isEmpty == true ? null : language,
+      status: includeArchived ? '' : 'active',
+    );
+    if (!res.success || res.data is! Map) return local;
+    final serverItems =
+        (res.data['items'] as List?)?.whereType<Map>().toList() ?? [];
+    if (serverItems.isEmpty) return local;
+
+    // Rows with queued local edits are authoritative on-device (same
+    // rule as delta pulls).
+    final protect = <int>{};
+    for (final op in await _db.getPendingHymnOps()) {
+      try {
+        final payload = jsonDecode('${op['payload_json'] ?? '{}'}');
+        if (payload is Map) {
+          final pid = int.tryParse('${payload['id'] ?? 0}') ?? 0;
+          if (pid > 0) protect.add(pid);
+        }
+      } catch (_) {}
+    }
+    await _db.upsertHymns(serverItems, protectIds: protect);
+
+    final byId = <int, Map<String, dynamic>>{};
+    for (final h in local) {
+      byId[_asInt(h['id'])] = h;
+    }
+    for (final raw in serverItems) {
+      final m = Map<String, dynamic>.from(raw);
+      final id = _asInt(m['id']);
+      if (id <= 0) continue;
+      final localRow = byId[id];
+      if (localRow == null) {
+        byId[id] = m;
+        continue;
+      }
+      // Both know the row: keep the better score (the server scored
+      // the full corpus incl. lyrics) and fill missing match context.
+      final ls = (localRow['similarity'] as num?) ?? 0;
+      final ss = (m['similarity'] as num?) ?? 0;
+      if (ss > ls) localRow['similarity'] = ss;
+      final serverLyricHit = '${m['match_in'] ?? ''}' == 'lyrics';
+      if (serverLyricHit && ('${localRow['snippet'] ?? ''}').isEmpty) {
+        localRow['snippet'] = m['snippet'];
+        if (ls <= 0) localRow['match_in'] = 'lyrics';
+      }
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => ((b['similarity'] as num?) ?? 0)
+          .compareTo((a['similarity'] as num?) ?? 0));
+    return merged;
   }
 
   /// P25 (Telegram-style unified search): fuzzy collection search over

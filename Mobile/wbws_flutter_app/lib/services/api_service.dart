@@ -705,10 +705,27 @@ class ApiService {
   Future<ApiResponse> getHrSections() => get('/hr/sections');
 
   Future<ApiResponse> getMezmurHymns(
-      {int page = 1, String? search, String? category}) {
-    final params = <String, String>{'page': '$page'};
+      {int page = 1,
+      int perPage = 25,
+      String? search,
+      String? category,
+      int? categoryId,
+      int? zemarianId,
+      String? length,
+      String? language,
+      String? status}) {
+    final params = <String, String>{'page': '$page', 'per_page': '$perPage'};
     if (search != null && search.isNotEmpty) params['search'] = search;
     if (category != null && category.isNotEmpty) params['category'] = category;
+    if (categoryId != null && categoryId > 0) {
+      params['category_id'] = '$categoryId';
+    }
+    if (zemarianId != null && zemarianId > 0) {
+      params['zemarian_id'] = '$zemarianId';
+    }
+    if (length != null && length.isNotEmpty) params['length'] = length;
+    if (language != null && language.isNotEmpty) params['language'] = language;
+    if (status != null && status.isNotEmpty) params['status'] = status;
     return get('/mezmur/hymns', params: params);
   }
 

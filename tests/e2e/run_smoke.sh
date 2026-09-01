@@ -429,6 +429,16 @@ P25T=$(ssms_api GET "mezmur/hymns&search=P25%20Smoke%20Enlgish")
 echo "$P25T" | grep -q "P25 Smoke En" && ok "title typo still rescued (fuzzy tier)" || fail "typo through word engine: $P25T"
 sudo -n mariadb ssms -e "DELETE w FROM mezmur_hymn_words w LEFT JOIN mezmur_hymns h ON h.id=w.hymn_id WHERE h.id IS NULL OR h.title LIKE 'P25%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P25%'; DELETE FROM activity_logs WHERE details LIKE '%P25%'" >/dev/null 2>&1
 
+# --- 3y. Search chain completion (Patch 27) ---------------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_login audit_super >/dev/null 2>&1
+# the served page must cache-bust the page JS (stale-JS trap closed)
+P27V=$(ssms_get "/frontend/pages/mezmur_dept.php" | grep -c "frontend/js/mezmur.js?v=")
+[ "$P27V" -ge 1 ] && ok "page JS cache-busted (?v=filemtime)" || fail "no cache-buster on mezmur.js"
+# and the current JS on the wire still contains the search stack
+P27J=$(curl -s "$BASE/frontend/js/mezmur.js" | grep -c "listCache")
+[ "$P27J" -ge 1 ] && ok "served mezmur.js is current (query cache present)" || fail "served JS looks stale"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

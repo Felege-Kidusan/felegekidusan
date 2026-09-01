@@ -782,6 +782,62 @@ class LibraryTopTabsTests(unittest.TestCase):
         self.assertNotIn("_chip('All', '')", self.lib)
 
 
+class UnifiedSearchFixTests(unittest.TestCase):
+    """Patch 27 (2026-09-01): the search chain actually reaches the user.
+
+    File-by-file line-by-line audit findings, both root causes of the
+    user's "search still not working":
+    - mezmur_hymns.dart:127 searched ONLY the on-device SQLite; lyrics
+      blobs download lazily (15/sync cycle), so most cached rows had no
+      lyrics locally -> searching a lyrics word returned nothing even
+      ONLINE (the P25 server engine was never asked).
+    - layouts/base.php:203 loaded the page JS with NO cache-buster
+      (the CSS lines above had one) -> browsers could run a stale
+      mezmur.js forever, keeping pre-P22 keystroke-dropping behavior.
+
+    Fix (Telegram/Spotify model): searchHymnsUnified merges the instant
+    local index with the server word index while online (dedupe by id,
+    pending-edit rows authoritative, server-discovered rows upserted),
+    with a stale-response guard in the screen; the page JS include now
+    carries ?v=filemtime like the CSS.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+        cls.api = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/api_service.dart"
+        ).read_text(encoding="utf-8")
+        cls.lib = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymns.dart"
+        ).read_text(encoding="utf-8")
+        cls.layout = (ROOT / "frontend/layouts/base.php").read_text(encoding="utf-8")
+
+    def test_store_merges_local_and_server_search(self):
+        self.assertIn("Future<List<Map<String, dynamic>>> searchHymnsUnified(", self.store)
+        self.assertIn("ConnectivityService().hasLink", self.store)
+        self.assertIn("await _api.getMezmurHymns(", self.store)
+        # queued local edits stay authoritative (same rule as delta pulls)
+        self.assertIn("await _db.upsertHymns(serverItems, protectIds: protect);", self.store)
+        # 1-char queries never search
+        self.assertIn("if (q.length < 2) return local;", self.store)
+
+    def test_screen_routes_search_through_unified_store(self):
+        self.assertIn("await _store.searchHymnsUnified(", self.lib)
+        # stale guard: a slower server response can't clobber a newer query
+        self.assertIn("if (searching && _searchCtrl.text.trim() != query.trim()) return;", self.lib)
+
+    def test_api_client_carries_the_filters(self):
+        self.assertIn("'per_page': '$perPage'", self.api)
+        self.assertIn("params['category_id'] = '$categoryId';", self.api)
+        self.assertIn("params['zemarian_id'] = '$zemarianId';", self.api)
+
+    def test_page_js_is_cache_busted(self):
+        self.assertIn(".js?v=<?= filemtime(ROOT_PATH", self.layout)
+
+
 if __name__ == "__main__":
     unittest.main()
 
