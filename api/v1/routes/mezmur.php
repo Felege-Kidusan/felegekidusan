@@ -54,6 +54,9 @@ try {
 
     // ── GET /mezmur/days ────────────────────────────────────────
     if ($method === 'GET' && $action === 'days') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         $out = MezmurAttendanceService::listDays(
             $conn,
             (string)($_GET['from'] ?? ''),
@@ -86,11 +89,17 @@ try {
 
     // ── GET /mezmur/sections ────────────────────────────────────
     if ($method === 'GET' && $action === 'sections') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         ok(['sections' => MezmurAttendanceService::sectionListWithCounts($conn)]);
     }
 
     // ── GET /mezmur/sheet?date=…&section=… ──────────────────────
     if ($method === 'GET' && $action === 'sheet') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         $date = (string)($_GET['date'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) err('A valid date is required.');
         $section = trim((string)($_GET['section'] ?? ''));
@@ -192,6 +201,9 @@ try {
         if (!apiRoleIs($auth, $MEZMUR_ANALYTICS_ROLES)) {
             err('Analytics are available to Mezmur staff and admins only.', 403);
         }
+        if (isApiRateLimited('mezmur_api_analytics', 120)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         if (($ROUTE['parts'][2] ?? '') === 'sections') {
             ok(MezmurAttendanceService::analyticsSections($conn, $_GET));
         }
@@ -206,12 +218,18 @@ try {
 
     // ── GET /mezmur/hymns ─────────────────────────────────────
     if ($method === 'GET' && $action === 'hymns' && ($ROUTE['sub'] ?? '') === '') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         $out = MezmurHymnService::listHymns($conn, $_GET);
         ok($out);
     }
 
     // ── GET /mezmur/hymn?id=… ─────────────────────────────────
     if ($method === 'GET' && $action === 'hymn') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         $item = MezmurHymnService::getHymn($conn, (int)($_GET['id'] ?? 0));
         if ($item === null) err('Hymn not found.', 404);
         ok(['item' => $item]);
@@ -224,6 +242,11 @@ try {
     // unless include_lyrics=1 (lyrics are heavy blobs pulled lazily).
     // Router shape: id='hymns', sub='changes'.
     if ($method === 'GET' && $action === 'hymns' && ($ROUTE['sub'] ?? '') === 'changes') {
+        // Delta pulls are the heavy path (lyrics blobs); tighter bound,
+        // halved again when lyrics are included.
+        if (isApiRateLimited('mezmur_api_sync', ($_GET['include_lyrics'] ?? '') === '1' ? 60 : 120)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         $out = MezmurHymnService::listChangedSince(
             $conn,
             (string)($_GET['cursor'] ?? ''),
@@ -281,6 +304,9 @@ try {
 
     // ── GET /mezmur/categories ─────────────────────────────────
     if ($method === 'GET' && $action === 'categories') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         ok(['items' => MezmurHymnService::listCategories($conn)]);
     }
 
@@ -321,6 +347,9 @@ try {
 
     // ── GET /mezmur/zemarians — singer / artist catalogue ──────
     if ($method === 'GET' && $action === 'zemarians') {
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
         ok(['items' => MezmurHymnService::listZemarians($conn)]);
     }
 
@@ -389,6 +418,9 @@ try {
     if ($method === 'GET' && $action === 'submission') {
         if (!MezmurSubmissionService::canReview($auth)) {
             err('Only the Mezmur department can review packets.', 403);
+        }
+        if (isApiRateLimited('mezmur_api_read', 480)) {
+            err('Too many requests. Please wait a moment.', 429);
         }
         $item = MezmurSubmissionService::detail($conn, (int)($_GET['id'] ?? 0));
         if ($item === null) err('Submission not found.', 404);

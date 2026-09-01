@@ -300,6 +300,16 @@ P17G=$(ssms_api GET "mezmur/hymns&category=general" | python3 -c 'import sys,jso
 [ "$P17G" = "success" ] && ok "legacy 'general' string filter still works" || fail "general filter: $P17G"
 sudo -n mariadb ssms -e "DELETE FROM mezmur_hymn_categories WHERE hymn_id=$P17H; DELETE FROM mezmur_hymns WHERE id=$P17H; DELETE FROM mezmur_categories WHERE id IN ($P17A,$P17B); DELETE FROM activity_logs WHERE (entity_type='mezmur_hymn' AND entity_id=$P17H) OR (entity_type='mezmur_category' AND entity_id IN ($P17A,$P17B))" >/dev/null 2>&1
 
+# --- 3r. Mezmur mobile reads are rate limited (Patch 18: MZ-5) ---------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P18CODES=$(for i in $(seq 1 65); do curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $API_TOKEN" "$BASE/api/v1/index.php?_route=mezmur/hymns/changes&include_lyrics=1"; done | sort | uniq -c | tr '\n' ';')
+echo "$P18CODES" | grep -q " 60 200" && echo "$P18CODES" | grep -qE "[0-9]+ 429" \
+  && ok "delta reads throttled after 60/min (429 + Retry-After)" || fail "read throttle codes: $P18CODES"
+P18LIST=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $API_TOKEN" "$BASE/api/v1/index.php?_route=mezmur/hymns&per_page=1")
+[ "$P18LIST" = "200" ] && ok "lightweight reads unaffected (separate bucket)" || fail "list read: $P18LIST"
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

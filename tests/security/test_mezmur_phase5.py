@@ -992,3 +992,31 @@ class MezmurRenamePropagationTests(unittest.TestCase):
         for src in (self.hymn_svc, self.api):
             self.assertIn("category = ? OR EXISTS", src)
             self.assertIn("mc.name = ?", src)
+
+
+class MezmurReadRateLimitTests(unittest.TestCase):
+    """MZ-5 (Patch 18): mobile READ endpoints are rate limited.
+
+    Writes were already bounded; reads (list, single, delta, catalogues,
+    sheets) were not — any mezmur role could hammer them without limit,
+    including heavy include_lyrics delta pulls. Buckets are IP-scoped by
+    the shared middleware (Retry-After + X-RateLimit-Limit headers);
+    budgets are generous for real humans behind NAT but stop runaway
+    clients. Live behaviour: smoke block 3r.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+
+    def test_lightweight_reads_share_a_bounded_bucket(self):
+        # days, sheet, sections, hymns list, hymn, categories, zemarians,
+        # submission detail — every lightweight GET goes through the bucket.
+        self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_api_read'"), 8)
+
+    def test_delta_sync_is_bounded_and_lyrics_aware(self):
+        self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_api_sync'"), 1)
+        self.assertIn("include_lyrics", self.route)
+
+    def test_analytics_reads_are_bounded(self):
+        self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_api_analytics'"), 1)
