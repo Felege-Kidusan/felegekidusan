@@ -285,6 +285,30 @@ final class MezmurHymnService
     }
 
     /**
+     * MZ-9 whitelist helper: which of the given ids do NOT exist in the
+     * taxonomy table? Prepared IN-list; table name is hard-whitelisted.
+     * @param list<int> $ids normalized, bounded, non-empty
+     * @return list<int>
+     */
+    private static function unknownTaxonomyIds(\mysqli $conn, string $table, array $ids): array
+    {
+        if (!in_array($table, ['mezmur_categories', 'mezmur_zemarians'], true) || !$ids) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $conn->prepare("SELECT id FROM `$table` WHERE id IN ($ph)");
+        $stmt->bind_param(str_repeat('i', count($ids)), ...$ids);
+        $stmt->execute();
+        $found = [];
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $found[(int)$r['id']] = true;
+        }
+        $stmt->close();
+        return array_values(array_diff($ids, array_keys($found)));
+    }
+
+    /**
      * Normalize a client-supplied id list (ints or numeric strings) to a
      * clean, unique, bounded int list.
      * @return list<int>
@@ -312,7 +336,7 @@ final class MezmurHymnService
      * Resolve the legacy single `category` name into a canonical category
      * id (creating the row if absent), so old clients keep working.
      */
-    private static function resolveLegacyCategoryId(\mysqli $conn, string $name): ?int
+    private static function resolveLegacyCategoryId(\mysqli $conn, string $name, bool $create = true): ?int
     {
         $name = trim($name);
         if ($name === '' || $name === 'general' || mb_strlen($name) > 50) return null;
@@ -323,6 +347,7 @@ final class MezmurHymnService
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if ($row) return (int)$row['id'];
+        if (!$create) return null;
         $stmt = $conn->prepare("INSERT IGNORE INTO mezmur_categories (name, sort_order) VALUES (?, 100)");
         if (!$stmt) return null;
         $stmt->bind_param('s', $name);
@@ -544,10 +569,30 @@ final class MezmurHymnService
         $categoryIds = self::normalizeIds($input['categories'] ?? null);
         $zemarianIds = self::normalizeIds($input['zemarians'] ?? null);
 
-        // Legacy single-name input becomes a category id (creates it).
-        if (!$categoryIds && $category !== '') {
-            $legacyId = self::resolveLegacyCategoryId($conn, $category);
-            if ($legacyId !== null) $categoryIds = [$legacyId];
+        // MZ-9 whitelist validation (OWASP): taxonomy ids must reference
+        // existing rows. The FKs already stop unknown ids at the storage
+        // layer, but INSERT IGNORE used to swallow them silently — a stale
+        // picker (category/singer deleted on another device) got a fake
+        // success. Surface an honest 422 instead.
+        if ($categoryIds && self::unknownTaxonomyIds($conn, 'mezmur_categories', $categoryIds)) {
+            return ['ok' => false, 'message' => 'One of the selected categories no longer exists. Refresh the catalog and try again.'];
+        }
+        if ($zemarianIds && self::unknownTaxonomyIds($conn, 'mezmur_zemarians', $zemarianIds)) {
+            return ['ok' => false, 'message' => 'One of the selected singers no longer exists. Refresh the catalog and try again.'];
+        }
+
+        // Legacy single-name input becomes a category id. MZ-10: the row is
+        // only CREATED inside the save transaction — creating it here used
+        // to leave an orphan category behind whenever the hymn save later
+        // failed or rolled back.
+        $pendingLegacyCategory = false;
+        if (!$categoryIds && $category !== '' && $category !== 'general' && mb_strlen($category) <= 50) {
+            $legacyId = self::resolveLegacyCategoryId($conn, $category, false);
+            if ($legacyId !== null) {
+                $categoryIds = [$legacyId];
+            } else {
+                $pendingLegacyCategory = true;
+            }
         }
 
         // Keep the legacy column in sync for old readers.
@@ -607,6 +652,12 @@ final class MezmurHymnService
 
             $conn->begin_transaction();
             try {
+                if ($pendingLegacyCategory) {
+                    // MZ-10: create inside the transaction so a failed save
+                    // rolls the category row back with it (no orphans).
+                    $legacyId = self::resolveLegacyCategoryId($conn, $category, true);
+                    if ($legacyId !== null) $categoryIds = [$legacyId];
+                }
                 // Optimistic concurrency (MZ-6): when the client supplied a
                 // base_revision the guard lives IN the UPDATE itself. The
                 // old SELECT-then-UPDATE pair was a check-then-act race —
@@ -690,6 +741,11 @@ final class MezmurHymnService
         $conn->begin_transaction();
         $newId = 0;
         try {
+            if ($pendingLegacyCategory) {
+                // MZ-10: create inside the transaction (see update path).
+                $legacyId = self::resolveLegacyCategoryId($conn, $category, true);
+                if ($legacyId !== null) $categoryIds = [$legacyId];
+            }
             $stmt = $conn->prepare(
                 "INSERT INTO mezmur_hymns (title, title_am, category, reference, lyrics, length, language, status, created_by, updated_by)
                  VALUES (?,?,?,?,?,?,?,?,?,?)"

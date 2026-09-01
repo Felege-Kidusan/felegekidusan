@@ -329,6 +329,27 @@ P19IDX=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM information_schema.sta
 [ "$P19IDX" = "1" ] && ok "storage-level unique title index present (sql/031)" || fail "unique index missing"
 sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P19 Smoke%'; DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P19 Smoke%'" >/dev/null 2>&1
 
+# --- 3t. Mezmur mop-up (Patch 20: MZ-9/10/13) --------------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P20V=$(ssms_api POST mezmur/hymn '{"title":"P20 Smoke A","categories":[999999]}')
+echo "$P20V" | grep -q "no longer exists" && ok "unknown taxonomy id -> honest 422 (MZ-9)" || fail "unknown id: $P20V"
+( echo "BEGIN; INSERT INTO mezmur_hymns (title, category, status, created_by, updated_by) VALUES ('P20 Smoke Lock','general','active',1,1); SELECT SLEEP(2); COMMIT;" | sudo -n mariadb ssms >/dev/null 2>&1 ) &
+sleep 0.4
+P20CODE=$(curl -s -o /tmp/p20t -w '%{http_code}' -X POST -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d '{"title":"P20 Smoke Lock","category":"P20 Smoke Orphan"}' "$BASE/api/v1/index.php?_route=mezmur/hymn")
+wait
+P20ORPH=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM mezmur_categories WHERE name='P20 Smoke Orphan'")
+[ "$P20CODE" = "422" ] && [ "$P20ORPH" = "0" ] && ok "failed save rolls back legacy category (no orphans, MZ-10)" || fail "orphan test: code=$P20CODE orphans=$P20ORPH"
+P20HASH=$(php -r "echo password_hash('P20Smoke#2026', PASSWORD_DEFAULT);")
+sudo -n mariadb ssms -e "INSERT INTO users (username,email,full_name,role,password_hash,is_active) VALUES ('p20_mez',NULL,'P20 Mezmur','mezmur_dept','$P20HASH',1)"
+P20M=$(curl -s -c /tmp/p20jar "$BASE/admin/index.php")
+P20MT=$(printf '%s' "$P20M" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"$//')
+curl -s -b /tmp/p20jar -c /tmp/p20jar -o /dev/null -d "csrf_token=$P20MT" -d "username=p20_mez" -d "password=P20Smoke#2026" "$BASE/admin/backend/login.php"
+P20R=$(curl -s -b /tmp/p20jar -d "csrf_token=$P20MT" -d "action=migrate" "$BASE/admin/api_mezmur.php")
+echo "$P20R" | grep -q "Only administrators" && ok "schema reconcile restricted to admins (MZ-13)" || fail "migrate gate: $P20R"
+sudo -n mariadb ssms -e "DELETE FROM users WHERE username='p20_mez'; DELETE FROM mezmur_hymns WHERE title LIKE 'P20 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P20 Smoke%'; DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P20 Smoke%'" >/dev/null 2>&1
+rm -f /tmp/p20jar /tmp/p20t
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

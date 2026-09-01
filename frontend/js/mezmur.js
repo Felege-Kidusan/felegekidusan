@@ -424,11 +424,39 @@
         return out.replace(re, '<mark>$1</mark>');
     }
 
+    /** MZ-15: render every category the hymn carries (server attaches the
+     *  join rows); the legacy single string stays as the fallback. */
+    function catBadges(h) {
+        var cats = h.categories || [];
+        if (cats.length) {
+            var extra = cats.length > 3 ? ' <span class="text-dim" style="font-size:.7rem">+' + (cats.length - 3) + '</span>' : '';
+            return cats.slice(0, 3).map(function (c) {
+                return '<span class="badge badge-info">' + esc(c.name) + '</span>';
+            }).join(' ') + extra;
+        }
+        return h.category ? '<span class="badge badge-info">' + esc(h.category) + '</span>' : '—';
+    }
+
+    /** MZ-12: reset every library filter and reload (empty-state recovery). */
+    function clearFilters() {
+        lib.search = ''; lib.category = ''; lib.length = ''; lib.language = '';
+        lib.categoryId = 0; lib.zemarianId = 0; lib.page = 1;
+        ['mzSearch', 'mzCategoryFilter', 'mzLengthFilter', 'mzLanguageFilter'].forEach(function (id) {
+            var el = $(id); if (el) el.value = '';
+        });
+        loadList();
+    }
+
     function renderHymnRows(items) {
         var tb = $('mzTbody');
         if (!items.length) {
-            tb.innerHTML = '<tr><td colspan="6">' + (lib.search || lib.category
-                ? emptyState('fa-magnifying-glass', 'No matches', 'No hymns match your current search or filters.')
+            // MZ-12: distinguish "filtered to nothing" from "library empty"
+            // (Carbon/NNG empty-state pattern: reflect what was applied and
+            // offer a recovery action). Every active filter counts.
+            var filtered = !!(lib.search || lib.category || lib.length || lib.language || lib.categoryId || lib.zemarianId || lib.status === 'archived');
+            tb.innerHTML = '<tr><td colspan="6">' + (filtered
+                ? emptyState('fa-magnifying-glass', 'No matches', 'No hymns match your current search or filters.',
+                    '<button class="btn-secondary btn-sm" onclick="Mezmur.clearFilters()"><i class="fa-solid fa-filter-circle-xmark"></i> Clear filters</button>')
                 : emptyState('fa-music', 'No hymns yet', 'Start the library by adding the first hymn.',
                     '<button class="btn-primary btn-sm" onclick="Mezmur.openAdd()"><i class="fa-solid fa-plus"></i> Add Hymn</button>')) + '</td></tr>';
             return;
@@ -439,7 +467,7 @@
                 '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + hi(h.title) +
                 (h.snippet ? '<div class="text-dim" style="font-size:.72rem;font-weight:400;margin-top:2px">' + hi(h.snippet) + '</div>' : '') + '</td>' +
                 '<td class="amharic" style="padding:.65rem .75rem">' + hi(h.title_am || '—') + '</td>' +
-                '<td style="padding:.65rem .75rem">' + (h.category ? '<span class="badge badge-info">' + esc(h.category) + '</span>' : '—') + '</td>' +
+                '<td style="padding:.65rem .75rem">' + catBadges(h) + '</td>' +
                 '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + hi(h.reference || '—') + '</td>' +
                 '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + fmtDate(h.updated_at) + '</td>' +
                 '<td style="padding:.65rem .75rem;text-align:right;white-space:nowrap">' +
@@ -1362,6 +1390,7 @@
         gotoAttendance: gotoAttendance, jumpToDate: jumpToDate,
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
+        clearFilters: clearFilters,
         tab: tab, browseCategory: browseCategory, browseZemarian: browseZemarian,
         openCatalog: openCatalog, closeCatalog: closeCatalog, catalogTab: catalogTab,
         catalogAdd: catalogAdd, catalogToggle: catalogToggle,

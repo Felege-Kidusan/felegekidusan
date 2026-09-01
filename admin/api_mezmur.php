@@ -218,6 +218,12 @@ try {
         }
 
         case 'migrate': {
+            // MZ-13 (least privilege): schema changes are admin territory.
+            // The reconciler only emits guarded mezmur DDL, but a deployment
+            // action must not be reachable by department staff.
+            if (!in_array($mezmurRole, ['super_admin', 'school_admin'], true)) {
+                mezmur_respond(['status' => 'error', 'message' => 'Only administrators can reconcile the database schema.']);
+            }
             $result = \App\Services\MezmurSchemaReconciler::apply($conn);
             \App\Services\SecurityAuditService::record(
                 $conn, 'Mezmur Schema Reconciled',

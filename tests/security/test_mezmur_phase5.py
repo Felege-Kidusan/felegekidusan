@@ -1064,3 +1064,40 @@ class MezmurConcurrencyGuardTests(unittest.TestCase):
         for src in (self.reconciler, self.migration):
             self.assertIn("uq_mezmur_hymns_title", src)
         self.assertIn("HAVING COUNT(*) > 1", self.migration)
+
+
+class MezmurMopUpTests(unittest.TestCase):
+    """Patch 20 mop-up (2026-09-01): MZ-12/13/15 (web UX + privilege),
+    MZ-9 (whitelist taxonomy ids), MZ-10 (orphan-free legacy create).
+    Live behaviour: smoke block 3t.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hymn_svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+
+    def test_migrate_is_admin_only(self):
+        self.assertIn("Only administrators can reconcile the database schema.", self.api)
+        self.assertIn("super_admin', 'school_admin", self.api)
+
+    def test_unknown_taxonomy_ids_are_rejected_upfront(self):
+        self.assertIn("unknownTaxonomyIds", self.hymn_svc)
+        self.assertIn("no longer exists", self.hymn_svc)
+
+    def test_legacy_category_rows_are_created_inside_the_transaction(self):
+        self.assertIn("resolveLegacyCategoryId($conn, $category, false)", self.hymn_svc)
+        self.assertIn("resolveLegacyCategoryId($conn, $category, true)", self.hymn_svc)
+        self.assertIn("$pendingLegacyCategory", self.hymn_svc)
+
+    def test_web_empty_state_covers_every_filter_and_offers_recovery(self):
+        self.assertIn("lib.categoryId || lib.zemarianId", self.js)
+        self.assertIn("Clear filters", self.js)
+        self.assertIn("clearFilters: clearFilters", self.js)
+
+    def test_web_rows_render_multi_category_badges(self):
+        self.assertIn("catBadges(h)", self.js)
+        self.assertIn("h.categories || []", self.js)
