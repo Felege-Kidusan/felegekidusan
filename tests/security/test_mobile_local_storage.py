@@ -39,7 +39,7 @@ class MobileLocalStorageTests(unittest.TestCase):
         self.assertNotIn("LocalDatabaseKeyStore", self.database)
         self.assertNotIn("EncryptedDatabaseMigrator", self.database)
         self.assertNotRegex(self.database, r"password:\s*")
-        self.assertIn("version: 12", self.database)
+        self.assertIn("version: 14", self.database)
         # Set-form PRAGMAs must use rawQuery on Android; db.execute() throws
         # and crashed every database open in 1.1.15.
         self.assertIn("PRAGMA secure_delete = ON", self.database)

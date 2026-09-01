@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/hymn_store.dart';
 import '../../utils/theme.dart';
+import 'mezmur_zemarians.dart';
 
 /// Add / edit one hymn — fully offline.
 ///
@@ -30,9 +31,15 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
   static const _lyricsMax = 200000;
 
   List<Map<String, dynamic>> _categories = [];
-  String _category = '';
+  List<Map<String, dynamic>> _zemarians = [];
+  final Set<int> _selectedCategories = {};
+  final Set<int> _selectedZemarians = {};
+  String _length = 'long';
+  String _language = 'amharic';
   bool _saving = false;
   String? _error;
+
+  int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
   int get _localRowId {
     final v = widget.hymn?['id'];
@@ -52,29 +59,33 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
       _titleCtrl.text = '${h['title'] ?? ''}';
       _titleAmCtrl.text = '${h['title_am'] ?? ''}';
       _referenceCtrl.text = '${h['reference'] ?? ''}';
+      _referenceCtrl.text = '${h['reference'] ?? ''}';
       _lyricsCtrl.text = '${h['lyrics'] ?? ''}';
-      _category = '${h['category'] ?? ''}';
+      _length = '${h['length'] ?? 'long'}';
+      _language = '${h['language'] ?? 'amharic'}';
     }
-    _loadCategories();
+    _loadCatalog();
   }
 
-  Future<void> _loadCategories() async {
+  Future<void> _loadCatalog() async {
     final cats = await _store.categories();
+    final zem = await _store.zemarians();
+    if (_isEdit) {
+      _selectedCategories.addAll(await _store.hymnCategoryIds(_localRowId));
+      _selectedZemarians.addAll(await _store.hymnZemarianIds(_localRowId));
+    }
     if (!mounted) return;
     setState(() {
       _categories = cats;
-      if (_category.isEmpty && cats.isNotEmpty) _category = '${cats.first['name']}';
-      // Keep legacy/free-form categories selectable too.
-      final hymnCat = '${widget.hymn?['category'] ?? ''}';
-      if (hymnCat.isNotEmpty &&
-          !cats.any((c) => '${c['name']}' == hymnCat)) {
-        _categories = [
-          {'id': 0, 'name': hymnCat, 'sort_order': 0, 'is_active': 1},
-          ...cats,
-        ];
-        _category = hymnCat;
-      }
+      _zemarians = zem;
     });
+  }
+
+  String _primaryCategoryName() {
+    for (final c in _categories) {
+      if (_selectedCategories.contains(_asInt(c['id']))) return '${c['name']}';
+    }
+    return '';
   }
 
   @override
@@ -106,7 +117,11 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
       if (_isEdit) 'id': _localRowId,
       'title': title,
       'title_am': _titleAmCtrl.text.trim(),
-      'category': _category.isEmpty ? 'general' : _category,
+      'category': _primaryCategoryName().isEmpty ? 'general' : _primaryCategoryName(),
+      'categories': _selectedCategories.toList(),
+      'zemarians': _selectedZemarians.toList(),
+      'length': _length,
+      'language': _language,
       'reference': _referenceCtrl.text.trim(),
       'lyrics': _lyricsCtrl.text.trim(),
     };
@@ -142,6 +157,59 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
       isDense: true,
       prefixIcon: icon != null ? Icon(icon, size: 18) : null,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  Widget _multiSelectSection(
+    String label,
+    List<Map<String, dynamic>> items,
+    Set<int> selected,
+    IconData icon, {
+    VoidCallback? onManage,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: AppTheme.textSecondary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: 12.5, color: AppTheme.textSecondary)),
+            ),
+            if (onManage != null)
+              TextButton(onPressed: onManage, child: const Text('Manage')),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (items.isEmpty)
+          const Text('Nothing yet — add one first.',
+              style: TextStyle(fontSize: 11.5, color: AppTheme.textSecondary))
+        else
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final it in items)
+                FilterChip(
+                  label: Text('${it['name']}',
+                      style: const TextStyle(fontSize: 12)),
+                  selected: selected.contains(_asInt(it['id'])),
+                  onSelected: (on) {
+                    setState(() {
+                      if (on) {
+                        selected.add(_asInt(it['id']));
+                      } else {
+                        selected.remove(_asInt(it['id']));
+                      }
+                    });
+                  },
+                ),
+            ],
+          ),
+      ],
     );
   }
 
@@ -198,16 +266,43 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
               decoration: _deco('Amharic title (አማርኛ ርዕስ)',
                   icon: Icons.translate)),
           const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            value: _category.isEmpty ? null : _category,
-            decoration: _deco('Category', icon: Icons.category_outlined),
-            items: [
-              for (final c in _categories)
-                DropdownMenuItem(
-                    value: '${c['name']}', child: Text('${c['name']}')),
-              const DropdownMenuItem(value: 'general', child: Text('general')),
+          _multiSelectSection('Categories (one or more)', _categories,
+              _selectedCategories, Icons.category_outlined),
+          const SizedBox(height: 12),
+          _multiSelectSection('Singers / Zemarians (one or more)', _zemarians,
+              _selectedZemarians, Icons.person_outline,
+              onManage: () async {
+                await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const MezmurZemariansScreen()));
+                await _loadCatalog();
+              }),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _length,
+                  decoration: _deco('Length', icon: Icons.timeline),
+                  items: const [
+                    DropdownMenuItem(value: 'long', child: Text('Long')),
+                    DropdownMenuItem(value: 'short', child: Text('Short')),
+                  ],
+                  onChanged: (v) => setState(() => _length = v ?? 'long'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _language,
+                  decoration: _deco('Language', icon: Icons.language),
+                  items: const [
+                    DropdownMenuItem(value: 'amharic', child: Text('Amharic (አማርኛ)')),
+                    DropdownMenuItem(value: 'geez', child: Text('Geez (ግዕዝ)')),
+                  ],
+                  onChanged: (v) => setState(() => _language = v ?? 'amharic'),
+                ),
+              ),
             ],
-            onChanged: (v) => setState(() => _category = v ?? ''),
           ),
           const SizedBox(height: 10),
           TextField(

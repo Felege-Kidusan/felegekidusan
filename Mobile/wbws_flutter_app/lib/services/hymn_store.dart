@@ -37,14 +37,25 @@ class HymnStore extends ChangeNotifier {
     String? search,
     String? category,
     bool includeArchived = false,
+    String? length,
+    String? language,
+    int? categoryId,
+    int? zemarianId,
   }) =>
       _db.getLocalHymns(
         search: search,
         category: category,
         includeArchived: includeArchived,
+        length: length,
+        language: language,
+        categoryId: categoryId,
+        zemarianId: zemarianId,
       );
 
   Future<Map<String, dynamic>?> hymn(int id) => _db.getLocalHymn(id);
+
+  Future<List<int>> hymnCategoryIds(int hymnId) => _db.getHymnCategoryIds(hymnId);
+  Future<List<int>> hymnZemarianIds(int hymnId) => _db.getHymnZemarianIds(hymnId);
 
   Future<List<Map<String, dynamic>>> categories({bool activeOnly = true}) =>
       _db.getLocalCategories(activeOnly: activeOnly);
@@ -92,6 +103,10 @@ class HymnStore extends ChangeNotifier {
                 ? null
                 : hymn['reference'],
             'lyrics': '${hymn['lyrics'] ?? ''}'.isEmpty ? null : hymn['lyrics'],
+            'length': '${hymn['length'] ?? 'long'}',
+            'language': '${hymn['language'] ?? 'amharic'}',
+            'category_ids': hymn['categories'] ?? const [],
+            'zemarian_ids': hymn['zemarians'] ?? const [],
             'status': hymn['status'] ?? 'active',
             'revision': baseRevision ?? _asInt(hymn['revision']),
             'updated_at': '',
@@ -117,6 +132,10 @@ class HymnStore extends ChangeNotifier {
             : hymn['reference'],
         'lyrics':
             '${hymn['lyrics'] ?? ''}'.isEmpty ? null : hymn['lyrics'],
+        'length': '${hymn['length'] ?? 'long'}',
+        'language': '${hymn['language'] ?? 'amharic'}',
+        'category_ids': hymn['categories'] ?? const [],
+        'zemarian_ids': hymn['zemarians'] ?? const [],
         'status': hymn['status'] ?? 'active',
         'revision': baseRevision ?? _asInt(hymn['revision']),
         'updated_at': '',
@@ -193,6 +212,58 @@ class HymnStore extends ChangeNotifier {
     await _db.upsertCategoryLocal({...row, 'is_active': active ? 1 : 0});
     await _db
         .enqueueHymnOp('category_status', {'id': id, 'active': active});
+    notifyListeners();
+    unawaited(pushPending().catchError((_) {}));
+    return null;
+  }
+
+  // ── zemarians (singers) ─────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> zemarians({bool activeOnly = true}) =>
+      _db.getLocalZemarians(activeOnly: activeOnly);
+
+  Future<String?> saveZemarian(Map<String, dynamic> zemarian) async {
+    final name = '${zemarian['name'] ?? ''}'.trim();
+    if (name.isEmpty) return 'Singer name is required.';
+    if (name.length > 100) return 'Singer name is too long.';
+
+    final existing = await _db.getLocalZemarians(activeOnly: false);
+    for (final z in existing) {
+      if ('${z['name']}'.toLowerCase() == name.toLowerCase() &&
+          _asInt(z['id']) != _asInt(zemarian['id'])) {
+        return 'A singer with this name already exists.';
+      }
+    }
+
+    final localId = _localId(zemarian);
+    await _db.upsertZemarianLocal({
+      'id': localId,
+      'name': name,
+      'name_am': '${zemarian['name_am'] ?? ''}'.isEmpty
+          ? null
+          : zemarian['name_am'],
+      'sort_order': _asInt(zemarian['sort_order']),
+      'is_active': 1,
+    });
+    await _db.enqueueHymnOp('zemarian_save',
+        {'id': zemarian['id'] ?? 0, 'name': name, 'name_am': zemarian['name_am'] ?? ''});
+    notifyListeners();
+    unawaited(pushPending().catchError((_) {}));
+    return null;
+  }
+
+  Future<String?> setZemarianStatus(int id, bool active) async {
+    final rows = await _db.getLocalZemarians(activeOnly: false);
+    Map<String, dynamic>? row;
+    for (final z in rows) {
+      if (_asInt(z['id']) == id) {
+        row = z;
+        break;
+      }
+    }
+    if (row == null) return 'Singer not found on this device yet.';
+    await _db.upsertZemarianLocal({...row, 'is_active': active ? 1 : 0});
+    await _db.enqueueHymnOp('zemarian_status', {'id': id, 'active': active});
     notifyListeners();
     unawaited(pushPending().catchError((_) {}));
     return null;
@@ -347,6 +418,43 @@ class HymnStore extends ChangeNotifier {
               'category_status', res.message ?? 'Rejected', 'error');
           await _db.dropHymnOp(id);
           return false;
+        case 'zemarian_save':
+          final res = await _api.saveMezmurZemarian(payload, clientOpId: opId);
+          if (res.success) {
+            final item = _itemFrom(res.data);
+            if (item != null) await _db.upsertZemarianLocal(item);
+            final zLocalId = _asInt(payload['id']);
+            if (zLocalId < 0) {
+              final db = await _db.database;
+              await db.delete('cached_mezmur_zemarians',
+                  where: 'id = ?', whereArgs: [zLocalId]);
+            }
+            await _db.markHymnOpSynced(id);
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false;
+          }
+          await _db.logSync('zemarian_save', res.message ?? 'Rejected', 'error');
+          await _db.dropHymnOp(id);
+          return false;
+        case 'zemarian_status':
+          final res = await _api.setMezmurZemarianStatus(
+              _asInt(payload['id']), payload['active'] == true,
+              clientOpId: opId);
+          if (res.success || res.statusCode == 409) {
+            await _db.markHymnOpSynced(id);
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false;
+          }
+          await _db.logSync(
+              'zemarian_status', res.message ?? 'Rejected', 'error');
+          await _db.dropHymnOp(id);
+          return false;
         default:
           await _db.dropHymnOp(id);
           return false;
@@ -400,6 +508,11 @@ class HymnStore extends ChangeNotifier {
       final cats = await _api.getMezmurCategories();
       if (cats.success && cats.data is Map && cats.data['items'] is List) {
         await _db.upsertCategories(cats.data['items'] as List);
+      }
+      // Singers (zemarians): same small canonical list.
+      final zem = await _api.getMezmurZemarians();
+      if (zem.success && zem.data is Map && zem.data['items'] is List) {
+        await _db.upsertZemarians(zem.data['items'] as List);
       }
       // Lazy lyrics: bounded, resumable batch per cycle (Telegram-style
       // "download media as you go" — keeps the first sync seconds-fast).

@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 12,
+      version: 14,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -248,6 +248,48 @@ class LocalDb {
             )
           ''');
         }
+        if (oldVersion < 13) {
+          // Mezmur hymns: length + language taxonomy flags (Feature 2).
+          try {
+            await db.execute(
+                "ALTER TABLE cached_hymns ADD COLUMN length TEXT NOT NULL DEFAULT 'long'");
+          } catch (_) {}
+          try {
+            await db.execute(
+                "ALTER TABLE cached_hymns ADD COLUMN language TEXT NOT NULL DEFAULT 'amharic'");
+          } catch (_) {}
+        }
+        if (oldVersion < 14) {
+          // Feature 3: singer catalogue + many-to-many hymn associations.
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_mezmur_zemarians (
+              id INTEGER PRIMARY KEY,
+              name TEXT NOT NULL,
+              name_am TEXT,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              updated_at TEXT
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_hymn_categories (
+              hymn_id INTEGER NOT NULL,
+              category_id INTEGER NOT NULL,
+              PRIMARY KEY (hymn_id, category_id)
+            )
+          ''');
+          await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_chc_category ON cached_hymn_categories (category_id)');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_hymn_zemarians (
+              hymn_id INTEGER NOT NULL,
+              zemarian_id INTEGER NOT NULL,
+              PRIMARY KEY (hymn_id, zemarian_id)
+            )
+          ''');
+          await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_chz_zemarian ON cached_hymn_zemarians (zemarian_id)');
+        }
       },
     );
   }
@@ -264,6 +306,8 @@ class LocalDb {
         reference TEXT,
         lyrics TEXT,
         status TEXT NOT NULL DEFAULT 'active',
+        length TEXT NOT NULL DEFAULT 'long',
+        language TEXT NOT NULL DEFAULT 'amharic',
         revision INTEGER NOT NULL DEFAULT 1,
         server_updated_at TEXT,
         fetched_at TEXT
@@ -282,6 +326,34 @@ class LocalDb {
         updated_at TEXT
       )
     ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_mezmur_zemarians (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        name_am TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_hymn_categories (
+        hymn_id INTEGER NOT NULL,
+        category_id INTEGER NOT NULL,
+        PRIMARY KEY (hymn_id, category_id)
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_chc_category ON cached_hymn_categories (category_id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_hymn_zemarians (
+        hymn_id INTEGER NOT NULL,
+        zemarian_id INTEGER NOT NULL,
+        PRIMARY KEY (hymn_id, zemarian_id)
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_chz_zemarian ON cached_hymn_zemarians (zemarian_id)');
     await db.execute('''
       CREATE TABLE IF NOT EXISTS pending_hymn_ops (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1452,6 +1524,14 @@ class LocalDb {
 
   int _asIntLocal(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
+  List<int> _asIntList(dynamic v) {
+    if (v is List) {
+      return v.map((e) => _asIntLocal(e)).where((e) => e > 0).toList();
+    }
+    if (v is int && v > 0) return [v];
+    return const [];
+  }
+
   /// Upsert rows pulled from the server delta. [protectIds] are rows
   /// with LOCAL edits still queued in the outbox — server deltas must
   /// not clobber an edit the user has not seen synced yet. Archived
@@ -1478,12 +1558,28 @@ class LocalDb {
             'reference': h['reference'],
             'lyrics': h['lyrics'],
             'status': '${h['status'] ?? 'active'}',
+            'length': '${h['length'] ?? 'long'}',
+            'language': '${h['language'] ?? 'amharic'}',
             'revision': _asIntLocal(h['revision']),
             'server_updated_at': '${h['updated_at'] ?? ''}',
             'fetched_at': now,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
+        if (h.containsKey('category_ids') || h.containsKey('zemarian_ids')) {
+          await txn.delete('cached_hymn_categories',
+              where: 'hymn_id = ?', whereArgs: [id]);
+          await txn.delete('cached_hymn_zemarians',
+              where: 'hymn_id = ?', whereArgs: [id]);
+          for (final cid in _asIntList(h['category_ids'])) {
+            await txn.insert(
+                'cached_hymn_categories', {'hymn_id': id, 'category_id': cid});
+          }
+          for (final zid in _asIntList(h['zemarian_ids'])) {
+            await txn.insert(
+                'cached_hymn_zemarians', {'hymn_id': id, 'zemarian_id': zid});
+          }
+        }
       }
       await batch.commit(noResult: true);
     });
@@ -1503,6 +1599,10 @@ class LocalDb {
     String? search,
     String? category,
     bool includeArchived = false,
+    String? length,
+    String? language,
+    int? categoryId,
+    int? zemarianId,
     int limit = 500,
   }) async {
     final db = await database;
@@ -1512,6 +1612,24 @@ class LocalDb {
     if (category != null && category.isNotEmpty) {
       where.add('category = ?');
       args.add(category);
+    }
+    if (length != null && length.isNotEmpty) {
+      where.add('length = ?');
+      args.add(length);
+    }
+    if (language != null && language.isNotEmpty) {
+      where.add('language = ?');
+      args.add(language);
+    }
+    if (categoryId != null && categoryId > 0) {
+      where.add(
+          'EXISTS (SELECT 1 FROM cached_hymn_categories cc WHERE cc.hymn_id = cached_hymns.id AND cc.category_id = ?)');
+      args.add(categoryId);
+    }
+    if (zemarianId != null && zemarianId > 0) {
+      where.add(
+          'EXISTS (SELECT 1 FROM cached_hymn_zemarians cz WHERE cz.hymn_id = cached_hymns.id AND cz.zemarian_id = ?)');
+      args.add(zemarianId);
     }
     if (search != null && search.trim().isNotEmpty) {
       final like = '%${search.trim()}%';
@@ -1600,6 +1718,73 @@ class LocalDb {
       where: activeOnly ? 'is_active = 1' : null,
       orderBy: 'sort_order, name COLLATE NOCASE',
     );
+  }
+
+  // ── zemarians (singers) + associations ─────────────────────
+
+  Future<void> upsertZemarians(List<dynamic> rows) async {
+    if (rows.isEmpty) return;
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final z in rows.whereType<Map>()) {
+        final id = _asIntLocal(z['id']);
+        if (id <= 0) continue;
+        batch.insert(
+          'cached_mezmur_zemarians',
+          {
+            'id': id,
+            'name': '${z['name'] ?? ''}',
+            'name_am': z['name_am'],
+            'sort_order': _asIntLocal(z['sort_order']),
+            'is_active': _asIntLocal(z['is_active']),
+            'updated_at': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<void> upsertZemarianLocal(Map<String, dynamic> z) async {
+    final db = await database;
+    await db.insert(
+      'cached_mezmur_zemarians',
+      {
+        'id': _asIntLocal(z['id']),
+        'name': '${z['name'] ?? ''}',
+        'name_am': z['name_am'],
+        'sort_order': _asIntLocal(z['sort_order'] ?? 0),
+        'is_active': _asIntLocal(z['is_active'] ?? 1),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getLocalZemarians({bool activeOnly = true}) async {
+    final db = await database;
+    return db.query(
+      'cached_mezmur_zemarians',
+      where: activeOnly ? 'is_active = 1' : null,
+      orderBy: 'sort_order, name COLLATE NOCASE',
+    );
+  }
+
+  Future<List<int>> getHymnCategoryIds(int hymnId) async {
+    final db = await database;
+    final rows = await db.query('cached_hymn_categories',
+        columns: ['category_id'], where: 'hymn_id = ?', whereArgs: [hymnId]);
+    return rows.map((r) => _asIntLocal(r['category_id'])).where((e) => e > 0).toList();
+  }
+
+  Future<List<int>> getHymnZemarianIds(int hymnId) async {
+    final db = await database;
+    final rows = await db.query('cached_hymn_zemarians',
+        columns: ['zemarian_id'], where: 'hymn_id = ?', whereArgs: [hymnId]);
+    return rows.map((r) => _asIntLocal(r['zemarian_id'])).where((e) => e > 0).toList();
   }
 
   // ── outbox: queued hymn mutations ───────────────────────────

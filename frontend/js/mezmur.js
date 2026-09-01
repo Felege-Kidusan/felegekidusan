@@ -355,7 +355,7 @@
     // ══════════════════════════════════════════════════════════
     // MODULE 1 — HYMN LIBRARY
     // ══════════════════════════════════════════════════════════
-    var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', loading: false, seq: 0 };
+    var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', length: '', language: '', categoryId: 0, zemarianId: 0, loading: false, seq: 0 };
 
     function loadStats() {
         return apiGet('action=stats').then(function (d) {
@@ -368,7 +368,8 @@
             sel.innerHTML = '<option value="">All categories</option>' +
                 (d.category_list || []).map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
             sel.value = cur;
-            $('mzCategoryOptions').innerHTML = (d.category_list || []).map(function (c) { return '<option value="' + esc(c) + '">'; }).join('');
+            var catOpts = $('mzCategoryOptions');
+            if (catOpts) catOpts.innerHTML = (d.category_list || []).map(function (c) { return '<option value="' + esc(c) + '">'; }).join('');
 
             populateSectionSelect($('mzAnSection'), d.section_list || []);
         }).catch(function () { /* stats non-critical */ });
@@ -390,6 +391,8 @@
         tb.innerHTML = skeletonRows(6);
         var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + PAGE_SIZE +
             '&search=' + encodeURIComponent(lib.search) + '&category=' + encodeURIComponent(lib.category) +
+            '&length=' + encodeURIComponent(lib.length) + '&language=' + encodeURIComponent(lib.language) +
+            '&category_id=' + encodeURIComponent(lib.categoryId || '') + '&zemarian_id=' + encodeURIComponent(lib.zemarianId || '') +
             '&status=' + encodeURIComponent(lib.status);
         apiGet(q).then(function (d) {
             lib.loading = false;
@@ -458,9 +461,127 @@
             '<button class="btn-secondary btn-sm" ' + (lib.page >= lib.totalPages ? 'disabled' : '') + ' onclick="Mezmur.libPage(' + (lib.page + 1) + ')"><i class="fa-solid fa-chevron-right"></i></button>';
     }
 
+    var catalog = { categories: [], zemarians: [], tab: 'categories' };
+    var browseMode = 'all';
+
+    function loadCatalog() {
+        apiGet('action=categories').then(function (d) {
+            if (d && d.status === 'success') catalog.categories = d.items || [];
+            renderCatalogBoxes(); renderCatalogList();
+        }).catch(function () {});
+        apiGet('action=zemarians').then(function (d) {
+            if (d && d.status === 'success') catalog.zemarians = d.items || [];
+            renderCatalogBoxes(); renderCatalogList();
+        }).catch(function () {});
+    }
+
+    function renderCatalogBoxes(selCats, selZem) {
+        var cbox = $('mzCategoriesBox');
+        if (cbox) cbox.innerHTML = (catalog.categories || []).map(function (c) {
+            var checked = selCats && selCats.some(function (s) { return String(s.id) === String(c.id); });
+            return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
+                '<input type="checkbox" name="mzCat" value="' + c.id + '"' + (checked ? ' checked' : '') + '>' + esc(c.name) + '</label>';
+        }).join('') || '<span class="text-dim" style="font-size:.75rem">No categories yet.</span>';
+        var zbox = $('mzZemariansBox');
+        if (zbox) zbox.innerHTML = (catalog.zemarians || []).map(function (z) {
+            var checked = selZem && selZem.some(function (s) { return String(s.id) === String(z.id); });
+            return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
+                '<input type="checkbox" name="mzZem" value="' + z.id + '"' + (checked ? ' checked' : '') + '>' + esc(z.name) + '</label>';
+        }).join('') || '<span class="text-dim" style="font-size:.75rem">No singers yet.</span>';
+    }
+
+    function checkedIds(boxId) {
+        var ids = [];
+        var box = document.getElementById(boxId);
+        if (!box) return ids;
+        box.querySelectorAll('input:checked').forEach(function (cb) {
+            var id = parseInt(cb.value, 10);
+            if (id > 0) ids.push(id);
+        });
+        return ids;
+    }
+
+    // ── browse tabs (All / Categories / Zemarians) ──
+    function tab(mode) {
+        browseMode = mode;
+        document.querySelectorAll('.mz-tab').forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-tab') === mode);
+        });
+        var browse = $('mzBrowse');
+        if (browse) browse.classList.toggle('is-hidden', mode === 'all');
+        if (mode === 'all') { lib.categoryId = 0; lib.zemarianId = 0; loadList(); }
+        else { renderBrowse(); }
+    }
+
+    function renderBrowse() {
+        var list = $('mzBrowseList');
+        if (browseMode === 'categories') {
+            lib.zemarianId = 0;
+            list.innerHTML = (catalog.categories || []).map(function (c) {
+                return '<button class="btn-secondary btn-sm" onclick="Mezmur.browseCategory(' + c.id + ')">' + esc(c.name) + '</button>';
+            }).join('') || '<span class="text-dim" style="font-size:.8rem">No categories yet.</span>';
+        } else {
+            lib.categoryId = 0;
+            list.innerHTML = (catalog.zemarians || []).map(function (z) {
+                return '<button class="btn-secondary btn-sm" onclick="Mezmur.browseZemarian(' + z.id + ')">' + esc(z.name) + '</button>';
+            }).join('') || '<span class="text-dim" style="font-size:.8rem">No singers yet.</span>';
+        }
+    }
+
+    function browseCategory(id) { lib.categoryId = id; lib.zemarianId = 0; lib.page = 1; loadList(); }
+    function browseZemarian(id) { lib.zemarianId = id; lib.categoryId = 0; lib.page = 1; loadList(); }
+
+    // ── catalog modal (categories + singers management) ──
+    function openCatalog(kind) {
+        catalog.tab = kind || 'categories';
+        catalogTab(catalog.tab);
+        openModalF('mzCatalogModal');
+    }
+    function closeCatalog() { closeModalF('mzCatalogModal'); }
+    function catalogTab(kind) {
+        catalog.tab = kind;
+        var c = $('mzCatTabBtn'), z = $('mzZemTabBtn');
+        if (c) c.classList.toggle('active', kind === 'categories');
+        if (z) z.classList.toggle('active', kind === 'zemarians');
+        renderCatalogList();
+    }
+    function catalogAdd() {
+        var name = $('mzCatalogName').value.trim();
+        if (!name) { window.toast('Name is required.', 'e'); return; }
+        var payload = catalog.tab === 'zemarians'
+            ? { action: 'save_zemarian', name: name }
+            : { action: 'save_category', name: name };
+        apiPost(payload).then(function (d) {
+            if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
+            $('mzCatalogName').value = '';
+            loadCatalog();
+        }).catch(function () {});
+    }
+    function renderCatalogList() {
+        var el = $('mzCatalogList');
+        var items = catalog.tab === 'zemarians' ? catalog.zemarians : catalog.categories;
+        el.innerHTML = (items || []).map(function (i) {
+            var active = Number(i.is_active) === 1;
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--school-border,rgba(0,0,0,.08))">' +
+                '<span style="font-size:.82rem">' + esc(i.name) + '</span>' +
+                '<button class="btn-secondary btn-sm" onclick="Mezmur.catalogToggle(' + i.id + ')">' + (active ? 'Hide' : 'Show') + '</button></div>';
+        }).join('') || '<span class="text-dim" style="font-size:.8rem">Nothing yet.</span>';
+    }
+    function catalogToggle(id) {
+        var items = catalog.tab === 'zemarians' ? catalog.zemarians : catalog.categories;
+        var found = (items || []).filter(function (i) { return Number(i.id) === Number(id); })[0];
+        var active = found ? Number(found.is_active) === 1 : true;
+        var payload = catalog.tab === 'zemarians'
+            ? { action: 'zemarian_status', id: id, active: active ? 0 : 1 }
+            : { action: 'category_status', id: id, active: active ? 0 : 1 };
+        apiPost(payload).then(function () { loadCatalog(); }).catch(function () {});
+    }
+
     function clearHymnForm() {
         $('mzHymnId').value = '0'; $('mzTitle').value = ''; $('mzTitleAm').value = '';
-        $('mzCategory').value = ''; $('mzReference').value = ''; $('mzLyrics').value = '';
+        $('mzReference').value = ''; $('mzLyrics').value = '';
+        $('mzLength').value = 'long'; $('mzLanguage').value = 'amharic';
+        renderCatalogBoxes([], []);
         showError($('mzModalError'), '');
     }
 
@@ -477,7 +598,9 @@
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
             var h = d.item;
             $('mzHymnId').value = h.id; $('mzTitle').value = h.title || ''; $('mzTitleAm').value = h.title_am || '';
-            $('mzCategory').value = h.category || ''; $('mzReference').value = h.reference || ''; $('mzLyrics').value = h.lyrics || '';
+            $('mzReference').value = h.reference || ''; $('mzLyrics').value = h.lyrics || '';
+            $('mzLength').value = h.length || 'long'; $('mzLanguage').value = h.language || 'amharic';
+            renderCatalogBoxes(h.categories || [], h.zemarians || []);
             openModalF('mzHymnModal', '#mzTitle');
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }
@@ -489,7 +612,10 @@
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
         apiPost({
             action: 'save', id: $('mzHymnId').value, title: title,
-            title_am: $('mzTitleAm').value.trim(), category: $('mzCategory').value.trim(),
+            title_am: $('mzTitleAm').value.trim(),
+            categories: checkedIds('mzCategoriesBox'),
+            zemarians: checkedIds('mzZemariansBox'),
+            length: $('mzLength').value, language: $('mzLanguage').value,
             reference: $('mzReference').value.trim(), lyrics: $('mzLyrics').value
         }).then(function (d) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Hymn';
@@ -1214,6 +1340,9 @@
         });
         $('mzCategoryFilter').addEventListener('change', function () { lib.category = this.value; lib.page = 1; loadList(); });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });
+        $('mzLengthFilter').addEventListener('change', function () { lib.length = this.value; lib.page = 1; loadList(); });
+        $('mzLanguageFilter').addEventListener('change', function () { lib.language = this.value; lib.page = 1; loadList(); });
+        loadCatalog();
 
 
         // Lazy loading: fetch only what the user is actually looking at.
@@ -1233,6 +1362,9 @@
         gotoAttendance: gotoAttendance, jumpToDate: jumpToDate,
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
+        tab: tab, browseCategory: browseCategory, browseZemarian: browseZemarian,
+        openCatalog: openCatalog, closeCatalog: closeCatalog, catalogTab: catalogTab,
+        catalogAdd: catalogAdd, catalogToggle: catalogToggle,
         closeModal: function () { closeModalF('mzHymnModal'); },
         closeView: function () { closeModalF('mzViewModal'); },
         libPage: function (p) { if (p >= 1 && p <= lib.totalPages) { lib.page = p; loadList(); } },

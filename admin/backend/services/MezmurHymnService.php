@@ -38,6 +38,12 @@ final class MezmurHymnService
         $category = trim((string)($filters['category'] ?? ''));
         $status = in_array($filters['status'] ?? 'active', ['active', 'archived', ''], true)
             ? ($filters['status'] ?? 'active') : 'active';
+        $length = in_array($filters['length'] ?? '', ['long', 'short'], true)
+            ? (string)($filters['length'] ?? '') : '';
+        $language = in_array($filters['language'] ?? '', ['geez', 'amharic'], true)
+            ? (string)($filters['language'] ?? '') : '';
+        $categoryId = max(0, (int)($filters['category_id'] ?? 0));
+        $zemarianId = max(0, (int)($filters['zemarian_id'] ?? 0));
 
         $where = [];
         $types = '';
@@ -51,6 +57,26 @@ final class MezmurHymnService
             $where[] = "category = ?";
             $types .= 's';
             $params[] = $category;
+        }
+        if ($length !== '') {
+            $where[] = "length = ?";
+            $types .= 's';
+            $params[] = $length;
+        }
+        if ($language !== '') {
+            $where[] = "language = ?";
+            $types .= 's';
+            $params[] = $language;
+        }
+        if ($categoryId > 0) {
+            $where[] = "EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc WHERE mhc.hymn_id = mezmur_hymns.id AND mhc.category_id = ?)";
+            $types .= 'i';
+            $params[] = $categoryId;
+        }
+        if ($zemarianId > 0) {
+            $where[] = "EXISTS (SELECT 1 FROM mezmur_hymn_zemarians mhz WHERE mhz.hymn_id = mezmur_hymns.id AND mhz.zemarian_id = ?)";
+            $types .= 'i';
+            $params[] = $zemarianId;
         }
         if ($search !== '') {
             $like = '%' . self::escapeLike(mb_substr($search, 0, 100)) . '%';
@@ -88,6 +114,14 @@ final class MezmurHymnService
             $items[] = $r;
         }
         $stmt->close();
+
+        $ids = array_map(static fn ($i) => (int)$i['id'], $items);
+        $taxonomy = self::attachTaxonomyBulk($conn, $ids);
+        foreach ($items as &$it) {
+            $it['categories'] = $taxonomy[(int)$it['id']]['categories'] ?? [];
+            $it['zemarians'] = $taxonomy[(int)$it['id']]['zemarians'] ?? [];
+        }
+        unset($it);
 
         $cats = [];
         $rc = $conn->query("SELECT DISTINCT category FROM mezmur_hymns WHERE category <> '' ORDER BY category LIMIT 100");
@@ -299,6 +333,65 @@ final class MezmurHymnService
         } catch (\Throwable $e) { $zem = []; }
 
         return ['categories' => $cats, 'zemarians' => $zem];
+    }
+
+    /**
+     * Bulk-attach taxonomy (categories + zemarians) for many hymn ids in
+     * one round trip (avoids N+1 on list screens). Missing join tables
+     * (pre-030 schema) degrade to empty arrays for every id.
+     *
+     * @param list<int> $ids
+     * @return array<int,array{categories:list<array>,zemarians:list<array>}>
+     */
+    public static function attachTaxonomyBulk(\mysqli $conn, array $ids): array
+    {
+        $out = [];
+        foreach ($ids as $id) {
+            $out[(int)$id] = ['categories' => [], 'zemarians' => []];
+        }
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn ($i) => $i > 0));
+        if (!$ids) return $out;
+
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids));
+
+        try {
+            $stmt = $conn->prepare(
+                "SELECT mhc.hymn_id AS hymn_id, c.id, c.name
+                 FROM mezmur_hymn_categories mhc
+                 JOIN mezmur_categories c ON c.id = mhc.category_id
+                 WHERE mhc.hymn_id IN ($ph) ORDER BY c.sort_order, c.name"
+            );
+            if ($stmt) {
+                $stmt->bind_param($types, ...$ids);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($r = $res->fetch_assoc()) {
+                    $out[(int)$r['hymn_id']]['categories'][] = ['id' => (int)$r['id'], 'name' => (string)$r['name']];
+                }
+                $stmt->close();
+            }
+        } catch (\Throwable $e) { /* pre-030: no join tables */ }
+
+        try {
+            $stmt = $conn->prepare(
+                "SELECT mhz.hymn_id AS hymn_id, z.id, z.name, z.name_am
+                 FROM mezmur_hymn_zemarians mhz
+                 JOIN mezmur_zemarians z ON z.id = mhz.zemarian_id
+                 WHERE mhz.hymn_id IN ($ph) ORDER BY z.sort_order, z.name"
+            );
+            if ($stmt) {
+                $stmt->bind_param($types, ...$ids);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($r = $res->fetch_assoc()) {
+                    $out[(int)$r['hymn_id']]['zemarians'][] = ['id' => (int)$r['id'], 'name' => (string)$r['name'], 'name_am' => $r['name_am']];
+                }
+                $stmt->close();
+            }
+        } catch (\Throwable $e) { /* pre-030: no join tables */ }
+
+        return $out;
     }
 
     /**
@@ -554,6 +647,18 @@ final class MezmurHymnService
             $lastId = (int)$r['id'];
         }
         $stmt->close();
+
+        // Attach category + singer id lists so the device caches the
+        // many-to-many associations alongside the row (single round trip).
+        if ($items) {
+            $ids = array_map(static fn ($i) => (int)$i['id'], $items);
+            $taxonomy = self::attachTaxonomyBulk($conn, $ids);
+            foreach ($items as &$it) {
+                $it['category_ids'] = array_map(static fn ($c) => (int)$c['id'], $taxonomy[(int)$it['id']]['categories'] ?? []);
+                $it['zemarian_ids'] = array_map(static fn ($z) => (int)$z['id'], $taxonomy[(int)$it['id']]['zemarians'] ?? []);
+            }
+            unset($it);
+        }
 
         // Server clock reference for the next cursor baseline.
         $now = '';

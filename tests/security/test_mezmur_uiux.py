@@ -115,10 +115,10 @@ class MezmurUiUxTests(unittest.TestCase):
         self.assertGreaterEqual(self.shell.count('class="school-label"'), 8)
 
     def test_modals_are_dialogs_with_close_labels(self):
-        # hymn, view, taker + phase-5 review & packet modals
-        self.assertEqual(self.shell.count('role="dialog"'), 5)
-        self.assertEqual(self.shell.count('aria-modal="true"'), 5)
-        self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 5)
+        # hymn, view, taker + phase-5 review & packet modals + catalog dialog
+        self.assertEqual(self.shell.count('role="dialog"'), 6)
+        self.assertEqual(self.shell.count('aria-modal="true"'), 6)
+        self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 6)
 
     def test_modal_focus_management(self):
         self.assertIn("function openModalF(", self.js)

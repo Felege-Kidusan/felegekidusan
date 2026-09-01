@@ -13,6 +13,7 @@ import '../../widgets/offline_banner.dart';
 import 'mezmur_categories.dart';
 import 'mezmur_hymn_detail.dart';
 import 'mezmur_hymn_editor.dart';
+import 'mezmur_zemarians.dart';
 
 /// Hymn library — LOCAL-FIRST (Telegram / Google Drive model).
 ///
@@ -34,7 +35,11 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
 
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _categories = [];
+  List<Map<String, dynamic>> _zemarians = [];
   String _category = '';
+  int? _zemarianId;
+  String _length = '';
+  String _language = '';
   bool _showArchived = false;
   bool _bootstrapping = true; // skeleton only on the very first open
   int _pending = 0;
@@ -80,12 +85,17 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
       search: _searchCtrl.text,
       category: _category,
       includeArchived: _showArchived,
+      length: _length.isEmpty ? null : _length,
+      language: _language.isEmpty ? null : _language,
+      zemarianId: _zemarianId,
     );
     final cats = await _store.categories();
+    final zem = await _store.zemarians();
     if (!mounted) return;
     setState(() {
       _items = items;
       _categories = cats;
+      _zemarians = zem;
     });
     await _refreshPending();
   }
@@ -144,6 +154,12 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
     await _reload();
   }
 
+  Future<void> _openZemarians() async {
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const MezmurZemariansScreen()));
+    await _reload();
+  }
+
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
   // ── build ───────────────────────────────────────────────────
@@ -161,6 +177,12 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
               tooltip: 'Manage categories',
               icon: const Icon(Icons.category_outlined, size: 20),
               onPressed: _openCategories,
+            ),
+          if (_store.canEdit)
+            IconButton(
+              tooltip: 'Manage singers',
+              icon: const Icon(Icons.person_outline, size: 20),
+              onPressed: _openZemarians,
             ),
           if (_pending > 0)
             Padding(
@@ -250,6 +272,44 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
                 ],
               ),
             ),
+          if (_zemarians.isNotEmpty)
+            SizedBox(
+              height: 42,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  for (final z in _zemarians)
+                    _zemChip('${z['name']}', _asInt(z['id'])),
+                ],
+              ),
+            ),
+          SizedBox(
+            height: 42,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                _flagChip('Long', _length == 'long', () {
+                  setState(() => _length = _length == 'long' ? '' : 'long');
+                  _reload();
+                }),
+                _flagChip('Short', _length == 'short', () {
+                  setState(() => _length = _length == 'short' ? '' : 'short');
+                  _reload();
+                }),
+                _flagChip('Geez', _language == 'geez', () {
+                  setState(() => _language = _language == 'geez' ? '' : 'geez');
+                  _reload();
+                }),
+                _flagChip('Amharic', _language == 'amharic', () {
+                  setState(() =>
+                      _language = _language == 'amharic' ? '' : 'amharic');
+                  _reload();
+                }),
+              ],
+            ),
+          ),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _refresh,
@@ -370,6 +430,32 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
         selected: on,
         onSelected: (_) {
           setState(() => _category = value);
+          _reload();
+        },
+      ),
+    );
+  }
+
+  Widget _flagChip(String label, bool selected, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      child: FilterChip(
+        label: Text(label, style: const TextStyle(fontSize: 11)),
+        selected: selected,
+        onSelected: (_) => onTap(),
+      ),
+    );
+  }
+
+  Widget _zemChip(String label, int id) {
+    final on = _zemarianId == id;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      child: FilterChip(
+        label: Text(label, style: const TextStyle(fontSize: 11)),
+        selected: on,
+        onSelected: (_) {
+          setState(() => _zemarianId = on ? null : id);
           _reload();
         },
       ),

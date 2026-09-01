@@ -177,7 +177,7 @@ class HrMobileContracts(unittest.TestCase):
         for table in ("pending_hr", "cached_hr_sheet", "cached_hr_sections"):
             self.assertIn(table, self.localdb)
         # schema bump + fresh-install parity
-        self.assertIn("version: 12", self.localdb)
+        self.assertIn("version: 14", self.localdb)
         self.assertIn("CREATE TABLE pending_hr", self.localdb)
         # sync flushes HR packets through /hr/sheet with idempotency
         self.assertIn("getPendingHr", self.sync)

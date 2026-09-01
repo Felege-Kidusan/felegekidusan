@@ -261,6 +261,10 @@ try {
             $search   = trim((string)($_GET['search'] ?? ''));
             $category = trim((string)($_GET['category'] ?? ''));
             $status   = (string)($_GET['status'] ?? '');
+            $length   = in_array($_GET['length'] ?? '', ['long', 'short'], true) ? (string)$_GET['length'] : '';
+            $language = in_array($_GET['language'] ?? '', ['geez', 'amharic'], true) ? (string)$_GET['language'] : '';
+            $categoryId = max(0, (int)($_GET['category_id'] ?? 0));
+            $zemarianId = max(0, (int)($_GET['zemarian_id'] ?? 0));
 
             $where  = [];
             $types  = '';
@@ -277,6 +281,26 @@ try {
                 $where[] = 'category = ?';
                 $types .= 's';
                 $params[] = mb_substr($category, 0, 50);
+            }
+            if ($length !== '') {
+                $where[] = 'length = ?';
+                $types .= 's';
+                $params[] = $length;
+            }
+            if ($language !== '') {
+                $where[] = 'language = ?';
+                $types .= 's';
+                $params[] = $language;
+            }
+            if ($categoryId > 0) {
+                $where[] = 'EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc WHERE mhc.hymn_id = mezmur_hymns.id AND mhc.category_id = ?)';
+                $types .= 'i';
+                $params[] = $categoryId;
+            }
+            if ($zemarianId > 0) {
+                $where[] = 'EXISTS (SELECT 1 FROM mezmur_hymn_zemarians mhz WHERE mhz.hymn_id = mezmur_hymns.id AND mhz.zemarian_id = ?)';
+                $types .= 'i';
+                $params[] = $zemarianId;
             }
             // ── Telegram-grade search: FULLTEXT boolean mode with prefix
             // wildcards (as-you-type feel), title-weighted ranking and a
@@ -382,6 +406,15 @@ try {
                 $items[] = $r;
             }
             $stmt->close();
+
+            // Attach multi-category + singer associations (single round trip).
+            $ids = array_map(static fn ($i) => (int)$i['id'], $items);
+            $taxonomy = MezmurHymnService::attachTaxonomyBulk($conn, $ids);
+            foreach ($items as &$it) {
+                $it['categories'] = $taxonomy[(int)$it['id']]['categories'] ?? [];
+                $it['zemarians'] = $taxonomy[(int)$it['id']]['zemarians'] ?? [];
+            }
+            unset($it);
 
             mezmur_respond([
                 'status' => 'success',

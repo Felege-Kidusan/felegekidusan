@@ -248,6 +248,27 @@ ob_start();
                             <option value="archived">Archived</option>
                             <option value="">All</option>
                         </select>
+                        <select id="mzLengthFilter" class="school-input" aria-label="Filter by length">
+                            <option value="">All lengths</option>
+                            <option value="long">Long</option>
+                            <option value="short">Short</option>
+                        </select>
+                        <select id="mzLanguageFilter" class="school-input" aria-label="Filter by language">
+                            <option value="">All languages</option>
+                            <option value="amharic">Amharic</option>
+                            <option value="geez">Geez (ግዕዝ)</option>
+                        </select>
+                    </div>
+
+                    <!-- Tabs: All / Categories / Zemarians -->
+                    <div class="toolbar">
+                        <button class="btn-secondary btn-sm mz-tab active" data-tab="all" onclick="Mezmur.tab('all')">All</button>
+                        <button class="btn-secondary btn-sm mz-tab" data-tab="categories" onclick="Mezmur.tab('categories')">Categories</button>
+                        <button class="btn-secondary btn-sm mz-tab" data-tab="zemarians" onclick="Mezmur.tab('zemarians')">Zemarians</button>
+                    </div>
+
+                    <div id="mzBrowse" class="is-hidden">
+                        <div id="mzBrowseList" class="chip-list"></div>
                     </div>
 
                     <!-- List -->
@@ -514,9 +535,28 @@ ob_start();
             <input id="mzTitleAm" class="school-input amharic" maxlength="255" autocomplete="off">
         </div>
         <div class="school-form-group">
-            <label class="school-label" for="mzCategory">Category</label>
-            <input id="mzCategory" class="school-input" list="mzCategoryOptions" maxlength="50" placeholder="e.g. Feast, Praise, Lent…">
-            <datalist id="mzCategoryOptions"></datalist>
+            <label class="school-label">Categories (one or more)</label>
+            <div id="mzCategoriesBox" class="check-grid"></div>
+            <button type="button" class="btn-secondary btn-sm catalog-manage" onclick="Mezmur.openCatalog('categories')"><i class="fa-solid fa-tags"></i> Manage categories</button>
+        </div>
+        <div class="school-form-group">
+            <label class="school-label">Singers / Zemarians (one or more)</label>
+            <div id="mzZemariansBox" class="check-grid"></div>
+            <button type="button" class="btn-secondary btn-sm catalog-manage" onclick="Mezmur.openCatalog('zemarians')"><i class="fa-solid fa-user-plus"></i> Manage singers</button>
+        </div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzLength">Length</label>
+            <select id="mzLength" class="school-input">
+                <option value="long" selected>Long</option>
+                <option value="short">Short</option>
+            </select>
+        </div>
+        <div class="school-form-group">
+            <label class="school-label" for="mzLanguage">Language</label>
+            <select id="mzLanguage" class="school-input">
+                <option value="amharic" selected>Amharic (አማርኛ)</option>
+                <option value="geez">Geez (ግዕዝ)</option>
+            </select>
         </div>
         <div class="school-form-group">
             <label class="school-label" for="mzReference">Reference (composer / book / source)</label>
@@ -540,6 +580,25 @@ ob_start();
         </div>
         <div id="mzViewMeta" class="toolbar"></div>
         <pre class="amharic lyrics-view" id="mzViewLyrics"></pre>
+    </div>
+</div>
+
+<!-- ═══ MODAL: CATALOG (categories + singers) ═══ -->
+<div class="school-modal" id="mzCatalogModal" role="dialog" aria-modal="true" aria-labelledby="mzCatalogTitle">
+    <div class="school-modal-content">
+        <div class="page-head">
+            <h3 id="mzCatalogTitle"><i class="fa-solid fa-tags"></i> Catalog</h3>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.closeCatalog()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="toolbar">
+            <button class="btn-secondary btn-sm" id="mzCatTabBtn" onclick="Mezmur.catalogTab('categories')">Categories</button>
+            <button class="btn-secondary btn-sm" id="mzZemTabBtn" onclick="Mezmur.catalogTab('zemarians')">Singers</button>
+        </div>
+        <div class="school-form-group">
+            <input id="mzCatalogName" class="school-input" maxlength="100" placeholder="Name…" autocomplete="off">
+            <button class="btn-primary btn-sm catalog-manage" onclick="Mezmur.catalogAdd()"><i class="fa-solid fa-plus"></i> Add</button>
+        </div>
+        <div id="mzCatalogList" class="catalog-list"></div>
     </div>
 </div>
 

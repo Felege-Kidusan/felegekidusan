@@ -457,3 +457,13 @@
 }
 .sub-stat b { display: block; font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
 .sub-stat span { font-size: 0.65rem; opacity: 0.85; }
+
+/* -- Mezmur Feature 3: catalog + browse tabs + multi-select -- */
+.check-grid { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; }
+.check-grid label { font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.catalog-manage { margin-top: 0.4rem; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 0.45rem; padding: 0.5rem 1rem; }
+.catalog-list { margin-top: 0.6rem; max-height: 320px; overflow: auto; }
+.catalog-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid var(--school-border); }
+.catalog-row span { font-size: 0.82rem; }
+.mz-tab.active { color: #fff; background: var(--school-accent); }

@@ -757,6 +757,20 @@ class ApiService {
         body: {'id': id, 'active': active}, idempotencyKey: clientOpId);
   }
 
+  Future<ApiResponse> getMezmurZemarians() => get('/mezmur/zemarians');
+
+  Future<ApiResponse> saveMezmurZemarian(Map<String, dynamic> zemarian,
+      {String? clientOpId}) {
+    return post('/mezmur/zemarian',
+        body: Map<String, dynamic>.from(zemarian), idempotencyKey: clientOpId);
+  }
+
+  Future<ApiResponse> setMezmurZemarianStatus(int id, bool active,
+      {String? clientOpId}) {
+    return post('/mezmur/zemarian-status',
+        body: {'id': id, 'active': active}, idempotencyKey: clientOpId);
+  }
+
   Future<ApiResponse> getMezmurAnalytics(
       {Map<String, String>? params}) =>
       get('/mezmur/analytics', params: params);
