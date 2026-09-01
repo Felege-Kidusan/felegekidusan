@@ -36,7 +36,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _categories = [];
   List<Map<String, dynamic>> _zemarians = [];
-  String _category = '';
+  int? _categoryId;
   int? _zemarianId;
   String _length = '';
   String _language = '';
@@ -83,10 +83,10 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
   Future<void> _reload() async {
     final items = await _store.hymns(
       search: _searchCtrl.text,
-      category: _category,
       includeArchived: _showArchived,
       length: _length.isEmpty ? null : _length,
       language: _language.isEmpty ? null : _language,
+      categoryId: _categoryId,
       zemarianId: _zemarianId,
     );
     final cats = await _store.categories();
@@ -251,8 +251,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 children: [
-                  _chip('All', ''),
-                  for (final c in _categories) _chip('${c['name']}', '${c['name']}'),
+                  _chip('All', null),
+                  for (final c in _categories) _chip('${c['name']}', _asInt(c['id'])),
                   if (_store.canEdit)
                     Padding(
                       padding: const EdgeInsets.symmetric(
@@ -325,7 +325,9 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
     if (_bootstrapping && _items.isEmpty) return const StudentListSkeleton();
     if (_items.isEmpty) {
       final filtering =
-          _searchCtrl.text.trim().isNotEmpty || _category.isNotEmpty;
+          _searchCtrl.text.trim().isNotEmpty ||
+          _categoryId != null ||
+          _zemarianId != null;
       return ListView(children: [
         const SizedBox(height: 60),
         EmptyState(
@@ -421,15 +423,15 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen> {
     );
   }
 
-  Widget _chip(String label, String value) {
-    final on = _category == value;
+  Widget _chip(String label, int? id) {
+    final on = id == null ? _categoryId == null : _categoryId == id;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       child: FilterChip(
         label: Text(label, style: const TextStyle(fontSize: 11)),
         selected: on,
         onSelected: (_) {
-          setState(() => _category = value);
+          setState(() => _categoryId = id);
           _reload();
         },
       ),
