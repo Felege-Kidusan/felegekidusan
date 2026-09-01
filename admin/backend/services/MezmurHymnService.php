@@ -45,7 +45,7 @@ final class MezmurHymnService
         $page = max(1, (int)($filters['page'] ?? 1));
         $perPage = self::clampPerPage((int)($filters['per_page'] ?? 25));
         $search = trim((string)($filters['search'] ?? ''));
-        $category = trim((string)($filters['category'] ?? ''));
+        $category = mb_substr(trim((string)($filters['category'] ?? '')), 0, 50);
         $status = in_array($filters['status'] ?? 'active', ['active', 'archived', ''], true)
             ? ($filters['status'] ?? 'active') : 'active';
         $length = in_array($filters['length'] ?? '', ['long', 'short'], true)
@@ -64,8 +64,14 @@ final class MezmurHymnService
             $params[] = $status;
         }
         if ($category !== '') {
-            $where[] = "category = ?";
-            $types .= 's';
+            // MZ-4: join-aware name filter — a hymn linked to several
+            // categories must be findable by EVERY label it carries, not
+            // only the first one (which is all the legacy mirror string
+            // stores). The plain string compare stays for read-backward
+            // compatibility ('general' rows carry no join rows).
+            $where[] = "(category = ? OR EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc JOIN mezmur_categories mc ON mc.id = mhc.category_id WHERE mhc.hymn_id = mezmur_hymns.id AND mc.name = ?))";
+            $types .= 'ss';
+            $params[] = $category;
             $params[] = $category;
         }
         if ($length !== '') {
@@ -788,25 +794,55 @@ final class MezmurHymnService
         }
 
         if ($id > 0) {
-            // Capture the previous name for the audit trail (before/after
-            // state on every administrative change — OWASP A09).
-            $stmt = $conn->prepare("SELECT name FROM mezmur_categories WHERE id = ? LIMIT 1");
+            // Capture the previous state for the audit trail (before/after
+            // on every administrative change — OWASP A09) and refuse no-ops.
+            $stmt = $conn->prepare("SELECT name, sort_order FROM mezmur_categories WHERE id = ? LIMIT 1");
             $stmt->bind_param('i', $id);
             $stmt->execute();
             $old = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if (!$old) {
+                return ['ok' => false, 'message' => 'Category not found.'];
+            }
+            $renamed = $old['name'] !== $name;
+            if (!$renamed && (int)$old['sort_order'] === $sortOrder) {
                 return ['ok' => false, 'message' => 'Category not found or unchanged.'];
             }
-            $stmt = $conn->prepare("UPDATE mezmur_categories SET name=?, sort_order=?, created_by=COALESCE(created_by, ?) WHERE id=?");
-            $stmt->bind_param('siii', $name, $sortOrder, $actorId, $id);
-            $ok = $stmt->execute();
-            $affected = $stmt->affected_rows;
-            $stmt->close();
-            if (!$ok || $affected === 0) {
-                return ['ok' => false, 'message' => 'Category not found or unchanged.'];
+            $relabelled = 0;
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("UPDATE mezmur_categories SET name=?, sort_order=?, created_by=COALESCE(created_by, ?) WHERE id=?");
+                $stmt->bind_param('siii', $name, $sortOrder, $actorId, $id);
+                $ok = $stmt->execute();
+                $stmt->close();
+                if (!$ok) {
+                    throw new \RuntimeException('category update failed');
+                }
+                if ($renamed) {
+                    // MZ-3: a rename must reach every hymn that carries the
+                    // label. One statement relabels the legacy mirror string
+                    // (the web badge and legacy clients read it) AND touches
+                    // updated_at so the (updated_at, id) delta cursor emits a
+                    // sync delta to every device. Deliberately NO revision
+                    // bump: a relabel is not a content change, so offline
+                    // editors must not be dragged into server-wins conflicts
+                    // (their queued edits would be dropped).
+                    $mir = $conn->prepare("UPDATE mezmur_hymns SET category=?, updated_at=NOW() WHERE category=?");
+                    $mir->bind_param('ss', $name, $old['name']);
+                    $mir->execute();
+                    $relabelled = $mir->affected_rows;
+                    $mir->close();
+                }
+                $conn->commit();
+            } catch (\Throwable $e) {
+                try { $conn->rollback(); } catch (\Throwable $r) {}
+                throw $e;
             }
-            self::audit($conn, 'Mezmur Category Renamed', ['from' => $old['name'], 'to' => $name], 'mezmur_category', $id, $actorId);
+            self::audit($conn, 'Mezmur Category Renamed', [
+                'from' => $old['name'],
+                'to' => $name,
+                'hymns_relabelled' => $relabelled,
+            ], 'mezmur_category', $id, $actorId);
             return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Category updated.'];
         }
 

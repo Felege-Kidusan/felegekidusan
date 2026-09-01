@@ -273,6 +273,33 @@ P16A3=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM activity_logs WHERE ent
 [ "$P16A3" = "3" ] && ok "hymn trail exact: create+archive+restore, no phantoms" || fail "hymn audit rows: $P16A3 (expect 3)"
 sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE id=$P16H; DELETE FROM mezmur_zemarians WHERE id=$P16Z; DELETE FROM activity_logs WHERE (entity_type='mezmur_hymn' AND entity_id=$P16H) OR (entity_type='mezmur_zemarian' AND entity_id=$P16Z)" >/dev/null 2>&1
 
+# --- 3q. Mezmur rename propagation + join-aware filter (Patch 17: MZ-3/4) ----
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P17A=$(ssms_api POST mezmur/category '{"name":"P17 Alpha"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P17B=$(ssms_api POST mezmur/category '{"name":"P17 Beta"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P17H=$(ssms_api POST mezmur/hymn "{\"title\":\"P17 Smoke Hymn\",\"categories\":[$P17A,$P17B]}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P17REV=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P17H")
+sleep 1.2; P17TS=$(sudo -n mariadb ssms -N -e "SELECT updated_at FROM mezmur_hymns WHERE id=$P17H")
+ssms_api POST mezmur/category "{\"id\":$P17A,\"name\":\"P17 Alpha Renamed\"}" >/dev/null
+P17MIRROR=$(sudo -n mariadb ssms -N -e "SELECT category FROM mezmur_hymns WHERE id=$P17H")
+P17MOVED=$(sudo -n mariadb ssms -N -e "SELECT updated_at > '$P17TS' FROM mezmur_hymns WHERE id=$P17H")
+P17REV2=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P17H")
+[ "$P17MIRROR" = "P17 Alpha Renamed" ] && [ "$P17MOVED" = "1" ] && ok "category rename relabels hymns + emits sync delta (MZ-3)" || fail "rename propagation: mirror=$P17MIRROR moved=$P17MOVED"
+[ "$P17REV2" = "$P17REV" ] && ok "relabel does NOT bump revision (offline edits protected)" || fail "revision bumped on relabel: $P17REV -> $P17REV2"
+P17AUD=$(sudo -n mariadb ssms -N -e "SELECT details FROM activity_logs WHERE entity_type='mezmur_category' AND entity_id=$P17A ORDER BY id DESC LIMIT 1")
+echo "$P17AUD" | grep -q '"hymns_relabelled":1' && ok "rename audit carries relabel count" || fail "rename audit: $P17AUD"
+P17F=$(ssms_api GET "mezmur/hymns&category=P17%20Beta" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print("P17 Smoke Hymn" in [i["title"] for i in d["items"]])')
+[ "$P17F" = "True" ] && ok "join-aware filter finds hymn by 2nd category (MZ-4, mobile)" || fail "mobile join filter: $P17F"
+P17HTML=$(curl -s -c "$JAR" "$BASE/admin/index.php")
+P17TOK=$(printf '%s' "$P17HTML" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"$//')
+curl -s -b "$JAR" -c "$JAR" -o /dev/null -d "csrf_token=$P17TOK" -d "username=audit_super" -d "password=$PASS" "$BASE/admin/backend/login.php"
+P17W=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&category=P17+Beta" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(any(i["title"]=="P17 Smoke Hymn" for i in d["items"]))')
+[ "$P17W" = "True" ] && ok "join-aware filter on web controller too (MZ-4)" || fail "web join filter: $P17W"
+P17G=$(ssms_api GET "mezmur/hymns&category=general" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')
+[ "$P17G" = "success" ] && ok "legacy 'general' string filter still works" || fail "general filter: $P17G"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymn_categories WHERE hymn_id=$P17H; DELETE FROM mezmur_hymns WHERE id=$P17H; DELETE FROM mezmur_categories WHERE id IN ($P17A,$P17B); DELETE FROM activity_logs WHERE (entity_type='mezmur_hymn' AND entity_id=$P17H) OR (entity_type='mezmur_category' AND entity_id IN ($P17A,$P17B))" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

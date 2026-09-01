@@ -947,3 +947,48 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertIn("_store.saveCategory", self.cats)
         self.assertIn("_store.setCategoryStatus", self.cats)
         self.assertIn("maxLength: 50", self.cats)
+
+
+class MezmurRenamePropagationTests(unittest.TestCase):
+    """MZ-3/MZ-4 regression guards (Patch 17, 2026-09-01).
+
+    Live behaviour is covered by smoke block 3q; these source guards keep
+    the contracts from being quietly removed later:
+
+    - A category rename must relabel every hymn that carries the label and
+      touch updated_at so the delta cursor propagates it — WITHOUT bumping
+      revision (a relabel is not a content change; bumping would force
+      offline editors into server-wins conflicts and drop their edits).
+    - The category-name filter must be join-aware in BOTH list paths so a
+      multi-category hymn is findable by every label it carries.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hymn_svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+
+    def test_rename_relabels_hymns_and_touches_sync_cursor(self):
+        self.assertIn(
+            "UPDATE mezmur_hymns SET category=?, updated_at=NOW() WHERE category=?",
+            self.hymn_svc,
+        )
+        # no revision bump on a relabel (see class docstring)
+        self.assertNotIn(
+            "UPDATE mezmur_hymns SET category=?, updated_at=NOW(), revision",
+            self.hymn_svc,
+        )
+
+    def test_rename_mirror_only_runs_when_the_name_changed(self):
+        # sort-order-only edits must not emit phantom hymn deltas
+        self.assertIn("old['name'] !== $name", self.hymn_svc)
+
+    def test_rename_is_transactional_and_audited_with_relabel_count(self):
+        self.assertIn("hymns_relabelled", self.hymn_svc)
+
+    def test_category_name_filter_is_join_aware_everywhere(self):
+        for src in (self.hymn_svc, self.api):
+            self.assertIn("category = ? OR EXISTS", src)
+            self.assertIn("mc.name = ?", src)

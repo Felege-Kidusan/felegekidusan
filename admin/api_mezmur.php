@@ -278,8 +278,12 @@ try {
                 $where[] = "status = 'active'";   // default view: active only
             }
             if ($category !== '') {
-                $where[] = 'category = ?';
-                $types .= 's';
+                // MZ-4: join-aware name filter (same semantics as
+                // MezmurHymnService::listHymns) — multi-category hymns must
+                // be findable by every label they carry.
+                $where[] = '(category = ? OR EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc JOIN mezmur_categories mc ON mc.id = mhc.category_id WHERE mhc.hymn_id = mezmur_hymns.id AND mc.name = ?))';
+                $types .= 'ss';
+                $params[] = mb_substr($category, 0, 50);
                 $params[] = mb_substr($category, 0, 50);
             }
             if ($length !== '') {
