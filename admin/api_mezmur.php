@@ -321,15 +321,17 @@ try {
             $filterTypes = $types;
             $filterParams = $params;
 
-            // ── Telegram-grade search: FULLTEXT boolean mode with prefix
-            // wildcards (as-you-type feel), title-weighted ranking and a
-            // lyrics snippet; LIKE fallback when the index is absent or
-            // the term is shorter than the InnoDB token minimum.
+            // ── P25 word-index search ─────────────────────────────────
+            // InnoDB FULLTEXT cannot tokenize Ge'ez script (verified live)
+            // and a dead CREATE FULLTEXT INDEX build matched nothing, so
+            // candidates come from the mezmur_hymn_words inverted index
+            // (titles AND lyrics, exact+prefix, index-scanned). LIKE
+            // (incl. lyrics) stays as the fallback when the word index
+            // has no candidates — zero-guard for unindexed rows.
             $searchMode = 'none';
-            $boolQ = '';
             $like = '';
             $tokens = [];
-            $ftIndex = null; // 'full' when the combined FULLTEXT exists
+            $wordIds = [];
             if ($search !== '') {
                 $raw = mb_substr($search, 0, 100);
                 $clean = trim((string)preg_replace('/[+\-><()~*"@]+/u', ' ', $raw));
@@ -340,14 +342,14 @@ try {
                 $tokens = array_slice($tokens, 0, 6);
                 $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $raw) . '%';
                 try {
-                    $ix = $conn->query("SHOW INDEX FROM mezmur_hymns WHERE Key_name = 'ft_mezmur_hymns_search'");
-                    $ftIndex = ($ix && $ix->fetch_assoc()) ? 'full' : null;
-                    if ($ix) { $ix->close(); }
-                } catch (\Throwable $e) { $ftIndex = null; }
-                $minLen = min(array_map(static fn ($t) => mb_strlen($t), $tokens) ?: [0]);
-                if ($ftIndex === 'full' && $tokens && $minLen >= 3) {
-                    $searchMode = 'fulltext';
-                    $boolQ = implode(' ', array_map(static fn ($t) => $t . '*', $tokens));
+                    $wordIds = MezmurHymnService::wordsTableReady($conn)
+                        ? MezmurHymnService::searchWordCandidates($conn, $raw)
+                        : [];
+                } catch (\Throwable $e) {
+                    $wordIds = [];
+                }
+                if ($wordIds) {
+                    $searchMode = 'word';
                 } else {
                     $searchMode = 'like';
                     $where[] = '(title LIKE ? ESCAPE \'\\\\\' OR title_am LIKE ? ESCAPE \'\\\\\' OR reference LIKE ? ESCAPE \'\\\\\' OR lyrics LIKE ? ESCAPE \'\\\\\')';
@@ -356,16 +358,15 @@ try {
                 }
             }
             $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+            // Bare structural conditions (P22 snapshot minus the 'WHERE '
+            // prefix) for the word-index branches, which add their own
+            // `id IN (...)` text condition.
+            $filterCond = $filterSql !== '' ? substr($filterSql, 6) : '1=1';
 
-            if ($searchMode === 'fulltext') {
-                $ftWhere = "MATCH(title, title_am, reference, lyrics) AGAINST(? IN BOOLEAN MODE)"
-                    . ($whereSql !== '' ? ' AND ' . substr($whereSql, 5) : '');
-                $ftTypes = 's' . $types;
-                $ftParams = array_merge([$boolQ], $params);
-                $scoreExpr = "(3.0 * MATCH(title, title_am) AGAINST(? IN BOOLEAN MODE)
-                               + MATCH(title, title_am, reference, lyrics) AGAINST(? IN BOOLEAN MODE))";
-                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE $ftWhere");
-                $stmt->bind_param($ftTypes, ...$ftParams);
+            if ($searchMode === 'word') {
+                $in = implode(',', array_map('intval', $wordIds));
+                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE id IN ($in) AND $filterCond");
+                if ($params) $stmt->bind_param($types, ...$params);
                 $stmt->execute();
                 $total = (int)$stmt->get_result()->fetch_assoc()['c'];
                 $stmt->close();
@@ -383,15 +384,16 @@ try {
             if ($page > $totalPages) $page = $totalPages;
             $offset = ($page - 1) * $perPage;
 
-            if ($searchMode === 'fulltext') {
+            if ($searchMode === 'word') {
+                $in = implode(',', array_map('intval', $wordIds));
                 $sql = "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics,
-                        $scoreExpr AS score
+                        0 AS score
                         FROM mezmur_hymns
-                        WHERE $ftWhere
-                        ORDER BY score DESC, updated_at DESC, id DESC
+                        WHERE id IN ($in) AND $filterCond
+                        ORDER BY updated_at DESC, id DESC
                         LIMIT ? OFFSET ?";
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param('ss' . $ftTypes . 'ii', ...array_merge([$boolQ, $boolQ], $ftParams, [$perPage, $offset]));
+                $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
             } else {
                 $sql = "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics,
                         0 AS score
@@ -418,6 +420,14 @@ try {
                             break;
                         }
                     }
+                }
+                // P25: score BEFORE stripping lyrics — title tiers plus the
+                // lyrics tier (50/term), and mark where the match landed.
+                $titleScore = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                $r['similarity'] = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], (string)($r['lyrics'] ?? ''));
+                $r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';
+                if ($r['match_in'] === 'lyrics' && $snippet === '') {
+                    $snippet = '…' . trim(mb_substr((string)($r['lyrics'] ?? ''), 0, 120)) . '…';
                 }
                 unset($r['lyrics']);
                 $r['snippet'] = $snippet;
@@ -451,8 +461,10 @@ try {
                 while ($r = $pres->fetch_assoc()) {
                     $rId = (int)$r['id'];
                     if (isset($seen[$rId])) continue;
-                    $sim = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                    $titleScore = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                    $sim = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], (string)($r['lyrics'] ?? ''));
                     if ($sim <= 0.0) continue;
+                    $r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';
                     $snippet = '';
                     if (!empty($r['lyrics'])) {
                         foreach ($tokens as $t) {
@@ -479,14 +491,10 @@ try {
                 }
             }
 
-            // Similarity ranking (spelling-tolerant) — reorders best-first.
+            // Similarity ranking (spelling-tolerant) — best-first. The
+            // scores were computed in the fetch/rescue loops above, where
+            // lyrics were still available for the lyrics tier (P25).
             if ($search !== '') {
-                foreach ($items as &$it) {
-                    $it['similarity'] = MezmurHymnService::searchScore(
-                        $search, (string)$it['title'], $it['title_am'], $it['reference']
-                    );
-                }
-                unset($it);
                 usort($items, static function ($a, $b) {
                     $c = (float)($b['similarity'] ?? 0) <=> (float)($a['similarity'] ?? 0);
                     return $c !== 0 ? $c : (float)($b['score'] ?? 0) <=> (float)($a['score'] ?? 0);

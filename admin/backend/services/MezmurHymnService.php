@@ -110,33 +110,67 @@ final class MezmurHymnService
 
         $items = [];
         if ($search !== '') {
-            // ── Two-stage retrieval (Telegram-style typo tolerance) ──
-            // Stage 1 (strict, indexable): the LIKE must match. Stage 2
-            // below only RERANKS these — a misspelled query matches
-            // NOTHING here, which is exactly why the rescue pass exists.
-            $like = '%' . self::escapeLike(mb_substr($search, 0, 100)) . '%';
-            $strictTypes = $types . 'sss';
-            $strictParams = array_merge($params, [$like, $like, $like]);
-            $cand = $conn->prepare(
-                $selectBase . "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?) ORDER BY updated_at DESC, id DESC LIMIT 500"
-            );
-            $cand->bind_param($strictTypes, ...$strictParams);
-            $cand->execute();
-            $res = $cand->get_result();
+            // ── Word-index retrieval (P25) ────────────────────────────
+            // InnoDB FULLTEXT cannot tokenize Ge'ez script (and a dead
+            // index build returned 0 silently), so candidates come from
+            // the mezmur_hymn_words inverted index — exact + prefix word
+            // hits over titles AND lyrics, index-range-scanned, bounded.
+            $terms = self::tokenizeWords($search);
+            // lyrics is selected ONLY for scoring/snippets and stripped
+            // from every list payload before it leaves this method.
+            $selectSearch = "SELECT id, title, title_am, category, reference, status, lyrics, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
             $all = [];
-            while ($r = $res->fetch_assoc()) {
+            $scoreRow = static function (array $r) use ($search, $terms): array {
                 $r['id'] = (int)$r['id'];
-                $r['similarity'] = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
-                $all[] = $r;
-            }
-            $cand->close();
+                $lyr = (string)($r['lyrics'] ?? '');
+                $titleScore = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                $r['similarity'] = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], $lyr);
+                $r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';
+                $r['snippet'] = $r['match_in'] === 'lyrics' ? self::lyricSnippet($terms, $lyr) : '';
+                return $r;
+            };
 
-            // Stage 2 (fuzzy rescue): when the strict pass cannot fill a
+            $candidateIds = self::searchWordCandidates($conn, $search);
+            foreach (array_chunk($candidateIds, 500) as $chunk) {
+                $in = implode(',', array_map('intval', $chunk));
+                $stmt = $conn->prepare($selectSearch . "id IN ($in) AND $filterSql");
+                if ($types !== '') {
+                    $stmt->bind_param($types, ...$params);
+                }
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($r = $res->fetch_assoc()) {
+                    $all[$r['id']] = $scoreRow($r);
+                }
+                $stmt->close();
+            }
+
+            // Fallback (zero-guard / rows not yet word-indexed): strict
+            // title LIKE. Unindexed by nature, so bounded to 500 and only
+            // used while the word path cannot fill the page.
+            if (count($all) < $perPage) {
+                $like = '%' . self::escapeLike(mb_substr($search, 0, 100)) . '%';
+                $strictTypes = $types . 'sss';
+                $strictParams = array_merge($params, [$like, $like, $like]);
+                $cand = $conn->prepare(
+                    $selectSearch . "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?) ORDER BY updated_at DESC, id DESC LIMIT 500"
+                );
+                $cand->bind_param($strictTypes, ...$strictParams);
+                $cand->execute();
+                $res = $cand->get_result();
+                while ($r = $res->fetch_assoc()) {
+                    $r = $scoreRow($r);
+                    $all[$r['id']] = $r;
+                }
+                $cand->close();
+            }
+
+            // Stage 2 (fuzzy rescue): when the strict passes cannot fill a
             // page, score a bounded pool under the SAME structural filters
             // WITHOUT the text condition — the Levenshtein tier (>= 0.6
             // word similarity) pulls misspellings back into the ranking.
             if (count($all) < $perPage) {
-                $pool = $conn->prepare($selectBase . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500");
+                $pool = $conn->prepare($selectSearch . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500");
                 if ($types !== '') {
                     $pool->bind_param($types, ...$params);
                 }
@@ -151,15 +185,15 @@ final class MezmurHymnService
                     if (isset($seen[$rowId = $r['id']])) {
                         continue;
                     }
-                    $score = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
-                    if ($score <= 0.0) {
+                    $r = $scoreRow($r);
+                    if ($r['similarity'] <= 0.0) {
                         continue;
                     }
-                    $r['similarity'] = $score;
-                    $all[] = $r;
+                    $all[$rowId] = $r;
                 }
                 $pool->close();
             }
+            $all = array_values($all);
 
             usort($all, static function ($a, $b) {
                 $cmp = (float)$b['similarity'] <=> (float)$a['similarity'];
@@ -196,6 +230,9 @@ final class MezmurHymnService
         foreach ($items as &$it) {
             $it['categories'] = $taxonomy[(int)$it['id']]['categories'] ?? [];
             $it['zemarians'] = $taxonomy[(int)$it['id']]['zemarians'] ?? [];
+            // Lyrics never travel in list payloads (P25: selected for
+            // scoring/snippet only).
+            unset($it['lyrics']);
         }
         unset($it);
 
@@ -303,6 +340,114 @@ final class MezmurHymnService
 
     /** longest safe id list length for taxonomy inputs (scale + abuse bound). */
     private const MAX_TAXONOMY_IDS = 200;
+
+    // ── P25: inverted word index (script-agnostic instant search) ──
+    // InnoDB FULLTEXT cannot tokenize Ge'ez script and dead-index builds
+    // returned 0 silently, so search now uses a word table maintained on
+    // every hymn write (Telegram-style local index, server-side).
+    private const WORD_MIN_CHARS = 2;
+    private const WORD_MAX_BYTES = 80;
+    private const WORDS_PER_HYMN = 4000;
+    private const WORD_CANDIDATE_CAP = 2000;
+
+    private static ?bool $hasWordsTable = null;
+
+    public static function wordsTableReady(\mysqli $conn): bool
+    {
+        if (self::$hasWordsTable === null) {
+            $ok = false;
+            try {
+                $r = $conn->query('SELECT 1 FROM mezmur_hymn_words LIMIT 0');
+                $ok = $r !== false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) {
+                $ok = false;
+            }
+            self::$hasWordsTable = $ok;
+        }
+        return self::$hasWordsTable;
+    }
+
+    /** Lowercased unicode words (letters + digits) — works for any script. */
+    public static function tokenizeWords(string $text): array
+    {
+        $words = [];
+        foreach (preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($text, 'UTF-8')) ?: [] as $w) {
+            $len = mb_strlen($w, 'UTF-8');
+            if ($len < self::WORD_MIN_CHARS || $len > 30 || strlen($w) > self::WORD_MAX_BYTES) {
+                continue;
+            }
+            $words[$w] = true;
+        }
+        return array_keys(array_slice($words, 0, self::WORDS_PER_HYMN, true));
+    }
+
+    /** Rebuild the word rows for one hymn (call INSIDE the save txn). */
+    public static function reindexHymnWords(\mysqli $conn, int $hymnId, string $title, ?string $titleAm, ?string $reference, ?string $lyrics): void
+    {
+        if ($hymnId <= 0 || !self::wordsTableReady($conn)) {
+            return;
+        }
+        $words = self::tokenizeWords(implode(' ', [$title, (string)$titleAm, (string)$reference, (string)$lyrics]));
+        $stmt = $conn->prepare('DELETE FROM mezmur_hymn_words WHERE hymn_id = ?');
+        $stmt->bind_param('i', $hymnId);
+        $stmt->execute();
+        $stmt->close();
+        $ins = $conn->prepare('INSERT IGNORE INTO mezmur_hymn_words (word, hymn_id) VALUES (?, ?)');
+        foreach ($words as $w) {
+            $ins->bind_param('si', $w, $hymnId);
+            $ins->execute();
+        }
+        $ins->close();
+    }
+
+    /** Backfill the index for hymns that have no word rows yet (admin migrate). */
+    public static function backfillHymnWords(\mysqli $conn, int $limit = 1000): int
+    {
+        if (!self::wordsTableReady($conn)) {
+            return 0;
+        }
+        $stmt = $conn->prepare(
+            'SELECT id, title, title_am, reference, lyrics FROM mezmur_hymns h
+             WHERE NOT EXISTS (SELECT 1 FROM mezmur_hymn_words w WHERE w.hymn_id = h.id)
+             ORDER BY id LIMIT ?'
+        );
+        $stmt->bind_param('i', $limit);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        foreach ($rows as $r) {
+            self::reindexHymnWords($conn, (int)$r['id'], (string)$r['title'], $r['title_am'], $r['reference'], $r['lyrics']);
+        }
+        return count($rows);
+    }
+
+    /**
+     * Candidate hymn ids for a query: exact word hits plus prefix range
+     * scans (clustered PK) — indexed, script-agnostic, bounded.
+     * @return list<int>
+     */
+    public static function searchWordCandidates(\mysqli $conn, string $search): array
+    {
+        if (!self::wordsTableReady($conn)) {
+            return [];
+        }
+        $ids = [];
+        foreach (self::tokenizeWords(mb_substr($search, 0, 100)) as $tok) {
+            $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $tok) . '%';
+            $stmt = $conn->prepare(
+                'SELECT DISTINCT hymn_id FROM mezmur_hymn_words WHERE word = ? OR word LIKE ? LIMIT ' . self::WORD_CANDIDATE_CAP
+            );
+            $stmt->bind_param('ss', $tok, $like);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($r = $res->fetch_assoc()) {
+                $ids[(int)$r['hymn_id']] = true;
+            }
+            $stmt->close();
+        }
+        return array_keys($ids);
+    }
 
     /**
      * True when the last mysqli error is a duplicate-key violation (1062).
@@ -617,7 +762,7 @@ final class MezmurHymnService
      *   exact string > prefix > substring > fuzzy (Levenshtein spelling
      *   tolerance). Higher = more similar; callers sort descending.
      */
-    public static function searchScore(string $query, ?string $title, ?string $titleAm = null, ?string $reference = null): float
+    public static function searchScore(string $query, ?string $title, ?string $titleAm = null, ?string $reference = null, ?string $lyrics = null): float
     {
         $query = mb_strtolower(trim($query));
         if ($query === '') return 0.0;
@@ -632,7 +777,33 @@ final class MezmurHymnService
         foreach ($terms as $term) {
             $score += self::termScore($term, $haystack);
         }
+        // P25 lyrics tier: a word found in the lyrics body scores below a
+        // title substring (70) but above fuzzy (<=40) — 50 per matched
+        // term. Fuzzy matching stays TITLE-only (Levenshtein over whole
+        // lyric bodies would be O(lyrics) per keystroke).
+        if ($lyrics !== null && $lyrics !== '') {
+            $low = mb_strtolower($lyrics);
+            foreach ($terms as $term) {
+                if (mb_strpos($low, $term) !== false) {
+                    $score += 50.0;
+                }
+            }
+        }
         return round($score, 3);
+    }
+
+    /** Tight context window around the first term found in the lyrics. */
+    private static function lyricSnippet(array $terms, string $lyrics): string
+    {
+        if ($lyrics === '') return '';
+        foreach ($terms as $t) {
+            $pos = mb_stripos($lyrics, $t);
+            if ($pos !== false) {
+                $start = max(0, $pos - 60);
+                return ($start > 0 ? '…' : '') . trim(mb_substr($lyrics, $start, 160)) . '…';
+            }
+        }
+        return '';
     }
 
     private static function termScore(string $term, string $haystack): float
@@ -862,6 +1033,7 @@ final class MezmurHymnService
                 }
                 self::syncHymnCategories($conn, $id, $categoryIds);
                 self::syncHymnZemarians($conn, $id, $zemarianIds);
+                self::reindexHymnWords($conn, $id, $title, $titleAm, $reference, $lyrics);
                 $conn->commit();
             } catch (\Throwable $e) {
                 try { $conn->rollback(); } catch (\Throwable $r) {}
@@ -934,6 +1106,7 @@ final class MezmurHymnService
             }
             self::syncHymnCategories($conn, $newId, $categoryIds);
             self::syncHymnZemarians($conn, $newId, $zemarianIds);
+            self::reindexHymnWords($conn, $newId, $title, $titleAm, $reference, $lyrics);
             $conn->commit();
         } catch (\Throwable $e) {
             try { $conn->rollback(); } catch (\Throwable $r) {}

@@ -84,13 +84,16 @@ final class MezmurSchemaReconciler
         ],
     ];
 
-    /** FULLTEXT indexes the ranked search relies on. */
-    public const INDEXES = [
-        'mezmur_hymns' => [
-            'ft_mezmur_hymns_titles' => ['title', 'title_am'],
-            'ft_mezmur_hymns_search' => ['title', 'title_am', 'reference', 'lyrics'],
-        ],
-    ];
+    /**
+     * P25: FULLTEXT indexes are deliberately NO LONGER created — MariaDB
+     * InnoDB FULLTEXT cannot tokenize Ge'ez script and one observed
+     * CREATE FULLTEXT INDEX build returned 0 matches silently. Search
+     * uses the mezmur_hymn_words inverted index instead (sql/032,
+     * maintained by MezmurHymnService::reindexHymnWords on every save
+     * and backfilled by apply()). Existing FT indexes are left in place
+     * (harmless) but nothing reads them anymore.
+     */
+    public const INDEXES = [];
 
     /** Minimal CREATE for tables that do not exist at all. */
     private const CREATE = [
@@ -99,6 +102,12 @@ final class MezmurSchemaReconciler
             `title` VARCHAR(255) NOT NULL,
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        'mezmur_hymn_words' => "CREATE TABLE `mezmur_hymn_words` (
+            `word` VARBINARY(80) NOT NULL,
+            `hymn_id` BIGINT UNSIGNED NOT NULL,
+            PRIMARY KEY (`word`, `hymn_id`),
+            KEY `idx_mhw_hymn` (`hymn_id`)
+        ) ENGINE=InnoDB",
         'mezmur_days' => "CREATE TABLE `mezmur_days` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             PRIMARY KEY (`id`)
@@ -228,28 +237,6 @@ final class MezmurSchemaReconciler
                 }
             }
         }
-        foreach (self::INDEXES as $table => $indexes) {
-            foreach ($indexes as $name => $cols) {
-                try {
-                    $r = $conn->query("SHOW INDEX FROM `$table` WHERE Key_name = '" . $conn->real_escape_string($name) . "'");
-                    $has = $r ? (bool)$r->fetch_assoc() : false;
-                    if ($r) { $r->close(); }
-                    if ($has) { continue; }
-                } catch (\Throwable $e) {
-                    continue;
-                }
-                $sql = "ALTER TABLE `$table` ADD FULLTEXT INDEX `$name` (`" . implode('`, `', $cols) . "`)";
-                try {
-                    if ($conn->query($sql) === false) {
-                        $failed["index:$table.$name"] = (string)$conn->error;
-                    } else {
-                        $applied[] = "added index $table.$name";
-                    }
-                } catch (\Throwable $e) {
-                    $failed["index:$table.$name"] = $e->getMessage();
-                }
-            }
-        }
         // 025's delta-sync cursor index (BTREE, guarded) — keeps
         // change-token pulls index-only on legacy DBs at scale.
         try {
@@ -369,6 +356,24 @@ final class MezmurSchemaReconciler
         } catch (\Throwable $e) {
             // table absent or seed already present -> nothing to do
         }
+        // P25: keep the word index warm — backfill every hymn that has no
+        // word rows yet (bounded rounds, idempotent).
+        try {
+            $done = 0;
+            $rounds = 0;
+            $n = MezmurHymnService::backfillHymnWords($conn, 1000);
+            while ($n > 0 && $rounds < 200) {
+                $done += $n;
+                $rounds++;
+                $n = MezmurHymnService::backfillHymnWords($conn, 1000);
+            }
+            if ($done > 0) {
+                $applied[] = "word index backfilled for $done hymn(s)";
+            }
+        } catch (\Throwable $e) {
+            $failed['words:backfill'] = $e->getMessage();
+        }
+
         return ['applied' => $applied, 'failed' => $failed];
     }
 }

@@ -409,6 +409,26 @@ curl -s "$BASE/frontend/js/mezmur.js" | grep -q "function renderLyrics" && ok "w
 curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -q "\*\*bold\*\*" && ok "web editor markup hint served" || fail "markup hint missing from served page"
 sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P24 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P24 Smoke%'" >/dev/null 2>&1
 
+# --- 3x. Word-index lyrics search (Patch 25) --------------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+ssms_api POST mezmur/hymn '{"title":"P25 Smoke En","lyrics":"line one\nQZXSMOKEWORD beacon\nline three"}' >/dev/null
+ssms_api POST mezmur/hymn '{"title":"P25 Smoke Am","lyrics":"የመዝሙር ግጥም\nሰላም ለሁሉም ሕዝብ\nእናደምማለን"}' >/dev/null
+# 1) SERVICE: english word that exists ONLY in the lyrics
+P25S=$(ssms_api GET "mezmur/hymns&search=QZXSMOKEWORD")
+echo "$P25S" | grep -q "P25 Smoke En" && echo "$P25S" | grep -q '"match_in":"lyrics"' && ok "service finds lyrics-only word (EN)" || fail "service lyrics EN: $P25S"
+# 2) SERVICE: amharic word that exists ONLY in the lyrics (FULLTEXT-blind script)
+P25A=$(ssms_api GET "mezmur/hymns&search=$(python3 -c "import urllib.parse;print(urllib.parse.quote('ሰላም'))")")
+echo "$P25A" | grep -q "P25 Smoke Am" && ok "service finds lyrics-only word (AM — Ge'ez)" || fail "service lyrics AM: $P25A"
+# 3) WEB: word mode + snippet, no lyrics blob in the payload
+ssms_login audit_super >/dev/null 2>&1
+P25W=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&search=QZXSMOKEWORD")
+echo "$P25W" | grep -q '"search_mode":"word"' && echo "$P25W" | grep -q '"match_in":"lyrics"' && echo "$P25W" | grep -vq '"lyrics":' && ok "web word mode + match_in + no lyrics leak" || fail "web word search: $P25W"
+# 4) title typo rescue still intact through the new engine
+P25T=$(ssms_api GET "mezmur/hymns&search=P25%20Smoke%20Enlgish")
+echo "$P25T" | grep -q "P25 Smoke En" && ok "title typo still rescued (fuzzy tier)" || fail "typo through word engine: $P25T"
+sudo -n mariadb ssms -e "DELETE w FROM mezmur_hymn_words w LEFT JOIN mezmur_hymns h ON h.id=w.hymn_id WHERE h.id IS NULL OR h.title LIKE 'P25%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P25%'; DELETE FROM activity_logs WHERE details LIKE '%P25%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

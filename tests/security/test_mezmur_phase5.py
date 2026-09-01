@@ -391,7 +391,7 @@ class TypoTolerantSearchTests(unittest.TestCase):
         )
         # stage 2: rescue pool = same filters WITHOUT the text condition
         self.assertIn(
-            '$conn->prepare($selectBase . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500")',
+            '$conn->prepare($selectSearch . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500")',
             self.svc,
         )
         # 1-char queries never reach SQL
@@ -611,6 +611,99 @@ class LyricsStylingBrowseTests(unittest.TestCase):
         self.assertIn("onDeleted: () {", self.lib)
         # the legacy name-chip filter is gone (id-based browse instead)
         self.assertNotIn("_chip('All', '')", self.lib)
+
+
+class WordIndexSearchTests(unittest.TestCase):
+    """Patch 25 (2026-09-01): lyrics search + script-agnostic engine.
+
+    User finding: searching a word that IS in the lyrics returned "no
+    match". Four stacked causes, all fixed:
+    - InnoDB FULLTEXT cannot tokenize Ge'ez script (verified live:
+      'ሰላም' -> 0 hits on a HEALTHY index) — the engine is now the
+      mezmur_hymn_words inverted index (sql/032), script-agnostic and
+      prefix-scannable at scale.
+    - A CREATE FULLTEXT INDEX build was observed returning 0 for
+      everything; the reconciler no longer creates FT indexes at all.
+    - The mobile service API's strict LIKE never included lyrics.
+    - The on-device _similarity haystack excluded lyrics.
+
+    Scoring (server + store parity): title tiers (exact 100 > prefix 90
+    > substring 70 > fuzzy 40x) PLUS a lyrics tier (50 per matched
+    term), match_in marker ('title' | 'lyrics') and a ±60-char snippet.
+    #7 fix rides along: hymn save echoes carry categories/zemarians as
+    OBJECT lists — upsertHymns now normalizes both shapes so joins are
+    written at push time (they were wiped until the next delta pull).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.rec = (
+            ROOT / "admin/backend/services/MezmurSchemaReconciler.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+        cls.db = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart"
+        ).read_text(encoding="utf-8")
+        cls.sql = (ROOT / "sql/032_mezmur_hymn_words.sql").read_text(encoding="utf-8")
+
+    def test_word_table_schema(self):
+        self.assertIn("CREATE TABLE IF NOT EXISTS mezmur_hymn_words", self.sql)
+        self.assertIn("PRIMARY KEY (word, hymn_id)", self.sql)  # prefix scans
+        self.assertIn("VARBINARY(80)", self.sql)
+
+    def test_service_maintains_index_on_save(self):
+        self.assertIn("public static function reindexHymnWords", self.svc)
+        # both write paths reindex INSIDE the save transaction, plus the
+        # backfill path
+        self.assertEqual(self.svc.count("self::reindexHymnWords($conn,"), 3)
+        self.assertIn("DELETE FROM mezmur_hymn_words WHERE hymn_id = ?", self.svc)
+        self.assertIn("public static function backfillHymnWords", self.svc)
+
+    def test_service_search_uses_word_candidates_with_like_fallback(self):
+        self.assertIn("self::searchWordCandidates($conn, $search)", self.svc)
+        self.assertIn("id IN ($in) AND $filterSql", self.svc)
+        # zero-guard fallback keeps the title LIKE path
+        self.assertIn("title LIKE ? OR title_am LIKE ? OR reference LIKE ?", self.svc)
+
+    def test_lyrics_tier_scoring_and_payload_hygiene(self):
+        # 50/term lyrics tier, below title substring (70), above fuzzy
+        self.assertIn("$score += 50.0;", self.svc)
+        self.assertIn("$r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';", self.svc)
+        self.assertIn("lyricSnippet", self.svc)
+        # lyrics never travel in list payloads
+        self.assertIn("unset($it['lyrics']);", self.svc)
+
+    def test_web_uses_word_mode_with_like_zero_guard(self):
+        self.assertIn("MezmurHymnService::searchWordCandidates($conn, $raw)", self.api)
+        self.assertIn("$searchMode = 'word';", self.api)
+        self.assertIn("$searchMode = 'like';", self.api)
+        self.assertIn("OR lyrics LIKE ?", self.api)
+        # scoring happens where lyrics are still loaded, ranking is sort-only
+        self.assertIn("searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], (string)($r['lyrics'] ?? ''))", self.api)
+
+    def test_reconciler_drops_fulltext_creates(self):
+        self.assertIn("public const INDEXES = [];", self.rec)
+        self.assertNotIn("ADD FULLTEXT INDEX", self.rec)
+
+    def test_mobile_store_searches_lyrics(self):
+        self.assertIn("score += 50;", self.store)
+        self.assertIn("h['match_in'] = titleScore > 0 ? 'title' : 'lyrics';", self.store)
+        self.assertIn("_lyricSnippet", self.store)
+
+    def test_mobile_collection_search_for_unified_tabs(self):
+        self.assertIn("Future<List<Map<String, dynamic>>> searchCategories(", self.store)
+        self.assertIn("Future<List<Map<String, dynamic>>> searchZemarians(", self.store)
+
+    def test_upsert_accepts_both_taxonomy_shapes(self):
+        # delta pulls send *_ids; save echoes send object lists
+        self.assertIn("_idListOfMaps(h['categories'])", self.db)
+        self.assertIn("_idListOfMaps(h['zemarians'])", self.db)
 
 
 if __name__ == "__main__":
@@ -857,15 +950,17 @@ class MezmurAdvancedSearchTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
 
-    def test_server_fulltext_ranked_search(self):
-        self.assertIn("IN BOOLEAN MODE", self.api)
-        self.assertIn("ft_mezmur_hymns_search", self.api)
-        self.assertIn("3.0 * MATCH(title, title_am)", self.api)  # title weight
-        self.assertIn("ORDER BY score DESC", self.api)
+    def test_server_word_index_ranked_search(self):
+        # P25: the inverted word index replaced FULLTEXT (which cannot
+        # tokenize Ge'ez and once built dead — 0 matches silently).
+        self.assertIn("searchWordCandidates", self.api)
+        self.assertIn("$searchMode = 'word';", self.api)
+        self.assertIn("id IN ($in)", self.api)
         self.assertIn("mb_stripos", self.api)  # snippet around first match
         self.assertIn("'snippet'", self.api)
-        # boolean operators stripped from user input (injection-safe)
-        self.assertIn('-><()~*', self.api)  # boolean operators stripped from user input
+        self.assertIn("'match_in'", self.api)  # title vs lyrics match marker
+        # boolean operators still stripped from user input
+        self.assertIn('-><()~*', self.api)
 
     def test_like_fallback_and_token_minimum(self):
         self.assertIn("searchMode = 'like'", self.api)
@@ -874,9 +969,12 @@ class MezmurAdvancedSearchTests(unittest.TestCase):
     def test_lists_never_carry_full_lyrics(self):
         self.assertIn("unset($r['lyrics'])", self.api)
 
-    def test_reconciler_ensures_fulltext_indexes(self):
-        self.assertIn("ft_mezmur_hymns_search", self.rec)
-        self.assertIn("ADD FULLTEXT INDEX", self.rec)
+    def test_reconciler_ensures_word_index(self):
+        # P25: the word table replaces FULLTEXT ensures (Ge'ez cannot be
+        # tokenized by InnoDB FTS; dead index builds matched nothing).
+        self.assertIn("'mezmur_hymn_words'", self.rec)
+        self.assertIn("backfillHymnWords", self.rec)
+        self.assertIn("public const INDEXES = [];", self.rec)
         self.assertIn("missing_indexes", self.rec)
 
     def test_client_instant_search_ux(self):

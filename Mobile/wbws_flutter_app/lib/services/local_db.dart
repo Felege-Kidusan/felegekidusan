@@ -1566,16 +1566,28 @@ class LocalDb {
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
-        if (h.containsKey('category_ids') || h.containsKey('zemarian_ids')) {
+        // P25 (singer/category sync fix): the API speaks BOTH shapes —
+        // delta pulls send `category_ids`/`zemarian_ids` (int lists) while
+        // hymn save echoes send `categories`/`zemarians` (object lists).
+        // Previously the echo shape was ignored, so a hymn saved offline
+        // LOST its joins on-device until the next delta pull (its
+        // placeholder joins were dropped right after). Normalize both.
+        final catIds = h.containsKey('category_ids')
+            ? _asIntList(h['category_ids'])
+            : _idListOfMaps(h['categories']);
+        final zemIds = h.containsKey('zemarian_ids')
+            ? _asIntList(h['zemarian_ids'])
+            : _idListOfMaps(h['zemarians']);
+        if (catIds != null || zemIds != null) {
           await txn.delete('cached_hymn_categories',
               where: 'hymn_id = ?', whereArgs: [id]);
           await txn.delete('cached_hymn_zemarians',
               where: 'hymn_id = ?', whereArgs: [id]);
-          for (final cid in _asIntList(h['category_ids'])) {
+          for (final cid in catIds ?? const <int>[]) {
             await txn.insert(
                 'cached_hymn_categories', {'hymn_id': id, 'category_id': cid});
           }
-          for (final zid in _asIntList(h['zemarian_ids'])) {
+          for (final zid in zemIds ?? const <int>[]) {
             await txn.insert(
                 'cached_hymn_zemarians', {'hymn_id': id, 'zemarian_id': zid});
           }
@@ -1791,6 +1803,22 @@ class LocalDb {
         'JOIN cached_hymns h ON h.id = cz.hymn_id AND h.status = 'active' '
         'GROUP BY cz.zemarian_id');
     return {for (final r in rows) _asIntLocal(r['tid']): _asIntLocal(r['n'])};
+  }
+
+  /// Extract ids from an API object list ({'id':..,'name':..}); null
+  /// when the value is absent so callers can distinguish "no data" from
+  /// "empty list".
+  List<int>? _idListOfMaps(dynamic v) {
+    if (v == null) return null;
+    if (v is! List) return const [];
+    final out = <int>[];
+    for (final e in v) {
+      if (e is Map) {
+        final id = _asIntLocal(e['id']);
+        if (id > 0) out.add(id);
+      }
+    }
+    return out;
   }
 
   Future<List<int>> getHymnCategoryIds(int hymnId) async {

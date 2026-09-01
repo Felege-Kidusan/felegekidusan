@@ -63,9 +63,27 @@ class HymnStore extends ChangeNotifier {
     if (search != null && search.trim().isNotEmpty) {
       final scored = <Map<String, dynamic>>[];
       for (final h in items) {
-        final score = _similarity(search, h);
+        final titleScore = _similarity(search, h);
+        final lyrics = '${h['lyrics'] ?? ''}';
+        // P25 lyrics tier (server parity): a word in the lyrics body
+        // scores 50/term — below a title substring (70), above fuzzy
+        // (<=40). Only rows whose lyrics blob has been downloaded can
+        // match locally; the server covers the rest.
+        var score = titleScore;
+        var lyricHit = false;
+        if (lyrics.isNotEmpty) {
+          final low = lyrics.toLowerCase();
+          for (final t in search.toLowerCase().split(RegExp(r'\s+'))) {
+            if (t.trim().length >= 2 && low.contains(t)) {
+              score += 50;
+              lyricHit = true;
+            }
+          }
+        }
         if (score <= 0) continue;
         h['similarity'] = score;
+        h['match_in'] = titleScore > 0 ? 'title' : 'lyrics';
+        if (lyricHit) h['snippet'] = _lyricSnippet(search, lyrics);
         scored.add(h);
       }
       scored.sort((a, b) => ((b['similarity'] as num?) ?? 0)
@@ -73,6 +91,54 @@ class HymnStore extends ChangeNotifier {
       return scored;
     }
     return items;
+  }
+
+  /// Tight context window around the first search term found in the
+  /// lyrics (server parity: ±60 chars around the hit).
+  String _lyricSnippet(String search, String lyrics) {
+    for (final t in search.toLowerCase().split(RegExp(r'\s+'))) {
+      final idx = lyrics.toLowerCase().indexOf(t);
+      if (t.trim().length >= 2 && idx >= 0) {
+        final start = idx > 60 ? idx - 60 : 0;
+        final end = (start + 160) < lyrics.length ? start + 160 : null;
+        return '${start > 0 ? '…' : ''}'
+            '${lyrics.substring(start, end ?? lyrics.length).trim()}…';
+      }
+    }
+    return '';
+  }
+
+  /// P25 (Telegram-style unified search): fuzzy collection search over
+  /// the on-device catalogs, powering the Singers / Categories result
+  /// tabs. Same tier math as hymn titles (exact > prefix > substring >
+  /// fuzzy).
+  Future<List<Map<String, dynamic>>> searchCategories(String q,
+      {int limit = 25}) async {
+    final rows = await _db.getLocalCategories(activeOnly: false);
+    return _searchCollection(q, rows, limit);
+  }
+
+  Future<List<Map<String, dynamic>>> searchZemarians(String q,
+      {int limit = 25}) async {
+    final rows = await _db.getLocalZemarians(activeOnly: false);
+    return _searchCollection(q, rows, limit);
+  }
+
+  List<Map<String, dynamic>> _searchCollection(
+      String q, List<Map<String, dynamic>> rows, int limit) {
+    final query = q.trim();
+    if (query.isEmpty) return const [];
+    final hits = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      final name = '${r['name'] ?? ''}';
+      final nameAm = '${r['name_am'] ?? ''}';
+      final score = _similarity(query, {'title': name, 'title_am': nameAm});
+      if (score <= 0) continue;
+      hits.add({...r, 'similarity': score});
+    }
+    hits.sort((a, b) => ((b['similarity'] as num?) ?? 0)
+        .compareTo((a['similarity'] as num?) ?? 0));
+    return hits.take(limit).toList();
   }
 
   /// Telegram-style relevance (mirrors MezmurHymnService::searchScore):
