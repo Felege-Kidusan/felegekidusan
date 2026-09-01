@@ -542,6 +542,14 @@ class HymnStore extends ChangeNotifier {
     if (localId >= 0) return;
     final db = await _db.database;
     await db.delete('cached_hymns', where: 'id = ?', whereArgs: [localId]);
+    // MZ-11: placeholder rows can carry taxonomy join rows too (the
+    // offline editor writes cached_hymn_categories / cached_hymn_zemarians
+    // immediately); drop them so synced placeholders never leave orphan
+    // joins behind on the device.
+    await db.delete('cached_hymn_categories',
+        where: 'hymn_id = ?', whereArgs: [localId]);
+    await db.delete('cached_hymn_zemarians',
+        where: 'hymn_id = ?', whereArgs: [localId]);
   }
 
   // ── delta pull (change-token cursor + lazy lyrics) ──────────

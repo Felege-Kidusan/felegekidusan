@@ -1101,3 +1101,38 @@ class MezmurMopUpTests(unittest.TestCase):
     def test_web_rows_render_multi_category_badges(self):
         self.assertIn("catBadges(h)", self.js)
         self.assertIn("h.categories || []", self.js)
+
+
+class MobileDartParityTests(unittest.TestCase):
+    """Patch 21 (2026-09-01): honest teacher empty-state + MZ-11 cleanup.
+
+    - teacher_grades.dart surfaces the server's bootstrap 'notice' (the
+      H1 honest guidance: class-teacher-without-subjects vs plain
+      no-assignment) instead of a generic hardcoded line; falls back to
+      the generic line offline (verified live: /grades/bootstrap returns
+      the notice for the H1 fixture).
+    - hymn_store.dart placeholder cleanup also drops the taxonomy join
+      rows so synced offline-created hymns never orphan joins on-device.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.grades = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/teacher/teacher_grades.dart"
+        ).read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+
+    def test_teacher_subjects_empty_state_uses_server_notice(self):
+        self.assertIn("_subjectsNotice", self.grades)
+        self.assertIn("res.data['notice'] as String?", self.grades)
+        self.assertIn("_subjectsNotice ?? 'No subjects assigned", self.grades)
+
+    def test_placeholder_cleanup_drops_join_rows(self):
+        self.assertIn("cached_hymn_categories", self.store)
+        self.assertIn("cached_hymn_zemarians", self.store)
+        # the join deletes live inside the placeholder cleanup
+        cleanup = self.store.split("Future<void> _dropLocalPlaceholder")[1][:900]
+        self.assertIn("cached_hymn_categories", cleanup)
+        self.assertIn("cached_hymn_zemarians", cleanup)

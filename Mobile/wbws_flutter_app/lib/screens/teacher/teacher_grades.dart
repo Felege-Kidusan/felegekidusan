@@ -34,6 +34,11 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
 
   List<dynamic> _classes = [];
   List<dynamic> _subjects = [];
+  // Honest empty-state guidance from the server (grades/bootstrap sends
+  // 'notice' when the teacher has the class but no subject assignments —
+  // including the class-teacher variant). Null when there is nothing to
+  // explain; falls back to a generic line offline.
+  String? _subjectsNotice;
   List<dynamic> _assessments = [];
   List<dynamic> _bootAssessments = [];
   bool _didBootstrap = false;
@@ -115,6 +120,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       _bootAssessments = [];
       _didBootstrap = false;
       _selectedSubjectId = null;
+      _subjectsNotice = null;
       if (cached.isNotEmpty) {
         _subjects = cached;
         _loadingSubjects = false;
@@ -137,6 +143,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
         _didBootstrap = true;
         _loadingSubjects = false;
         _isOffline = false;
+        _subjectsNotice = res.data['notice'] as String?;
       });
       return;
     }
@@ -299,7 +306,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
         child: Row(children: [
           const Icon(Icons.info_outline, color: AppTheme.warning, size: 18),
           const SizedBox(width: 10),
-          Expanded(child: Text('No subjects assigned to you for this class.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
+          Expanded(child: Text(_subjectsNotice ?? 'No subjects assigned to you for this class.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
         ]),
       );
     }
