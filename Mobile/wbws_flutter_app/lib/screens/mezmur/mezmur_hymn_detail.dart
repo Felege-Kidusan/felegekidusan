@@ -157,7 +157,8 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
                             size: 13, color: AppTheme.primary),
                         label: Text('${c['name']}',
                             style: const TextStyle(fontSize: 11)),
-                        onPressed: () => _browse(_asInt(c['id'])),
+                        onPressed: () =>
+                          _browse(_asInt(c['id']), singer: false),
                       ),
                     if (_cats.isEmpty && '${h['category'] ?? ''}'.isNotEmpty)
                       Chip(
