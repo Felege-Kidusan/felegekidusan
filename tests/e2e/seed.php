@@ -41,12 +41,16 @@ seed_user($conn, 'audit_teach', 'teacher',     'Audit Teacher', $TEST_PASS_HASH)
 seed_user($conn, 'audit_fin',   'finance_dept','Audit Finance', $TEST_PASS_HASH);
 
 // --- academic year + term ------------------------------------------------
+// NB: status is the resolver's PRIMARY key (ay_active_year prefers
+// status='active' over is_current). Migration-seeded rows can carry
+// status='active' with is_current=0 and would shadow this year even
+// with is_current=1 — so stamp BOTH and demote everything else.
 $yearName = '2018 ዓ.ም.';
-$conn->query("UPDATE academic_years SET is_current = 0");
+$conn->query("UPDATE academic_years SET is_current = 0, status = 'closed'");
 $stmt = $conn->prepare(
-    "INSERT INTO academic_years (year_name, ec_year, year_gc, start_date, end_date, is_current)
-     VALUES (?, 2018, '2025/26', '2025-09-01', '2026-07-31', 1)
-     ON DUPLICATE KEY UPDATE is_current = 1, start_date = VALUES(start_date), end_date = VALUES(end_date)");
+    "INSERT INTO academic_years (year_name, ec_year, year_gc, start_date, end_date, is_current, status)
+     VALUES (?, 2018, '2025/26', '2025-09-01', '2026-07-31', 1, 'active')
+     ON DUPLICATE KEY UPDATE is_current = 1, status = 'active', start_date = VALUES(start_date), end_date = VALUES(end_date)");
 $stmt->bind_param('s', $yearName);
 $stmt->execute();
 $stmt->close();
