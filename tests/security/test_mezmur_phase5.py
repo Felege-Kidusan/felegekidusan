@@ -591,13 +591,17 @@ class LyricsStylingBrowseTests(unittest.TestCase):
         self.assertIn("ActionChip", self.detail)
         self.assertIn("initialCategoryId: singer ? null : id", self.detail)
 
-    def test_library_self_standing_with_bottom_nav(self):
-        self.assertIn("BottomNavigationBar", self.lib)
-        for label in ("'Hymns'", "'Categories'", "'Singers'"):
+    def test_library_self_standing_with_top_tabs(self):
+        # P26 replaced the nested bottom navigation (Material violation)
+        # with AppBar tabs — one navigation plane per screen.
+        self.assertIn("TabBar(", self.lib)
+        self.assertIn("TabBarView(", self.lib)
+        for label in ("'Hymns'", "'Categories'", "'Singers'", "'Add'"):
             self.assertIn(label, self.lib)
         self.assertIn("initialCategoryId", self.lib)
         self.assertIn("initialZemarianId", self.lib)
         self.assertIn("_browseGrid", self.lib)
+        self.assertNotIn("BottomNavigationBar", self.lib)
 
     def test_browse_tiles_carry_on_device_counts(self):
         self.assertIn("getCategoryHymnCounts", self.db)
@@ -704,6 +708,78 @@ class WordIndexSearchTests(unittest.TestCase):
         # delta pulls send *_ids; save echoes send object lists
         self.assertIn("_idListOfMaps(h['categories'])", self.db)
         self.assertIn("_idListOfMaps(h['zemarians'])", self.db)
+
+
+class LibraryTopTabsTests(unittest.TestCase):
+    """Patch 26 (2026-09-01): library rebuilt around Material top tabs
+    and Telegram's unified search (user items 2/3/4/6/8).
+
+    - #2 the nested BottomNavigationBar (a second nav plane inside a
+      pushed screen) is GONE — Hymns/Categories/Singers/Add live as
+      AppBar tabs, the Material-recommended single-plane pattern.
+    - #3 ONE search field serves all three browse tabs.
+    - #4 the tabs act as Telegram result-type filters over the SAME
+      query: hymns rank with lyrics matches (tag + snippet), while the
+      category/singer tabs show ranked catalog results; tapping one
+      opens the Hymns tab filtered by it (query cleared).
+    - #6 Add Hymn is a real tab (curators only) — the editor renders
+      embedded (no inner Scaffold), saving resets the form and jumps
+      to the Hymns tab; the FAB is gone.
+    - #8 no horizontal category strip under the search bar (the tabs
+      own category browsing); quick filters are length/language only.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.lib = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymns.dart"
+        ).read_text(encoding="utf-8")
+        cls.editor = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymn_editor.dart"
+        ).read_text(encoding="utf-8")
+
+    def test_top_tabs_replace_bottom_nav(self):
+        self.assertIn("TabController(", self.lib)
+        self.assertIn("SingleTickerProviderStateMixin", self.lib)
+        self.assertNotIn("BottomNavigationBar", self.lib)
+        self.assertNotIn("floatingActionButton:", self.lib)
+
+    def test_shared_search_field_all_browse_tabs(self):
+        # one field, per-tab hint, hidden on the Add tab
+        self.assertIn("if (_tab != _addTab)", self.lib)
+        self.assertIn("Search hymns — title, Amharic or lyrics…", self.lib)
+        self.assertIn("Search categories…", self.lib)
+        self.assertIn("Search singers…", self.lib)
+        # 1-char queries never search (client parity)
+        self.assertIn("length >= 2", self.lib)
+
+    def test_telegram_result_type_tabs(self):
+        # same query ranks the catalogs for their tabs
+        self.assertIn("_store.searchCategories(query)", self.lib)
+        self.assertIn("_store.searchZemarians(query)", self.lib)
+        self.assertIn("_taxonomyTab(categories: true)", self.lib)
+        self.assertIn("_taxonomyTab(categories: false)", self.lib)
+        self.assertIn("Widget _resultList({required bool categories})", self.lib)
+        # tapping a result opens the filtered hymns list
+        self.assertIn("_browseTaxonomy(id, singer: !categories)", self.lib)
+        self.assertIn("_tabCtrl.animateTo(_hymnsTab)", self.lib)
+
+    def test_hymn_rows_show_lyrics_match_context(self):
+        self.assertIn("'LYRICS'", self.lib)
+        self.assertIn("h['snippet']", self.lib)
+        self.assertIn("match_in", self.lib)
+
+    def test_editor_embeds_as_add_tab(self):
+        self.assertIn("this.embedded = false", self.editor)
+        self.assertIn("widget.embedded", self.editor)
+        self.assertIn("widget.onSaved?.call();", self.editor)
+        self.assertIn("MezmurHymnEditorScreen(", self.lib)
+        self.assertIn("embedded: true", self.lib)
+
+    def test_no_category_strip_under_search(self):
+        # quick filters are length/language/archived only
+        self.assertIn("_flagChip('Long'", self.lib)
+        self.assertNotIn("_chip('All', '')", self.lib)
 
 
 if __name__ == "__main__":

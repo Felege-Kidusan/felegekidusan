@@ -15,7 +15,17 @@ import 'mezmur_zemarians.dart';
 class MezmurHymnEditorScreen extends StatefulWidget {
   /// Existing hymn row (from the local store) or null for a new hymn.
   final Map<String, dynamic>? hymn;
-  const MezmurHymnEditorScreen({super.key, this.hymn});
+
+  /// P26: when true the form renders WITHOUT its own Scaffold — it is
+  /// embedded as the "Add" tab inside the hymn library screen (no
+  /// navigation, saving resets the form for the next entry).
+  final bool embedded;
+
+  /// Called after a successful save in embedded mode (the host usually
+  /// switches to the Hymns tab so the new row is immediately visible).
+  final VoidCallback? onSaved;
+  const MezmurHymnEditorScreen(
+      {super.key, this.hymn, this.embedded = false, this.onSaved});
 
   @override
   State<MezmurHymnEditorScreen> createState() => _MezmurHymnEditorState();
@@ -147,6 +157,22 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
           : (_isEdit ? 'Hymn saved.' : 'Hymn added to the library.')),
       duration: const Duration(seconds: 2),
     ));
+    if (widget.embedded) {
+      // Stay on the tab, reset for the next entry (P26).
+      setState(() {
+        _saving = false;
+        _titleCtrl.clear();
+        _titleAmCtrl.clear();
+        _referenceCtrl.clear();
+        _lyricsCtrl.clear();
+        _selectedCategories.clear();
+        _selectedZemarians.clear();
+        _length = 'long';
+        _language = 'amharic';
+      });
+      widget.onSaved?.call();
+      return;
+    }
     Navigator.of(context).pop(true);
   }
 
@@ -213,32 +239,10 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEdit ? 'Edit Hymn' : 'Add Hymn'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          TextButton(
-            onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Text('SAVE',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+  /// The form fields, shared by the pushed screen and the embedded
+  /// "Add" tab (P26).
+  List<Widget> _formFields() {
+    return [
           if (_error != null)
             Container(
               margin: const EdgeInsets.only(bottom: 12),
@@ -331,7 +335,65 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
             style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 24),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            ..._formFields(),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_outlined, size: 18),
+                label: Text(_saving ? 'Saving…' : 'Save Hymn'),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_isEdit ? 'Edit Hymn' : 'Add Hymn'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Text('SAVE',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(width: 8),
         ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: _formFields(),
       ),
     );
   }
