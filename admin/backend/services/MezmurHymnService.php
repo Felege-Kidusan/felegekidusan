@@ -116,20 +116,40 @@ final class MezmurHymnService
 
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
-        $stmt = $conn->prepare(
-            "SELECT id, title, title_am, category, reference, status, $rev, $tax, updated_at
-             FROM mezmur_hymns WHERE $whereSql
-             ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?"
-        );
-        $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
-        $stmt->execute();
-        $res = $stmt->get_result();
+        $selectBase = "SELECT id, title, title_am, category, reference, status, $rev, $tax, updated_at FROM mezmur_hymns WHERE $whereSql";
+
         $items = [];
-        while ($r = $res->fetch_assoc()) {
-            $r['id'] = (int)$r['id'];
-            $items[] = $r;
+        if ($search !== '') {
+            // Telegram-style similarity search: fetch a bounded candidate
+            // set, score by exact > prefix > substring > fuzzy (Levenshtein
+            // spelling tolerance), sort best-first, then page.
+            $cand = $conn->prepare($selectBase . ' ORDER BY updated_at DESC, id DESC LIMIT ?');
+            $cand->bind_param($types . 'i', ...array_merge($params, [500]));
+            $cand->execute();
+            $res = $cand->get_result();
+            $all = [];
+            while ($r = $res->fetch_assoc()) {
+                $r['id'] = (int)$r['id'];
+                $r['similarity'] = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                $all[] = $r;
+            }
+            $cand->close();
+            usort($all, static function ($a, $b) {
+                $cmp = (float)$b['similarity'] <=> (float)$a['similarity'];
+                return $cmp !== 0 ? $cmp : strcmp((string)$b['updated_at'], (string)$a['updated_at']);
+            });
+            $items = array_slice($all, $offset, $perPage);
+        } else {
+            $stmt = $conn->prepare($selectBase . ' ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?');
+            $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($r = $res->fetch_assoc()) {
+                $r['id'] = (int)$r['id'];
+                $items[] = $r;
+            }
+            $stmt->close();
         }
-        $stmt->close();
 
         $ids = array_map(static fn ($i) => (int)$i['id'], $items);
         $taxonomy = self::attachTaxonomyBulk($conn, $ids);
@@ -448,6 +468,48 @@ final class MezmurHymnService
         } catch (\Throwable $e) { /* pre-030: no join tables */ }
 
         return $out;
+    }
+
+    /**
+     * Telegram-style relevance score (0..N). Words are matched against the
+     * joined title / Amharic-title / reference text and tiered:
+     *   exact string > prefix > substring > fuzzy (Levenshtein spelling
+     *   tolerance). Higher = more similar; callers sort descending.
+     */
+    public static function searchScore(string $query, ?string $title, ?string $titleAm = null, ?string $reference = null): float
+    {
+        $query = mb_strtolower(trim($query));
+        if ($query === '') return 0.0;
+        $terms = array_values(array_filter(preg_split('/\s+/u', $query), static fn ($t) => $t !== ''));
+        if (!$terms) return 0.0;
+
+        $haystack = mb_strtolower(implode(' ', array_filter([
+            $title, $titleAm, $reference,
+        ], static fn ($f) => $f !== null && trim((string)$f) !== '')));
+
+        $score = 0.0;
+        foreach ($terms as $term) {
+            $score += self::termScore($term, $haystack);
+        }
+        return round($score, 3);
+    }
+
+    private static function termScore(string $term, string $haystack): float
+    {
+        if ($term === '' || $haystack === '') return 0.0;
+        if ($haystack === $term) return 100.0;
+        if (str_starts_with($haystack, $term)) return 90.0;
+        if (mb_strpos($haystack, $term) !== false) return 70.0;
+
+        $best = 0.0;
+        $maxLen = max(mb_strlen($term), 1);
+        foreach (preg_split('/\s+/u', $haystack) as $word) {
+            if ($word === '') continue;
+            $dist = levenshtein($term, $word);
+            $sim = 1.0 - $dist / max(mb_strlen($word), $maxLen);
+            if ($sim > $best) $best = $sim;
+        }
+        return $best >= 0.6 ? (40.0 * $best) : 0.0;
     }
 
     /**

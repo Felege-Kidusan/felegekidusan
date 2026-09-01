@@ -41,16 +41,82 @@ class HymnStore extends ChangeNotifier {
     String? language,
     int? categoryId,
     int? zemarianId,
-  }) =>
-      _db.getLocalHymns(
-        search: search,
-        category: category,
-        includeArchived: includeArchived,
-        length: length,
-        language: language,
-        categoryId: categoryId,
-        zemarianId: zemarianId,
-      );
+  }) async {
+    final items = await _db.getLocalHymns(
+      search: search,
+      category: category,
+      includeArchived: includeArchived,
+      length: length,
+      language: language,
+      categoryId: categoryId,
+      zemarianId: zemarianId,
+    );
+    if (search != null && search.trim().isNotEmpty) {
+      items.sort((a, b) =>
+          _similarity(search, b).compareTo(_similarity(search, a)));
+    }
+    return items;
+  }
+
+  /// Telegram-style relevance (mirrors MezmurHymnService::searchScore):
+  /// exact > prefix > substring > fuzzy (Levenshtein spelling tolerance).
+  double _similarity(String query, Map<String, dynamic> h) {
+    final terms = query
+        .toLowerCase()
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (terms.isEmpty) return 0;
+    final haystack = [
+      h['title'],
+      h['title_am'],
+      h['reference'],
+    ].whereType<String>()
+        .map((s) => s.toLowerCase())
+        .where((s) => s.isNotEmpty)
+        .join(' ');
+    if (haystack.isEmpty) return 0;
+    var score = 0.0;
+    for (final term in terms) {
+      score += _termSimilarity(term, haystack);
+    }
+    return score;
+  }
+
+  double _termSimilarity(String term, String haystack) {
+    if (haystack == term) return 100;
+    if (haystack.startsWith(term)) return 90;
+    if (haystack.contains(term)) return 70;
+    var best = 0.0;
+    final maxLen = term.length < 1 ? 1 : term.length;
+    for (final w in haystack.split(RegExp(r'\s+'))) {
+      if (w.isEmpty) continue;
+      final dist = _levenshtein(term, w);
+      final sim = 1 - dist / (w.length > maxLen ? w.length : maxLen);
+      if (sim > best) best = sim;
+    }
+    return best >= 0.6 ? 40 * best : 0;
+  }
+
+  int _levenshtein(String a, String b) {
+    final m = a.length, n = b.length;
+    final dp = List.generate(m + 1, (i) => List<int>.filled(n + 1, 0));
+    for (var i = 0; i <= m; i++) {
+      dp[i][0] = i;
+    }
+    for (var j = 0; j <= n; j++) {
+      dp[0][j] = j;
+    }
+    for (var i = 1; i <= m; i++) {
+      for (var j = 1; j <= n; j++) {
+        final cost = a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1;
+        dp[i][j] = [dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost]
+            .reduce((x, y) => x < y ? x : y);
+      }
+    }
+    return dp[m][n];
+  }
 
   Future<Map<String, dynamic>?> hymn(int id) => _db.getLocalHymn(id);
 

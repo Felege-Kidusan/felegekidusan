@@ -411,6 +411,20 @@ try {
             }
             $stmt->close();
 
+            // Similarity ranking (spelling-tolerant) — reorders best-first.
+            if ($search !== '') {
+                foreach ($items as &$it) {
+                    $it['similarity'] = MezmurHymnService::searchScore(
+                        $search, (string)$it['title'], $it['title_am'], $it['reference']
+                    );
+                }
+                unset($it);
+                usort($items, static function ($a, $b) {
+                    $c = (float)($b['similarity'] ?? 0) <=> (float)($a['similarity'] ?? 0);
+                    return $c !== 0 ? $c : (float)($b['score'] ?? 0) <=> (float)($a['score'] ?? 0);
+                });
+            }
+
             // Attach multi-category + singer associations (single round trip).
             $ids = array_map(static fn ($i) => (int)$i['id'], $items);
             $taxonomy = MezmurHymnService::attachTaxonomyBulk($conn, $ids);
