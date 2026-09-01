@@ -7,6 +7,7 @@ import '../../services/local_db.dart';
 import '../../utils/theme.dart';
 import '../../widgets/loading_skeleton.dart';
 import 'mezmur_hymn_editor.dart';
+import 'mezmur_hymns.dart';
 
 /// Single hymn reader — LOCAL-FIRST: opens instantly from the on-device
 /// copy; when the lyrics blob has not been downloaded yet it streams it
@@ -25,6 +26,8 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
 
   Map<String, dynamic>? _hymn;
   bool _fetchingLyrics = false;
+  List<Map<String, dynamic>> _cats = [];
+  List<Map<String, dynamic>> _zems = [];
 
   @override
   void initState() {
@@ -41,8 +44,23 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
 
   Future<void> _reload() async {
     final h = await _store.hymn(widget.id);
+    final cats = await _store.categoryNamesFor(widget.id);
+    final zems = await _store.zemarianNamesFor(widget.id);
     if (!mounted) return;
-    setState(() => _hymn = h);
+    setState(() {
+      _hymn = h;
+      _cats = cats;
+      _zems = zems;
+    });
+  }
+
+  /// Tap a category / singer chip -> the filtered hymn list (P24).
+  Future<void> _browse(int id, {required bool singer}) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => MezmurHymnsScreen(
+            initialCategoryId: singer ? null : id,
+            initialZemarianId: singer ? id : null)));
+    await _reload();
   }
 
   Future<void> _open() async {
@@ -62,6 +80,8 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
       if (mounted) setState(() => _fetchingLyrics = false);
     }
   }
+
+  int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
   Future<void> _edit() async {
     final h = _hymn;
@@ -130,10 +150,28 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    if ('${h['category'] ?? ''}'.isNotEmpty)
+                    for (final c in _cats)
+                      ActionChip(
+                        tooltip: 'Hymns in this category',
+                        avatar: const Icon(Icons.category_outlined,
+                            size: 13, color: AppTheme.primary),
+                        label: Text('${c['name']}',
+                            style: const TextStyle(fontSize: 11)),
+                        onPressed: () => _browse(_asInt(c['id'])),
+                      ),
+                    if (_cats.isEmpty && '${h['category'] ?? ''}'.isNotEmpty)
                       Chip(
                           label: Text('${h['category']}',
                               style: const TextStyle(fontSize: 11))),
+                    for (final z in _zems)
+                      ActionChip(
+                        tooltip: 'Hymns by this singer',
+                        avatar: const Icon(Icons.person_outline,
+                            size: 13, color: AppTheme.info),
+                        label: Text('${z['name']}',
+                            style: const TextStyle(fontSize: 11)),
+                        onPressed: () => _browse(_asInt(z['id']), singer: true),
+                      ),
                     if ('${h['reference'] ?? ''}'.isNotEmpty)
                       Chip(
                           label: Text('${h['reference']}',
@@ -176,12 +214,94 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
                             ),
                           ),
                         ])
-                      : Text(lyrics,
-                          style:
-                              const TextStyle(fontSize: 15, height: 1.9)),
+                      : _LyricsView(lyrics),
                 ),
               ],
             ),
     );
   }
+}
+
+/// P24: Genius/Spotify-style lyrics rendering (plain text in, styled
+/// blocks out): [Section] lines become headers, **bold** / *italic*
+/// become spans, blank lines become stanza spacing. Nothing is stored
+/// transformed — parsing happens at render time only.
+class _LyricsView extends StatelessWidget {
+  final String src;
+  const _LyricsView(this.src);
+
+  static final _sectionRe = RegExp(r'^\[(.+)\]$');
+  static final _inlineRe = RegExp(r'\*\*(.+?)\*\*|\*(.+?)\*');
+
+  List<Widget> _build() {
+    final out = <Widget>[];
+    final buf = <TextSpan>[];
+    void flush() {
+      if (buf.isEmpty) return;
+      out.add(Text.rich(
+        TextSpan(children: List<TextSpan>.from(buf)),
+        style: const TextStyle(fontSize: 15, height: 1.9),
+      ));
+      buf.clear();
+      out.add(const SizedBox(height: 14));
+    }
+
+    for (final raw in src.split('\n')) {
+      final line = raw.trim();
+      if (line.isEmpty) {
+        flush();
+        continue;
+      }
+      final m = _sectionRe.firstMatch(line);
+      if (m != null) {
+        flush();
+        out.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 4),
+          child: Text(
+            m.group(1)!.toUpperCase(),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.7,
+              color: AppTheme.primary,
+            ),
+          ),
+        ));
+        continue;
+      }
+      final spans = <TextSpan>[];
+      var rest = line;
+      // Tokenize bold/italic left-to-right; plain text between matches.
+      while (true) {
+        final m2 = _inlineRe.firstMatch(rest);
+        if (m2 == null) {
+          if (rest.isNotEmpty) spans.add(TextSpan(text: rest));
+          break;
+        }
+        if (m2.start > 0) {
+          spans.add(TextSpan(text: rest.substring(0, m2.start)));
+        }
+        if (m2.group(1) != null) {
+          spans.add(TextSpan(
+              text: m2.group(1),
+              style: const TextStyle(fontWeight: FontWeight.w800)));
+        } else {
+          spans.add(TextSpan(
+              text: m2.group(2),
+              style: const TextStyle(fontStyle: FontStyle.italic)));
+        }
+        rest = rest.substring(m2.end);
+      }
+      spans.add(const TextSpan(text: '\n'));
+      buf.addAll(spans);
+    }
+    flush();
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _build(),
+      );
 }

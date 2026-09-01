@@ -322,6 +322,11 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
           ),
           const SizedBox(height: 6),
           Text(
+            'Styling: [Verse 1] section header · **bold** · *italic* — rendered like Genius/Spotify.',
+            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          ),
+          const SizedBox(height: 2),
+          Text(
             'Works fully offline — changes sync automatically when the phone is back online.',
             style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
           ),

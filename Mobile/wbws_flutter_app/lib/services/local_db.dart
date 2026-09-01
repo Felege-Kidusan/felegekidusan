@@ -1773,6 +1773,26 @@ class LocalDb {
     );
   }
 
+  /// P24: hymn counts per category / singer (Spotify-style tiles) —
+  /// active hymns only, computed on-device from the cached joins.
+  Future<Map<int, int>> getCategoryHymnCounts() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        'SELECT cc.category_id AS tid, COUNT(*) AS n FROM cached_hymn_categories cc '
+        'JOIN cached_hymns h ON h.id = cc.hymn_id AND h.status = 'active' '
+        'GROUP BY cc.category_id');
+    return {for (final r in rows) _asIntLocal(r['tid']): _asIntLocal(r['n'])};
+  }
+
+  Future<Map<int, int>> getZemarianHymnCounts() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        'SELECT cz.zemarian_id AS tid, COUNT(*) AS n FROM cached_hymn_zemarians cz '
+        'JOIN cached_hymns h ON h.id = cz.hymn_id AND h.status = 'active' '
+        'GROUP BY cz.zemarian_id');
+    return {for (final r in rows) _asIntLocal(r['tid']): _asIntLocal(r['n'])};
+  }
+
   Future<List<int>> getHymnCategoryIds(int hymnId) async {
     final db = await database;
     final rows = await db.query('cached_hymn_categories',

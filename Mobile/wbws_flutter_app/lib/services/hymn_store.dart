@@ -140,6 +140,34 @@ class HymnStore extends ChangeNotifier {
   Future<List<int>> hymnCategoryIds(int hymnId) => _db.getHymnCategoryIds(hymnId);
   Future<List<int>> hymnZemarianIds(int hymnId) => _db.getHymnZemarianIds(hymnId);
 
+  /// P24: resolved names for a hymn's attached taxonomy (chips in the
+  /// reader; tapping one opens the filtered hymn list).
+  Future<List<Map<String, dynamic>>> categoryNamesFor(int hymnId) async =>
+      _resolveTaxonomyNames(await _db.getHymnCategoryIds(hymnId),
+          await _db.getLocalCategories(activeOnly: false));
+
+  Future<List<Map<String, dynamic>>> zemarianNamesFor(int hymnId) async =>
+      _resolveTaxonomyNames(await _db.getHymnZemarianIds(hymnId),
+          await _db.getLocalZemarians(activeOnly: false));
+
+  List<Map<String, dynamic>> _resolveTaxonomyNames(
+      List<int> ids, List<Map<String, dynamic>> rows) {
+    final byId = <int, String>{};
+    for (final r in rows) {
+      byId[_asInt(r['id'])] = '${r['name']}';
+    }
+    final out = <Map<String, dynamic>>[];
+    for (final id in ids) {
+      final name = byId[id];
+      if (name != null && name.isNotEmpty) out.add({'id': id, 'name': name});
+    }
+    return out;
+  }
+
+  /// P24: per-category / per-singer hymn counts for the browse tiles.
+  Future<Map<int, int>> categoryHymnCounts() => _db.getCategoryHymnCounts();
+  Future<Map<int, int>> zemarianHymnCounts() => _db.getZemarianHymnCounts();
+
   Future<List<Map<String, dynamic>>> categories({bool activeOnly = true}) =>
       _db.getLocalCategories(activeOnly: activeOnly);
 

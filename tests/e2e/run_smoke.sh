@@ -394,6 +394,21 @@ P23H=$(printf '%s' "$P23R" | python3 -c 'import sys,json;print(json.load(sys.std
 [ "$P23H" = "0" ] && ok "hidden category rename echoes is_active=0" || fail "rename echo is_active=$P23H hide=$P23S rename=$P23R"
 sudo -n mariadb ssms -e "DELETE mhc FROM mezmur_hymn_categories mhc JOIN mezmur_hymns h ON h.id=mhc.hymn_id WHERE h.title LIKE 'P23 Smoke%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P23 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P23 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P23 Smoke%'" >/dev/null 2>&1
 
+# --- 3w. Lyrics markup + styled delivery (Patch 24) -------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+# 1) markup round-trips VERBATIM (plain text stored; clients render)
+ssms_api POST mezmur/hymn '{"title":"P24 Smoke Hymn","lyrics":"[Verse 1]\n**bold** line and *italic* word\n\n[Chorus]\nnormal stanza"}' >/dev/null
+P24G=$(curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE/api/v1/index.php?_route=mezmur/hymn&id=$(sudo -n mariadb ssms -N -e "SELECT id FROM mezmur_hymns WHERE title='P24 Smoke Hymn'")" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["lyrics"])' 2>/dev/null)
+case "$P24G" in
+  *"[Verse 1]"*"*bold*"*"*italic*"*"[Chorus]"*) ok "markup lyrics round-trip verbatim (render-time parsing)";;
+  *) fail "lyrics round-trip: $P24G";;
+esac
+# 2) the styled web assets are actually served
+curl -s "$BASE/frontend/js/mezmur.js" | grep -q "function renderLyrics" && ok "web lyrics renderer served" || fail "renderLyrics missing from served JS"
+curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -q "\*\*bold\*\*" && ok "web editor markup hint served" || fail "markup hint missing from served page"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P24 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P24 Smoke%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

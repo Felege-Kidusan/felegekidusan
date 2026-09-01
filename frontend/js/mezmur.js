@@ -686,6 +686,36 @@
         });
     }
 
+    /** P24: Genius/Spotify-style lyrics rendering. Plain text is stored;
+     *  [Section] lines become headers, **bold** / *italic* become emphasis.
+     *  ESCAPE FIRST — everything after that only adds our own safe tags. */
+    function renderLyrics(src) {
+        var txt = esc(src == null ? '' : String(src));
+        if (!txt) return '<div style="font-size:.9rem;opacity:.65;font-style:italic">(No lyrics recorded)</div>';
+        var out = [], buf = [];
+        function flush() {
+            if (!buf.length) return;
+            out.push('<div style="font-size:.95rem;line-height:2;white-space:pre-wrap">' + buf.join('<br>') + '</div>');
+            buf = [];
+        }
+        txt.split(/\r?\n/).forEach(function (raw) {
+            var line = raw.trim();
+            if (line === '') { flush(); return; }
+            var m = line.match(/^\[(.+)\]$/);
+            if (m) {
+                flush();
+                out.push('<div style="margin-top:18px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:.78rem;color:var(--school-primary,#4f46e5)">' + m[1] + '</div>');
+                return;
+            }
+            // bold first, then italic on what remains
+            buf.push(line
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>'));
+        });
+        flush();
+        return out.join('');
+    }
+
     function viewHymn(id) {
         apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
@@ -696,7 +726,7 @@
             if (h.status === 'archived') meta += '<span class="badge badge-inactive">Archived</span>';
             $('mzViewTitle').textContent = h.title;
             $('mzViewMeta').innerHTML = meta;
-            $('mzViewLyrics').textContent = h.lyrics || '(No lyrics recorded)';
+            $('mzViewLyrics').innerHTML = renderLyrics(h.lyrics);
             openModalF('mzViewModal', null);
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
     }

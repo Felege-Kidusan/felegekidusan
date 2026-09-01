@@ -521,6 +521,98 @@ class TaxonomySyncTests(unittest.TestCase):
         self.assertIn("(hidden)", self.js)
 
 
+class LyricsStylingBrowseTests(unittest.TestCase):
+    """Patch 24 (2026-09-01): modern lyrics styling + Spotify-like
+    browsing (user item 6).
+
+    Genius/Spotify standard (research 2026-08-31): [Section] square-
+    bracket headers, **bold** / *italic* emphasis, PLAIN TEXT stored —
+    parsing happens at render time only, so old data and old clients
+    keep working (no migration, no schema change).
+
+    - web: mezmur.js renderLyrics() — escape FIRST then transform
+      (XSS-safe by construction); view modal renders through it; the
+      editor shows a markup hint.
+    - mobile: _LyricsView widget (section headers + bold/italic spans
+      + stanza spacing); tappable category/singer chips open the
+      filtered hymn list; the library is a self-standing screen with a
+      bottom nav (Hymns | Categories | Singers) and Spotify-style
+      gradient tiles carrying on-device hymn counts.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.page = (
+            ROOT / "frontend/pages/mezmur_dept.php"
+        ).read_text(encoding="utf-8")
+        cls.detail = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymn_detail.dart"
+        ).read_text(encoding="utf-8")
+        cls.lib = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymns.dart"
+        ).read_text(encoding="utf-8")
+        cls.editor = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymn_editor.dart"
+        ).read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+        cls.db = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart"
+        ).read_text(encoding="utf-8")
+
+    def test_web_renderer_escapes_before_transform(self):
+        self.assertIn("function renderLyrics(", self.js)
+        # escape FIRST — everything after only adds our own safe tags
+        # the escape happens inside the function head, before any
+        # transform can emit markup
+        body = self.js.split("function renderLyrics(")[1][:400]
+        self.assertIn("var txt = esc(", body)
+        self.assertIn("<strong>$1</strong>", self.js)
+        self.assertIn("<em>$1</em>", self.js)
+
+    def test_web_view_renders_through_parser(self):
+        self.assertIn("$('mzViewLyrics').innerHTML = renderLyrics(", self.js)
+
+    def test_markup_hints_present(self):
+        self.assertIn("**bold**", self.page)      # web editor hint
+        self.assertIn("**bold**", self.editor)    # mobile editor hint
+
+    def test_mobile_lyrics_widget(self):
+        self.assertIn("class _LyricsView", self.detail)
+        self.assertIn("_sectionRe", self.detail)   # [Section] headers
+        self.assertIn("_inlineRe", self.detail)    # **bold** / *italic*
+        self.assertIn("TextSpan", self.detail)     # rich spans, not flat text
+
+    def test_mobile_taxonomy_chips_open_filtered_list(self):
+        self.assertIn("categoryNamesFor", self.detail)
+        self.assertIn("zemarianNamesFor", self.detail)
+        self.assertIn("ActionChip", self.detail)
+        self.assertIn("initialCategoryId: singer ? null : id", self.detail)
+
+    def test_library_self_standing_with_bottom_nav(self):
+        self.assertIn("BottomNavigationBar", self.lib)
+        for label in ("'Hymns'", "'Categories'", "'Singers'"):
+            self.assertIn(label, self.lib)
+        self.assertIn("initialCategoryId", self.lib)
+        self.assertIn("initialZemarianId", self.lib)
+        self.assertIn("_browseGrid", self.lib)
+
+    def test_browse_tiles_carry_on_device_counts(self):
+        self.assertIn("getCategoryHymnCounts", self.db)
+        self.assertIn("getZemarianHymnCounts", self.db)
+        # counts consider ACTIVE hymns only
+        self.assertIn("h.status = 'active'", self.db)
+        self.assertIn("Future<Map<int, int>> categoryHymnCounts()", self.store)
+
+    def test_active_filter_is_clearable(self):
+        self.assertIn("InputChip", self.lib)
+        self.assertIn("onDeleted: () {", self.lib)
+        # the legacy name-chip filter is gone (id-based browse instead)
+        self.assertNotIn("_chip('All', '')", self.lib)
+
+
 if __name__ == "__main__":
     unittest.main()
 
