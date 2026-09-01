@@ -42,8 +42,17 @@ class HymnStore extends ChangeNotifier {
     int? categoryId,
     int? zemarianId,
   }) async {
+    // Keystroke hygiene: single-character queries are ignored (a 1-char
+    // match can never produce a meaningful ranking) — server-side parity.
+    if (search != null && search.trim().length < 2) search = null;
+
+    // Two-stage typo-tolerant search (P22, mirrors MezmurHymnService):
+    // SQL applies ONLY the structural filters; the text match happens in
+    // memory via _similarity, whose fuzzy tier (Levenshtein >= 0.6 word
+    // similarity) rescues misspellings a LIKE scan silently drops. The
+    // on-device cache is bounded (LIMIT 500) so this stays instant; the
+    // server keeps a strict SQL prefilter for its larger corpus.
     final items = await _db.getLocalHymns(
-      search: search,
       category: category,
       includeArchived: includeArchived,
       length: length,
@@ -52,8 +61,16 @@ class HymnStore extends ChangeNotifier {
       zemarianId: zemarianId,
     );
     if (search != null && search.trim().isNotEmpty) {
-      items.sort((a, b) =>
-          _similarity(search, b).compareTo(_similarity(search, a)));
+      final scored = <Map<String, dynamic>>[];
+      for (final h in items) {
+        final score = _similarity(search, h);
+        if (score <= 0) continue;
+        h['similarity'] = score;
+        scored.add(h);
+      }
+      scored.sort((a, b) => ((b['similarity'] as num?) ?? 0)
+          .compareTo((a['similarity'] as num?) ?? 0));
+      return scored;
     }
     return items;
   }

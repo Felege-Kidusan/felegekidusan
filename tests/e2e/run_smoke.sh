@@ -350,6 +350,28 @@ echo "$P20R" | grep -q "Only administrators" && ok "schema reconcile restricted 
 sudo -n mariadb ssms -e "DELETE FROM users WHERE username='p20_mez'; DELETE FROM mezmur_hymns WHERE title LIKE 'P20 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P20 Smoke%'; DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P20 Smoke%'" >/dev/null 2>&1
 rm -f /tmp/p20jar /tmp/p20t
 
+# --- 3u. Typo-tolerant search (Patch 22: two-stage + fuzzy rescue) ----------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+ssms_api POST mezmur/hymn '{"title":"P22 Smoke Selamawit"}' >/dev/null
+ssms_api POST mezmur/hymn '{"title":"P22 Smoke Zerihun"}' >/dev/null
+ssms_api POST mezmur/hymn '{"title":"Qz1 P22 Needle"}' >/dev/null
+# 1) service API: misspelled query (LIKE can never match 'Selamwit')
+P22S=$(ssms_api GET "mezmur/hymns&search=Selamwit")
+echo "$P22S" | grep -q "P22 Smoke Selamawit" && ok "service fuzzy rescue finds typo 'Selamwit'" || fail "service typo search: $P22S"
+# 2) web API: same typo + ranked best-first (exact 'Zerihun' above fuzzy 'Selamwit')
+ssms_login audit_super >/dev/null 2>&1
+P22W=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&search=Zerihun%20Selamwit")
+P22F=$(printf '%s' "$P22W" | python3 -c 'import sys,json;d=json.load(sys.stdin);its=d["items"];print(its[0]["title"] if its else "-", "|", its[1]["title"] if len(its)>1 else "-")' 2>/dev/null)
+case "$P22F" in
+  *Zerihun*|*Selamawit*) [ "${P22F%%|*}" != "$P22F" ] && case "$P22F" in *Zerihun*\|*Selamawit*) ok "web ranked best-first (exact > fuzzy): $P22F";; *) fail "web ranking order: $P22F";; esac || fail "web rescue returned 1 row: $P22F" ;;
+  *) fail "web typo search: $P22W" ;;
+esac
+# 3) 1-char query dropped: 'Q' must NOT filter to the needle only
+P22C=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&search=Q")
+echo "$P22C" | grep -q "P22 Smoke Selamawit" && ok "1-char query ignored server-side (no unindexable scan)" || fail "1-char still filtering: $P22C"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P22 Smoke%' OR title LIKE 'Qz1%'; DELETE FROM mezmur_hymns WHERE title IN ('Selamawit Guad','Kidus Giorgis'); DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P22%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

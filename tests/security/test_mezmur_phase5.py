@@ -347,6 +347,93 @@ class MezmurPhase5Tests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, f"php -l failed for {rel}: {r.stdout}{r.stderr}")
 
 
+class TypoTolerantSearchTests(unittest.TestCase):
+    """Patch 22 (2026-09-01): Telegram-style typo-tolerant search.
+
+    Root cause fixed: the fuzzy (Levenshtein) ranking tier could never
+    fire because the strict pass (FULLTEXT / LIKE) must MATCH first — a
+    misspelled query matched zero rows, so there was nothing to rank.
+    Two-stage retrieval (bounded candidate pool under the STRUCTURAL
+    filters, then fuzzy rescue + rerank) on every surface:
+
+    - service (MezmurHymnService::listHymns): strict LIKE pass, then a
+      fuzzy-rescue pool under the same filters minus the text condition
+    - web (admin/api_mezmur.php list): the same rescue around the
+      FULLTEXT/LIKE pass — first page only, honest totals, page-size cap
+    - web JS: 160ms debounce + 2-char minimum + bounded query cache
+      (every successful mutation drops it, via the apiPost choke point)
+    - mobile (hymn_store.dart): structural filters in SQL, text match
+      fully in memory so the fuzzy tier actually fires; 2-char clamp
+
+    Keystroke hygiene: 1-char queries are dropped server-side (service
+    AND web clamp) and client-side (web JS + Dart store) — a '%x%' scan
+    cannot use an index.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.store = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart"
+        ).read_text(encoding="utf-8")
+
+    def test_service_two_stage_with_fuzzy_rescue(self):
+        # structural filters are built separately from the text condition
+        self.assertIn("$filterSql = $where ? implode(' AND ', $where) : '1=1'", self.svc)
+        # stage 1: strict LIKE candidates, bounded
+        self.assertIn(
+            "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?)",
+            self.svc,
+        )
+        # stage 2: rescue pool = same filters WITHOUT the text condition
+        self.assertIn(
+            '$conn->prepare($selectBase . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500")',
+            self.svc,
+        )
+        # 1-char queries never reach SQL
+        self.assertIn("if (mb_strlen($search) < 2) {", self.svc)
+
+    def test_web_two_stage_with_fuzzy_rescue(self):
+        self.assertIn("if (mb_strlen($search) < 2) $search = '';", self.api)
+        self.assertIn("$filterSql = $where ? ('WHERE ' . implode(' AND ', $where)) : ''", self.api)
+        self.assertIn("$rescued = 0;", self.api)
+        self.assertIn("FROM mezmur_hymns $filterSql", self.api)
+        # rescue only fills page 1 (honest totals), then respects page size
+        self.assertIn("$search !== '' && $page === 1 && count($items) < $perPage", self.api)
+        self.assertIn("$items = array_slice($items, 0, $perPage);", self.api)
+
+    def test_web_client_min_length_and_query_cache(self):
+        # a single character waits for the second keystroke
+        self.assertIn("if (t.length === 1) return;", self.js)
+        # identical queries are served from memory, not the server
+        self.assertIn("if (listCache[q]) {", self.js)
+        self.assertIn("cachePut(q, d);", self.js)
+        self.assertIn("keys.length >= 10", self.js)  # bounded
+        # every successful mutation invalidates the cache (apiPost = the
+        # single choke point all mutations travel through)
+        post = self.js.split("POST_TIMEOUT);")[1][:800]
+        self.assertIn("if (d && d.status === 'success') listCache = {};", post)
+
+    def test_mobile_in_memory_text_match(self):
+        # 1-char clamp mirrors the server
+        self.assertIn("search.trim().length < 2", self.store)
+        # the text match happens in memory (LIKE would drop typos before
+        # the fuzzy tier could fire) — the store no longer pushes the
+        # search string into SQL
+        self.assertIn("if (score <= 0) continue;", self.store)
+        self.assertIn("h['similarity'] = score;", self.store)
+        self.assertNotIn("search: search,", self.store)
+
+    def test_ranked_best_first_on_all_surfaces(self):
+        # every surface sorts by similarity, descending
+        self.assertIn("usort($items", self.api)
+        self.assertIn("scored.sort(", self.store)
+
+
 if __name__ == "__main__":
     unittest.main()
 

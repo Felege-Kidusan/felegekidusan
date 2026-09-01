@@ -45,6 +45,12 @@ final class MezmurHymnService
         $page = max(1, (int)($filters['page'] ?? 1));
         $perPage = self::clampPerPage((int)($filters['per_page'] ?? 25));
         $search = trim((string)($filters['search'] ?? ''));
+        // Keystroke hygiene (Telegram/Google parity): single-character
+        // queries are ignored server-side too — a '%x%' LIKE scan cannot
+        // use an index, so one keystroke must never reach the database.
+        if (mb_strlen($search) < 2) {
+            $search = '';
+        }
         $category = mb_substr(trim((string)($filters['category'] ?? '')), 0, 50);
         $status = in_array($filters['status'] ?? 'active', ['active', 'archived', ''], true)
             ? ($filters['status'] ?? 'active') : 'active';
@@ -55,6 +61,8 @@ final class MezmurHymnService
         $categoryId = max(0, (int)($filters['category_id'] ?? 0));
         $zemarianId = max(0, (int)($filters['zemarian_id'] ?? 0));
 
+        // Structural filters only — the text condition is kept SEPARATE so
+        // the fuzzy-rescue pass can reuse the filters without it.
         $where = [];
         $types = '';
         $params = [];
@@ -94,37 +102,25 @@ final class MezmurHymnService
             $types .= 'i';
             $params[] = $zemarianId;
         }
-        if ($search !== '') {
-            $like = '%' . self::escapeLike(mb_substr($search, 0, 100)) . '%';
-            $where[] = "(title LIKE ? OR title_am LIKE ? OR reference LIKE ?)";
-            $types .= 'sss';
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-        }
-        $whereSql = $where ? implode(' AND ', $where) : '1=1';
-
-        $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE $whereSql");
-        if ($types !== '') $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $total = (int)$stmt->get_result()->fetch_assoc()['c'];
-        $stmt->close();
-
-        $totalPages = max(1, (int)ceil($total / $perPage));
-        $page = min($page, $totalPages);
-        $offset = ($page - 1) * $perPage;
+        $filterSql = $where ? implode(' AND ', $where) : '1=1';
 
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
-        $selectBase = "SELECT id, title, title_am, category, reference, status, $rev, $tax, updated_at FROM mezmur_hymns WHERE $whereSql";
+        $selectBase = "SELECT id, title, title_am, category, reference, status, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
 
         $items = [];
         if ($search !== '') {
-            // Telegram-style similarity search: fetch a bounded candidate
-            // set, score by exact > prefix > substring > fuzzy (Levenshtein
-            // spelling tolerance), sort best-first, then page.
-            $cand = $conn->prepare($selectBase . ' ORDER BY updated_at DESC, id DESC LIMIT ?');
-            $cand->bind_param($types . 'i', ...array_merge($params, [500]));
+            // ── Two-stage retrieval (Telegram-style typo tolerance) ──
+            // Stage 1 (strict, indexable): the LIKE must match. Stage 2
+            // below only RERANKS these — a misspelled query matches
+            // NOTHING here, which is exactly why the rescue pass exists.
+            $like = '%' . self::escapeLike(mb_substr($search, 0, 100)) . '%';
+            $strictTypes = $types . 'sss';
+            $strictParams = array_merge($params, [$like, $like, $like]);
+            $cand = $conn->prepare(
+                $selectBase . "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?) ORDER BY updated_at DESC, id DESC LIMIT 500"
+            );
+            $cand->bind_param($strictTypes, ...$strictParams);
             $cand->execute();
             $res = $cand->get_result();
             $all = [];
@@ -134,13 +130,57 @@ final class MezmurHymnService
                 $all[] = $r;
             }
             $cand->close();
+
+            // Stage 2 (fuzzy rescue): when the strict pass cannot fill a
+            // page, score a bounded pool under the SAME structural filters
+            // WITHOUT the text condition — the Levenshtein tier (>= 0.6
+            // word similarity) pulls misspellings back into the ranking.
+            if (count($all) < $perPage) {
+                $pool = $conn->prepare($selectBase . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT 500");
+                if ($types !== '') {
+                    $pool->bind_param($types, ...$params);
+                }
+                $pool->execute();
+                $pres = $pool->get_result();
+                $seen = [];
+                foreach ($all as $row) {
+                    $seen[$row['id']] = true;
+                }
+                while ($r = $pres->fetch_assoc()) {
+                    $r['id'] = (int)$r['id'];
+                    if (isset($seen[$rowId = $r['id']])) {
+                        continue;
+                    }
+                    $score = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                    if ($score <= 0.0) {
+                        continue;
+                    }
+                    $r['similarity'] = $score;
+                    $all[] = $r;
+                }
+                $pool->close();
+            }
+
             usort($all, static function ($a, $b) {
                 $cmp = (float)$b['similarity'] <=> (float)$a['similarity'];
                 return $cmp !== 0 ? $cmp : strcmp((string)$b['updated_at'], (string)$a['updated_at']);
             });
+            $total = count($all);
+            $totalPages = max(1, (int)ceil($total / $perPage));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * $perPage;
             $items = array_slice($all, $offset, $perPage);
         } else {
-            $stmt = $conn->prepare($selectBase . ' ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?');
+            $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE $filterSql");
+            if ($types !== '') $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $total = (int)$stmt->get_result()->fetch_assoc()['c'];
+            $stmt->close();
+
+            $totalPages = max(1, (int)ceil($total / $perPage));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * $perPage;
+            $stmt = $conn->prepare($selectBase . "$filterSql ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?");
             $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
             $stmt->execute();
             $res = $stmt->get_result();

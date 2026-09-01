@@ -265,6 +265,9 @@ try {
             $perPage = (int)($_GET['per_page'] ?? 25);
             if ($perPage < 1 || $perPage > 100) $perPage = 25;   // clamp
             $search   = trim((string)($_GET['search'] ?? ''));
+            // Keystroke hygiene (service-side parity): single-character
+            // queries are dropped — a '%x%' scan cannot use an index.
+            if (mb_strlen($search) < 2) $search = '';
             $category = trim((string)($_GET['category'] ?? ''));
             $status   = (string)($_GET['status'] ?? '');
             $length   = in_array($_GET['length'] ?? '', ['long', 'short'], true) ? (string)$_GET['length'] : '';
@@ -312,6 +315,12 @@ try {
                 $types .= 'i';
                 $params[] = $zemarianId;
             }
+            // Snapshot of the STRUCTURAL filters (everything except the
+            // text condition) — the fuzzy-rescue pass below reuses them.
+            $filterSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+            $filterTypes = $types;
+            $filterParams = $params;
+
             // ── Telegram-grade search: FULLTEXT boolean mode with prefix
             // wildcards (as-you-type feel), title-weighted ranking and a
             // lyrics snippet; LIKE fallback when the index is absent or
@@ -417,6 +426,59 @@ try {
             }
             $stmt->close();
 
+            // ── Stage 2: Telegram-style fuzzy rescue ─────────────────
+            // The strict pass (FULLTEXT/LIKE) must MATCH before anything can
+            // be ranked, so a misspelled query returns zero rows. When the
+            // first page cannot be filled, score a bounded pool under the
+            // SAME structural filters without the text condition — the
+            // Levenshtein tier (>= 0.6 word similarity) pulls typos back
+            // into the ranking. First page only: honest totals.
+            $rescued = 0;
+            if ($search !== '' && $page === 1 && count($items) < $perPage) {
+                $pool = $conn->prepare(
+                    "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics, 0 AS score
+                     FROM mezmur_hymns $filterSql
+                     ORDER BY updated_at DESC, id DESC
+                     LIMIT 500"
+                );
+                if ($filterParams) $pool->bind_param($filterTypes, ...$filterParams);
+                $pool->execute();
+                $pres = $pool->get_result();
+                $seen = [];
+                foreach ($items as $it) {
+                    $seen[(int)$it['id']] = true;
+                }
+                while ($r = $pres->fetch_assoc()) {
+                    $rId = (int)$r['id'];
+                    if (isset($seen[$rId])) continue;
+                    $sim = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
+                    if ($sim <= 0.0) continue;
+                    $snippet = '';
+                    if (!empty($r['lyrics'])) {
+                        foreach ($tokens as $t) {
+                            $pos = mb_stripos((string)$r['lyrics'], $t);
+                            if ($pos !== false) {
+                                $start = max(0, $pos - 60);
+                                $snippet = ($start > 0 ? '…' : '')
+                                    . trim(mb_substr((string)$r['lyrics'], $start, 160)) . '…';
+                                break;
+                            }
+                        }
+                    }
+                    unset($r['lyrics']);
+                    $r['id'] = $rId;
+                    $r['snippet'] = $snippet;
+                    $r['score'] = 0.0;
+                    $items[] = $r;
+                    $rescued++;
+                }
+                $pool->close();
+                if ($rescued > 0) {
+                    $total = count($items);
+                    $totalPages = max(1, (int)ceil($total / $perPage));
+                }
+            }
+
             // Similarity ranking (spelling-tolerant) — reorders best-first.
             if ($search !== '') {
                 foreach ($items as &$it) {
@@ -429,6 +491,9 @@ try {
                     $c = (float)($b['similarity'] ?? 0) <=> (float)($a['similarity'] ?? 0);
                     return $c !== 0 ? $c : (float)($b['score'] ?? 0) <=> (float)($a['score'] ?? 0);
                 });
+                if ($rescued > 0) {
+                    $items = array_slice($items, 0, $perPage);
+                }
             }
 
             // Attach multi-category + singer associations (single round trip).

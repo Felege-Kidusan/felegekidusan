@@ -102,6 +102,9 @@
                 if (!done) { done = true; reject(new Error('The server took too long to answer. Your changes may not have been saved — check the list before saving again.')); }
             }, POST_TIMEOUT);
             p.then(function (d) {
+                // Every mutation (save, set_status, catalog, migrate,
+                // submission review) lands here — drop cached list results.
+                if (d && d.status === 'success') listCache = {};
                 if (!done) { done = true; clearTimeout(timer); resolve(d); }
             }).catch(function (e) {
                 if (!done) { done = true; clearTimeout(timer); reject(e); }
@@ -357,6 +360,16 @@
     // ══════════════════════════════════════════════════════════
     var lib = { page: 1, totalPages: 1, total: 0, search: '', category: '', status: 'active', length: '', language: '', categoryId: 0, zemarianId: 0, loading: false, seq: 0 };
 
+    /** Keystroke cache (P22): identical search queries are answered from
+     *  memory instead of re-hitting the server; every successful mutation
+     *  (all of which travel through apiPost) drops it. Bounded to 10 keys. */
+    var listCache = {};
+    function cachePut(key, data) {
+        var keys = Object.keys(listCache);
+        if (keys.length >= 10) delete listCache[keys[0]];
+        listCache[key] = data;
+    }
+
     function loadStats() {
         return apiGet('action=stats').then(function (d) {
             if (d.status !== 'success') return;
@@ -384,32 +397,40 @@
     }
 
     function loadList() {
-        if (lib.loading) return;
-        lib.loading = true;
         var seq = ++lib.seq; // as-you-type: only the latest response renders
         var tb = $('mzTbody');
-        tb.innerHTML = skeletonRows(6);
         var q = 'action=list&page=' + encodeURIComponent(lib.page) + '&per_page=' + PAGE_SIZE +
             '&search=' + encodeURIComponent(lib.search) + '&category=' + encodeURIComponent(lib.category) +
             '&length=' + encodeURIComponent(lib.length) + '&language=' + encodeURIComponent(lib.language) +
             '&category_id=' + encodeURIComponent(lib.categoryId || '') + '&zemarian_id=' + encodeURIComponent(lib.zemarianId || '') +
             '&status=' + encodeURIComponent(lib.status);
+        // Cached answer (same query typed again): render immediately, no
+        // server round trip — the seq guard above still applies.
+        if (listCache[q]) {
+            applyList(seq, tb, listCache[q]);
+            return;
+        }
+        tb.innerHTML = skeletonRows(6);
         apiGet(q).then(function (d) {
-            lib.loading = false;
-            if (seq !== lib.seq) return;
-            if (d.status !== 'success') {
-                tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
-                return;
-            }
-            lib.totalPages = d.total_pages || 1;
-            lib.total = d.total || 0;
-            renderHymnRows(d.items || []);
-            renderLibPagination();
+            if (seq === lib.seq && d.status === 'success') cachePut(q, d);
+            applyList(seq, tb, d);
         }).catch(function (err) {
-            lib.loading = false;
+            if (seq !== lib.seq) return;
             var msg = ((err && err.message) || 'Connection error.') + staleHint(err);
             tb.innerHTML = '<tr><td colspan="6">' + errorState(msg, 'Mezmur.libReload()') + '</td></tr>';
         });
+    }
+
+    function applyList(seq, tb, d) {
+        if (seq !== lib.seq) return;
+        if (d.status !== 'success') {
+            tb.innerHTML = '<tr><td colspan="6">' + errorState(d.message || 'Unable to load hymns.', 'Mezmur.libReload()') + '</td></tr>';
+            return;
+        }
+        lib.totalPages = d.total_pages || 1;
+        lib.total = d.total || 0;
+        renderHymnRows(d.items || []);
+        renderLibPagination();
     }
 
     /** Escape then wrap the user's search tokens in <mark> (Telegram-style). */
@@ -1364,7 +1385,11 @@
         $('mzSearch').addEventListener('input', function () {
             clearTimeout(debounce);
             var v = this.value;
-            debounce = setTimeout(function () { lib.search = v.trim(); lib.page = 1; loadList(); }, 160);
+            debounce = setTimeout(function () {
+                var t = v.trim();
+                if (t.length === 1) return; // P22: wait for the 2nd character
+                lib.search = t; lib.page = 1; loadList();
+            }, 160);
         });
         $('mzCategoryFilter').addEventListener('change', function () { lib.category = this.value; lib.page = 1; loadList(); });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });
