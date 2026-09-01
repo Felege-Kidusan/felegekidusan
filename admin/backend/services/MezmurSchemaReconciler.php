@@ -267,6 +267,34 @@ final class MezmurSchemaReconciler
         } catch (\Throwable $e) {
             // table absent -> nothing to do
         }
+        // 031's storage-level title uniqueness (MZ-6): the SELECT-then-
+        // INSERT dup check loses under concurrency; a real UNIQUE key
+        // settles it. Skipped (and reported) when legacy duplicates exist.
+        try {
+            $r = $conn->query("SHOW INDEX FROM mezmur_hymns WHERE Key_name = 'uq_mezmur_hymns_title'");
+            $has = $r ? (bool)$r->fetch_assoc() : false;
+            if ($r) { $r->close(); }
+            if (!$has) {
+                $d = $conn->query(
+                    "SELECT LOWER(title) AS t, COUNT(*) AS c FROM mezmur_hymns GROUP BY LOWER(title) HAVING c > 1 LIMIT 5"
+                );
+                $dupes = [];
+                if ($d) {
+                    while ($row = $d->fetch_assoc()) { $dupes[] = $row['t'] . '×' . $row['c']; }
+                    $d->close();
+                }
+                if ($dupes) {
+                    $failed['index:uq_mezmur_hymns_title'] =
+                        'duplicate hymn titles must be merged first: ' . implode(', ', $dupes);
+                } elseif ($conn->query("ALTER TABLE mezmur_hymns ADD UNIQUE KEY `uq_mezmur_hymns_title` (`title`)") === false) {
+                    $failed['index:uq_mezmur_hymns_title'] = (string)$conn->error;
+                } else {
+                    $applied[] = 'added unique index uq_mezmur_hymns_title (title)';
+                }
+            }
+        } catch (\Throwable $e) {
+            // table absent -> nothing to do
+        }
         // 024's excused-status guarantee: extend the enum if missing
         try {
             $r = $conn->query("SHOW COLUMNS FROM mezmur_attendance LIKE 'status'");

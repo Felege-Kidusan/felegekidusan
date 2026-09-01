@@ -1020,3 +1020,47 @@ class MezmurReadRateLimitTests(unittest.TestCase):
 
     def test_analytics_reads_are_bounded(self):
         self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_api_analytics'"), 1)
+
+
+class MezmurConcurrencyGuardTests(unittest.TestCase):
+    """MZ-6 (Patch 19): optimistic concurrency + storage-level uniqueness.
+
+    The old SELECT-then-UPDATE / SELECT-then-INSERT pairs were
+    check-then-act races: concurrent writers both passed the check and
+    the loser silently won (revision check) or duplicated (title check).
+    Now the guard lives in the statement itself, and sql/031's UNIQUE
+    index settles title races at the storage layer. Live races are
+    covered by smoke block 3s (parallel writers + parallel creators).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hymn_svc = (
+            ROOT / "admin/backend/services/MezmurHymnService.php"
+        ).read_text(encoding="utf-8")
+        cls.reconciler = (
+            ROOT / "admin/backend/services/MezmurSchemaReconciler.php"
+        ).read_text(encoding="utf-8")
+        cls.migration = (
+            ROOT / "sql/031_mezmur_hymn_title_unique.sql"
+        ).read_text(encoding="utf-8")
+
+    def test_update_is_revision_guarded(self):
+        self.assertIn("WHERE id=? AND revision = ?", self.hymn_svc)
+
+    def test_conflict_detected_from_affected_rows(self):
+        self.assertIn("$baseRevision !== null && $affected === 0", self.hymn_svc)
+
+    def test_duplicate_key_races_map_to_friendly_error(self):
+        # both mysqli modes: flagged return value (pre-rollback) and
+        # mysqli_sql_exception (PHP 8.1+ default; errno is reset by the
+        # rollback, so the exception itself must carry the verdict)
+        self.assertIn("isDuplicateKeyValue($e)", self.hymn_svc)
+        self.assertIn("isDuplicateKeyError($conn)", self.hymn_svc)
+
+    def test_unique_index_reaches_all_deployment_paths(self):
+        # sql/ file for CLI deployments AND the reconciler for the admin
+        # Sync button; both refuse to run over unresolved duplicates.
+        for src in (self.reconciler, self.migration):
+            self.assertIn("uq_mezmur_hymns_title", src)
+        self.assertIn("HAVING COUNT(*) > 1", self.migration)

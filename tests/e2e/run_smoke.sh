@@ -310,6 +310,25 @@ P18LIST=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $API_
 [ "$P18LIST" = "200" ] && ok "lightweight reads unaffected (separate bucket)" || fail "list read: $P18LIST"
 sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
 
+# --- 3s. Mezmur concurrency guards (Patch 19: MZ-6) --------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P19H=$(ssms_api POST mezmur/hymn '{"title":"P19 Smoke Hymn","lyrics":"v1"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d "{\"id\":$P19H,\"title\":\"P19 Smoke Hymn\",\"lyrics\":\"writer A\",\"base_revision\":1}" "$BASE/api/v1/index.php?_route=mezmur/hymn" > /tmp/p19a &
+curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d "{\"id\":$P19H,\"title\":\"P19 Smoke Hymn\",\"lyrics\":\"writer B\",\"base_revision\":1}" "$BASE/api/v1/index.php?_route=mezmur/hymn" > /tmp/p19b &
+wait
+P19SET="$(cat /tmp/p19a) $(cat /tmp/p19b)"
+[ "$(echo "$P19SET" | tr ' ' '\n' | sort | tr '\n' ' ')" = "200 409 " ] && ok "parallel writers: exactly one 200 + one 409" || fail "parallel writes: $P19SET"
+curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d '{"title":"P19 Smoke Twin"}' "$BASE/api/v1/index.php?_route=mezmur/hymn" > /tmp/p19c &
+curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d '{"title":"P19 Smoke Twin"}' "$BASE/api/v1/index.php?_route=mezmur/hymn" > /tmp/p19d &
+wait
+P19TWIN="$(cat /tmp/p19c) $(cat /tmp/p19d)"
+P19ROWS=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM mezmur_hymns WHERE title='P19 Smoke Twin'")
+[ "$(echo "$P19TWIN" | tr ' ' '\n' | sort | tr '\n' ' ')" = "201 422 " ] && [ "$P19ROWS" = "1" ] && ok "parallel creators: one 201 + one 422, single row" || fail "parallel creates: $P19TWIN rows=$P19ROWS"
+P19IDX=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema='ssms' AND table_name='mezmur_hymns' AND index_name='uq_mezmur_hymns_title'")
+[ "$P19IDX" = "1" ] && ok "storage-level unique title index present (sql/031)" || fail "unique index missing"
+sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P19 Smoke%'; DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P19 Smoke%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

@@ -245,6 +245,26 @@ final class MezmurHymnService
     private const MAX_TAXONOMY_IDS = 200;
 
     /**
+     * True when the last mysqli error is a duplicate-key violation (1062).
+     * Used to settle title-uniqueness races the SELECT pre-check cannot
+     * see (MZ-6): with the storage-level UNIQUE key from sql/031 the
+     * loser of a concurrent create/update gets the friendly message.
+     * NOTE: only valid BEFORE rollback() — a successful rollback resets
+     * errno; inside a catch block use isDuplicateKeyValue($e) instead.
+     */
+    private static function isDuplicateKeyError(\mysqli $conn): bool
+    {
+        return $conn->errno === 1062 || strpos((string)$conn->error, 'Duplicate entry') !== false;
+    }
+
+    /** Same check for the exception path (errno is already reset by the
+     *  rollback that runs before we look — the exception carries it). */
+    private static function isDuplicateKeyValue(\Throwable $e): bool
+    {
+        return (int)$e->getCode() === 1062 || stripos($e->getMessage(), 'duplicate entry') !== false;
+    }
+
+    /**
      * Normalize a client-supplied id list (ints or numeric strings) to a
      * clean, unique, bounded int list.
      * @return list<int>
@@ -525,24 +545,67 @@ final class MezmurHymnService
 
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare(
-                    "UPDATE mezmur_hymns
-                     SET title=?, title_am=?, category=?, reference=?, lyrics=?, length=?, language=?,
-                         updated_by=?, updated_at=NOW(), revision = revision + 1
-                     WHERE id=?"
-                );
-                $stmt->bind_param('sssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $actorId, $id);
+                // Optimistic concurrency (MZ-6): when the client supplied a
+                // base_revision the guard lives IN the UPDATE itself. The
+                // old SELECT-then-UPDATE pair was a check-then-act race —
+                // another writer landing between the two silently beat the
+                // check and last-write-won. affected_rows 0 now PROVES the
+                // row moved past us (the UPDATE always bumps revision and
+                // updated_at, so a matching row always counts as changed).
+                if ($baseRevision !== null) {
+                    $stmt = $conn->prepare(
+                        "UPDATE mezmur_hymns
+                         SET title=?, title_am=?, category=?, reference=?, lyrics=?, length=?, language=?,
+                             updated_by=?, updated_at=NOW(), revision = revision + 1
+                         WHERE id=? AND revision = ?"
+                    );
+                    $stmt->bind_param('sssssssiii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $actorId, $id, $baseRevision);
+                } else {
+                    $stmt = $conn->prepare(
+                        "UPDATE mezmur_hymns
+                         SET title=?, title_am=?, category=?, reference=?, lyrics=?, length=?, language=?,
+                             updated_by=?, updated_at=NOW(), revision = revision + 1
+                         WHERE id=?"
+                    );
+                    $stmt->bind_param('sssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $actorId, $id);
+                }
                 $ok = $stmt->execute();
+                $affected = $ok ? $stmt->affected_rows : 0;
                 $stmt->close();
                 if (!$ok) {
                     $conn->rollback();
+                    if (self::isDuplicateKeyError($conn)) {
+                        // Lost the title-uniqueness race (storage-level guard).
+                        return ['ok' => false, 'message' => 'A hymn with this title already exists.'];
+                    }
                     return ['ok' => false, 'message' => 'Unable to update the hymn.'];
+                }
+                if ($baseRevision !== null && $affected === 0) {
+                    // Lost the revision race — hand back the winning copy so
+                    // the device can reconcile without a second round trip.
+                    $conn->rollback();
+                    $winner = self::getHymn($conn, $id);
+                    if ($winner === null) {
+                        return ['ok' => false, 'message' => 'Hymn not found.'];
+                    }
+                    return [
+                        'ok' => false,
+                        'conflict' => true,
+                        'item' => $winner,
+                        'message' => 'This hymn changed on the server while you were offline. Review the newest copy and save again.',
+                    ];
                 }
                 self::syncHymnCategories($conn, $id, $categoryIds);
                 self::syncHymnZemarians($conn, $id, $zemarianIds);
                 $conn->commit();
             } catch (\Throwable $e) {
                 try { $conn->rollback(); } catch (\Throwable $r) {}
+                // PHP 8.1+ throws mysqli_sql_exception on the duplicate; the
+                // connection's errno is already RESET by the rollback above, so
+                // the verdict must come from the exception itself.
+                if (self::isDuplicateKeyValue($e)) {
+                    return ['ok' => false, 'message' => 'A hymn with this title already exists.'];
+                }
                 throw $e;
             }
             self::auditHymn($conn, 'Mezmur Hymn Updated', [
@@ -572,7 +635,15 @@ final class MezmurHymnService
             $stmt->bind_param('ssssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $status, $actorId, $actorId);
             $ok = $stmt->execute();
             $newId = $ok ? (int)$stmt->insert_id : 0;
+            $dupRace = !$ok && self::isDuplicateKeyError($conn);
             $stmt->close();
+            if ($dupRace) {
+                // MZ-6: two writers passed the SELECT dup-check together;
+                // the storage-level UNIQUE key (sql/031) settled it — the
+                // loser gets the same friendly message as the slow path.
+                $conn->rollback();
+                return ['ok' => false, 'message' => 'A hymn with this title already exists.'];
+            }
             if (!$ok || $newId <= 0) {
                 $conn->rollback();
                 return ['ok' => false, 'message' => 'Unable to save the hymn.'];
@@ -582,6 +653,12 @@ final class MezmurHymnService
             $conn->commit();
         } catch (\Throwable $e) {
             try { $conn->rollback(); } catch (\Throwable $r) {}
+            // PHP 8.1+ throws mysqli_sql_exception on the duplicate; the
+            // connection's errno is already RESET by the rollback above, so
+            // the verdict must come from the exception itself.
+            if (self::isDuplicateKeyValue($e)) {
+                return ['ok' => false, 'message' => 'A hymn with this title already exists.'];
+            }
             throw $e;
         }
         self::auditHymn($conn, 'Mezmur Hymn Created', [
