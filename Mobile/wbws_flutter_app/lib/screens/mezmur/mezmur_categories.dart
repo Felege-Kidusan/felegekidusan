@@ -205,6 +205,16 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
   String _hexOf(Color c) =>
       '#${(c.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
 
+  /// Strip an alpha pair if present (#rrggbbaa -> #rrggbb).
+  String _hex6(String v) => v.length >= 7 ? v.substring(0, 7) : v;
+
+  /// Opacity percent stored in an optional alpha pair (default 100).
+  int _opOf(dynamic v) {
+    final s = (v ?? '').toString().trim();
+    if (!RegExp(r'^#[0-9a-fA-F]{8}$').hasMatch(s)) return 100;
+    return (int.parse(s.substring(7, 9), radix: 16) * 100 / 255).round();
+  }
+
   /// Cover-color picker: preset gradients, custom hex pair, or the
   /// automatic name-hashed palette — with a live preview. Saves
   /// offline-first like every other category edit.
@@ -225,6 +235,11 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
       start = _hexOf(g[0]);
       end = _hexOf(g[1]);
     }
+    // P33: opacity lives in the optional alpha pair (#rrggbbaa).
+    var opStart = _opOf(c['gradient_start']);
+    var opEnd = _opOf(c['gradient_end']);
+    start = _hex6(start);
+    end = _hex6(end);
     final startCtrl = TextEditingController(text: start);
     final endCtrl = TextEditingController(text: end);
     final name = '${c['name'] ?? ''}';
@@ -233,6 +248,11 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
       final m = RegExp(r'^#?([0-9a-fA-F]{6})$').firstMatch(v.trim());
       return m == null ? null : Color(int.parse(m.group(1)!, radix: 16) | 0xFF000000);
     }
+
+    String withAlpha(String hex, int op) => op >= 100
+        ? hex
+        : hex +
+            (255 * op ~/ 100).toRadixString(16).padLeft(2, '0');
 
     await showModalBottomSheet<void>(
       context: context,
@@ -262,34 +282,51 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                       auto = true;
                       startCtrl.text = _hexOf(g[0]);
                       endCtrl.text = _hexOf(g[1]);
+                      opStart = 100;
+                      opEnd = 100;
                     });
                   },
                   child: const Text('AUTO (BY NAME)'),
                 ),
               ]),
               const SizedBox(height: 8),
-              // live preview: same treatment as tiles and headers
-              Container(
-                height: 88,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [parse(startCtrl.text) ?? const Color(0xFF4f46e5),
-                             parse(endCtrl.text) ?? const Color(0xFF7c3aed)],
-                  ),
+              // live preview: same treatment as tiles and headers —
+              // over a checkerboard, so the picked opacity reads.
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                        child: CustomPaint(painter: _CheckerPainter())),
+                    Container(
+                      height: 88,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            (parse(startCtrl.text) ??
+                                    const Color(0xFF4f46e5))
+                                .withAlpha(255 * opStart ~/ 100),
+                            (parse(endCtrl.text) ??
+                                    const Color(0xFF7c3aed))
+                                .withAlpha(255 * opEnd ~/ 100),
+                          ],
+                        ),
+                      ),
+                      alignment: Alignment.bottomLeft,
+                      padding: const EdgeInsets.all(12),
+                      child: Text(name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15)),
+                    ),
+                  ],
                 ),
-                alignment: Alignment.bottomLeft,
-                padding: const EdgeInsets.all(12),
-                child: Text(name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15)),
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -359,6 +396,50 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                   style: TextStyle(
                       fontSize: 11, color: AppTheme.textSecondary)),
               const SizedBox(height: 10),
+              // P33: opacity (transparency) per gradient stop.
+              Row(children: [
+                const Icon(Icons.opacity, size: 14),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Slider(
+                    value: opStart.toDouble(),
+                    min: 20,
+                    max: 100,
+                    divisions: 80,
+                    label: 'Start $opStart%',
+                    activeColor: AppTheme.primary,
+                    onChanged: (v) => setSheet(() => opStart = v.round()),
+                  ),
+                ),
+                SizedBox(
+                    width: 44,
+                    child: Text('$opStart%',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                            fontSize: 11, color: AppTheme.textSecondary))),
+              ]),
+              Row(children: [
+                const Icon(Icons.opacity, size: 14),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Slider(
+                    value: opEnd.toDouble(),
+                    min: 20,
+                    max: 100,
+                    divisions: 80,
+                    label: 'End $opEnd%',
+                    activeColor: AppTheme.primary,
+                    onChanged: (v) => setSheet(() => opEnd = v.round()),
+                  ),
+                ),
+                SizedBox(
+                    width: 44,
+                    child: Text('$opEnd%',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                            fontSize: 11, color: AppTheme.textSecondary))),
+              ]),
+              const SizedBox(height: 4),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -373,8 +454,10 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                       'name': name,
                       if (c['parent_id'] != null) 'parent_id': c['parent_id'],
                       'sort_order': c['sort_order'],
-                      if (!auto) 'gradient_start': startCtrl.text.trim(),
-                      if (!auto) 'gradient_end': endCtrl.text.trim(),
+                      if (!auto)
+                        'gradient_start': withAlpha(startCtrl.text.trim(), opStart),
+                      if (!auto)
+                        'gradient_end': withAlpha(endCtrl.text.trim(), opEnd),
                     });
                     if (ctx.mounted) {
                       Navigator.of(ctx).pop();
@@ -626,4 +709,27 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
       ),
     );
   }
+}
+
+
+/// Transparency checkerboard under the color-picker preview (P33):
+/// the classic design-tool pattern that makes opacity visible.
+class _CheckerPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    const sq = 10.0;
+    final light = Paint()..color = Colors.white;
+    final dark = Paint()..color = const Color(0xFFD8DAE0);
+    canvas.drawRect(Offset.zero & size, light);
+    for (var y = 0.0; y < size.height; y += sq) {
+      for (var x = 0.0; x < size.width; x += sq) {
+        if (((x / sq).floor() + (y / sq).floor()).isEven) {
+          canvas.drawRect(Rect.fromLTWH(x, y, sq, sq), dark);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

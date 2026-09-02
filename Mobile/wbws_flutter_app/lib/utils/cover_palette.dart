@@ -26,10 +26,13 @@ List<Color> coverColors(Map<String, dynamic>? item, String name) {
   return palettes[h % palettes.length];
 }
 
-/// Strict '#rrggbb' parser (mirrors the server validator).
+/// Strict '#rrggbb' / '#rrggbbaa' parser (mirrors the server
+/// validator; the optional alpha carries the picked opacity).
 Color? _hex(dynamic v) {
   final s = (v ?? '').toString().trim();
-  final m = RegExp(r'^#?([0-9a-fA-F]{6})$').firstMatch(s);
+  final m = RegExp(r'^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$').firstMatch(s);
   if (m == null) return null;
-  return Color(int.parse(m.group(1)!, radix: 16) | 0xFF000000);
+  final alpha =
+      m.group(2) != null ? int.parse(m.group(2)!, radix: 16) << 24 : 0xFF000000;
+  return Color(int.parse(m.group(1)!, radix: 16) | alpha);
 }

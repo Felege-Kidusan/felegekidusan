@@ -680,7 +680,9 @@ final class MezmurHymnService
         @chmod($dest, 0644);
 
         $rel = 'uploads/mezmur_categories/' . $name;
-        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = ? WHERE id = ?");
+        // updated_at bump: the change must reach every device on the
+        // next categories refresh (P33 sync fix).
+        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = ?, updated_at = NOW() WHERE id = ?");
         $stmt->bind_param('si', $rel, $id);
         $ok = $stmt->execute();
         $stmt->close();
@@ -1436,12 +1438,12 @@ final class MezmurHymnService
         return self::$twoLevelCache;
     }
 
-    /** Strict #rrggbb hex or NULL (P32). */
+    /** Strict #rrggbb or #rrggbbaa hex (P32 + P33 alpha), or NULL. */
     private static function hexColorOrNull($v): ?string
     {
         $v = trim((string)($v ?? ''));
         if ($v === '') return null;
-        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $v)) return '@@invalid@@';
+        if (!preg_match('/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $v)) return '@@invalid@@';
         return strtolower($v);
     }
 
@@ -1449,7 +1451,8 @@ final class MezmurHymnService
     private static function saveCategoryGradient(\mysqli $conn, int $id, ?string $start, ?string $end): void
     {
         if (!self::gradientsReady($conn) || $id <= 0) return;
-        $stmt = $conn->prepare("UPDATE mezmur_categories SET gradient_start=?, gradient_end=? WHERE id=?");
+        // updated_at bump: gradient edits must reach every device (P33).
+        $stmt = $conn->prepare("UPDATE mezmur_categories SET gradient_start=?, gradient_end=?, updated_at=NOW() WHERE id=?");
         $stmt->bind_param('ssi', $start, $end, $id);
         $stmt->execute();
         $stmt->close();
@@ -1467,7 +1470,7 @@ final class MezmurHymnService
         if (!$row) return ['ok' => false, 'message' => 'Category not found.'];
         if (empty($row['image_path'])) return ['ok' => true, 'message' => 'No cover image set.'];
         @unlink(dirname(__DIR__, 3) . '/' . ltrim((string)$row['image_path'], '/'));
-        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = NULL WHERE id = ?");
+        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = NULL, updated_at = NOW() WHERE id = ?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $stmt->close();
@@ -1573,7 +1576,7 @@ final class MezmurHymnService
         $gradStart = $gradReady ? self::hexColorOrNull($input['gradient_start'] ?? '') : null;
         $gradEnd = $gradReady ? self::hexColorOrNull($input['gradient_end'] ?? '') : null;
         if ($gradStart === '@@invalid@@' || $gradEnd === '@@invalid@@') {
-            return ['ok' => false, 'message' => 'Colors must be hex like #4f46e5.'];
+            return ['ok' => false, 'message' => 'Colors must be hex like #4f46e5 (opacity: #4f46e580).'];
         }
 
         // P30 two-level taxonomy: a sub carries parent_id; a main has

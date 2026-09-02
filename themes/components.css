@@ -559,3 +559,20 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
     .mz-swatch, .mz-mgr tbody tr, .mz-ed-btn, .mz-pick-item, .mz-pick-btn { transition: none; }
     .mz-swatch:hover, .btn-primary:active, .btn-secondary:active, .mz-ed-btn:active { transform: none; }
 }
+
+/* P33: opacity controls + transparency checkerboard */
+.mz-color-preview.mz-checker {
+    background-image:
+        linear-gradient(135deg, var(--mz-gs, #4f46e5), var(--mz-ge, #7c3aed)),
+        conic-gradient(#fff 0 25%, #d8dae0 0 50%, #fff 0 75%, #d8dae0 0);
+    background-size: 100% 100%, 20px 20px;
+    background-blend-mode: normal, normal;
+}
+.mz-color-preview { background-color: #fff; }
+.mz-opacity-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.mz-opacity-row label {
+    display: flex; align-items: center; gap: 0.45rem; flex: 1 1 180px;
+    font-size: 0.72rem; color: var(--school-text-dim);
+}
+.mz-opacity-row input[type='range'] { flex: 1; accent-color: var(--school-accent); }
+.mz-opacity-row span { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }

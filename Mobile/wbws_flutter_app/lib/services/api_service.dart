@@ -779,7 +779,12 @@ class ApiService {
         final req = http.MultipartRequest('POST', uri)
           ..fields['id'] = '$id'
           ..files.add(await http.MultipartFile.fromPath('image', filePath));
-        req.headers.addAll(_headers(withAuth: true));
+        // P33 fix: the JSON content-type header broke the multipart
+        // boundary, so the server saw no file at all — strip it and
+        // let the multipart writer set its own content-type.
+        final hs = _headers(withAuth: true);
+        hs.remove('Content-Type');
+        req.headers.addAll(hs);
         final streamed = await _http.send(req).timeout(
             const Duration(seconds: 60)); // image bytes need a longer leash
         return http.Response.fromStream(streamed);

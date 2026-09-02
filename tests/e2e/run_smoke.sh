@@ -557,6 +557,24 @@ P32C2=$(curl -s "$BASE/themes/components.css")
 echo "$P32C2" | grep -q ".mz-swatch:hover" && echo "$P32C2" | grep -q ".mz-color-preview::after" && ok "hover states + scrim served" || fail "P32 css missing"
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P32 Smoke Grad%'; DELETE FROM mezmur_categories WHERE name LIKE 'P32 Bad%'; DELETE FROM activity_logs WHERE details LIKE '%P32%'" >/dev/null 2>&1
 
+# --- 3ae. Gradient alpha + sync cursor bumps (Patch 33) ---------------------
+sudo -n mariadb ssms < sql/036_mezmur_gradient_alpha.sql 2>/dev/null
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P33A=$(ssms_api POST mezmur/category '{"id":0,"name":"P33 Smoke A","gradient_start":"#0ea5e9","gradient_end":"#2563eb80"}')
+echo "$P33A" | grep -q '"status":"success"' && ok "8-digit alpha color accepted (opacity)" || fail "alpha color rejected: $P33A"
+P33I=$(ssms_api POST mezmur/category '{"id":0,"name":"P33 Smoke B","gradient_start":"#0ea5e91234"}')
+echo "$P33I" | grep -q '"status":"error"' && ok "malformed color rejected" || fail "malformed color accepted: $P33I"
+P33ID=$(echo "$P33A" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+A_TS=$(sudo -n mariadb -N ssms -e "SELECT updated_at FROM mezmur_categories WHERE id=$P33ID")
+sleep 1.1
+ssms_api POST mezmur/category '{"id":'"$P33ID"',"name":"P33 Smoke A","gradient_start":"#059669","gradient_end":"#0d9488"}' >/dev/null
+B_TS=$(sudo -n mariadb -N ssms -e "SELECT updated_at FROM mezmur_categories WHERE id=$P33ID")
+[ "$A_TS" != "$B_TS" ] && ok "gradient edit bumps sync cursor" || fail "gradient edit did not bump updated_at"
+P33H=$(ssms_get "/frontend/pages/mezmur_dept.php")
+echo "$P33H" | grep -q 'id="mzGradStartOp"' && ok "opacity sliders served" || fail "opacity sliders missing"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P33 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P33%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

@@ -660,6 +660,10 @@ ob_start();
             <label>End <input type="color" id="mzGradEnd" value="#7c3aed" aria-label="Gradient end color"></label>
             <button type="button" class="btn-secondary btn-sm" id="mzGradAuto"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto (by name)</button>
         </div>
+        <div class="mz-opacity-row">
+            <label>Start opacity <input type="range" id="mzGradStartOp" min="20" max="100" step="1" value="100" aria-label="Start color opacity"><span id="mzGradStartOpV">100%</span></label>
+            <label>End opacity <input type="range" id="mzGradEndOp" min="20" max="100" step="1" value="100" aria-label="End color opacity"><span id="mzGradEndOpV">100%</span></label>
+        </div>
         <div class="toolbar" style="justify-content:space-between;margin-bottom:0">
             <button type="button" class="btn-secondary btn-sm" id="mzRemoveImg"><i class="fa-solid fa-trash-can"></i> Remove image</button>
             <span class="toolbar" style="gap:.4rem">

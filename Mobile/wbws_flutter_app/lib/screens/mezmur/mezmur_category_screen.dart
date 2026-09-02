@@ -153,39 +153,42 @@ class _MezmurCategoryScreenState extends State<MezmurCategoryScreen> {
               ),
               SafeArea(
                 bottom: false,
-                child: Row(
+                child: Column(
+                  // P33: back icon pinned to the top, title to the
+                  // bottom — they can never overlap, whatever the
+                  // header height or text length.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     IconButton(
                       tooltip: 'Back',
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
-                  ],
-                ),
-              ),
-              Positioned(
-                left: 18,
-                bottom: 14,
-                right: 18,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            height: 1.15)),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$rolledUp hymn${rolledUp == 1 ? '' : 's'}'
-                      '${_subs.isNotEmpty ? ' · ${_subs.length} sub-categor${_subs.length == 1 ? 'y' : 'ies'}' : ''}',
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.white.withOpacity(0.85),
-                          fontWeight: FontWeight.w600),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  height: 1.15)),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$rolledUp hymn${rolledUp == 1 ? '' : 's'}'
+                            '${_subs.isNotEmpty ? ' · ${_subs.length} sub-categor${_subs.length == 1 ? 'y' : 'ies'}' : ''}',
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.white.withOpacity(0.85),
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -420,37 +423,38 @@ class _MezmurSubListScreenState extends State<MezmurSubListScreen> {
               ),
               SafeArea(
                 bottom: false,
-                child: Row(
+                child: Column(
+                  // P33: back top, title bottom — never overlapping.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     IconButton(
                       tooltip: 'Back',
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
-                  ],
-                ),
-              ),
-              Positioned(
-                left: 18,
-                bottom: 12,
-                right: 18,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white)),
-                    const SizedBox(height: 3),
-                    Text(
-                        '$count hymn${count == 1 ? '' : 's'} · tap to open',
-                        style: TextStyle(
-                            fontSize: 11.5,
-                            color: Colors.white.withOpacity(0.85),
-                            fontWeight: FontWeight.w600)),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white)),
+                          const SizedBox(height: 3),
+                          Text(
+                              '$count hymn${count == 1 ? '' : 's'} · tap to open',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Colors.white.withOpacity(0.85),
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

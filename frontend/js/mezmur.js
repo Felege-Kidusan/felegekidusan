@@ -1016,7 +1016,21 @@
     }
 
     // ── cover color dialog (P32: gradient picker + live preview) ──
-    var colorPick = { id: 0, name: '', start: '', end: '', auto: false, hasImage: false };
+    var colorPick = { id: 0, name: '', start: '', end: '', auto: false, hasImage: false, startOp: 100, endOp: 100 };
+
+    // '#rrggbb' + optional alpha pair from a picked opacity (P33).
+    function withAlpha(hex, op) {
+        hex = String(hex || '#000000').slice(0, 7);
+        if (!op || op >= 100) return hex;
+        var a = Math.round(255 * op / 100).toString(16).padStart(2, '0');
+        return hex + a;
+    }
+    function opOf(v) {
+        v = String(v || '');
+        return /^#[0-9a-fA-F]{8}$/.test(v)
+            ? Math.round(parseInt(v.slice(7, 9), 16) * 100 / 255)
+            : 100;
+    }
 
     function mgrColors(id) {
         var found = mgrCats().filter(function (c) { return Number(c.id) === Number(id); })[0];
@@ -1025,10 +1039,12 @@
         colorPick = {
             id: id,
             name: String(found.name || ''),
-            start: found.gradient_start || auto[0],
-            end: found.gradient_end || auto[1],
+            start: String(found.gradient_start || auto[0]).slice(0, 7),
+            end: String(found.gradient_end || auto[1]).slice(0, 7),
             auto: !found.gradient_start && !found.gradient_end,
-            hasImage: !!found.image_url
+            hasImage: !!found.image_url,
+            startOp: opOf(found.gradient_start),
+            endOp: opOf(found.gradient_end)
         };
         $('mzColorPreviewName').textContent = colorPick.name;
         renderSwatches();
@@ -1059,15 +1075,19 @@
         var grad = colorPick.auto
             ? PICK_GRADIENTS[hashCode(colorPick.name) % PICK_GRADIENTS.length]
             : [colorPick.start, colorPick.end];
-        p.style.background = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
-        if (colorPick.auto) { p.style.background = ''; p.setAttribute('data-auto', '1'); }
+        // P33: the checkerboard sits UNDER the (possibly transparent)
+        // gradient, so opacity is visible — exactly like design tools.
+        p.classList.add('mz-checker');
+        p.style.setProperty('--mz-gs', withAlpha(grad[0], colorPick.auto ? 100 : colorPick.startOp));
+        p.style.setProperty('--mz-ge', withAlpha(grad[1], colorPick.auto ? 100 : colorPick.endOp));
+        if (colorPick.auto) p.setAttribute('data-auto', '1');
         else { p.removeAttribute('data-auto'); }
-        if (colorPick.auto) {
-            // replicate the automatic name-hashed gradient visually
-            p.style.background = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
-        }
         $('mzGradStart').value = grad[0];
         $('mzGradEnd').value = grad[1];
+        $('mzGradStartOp').value = colorPick.auto ? 100 : colorPick.startOp;
+        $('mzGradEndOp').value = colorPick.auto ? 100 : colorPick.endOp;
+        $('mzGradStartOpV').textContent = (colorPick.auto ? 100 : colorPick.startOp) + '%';
+        $('mzGradEndOpV').textContent = (colorPick.auto ? 100 : colorPick.endOp) + '%';
         $('mzColorNote').textContent = colorPick.hasImage
             ? 'A cover image is set — the gradient shows only after the image is removed.'
             : 'This gradient shows wherever the category appears without a cover image.';
@@ -1083,10 +1103,17 @@
         $('mzGradEnd').addEventListener('input', function () {
             colorPick.end = this.value; colorPick.auto = false; renderSwatches(); refreshColorPreview();
         });
+        $('mzGradStartOp').addEventListener('input', function () {
+            colorPick.startOp = Number(this.value); colorPick.auto = false; refreshColorPreview();
+        });
+        $('mzGradEndOp').addEventListener('input', function () {
+            colorPick.endOp = Number(this.value); colorPick.auto = false; refreshColorPreview();
+        });
         $('mzGradAuto').addEventListener('click', function () {
             colorPick.auto = true;
             var g = PICK_GRADIENTS[hashCode(colorPick.name) % PICK_GRADIENTS.length];
             colorPick.start = g[0]; colorPick.end = g[1];
+            colorPick.startOp = 100; colorPick.endOp = 100;
             renderSwatches(); refreshColorPreview();
         });
         $('mzGradSave').addEventListener('click', function () {
@@ -1094,8 +1121,8 @@
             apiPost({
                 action: 'save_category', id: colorPick.id, name: colorPick.name,
                 parent_id: mgrParentOf(colorPick.id),
-                gradient_start: colorPick.auto ? '' : colorPick.start,
-                gradient_end: colorPick.auto ? '' : colorPick.end
+                gradient_start: colorPick.auto ? '' : withAlpha(colorPick.start, colorPick.startOp),
+                gradient_end: colorPick.auto ? '' : withAlpha(colorPick.end, colorPick.endOp)
             }).then(function (d) {
                 if (d.status !== 'success') { window.toast(d.message || 'Could not save the color.', 'e'); return; }
                 window.toast(d.message || 'Cover color saved.', 's');

@@ -992,6 +992,63 @@ class CoverColorAndUxStateTests(unittest.TestCase):
         self.assertIn("category-image-remove", self.route)
 
 
+class SyncFixAndCascadeParityTests(unittest.TestCase):
+    """P33: the four owner-reported defects — broken image upload sync
+    (multipart content-type), editor cascade + styling parity with the
+    web, opacity control in the cover-color pickers, and the header
+    back-icon/title overlap."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        M = R / "Mobile/wbws_flutter_app/lib"
+        cls.api = (M / "services/api_service.dart").read_text(encoding="utf-8")
+        cls.store = (M / "services/hymn_store.dart").read_text(encoding="utf-8")
+        cls.editor = (M / "screens/mezmur/mezmur_hymn_editor.dart").read_text(encoding="utf-8")
+        cls.catscr = (M / "screens/mezmur/mezmur_category_screen.dart").read_text(encoding="utf-8")
+        cls.mgr = (M / "screens/mezmur/mezmur_categories.dart").read_text(encoding="utf-8")
+        cls.page = (R / "frontend/pages/mezmur_dept.php").read_text(encoding="utf-8")
+        cls.js = (R / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.svc = (R / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
+
+    def test_multipart_upload_content_type(self):
+        # the JSON content-type broke the multipart boundary -> the
+        # server saw no file at all (every app upload failed)
+        self.assertIn("hs.remove('Content-Type')", self.api)
+
+    def test_upload_applies_locally_immediately(self):
+        self.assertIn("'image_url': url", self.store)   # server-confirmed
+        self.assertIn("'image_url': ''", self.store)    # removal clears
+
+    def test_editor_styling_toolbar(self):
+        self.assertIn("_styleToolbar()", self.editor)
+        self.assertIn("_wrapSelection('**', '**')", self.editor)  # bold
+        self.assertIn("_wrapSelection('__', '__')", self.editor)  # underline
+        self.assertIn("_insertSection", self.editor)
+
+    def test_header_never_overlaps_back_icon(self):
+        # back pinned top, title pinned bottom — impossible to collide
+        self.assertGreaterEqual(
+            self.catscr.count("mainAxisAlignment: MainAxisAlignment.spaceBetween"), 2)
+
+    def test_opacity_control_web(self):
+        self.assertIn('id="mzGradStartOp"', self.page)
+        self.assertIn('id="mzGradEndOp"', self.page)
+        self.assertIn("function withAlpha", self.js)
+        self.assertIn("mz-checker", self.js)          # checkerboard preview
+
+    def test_opacity_control_mobile(self):
+        self.assertIn("opStart", self.mgr)
+        self.assertIn("_opOf", self.mgr)
+        self.assertIn("_CheckerPainter", self.mgr)    # transparency preview
+
+    def test_server_alpha_and_sync_bumps(self):
+        self.assertIn("{8}", self.svc)  # #rrggbbaa accepted
+        self.assertIn("gradient_start=?, gradient_end=?, updated_at=NOW()", self.svc)
+        self.assertIn("image_path = ?, updated_at = NOW()", self.svc)
+        self.assertTrue((ROOT / "sql/036_mezmur_gradient_alpha.sql").exists())
+
+
 class AuditRegressionTests(unittest.TestCase):
     """P31e audit locks: each assertion below pins a defect found by
     the detailed self-audit, so it can never quietly return."""
@@ -1194,8 +1251,12 @@ class SubcategoryClientTests(unittest.TestCase):
         self.assertIn("parent_id = c.id", self.db)  # rolled-up counts
 
     def test_mobile_editor_groups_subs(self):
-        self.assertIn("_pickCategories", self.editor)
-        self.assertIn("'group': group", self.editor)
+        # P33: cascading picks (web parity) — category first, then one
+        # of ITS subs; the old grouped multi-pick is gone.
+        self.assertIn("_subCategoryField", self.editor)
+        self.assertIn("_syncSelected()", self.editor)
+        self.assertIn("Choose a category and sub-category", self.editor)
+        self.assertNotIn("_pickCategories", self.editor)
 
     def test_mobile_underline_parity(self):
         self.assertIn("__ (.+?) __|".replace(" ", ""), self.detail.replace(" ", "")[:0] or self.detail) if False else None

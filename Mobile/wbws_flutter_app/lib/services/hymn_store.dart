@@ -547,7 +547,10 @@ class HymnStore extends ChangeNotifier {
   String? _hexOrNull(dynamic v) {
     final s = (v ?? '').toString().trim();
     if (s.isEmpty) return null;
-    return RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(s) ? s.toLowerCase() : null;
+    return RegExp(r'^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$')
+            .hasMatch(s)
+        ? s.toLowerCase()
+        : null;
   }
 
   /// Cover images are binary, not queueable JSON ops — they upload
@@ -560,6 +563,8 @@ class HymnStore extends ChangeNotifier {
     }
     final res = await _api.removeCategoryImage(id);
     if (!res.success) return res.message ?? 'Failed.';
+    await _db.upsertCategoryLocal({'id': id, 'image_url': ''});
+    notifyListeners();
     unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
     return null;
   }
@@ -570,6 +575,12 @@ class HymnStore extends ChangeNotifier {
     }
     final res = await _api.uploadCategoryImage(id, filePath);
     if (!res.success) return res.message ?? 'Upload failed.';
+    // Apply the server-confirmed image to the local row IMMEDIATELY
+    // (the UI must not wait for the next background pull), then let
+    // the regular sync reconcile everything else.
+    final url = res.data is Map ? '${(res.data as Map)['image_url'] ?? ''}' : '';
+    await _db.upsertCategoryLocal({'id': id, 'image_url': url});
+    notifyListeners();
     unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
     return null;
   }

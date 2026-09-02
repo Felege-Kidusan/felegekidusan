@@ -43,6 +43,11 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
   List<Map<String, dynamic>> _zemarians = [];
   final Set<int> _selectedCategories = {};
   final Set<int> _selectedZemarians = {};
+
+  /// P33 cascading picks (web parity): category first, then one of
+  /// ITS sub-categories. _selectedCategories holds the single leaf.
+  int? _mainCatId;
+  int? _subCatId;
   String _length = 'long';
   String _language = 'amharic';
   bool _saving = false;
@@ -73,44 +78,48 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     _loadCatalog();
   }
 
-  /// Subs grouped under mains (mains without subs offer themselves).
-  List<Map<String, dynamic>> _pickCategories = [];
+  /// Cascading pickers: mains, then the chosen main's subs.
+  List<Map<String, dynamic>> get _mains =>
+      _categories.where((c) => c['parent_id'] == null).toList();
+
+  List<Map<String, dynamic>> get _subsOfMain => _mainCatId == null
+      ? const []
+      : _categories
+          .where((c) =>
+              c['parent_id'] != null &&
+              _asInt(c['parent_id']) == _mainCatId)
+          .toList();
+
+  void _syncSelected() {
+    _selectedCategories.clear();
+    final leaf = _subCatId ?? (_subsOfMain.isEmpty ? _mainCatId : null);
+    if (leaf != null) _selectedCategories.add(leaf);
+  }
 
   Future<void> _loadCatalog() async {
     final cats = await _store.categories();
     final zem = await _store.zemarians();
-    final byParent = <int, List<Map<String, dynamic>>>{};
-    final parents = <int, String>{};
-    for (final c in cats) {
-      final id = _asInt(c['id']);
-      final pid = c['parent_id'] == null ? 0 : _asInt(c['parent_id']);
-      if (pid > 0) {
-        byParent.putIfAbsent(pid, () => []).add(c);
-      } else {
-        parents[id] = '${c['name'] ?? ''}';
-      }
-    }
-    final pick = <Map<String, dynamic>>[];
-    for (final c in cats) {
-      final id = _asInt(c['id']);
-      final pid = c['parent_id'] == null ? 0 : _asInt(c['parent_id']);
-      final String group;
-      final Map<String, dynamic> row;
-      if (pid > 0) {
-        group = parents[pid] ?? 'Other';
-        row = c;
-      } else if ((byParent[id] ?? []).isEmpty) {
-        group = '${c['name'] ?? ''}';
-        row = c;
-      } else {
-        continue; // main with subs: its subs are offered, not itself
-      }
-      pick.add({...row, 'group': group});
-    }
-    _pickCategories = pick;
     if (_isEdit) {
       _selectedCategories.addAll(await _store.hymnCategoryIds(_localRowId));
       _selectedZemarians.addAll(await _store.hymnZemarianIds(_localRowId));
+      // Prefill the cascade from the hymn's existing link: a sub opens
+      // its parent + itself; a main opens itself (subs, if any, stay
+      // unset — the curator narrows it on save).
+      if (_selectedCategories.isNotEmpty) {
+        final linked = _selectedCategories.first;
+        for (final c in cats) {
+          if (_asInt(c['id']) == linked) {
+            final pid = c['parent_id'];
+            if (pid != null && _asInt(pid) > 0) {
+              _mainCatId = _asInt(pid);
+              _subCatId = linked;
+            } else {
+              _mainCatId = linked;
+            }
+            break;
+          }
+        }
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -142,6 +151,11 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     }
     if (_lyricsCtrl.text.length > _lyricsMax) {
       setState(() => _error = 'Lyrics text is too long.');
+      return;
+    }
+    if (_selectedCategories.isEmpty) {
+      setState(() =>
+          _error = 'Choose a category and sub-category for the hymn.');
       return;
     }
     setState(() {
@@ -189,6 +203,8 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
         _lyricsCtrl.clear();
         _selectedCategories.clear();
         _selectedZemarians.clear();
+        _mainCatId = null;
+        _subCatId = null;
         _length = 'long';
         _language = 'amharic';
       });
@@ -196,6 +212,141 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
       return;
     }
     Navigator.of(context).pop(true);
+  }
+
+  /// The second cascade step: disabled until a category is chosen; a
+  /// main WITHOUT subs files the hymn under the main itself.
+  Widget _subCategoryField() {
+    final subs = _subsOfMain;
+    if (_mainCatId == null) {
+      // onChanged: null renders the field disabled.
+      return DropdownButtonFormField<int>(
+        decoration:
+            _deco('Sub-category *', icon: Icons.subdirectory_arrow_right),
+        hint: const Text('Select a category first…'),
+        items: const [],
+        onChanged: null,
+      );
+    }
+    if (subs.isEmpty) {
+      return DropdownButtonFormField<int>(
+        value: _mainCatId,
+        decoration:
+            _deco('Sub-category', icon: Icons.subdirectory_arrow_right),
+        items: [
+          DropdownMenuItem(
+              value: _mainCatId,
+              child: const Text('No sub-categories — uses the main category',
+                  overflow: TextOverflow.ellipsis)),
+        ],
+        onChanged: null,
+      );
+    }
+    return DropdownButtonFormField<int>(
+      value: subs.any((s) => _asInt(s['id']) == _subCatId) ? _subCatId : null,
+      decoration:
+          _deco('Sub-category *', icon: Icons.subdirectory_arrow_right),
+      hint: const Text('— Select sub-category —'),
+      items: [
+        for (final s in subs)
+          DropdownMenuItem(
+              value: _asInt(s['id']),
+              child: Text('${s['name'] ?? ''}',
+                  overflow: TextOverflow.ellipsis)),
+      ],
+      onChanged: (v) => setState(() {
+        _subCatId = v;
+        _syncSelected();
+      }),
+    );
+  }
+
+  /// P33: visual styling toolbar for the lyrics — the same markup the
+  /// reader renders (bold / italic / underline / section), applied to
+  /// the current selection (web-editor parity on mobile).
+  Widget _styleToolbar() {
+    return Wrap(
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size(40, 36), padding: EdgeInsets.zero),
+            onPressed: () => _wrapSelection('**', '**'),
+            child: const Tooltip(
+                message: 'Bold', child: Icon(Icons.format_bold, size: 17)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size(40, 36), padding: EdgeInsets.zero),
+            onPressed: () => _wrapSelection('*', '*'),
+            child: const Tooltip(
+                message: 'Italic', child: Icon(Icons.format_italic, size: 17)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size(40, 36), padding: EdgeInsets.zero),
+            onPressed: () => _wrapSelection('__', '__'),
+            child: const Tooltip(
+                message: 'Underline',
+                child: Icon(Icons.format_underline, size: 17)),
+          ),
+        ),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 36)),
+          onPressed: _insertSection,
+          icon: const Icon(Icons.title_outlined, size: 16),
+          label: const Text('Section', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+    );
+  }
+
+  /// Wrap the selection (or drop markers at the cursor) with a style.
+  void _wrapSelection(String left, String right) {
+    final v = _lyricsCtrl.value;
+    final text = v.text;
+    final sel = v.selection;
+    if (!sel.isValid) return;
+    if (sel.isCollapsed) {
+      final at = sel.baseOffset;
+      _lyricsCtrl.value = v.copyWith(
+        text: text.replaceRange(at, at, left + right),
+        selection: TextSelection.collapsed(offset: at + left.length),
+      );
+    } else {
+      final s = sel.start;
+      final e = sel.end;
+      final inner = text.substring(s, e);
+      _lyricsCtrl.value = v.copyWith(
+        text: text.replaceRange(s, e, left + inner + right),
+        selection:
+            TextSelection.collapsed(offset: e + left.length + right.length),
+      );
+    }
+    setState(() {});
+  }
+
+  /// Insert a [Section] marker on its own line at the cursor.
+  void _insertSection() {
+    final v = _lyricsCtrl.value;
+    final text = v.text;
+    final sel = v.selection;
+    final at = sel.isValid ? sel.baseOffset : text.length;
+    final lineStart = text.lastIndexOf('\n', at == 0 ? 0 : at - 1) + 1;
+    _lyricsCtrl.value = v.copyWith(
+      text: text.replaceRange(lineStart, lineStart, '[]'),
+      selection: TextSelection.collapsed(offset: lineStart + 1),
+    );
+    setState(() {});
   }
 
   InputDecoration _deco(String label, {String? hint, IconData? icon}) {
@@ -262,18 +413,33 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
           // P30: hymns are categorized at the SUB level — the picker
           // shows subs grouped under their main category (a main with
           // no subs offers itself).
-          if (_pickCategories.isEmpty)
-            _emptyCatalogNote('Categories (one or more)',
-                Icons.category_outlined)
-          else
-            TaxonomyPickField(
-              label: 'Categories (one or more)',
-              items: _pickCategories,
-              selected: _selectedCategories,
-              icon: Icons.category_outlined,
-              onChanged: (sel) =>
-                  setState(() => _selectedCategories..clear()..addAll(sel)),
+          // P33: cascading picks, mirroring the web form — choose the
+          // category first, then one of ITS sub-categories.
+          if (_categories.isEmpty)
+            _emptyCatalogNote('Category', Icons.category_outlined)
+          else ...[
+            DropdownButtonFormField<int>(
+              value: _mains.any((m) => _asInt(m['id']) == _mainCatId)
+                  ? _mainCatId
+                  : null,
+              decoration: _deco('Category *', icon: Icons.category_outlined),
+              hint: const Text('— Select category —'),
+              items: [
+                for (final m in _mains)
+                  DropdownMenuItem(
+                      value: _asInt(m['id']),
+                      child: Text('${m['name'] ?? ''}',
+                          overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => setState(() {
+                _mainCatId = v;
+                _subCatId = null;
+                _syncSelected();
+              }),
             ),
+            const SizedBox(height: 12),
+            _subCategoryField(),
+          ],
           const SizedBox(height: 12),
           if (_zemarians.isEmpty)
             _emptyCatalogNote('Singers / Zemarians (one or more)',
@@ -321,6 +487,8 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
             ],
           ),
           const SizedBox(height: 14),
+          _styleToolbar(),
+          const SizedBox(height: 6),
           TextField(
             controller: _lyricsCtrl,
             maxLines: 14,
