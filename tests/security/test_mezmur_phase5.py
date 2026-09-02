@@ -1220,7 +1220,7 @@ class SubcategoryClientTests(unittest.TestCase):
         self.assertIn("mz-pick-btn", self.page)
         self.assertIn("mz-pick-panel", self.css)
         self.assertIn("optgroup", self.js)  # two-level filter
-        self.assertIn("populateCategoryFilter", self.js)
+        self.assertIn("renderFilterSelects", self.js)
 
     def test_web_visual_editor(self):
         self.assertIn('id="mzEditor"', self.page)
@@ -1453,11 +1453,11 @@ class ZemarianImagesAndCatalogCollapseTests(unittest.TestCase):
         self.assertNotIn('id="mzBrowse"', self.page)
         # the singer dropdown exists and drives the same lib state
         self.assertIn('id="mzZemarianFilter"', self.page)
-        self.assertIn("function populateZemarianFilter", self.js)
+        self.assertIn("function renderFilterSelects", self.js)
         self.assertIn("'mzZemarianFilter'", self.js)  # wired in clearFilters
         self.assertIn("lib.zemarianId = parseInt(this.value, 10) || 0", self.js)
         # view-modal browse shortcuts keep the selects in sync
-        self.assertIn("function syncFilterSelects", self.js)
+        self.assertIn("function applyFilterState() {", self.js)  # shortcuts ride the same pipeline
         self.assertIn("browseCategory: browseCategory", self.js)  # still exported
         # the library toolbar is the ONLY browse surface: it holds all
         # five selects (search box + category + singer + status + length
@@ -1546,15 +1546,22 @@ class AmharicOnlySingerNamesAndFilterRaceFixTests(unittest.TestCase):
         cls.svc = R("admin/backend/services/MezmurHymnService.php")
         cls.zems = R("Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_zemarians.dart")
 
-    def test_singer_filter_populates_from_own_data(self):
-        lc = self.js[self.js.index("function loadCatalog"):][:900]
-        self.assertIn("populateCategoryFilter();", lc)
-        # the populate call must ride the ZEMARIANS promise, not the
-        # categories one (the P35 race fix)
-        self.assertEqual(lc.count("populateZemarianFilter();"), 1)
-        self.assertLess(lc.index("action=zemarians'"), lc.index("populateZemarianFilter();"))
-        # the old categories-then wiring is gone
-        self.assertNotIn("populateCategoryFilter(); populateZemarianFilter();", self.js)
+    def test_filter_state_machine_architecture(self):
+        # P37: one loadCatalog -> Promise.allSettled -> ONE render pass
+        # -> visible reconcile. The dropdowns can never silently fail.
+        self.assertNotIn("renderCatalogList();", self.js)  # P31 dead call (comment may mention it)
+        lc = self.js[self.js.index("function loadCatalog"):][:1200]
+        self.assertIn("Promise.allSettled([catsP, zemsP])", lc)
+        self.assertEqual(lc.count("renderFilterSelects();"), 1)
+        self.assertIn("if (reconcileFilters()) loadList();", lc)
+        # pure render: no reloads from inside the renderer
+        rf = self.js[self.js.index("function renderFilterSelects"):self.js.index("function activeCategory")]
+        self.assertNotIn("loadList()", rf)
+        # reconcile is the only automatic drop, and it announces itself
+        rec = self.js[self.js.index("function reconcileFilters"):self.js.index("function applyFilterState")]
+        self.assertIn("window.toast('Filter cleared", rec)
+        # view-modal shortcuts ride the same pipeline
+        self.assertIn("function applyFilterState() {", self.js)
 
     def test_single_amharic_name_field_web(self):
         self.assertNotIn("mzMgrZemNameAm", self.page)
@@ -1626,9 +1633,10 @@ class FilteringDeepAuditTests(unittest.TestCase):
         # both filter selects sync from lib state and drop a filter
         # whose row vanished (hidden/removed) instead of silently
         # filtering under an "All …" label
-        self.assertIn("lib.categoryId > 0", self.js)
-        self.assertIn("lib.zemarianId = 0; sel.value = ''; loadList();", self.js)
-        self.assertIn("lib.categoryId = 0; sel.value = ''; loadList();", self.js)
+        self.assertIn("function reconcileFilters()", self.js)
+        self.assertIn("!activeCategory(lib.categoryId)", self.js)
+        self.assertIn("!activeZemarian(lib.zemarianId)", self.js)
+        self.assertIn("if (reconcileFilters()) loadList();", self.js)
 
     def test_filter_semantics_parity_admin_rest_local(self):
         # roll-up + singer EXISTS filters present in all three layers

@@ -626,7 +626,7 @@ P35PG=$(ssms_get "/frontend/pages/mezmur_dept.php")
 echo "$P35PG" | grep -q 'mzMgrZemName" class="school-input amharic"' && ok "single Amharic singer input served" || fail "singer input wrong"
 echo "$P35PG" | grep -q 'mzMgrZemNameAm' && fail "old twin name field still served" || ok "twin name field removed"
 P35JS=$(curl -s "$BASE/frontend/js/mezmur.js")
-echo "$P35JS" | grep -A3 "action=zemarians').then" | grep -q populateZemarianFilter && ok "singer dropdown populates from its own data" || fail "singer dropdown race still present"
+node tests/e2e/filter_behavior_test.js && ok "filter state machine behavioral test (dropdowns populate, no silent changes)" || fail "filter behavior test failed"
 P35L=$(ssms_get "/admin/api_mezmur.php?action=list&page=1&per_page=25&search=&category=&length=&language=&category_id=&zemarian_id=$P35ZID&status=active")
 echo "$P35L" | python3 -c "
 import sys, json

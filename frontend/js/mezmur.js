@@ -560,80 +560,107 @@
     var catalog = { categories: [], zemarians: [], tab: 'categories' };
     var browseMode = 'all';
 
+    /** P37: the filter toolbar is a one-way data flow (the pattern
+     *  Google/Meta-scale admin tables use): user events and shortcuts
+     *  write ONLY to `lib` (the single source of truth); rendering is
+     *  a pure function of (catalog, lib); reconcileFilters() is the
+     *  ONE place a stale filter may be dropped — and it says so with
+     *  a toast, so the list can never appear to "filter by itself".
+     *  (History: P31 removed renderCatalogList but left its call —
+     *  the throw was swallowed by an empty catch, so the dropdowns
+     *  silently never populated for five patches. Dead calls are now
+     *  caught by the behavioral test, not just syntax checks.) */
     function loadCatalog() {
-        apiGet('action=categories').then(function (d) {
-            if (d && d.status === 'success') catalog.categories = d.items || [];
-            renderCatalogBoxes(); renderCatalogList(); populateCategoryFilter();
-        }).catch(function () {});
-        apiGet('action=zemarians').then(function (d) {
-            if (d && d.status === 'success') catalog.zemarians = d.items || [];
-            renderCatalogBoxes(); renderCatalogList();
-            populateZemarianFilter(); // P35 fix: populate when the singer
-            // data itself arrives (was tied to the categories promise —
-            // a race that left the dropdown permanently empty).
-        }).catch(function () {});
+        var catsP = apiGet('action=categories').then(function (d) {
+            return d && d.status === 'success' ? (d.items || []) : null;
+        });
+        var zemsP = apiGet('action=zemarians').then(function (d) {
+            return d && d.status === 'success' ? (d.items || []) : null;
+        });
+        Promise.allSettled([catsP, zemsP]).then(function (res) {
+            if (res[0].status === 'fulfilled' && res[0].value) catalog.categories = res[0].value;
+            if (res[1].status === 'fulfilled' && res[1].value) catalog.zemarians = res[1].value;
+            renderCatalogBoxes();
+            renderFilterSelects();
+            if (reconcileFilters()) loadList();
+        }).catch(function (e) {
+            console.error('catalog refresh failed', e); // never swallowed silently
+        });
     }
 
-    /** P30: the library filter follows the two-level taxonomy — mains
-     *  group their subs (optgroup); picking a MAIN filters roll-up (the
-     *  server matches the main + all of its subs). */
-    /** P34: singers filter as a dropdown (one professional filter
-     *  system — search + selects; the old tab/chip browse is gone). */
-    function populateZemarianFilter() {
+    /** Render the filter toolbar from state — PURE: no mutations, no
+     *  reloads. Options list active rows only (hidden taxonomy rows
+     * cannot filter); the selected value always mirrors `lib`, so the
+     * dropdowns can never lie about what is applied. */
+    function renderFilterSelects() {
         var sel = $('mzZemarianFilter');
-        if (!sel) return;
-        var cur = sel.value;
-        var zems = (catalog.zemarians || []).filter(function (z) {
-            return Number(z.is_active) === 1;
-        });
-        sel.innerHTML = '<option value="">All singers</option>' + zems.map(function (z) {
-            return '<option value="' + Number(z.id) + '">' + esc(z.name) +
-                ' (' + (z.hymn_count || 0) + ')</option>';
-        }).join('');
-        // Same source-of-truth + self-heal contract as the category
-        // select (deep-audit fix): never silently filter under an
-        // "All singers" label.
-        if (lib.zemarianId > 0) {
-            var zopt = sel.querySelector('option[value="' + lib.zemarianId + '"]');
-            if (zopt) { sel.value = String(lib.zemarianId); }
-            else { lib.zemarianId = 0; sel.value = ''; loadList(); }
+        if (sel) {
+            var zems = (catalog.zemarians || []).filter(function (z) {
+                return Number(z.is_active) === 1;
+            });
+            sel.innerHTML = '<option value="">All singers</option>' + zems.map(function (z) {
+                return '<option value="' + Number(z.id) + '">' + esc(z.name) +
+                    ' (' + (z.hymn_count || 0) + ')</option>';
+            }).join('');
+            sel.value = lib.zemarianId > 0 ? String(lib.zemarianId) : '';
+        }
+        var csel = $('mzCategoryFilter');
+        if (csel) {
+            var cats = catalog.categories || [];
+            var mains = cats.filter(function (c) { return c.parent_id == null && Number(c.is_active) === 1; });
+            var html = '<option value="">All categories</option>';
+            mains.forEach(function (m) {
+                var subs = cats.filter(function (c) {
+                    return c.parent_id != null && c.parent_id === m.id && Number(c.is_active) === 1;
+                });
+                if (subs.length) {
+                    html += '<optgroup label="' + esc(m.name) + ' (' + (m.hymn_count_total || 0) + ')">';
+                    html += '<option value="' + Number(m.id) + '">All of ' + esc(m.name) + '</option>';
+                    subs.forEach(function (sb) {
+                        html += '<option value="' + Number(sb.id) + '">' + esc(sb.name) + ' (' + (sb.hymn_count || 0) + ')</option>';
+                    });
+                    html += '</optgroup>';
+                } else {
+                    html += '<option value="' + Number(m.id) + '">' + esc(m.name) + ' (' + (m.hymn_count_total || m.hymn_count || 0) + ')</option>';
+                }
+            });
+            csel.innerHTML = html;
+            csel.value = lib.categoryId > 0 ? String(lib.categoryId) : '';
         }
     }
 
-    function populateCategoryFilter() {
-        var sel = $('mzCategoryFilter');
-        if (!sel) return;
-        var cur = sel.value;
-        var cats = catalog.categories || [];
-        var mains = cats.filter(function (c) { return c.parent_id == null && Number(c.is_active) === 1; });
-        var html = '<option value="">All categories</option>';
-        mains.forEach(function (m) {
-            var subs = cats.filter(function (c) {
-                return c.parent_id != null && c.parent_id === m.id && Number(c.is_active) === 1;
-            });
-            if (subs.length) {
-                html += '<optgroup label="' + esc(m.name) + ' (' + (m.hymn_count_total || 0) + ')">';
-                html += '<option value="' + Number(m.id) + '">All of ' + esc(m.name) + '</option>';
-                subs.forEach(function (sb) {
-                    html += '<option value="' + Number(sb.id) + '">' + esc(sb.name) + ' (' + (sb.hymn_count || 0) + ')</option>';
-                });
-                html += '</optgroup>';
-            } else {
-                html += '<option value="' + Number(m.id) + '">' + esc(m.name) + ' (' + (m.hymn_count_total || m.hymn_count || 0) + ')</option>';
-            }
+    function activeCategory(id) {
+        return (catalog.categories || []).some(function (c) {
+            return Number(c.id) === Number(id) && Number(c.is_active) === 1;
         });
-        sel.innerHTML = html;
-        // Deep-audit fix: lib is the source of truth (a browse shortcut
-        // may set it while options are still loading). Reflect it, and
-        // when the chosen category no longer exists (hidden/removed on
-        // the server) drop the filter AND refresh — the list must never
-        // stay silently filtered under an "All categories" label.
-        if (lib.categoryId > 0) {
-            var opt = sel.querySelector('option[value="' + lib.categoryId + '"]');
-            if (opt) { sel.value = String(lib.categoryId); }
-            else { lib.categoryId = 0; sel.value = ''; loadList(); }
-        }
     }
+    function activeZemarian(id) {
+        return (catalog.zemarians || []).some(function (z) {
+            return Number(z.id) === Number(id) && Number(z.is_active) === 1;
+        });
+    }
+
+    /** The ONLY place a filter may be dropped automatically: when the
+     *  row it points at no longer exists / was hidden. Always visible
+     *  (toast) — a silent change is what made filtering look broken. */
+    function reconcileFilters() {
+        var dropped = [];
+        if (lib.categoryId > 0 && !activeCategory(lib.categoryId)) {
+            lib.categoryId = 0; lib.category = '';
+            dropped.push('category');
+        }
+        if (lib.zemarianId > 0 && !activeZemarian(lib.zemarianId)) {
+            lib.zemarianId = 0;
+            dropped.push('singer');
+        }
+        if (!dropped.length) return false;
+        renderFilterSelects();
+        window.toast('Filter cleared — the ' + dropped.join(' and ') +
+            ' you had selected is no longer available.', 'i');
+        return true;
+    }
+
+
 
     /** P23: hidden catalog entries stay pickable (a hymn may legitimately
      *  carry one) but are labelled — web and mobile curators now see the
@@ -739,18 +766,22 @@
     }
 
     // ── browse tabs (All / Categories / Zemarians) ──
-    function syncFilterSelects() {
-        var c = $('mzCategoryFilter'), z = $('mzZemarianFilter');
-        if (c) c.value = lib.categoryId ? String(lib.categoryId) : '';
-        if (z) z.value = lib.zemarianId ? String(lib.zemarianId) : '';
+    /** View-modal shortcuts write state, then the SAME pipeline the
+     *  dropdowns use renders it — one path, one truth. A shortcut to
+     *  a since-hidden row reconciles visibly instead of filtering
+     *  invisibly. */
+    function applyFilterState() {
+        reconcileFilters();
+        renderFilterSelects();
+        loadList();
     }
     function browseCategory(id) {
         lib.categoryId = id; lib.zemarianId = 0; lib.page = 1;
-        syncFilterSelects(); loadList();
+        applyFilterState();
     }
     function browseZemarian(id) {
         lib.zemarianId = id; lib.categoryId = 0; lib.page = 1;
-        syncFilterSelects(); loadList();
+        applyFilterState();
     }
 
     // ── standalone catalog manager (P31: its own section; every edit
