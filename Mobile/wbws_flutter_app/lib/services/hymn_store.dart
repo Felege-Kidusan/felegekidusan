@@ -499,11 +499,20 @@ class HymnStore extends ChangeNotifier {
     if (name.isEmpty) return 'Category name is required.';
     if (name.length > 50) return 'Category name is too long.';
 
+    // Two-level taxonomy: uniqueness is scoped per parent — the same
+    // name may exist under different mains (mirrors the server).
+    final parentRaw = category['parent_id'];
+    final parentId = parentRaw == null || '${parentRaw}'.trim().isEmpty
+        ? null
+        : (_asInt(parentRaw) <= 0 ? null : _asInt(parentRaw));
     final existing = await _db.getLocalCategories(activeOnly: false);
     for (final c in existing) {
       if ('${c['name']}'.toLowerCase() == name.toLowerCase() &&
-          _asInt(c['id']) != _asInt(category['id'])) {
-        return 'A category with this name already exists.';
+          _asInt(c['id']) != _asInt(category['id']) &&
+          _asInt(c['parent_id']) == (parentId ?? 0)) {
+        return parentId == null
+            ? 'A main category with this name already exists.'
+            : 'A sub-category with this name already exists here.';
       }
     }
 
@@ -511,13 +520,31 @@ class HymnStore extends ChangeNotifier {
     await _db.upsertCategoryLocal({
       'id': localId,
       'name': name,
+      'parent_id': parentId,
       'sort_order': _asInt(category['sort_order']),
       'is_active': 1,
     });
-    await _db.enqueueHymnOp(
-        'category_save', {'id': category['id'] ?? 0, 'name': name});
+    await _db.enqueueHymnOp('category_save', {
+      'id': category['id'] ?? 0,
+      'name': name,
+      'parent_id': parentId,
+      'sort_order': _asInt(category['sort_order']),
+    });
     notifyListeners();
     unawaited(pushPending().catchError((_) => 0));
+    return null;
+  }
+
+  /// Cover images are binary, not queueable JSON ops — they upload
+  /// immediately and require connectivity (the caller shows a clear
+  /// message when offline).
+  Future<String?> setCategoryImage(int id, String filePath) async {
+    if (!ConnectivityService().hasLink) {
+      return 'Go online once to upload the cover image.';
+    }
+    final res = await _api.uploadCategoryImage(id, filePath);
+    if (!res.success) return res.message ?? 'Upload failed.';
+    unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
     return null;
   }
 

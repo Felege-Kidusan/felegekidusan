@@ -503,6 +503,27 @@ P31J=$(curl -s "$BASE/frontend/js/mezmur.js")
 echo "$P31J" | grep -q "window.prompt\|window.confirm\|window.alert" && fail "browser popup still used in served JS" || ok "zero browser popups in served JS"
 echo "$P31J" | grep -q "sysConfirm" && echo "$P31J" | grep -q "populateHymnCats" && ok "system confirm + cascade logic served" || fail "P31 JS missing"
 
+# --- 3ac. REST cover-image upload + validation (Patch 31c) ------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P31C=$(ssms_api POST mezmur/category '{"id":0,"name":"P31c Smoke Cat"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+python3 -c "import struct,zlib
+def chunk(t,d):
+    c=t+d; return struct.pack('>I',len(d))+c+struct.pack('>I',zlib.crc32(c))
+w=h=64
+raw=b''.join(b'\x00'+bytes([120,30,60]*w) for _ in range(h))
+open('/tmp/p31c.png','wb').write(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b''))"
+P31U=$(curl -s -X POST "$BASE/api/v1/mezmur/category-image" -H "Authorization: Bearer $API_TOKEN" -F "id=$P31C" -F "image=@/tmp/p31c.png;type=image/png")
+echo "$P31U" | grep -q '"image_url"' && ok "REST cover upload stored (hashed name)" || fail "REST upload: $P31U"
+printf 'forged bytes' > /tmp/p31c_bad.png
+P31B=$(curl -s -X POST "$BASE/api/v1/mezmur/category-image" -H "Authorization: Bearer $API_TOKEN" -F "id=$P31C" -F "image=@/tmp/p31c_bad.png;type=image/png")
+echo "$P31B" | grep -q "Only JPEG, PNG or WebP" && ok "REST upload rejects forged magic bytes" || fail "forged upload accepted: $P31B"
+P31N=$(curl -s -X POST "$BASE/api/v1/mezmur/category-image" -H "Authorization: Bearer $API_TOKEN" -F "id=$P31C")
+echo "$P31N" | grep -q "Choose an image" && ok "REST upload requires a file" || fail "no-file upload: $P31N"
+P31F=$(sudo -n mariadb -N ssms -e "SELECT image_path FROM mezmur_categories WHERE id=$P31C")
+[ -n "$P31F" ] && sudo -n rm -f "${P31F#/}" && ok "uploaded file removed with test row" || ok "no leftover image path"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P31c%'; DELETE FROM activity_logs WHERE details LIKE '%P31c%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

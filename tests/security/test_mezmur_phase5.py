@@ -908,6 +908,50 @@ class DrillDownAndSingleBottomNavTests(unittest.TestCase):
         self.assertIn("Back to home", self.lib)
 
 
+class MobileManagerParityTests(unittest.TestCase):
+    """P31c (mobile): the category manager reaches two-level parity —
+    subs creatable offline (queued ops carry parent_id), cover images
+    upload through the hardened REST route, and local writes never
+    flatten the hierarchy."""
+
+    @classmethod
+    def setUpClass(cls):
+        M = ROOT / "Mobile/wbws_flutter_app/lib"
+        cls.store = (M / "services/hymn_store.dart").read_text(encoding="utf-8")
+        cls.db = (M / "services/local_db.dart").read_text(encoding="utf-8")
+        cls.api = (M / "services/api_service.dart").read_text(encoding="utf-8")
+        cls.screen = (M / "screens/mezmur/mezmur_categories.dart").read_text(encoding="utf-8")
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+
+    def test_rest_image_route_reuses_hardened_service(self):
+        self.assertIn("category-image", self.route)
+        self.assertIn("uploadCategoryImage", self.route)
+        self.assertIn("is_uploaded_file", self.route)   # multipart only
+        self.assertIn("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)", self.route)
+
+    def test_category_save_carries_parent(self):
+        self.assertIn("'parent_id': parentId", self.store)      # op payload
+        self.assertIn("A sub-category with this name", self.store)  # scoped dup
+        # dup check compares the parent scope, not just the name
+        self.assertIn("_asInt(c['parent_id']) == (parentId ?? 0)", self.store)
+
+    def test_local_upsert_preserves_hierarchy(self):
+        # rename/hide must not wipe parent_id / image_url
+        self.assertIn("prev['parent_id']", self.db)
+        self.assertIn("prev['image_url']", self.db)
+
+    def test_manager_is_two_level_with_images(self):
+        self.assertIn("_subsOf(", self.screen)
+        self.assertIn("Add sub-category", self.screen)
+        self.assertIn("ImageSource.gallery", self.screen)
+        self.assertIn("setCategoryImage", self.screen)
+
+    def test_api_multipart_upload(self):
+        self.assertIn("uploadCategoryImage", self.api)
+        self.assertIn("MultipartRequest", self.api)
+        self.assertIn("_headers(withAuth: true)", self.api)  # bearer attached
+
+
 class CatalogManagerTests(unittest.TestCase):
     """P31 (web): standalone catalog management section, cascading hymn
     form, and a strict no-browser-popups rule — every interaction is
@@ -1693,7 +1737,9 @@ class MezmurOfflineHymnTests(unittest.TestCase):
     def test_routes_gate_writes_and_keep_reads_open(self):
         self.assertIn("$MEZMUR_LIBRARY_WRITE_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];", self.route)
         self.assertEqual(
-            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 6
+            # hymn, category, category-status, category-image, zemarian,
+            # zemarian-status, attendance sheet
+            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 7
         )
         # sheet + 4 library writers + submission review + category/singer mgmt
         self.assertEqual(self.route.count("apiIdempotencyBegin("), 8)

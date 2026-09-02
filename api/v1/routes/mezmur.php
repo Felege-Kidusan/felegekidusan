@@ -325,6 +325,27 @@ try {
         ok(['saved' => true, 'item' => $result['item'] ?? null]);
     }
 
+    // ── POST /mezmur/category-image — cover upload (multipart) ──
+    // Binary body: fields arrive via $_POST (not the JSON getBody),
+    // and the file goes straight into the SAME hardened validator
+    // the web manager uses (magic bytes, re-encode, random name).
+    if ($method === 'POST' && $action === 'category-image') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage categories.', 403);
+        }
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many uploads. Please wait a moment.', 429);
+        }
+        $id = (int)($_POST['id'] ?? 0);
+        $file = $_FILES['image'] ?? null;
+        if ($id <= 0 || !is_array($file) || !is_uploaded_file($file['tmp_name'] ?? '')) {
+            err('Choose an image to upload.', 422);
+        }
+        $result = MezmurHymnService::uploadCategoryImage($conn, $id, $file, (int)$auth['uid']);
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true, 'image_url' => $result['image_url'] ?? null]);
+    }
+
     // ── POST /mezmur/category-status — activate / hide ─────────
     if ($method === 'POST' && $action === 'category-status') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {

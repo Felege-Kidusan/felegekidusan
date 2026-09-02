@@ -1934,18 +1934,36 @@ class LocalDb {
   /// Apply a category edit instantly (optimistic local-first write).
   Future<void> upsertCategoryLocal(Map<String, dynamic> c) async {
     final db = await database;
+    // REPLACE rewrites the WHOLE row, so columns the caller does not
+    // carry (parent_id, image_url) must be merged from the existing
+    // row — a rename must never flatten a sub back to a main.
+    final existing = await db.query('cached_mezmur_categories',
+        where: 'id = ?', whereArgs: [_asIntLocal(c['id'])], limit: 1);
+    final prev = existing.isNotEmpty
+        ? existing.first
+        : <String, Object?>{};
     await db.insert(
       'cached_mezmur_categories',
       {
         'id': _asIntLocal(c['id']),
-        'name': '${c['name'] ?? ''}',
-        'sort_order': _asIntLocal(c['sort_order'] ?? 0),
-        'is_active': _asIntLocal(c['is_active'] ?? 1),
+        'name': '${c['name'] ?? prev['name'] ?? ''}',
+        'parent_id': c.containsKey('parent_id')
+            ? (c['parent_id'] == null ||
+                    '${c['parent_id']}'.trim().isEmpty ||
+                    _asIntLocal(c['parent_id']) <= 0
+                ? null
+                : _asIntLocal(c['parent_id']))
+            : prev['parent_id'],
+        'image_url': '${c['image_url'] ?? prev['image_url'] ?? ''}',
+        'sort_order': _asIntLocal(c['sort_order'] ?? prev['sort_order'] ?? 0),
+        'is_active': _isOne(c['is_active'] ?? prev['is_active']),
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
+
+  int _isOne(dynamic v) => v == 1 || v == '1' ? 1 : 0;
 
   Future<List<Map<String, dynamic>>> getLocalCategories({bool activeOnly = true}) async {
     final db = await database;

@@ -770,6 +770,36 @@ class ApiService {
         body: Map<String, dynamic>.from(category), idempotencyKey: clientOpId);
   }
 
+  /// Multipart cover-image upload for a hymn category. Binary body —
+  /// never queued; callers gate it on connectivity.
+  Future<ApiResponse> uploadCategoryImage(int id, String filePath) async {
+    try {
+      Future<http.Response> send() async {
+        final uri = Uri.parse('${AppConfig.apiBaseUrl}/mezmur/category-image');
+        final req = http.MultipartRequest('POST', uri)
+          ..fields['id'] = '$id'
+          ..files.add(await http.MultipartFile.fromPath('image', filePath));
+        req.headers.addAll(_headers(withAuth: true));
+        final streamed = await _http.send(req).timeout(
+            const Duration(seconds: 60)); // image bytes need a longer leash
+        return http.Response.fromStream(streamed);
+      }
+
+      var response = await send();
+      if (response.statusCode == 401) {
+        final refreshed = await refreshAccessToken();
+        if (refreshed) {
+          response = await send();
+        } else {
+          _notifyIfRefreshRejected();
+        }
+      }
+      return _handleResponse(response);
+    } catch (e) {
+      return _handleError(e);
+    }
+  }
+
   Future<ApiResponse> setMezmurCategoryStatus(int id, bool active,
       {String? clientOpId}) {
     return post('/mezmur/category-status',
