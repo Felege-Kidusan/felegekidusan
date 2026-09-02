@@ -53,14 +53,35 @@ class HymnStore extends ChangeNotifier {
     // similarity) rescues misspellings a LIKE scan silently drops. The
     // on-device cache is bounded (LIMIT 500) so this stays instant; the
     // server keeps a strict SQL prefilter for its larger corpus.
-    final items = await _db.getLocalHymns(
-      category: category,
-      includeArchived: includeArchived,
-      length: length,
-      language: language,
-      categoryId: categoryId,
-      zemarianId: zemarianId,
-    );
+    late final List<Map<String, dynamic>> items;
+    if (search != null && search.trim().isNotEmpty) {
+      try {
+        items = await _db.searchHymnCandidates(search,
+            category: category,
+            includeArchived: includeArchived,
+            length: length,
+            language: language,
+            categoryId: categoryId,
+            zemarianId: zemarianId);
+      } catch (_) {
+        // Older/corrupt caches can lack the index; preserve offline search.
+        items = await _db.getLocalHymns(
+            category: category,
+            includeArchived: includeArchived,
+            length: length,
+            language: language,
+            categoryId: categoryId,
+            zemarianId: zemarianId);
+      }
+    } else {
+      items = await _db.getLocalHymns(
+          category: category,
+          includeArchived: includeArchived,
+          length: length,
+          language: language,
+          categoryId: categoryId,
+          zemarianId: zemarianId);
+    }
     if (search != null && search.trim().isNotEmpty) {
       final scored = <Map<String, dynamic>>[];
       for (final h in items) {

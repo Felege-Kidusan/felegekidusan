@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 14,
+      version: 15,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -290,6 +290,10 @@ class LocalDb {
           await db.execute(
               'CREATE INDEX IF NOT EXISTS idx_chz_zemarian ON cached_hymn_zemarians (zemarian_id)');
         }
+        if (oldVersion < 15) {
+          await _createHymnSearchIndex(db);
+          await _rebuildHymnSearchIndex(db);
+        }
       },
     );
   }
@@ -372,6 +376,60 @@ class LocalDb {
         value TEXT
       )
     ''');
+    await _createHymnSearchIndex(db);
+  }
+
+  Future<void> _createHymnSearchIndex(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hymn_search_words (
+        word TEXT NOT NULL,
+        hymn_id INTEGER NOT NULL,
+        PRIMARY KEY (word, hymn_id)
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hymn_search_words_word ON hymn_search_words (word)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hymn_search_words_hymn ON hymn_search_words (hymn_id)');
+  }
+
+  Future<void> _rebuildHymnSearchIndex(Database db) async {
+    await db.transaction((txn) async {
+      await txn.delete('hymn_search_words');
+      final rows = await txn.query('cached_hymns',
+          columns: ['id', 'title', 'title_am', 'reference', 'lyrics']);
+      for (final row in rows) {
+        await _reindexHymnSearchIndex(txn, row);
+      }
+    });
+  }
+
+  List<String> _searchTokens(Iterable<dynamic> values) {
+    final tokens = <String>{};
+    final tokenPattern = RegExp(r'[\\p{L}\\p{M}\\p{N}]+', unicode: true);
+    for (final value in values) {
+      for (final match in tokenPattern.allMatches('${value ?? ''}'.toLowerCase())) {
+        final token = match.group(0);
+        if (token != null && token.isNotEmpty) tokens.add(token);
+      }
+    }
+    return tokens.toList();
+  }
+
+  Future<void> _reindexHymnSearchIndex(
+      DatabaseExecutor db, Map<String, dynamic> hymn) async {
+    final id = _asIntLocal(hymn['id']);
+    if (id <= 0) return;
+    await db.delete('hymn_search_words', where: 'hymn_id = ?', whereArgs: [id]);
+    final words = _searchTokens([
+      hymn['title'],
+      hymn['title_am'],
+      hymn['reference'],
+      hymn['lyrics'],
+    ]);
+    for (final word in words) {
+      await db.insert('hymn_search_words', {'word': word, 'hymn_id': id});
+    }
   }
 
   /// Version 1.1.15 briefly attempted an in-place SQLCipher upgrade. If that
@@ -1542,12 +1600,20 @@ class LocalDb {
     final db = await database;
     final now = DateTime.now().toIso8601String();
     final protected = protectIds ?? const <int>{};
+    final indexedRows = <Map<String, dynamic>>[];
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final h in rows.whereType<Map>()) {
         final id = _asIntLocal(h['id']);
         if (id <= 0) continue;
         if (protected.contains(id)) continue;
+        final existing = await txn.query('cached_hymns',
+            columns: ['lyrics'], where: 'id = ?', whereArgs: [id], limit: 1);
+        final stored = Map<String, dynamic>.from(h);
+        if (!h.containsKey('lyrics') && existing.isNotEmpty) {
+          stored['lyrics'] = existing.first['lyrics'];
+        }
+        indexedRows.add(stored);
         batch.insert(
           'cached_hymns',
           {
@@ -1556,7 +1622,9 @@ class LocalDb {
             'title_am': h['title_am'],
             'category': h['category'] ?? '',
             'reference': h['reference'],
-            'lyrics': h['lyrics'],
+            'lyrics': h.containsKey('lyrics')
+              ? h['lyrics']
+              : (existing.isEmpty ? null : existing.first['lyrics']),
             'status': '${h['status'] ?? 'active'}',
             'length': '${h['length'] ?? 'long'}',
             'language': '${h['language'] ?? 'amharic'}',
@@ -1595,6 +1663,9 @@ class LocalDb {
       }
       await batch.commit(noResult: true);
     });
+    for (final hymn in indexedRows) {
+      await _reindexHymnSearchIndex(db, hymn);
+    }
   }
 
   /// Fill lyrics into an already-cached row (lazy blob download).
@@ -1603,6 +1674,79 @@ class LocalDb {
     await db.rawUpdate(
         'UPDATE cached_hymns SET lyrics = ?, revision = MAX(revision, ?), fetched_at = ? WHERE id = ?',
         [lyrics, revision, DateTime.now().toIso8601String(), id]);
+    final rows = await db.query('cached_hymns', where: 'id = ?', whereArgs: [id]);
+    if (rows.isNotEmpty) await _reindexHymnSearchIndex(db, rows.first);
+  }
+
+  /// Indexed local search. The query returns only word-index candidates, so
+  /// low-end devices do not load and scan every cached lyrics blob.
+  Future<List<Map<String, dynamic>>> searchHymnCandidates(
+    String search, {
+    String? category,
+    bool includeArchived = false,
+    String? length,
+    String? language,
+    int? categoryId,
+    int? zemarianId,
+    int limit = 500,
+  }) async {
+    final db = await database;
+    final terms = _searchTokens([search]);
+    if (terms.isEmpty) return const [];
+    final placeholders = terms.map((_) => 'word LIKE ?').join(' OR ');
+    final args = <dynamic>[];
+    for (final term in terms) {
+      args.add('$term%');
+    }
+    final idRows = await db.rawQuery(
+        'SELECT DISTINCT hymn_id FROM hymn_search_words WHERE word LIKE $placeholders LIMIT ?',
+        [...args, limit]);
+    final ids = idRows.map((row) => _asIntLocal(row['hymn_id'])).where((id) => id > 0).toList();
+    if (ids.isEmpty) return const [];
+    return _getLocalHymnsByIds(db, ids,
+        category: category,
+        includeArchived: includeArchived,
+        length: length,
+        language: language,
+        categoryId: categoryId,
+        zemarianId: zemarianId);
+  }
+
+  Future<List<Map<String, dynamic>>> _getLocalHymnsByIds(
+      Database db, List<int> ids,
+      {String? category,
+      bool includeArchived = false,
+      String? length,
+      String? language,
+      int? categoryId,
+      int? zemarianId}) async {
+    final where = <String>['id IN (${List.filled(ids.length, '?').join(',')})'];
+    final args = <dynamic>[...ids];
+    if (!includeArchived) where.add("status = 'active'");
+    if (category != null && category.isNotEmpty) {
+      where.add('category = ?');
+      args.add(category);
+    }
+    if (length != null && length.isNotEmpty) {
+      where.add('length = ?');
+      args.add(length);
+    }
+    if (language != null && language.isNotEmpty) {
+      where.add('language = ?');
+      args.add(language);
+    }
+    if (categoryId != null && categoryId > 0) {
+      where.add('EXISTS (SELECT 1 FROM cached_hymn_categories cc WHERE cc.hymn_id = cached_hymns.id AND cc.category_id = ?)');
+      args.add(categoryId);
+    }
+    if (zemarianId != null && zemarianId > 0) {
+      where.add('EXISTS (SELECT 1 FROM cached_hymn_zemarians cz WHERE cz.hymn_id = cached_hymns.id AND cz.zemarian_id = ?)');
+      args.add(zemarianId);
+    }
+    return db.query('cached_hymns',
+        where: where.join(' AND '),
+        whereArgs: args,
+        orderBy: 'title COLLATE NOCASE');
   }
 
   /// Instant local search across title / Amharic title / reference.
