@@ -93,8 +93,12 @@ final class MezmurHymnService
             $params[] = $language;
         }
         if ($categoryId > 0) {
-            $where[] = "EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc WHERE mhc.hymn_id = mezmur_hymns.id AND mhc.category_id = ?)";
-            $types .= 'i';
+            // P30 two-level taxonomy: filtering by a MAIN category rolls
+            // up — the hymn matches when linked to the category itself
+            // OR to any of its sub-categories (indexed join, one level).
+            $where[] = "EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc JOIN mezmur_categories mc2 ON mc2.id = mhc.category_id WHERE mhc.hymn_id = mezmur_hymns.id AND (mc2.id = ? OR mc2.parent_id = ?))";
+            $types .= 'ii';
+            $params[] = $categoryId;
             $params[] = $categoryId;
         }
         if ($zemarianId > 0) {
@@ -565,12 +569,131 @@ final class MezmurHymnService
         if (!in_array($table, ['mezmur_categories', 'mezmur_zemarians'], true) || $name === '') {
             return null;
         }
-        $stmt = $conn->prepare("SELECT id FROM `$table` WHERE LOWER(name) = LOWER(?) LIMIT 1");
+        // P30: sub-categories may repeat a name under many parents
+        // ("አጠቃላይ"), but legacy offline refs always mean MAIN categories
+        // — prefer a main when one carries the name.
+        $prefersMain = $table === 'mezmur_categories' && self::twoLevelReady($conn);
+        $stmt = $conn->prepare(
+            $prefersMain
+                ? "SELECT id FROM `$table` WHERE LOWER(name) = LOWER(?) ORDER BY parent_id IS NULL DESC LIMIT 1"
+                : "SELECT id FROM `$table` WHERE LOWER(name) = LOWER(?) LIMIT 1"
+        );
         $stmt->bind_param('s', $name);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         return $row ? (int)$row['id'] : null;
+    }
+
+    /** Public URL of a category cover (cache-busted by mtime). */
+    public static function categoryImageUrl(?string $path): string
+    {
+        if ($path === null || $path === '') return '';
+        $full = dirname(__DIR__, 3) . '/' . ltrim($path, '/');
+        $v = @filemtime($full);
+        return '/' . ltrim($path, '/') . ($v !== false ? ('?v=' . $v) : '');
+    }
+
+    /**
+     * P30: securely store a category/sub-category cover image.
+     * OWASP file-upload hardening: allowlist only, real-content check
+     * (finfo magic bytes + getimagesize + a full GD decode), hard size
+     * cap, random server-chosen filename (user input never touches the
+     * filesystem path), and a RE-ENCODE that strips EXIF and any
+     * embedded payload. The upload dir never executes scripts.
+     * @return array{ok:bool,image_url?:string,message:string}
+     */
+    public static function uploadCategoryImage(\mysqli $conn, int $id, array $file, int $actorId): array
+    {
+        if (!self::categoriesReady($conn)) {
+            return ['ok' => false, 'message' => 'Category tables are not ready.'];
+        }
+        if ($id <= 0) {
+            return ['ok' => false, 'message' => 'Invalid category id.'];
+        }
+        $stmt = $conn->prepare("SELECT id, image_path FROM mezmur_categories WHERE id = ? LIMIT 1");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Category not found.'];
+        }
+
+        if (empty($file['tmp_name']) || (int)($file['error'] ?? 1) !== UPLOAD_ERR_OK) {
+            return ['ok' => false, 'message' => 'Upload failed — please try again.'];
+        }
+        if (!is_uploaded_file($file['tmp_name'])) {
+            return ['ok' => false, 'message' => 'Upload failed — invalid transfer.'];
+        }
+        $size = (int)($file['size'] ?? 0);
+        if ($size <= 0 || $size > 2 * 1024 * 1024) {
+            return ['ok' => false, 'message' => 'Image must be at most 2 MB.'];
+        }
+        $raw = @file_get_contents($file['tmp_name']);
+        if ($raw === false || strlen($raw) !== $size) {
+            return ['ok' => false, 'message' => 'Upload failed — unreadable file.'];
+        }
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = (string)$finfo->buffer($raw);
+        $allow = ['image/jpeg' => 'jpg', 'image/png' => 'png'];
+        if (function_exists('imagewebp')) {
+            $allow['image/webp'] = 'jpg'; // re-encoded to JPEG
+        }
+        if (!isset($allow[$mime])) {
+            return ['ok' => false, 'message' => 'Only JPEG, PNG or WebP images are allowed.'];
+        }
+        $info = @getimagesizefromstring($raw);
+        if ($info === false || (int)$info[0] < 16 || (int)$info[1] < 16 || (int)$info[0] > 4000 || (int)$info[1] > 4000) {
+            return ['ok' => false, 'message' => 'The image dimensions must be between 16×16 and 4000×4000.'];
+        }
+        $img = @imagecreatefromstring($raw);
+        if ($img === false) {
+            return ['ok' => false, 'message' => 'The file is not a valid image.'];
+        }
+
+        // Re-encode: strips EXIF/metadata and any embedded payload.
+        // PNG sources keep PNG (transparency); everything else -> JPEG.
+        $keepPng = $mime === 'image/png';
+        $dir = dirname(__DIR__, 3) . '/uploads/mezmur_categories';
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+            return ['ok' => false, 'message' => 'Server storage is not writable.'];
+        }
+        // Defense in depth for Apache deployments: the directory serves
+        // images only — never scripts (php -S ignores this; it never
+        // executes uploaded files anyway).
+        $ht = $dir . '/.htaccess';
+        if (!file_exists($ht)) {
+            @file_put_contents($ht, "# Images only - never execute anything from here
+"
+                . "Options -ExecCGI -Indexes\n"
+                . "<FilesMatch \"\\.(php|phtml|phar|cgi|pl|py|sh|htaccess)$\">\n"
+                . "  Require all denied\n</FilesMatch>\n");
+        }
+        $name = bin2hex(random_bytes(16)) . ($keepPng ? '.png' : '.jpg');
+        $dest = $dir . '/' . $name;
+        $saved = $keepPng ? imagepng($img, $dest, 6) : imagejpeg($img, $dest, 88);
+        imagedestroy($img);
+        if (!$saved) {
+            return ['ok' => false, 'message' => 'Unable to store the image.'];
+        }
+        @chmod($dest, 0644);
+
+        $rel = 'uploads/mezmur_categories/' . $name;
+        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = ? WHERE id = ?");
+        $stmt->bind_param('si', $rel, $id);
+        $ok = $stmt->execute();
+        $stmt->close();
+        if (!$ok) {
+            @unlink($dest);
+            return ['ok' => false, 'message' => 'Unable to save the image reference.'];
+        }
+        // Remove the previous cover (best effort).
+        if (!empty($row['image_path']) && $row['image_path'] !== $rel) {
+            @unlink(dirname(__DIR__, 3) . '/' . ltrim((string)$row['image_path'], '/'));
+        }
+        self::audit($conn, 'Mezmur Category Image Updated', ['file' => $name], 'mezmur_category', $id, $actorId);
+        return ['ok' => true, 'image_url' => self::categoryImageUrl($rel), 'message' => 'Image updated.'];
     }
 
     /**
@@ -1277,10 +1400,62 @@ final class MezmurHymnService
      * table degrade to the DISTINCT categories present on hymns.
      * @return list<array<string,mixed>>
      */
+    /** P30: does mezmur_categories carry the two-level columns? (Guards
+     *  pre-034 deployments so shipped code never references missing
+     *  columns — the reconciler/admin migrate brings them in.) */
+    private static ?bool $twoLevelCache = null;
+
+    public static function twoLevelReady(\mysqli $conn): bool
+    {
+        if (self::$twoLevelCache === null) {
+            $ok = false;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_categories LIKE 'parent_id'");
+                $ok = $r ? (bool)$r->fetch_assoc() : false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $ok = false; }
+            self::$twoLevelCache = $ok;
+        }
+        return self::$twoLevelCache;
+    }
+
     public static function listCategories(\mysqli $conn): array
     {
         if (self::categoriesReady($conn)) {
             $out = [];
+            // P30 two-level taxonomy: mains (parent_id NULL) + subs,
+            // usage counts at the leaf AND rolled up for mains, plus
+            // the optional cover image. Legacy (pre-034) deployments
+            // fall back to the flat shape — no breakage mid-upgrade.
+            if (self::twoLevelReady($conn)) {
+                $res = $conn->query(
+                    "SELECT c.id, c.name, c.parent_id, c.image_path, c.sort_order, c.is_active,
+                            p.name AS parent_name,
+                            (SELECT COUNT(*) FROM mezmur_hymn_categories hc
+                             JOIN mezmur_hymns h ON h.id = hc.hymn_id AND h.status = 'active'
+                             WHERE hc.category_id = c.id) AS hymn_count,
+                            (SELECT COUNT(*) FROM mezmur_hymn_categories hc
+                             JOIN mezmur_hymns h ON h.id = hc.hymn_id AND h.status = 'active'
+                             JOIN mezmur_categories sc ON sc.id = hc.category_id
+                             WHERE sc.id = c.id OR sc.parent_id = c.id) AS hymn_count_total
+                     FROM mezmur_categories c
+                     LEFT JOIN mezmur_categories p ON p.id = c.parent_id
+                     ORDER BY c.parent_id IS NOT NULL, c.parent_id, c.sort_order, c.name
+                     LIMIT 400");
+                if ($res) {
+                    while ($r = $res->fetch_assoc()) {
+                        $r['id'] = (int)$r['id'];
+                        $r['parent_id'] = $r['parent_id'] === null ? null : (int)$r['parent_id'];
+                        $r['sort_order'] = (int)$r['sort_order'];
+                        $r['is_active'] = (int)$r['is_active'];
+                        $r['hymn_count'] = (int)$r['hymn_count'];
+                        $r['hymn_count_total'] = (int)$r['hymn_count_total'];
+                        $r['image_url'] = self::categoryImageUrl($r['image_path']);
+                        $out[] = $r;
+                    }
+                }
+                return $out;
+            }
             // P28 (item 11): usage counts for the web catalog manager —
             // how many ACTIVE hymns reference each entry (indexed join,
             // bounded by the LIMIT above).
@@ -1328,8 +1503,50 @@ final class MezmurHymnService
         }
         $sortOrder = max(0, min(10000, (int)($input['sort_order'] ?? 0)));
 
-        $stmt = $conn->prepare("SELECT id, name, sort_order, is_active FROM mezmur_categories WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
-        $stmt->bind_param('si', $name, $id);
+        // P30 two-level taxonomy: a sub carries parent_id; a main has
+        // NULL. Depth is exactly 2 (a sub cannot become a parent), and
+        // a parent must itself be a main. Pre-034 deployments ignore
+        // parent_id entirely (column probe) — nothing breaks mid-
+        // upgrade.
+        $parentId = null;
+        $twoLevel = self::twoLevelReady($conn);
+        if ($twoLevel) {
+            $parentId = (int)($input['parent_id'] ?? 0) > 0 ? (int)$input['parent_id'] : null;
+            if ($parentId !== null) {
+                $stmt = $conn->prepare("SELECT id, parent_id FROM mezmur_categories WHERE id = ? LIMIT 1");
+                $stmt->bind_param('i', $parentId);
+                $stmt->execute();
+                $parent = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if (!$parent) {
+                    return ['ok' => false, 'message' => 'The parent category does not exist.'];
+                }
+                if ($parent['parent_id'] !== null) {
+                    return ['ok' => false, 'message' => 'Sub-categories cannot have their own sub-categories (two levels maximum).'];
+                }
+            }
+            if ($id > 0) {
+                // Reparenting guard: a main that already has subs stays a main.
+                $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_categories WHERE parent_id = ?");
+                $stmt->bind_param('i', $id);
+                $stmt->execute();
+                $childCount = (int)$stmt->get_result()->fetch_assoc()['c'];
+                $stmt->close();
+                if ($childCount > 0 && $parentId !== null) {
+                    return ['ok' => false, 'message' => 'This category has sub-categories, so it cannot become a sub-category itself.'];
+                }
+            }
+        }
+
+        // Uniqueness is scoped to the same level+parent (sql/034 unique
+        // key backs this at the storage layer for the create race).
+        if ($twoLevel) {
+            $stmt = $conn->prepare("SELECT id, name, sort_order, is_active, parent_id FROM mezmur_categories WHERE LOWER(name) = LOWER(?) AND id <> ? AND parent_id <=> ? LIMIT 1");
+            $stmt->bind_param('sii', $name, $id, $parentId);
+        } else {
+            $stmt = $conn->prepare("SELECT id, name, sort_order, is_active FROM mezmur_categories WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1");
+            $stmt->bind_param('si', $name, $id);
+        }
         $stmt->execute();
         $dup = $stmt->get_result()->fetch_assoc();
         $stmt->close();
@@ -1347,13 +1564,17 @@ final class MezmurHymnService
         if ($id > 0) {
             // Capture the previous state for the audit trail (before/after
             // on every administrative change — OWASP A09) and refuse no-ops.
-            $stmt = $conn->prepare("SELECT name, sort_order, is_active FROM mezmur_categories WHERE id = ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT name, sort_order, is_active" . ($twoLevel ? ", parent_id" : "") . " FROM mezmur_categories WHERE id = ? LIMIT 1");
             $stmt->bind_param('i', $id);
             $stmt->execute();
             $old = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if (!$old) {
                 return ['ok' => false, 'message' => 'Category not found.'];
+            }
+            if ($twoLevel && $parentId === null && $old['parent_id'] !== null) {
+                // Editing a sub without parent_id means "keep its parent".
+                $parentId = (int)$old['parent_id'];
             }
             $renamed = $old['name'] !== $name;
             if (!$renamed && (int)$old['sort_order'] === $sortOrder) {
@@ -1362,8 +1583,13 @@ final class MezmurHymnService
             $relabelled = 0;
             $conn->begin_transaction();
             try {
-                $stmt = $conn->prepare("UPDATE mezmur_categories SET name=?, sort_order=?, created_by=COALESCE(created_by, ?) WHERE id=?");
-                $stmt->bind_param('siii', $name, $sortOrder, $actorId, $id);
+                if ($twoLevel) {
+                    $stmt = $conn->prepare("UPDATE mezmur_categories SET name=?, sort_order=?, parent_id=?, created_by=COALESCE(created_by, ?) WHERE id=?");
+                    $stmt->bind_param('siiii', $name, $sortOrder, $parentId, $actorId, $id);
+                } else {
+                    $stmt = $conn->prepare("UPDATE mezmur_categories SET name=?, sort_order=?, created_by=COALESCE(created_by, ?) WHERE id=?");
+                    $stmt->bind_param('siii', $name, $sortOrder, $actorId, $id);
+                }
                 $ok = $stmt->execute();
                 $stmt->close();
                 if (!$ok) {
@@ -1396,19 +1622,37 @@ final class MezmurHymnService
             ], 'mezmur_category', $id, $actorId);
             // P23: echo the REAL is_active — the hardcoded 1 un-hid a
             // hidden category on the device that renamed it.
-            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => (int)$old['is_active']], 'message' => 'Category updated.'];
+            return ['ok' => true, 'item' => ['id' => $id, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => (int)$old['is_active'], 'parent_id' => $twoLevel ? $parentId : null], 'message' => 'Category updated.'];
         }
 
-        $stmt = $conn->prepare("INSERT INTO mezmur_categories (name, sort_order, created_by) VALUES (?,?,?)");
-        $stmt->bind_param('sii', $name, $sortOrder, $actorId);
+        if ($twoLevel) {
+            $stmt = $conn->prepare("INSERT INTO mezmur_categories (name, parent_id, sort_order, created_by) VALUES (?,?,?,?)");
+            $stmt->bind_param('siii', $name, $parentId, $sortOrder, $actorId);
+        } else {
+            $stmt = $conn->prepare("INSERT INTO mezmur_categories (name, sort_order, created_by) VALUES (?,?,?)");
+            $stmt->bind_param('sii', $name, $sortOrder, $actorId);
+        }
         $ok = $stmt->execute();
         $newId = $ok ? (int)$stmt->insert_id : 0;
+        $dupRace = !$ok && self::isDuplicateKeyError($conn);
         $stmt->close();
+        if ($dupRace) {
+            // Scoped-unique create race (two devices, same name + parent):
+            // converge to the winner, same as the slow path above.
+            $stmt = $conn->prepare("SELECT id FROM mezmur_categories WHERE LOWER(name) = LOWER(?) AND parent_id <=> ? LIMIT 1");
+            $stmt->bind_param('si', $name, $parentId);
+            $stmt->execute();
+            $winner = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($winner) {
+                return ['ok' => true, 'item' => ['id' => (int)$winner['id'], 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1, 'parent_id' => $parentId], 'message' => 'Category already exists — linked.'];
+            }
+        }
         if (!$ok || $newId <= 0) {
             return ['ok' => false, 'message' => 'Unable to create the category.'];
         }
-        self::audit($conn, 'Mezmur Category Created', ['name' => $name], 'mezmur_category', $newId, $actorId);
-        return ['ok' => true, 'item' => ['id' => $newId, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1], 'message' => 'Category added.'];
+        self::audit($conn, 'Mezmur Category Created', ['name' => $name, 'parent_id' => $parentId], 'mezmur_category', $newId, $actorId);
+        return ['ok' => true, 'item' => ['id' => $newId, 'name' => $name, 'sort_order' => $sortOrder, 'is_active' => 1, 'parent_id' => $parentId], 'message' => 'Category added.'];
     }
 
     /** Activate / deactivate a category (soft). @return array{ok:bool,message:string} */

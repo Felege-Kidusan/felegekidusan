@@ -91,7 +91,7 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'save_zemarian', 'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'save_zemarian', 'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
@@ -115,7 +115,7 @@ $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'save_zemarian', 'zemarian_status'], true)
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'save_zemarian', 'zemarian_status'], true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -306,8 +306,10 @@ try {
                 $params[] = $language;
             }
             if ($categoryId > 0) {
-                $where[] = 'EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc WHERE mhc.hymn_id = mezmur_hymns.id AND mhc.category_id = ?)';
-                $types .= 'i';
+                // P30: filtering by a MAIN category rolls up over its subs.
+                $where[] = 'EXISTS (SELECT 1 FROM mezmur_hymn_categories mhc JOIN mezmur_categories mc2 ON mc2.id = mhc.category_id WHERE mhc.hymn_id = mezmur_hymns.id AND (mc2.id = ? OR mc2.parent_id = ?))';
+                $types .= 'ii';
+                $params[] = $categoryId;
                 $params[] = $categoryId;
             }
             if ($zemarianId > 0) {
@@ -543,10 +545,25 @@ try {
             $result = MezmurHymnService::saveCategory($conn, [
                 'id' => (int)($_POST['id'] ?? 0),
                 'name' => (string)($_POST['name'] ?? ''),
+                'parent_id' => $_POST['parent_id'] ?? null,
                 'sort_order' => (int)($_POST['sort_order'] ?? 0),
             ], $adminId);
             if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
             mezmur_respond(['status' => 'success', 'message' => $result['message'], 'item' => $result['item'] ?? null]);
+        }
+
+        case 'category_image': {
+            // P30: cover image upload (multipart) — the service applies
+            // the full OWASP hardening chain (magic bytes, re-encode,
+            // random name, size cap); nothing here trusts the client.
+            $result = MezmurHymnService::uploadCategoryImage(
+                $conn,
+                (int)($_POST['id'] ?? 0),
+                $_FILES['image'] ?? [],
+                $adminId
+            );
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message'], 'image_url' => $result['image_url'] ?? '']);
         }
 
         case 'category_status': {

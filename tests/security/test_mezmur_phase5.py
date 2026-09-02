@@ -489,7 +489,7 @@ class TaxonomySyncTests(unittest.TestCase):
         self.assertIn("'A category with this name already exists.'", self.svc)
 
     def test_rename_echoes_real_is_active(self):
-        self.assertIn("SELECT name, sort_order, is_active FROM mezmur_categories", self.svc)
+        self.assertIn('"SELECT name, sort_order, is_active" . ($twoLevel ? ", parent_id" : "") . " FROM mezmur_categories WHERE id = ? LIMIT 1"', self.svc)  # P30 parent-aware
         self.assertIn("SELECT name, name_am, is_active FROM mezmur_zemarians", self.svc)
         self.assertIn("'is_active' => (int)$old['is_active']", self.svc)
 
@@ -866,6 +866,45 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertIn("catalogRename", self.js)
         self.assertIn("hymn_count", self.svc)
         self.assertIn("Mezmur.catalogRename", self.js)
+
+
+class SubcategoryServerTests(unittest.TestCase):
+    """P30 (server phase): two-level taxonomy — main category -> subs.
+    Hymns live at the leaves; filtering by a main rolls up over its
+    subs; images are uploaded through the OWASP-hardened path."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        cls.svc = (R / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
+        cls.api = (R / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.mig = (R / "sql/034_mezmur_subcategories.sql").read_text(encoding="utf-8")
+
+    def test_migration_two_level_structure(self):
+        self.assertIn("ADD COLUMN IF NOT EXISTS parent_id", self.mig)
+        self.assertIn("ADD COLUMN IF NOT EXISTS image_path", self.mig)
+        self.assertIn("uq_mc_parent_name (parent_id, name)", self.mig)
+        self.assertIn("fk_mc_parent", self.mig)
+        # every existing main gets a General sub; links move to leaves
+        self.assertIn("'አጠቃላይ', c.id", self.mig)
+        self.assertIn("c.parent_id IS NULL", self.mig)
+
+    def test_rollup_filter_everywhere(self):
+        for src in (self.svc, self.api):
+            self.assertIn("(mc2.id = ? OR mc2.parent_id = ?)", src)
+
+    def test_depth_two_enforced(self):
+        self.assertIn("two levels maximum", self.svc)
+        self.assertIn("cannot become a sub-category itself", self.svc)
+        self.assertIn("parent_id <=> ?", self.svc)  # scoped uniqueness
+
+    def test_secure_image_upload(self):
+        self.assertIn("finfo(FILEINFO_MIME_TYPE)", self.svc)      # magic bytes
+        self.assertIn("imagecreatefromstring", self.svc)          # full decode
+        self.assertIn("imagepng($img, $dest, 6)", self.svc)       # re-encode strips payloads
+        self.assertIn("bin2hex(random_bytes(16))", self.svc)      # random name
+        self.assertIn("2 * 1024 * 1024", self.svc)                # size cap
+        self.assertIn("case 'category_image':", self.api)
 
 
 class TokenizerRegressionTests(unittest.TestCase):
