@@ -406,11 +406,17 @@ class LocalDb {
 
   List<String> _searchTokens(Iterable<dynamic> values) {
     final tokens = <String>{};
-    final tokenPattern = RegExp(r'[\\p{L}\\p{M}\\p{N}]+', unicode: true);
+    // P27c FIX: the previous raw string carried QUADRUPLE backslashes,
+    // so the class matched only the literal chars p { L } M N \ —
+    // empirically [] tokens for Amharic AND English, silently killing
+    // local search. A raw string needs exactly ONE backslash here.
+    final tokenPattern = RegExp(r'[\p{L}\p{M}\p{N}]+', unicode: true);
     for (final value in values) {
       for (final match in tokenPattern.allMatches('${value ?? ''}'.toLowerCase())) {
         final token = match.group(0);
-        if (token != null && token.isNotEmpty) tokens.add(token);
+        // Server parity (WORD_MIN_CHARS = 2): 1-char words never index
+        // and must not burn the candidate budget.
+        if (token != null && token.length >= 2) tokens.add(token);
       }
     }
     return tokens.toList();

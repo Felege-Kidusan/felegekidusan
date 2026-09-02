@@ -55,8 +55,16 @@ class HymnStore extends ChangeNotifier {
     // server keeps a strict SQL prefilter for its larger corpus.
     late final List<Map<String, dynamic>> items;
     if (search != null && search.trim().isNotEmpty) {
+      // P27c: two-stage on-device retrieval (server parity).
+      // Stage 1 = word-index candidates (prefix hits, index-scanned —
+      // fast path that avoids loading every lyrics blob). Stage 2 =
+      // when the index finds little, a bounded full scan under the same
+      // structural filters feeds the fuzzy (Levenshtein) tier — the
+      // index alone can NEVER rescue a misspelling (no prefix match),
+      // and a broken/empty index must not silently kill local search.
+      var candidates = const <Map<String, dynamic>>[];
       try {
-        items = await _db.searchHymnCandidates(search,
+        candidates = await _db.searchHymnCandidates(search,
             category: category,
             includeArchived: includeArchived,
             length: length,
@@ -65,7 +73,7 @@ class HymnStore extends ChangeNotifier {
             zemarianId: zemarianId);
       } catch (_) {
         // Older/corrupt caches can lack the index; preserve offline search.
-        items = await _db.getLocalHymns(
+        candidates = await _db.getLocalHymns(
             category: category,
             includeArchived: includeArchived,
             length: length,
@@ -73,6 +81,24 @@ class HymnStore extends ChangeNotifier {
             categoryId: categoryId,
             zemarianId: zemarianId);
       }
+      if (candidates.length < 25) {
+        final scan = await _db.getLocalHymns(
+            category: category,
+            includeArchived: includeArchived,
+            length: length,
+            language: language,
+            categoryId: categoryId,
+            zemarianId: zemarianId);
+        final byId = <int, Map<String, dynamic>>{};
+        for (final h in scan) {
+          byId[_asInt(h['id'])] = h;
+        }
+        for (final h in candidates) {
+          byId.putIfAbsent(_asInt(h['id']), () => h);
+        }
+        candidates = byId.values.toList();
+      }
+      items = candidates;
     } else {
       items = await _db.getLocalHymns(
           category: category,

@@ -782,6 +782,50 @@ class LibraryTopTabsTests(unittest.TestCase):
         self.assertNotIn("_chip('All', '')", self.lib)
 
 
+class TokenizerRegressionTests(unittest.TestCase):
+    """P27c: guards against the tokenizer regression shipped in the
+    on-device word-index commit ([\\\\p{L}...] with QUADRUPLE backslashes
+    matched only the literal characters p/{/L/M/N, so every real query
+    produced zero tokens and local search silently died — Amharic and
+    English alike). Pins the corrected regex + the surrounding search
+    plumbing that must never regress again."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.db = (ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart").read_text(encoding="utf-8")
+        cls.api = (ROOT / "Mobile/wbws_flutter_app/lib/services/api_service.dart").read_text(encoding="utf-8")
+        cls.store = (ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart").read_text(encoding="utf-8")
+
+    def test_unicode_tokenizer_regex_single_backslash(self):
+        # Raw string needs exactly ONE backslash for a unicode class.
+        self.assertIn("[\\p{L}\\p{M}\\p{N}]+", self.db)
+
+    def test_quadruple_backslash_regression_absent(self):
+        # The broken form that matched only literal p/{/L/M/N characters.
+        self.assertNotIn("[\\\\p{L}", self.db)
+
+    def test_tokenizer_drops_single_char_tokens(self):
+        # Server parity: WORD_MIN_CHARS = 2 (a 1-char prefix LIKE would
+        # return half the library).
+        self.assertRegex(self.db, r"length >= 2")
+
+    def test_mezmur_root_payload_parsing(self):
+        # Mezmur endpoints return items at the root (no data envelope);
+        # without the ?? json fallback every list parsed as null.
+        self.assertIn("json['data'] ?? json", self.api)
+
+    def test_sparse_index_full_scan_fallback(self):
+        # The word index only finds PREFIX hits — a typo can never match
+        # it, so sparse index results must fall back to the bounded full
+        # scan under the same structural filters (server two-stage parity).
+        self.assertIn("candidates.length < 25", self.store)
+
+    def test_flutter_tokenizer_unit_test_exists(self):
+        # Real `flutter test` guard (runs on dev machines / CI).
+        self.assertTrue(
+            (ROOT / "Mobile/wbws_flutter_app/test/search_tokenizer_test.dart").exists())
+
+
 class UnifiedSearchFixTests(unittest.TestCase):
     """Patch 27 (2026-09-01): the search chain actually reaches the user.
 
@@ -1402,7 +1446,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 14,", self.db)
+        self.assertIn("version: 15,", self.db)  # 15 = on-device word index (P27c lineage)
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)
