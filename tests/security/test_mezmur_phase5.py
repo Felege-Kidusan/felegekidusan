@@ -1575,6 +1575,34 @@ class AmharicOnlySingerNamesAndFilterRaceFixTests(unittest.TestCase):
         # NULL default is gone (name_am can no longer drift empty)
         self.assertNotIn("$nameAm = $nameAm === '' ? null : $nameAm;", self.svc)
 
+
+class LatestUpdatesAuditTests(unittest.TestCase):
+    """P36 audit guards: findings from the detailed audit of P34+P35."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = lambda rel: (ROOT / rel).read_text(encoding="utf-8")  # noqa: E731
+        cls.js = R("frontend/js/mezmur.js")
+        cls.sheet = R("Mobile/wbws_flutter_app/lib/widgets/taxonomy_pick_sheet.dart")
+        cls.sql37 = R("sql/037_zemarian_images.sql")
+
+    def test_picker_no_duplicate_subtitle_for_mirrored_names(self):
+        # singers have ONE Amharic name (name_am == name) — the sheet
+        # must not print the same word twice
+        self.assertIn("it['name_am'] == it['name']", self.sheet)
+
+    def test_editor_picker_singer_counts(self):
+        # singers carry hymn_count (no hymn_count_total/parent_id) —
+        # the count shown must fall back to it, never a hardcoded 0
+        self.assertIn(
+            "item.hymn_count_total != null ? item.hymn_count_total : (item.hymn_count || 0)",
+            self.js)
+
+    def test_sql37_comment_matches_reality(self):
+        # singers have their OWN upload dir (not the categories')
+        self.assertIn("uploads/mezmur_zemarians/", self.sql37)
+        self.assertNotIn("share the uploads/mezmur_categories", self.sql37)
+
 if __name__ == "__main__":
     unittest.main()
 

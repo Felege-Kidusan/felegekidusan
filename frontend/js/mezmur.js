@@ -648,7 +648,12 @@
         return '<span class="mz-thumb"' + img + ' aria-hidden="true">' + label + '</span>';
     }
     function pickItemHtml(box, item, checked) {
-        var count = item.parent_id == null ? (item.hymn_count_total || 0) : (item.hymn_count || 0);
+        // P36 audit: MAIN categories carry hymn_count_total (rolled-up);
+        // singers have neither parent_id nor hymn_count_total — they fell
+        // through to a hardcoded 0. Fall back to their own hymn_count.
+        var count = item.parent_id == null
+            ? (item.hymn_count_total != null ? item.hymn_count_total : (item.hymn_count || 0))
+            : (item.hymn_count || 0);
         return '<label class="mz-pick-item"><input type="checkbox" value="' + Number(item.id) + '"' +
             (checked ? ' checked' : '') + '> ' + thumbHtml(item) +
             '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(item.name) + '</span>' +

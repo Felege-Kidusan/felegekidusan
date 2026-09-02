@@ -192,7 +192,12 @@ class _PickSheetState extends State<_PickSheet> {
                                 ),
                           title: Text('${it['name'] ?? ''}',
                               style: const TextStyle(fontSize: 13.5)),
-                          subtitle: '${it['name_am'] ?? ''}'.isEmpty
+                          // P36 audit: singers now carry ONE Amharic name
+                          // (name_am mirrors name) — showing both would
+                          // print the same word twice. The subtitle only
+                          // appears when it adds information.
+                          subtitle: '${it['name_am'] ?? ''}'.isEmpty ||
+                                  it['name_am'] == it['name']
                               ? null
                               : Text('${it['name_am']}',
                                   style: TextStyle(
