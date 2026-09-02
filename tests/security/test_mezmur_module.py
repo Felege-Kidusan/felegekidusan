@@ -117,10 +117,10 @@ class MezmurModuleTests(unittest.TestCase):
     def test_js_escapes_all_dynamic_html(self):
         self.assertIn("function esc(", self.js)
         self.assertIn("esc(h.title)", self.js)
-        self.assertIn("esc(h.title_am", self.js)
         self.assertIn("esc(h.category)", self.js)
-        # long-form lyrics render via textContent, never innerHTML
-        self.assertIn("$('mzViewLyrics').textContent", self.js)
+        # P28: title_am retired; lyrics render escaped-first (renderLyrics),
+        # never raw user text into innerHTML.
+        self.assertIn("var txt = esc(", self.js)
         # mutations go through POST helper (CSRF auto-appended)
         self.assertIn("window.api.post('mezmur.php'", self.js)
 

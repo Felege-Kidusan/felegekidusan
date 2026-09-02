@@ -308,7 +308,7 @@ ob_start();
                             <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddMain()"><i class="fa-solid fa-plus"></i> Add main category</button>
                         </div>
                         <div class="table-shell"><table class="school-table">
-                            <thead><tr><th style="width:44px">Cover</th><th>Name</th><th style="width:70px">Hymns</th><th style="width:150px">Order</th><th style="width:290px">Actions</th></tr></thead>
+                            <thead><tr><th class="th-cover">Cover</th><th>Name</th><th class="th-hymns">Hymns</th><th class="th-order">Order</th><th class="th-actions">Actions</th></tr></thead>
                             <tbody id="mzMgrCatRows"></tbody>
                         </table></div>
                         <input type="file" id="mzMgrFile" accept="image/jpeg,image/png,image/webp" class="is-hidden" aria-hidden="true">
@@ -321,7 +321,7 @@ ob_start();
                             <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddZem()"><i class="fa-solid fa-plus"></i> Add singer</button>
                         </div>
                         <div class="table-shell"><table class="school-table">
-                            <thead><tr><th style="width:44px">Cover</th><th class="amharic">ስም</th><th style="width:70px">Hymns</th><th style="width:290px">Actions</th></tr></thead>
+                            <thead><tr><th class="th-cover">Cover</th><th class="amharic">ስም</th><th class="th-hymns">Hymns</th><th class="th-actions">Actions</th></tr></thead>
                             <tbody id="mzMgrZemRows"></tbody>
                         </table></div>
                     </div>
@@ -599,7 +599,7 @@ ob_start();
                 <button type="button" class="mz-ed-btn" data-cmd="bold" title="Bold (Ctrl+B)" aria-label="Bold"><i class="fa-solid fa-bold"></i></button>
                 <button type="button" class="mz-ed-btn" data-cmd="italic" title="Italic (Ctrl+I)" aria-label="Italic"><i class="fa-solid fa-italic"></i></button>
                 <button type="button" class="mz-ed-btn" data-cmd="underline" title="Underline (Ctrl+U)" aria-label="Underline"><i class="fa-solid fa-underline"></i></button>
-                <span style="width:1px;height:18px;background:var(--school-border,#e5e7eb);margin:0 .25rem"></span>
+                <span class="mz-ed-divider"></span>
                 <button type="button" class="mz-ed-btn" data-cmd="section" title="Insert section header (e.g. Verse 1)" aria-label="Insert section header"><i class="fa-solid fa-heading"></i> Section</button>
                 <span class="mz-sec-pop is-hidden" id="mzSecPop">
                     <input id="mzSecPopInput" maxlength="60" placeholder="Section name (e.g. Verse 1)">
@@ -609,7 +609,7 @@ ob_start();
             </div>
             <div id="mzEditor" class="mz-editor amharic" contenteditable="true" spellcheck="false" data-placeholder="የመዝሙሩ ግጥም…"></div>
             <textarea id="mzLyrics" class="is-hidden" aria-hidden="true"></textarea>
-            <p class="text-dim" style="font-size:.72rem;margin-top:.25rem">Style as you write with the toolbar — what you see is how it prints.</p>
+            <p class="text-dim mz-hint">Style as you write with the toolbar — what you see is how it prints.</p>
         </div>
         <div class="school-error-msg is-hidden" id="mzModalError" role="alert"></div>
         <button class="btn-primary btn-block" id="mzSaveBtn" onclick="Mezmur.save()"><i class="fa-solid fa-save"></i> Save Hymn</button>
@@ -618,17 +618,17 @@ ob_start();
 
 <!-- ═══ DIALOG: COVER IMAGE PREVIEW (upload with a real preview) ═══ -->
 <div class="school-modal" id="mzImageDialog" role="dialog" aria-modal="true" aria-labelledby="mzImageTitle">
-    <div class="school-modal-content" style="max-width:380px">
+    <div class="school-modal-content mw-380">
         <div class="page-head">
             <h3 id="mzImageTitle"><i class="fa-solid fa-image"></i> Cover image</h3>
             <button class="btn-secondary btn-sm" onclick="Mezmur.closeImageDialog()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="mz-img-preview"><img id="mzImgPreviewImg" src="" alt="Selected cover preview"></div>
-        <div class="text-dim" id="mzImgMeta" style="font-size:.75rem;margin:.4rem 0 .6rem"></div>
-        <p class="text-dim" style="font-size:.72rem;line-height:1.5;margin-bottom:.7rem">
+        <div class="text-dim mz-hint2" id="mzImgMeta"></div>
+        <p class="text-dim mz-note">
             The cover is dimmed slightly on tiles and headers, so titles always stay readable over any photo.
         </p>
-        <div class="toolbar" style="justify-content:flex-end;margin-bottom:0">
+        <div class="toolbar toolbar-end">
             <button class="btn-secondary btn-sm" id="mzImgCancel">Cancel</button>
             <button class="btn-primary btn-sm" id="mzImgUpload"><i class="fa-solid fa-upload"></i> Upload</button>
         </div>
@@ -637,13 +637,13 @@ ob_start();
 
 <!-- ═══ DIALOG: COVER COLOR (gradient picker) ═══ -->
 <div class="school-modal" id="mzColorDialog" role="dialog" aria-modal="true" aria-labelledby="mzColorTitle">
-    <div class="school-modal-content" style="max-width:380px">
+    <div class="school-modal-content mw-380">
         <div class="page-head">
             <h3 id="mzColorTitle"><i class="fa-solid fa-palette"></i> Cover color</h3>
             <button class="btn-secondary btn-sm" onclick="Mezmur.closeColorDialog()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="mz-color-preview" id="mzColorPreview"><span id="mzColorPreviewName"></span></div>
-        <div class="text-dim" id="mzColorNote" style="font-size:.72rem;margin:.35rem 0 .55rem"></div>
+        <div class="text-dim mz-hint3" id="mzColorNote"></div>
         <div class="school-label">Presets</div>
         <div class="mz-swatches" id="mzSwatches" role="radiogroup" aria-label="Gradient presets"></div>
         <div class="mz-color-custom">
@@ -655,9 +655,9 @@ ob_start();
             <label>Start opacity <input type="range" id="mzGradStartOp" min="20" max="100" step="1" value="100" aria-label="Start color opacity"><span id="mzGradStartOpV">100%</span></label>
             <label>End opacity <input type="range" id="mzGradEndOp" min="20" max="100" step="1" value="100" aria-label="End color opacity"><span id="mzGradEndOpV">100%</span></label>
         </div>
-        <div class="toolbar" style="justify-content:space-between;margin-bottom:0">
+        <div class="toolbar toolbar-between">
             <button type="button" class="btn-secondary btn-sm" id="mzRemoveImg"><i class="fa-solid fa-trash-can"></i> Remove image</button>
-            <span class="toolbar" style="gap:.4rem">
+            <span class="toolbar gap-sm">
                 <button type="button" class="btn-secondary btn-sm" onclick="Mezmur.closeColorDialog()">Cancel</button>
                 <button type="button" class="btn-primary btn-sm" id="mzGradSave"><i class="fa-solid fa-check"></i> Save</button>
             </span>
@@ -667,10 +667,10 @@ ob_start();
 
 <!-- ═══ SYSTEM DIALOG: in-app confirm (never browser popups) ═══ -->
 <div class="school-modal" id="mzSysDialog" role="dialog" aria-modal="true" aria-labelledby="mzSysDialogTitle">
-    <div class="school-modal-content" style="max-width:420px">
+    <div class="school-modal-content mw-420">
         <div class="page-head"><h3 id="mzSysDialogTitle"><i class="fa-solid fa-circle-question"></i> Confirm</h3></div>
-        <p id="mzSysDialogBody" style="font-size:.85rem;line-height:1.6"></p>
-        <div class="toolbar" style="justify-content:flex-end;margin-bottom:0">
+        <p class="mz-body" id="mzSysDialogBody"></p>
+        <div class="toolbar toolbar-end">
             <button class="btn-secondary btn-sm" id="mzSysDialogNo">Cancel</button>
             <button class="btn-primary btn-sm" id="mzSysDialogYes">Confirm</button>
         </div>

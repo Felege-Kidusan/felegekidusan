@@ -116,9 +116,10 @@ class MezmurUiUxTests(unittest.TestCase):
 
     def test_modals_are_dialogs_with_close_labels(self):
         # hymn, view, taker + phase-5 review & packet modals + catalog dialog
-        self.assertEqual(self.shell.count('role="dialog"'), 6)
-        self.assertEqual(self.shell.count('aria-modal="true"'), 6)
-        self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 6)
+        # + cover/color/system dialogs (P34)
+        self.assertEqual(self.shell.count('role="dialog"'), 8)
+        self.assertEqual(self.shell.count('aria-modal="true"'), 8)
+        self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 7)
 
     def test_modal_focus_management(self):
         self.assertIn("function openModalF(", self.js)
@@ -142,10 +143,10 @@ class MezmurUiUxTests(unittest.TestCase):
             self.assertIn(action, self.api)
 
     def test_section_switch_contract(self):
-        for section in ["overview", "library", "attendance", "analytics", "takers"]:
+        for section in ["overview", "library", "catalog", "attendance", "analytics", "takers"]:
             self.assertIn('id="section-%s"' % section, self.shell)
-        # bottom nav mirrors sidebar (5 entries incl. overview)
-        self.assertEqual(self.shell.count("school-bottom-nav-btn"), 5)
+        # bottom nav mirrors sidebar (6 entries incl. overview + catalog)
+        self.assertEqual(self.shell.count("school-bottom-nav-btn"), 6)
 
     def test_no_padleft_bug_in_js(self):
         self.assertNotIn(".padLeft(", self.js)

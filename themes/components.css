@@ -581,3 +581,20 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
 .mz-cmgr-exp i { transition: transform 0.15s ease; }
 .mz-cmgr-exp.open i { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .mz-cmgr-exp i { transition: none; } }
+
+/* -- Mezmur: table columns, modal widths, toolbar/hint utilities (P34) -- */
+.th-cover { width: 44px; }
+.th-hymns { width: 70px; }
+.th-order { width: 150px; }
+.th-actions { width: 290px; }
+.mz-ed-divider { width: 1px; height: 18px; background: var(--school-border); margin: 0 .25rem; }
+.mz-hint { font-size: .72rem; margin-top: .25rem; }
+.mz-hint2 { font-size: .75rem; margin: .4rem 0 .6rem; }
+.mz-hint3 { font-size: .72rem; margin: .35rem 0 .55rem; }
+.mz-note { font-size: .72rem; line-height: 1.5; margin-bottom: .7rem; }
+.mz-body { font-size: .85rem; line-height: 1.6; }
+.mw-380 { max-width: 380px; }
+.mw-420 { max-width: 420px; }
+.toolbar-end { justify-content: flex-end; margin-bottom: 0; }
+.toolbar-between { justify-content: space-between; margin-bottom: 0; }
+.gap-sm { gap: .4rem; }
