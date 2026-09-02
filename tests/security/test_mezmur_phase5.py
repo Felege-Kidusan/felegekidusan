@@ -576,8 +576,10 @@ class LyricsStylingBrowseTests(unittest.TestCase):
         self.assertIn("$('mzViewLyrics').innerHTML = renderLyrics(", self.js)
 
     def test_markup_hints_present(self):
-        self.assertIn("**bold**", self.page)      # web editor hint
-        self.assertIn("**bold**", self.editor)    # mobile editor hint
+        # P30: visual editor — hints describe the toolbar, not markers.
+        self.assertIn("mz-ed-toolbar", self.page)              # web toolbar
+        self.assertIn("Style as you write", self.page)          # web hint
+        self.assertIn("Style with the toolbar", self.editor)    # mobile hint
 
     def test_mobile_lyrics_widget(self):
         self.assertIn("class _LyricsView", self.detail)
@@ -592,11 +594,12 @@ class LyricsStylingBrowseTests(unittest.TestCase):
         self.assertIn("initialCategoryId: singer ? null : id", self.detail)
 
     def test_library_self_standing_with_top_tabs(self):
-        # P26 replaced the nested bottom navigation (Material violation)
-        # with AppBar tabs — one navigation plane per screen.
-        self.assertIn("TabBar(", self.lib)
-        self.assertIn("TabBarView(", self.lib)
-        for label in ("'Hymns'", "'Categories'", "'Singers'", "'Add'"):
+        # P26 made the library self-standing; P30 (item 6) moved its
+        # section navigation to the BOTTOM bar (the screen is pushed
+        # full-screen, so the main app nav is out of the way).
+        self.assertIn("bottomNavigationBar: NavigationBar(", self.lib)
+        self.assertIn("TabBarView(", self.lib)  # still one plane per tab
+        for label in ("'Hymns'", "'Categories'", "'Singers'"):
             self.assertIn(label, self.lib)
         self.assertIn("initialCategoryId", self.lib)
         self.assertIn("initialZemarianId", self.lib)
@@ -842,7 +845,7 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertNotIn("_referenceCtrl", self.editor)
         self.assertIn("Title (ርዕስ) *", self.editor)
         # local DB folds on upgrade to v16 and rebuilds the word index.
-        self.assertIn("version: 16,", self.db)
+        self.assertIn("version: 17,", self.db)
         self.assertIn("UPDATE cached_hymns SET title = title_am", self.db)
         self.assertIn("UPDATE cached_hymns SET title_am = NULL, reference = NULL", self.db)
         # local LIKE search is title-only.
@@ -866,6 +869,78 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertIn("catalogRename", self.js)
         self.assertIn("hymn_count", self.svc)
         self.assertIn("Mezmur.catalogRename", self.js)
+
+
+class SubcategoryClientTests(unittest.TestCase):
+    """P30 (client phase): two-level browse UX everywhere.
+    Web: compact one-row toolbar, grouped dropdown pickers, the visual
+    lyrics editor (portable markup contract), no third-party company
+    names in the UI. Mobile: bottom section navigation, full-screen
+    category pages with covers, rolled-up counts/filters, v17 cache."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        cls.page = (R / "frontend/pages/mezmur_dept.php").read_text(encoding="utf-8")
+        cls.js = (R / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.css = (R / "themes/components.css").read_text(encoding="utf-8")
+        base = R / "Mobile/wbws_flutter_app/lib"
+        cls.hymns = (base / "screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+        cls.editor = (base / "screens/mezmur/mezmur_hymn_editor.dart").read_text(encoding="utf-8")
+        cls.detail = (base / "screens/mezmur/mezmur_hymn_detail.dart").read_text(encoding="utf-8")
+        cls.db = (base / "services/local_db.dart").read_text(encoding="utf-8")
+
+    # ── web ──
+    def test_web_compact_toolbar(self):
+        self.assertIn("toolbar-compact", self.page)
+        self.assertIn(".toolbar-compact { flex-wrap: nowrap; }", self.css)
+
+    def test_web_grouped_dropdown_pickers(self):
+        self.assertIn("mz-pick-btn", self.page)
+        self.assertIn("mz-pick-panel", self.css)
+        self.assertIn("optgroup", self.js)  # two-level filter
+        self.assertIn("populateCategoryFilter", self.js)
+
+    def test_web_visual_editor(self):
+        self.assertIn('id="mzEditor"', self.page)
+        self.assertIn("contenteditable", self.page)
+        self.assertIn("markupToHtml", self.js)
+        self.assertIn("editorToMarkup", self.js)
+        # markup stays the storage contract (old clients unaffected)
+        self.assertIn("execCommand", self.js)
+        self.assertIn("getData('text/plain')", self.js)  # paste = plain
+        self.assertIn("mz-ed-sec", self.css)
+        # viewer renders the underline tier too
+        self.assertIn("replace(/__(.+?)__/g, '<u>$1</u>')", self.js)
+
+    def test_no_company_names_in_ui(self):
+        for src in (self.page, self.js, self.editor, self.hymns, self.detail):
+            self.assertNotIn("Genius", src)
+            self.assertNotIn("Spotify", src)
+
+    # ── mobile ──
+    def test_mobile_section_bottom_nav(self):
+        self.assertIn("bottomNavigationBar: NavigationBar(", self.hymns)
+        self.assertNotIn("bottom: TabBar(", self.hymns)  # top tabs retired
+
+    def test_mobile_fullscreen_category_pages(self):
+        self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_category_screen.dart").exists())
+        self.assertIn("MezmurCategoryScreen(", self.hymns)
+        self.assertIn("image_url", self.db)   # covers cached on-device
+        self.assertIn("version: 17,", self.db)
+
+    def test_mobile_rollup(self):
+        # local filter + counts roll a MAIN over its subs
+        self.assertIn("OR cc.category_id IN (SELECT id FROM cached_mezmur_categories WHERE parent_id = ?)", self.db)
+        self.assertIn("parent_id = c.id", self.db)  # rolled-up counts
+
+    def test_mobile_editor_groups_subs(self):
+        self.assertIn("_pickCategories", self.editor)
+        self.assertIn("'group': group", self.editor)
+
+    def test_mobile_underline_parity(self):
+        self.assertIn("__ (.+?) __|".replace(" ", ""), self.detail.replace(" ", "")[:0] or self.detail) if False else None
+        self.assertRegex(self.detail, r"__\(\.\+\?\)__")
 
 
 class SubcategoryServerTests(unittest.TestCase):
@@ -1571,7 +1646,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 16,", self.db)  # 16 = single Amharic title (P28); 15 = word index
+        self.assertIn("version: 17,", self.db)  # 17 = two-level taxonomy (P30); 16 = single title
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)

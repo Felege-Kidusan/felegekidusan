@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 16,
+      version: 17,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -294,6 +294,17 @@ class LocalDb {
           await _createHymnSearchIndex(db);
           await _rebuildHymnSearchIndex(db);
         }
+        if (oldVersion < 17) {
+          // P30: two-level taxonomy — mains parent their subs; covers.
+          try {
+            await db.execute(
+                'ALTER TABLE cached_mezmur_categories ADD COLUMN parent_id INTEGER NULL');
+          } catch (_) {}
+          try {
+            await db.execute(
+                'ALTER TABLE cached_mezmur_categories ADD COLUMN image_url TEXT NULL');
+          } catch (_) {}
+        }
         if (oldVersion < 16) {
           // P28 (item 9): single Amharic title. Fold any Amharic title
           // into the canonical one (the Amharic name IS the hymn's
@@ -335,6 +346,8 @@ class LocalDb {
       CREATE TABLE IF NOT EXISTS cached_mezmur_categories (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
+        parent_id INTEGER NULL,
+        image_url TEXT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT
@@ -1749,7 +1762,9 @@ class LocalDb {
       args.add(language);
     }
     if (categoryId != null && categoryId > 0) {
-      where.add('EXISTS (SELECT 1 FROM cached_hymn_categories cc WHERE cc.hymn_id = cached_hymns.id AND cc.category_id = ?)');
+      where.add(
+          'EXISTS (SELECT 1 FROM cached_hymn_categories cc WHERE cc.hymn_id = cached_hymns.id AND (cc.category_id = ? OR cc.category_id IN (SELECT id FROM cached_mezmur_categories WHERE parent_id = ?)))');
+      args.add(categoryId);
       args.add(categoryId);
     }
     if (zemarianId != null && zemarianId > 0) {
@@ -1789,7 +1804,8 @@ class LocalDb {
     }
     if (categoryId != null && categoryId > 0) {
       where.add(
-          'EXISTS (SELECT 1 FROM cached_hymn_categories cc WHERE cc.hymn_id = cached_hymns.id AND cc.category_id = ?)');
+          'EXISTS (SELECT 1 FROM cached_hymn_categories cc WHERE cc.hymn_id = cached_hymns.id AND (cc.category_id = ? OR cc.category_id IN (SELECT id FROM cached_mezmur_categories WHERE parent_id = ?)))');
+      args.add(categoryId);
       args.add(categoryId);
     }
     if (zemarianId != null && zemarianId > 0) {
@@ -1900,6 +1916,10 @@ class LocalDb {
           {
             'id': id,
             'name': '${c['name'] ?? ''}',
+            'parent_id': c['parent_id'] == null ? null : _asIntLocal(c['parent_id']),
+            'image_url': c['image_url'] == null || '${c['image_url']}' == ''
+                ? null
+                : '${c['image_url']}',
             'sort_order': _asIntLocal(c['sort_order']),
             'is_active': _asIntLocal(c['is_active']),
             'updated_at': now,
@@ -1993,10 +2013,14 @@ class LocalDb {
   /// active hymns only, computed on-device from the cached joins.
   Future<Map<int, int>> getCategoryHymnCounts() async {
     final db = await database;
+    // P30: rolled-up counts — a MAIN's total includes every sub's
+    // hymns (deduped via EXISTS), a SUB counts its own leaves.
     final rows = await db.rawQuery(
-      "SELECT cc.category_id AS tid, COUNT(*) AS n FROM cached_hymn_categories cc "
-      "JOIN cached_hymns h ON h.id = cc.hymn_id AND h.status = 'active' "
-      "GROUP BY cc.category_id");
+      "SELECT c.id AS tid, (SELECT COUNT(*) FROM cached_hymns h "
+      "WHERE h.status = 'active' AND EXISTS (SELECT 1 FROM cached_hymn_categories cc "
+      "WHERE cc.hymn_id = h.id AND (cc.category_id = c.id OR cc.category_id IN "
+      "(SELECT id FROM cached_mezmur_categories WHERE parent_id = c.id)))) AS n "
+      "FROM cached_mezmur_categories c");
     return {for (final r in rows) _asIntLocal(r['tid']): _asIntLocal(r['n'])};
   }
 

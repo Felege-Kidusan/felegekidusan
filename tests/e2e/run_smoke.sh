@@ -406,7 +406,10 @@ case "$P24G" in
 esac
 # 2) the styled web assets are actually served
 curl -s "$BASE/frontend/js/mezmur.js" | grep -q "function renderLyrics" && ok "web lyrics renderer served" || fail "renderLyrics missing from served JS"
-curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -q "\*\*bold\*\*" && ok "web editor markup hint served" || fail "markup hint missing from served page"
+curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -q "mz-ed-toolbar" && ok "web visual lyrics editor served (P30)" || fail "visual editor missing from served page"
+curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -qi "genius\|spotify" && fail "third-party company name in UI" || ok "no company names in web UI"
+curl -s "$BASE/frontend/pages/mezmur_dept.php" -b "$JAR" | grep -q "toolbar-compact" && ok "compact library toolbar served (P30)" || fail "compact toolbar missing"
+curl -s "$BASE/frontend/js/mezmur.js" | grep -q "editorToMarkup" && ok "visual editor converter served" || fail "editor converter missing from JS"
 sudo -n mariadb ssms -e "DELETE FROM mezmur_hymns WHERE title LIKE 'P24 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P24 Smoke%'" >/dev/null 2>&1
 
 # --- 3x. Word-index lyrics search (Patch 25) --------------------------------
@@ -469,6 +472,27 @@ P28P=$(ssms_get "/frontend/pages/mezmur_dept.php")
 echo "$P28P" | grep -q "mzTitleAm" && fail "web still renders the Amharic-title field" || ok "web form single title (no mzTitleAm)"
 echo "$P28P" | grep -q "Search by title or lyrics" && ok "web search hint updated" || fail "web search hint stale"
 sudo -n mariadb ssms -e "DELETE w FROM mezmur_hymn_words w LEFT JOIN mezmur_hymns h ON h.id=w.hymn_id WHERE h.id IS NULL OR h.title LIKE 'P28%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P28%'; DELETE FROM activity_logs WHERE details LIKE '%P28%'" >/dev/null 2>&1
+
+# --- 3aa. Two-level taxonomy (Patch 30) --------------------------------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P30M=$(ssms_api POST mezmur/category '{"id":0,"name":"P30 Smoke Main"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P30S=$(ssms_api POST mezmur/category "{\"id\":0,\"name\":\"P30 Smoke Sub\",\"parent_id\":$P30M}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+ssms_api POST mezmur/hymn "{\"title\":\"P30 Smoke Hymn\",\"categories\":[$P30S],\"lyrics\":\"p30 body\"}" >/dev/null
+# 1) filtering by the MAIN finds the hymn stored under its SUB (roll-up)
+P30L=$(ssms_api GET "mezmur/hymns&category_id=$P30M")
+echo "$P30L" | grep -q "P30 Smoke Hymn" && ok "category roll-up: main matches sub hymns (API)" || fail "rollup API: $P30L"
+# 2) the web controller rolls up too
+ssms_login audit_super >/dev/null 2>&1
+P30W=$(curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=list&category_id=$P30M")
+echo "$P30W" | grep -q "P30 Smoke Hymn" && ok "category roll-up (web controller)" || fail "rollup web: $P30W"
+# 3) tree shape: parent_id + rolled-up counts in the categories API
+P30T=$(ssms_api GET "mezmur/categories")
+echo "$P30T" | grep -q '"parent_id":null' && echo "$P30T" | grep -q 'hymn_count_total' && ok "categories API returns two-level tree" || fail "tree API: $P30T"
+# 4) depth-3 rejected
+P30D=$(ssms_api POST mezmur/category "{\"id\":0,\"name\":\"P30 Smoke Deep\",\"parent_id\":$P30S}")
+echo "$P30D" | grep -q "two levels maximum" && ok "depth limited to two levels" || fail "depth guard: $P30D"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE hc FROM mezmur_hymn_categories hc JOIN mezmur_hymns h ON h.id=hc.hymn_id WHERE h.title LIKE 'P30 Smoke%'; DELETE FROM mezmur_categories WHERE parent_id IN (SELECT id FROM (SELECT id FROM mezmur_categories WHERE name LIKE 'P30 Smoke%') x); DELETE FROM mezmur_categories WHERE name LIKE 'P30 Smoke%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P30 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P30 Smoke%'" >/dev/null 2>&1
 
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1

@@ -73,9 +73,41 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     _loadCatalog();
   }
 
+  /// Subs grouped under mains (mains without subs offer themselves).
+  List<Map<String, dynamic>> _pickCategories = [];
+
   Future<void> _loadCatalog() async {
     final cats = await _store.categories();
     final zem = await _store.zemarians();
+    final byParent = <int, List<Map<String, dynamic>>>{};
+    final parents = <int, String>{};
+    for (final c in cats) {
+      final id = _asInt(c['id']);
+      final pid = c['parent_id'] == null ? 0 : _asInt(c['parent_id']);
+      if (pid > 0) {
+        byParent.putIfAbsent(pid, () => []).add(c);
+      } else {
+        parents[id] = '${c['name'] ?? ''}';
+      }
+    }
+    final pick = <Map<String, dynamic>>[];
+    for (final c in cats) {
+      final id = _asInt(c['id']);
+      final pid = c['parent_id'] == null ? 0 : _asInt(c['parent_id']);
+      final String group;
+      final Map<String, dynamic> row;
+      if (pid > 0) {
+        group = parents[pid] ?? 'Other';
+        row = c;
+      } else if ((byParent[id] ?? []).isEmpty) {
+        group = '${c['name'] ?? ''}';
+        row = c;
+      } else {
+        continue; // main with subs: its subs are offered, not itself
+      }
+      pick.add({...row, 'group': group});
+    }
+    _pickCategories = pick;
     if (_isEdit) {
       _selectedCategories.addAll(await _store.hymnCategoryIds(_localRowId));
       _selectedZemarians.addAll(await _store.hymnZemarianIds(_localRowId));
@@ -227,13 +259,16 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
               // P28 (item 9): ONE title — the Amharic name IS the name.
               decoration: _deco('Title (ርዕስ) *', icon: Icons.music_note)),
           const SizedBox(height: 14),
-          if (_categories.isEmpty)
+          // P30: hymns are categorized at the SUB level — the picker
+          // shows subs grouped under their main category (a main with
+          // no subs offers itself).
+          if (_pickCategories.isEmpty)
             _emptyCatalogNote('Categories (one or more)',
                 Icons.category_outlined)
           else
             TaxonomyPickField(
               label: 'Categories (one or more)',
-              items: _categories,
+              items: _pickCategories,
               selected: _selectedCategories,
               icon: Icons.category_outlined,
               onChanged: (sel) =>
@@ -297,7 +332,7 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Styling: [Verse 1] section header · **bold** · *italic* — rendered like Genius/Spotify.',
+            'Style with the toolbar — section headers, bold, italic, underline.',
             style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 2),

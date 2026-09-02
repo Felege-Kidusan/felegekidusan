@@ -90,7 +90,8 @@ class _PickSheetState extends State<_PickSheet> {
         : widget.items
             .where((it) =>
                 '${it['name'] ?? ''}'.toLowerCase().contains(q) ||
-                '${it['name_am'] ?? ''}'.toLowerCase().contains(q))
+                '${it['name_am'] ?? ''}'.toLowerCase().contains(q) ||
+                '${it['group'] ?? ''}'.toLowerCase().contains(q))
             .toList();
     return SafeArea(
       child: SizedBox(
@@ -153,11 +154,17 @@ class _PickSheetState extends State<_PickSheet> {
                       itemCount: visible.length,
                       itemBuilder: (ctx, i) {
                         final it = visible[i];
+                        // P30: grouped entries (two-level taxonomy) get a
+                        // small group header before the first row.
+                        final group = it['group'];
+                        final prevGroup = i > 0 ? visible[i - 1]['group'] : null;
+                        final showHeader =
+                            group != null && group != prevGroup;
                         final id =
                             it['id'] is int ? it['id'] as int : int.tryParse('${it['id']}') ?? 0;
                         final count = widget.counts?[id];
                         final checked = _selected.contains(id);
-                        return ListTile(
+                        final tile = ListTile(
                           dense: true,
                           contentPadding:
                               const EdgeInsets.symmetric(horizontal: 16),
@@ -197,6 +204,23 @@ class _PickSheetState extends State<_PickSheet> {
                                   style: TextStyle(
                                       fontSize: 11,
                                       color: AppTheme.textSecondary)),
+                        );
+                        if (!showHeader) return tile;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                              child: Text('$group'.toUpperCase(),
+                                  style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.6,
+                                      color: AppTheme.textSecondary)),
+                            ),
+                            tile,
+                          ],
                         );
                       },
                     ),

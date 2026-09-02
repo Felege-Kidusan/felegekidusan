@@ -460,6 +460,29 @@
 
 /* -- Mezmur Feature 3: catalog + browse tabs + multi-select -- */
 .check-grid { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; }
+
+/* ═══ P30: compact library toolbar / taxonomy pickers / visual lyrics editor ═══ */
+.toolbar-compact { flex-wrap: nowrap; }
+.toolbar-compact .search-wrap { flex: 1 1 260px; min-width: 200px; }
+.toolbar-compact select { width: auto; flex: 0 1 auto; min-width: 118px; }
+@media (max-width: 920px) { .toolbar-compact { flex-wrap: wrap; } }
+.mz-catpick { position: relative; }
+.mz-pick-btn { text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: .5rem; background: var(--school-card, #fff); }
+.mz-pick-btn::after { content: '\25BE'; color: var(--school-text-dim); }
+.mz-pick-panel { position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; right: 0; max-height: 300px; overflow: auto; background: var(--school-card, #fff); border: 1px solid var(--school-border, #e5e7eb); border-radius: 10px; box-shadow: 0 14px 36px rgba(0,0,0,.2); padding: .55rem .75rem .7rem; }
+.mz-pick-group-title { display: flex; align-items: center; gap: .45rem; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--school-text-dim); margin: .4rem 0 .15rem; }
+.mz-pick-item { display: flex; align-items: center; gap: .5rem; padding: .4rem .35rem .4rem .5rem; font-size: .82rem; cursor: pointer; border-radius: 7px; }
+.mz-pick-item:hover { background: rgba(79,70,229,.07); }
+.mz-pick-item input { accent-color: var(--school-primary, #4f46e5); width: 15px; height: 15px; }
+.mz-thumb { width: 26px; height: 26px; border-radius: 6px; flex: 0 0 26px; background-size: cover; background-position: center; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: .66rem; font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.mz-pick-search { margin: .25rem 0 .4rem; }
+.mz-ed-toolbar { display: flex; gap: .25rem; align-items: center; padding: .4rem .55rem; border: 1px solid var(--school-border, #e5e7eb); border-bottom: none; border-radius: 10px 10px 0 0; background: rgba(127,127,127,.07); }
+.mz-ed-btn { min-width: 30px; height: 28px; padding: 0 .45rem; border: none; border-radius: 6px; background: transparent; cursor: pointer; font-size: .8rem; color: inherit; display: inline-flex; align-items: center; gap: .3rem; }
+.mz-ed-btn:hover { background: rgba(79,70,229,.14); }
+.mz-editor { border: 1px solid var(--school-border, #e5e7eb); border-radius: 0 0 10px 10px; padding: .7rem .95rem; min-height: 230px; max-height: 430px; overflow: auto; line-height: 2.05; font-size: .95rem; outline: none; }
+.mz-editor:focus { border-color: var(--school-primary, #4f46e5); }
+.mz-editor:empty::before, .mz-editor[data-empty="1"]::before { content: attr(data-placeholder); color: var(--school-text-dim); }
+.mz-editor .mz-ed-sec { font-weight: 800; text-transform: uppercase; letter-spacing: .07em; font-size: .78rem; color: var(--school-primary, #4f46e5); margin-top: 16px; }
 .check-grid label { font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
 .catalog-manage { margin-top: 0.4rem; }
 .chip-list { display: flex; flex-wrap: wrap; gap: 0.45rem; padding: 0.5rem 1rem; }

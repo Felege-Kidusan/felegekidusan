@@ -215,7 +215,7 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
   }
 }
 
-/// P24: Genius/Spotify-style lyrics rendering (plain text in, styled
+/// P24: styled lyrics rendering (plain text in, styled
 /// blocks out): [Section] lines become headers, **bold** / *italic*
 /// become spans, blank lines become stanza spacing. Nothing is stored
 /// transformed — parsing happens at render time only.
@@ -224,7 +224,7 @@ class _LyricsView extends StatelessWidget {
   const _LyricsView(this.src);
 
   static final _sectionRe = RegExp(r'^\[(.+)\]$');
-  static final _inlineRe = RegExp(r'\*\*(.+?)\*\*|\*(.+?)\*');
+  static final _inlineRe = RegExp(r'\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*');
 
   List<Widget> _build() {
     final out = <Widget>[];
@@ -278,9 +278,16 @@ class _LyricsView extends StatelessWidget {
           spans.add(TextSpan(
               text: m2.group(1),
               style: const TextStyle(fontWeight: FontWeight.w800)));
-        } else {
+        } else if (m2.group(2) != null) {
+          // P30: underline tier (visual editor parity).
           spans.add(TextSpan(
               text: m2.group(2),
+              style: const TextStyle(
+                  decoration: TextDecoration.underline,
+                  decorationThickness: 2)));
+        } else {
+          spans.add(TextSpan(
+              text: m2.group(3),
               style: const TextStyle(fontStyle: FontStyle.italic)));
         }
         rest = rest.substring(m2.end);

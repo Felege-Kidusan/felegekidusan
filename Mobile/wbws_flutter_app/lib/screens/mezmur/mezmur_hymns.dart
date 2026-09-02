@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/hymn_store.dart';
+import '../../utils/config.dart';
 import '../../services/sync_service.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
@@ -12,10 +13,11 @@ import '../../widgets/offline_banner.dart';
 import '../../widgets/taxonomy_pick_sheet.dart';
 import 'mezmur_categories.dart';
 import 'mezmur_hymn_detail.dart';
+import 'mezmur_category_screen.dart';
 import 'mezmur_hymn_editor.dart';
 import 'mezmur_zemarians.dart';
 
-/// Hymn library — LOCAL-FIRST (Telegram / Google Drive model).
+/// Hymn library — LOCAL-FIRST (local-first model).
 ///
 /// Every read hits the on-device SQLite copy: opening the screen and
 /// searching are instant and work with the radio off. Writes (add,
@@ -23,13 +25,13 @@ import 'mezmur_zemarians.dart';
 /// engine pushes them with idempotency keys and pulls a delta of
 /// server changes via a change-token cursor.
 ///
-/// P26 structure (Material top-tabs, Telegram search):
+/// P26 structure (Material top-tabs, unified search):
 /// - Hymns · Categories · Singers · Add (curators only) as AppBar tabs
 ///   (no nested bottom navigation — one navigation plane per screen).
 /// - ONE search field above the tabs' content: the same query filters
-///   whichever tab is open, so the tabs act as Telegram-style
+///   whichever tab is open, so the tabs act as ranked-result
 ///   result-type filters (Hymns / Categories / Singers).
-/// - Zero query -> Spotify-style gradient browse tiles with on-device
+/// - Zero query -> cover-tile gradient browse tiles with on-device
 ///   counts; query active -> ranked result lists with match context.
 class MezmurHymnsScreen extends StatefulWidget {
   /// Deep links — open straight into a filtered list (tapped a
@@ -73,7 +75,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   Timer? _searchDebounce;
   StreamSubscription<SyncStatus>? _syncSub;
 
-  /// Telegram/Google keystroke rule (parity with the server + store):
+  /// Keystroke rule (parity with the server + store):
   /// a single character never triggers a search.
   bool get _searching => _searchCtrl.text.trim().length >= 2;
 
@@ -149,7 +151,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     final zem = await _store.zemarians();
     final catCounts = await _store.categoryHymnCounts();
     final zemCounts = await _store.zemarianHymnCounts();
-    // Telegram-style unified search: the same query also ranks the
+    // ranked-result unified search: the same query also ranks the
     // category / singer catalogs for their result tabs.
     var catResults = const <Map<String, dynamic>>[];
     var zemResults = const <Map<String, dynamic>>[];
@@ -246,7 +248,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   }
 
   /// Tap a category/singer result (or tile): open the Hymns tab
-  /// filtered by it and clear the query (Telegram: tapping a result
+  /// filtered by it and clear the query (unified search: tapping a result
   /// opens it; the filter chip header keeps the context clearable).
   void _browseTaxonomy(int id, {required bool singer}) {
     _searchCtrl.clear();
@@ -312,34 +314,40 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
               ),
             ),
         ],
-        bottom: TabBar(
-          controller: _tabCtrl,
-          isScrollable: false,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          labelStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-          tabs: [
-            const Tab(
-                icon: Icon(Icons.music_note_outlined, size: 18),
-                text: 'Hymns'),
-            const Tab(
-                icon: Icon(Icons.grid_view_outlined, size: 18),
-                text: 'Categories'),
-            const Tab(
-                icon: Icon(Icons.person_outline, size: 18),
-                text: 'Singers'),
-            if (_addTab > 0)
-              const Tab(icon: Icon(Icons.add_circle_outline, size: 18), text: 'Add'),
-          ],
-        ),
+      ),
+      // P30 (item 6): the section's own navigation lives at the BOTTOM —
+      // this screen is pushed full-screen, so the main app bar is out of
+      // the way and the hymn library owns the bottom position.
+      bottomNavigationBar: NavigationBar(
+        height: 64,
+        selectedIndex: _tab.clamp(0, _addTab > 0 ? 3 : 2),
+        onDestinationSelected: (i) => _tabCtrl.animateTo(i),
+        destinations: [
+          const NavigationDestination(
+              icon: Icon(Icons.music_note_outlined),
+              selectedIcon: Icon(Icons.music_note),
+              label: 'Hymns'),
+          const NavigationDestination(
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view),
+              label: 'Categories'),
+          const NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Singers'),
+          if (_addTab > 0)
+            const NavigationDestination(
+                icon: Icon(Icons.add_circle_outline),
+                selectedIcon: Icon(Icons.add_circle),
+                label: 'Add'),
+        ],
       ),
       body: Column(
         children: [
           const OfflineBanner(),
           // One shared search field for the three browse tabs — the
           // tabs act as result-type filters over the same query
-          // (Telegram's search mechanism). The Add tab is a form.
+          // (the unified-search pattern). The Add tab is a form.
           if (_tab != _addTab)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -524,7 +532,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   }
 
   // ── categories / singers tabs ────────────────────────────────
-  // Zero query: Spotify-style gradient tiles (browse). Query active:
+  // Zero query: cover-tile gradient tiles (browse). Query active:
   // ranked result list (Telegram) — tap a result to open its hymns.
 
   Widget _taxonomyTab({required bool categories}) {
@@ -541,7 +549,12 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   ];
 
   Widget _browseGrid({required bool categories}) {
-    final rows = categories ? _categories : _zemarians;
+    // P30 (items 4+5): the grid shows MAIN categories with cover
+    // images; a tap opens the category's own full screen (its subs
+    // and hymns live there).
+    final rows = categories
+        ? _categories.where((c) => c['parent_id'] == null).toList()
+        : _zemarians;
     final tiles = <Widget>[
       _tile(
         'All Hymns',
@@ -564,12 +577,26 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
       final id = _asInt(r['id']);
       final count =
           categories ? (_catCounts[id] ?? 0) : (_zemCounts[id] ?? 0);
+      final img = categories ? '${r['image_url'] ?? ''}' : '';
       tiles.add(_tile(
         '${r['name']}',
         count,
         icon: categories ? Icons.category_outlined : Icons.person_outline,
         colors: _palettes[i % _palettes.length],
-        onTap: () => _browseTaxonomy(id, singer: !categories),
+        imageUrl: img.isEmpty ? null : img,
+        onTap: () {
+          if (categories) {
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => MezmurCategoryScreen(
+                categoryId: id,
+                name: '${r['name']}',
+                imageUrl: img.isEmpty ? null : img,
+              ),
+            ));
+          } else {
+            _browseTaxonomy(id, singer: true);
+          }
+        },
       ));
     }
     return GridView.count(
@@ -586,6 +613,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     required IconData icon,
     required List<Color> colors,
     VoidCallback? onTap,
+    String? imageUrl,
   }) {
     return Padding(
       padding: const EdgeInsets.all(6),
@@ -594,6 +622,17 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
+            // P30 (item 5): uploaded cover under a dark scrim; the
+            // signature gradient shows through while it loads (and
+            // forever, for categories without a cover).
+            image: imageUrl != null && imageUrl!.isNotEmpty
+                ? DecorationImage(
+                    image: NetworkImage(
+                        '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/api/v1$'), '')}$imageUrl'),
+                    fit: BoxFit.cover,
+                    colorFilter: ColorFilter.mode(
+                        Colors.black45, BlendMode.darken))
+                : null,
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -632,7 +671,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     );
   }
 
-  /// Telegram-style ranked results for the category / singer tabs.
+  /// ranked-result ranked results for the category / singer tabs.
   Widget _resultList({required bool categories}) {
     final rows = categories ? _catResults : _zemResults;
     if (rows.isEmpty) {
@@ -756,7 +795,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                           fontSize: 11, color: AppTheme.textSecondary),
                     ),
                     // P25/P26: lyrics matches carry a "Lyrics" tag and the
-                    // matching line (Spotify: bold title, grey context).
+                    // matching line (bold title, grey context).
                     if (lyricMatch) ...[
                       const SizedBox(height: 3),
                       Row(children: [
@@ -830,6 +869,22 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     );
   }
 
+  /// Mains first, each followed by its subs (indented) — the filter
+  /// sheet mirrors the two-level taxonomy; picking a MAIN rolls up.
+  List<Map<String, dynamic>> _filterCategoryItems() {
+    final mains = _categories.where((c) => c['parent_id'] == null).toList();
+    final out = <Map<String, dynamic>>[];
+    for (final m in mains) {
+      out.add(m);
+      final mid = _asInt(m['id']);
+      out.addAll(_categories
+          .where((c) =>
+              c['parent_id'] != null && _asInt(c['parent_id']) == mid)
+          .map((c) => {...c, 'name': '— ${c['name']}'}));
+    }
+    return out;
+  }
+
   // ── P28 (item 5): the filter sheet ──────────────────────────
   // Full-screen-context filters: taxonomy single-picks, length,
   // language, archived. The Apply button carries the LIVE result count
@@ -898,7 +953,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                   const SizedBox(height: 4),
                   TaxonomyPickField(
                     label: 'Category',
-                    items: _categories,
+                    items: _filterCategoryItems(),
                     selected: dCategoryId == null ? {} : {dCategoryId!},
                     icon: Icons.category_outlined,
                     single: true,

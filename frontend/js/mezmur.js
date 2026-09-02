@@ -433,7 +433,7 @@
         renderLibPagination();
     }
 
-    /** Escape then wrap the user's search tokens in <mark> (Telegram-style). */
+    /** Escape then wrap the user's search tokens in <mark>. */
     function hi(text) {
         var out = esc(text == null ? '' : text);
         if (!lib.search) return out;
@@ -514,12 +514,42 @@
     function loadCatalog() {
         apiGet('action=categories').then(function (d) {
             if (d && d.status === 'success') catalog.categories = d.items || [];
-            renderCatalogBoxes(); renderCatalogList();
+            renderCatalogBoxes(); renderCatalogList(); populateCategoryFilter();
         }).catch(function () {});
         apiGet('action=zemarians').then(function (d) {
             if (d && d.status === 'success') catalog.zemarians = d.items || [];
             renderCatalogBoxes(); renderCatalogList();
         }).catch(function () {});
+    }
+
+    /** P30: the library filter follows the two-level taxonomy — mains
+     *  group their subs (optgroup); picking a MAIN filters roll-up (the
+     *  server matches the main + all of its subs). */
+    function populateCategoryFilter() {
+        var sel = $('mzCategoryFilter');
+        if (!sel) return;
+        var cur = sel.value;
+        var cats = catalog.categories || [];
+        var mains = cats.filter(function (c) { return c.parent_id == null && Number(c.is_active) === 1; });
+        var html = '<option value="">All categories</option>';
+        mains.forEach(function (m) {
+            var subs = cats.filter(function (c) {
+                return c.parent_id != null && c.parent_id === m.id && Number(c.is_active) === 1;
+            });
+            if (subs.length) {
+                html += '<optgroup label="' + esc(m.name) + ' (' + (m.hymn_count_total || 0) + ')">';
+                html += '<option value="' + Number(m.id) + '">All of ' + esc(m.name) + '</option>';
+                subs.forEach(function (sb) {
+                    html += '<option value="' + Number(sb.id) + '">' + esc(sb.name) + ' (' + (sb.hymn_count || 0) + ')</option>';
+                });
+                html += '</optgroup>';
+            } else {
+                html += '<option value="' + Number(m.id) + '">' + esc(m.name) + ' (' + (m.hymn_count_total || m.hymn_count || 0) + ')</option>';
+            }
+        });
+        sel.innerHTML = html;
+        sel.value = cur;
+        if (sel.value !== cur) { sel.value = ''; lib.categoryId = 0; }
     }
 
     /** P23: hidden catalog entries stay pickable (a hymn may legitimately
@@ -530,19 +560,103 @@
         return esc(i.name) + (hidden ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '');
     }
 
+    // ── P30 taxonomy pickers (dropdown panels; two-level for categories) ──
+    var PICK_GRADIENTS = [
+        ['#5A1212', '#D4AF37'], ['#4f46e5', '#7c3aed'], ['#0ea5e9', '#2563eb'],
+        ['#059669', '#0d9488'], ['#d97706', '#dc2626'], ['#db2777', '#9333ea']
+    ];
+    function hashCode(str) {
+        var h = 0;
+        for (var i = 0; i < str.length; i++) { h = ((h << 5) - h + str.charCodeAt(i)) | 0; }
+        return Math.abs(h);
+    }
+    function thumbHtml(item) {
+        var img = item.image_url ? ' style="background-image:url(\'' + item.image_url + '\')"' : '';
+        var label = item.image_url ? '' : esc((item.name || '?').trim().charAt(0));
+        if (!img) {
+            var g = PICK_GRADIENTS[hashCode(String(item.name || '')) % PICK_GRADIENTS.length];
+            img = ' style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ')"';
+        }
+        return '<span class="mz-thumb"' + img + ' aria-hidden="true">' + label + '</span>';
+    }
+    function pickItemHtml(box, item, checked) {
+        var count = item.parent_id == null ? (item.hymn_count_total || 0) : (item.hymn_count || 0);
+        return '<label class="mz-pick-item"><input type="checkbox" value="' + Number(item.id) + '"' +
+            (checked ? ' checked' : '') + '> ' + thumbHtml(item) +
+            '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(item.name) + '</span>' +
+            '<span class="text-dim" style="font-size:.7rem">' + count + '</span></label>';
+    }
     function renderCatalogBoxes(selCats, selZem) {
         var cbox = $('mzCategoriesBox');
-        if (cbox) cbox.innerHTML = (catalog.categories || []).map(function (c) {
-            var checked = selCats && selCats.some(function (s) { return String(s.id) === String(c.id); });
-            return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
-                '<input type="checkbox" name="mzCat" value="' + c.id + '"' + (checked ? ' checked' : '') + '> ' + catLabel(c) + '</label>';
-        }).join('') || '<span class="text-dim" style="font-size:.75rem">No categories yet.</span>';
+        if (cbox) {
+            var cats = catalog.categories || [];
+            var mains = cats.filter(function (c) { return c.parent_id == null; });
+            var html = mains.map(function (m) {
+                var subs = cats.filter(function (c) { return c.parent_id != null && c.parent_id === m.id; });
+                var head = '<div class="mz-pick-group-title">' + thumbHtml(m) + esc(m.name) + '</div>';
+                var items = subs.length
+                    ? subs.map(function (sb) {
+                        var checked = selCats && selCats.some(function (x) { return String(x.id) === String(sb.id); });
+                        return pickItemHtml(cbox, sb, checked);
+                    }).join('')
+                    : (function () {
+                        var checked = selCats && selCats.some(function (x) { return String(x.id) === String(m.id); });
+                        return pickItemHtml(cbox, m, checked);
+                    })();
+                return '<div class="mz-pick-group">' + head + items + '</div>';
+            }).join('');
+            cbox.innerHTML = html || '<span class="text-dim" style="font-size:.75rem">No categories yet — add one first.</span>';
+            updatePickBtn('mzCatPickBtn', 'mzCategoriesBox', 'Select categories…');
+        }
         var zbox = $('mzZemariansBox');
-        if (zbox) zbox.innerHTML = (catalog.zemarians || []).map(function (z) {
-            var checked = selZem && selZem.some(function (s) { return String(s.id) === String(z.id); });
-            return '<label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">' +
-                '<input type="checkbox" name="mzZem" value="' + z.id + '"' + (checked ? ' checked' : '') + '> ' + catLabel(z) + '</label>';
-        }).join('') || '<span class="text-dim" style="font-size:.75rem">No singers yet.</span>';
+        if (zbox) {
+            var zems = catalog.zemarians || [];
+            zbox.innerHTML = zems.map(function (z) {
+                var checked = selZem && selZem.some(function (x) { return String(x.id) === String(z.id); });
+                return pickItemHtml(zbox, z, checked);
+            }).join('') || '<span class="text-dim" style="font-size:.75rem">No singers yet — add one first.</span>';
+            updatePickBtn('mzZemPickBtn', 'mzZemariansBox', 'Select singers…');
+        }
+    }
+    function updatePickBtn(btnId, boxId, placeholder) {
+        var btn = $(btnId), box = $(boxId);
+        if (!btn || !box) return;
+        var picked = [];
+        box.querySelectorAll('input:checked').forEach(function (cb) {
+            var item = cb.closest('.mz-pick-item');
+            var name = item ? item.querySelector('span[style*="flex"]') : null;
+            picked.push(name ? name.textContent.trim() : '#' + cb.value);
+        });
+        btn.innerHTML = '';
+        btn.appendChild(document.createTextNode(picked.length
+            ? picked.slice(0, 3).join(', ') + (picked.length > 3 ? ' +' + (picked.length - 3) : '')
+            : placeholder));
+    }
+    function initPickPanels() {
+        [['mzCatPickBtn', 'mzCategoriesBox'], ['mzZemPickBtn', 'mzZemariansBox']].forEach(function (pair) {
+            var btn = $(pair[0]), box = $(pair[1]);
+            if (!btn || !box || btn.dataset.p30) return;
+            btn.dataset.p30 = '1';
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                box.classList.toggle('is-hidden');
+            });
+            box.addEventListener('click', function (e) {
+                e.stopPropagation();
+                setTimeout(function () { updatePickBtn(pair[0], pair[1], pair[0] === 'mzCatPickBtn' ? 'Select categories…' : 'Select singers…'); }, 0);
+            });
+        });
+        document.addEventListener('click', function () {
+            ['mzCategoriesBox', 'mzZemariansBox'].forEach(function (id) {
+                var el = $(id); if (el) el.classList.add('is-hidden');
+            });
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape') return;
+            ['mzCategoriesBox', 'mzZemariansBox'].forEach(function (id) {
+                var el = $(id); if (el) el.classList.add('is-hidden');
+            });
+        });
     }
 
     function checkedIds(boxId) {
@@ -658,7 +772,7 @@
 
     function clearHymnForm() {
         $('mzHymnId').value = '0'; $('mzTitle').value = '';
-        $('mzLyrics').value = '';
+        setEditorMarkup('');
         $('mzLength').value = 'long'; $('mzLanguage').value = 'amharic';
         renderCatalogBoxes([], []);
         showError($('mzModalError'), '');
@@ -677,7 +791,7 @@
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
             var h = d.item;
             $('mzHymnId').value = h.id; $('mzTitle').value = h.title || '';
-            $('mzLyrics').value = h.lyrics || '';
+            setEditorMarkup(h.lyrics || '');
             $('mzLength').value = h.length || 'long'; $('mzLanguage').value = h.language || 'amharic';
             renderCatalogBoxes(h.categories || [], h.zemarians || []);
             openModalF('mzHymnModal', '#mzTitle');
@@ -707,9 +821,90 @@
         });
     }
 
-    /** P24: Genius/Spotify-style lyrics rendering. Plain text is stored;
+    /** P24: styled lyrics rendering. Plain text is stored;
      *  [Section] lines become headers, **bold** / *italic* become emphasis.
      *  ESCAPE FIRST — everything after that only adds our own safe tags. */
+    // ── P30 visual lyrics editor: type styled text, store the same
+    //    portable markup (**bold**, *italic*, __underline__, [Section])
+    //    so old data and every existing client keep working as-is. ──
+    function markupToHtml(src) {
+        var txt = String(src == null ? '' : src);
+        if (!txt.trim()) return '';
+        return txt.split(/\r?\n/).map(function (line) {
+            var m = line.match(/^\[(.+)\]$/);
+            if (m) return '<div class="mz-ed-sec">' + esc(m[1]) + '</div>';
+            var body = esc(line)
+                .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+                .replace(/__(.+?)__/g, '<u>$1</u>')
+                .replace(/\*(.+?)\*/g, '<i>$1</i>');
+            return '<div>' + (body || '<br>') + '</div>';
+        }).join('');
+    }
+    function editorToMarkup(ed) {
+        var lines = [], buf = [];
+        function flush() { lines.push(buf.join('')); buf = []; }
+        function walk(node) {
+            if (node.nodeType === 3) { buf.push(node.textContent); return; }
+            if (node.nodeName === 'BR') { flush(); return; }
+            if (node.classList && node.classList.contains('mz-ed-sec')) {
+                flush();
+                var t = (node.textContent || '').trim();
+                lines.push(t ? '[' + t + ']' : '');
+                return;
+            }
+            var tag = node.nodeName;
+            var open = (tag === 'B' || tag === 'STRONG') ? '**' : (tag === 'I' || tag === 'EM') ? '*' : (tag === 'U') ? '__' : '';
+            if (open) buf.push(open);
+            node.childNodes.forEach(walk);
+            if (open) buf.push(open);
+        }
+        Array.prototype.forEach.call(ed.childNodes, function (n) { walk(n); flush(); });
+        // collapse trailing empties
+        while (lines.length && lines[lines.length - 1] === '') lines.pop();
+        return lines.join('\n');
+    }
+    function setEditorMarkup(txt) {
+        var ed = $('mzEditor');
+        if (!ed) return;
+        ed.innerHTML = markupToHtml(txt);
+        ed.dataset.empty = ed.textContent.trim() ? '' : '1';
+        $('mzLyrics').value = txt == null ? '' : String(txt);
+    }
+    function syncEditor() {
+        var ed = $('mzEditor');
+        if (!ed) return;
+        $('mzLyrics').value = editorToMarkup(ed);
+        ed.dataset.empty = ed.textContent.trim() ? '' : '1';
+    }
+    function initLyricsEditor() {
+        var ed = $('mzEditor');
+        if (!ed || ed.dataset.p30) return;
+        ed.dataset.p30 = '1';
+        ed.addEventListener('input', syncEditor);
+        // paste as plain text — styling comes from the toolbar only
+        ed.addEventListener('paste', function (e) {
+            e.preventDefault();
+            var txt = (e.clipboardData || window.clipboardData).getData('text/plain');
+            document.execCommand('insertText', false, txt);
+        });
+        document.querySelectorAll('.mz-ed-btn').forEach(function (btn) {
+            btn.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep selection
+            btn.addEventListener('click', function () {
+                ed.focus();
+                var cmd = btn.getAttribute('data-cmd');
+                if (cmd === 'section') {
+                    var label = window.prompt('Section name (e.g. Verse 1, Chorus):', 'Verse 1');
+                    if (!label) return;
+                    document.execCommand('insertHTML', false,
+                        '</div><div class="mz-ed-sec">' + esc(label.trim()) + '</div><div><br></div>');
+                } else {
+                    document.execCommand(cmd, false, null);
+                }
+                syncEditor();
+            });
+        });
+    }
+
     function renderLyrics(src) {
         var txt = esc(src == null ? '' : String(src));
         if (!txt) return '<div style="font-size:.9rem;opacity:.65;font-style:italic">(No lyrics recorded)</div>';
@@ -731,6 +926,7 @@
             // bold first, then italic on what remains
             buf.push(line
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.+?)__/g, '<u>$1</u>')
                 .replace(/\*(.+?)\*/g, '<em>$1</em>'));
         });
         flush();
@@ -1448,8 +1644,15 @@
                 lib.search = t; lib.page = 1; loadList();
             }, 160);
         });
-        $('mzCategoryFilter').addEventListener('change', function () { lib.category = this.value; lib.page = 1; loadList(); });
+        $('mzCategoryFilter').addEventListener('change', function () {
+            lib.category = '';
+            lib.categoryId = parseInt(this.value, 10) || 0;
+            lib.page = 1; loadList();
+        });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });
+        initPickPanels();
+        initLyricsEditor();
+        setEditorMarkup('');
         $('mzLengthFilter').addEventListener('change', function () { lib.length = this.value; lib.page = 1; loadList(); });
         $('mzLanguageFilter').addEventListener('change', function () { lib.language = this.value; lib.page = 1; loadList(); });
         loadCatalog();

@@ -234,8 +234,8 @@ ob_start();
                 </div>
 
                 <div class="school-card">
-                    <!-- Toolbar -->
-                    <div class="toolbar">
+                    <!-- Toolbar: one compact professional row (P30) -->
+                    <div class="toolbar toolbar-compact">
                         <div class="search-wrap">
                             <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                             <input id="mzSearch" class="school-input" type="search" placeholder="Search by title or lyrics…" autocomplete="off" aria-label="Search hymns">
@@ -528,14 +528,16 @@ ob_start();
             <label class="school-label" for="mzTitle">Title (ርዕስ) *</label>
             <input id="mzTitle" class="school-input" maxlength="255" autocomplete="off">
         </div>
-        <div class="school-form-group">
-            <label class="school-label">Categories (one or more)</label>
-            <div id="mzCategoriesBox" class="check-grid"></div>
+        <div class="school-form-group mz-catpick">
+            <label class="school-label" id="mzCatsLbl">Categories (one or more)</label>
+            <button type="button" id="mzCatPickBtn" class="school-input mz-pick-btn" aria-haspopup="listbox" aria-labelledby="mzCatsLbl">Select categories…</button>
+            <div id="mzCategoriesBox" class="mz-pick-panel is-hidden" role="listbox"></div>
             <button type="button" class="btn-secondary btn-sm catalog-manage" onclick="Mezmur.openCatalog('categories')"><i class="fa-solid fa-tags"></i> Manage categories</button>
         </div>
-        <div class="school-form-group">
-            <label class="school-label">Singers / Zemarians (one or more)</label>
-            <div id="mzZemariansBox" class="check-grid"></div>
+        <div class="school-form-group mz-catpick">
+            <label class="school-label" id="mzZemLbl">Singers / Zemarians (one or more)</label>
+            <button type="button" id="mzZemPickBtn" class="school-input mz-pick-btn" aria-haspopup="listbox" aria-labelledby="mzZemLbl">Select singers…</button>
+            <div id="mzZemariansBox" class="mz-pick-panel is-hidden" role="listbox"></div>
             <button type="button" class="btn-secondary btn-sm catalog-manage" onclick="Mezmur.openCatalog('zemarians')"><i class="fa-solid fa-user-plus"></i> Manage singers</button>
         </div>
         <div class="school-form-group">
@@ -553,9 +555,17 @@ ob_start();
             </select>
         </div>
         <div class="school-form-group">
-            <label class="school-label" for="mzLyrics">Lyrics</label>
-            <textarea id="mzLyrics" class="school-input amharic" rows="9" placeholder="የመዝሙሩ ግጥም…"></textarea>
-            <p class="text-dim" style="font-size:.72rem;margin-top:.25rem">Styling: <code>[Verse 1]</code> section header &middot; <code>**bold**</code> &middot; <code>*italic*</code> &mdash; rendered like Genius/Spotify.</p>
+            <label class="school-label" for="mzEditor">Lyrics</label>
+            <div class="mz-ed-toolbar" role="toolbar" aria-label="Lyrics styling">
+                <button type="button" class="mz-ed-btn" data-cmd="bold" title="Bold (Ctrl+B)" aria-label="Bold"><i class="fa-solid fa-bold"></i></button>
+                <button type="button" class="mz-ed-btn" data-cmd="italic" title="Italic (Ctrl+I)" aria-label="Italic"><i class="fa-solid fa-italic"></i></button>
+                <button type="button" class="mz-ed-btn" data-cmd="underline" title="Underline (Ctrl+U)" aria-label="Underline"><i class="fa-solid fa-underline"></i></button>
+                <span style="width:1px;height:18px;background:var(--school-border,#e5e7eb);margin:0 .25rem"></span>
+                <button type="button" class="mz-ed-btn" data-cmd="section" title="Insert section header (e.g. Verse 1)" aria-label="Insert section header"><i class="fa-solid fa-heading"></i> Section</button>
+            </div>
+            <div id="mzEditor" class="mz-editor amharic" contenteditable="true" spellcheck="false" data-placeholder="የመዝሙሩ ግጥም…"></div>
+            <textarea id="mzLyrics" class="is-hidden" aria-hidden="true"></textarea>
+            <p class="text-dim" style="font-size:.72rem;margin-top:.25rem">Style as you write with the toolbar — what you see is how it prints.</p>
         </div>
         <div class="school-error-msg is-hidden" id="mzModalError" role="alert"></div>
         <button class="btn-primary btn-block" id="mzSaveBtn" onclick="Mezmur.save()"><i class="fa-solid fa-save"></i> Save Hymn</button>
