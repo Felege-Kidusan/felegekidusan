@@ -28,7 +28,9 @@ class ApiResponse {
     return ApiResponse(
       success: json['status'] == 'success',
       message: json['message'],
-      data: json['data'],
+      // Some endpoints wrap their payload in `data`, while the Mezmur
+      // contract returns fields such as `items` at the response root.
+      data: json['data'] ?? json,
       statusCode: code,
       isAuthError: code == 401 || code == 403,
     );
