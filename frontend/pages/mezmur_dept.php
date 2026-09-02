@@ -296,7 +296,47 @@ ob_start();
             <!-- ═══ ATTENDANCE SECTION ═══ -->
             <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-<section id="section-attendance" class="school-section" data-section="attendance">
+<!-- ═══ SECTION: CATALOG (standalone singers/category/subcategory manager) ═══ -->
+            <section id="section-catalog" class="school-section" data-section="catalog">
+                <div class="page-head">
+                    <h2><i class="fa-solid fa-tags"></i> Catalog</h2>
+                    <div class="page-head-sub">Categories, sub-categories &amp; singers — everything managed here, inline.</div>
+                </div>
+                <div class="school-card">
+                    <div class="toolbar">
+                        <button class="btn-secondary btn-sm mz-cmgr-tab active" id="mzMgrCatTabBtn" onclick="Mezmur.mgrTab('categories')"><i class="fa-solid fa-sitemap"></i> Categories &amp; Sub-categories</button>
+                        <button class="btn-secondary btn-sm mz-cmgr-tab" id="mzMgrZemTabBtn" onclick="Mezmur.mgrTab('zemarians')"><i class="fa-solid fa-user-group"></i> Singers</button>
+                    </div>
+
+                    <!-- categories manager -->
+                    <div id="mzMgrCats">
+                        <div class="toolbar">
+                            <div class="toolbar-grow"><input id="mzMgrMainName" class="school-input" maxlength="50" placeholder="New main category name…" autocomplete="off"></div>
+                            <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddMain()"><i class="fa-solid fa-plus"></i> Add main category</button>
+                        </div>
+                        <div class="table-shell"><table class="school-table">
+                            <thead><tr><th style="width:44px">Cover</th><th>Name</th><th style="width:70px">Hymns</th><th style="width:150px">Order</th><th style="width:290px">Actions</th></tr></thead>
+                            <tbody id="mzMgrCatRows"></tbody>
+                        </table></div>
+                        <input type="file" id="mzMgrFile" accept="image/jpeg,image/png,image/webp" class="is-hidden" aria-hidden="true">
+                    </div>
+
+                    <!-- singers manager -->
+                    <div id="mzMgrZems" class="is-hidden">
+                        <div class="toolbar">
+                            <div class="toolbar-grow"><input id="mzMgrZemName" class="school-input" maxlength="100" placeholder="New singer name…" autocomplete="off"></div>
+                            <input id="mzMgrZemNameAm" class="school-input amharic" maxlength="100" placeholder="የዘማሪያን ስም (በአማርኛ)" style="max-width:220px" autocomplete="off">
+                            <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddZem()"><i class="fa-solid fa-plus"></i> Add singer</button>
+                        </div>
+                        <div class="table-shell"><table class="school-table">
+                            <thead><tr><th>Name</th><th>ስም በአማርኛ</th><th style="width:70px">Hymns</th><th style="width:210px">Actions</th></tr></thead>
+                            <tbody id="mzMgrZemRows"></tbody>
+                        </table></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="section-attendance" class="school-section" data-section="attendance">
 
                 <!-- Day list view -->
                 <div id="mzSessionListView">
@@ -528,10 +568,17 @@ ob_start();
             <label class="school-label" for="mzTitle">Title (ርዕስ) *</label>
             <input id="mzTitle" class="school-input" maxlength="255" autocomplete="off">
         </div>
-        <div class="school-form-group mz-catpick">
-            <label class="school-label" id="mzCatsLbl">Categories (one or more)</label>
-            <button type="button" id="mzCatPickBtn" class="school-input mz-pick-btn" aria-haspopup="listbox" aria-labelledby="mzCatsLbl">Select categories…</button>
-            <div id="mzCategoriesBox" class="mz-pick-panel is-hidden" role="listbox"></div>
+        <div class="school-form-group">
+            <div class="mz-cascade">
+                <div>
+                    <label class="school-label" for="mzHymnMainCat">Category *</label>
+                    <select id="mzHymnMainCat" class="school-input" aria-label="Category"></select>
+                </div>
+                <div>
+                    <label class="school-label" for="mzHymnSubCat">Sub-category *</label>
+                    <select id="mzHymnSubCat" class="school-input" aria-label="Sub-category" disabled><option value="">Select a category first…</option></select>
+                </div>
+            </div>
             <button type="button" class="btn-secondary btn-sm catalog-manage" onclick="Mezmur.openCatalog('categories')"><i class="fa-solid fa-tags"></i> Manage categories</button>
         </div>
         <div class="school-form-group mz-catpick">
@@ -562,6 +609,11 @@ ob_start();
                 <button type="button" class="mz-ed-btn" data-cmd="underline" title="Underline (Ctrl+U)" aria-label="Underline"><i class="fa-solid fa-underline"></i></button>
                 <span style="width:1px;height:18px;background:var(--school-border,#e5e7eb);margin:0 .25rem"></span>
                 <button type="button" class="mz-ed-btn" data-cmd="section" title="Insert section header (e.g. Verse 1)" aria-label="Insert section header"><i class="fa-solid fa-heading"></i> Section</button>
+                <span class="mz-sec-pop is-hidden" id="mzSecPop">
+                    <input id="mzSecPopInput" maxlength="60" placeholder="Section name (e.g. Verse 1)">
+                    <button type="button" class="btn-primary btn-sm" id="mzSecPopOk">Insert</button>
+                    <button type="button" class="btn-secondary btn-sm" id="mzSecPopCancel">Cancel</button>
+                </span>
             </div>
             <div id="mzEditor" class="mz-editor amharic" contenteditable="true" spellcheck="false" data-placeholder="የመዝሙሩ ግጥም…"></div>
             <textarea id="mzLyrics" class="is-hidden" aria-hidden="true"></textarea>
@@ -569,6 +621,18 @@ ob_start();
         </div>
         <div class="school-error-msg is-hidden" id="mzModalError" role="alert"></div>
         <button class="btn-primary btn-block" id="mzSaveBtn" onclick="Mezmur.save()"><i class="fa-solid fa-save"></i> Save Hymn</button>
+    </div>
+</div>
+
+<!-- ═══ SYSTEM DIALOG: in-app confirm (never browser popups) ═══ -->
+<div class="school-modal" id="mzSysDialog" role="dialog" aria-modal="true" aria-labelledby="mzSysDialogTitle">
+    <div class="school-modal-content" style="max-width:420px">
+        <div class="page-head"><h3 id="mzSysDialogTitle"><i class="fa-solid fa-circle-question"></i> Confirm</h3></div>
+        <p id="mzSysDialogBody" style="font-size:.85rem;line-height:1.6"></p>
+        <div class="toolbar" style="justify-content:flex-end;margin-bottom:0">
+            <button class="btn-secondary btn-sm" id="mzSysDialogNo">Cancel</button>
+            <button class="btn-primary btn-sm" id="mzSysDialogYes">Confirm</button>
+        </div>
     </div>
 </div>
 
@@ -581,25 +645,6 @@ ob_start();
         </div>
         <div id="mzViewMeta" class="toolbar"></div>
         <pre class="amharic lyrics-view" id="mzViewLyrics"></pre>
-    </div>
-</div>
-
-<!-- ═══ MODAL: CATALOG (categories + singers) ═══ -->
-<div class="school-modal" id="mzCatalogModal" role="dialog" aria-modal="true" aria-labelledby="mzCatalogTitle">
-    <div class="school-modal-content">
-        <div class="page-head">
-            <h3 id="mzCatalogTitle"><i class="fa-solid fa-tags"></i> Catalog</h3>
-            <button class="btn-secondary btn-sm" onclick="Mezmur.closeCatalog()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="toolbar">
-            <button class="btn-secondary btn-sm" id="mzCatTabBtn" onclick="Mezmur.catalogTab('categories')">Categories</button>
-            <button class="btn-secondary btn-sm" id="mzZemTabBtn" onclick="Mezmur.catalogTab('zemarians')">Singers</button>
-        </div>
-        <div class="school-form-group">
-            <input id="mzCatalogName" class="school-input" maxlength="100" placeholder="Name…" autocomplete="off">
-            <button class="btn-primary btn-sm catalog-manage" onclick="Mezmur.catalogAdd()"><i class="fa-solid fa-plus"></i> Add</button>
-        </div>
-        <div id="mzCatalogList" class="catalog-list"></div>
     </div>
 </div>
 

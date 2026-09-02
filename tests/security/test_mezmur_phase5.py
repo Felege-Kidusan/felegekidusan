@@ -864,11 +864,60 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertIn("Show $count hymn", self.list)
         self.assertIn("countLocalHymns", self.db)
 
-    # ── item 11: web catalog management ─────────────────────────
+    # ── item 11: web catalog management (P31: standalone section) ──
     def test_web_catalog_rename_and_counts(self):
-        self.assertIn("catalogRename", self.js)
+        self.assertIn("mgrSave", self.js)          # inline rename (no popups)
         self.assertIn("hymn_count", self.svc)
-        self.assertIn("Mezmur.catalogRename", self.js)
+
+
+class CatalogManagerTests(unittest.TestCase):
+    """P31 (web): standalone catalog management section, cascading hymn
+    form, and a strict no-browser-popups rule — every interaction is
+    handled by the system's own UI."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        cls.page = (R / "frontend/pages/mezmur_dept.php").read_text(encoding="utf-8")
+        cls.js = (R / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.css = (R / "themes/components.css").read_text(encoding="utf-8")
+
+    def test_standalone_catalog_section(self):
+        self.assertIn('data-section="catalog"', self.page)          # nav item
+        self.assertIn('id="section-catalog"', self.page)            # section
+        self.assertIn("mzMgrCatRows", self.page)                    # categories table
+        self.assertIn("mzMgrZemRows", self.page)                    # singers table
+        self.assertIn("mzMgrMainName", self.page)                   # add-main form
+        self.assertIn(".mz-mgr-thumb", self.css)
+
+    def test_catalog_modal_retired(self):
+        self.assertNotIn("mzCatalogModal", self.page)
+        self.assertNotIn("window.prompt", self.js)
+
+    def test_cascading_hymn_category_selects(self):
+        self.assertIn('id="mzHymnMainCat"', self.page)
+        self.assertIn('id="mzHymnSubCat"', self.page)
+        self.assertIn("populateHymnCats", self.js)
+        self.assertIn("hymnSubOptions", self.js)
+        # sub list is filtered by the chosen main
+        self.assertIn("mgrSubsOf(Number(mainId))", self.js)
+        self.assertIn("selectedCategoryIds()", self.js)  # save uses the cascade
+
+    def test_no_browser_popups_anywhere(self):
+        for banned in ("window.prompt", "window.confirm", "window.alert", "alert("):
+            self.assertNotIn(banned, self.js)
+        self.assertIn("sysConfirm", self.js)               # in-system confirm
+        self.assertIn('id="mzSysDialog"', self.page)
+        self.assertIn("mzSecPop", self.page)               # editor popover
+        self.assertIn("toggleSecPop", self.js)
+
+    def test_manager_is_inline_and_complete(self):
+        for fn in ("mgrAddMain", "mgrAddSubOpen", "mgrSave", "mgrToggle",
+                   "mgrSort", "mgrImage", "mgrAddZem"):
+            self.assertIn(fn, self.js)
+        # cover uploads reuse the hardened service path
+        self.assertIn("uploadCategoryImage", (ROOT / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8"))
+        self.assertIn("mgrImage", self.js)
 
 
 class SubcategoryClientTests(unittest.TestCase):

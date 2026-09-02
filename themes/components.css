@@ -490,3 +490,18 @@
 .catalog-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid var(--school-border); }
 .catalog-row span { font-size: 0.82rem; }
 .mz-tab.active { color: #fff; background: var(--school-accent); }
+
+/* ═══ P31: standalone catalog manager / cascade selects / in-app dialogs ═══ */
+.mz-cmgr-tab.active { color: #fff; background: var(--school-accent); }
+.mz-cascade { display: flex; gap: .7rem; flex-wrap: wrap; }
+.mz-cascade > div { flex: 1 1 200px; }
+.mz-mgr-name { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+.mz-mgr-name .mz-mgr-namelabel { font-size: .84rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mz-mgr-sub .mz-mgr-namelabel { font-weight: 500; }
+.mz-mgr-sub td:first-child { padding-left: 1.6rem; }
+.mz-mgr-thumb { width: 34px; height: 34px; border-radius: 8px; background-size: cover; background-position: center; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: .8rem; font-weight: 800; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.mz-mgr-edit { display: flex; gap: .4rem; align-items: center; }
+.mz-mgr-edit input { min-width: 140px; }
+.mz-mgr-busy { opacity: .45; pointer-events: none; }
+.mz-sec-pop { display: inline-flex; gap: .35rem; align-items: center; margin-left: .4rem; }
+.mz-sec-pop input { padding: .25rem .5rem; font-size: .78rem; border-radius: 6px; border: 1px solid var(--school-border, #e5e7eb); background: var(--school-card, #fff); color: inherit; width: 190px; }

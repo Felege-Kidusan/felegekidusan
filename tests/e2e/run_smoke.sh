@@ -494,6 +494,15 @@ P30D=$(ssms_api POST mezmur/category "{\"id\":0,\"name\":\"P30 Smoke Deep\",\"pa
 echo "$P30D" | grep -q "two levels maximum" && ok "depth limited to two levels" || fail "depth guard: $P30D"
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE hc FROM mezmur_hymn_categories hc JOIN mezmur_hymns h ON h.id=hc.hymn_id WHERE h.title LIKE 'P30 Smoke%'; DELETE FROM mezmur_categories WHERE parent_id IN (SELECT id FROM (SELECT id FROM mezmur_categories WHERE name LIKE 'P30 Smoke%') x); DELETE FROM mezmur_categories WHERE name LIKE 'P30 Smoke%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P30 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P30 Smoke%'" >/dev/null 2>&1
 
+# --- 3ab. Standalone catalog manager + cascading form (Patch 31) ------------
+ssms_login audit_super >/dev/null 2>&1
+P31P=$(ssms_get "/frontend/pages/mezmur_dept.php")
+echo "$P31P" | grep -q 'data-section="catalog"' && echo "$P31P" | grep -q 'id="section-catalog"' && ok "standalone catalog section + nav served" || fail "catalog section missing"
+echo "$P31P" | grep -q "mzHymnMainCat" && echo "$P31P" | grep -q "mzHymnSubCat" && ok "cascading category/subcategory selects served" || fail "cascade selects missing"
+P31J=$(curl -s "$BASE/frontend/js/mezmur.js")
+echo "$P31J" | grep -q "window.prompt\|window.confirm\|window.alert" && fail "browser popup still used in served JS" || ok "zero browser popups in served JS"
+echo "$P31J" | grep -q "sysConfirm" && echo "$P31J" | grep -q "populateHymnCats" && ok "system confirm + cascade logic served" || fail "P31 JS missing"
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")
