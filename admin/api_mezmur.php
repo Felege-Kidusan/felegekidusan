@@ -57,7 +57,7 @@ set_exception_handler(static function (\Throwable $e): void {
  * error when the deployment is stale (missing migrations / old code).
  * Bump when the mezmur API contract changes.
  */
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy01');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy02');
 define('MEZMUR_SCHEMA_MIN', 30); // highest migration the mezmur module relies on
 
 function mezmur_respond(array $payload, int $code = 200): void
@@ -91,7 +91,7 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'save_zemarian', 'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
@@ -115,7 +115,7 @@ $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'save_zemarian', 'zemarian_status'], true)
+$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status'], true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -564,6 +564,17 @@ try {
             );
             if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
             mezmur_respond(['status' => 'success', 'message' => $result['message'], 'image_url' => $result['image_url'] ?? '']);
+        }
+
+        case 'category_image_remove': {
+            // P32: drop the cover image — the gradient shows instead.
+            $result = MezmurHymnService::removeCategoryImage(
+                $conn,
+                (int)($_POST['id'] ?? 0),
+                $adminId
+            );
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
         }
 
         case 'category_status': {

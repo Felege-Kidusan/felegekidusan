@@ -20,7 +20,7 @@ $auth = apiRequireAuth();
 // Analytics & day labelling (decision data): mezmur staff + admins only.
 // Version handshake: every /mezmur/* response carries this marker so
 // clients can distinguish a current server from a stale deployment.
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy01');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy02');
 
 // mezmur_attendance_taker = department-owned taker (created by the
 // mezmur console). 'attendance_taker' stays for legacy accounts during
@@ -344,6 +344,20 @@ try {
         $result = MezmurHymnService::uploadCategoryImage($conn, $id, $file, (int)$auth['uid']);
         if (empty($result['ok'])) err($result['message'], 422);
         ok(['saved' => true, 'image_url' => $result['image_url'] ?? null]);
+    }
+
+    // ── POST /mezmur/category-image-remove — drop the cover ─────
+    if ($method === 'POST' && $action === 'category-image-remove') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage categories.', 403);
+        }
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many changes. Please wait a moment.', 429);
+        }
+        $input = getBody();
+        $result = MezmurHymnService::removeCategoryImage($conn, (int)($input['id'] ?? 0), (int)$auth['uid']);
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true]);
     }
 
     // ── POST /mezmur/category-status — activate / hide ─────────

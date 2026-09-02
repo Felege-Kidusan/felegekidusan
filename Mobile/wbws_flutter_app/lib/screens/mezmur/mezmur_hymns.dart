@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/hymn_store.dart';
 import '../../utils/config.dart';
+import '../../utils/cover_palette.dart';
 import '../../services/sync_service.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
@@ -594,7 +595,9 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
         '${r['name']}',
         count,
         icon: categories ? Icons.category_outlined : Icons.person_outline,
-        colors: _palettes[i % _palettes.length],
+        colors: categories
+            ? coverColors(r, '${r['name']}') // pinned gradient wins
+            : _palettes[i % _palettes.length],
         imageUrl: img.isEmpty ? null : img,
         onTap: () {
           if (categories) {
@@ -603,6 +606,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                 categoryId: id,
                 name: '${r['name']}',
                 imageUrl: img.isEmpty ? null : img,
+                gradientStart: (r['gradient_start'] ?? '').toString().isEmpty ? null : r['gradient_start'].toString(),
+                gradientEnd: (r['gradient_end'] ?? '').toString().isEmpty ? null : r['gradient_end'].toString(),
               ),
             ));
           } else {
@@ -721,6 +726,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                       categoryId: id,
                       name: (r['name'] ?? '').toString(),
                       imageUrl: img.isEmpty ? null : img,
+                      gradientStart: (r['gradient_start'] ?? '').toString().isEmpty ? null : r['gradient_start'].toString(),
+                      gradientEnd: (r['gradient_end'] ?? '').toString().isEmpty ? null : r['gradient_end'].toString(),
                     ),
                   ));
                 } else {
@@ -730,6 +737,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                       categoryId: id,
                       name: (r['name'] ?? '').toString(),
                       imageUrl: img.isEmpty ? null : img,
+                      gradientStart: (r['gradient_start'] ?? '').toString().isEmpty ? null : r['gradient_start'].toString(),
+                      gradientEnd: (r['gradient_end'] ?? '').toString().isEmpty ? null : r['gradient_end'].toString(),
                     ),
                   ));
                 }

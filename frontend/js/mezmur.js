@@ -71,6 +71,25 @@
         sysDialogCb = onYes || null;
         openModalF('mzSysDialog');
     }
+    // Inline editors behave like established desktop software: Enter
+    // commits, Escape abandons (focus ring already global).
+    function initInlineKeys() {
+        document.addEventListener('keydown', function (e) {
+            var t = e.target;
+            if (!t || !t.id) return;
+            var isEdit = ['mzMgrEditName', 'mzMgrEditNameAm', 'mzMgrSubName'].indexOf(t.id) >= 0;
+            if (!isEdit) return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var row = t.closest('.mz-mgr-edit');
+                if (row) { var btn = row.querySelector('.btn-primary'); if (btn) btn.click(); }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                mgrCancel();
+            }
+        });
+    }
+
     function initSysDialog() {
         var el = $('mzSysDialog');
         if (!el || el.dataset.p31) return;
@@ -739,8 +758,8 @@
     function mgrTab(kind) {
         mgr.tab = kind;
         var c = $('mzMgrCatTabBtn'), z = $('mzMgrZemTabBtn');
-        if (c) c.classList.toggle('active', kind === 'categories');
-        if (z) z.classList.toggle('active', kind === 'zemarians');
+        if (c) { c.classList.toggle('active', kind === 'categories'); c.setAttribute('aria-pressed', kind === 'categories' ? 'true' : 'false'); }
+        if (z) { z.classList.toggle('active', kind === 'zemarians'); z.setAttribute('aria-pressed', kind === 'zemarians' ? 'true' : 'false'); }
         $('mzMgrCats').classList.toggle('is-hidden', kind !== 'categories');
         $('mzMgrZems').classList.toggle('is-hidden', kind === 'categories');
         renderCatalogManager();
@@ -750,11 +769,20 @@
     function mgrMains() { return mgrCats().filter(function (c) { return c.parent_id == null; }); }
     function mgrSubsOf(id) { return mgrCats().filter(function (c) { return c.parent_id != null && c.parent_id === id; }); }
 
+    function gradOf(item) {
+        // P32: an admin-pinned gradient wins; otherwise the automatic
+        // name-hashed palette.
+        if (item && item.gradient_start && item.gradient_end) {
+            return [item.gradient_start, item.gradient_end];
+        }
+        return PICK_GRADIENTS[hashCode(String((item && item.name) || '')) % PICK_GRADIENTS.length];
+    }
+
     function mgrThumb(item, cls) {
         var img = item.image_url ? ' style="background-image:url(\'' + item.image_url + '\')"' : '';
         var label = item.image_url ? '' : esc((item.name || '?').trim().charAt(0));
         if (!img) {
-            var g = PICK_GRADIENTS[hashCode(String(item.name || '')) % PICK_GRADIENTS.length];
+            var g = gradOf(item);
             img = ' style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ')"';
         }
         return '<span class="' + (cls || 'mz-thumb') + '"' + img + ' aria-hidden="true">' + label + '</span>';
@@ -848,10 +876,10 @@
         var isMain = item.parent_id == null;
         return '<div style="display:flex;gap:.25rem;flex-wrap:wrap">' +
             '<button class="btn-secondary btn-sm" title="Rename" onclick="Mezmur.mgrEdit(' + item.id + ')"><i class="fa-solid fa-pen"></i></button> ' +
-            (isMain
-                ? '<button class="btn-secondary btn-sm" title="Set cover image" onclick="Mezmur.mgrImage(' + item.id + ')"><i class="fa-solid fa-image"></i></button> ' +
-                  (mainId !== undefined ? '' : '<button class="btn-secondary btn-sm" title="Add sub-category" onclick="Mezmur.mgrAddSubOpen(' + item.id + ')"><i class="fa-solid fa-plus"></i> Sub</button> ')
-                : '<button class="btn-secondary btn-sm" title="Set cover image" onclick="Mezmur.mgrImage(' + item.id + ')"><i class="fa-solid fa-image"></i></button> ') +
+            '<button class="btn-secondary btn-sm" title="Set cover image" onclick="Mezmur.mgrImage(' + item.id + ')"><i class="fa-solid fa-image"></i></button> ' +
+            '<button class="btn-secondary btn-sm" title="Cover color" onclick="Mezmur.mgrColors(' + item.id + ')"><i class="fa-solid fa-palette"></i></button> ' +
+            (isMain && mainId === undefined
+                ? '<button class="btn-secondary btn-sm" title="Add sub-category" onclick="Mezmur.mgrAddSubOpen(' + item.id + ')"><i class="fa-solid fa-plus"></i> Sub</button> ' : '') +
             '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrToggle(' + item.id + ')">' + (hidden ? 'Show' : 'Hide') + '</button></div>';
     }
     function mgrEdit(id) { mgr.edit = 'cat:' + id; if (mgrIsZem(id)) mgr.edit = 'zem:' + id; renderCatalogManager(); }
@@ -934,6 +962,8 @@
         apiPost({ action: 'save_category', id: found.id, name: found.name, parent_id: found.parent_id == null ? '' : found.parent_id, sort_order: b === a ? a + dir : b }).then(fin).catch(fin);
         apiPost({ action: 'save_category', id: other.id, name: other.name, parent_id: other.parent_id == null ? '' : other.parent_id, sort_order: a === b ? b - dir : a }).then(fin).catch(fin);
     }
+    var imgPick = { id: 0, file: null, url: '' };
+
     function mgrImage(id) {
         var input = $('mzMgrFile');
         if (!input) return;
@@ -941,9 +971,34 @@
         input.onchange = function () {
             var file = input.files && input.files[0];
             if (!file) return;
+            if (file.size > 2 * 1024 * 1024) {
+                window.toast('Image is larger than 2 MB.', 'e');
+                return;
+            }
+            // P32: a real preview BEFORE the upload leaves the device.
+            imgPick = { id: id, file: file, url: URL.createObjectURL(file) };
+            $('mzImgPreviewImg').src = imgPick.url;
+            $('mzImgMeta').textContent = file.name + ' · ' +
+                (file.size / 1024).toFixed(0) + ' KB · ' + (file.type || 'image');
+            openModalF('mzImageDialog');
+        };
+        input.click();
+    }
+    function initImageDialog() {
+        var el = $('mzImageDialog');
+        if (!el || el.dataset.p32) return;
+        el.dataset.p32 = '1';
+        $('mzImgUpload').addEventListener('click', function () {
+            var file = imgPick.file;
+            if (!file) { closeModalF('mzImageDialog'); return; }
+            var id = imgPick.id;
+            closeModalF('mzImageDialog');
+            URL.revokeObjectURL(imgPick.url);
+            imgPick = { id: 0, file: null, url: '' };
             mgr.uploading = id;
             renderCatalogManager();
             var fd = new FormData();
+            fd.append('action', 'category_image');
             fd.append('id', id);
             fd.append('image', file);
             apiPost(fd).then(function (d) {
@@ -952,8 +1007,111 @@
                 window.toast(d.message || 'Image updated.', 's');
                 loadCatalog();
             }).catch(function () { mgr.uploading = 0; renderCatalogManager(); });
+        });
+        $('mzImgCancel').addEventListener('click', function () {
+            URL.revokeObjectURL(imgPick.url);
+            imgPick = { id: 0, file: null, url: '' };
+            closeModalF('mzImageDialog');
+        });
+    }
+
+    // ── cover color dialog (P32: gradient picker + live preview) ──
+    var colorPick = { id: 0, name: '', start: '', end: '', auto: false, hasImage: false };
+
+    function mgrColors(id) {
+        var found = mgrCats().filter(function (c) { return Number(c.id) === Number(id); })[0];
+        if (!found) return;
+        var auto = PICK_GRADIENTS[hashCode(String(found.name || '')) % PICK_GRADIENTS.length];
+        colorPick = {
+            id: id,
+            name: String(found.name || ''),
+            start: found.gradient_start || auto[0],
+            end: found.gradient_end || auto[1],
+            auto: !found.gradient_start && !found.gradient_end,
+            hasImage: !!found.image_url
         };
-        input.click();
+        $('mzColorPreviewName').textContent = colorPick.name;
+        renderSwatches();
+        refreshColorPreview();
+        openModalF('mzColorDialog');
+    }
+    function renderSwatches() {
+        var box = $('mzSwatches');
+        box.innerHTML = PICK_GRADIENTS.map(function (g, i) {
+            var sel = !colorPick.auto && g[0] === colorPick.start && g[1] === colorPick.end;
+            return '<button type="button" class="mz-swatch' + (sel ? ' sel' : '') + '"' +
+                ' style="background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ')"' +
+                ' aria-label="Preset ' + (i + 1) + '"' + (sel ? ' aria-pressed="true"' : ' aria-pressed="false"') +
+                ' data-gs="' + g[0] + '" data-ge="' + g[1] + '"></button>';
+        }).join('');
+        Array.prototype.forEach.call(box.querySelectorAll('.mz-swatch'), function (b) {
+            b.addEventListener('click', function () {
+                colorPick.start = b.getAttribute('data-gs');
+                colorPick.end = b.getAttribute('data-ge');
+                colorPick.auto = false;
+                renderSwatches();
+                refreshColorPreview();
+            });
+        });
+    }
+    function refreshColorPreview() {
+        var p = $('mzColorPreview');
+        var grad = colorPick.auto
+            ? PICK_GRADIENTS[hashCode(colorPick.name) % PICK_GRADIENTS.length]
+            : [colorPick.start, colorPick.end];
+        p.style.background = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
+        if (colorPick.auto) { p.style.background = ''; p.setAttribute('data-auto', '1'); }
+        else { p.removeAttribute('data-auto'); }
+        if (colorPick.auto) {
+            // replicate the automatic name-hashed gradient visually
+            p.style.background = 'linear-gradient(135deg,' + grad[0] + ',' + grad[1] + ')';
+        }
+        $('mzGradStart').value = grad[0];
+        $('mzGradEnd').value = grad[1];
+        $('mzColorNote').textContent = colorPick.hasImage
+            ? 'A cover image is set — the gradient shows only after the image is removed.'
+            : 'This gradient shows wherever the category appears without a cover image.';
+        $('mzRemoveImg').style.display = colorPick.hasImage ? '' : 'none';
+    }
+    function initColorDialog() {
+        var el = $('mzColorDialog');
+        if (!el || el.dataset.p32) return;
+        el.dataset.p32 = '1';
+        $('mzGradStart').addEventListener('input', function () {
+            colorPick.start = this.value; colorPick.auto = false; renderSwatches(); refreshColorPreview();
+        });
+        $('mzGradEnd').addEventListener('input', function () {
+            colorPick.end = this.value; colorPick.auto = false; renderSwatches(); refreshColorPreview();
+        });
+        $('mzGradAuto').addEventListener('click', function () {
+            colorPick.auto = true;
+            var g = PICK_GRADIENTS[hashCode(colorPick.name) % PICK_GRADIENTS.length];
+            colorPick.start = g[0]; colorPick.end = g[1];
+            renderSwatches(); refreshColorPreview();
+        });
+        $('mzGradSave').addEventListener('click', function () {
+            closeModalF('mzColorDialog');
+            apiPost({
+                action: 'save_category', id: colorPick.id, name: colorPick.name,
+                parent_id: mgrParentOf(colorPick.id),
+                gradient_start: colorPick.auto ? '' : colorPick.start,
+                gradient_end: colorPick.auto ? '' : colorPick.end
+            }).then(function (d) {
+                if (d.status !== 'success') { window.toast(d.message || 'Could not save the color.', 'e'); return; }
+                window.toast(d.message || 'Cover color saved.', 's');
+                loadCatalog();
+            }).catch(function () {});
+        });
+        $('mzRemoveImg').addEventListener('click', function () {
+            sysConfirm('Remove the cover image? The gradient will show instead.', function () {
+                closeModalF('mzColorDialog');
+                apiPost({ action: 'category_image_remove', id: colorPick.id }).then(function (d) {
+                    if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
+                    window.toast(d.message || 'Cover image removed.', 's');
+                    loadCatalog();
+                }).catch(function () {});
+            });
+        });
     }
 
     // ── hymn form: cascading category -> sub-category selects ──
@@ -1920,6 +2078,9 @@
         initPickPanels();
         initLyricsEditor();
         initSysDialog();
+        initImageDialog();
+        initColorDialog();
+        initInlineKeys();
         initSecPop();
         setEditorMarkup('');
         populateHymnCats(null);
@@ -1950,6 +2111,7 @@
         openCatalog: openCatalog,
         mgrTab: mgrTab, mgrAddMain: mgrAddMain, mgrAddSubOpen: mgrAddSubOpen, mgrAddSub: mgrAddSub, mgrAddZem: mgrAddZem,
         mgrEdit: mgrEdit, mgrSave: mgrSave, mgrCancel: mgrCancel, mgrToggle: mgrToggle, mgrSort: mgrSort, mgrImage: mgrImage,
+        mgrColors: mgrColors, closeColorDialog: function () { closeModalF('mzColorDialog'); }, closeImageDialog: function () { URL.revokeObjectURL(imgPick.url); imgPick = { id: 0, file: null, url: '' }; closeModalF('mzImageDialog'); },
         closeModal: function () { closeModalF('mzHymnModal'); },
         closeView: function () { closeModalF('mzViewModal'); },
         libPage: function (p) { if (p >= 1 && p <= lib.totalPages) { lib.page = p; loadList(); } },

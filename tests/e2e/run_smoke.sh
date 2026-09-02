@@ -527,6 +527,36 @@ P31F="${P31F%%\?*}"   # drop the ?v= cache-buster — the disk file has no query
 if [ -n "$P31F" ] && sudo -n rm -f "${P31F#/}"; then ok "uploaded file removed with test row"; else fail "uploaded file not cleaned: $P31F"; fi
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P31c%'; DELETE FROM activity_logs WHERE details LIKE '%P31c%'" >/dev/null 2>&1
 
+# --- 3ad. Cover colors: gradient picker + preview + remove (Patch 32) ------
+sudo -n mariadb ssms < sql/035_mezmur_category_gradient.sql 2>/dev/null
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P32G=$(ssms_api POST mezmur/category '{"id":0,"name":"P32 Smoke Grad","gradient_start":"#0ea5e9","gradient_end":"#2563eb"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+ssms_login audit_super >/dev/null 2>&1
+curl -s -b "$JAR" "$BASE/admin/api_mezmur.php?action=categories" | grep -q '"gradient_start":"#0ea5e9"' && ok "pinned gradient served to the web manager" || fail "gradient missing from categories list"
+P32O=$(ssms_api POST mezmur/category '{"id":'"$P32G"',"name":"P32 Smoke Grad","gradient_start":"#059669","gradient_end":"#0d9488"}')
+echo "$P32O" | grep -q '"status":"success"' && ok "color-only edit allowed" || fail "color-only edit rejected: $P32O"
+P32C=$(ssms_api POST mezmur/category '{"id":'"$P32G"',"name":"P32 Smoke Grad","gradient_start":"","gradient_end":""}')
+sudo -n mariadb -N ssms -e "SELECT gradient_start FROM mezmur_categories WHERE id=$P32G" | grep -q NULL && ok "clear-to-auto nulls the colors" || fail "clear-to-auto failed"
+P32B=$(ssms_api POST mezmur/category '{"id":0,"name":"P32 Bad","gradient_start":"orange"}')
+echo "$P32B" | grep -q "Colors must be hex" && ok "invalid color rejected" || fail "invalid color accepted: $P32B"
+python3 -c "import struct,zlib
+def chunk(t,d):
+    c=t+d; return struct.pack('>I',len(d))+c+struct.pack('>I',zlib.crc32(c))
+w=h=64
+raw=b''.join(b'\x00'+bytes([9,90,160]*w) for _ in range(h))
+open('/tmp/p32s.png','wb').write(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b''))"
+curl -s -X POST "$BASE/api/v1/mezmur/category-image" -H "Authorization: Bearer $API_TOKEN" -F "id=$P32G" -F "image=@/tmp/p32s.png;type=image/png" >/dev/null
+P32F=$(sudo -n mariadb -N ssms -e "SELECT image_path FROM mezmur_categories WHERE id=$P32G")
+P32R=$(ssms_api POST mezmur/category-image-remove '{"id":'"$P32G"'}')
+echo "$P32R" | grep -q '"status":"success"' && ok "REST remove-image works" || fail "remove-image: $P32R"
+[ -n "$P32F" ] && [ ! -f "${P32F%%\?*#/}" ] && [ ! -f "/${P32F%%\?*}" ] && ok "removed cover file deleted from disk" || fail "cover file survived removal"
+P32P=$(ssms_get "/frontend/pages/mezmur_dept.php")
+echo "$P32P" | grep -q 'id="mzColorDialog"' && echo "$P32P" | grep -q 'id="mzImageDialog"' && ok "color + preview dialogs served" || fail "P32 dialogs missing"
+P32C2=$(curl -s "$BASE/themes/components.css")
+echo "$P32C2" | grep -q ".mz-swatch:hover" && echo "$P32C2" | grep -q ".mz-color-preview::after" && ok "hover states + scrim served" || fail "P32 css missing"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P32 Smoke Grad%'; DELETE FROM mezmur_categories WHERE name LIKE 'P32 Bad%'; DELETE FROM activity_logs WHERE details LIKE '%P32%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

@@ -625,6 +625,51 @@ ob_start();
     </div>
 </div>
 
+<!-- ═══ DIALOG: COVER IMAGE PREVIEW (upload with a real preview) ═══ -->
+<div class="school-modal" id="mzImageDialog" role="dialog" aria-modal="true" aria-labelledby="mzImageTitle">
+    <div class="school-modal-content" style="max-width:380px">
+        <div class="page-head">
+            <h3 id="mzImageTitle"><i class="fa-solid fa-image"></i> Cover image</h3>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.closeImageDialog()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="mz-img-preview"><img id="mzImgPreviewImg" src="" alt="Selected cover preview"></div>
+        <div class="text-dim" id="mzImgMeta" style="font-size:.75rem;margin:.4rem 0 .6rem"></div>
+        <p class="text-dim" style="font-size:.72rem;line-height:1.5;margin-bottom:.7rem">
+            The cover is dimmed slightly on tiles and headers, so titles always stay readable over any photo.
+        </p>
+        <div class="toolbar" style="justify-content:flex-end;margin-bottom:0">
+            <button class="btn-secondary btn-sm" id="mzImgCancel">Cancel</button>
+            <button class="btn-primary btn-sm" id="mzImgUpload"><i class="fa-solid fa-upload"></i> Upload</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ DIALOG: COVER COLOR (gradient picker) ═══ -->
+<div class="school-modal" id="mzColorDialog" role="dialog" aria-modal="true" aria-labelledby="mzColorTitle">
+    <div class="school-modal-content" style="max-width:380px">
+        <div class="page-head">
+            <h3 id="mzColorTitle"><i class="fa-solid fa-palette"></i> Cover color</h3>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.closeColorDialog()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="mz-color-preview" id="mzColorPreview"><span id="mzColorPreviewName"></span></div>
+        <div class="text-dim" id="mzColorNote" style="font-size:.72rem;margin:.35rem 0 .55rem"></div>
+        <div class="school-label">Presets</div>
+        <div class="mz-swatches" id="mzSwatches" role="radiogroup" aria-label="Gradient presets"></div>
+        <div class="mz-color-custom">
+            <label>Start <input type="color" id="mzGradStart" value="#4f46e5" aria-label="Gradient start color"></label>
+            <label>End <input type="color" id="mzGradEnd" value="#7c3aed" aria-label="Gradient end color"></label>
+            <button type="button" class="btn-secondary btn-sm" id="mzGradAuto"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto (by name)</button>
+        </div>
+        <div class="toolbar" style="justify-content:space-between;margin-bottom:0">
+            <button type="button" class="btn-secondary btn-sm" id="mzRemoveImg"><i class="fa-solid fa-trash-can"></i> Remove image</button>
+            <span class="toolbar" style="gap:.4rem">
+                <button type="button" class="btn-secondary btn-sm" onclick="Mezmur.closeColorDialog()">Cancel</button>
+                <button type="button" class="btn-primary btn-sm" id="mzGradSave"><i class="fa-solid fa-check"></i> Save</button>
+            </span>
+        </div>
+    </div>
+</div>
+
 <!-- ═══ SYSTEM DIALOG: in-app confirm (never browser popups) ═══ -->
 <div class="school-modal" id="mzSysDialog" role="dialog" aria-modal="true" aria-labelledby="mzSysDialogTitle">
     <div class="school-modal-content" style="max-width:420px">

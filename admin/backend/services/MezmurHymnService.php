@@ -1404,6 +1404,23 @@ final class MezmurHymnService
      *  pre-034 deployments so shipped code never references missing
      *  columns — the reconciler/admin migrate brings them in.) */
     private static ?bool $twoLevelCache = null;
+    private static ?bool $gradientsCache = null;
+
+    /** P32: gradient columns probe (sql/035) — absent columns mean
+     *  deployments mid-upgrade keep the automatic palette. */
+    public static function gradientsReady(\mysqli $conn): bool
+    {
+        if (self::$gradientsCache === null) {
+            $ok = false;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_categories LIKE 'gradient_start'");
+                $ok = $r ? (bool)$r->fetch_assoc() : false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $ok = false; }
+            self::$gradientsCache = $ok;
+        }
+        return self::$gradientsCache;
+    }
 
     public static function twoLevelReady(\mysqli $conn): bool
     {
@@ -1419,6 +1436,45 @@ final class MezmurHymnService
         return self::$twoLevelCache;
     }
 
+    /** Strict #rrggbb hex or NULL (P32). */
+    private static function hexColorOrNull($v): ?string
+    {
+        $v = trim((string)($v ?? ''));
+        if ($v === '') return null;
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $v)) return '@@invalid@@';
+        return strtolower($v);
+    }
+
+    /** Persist the cover gradient for one category (probe-guarded). */
+    private static function saveCategoryGradient(\mysqli $conn, int $id, ?string $start, ?string $end): void
+    {
+        if (!self::gradientsReady($conn) || $id <= 0) return;
+        $stmt = $conn->prepare("UPDATE mezmur_categories SET gradient_start=?, gradient_end=? WHERE id=?");
+        $stmt->bind_param('ssi', $start, $end, $id);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    /** Drop the cover image (the gradient/automatic palette shows). */
+    public static function removeCategoryImage(\mysqli $conn, int $id, int $actorId): array
+    {
+        if ($id <= 0) return ['ok' => false, 'message' => 'Invalid category id.'];
+        $stmt = $conn->prepare("SELECT image_path FROM mezmur_categories WHERE id = ? LIMIT 1");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) return ['ok' => false, 'message' => 'Category not found.'];
+        if (empty($row['image_path'])) return ['ok' => true, 'message' => 'No cover image set.'];
+        @unlink(dirname(__DIR__, 3) . '/' . ltrim((string)$row['image_path'], '/'));
+        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = NULL WHERE id = ?");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $stmt->close();
+        self::audit($conn, 'Mezmur Category Image Removed', [], 'mezmur_category', $id, $actorId);
+        return ['ok' => true, 'message' => 'Cover image removed — the gradient shows.'];
+    }
+
     public static function listCategories(\mysqli $conn): array
     {
         if (self::categoriesReady($conn)) {
@@ -1428,8 +1484,12 @@ final class MezmurHymnService
             // the optional cover image. Legacy (pre-034) deployments
             // fall back to the flat shape — no breakage mid-upgrade.
             if (self::twoLevelReady($conn)) {
+                $gradCols = self::gradientsReady($conn)
+                    ? 'c.gradient_start, c.gradient_end'
+                    : 'NULL AS gradient_start, NULL AS gradient_end';
                 $res = $conn->query(
                     "SELECT c.id, c.name, c.parent_id, c.image_path, c.sort_order, c.is_active,
+                            $gradCols,
                             p.name AS parent_name,
                             (SELECT COUNT(*) FROM mezmur_hymn_categories hc
                              JOIN mezmur_hymns h ON h.id = hc.hymn_id AND h.status = 'active'
@@ -1450,6 +1510,8 @@ final class MezmurHymnService
                         $r['is_active'] = (int)$r['is_active'];
                         $r['hymn_count'] = (int)$r['hymn_count'];
                         $r['hymn_count_total'] = (int)$r['hymn_count_total'];
+                        $r['gradient_start'] = $r['gradient_start'] ?: null;
+                        $r['gradient_end'] = $r['gradient_end'] ?: null;
                         $r['image_url'] = self::categoryImageUrl($r['image_path']);
                         $out[] = $r;
                     }
@@ -1502,6 +1564,17 @@ final class MezmurHymnService
             return ['ok' => false, 'message' => 'Category name is required (max 50 characters).'];
         }
         $sortOrder = max(0, min(10000, (int)($input['sort_order'] ?? 0)));
+        // P32 gradient cover colors (ignored mid-upgrade pre-035).
+        // Empty strings CLEAR the colors (back to the automatic
+        // palette); absent keys leave them untouched.
+        $gradReady = self::gradientsReady($conn);
+        $wantsColors = $gradReady
+            && (array_key_exists('gradient_start', $input) || array_key_exists('gradient_end', $input));
+        $gradStart = $gradReady ? self::hexColorOrNull($input['gradient_start'] ?? '') : null;
+        $gradEnd = $gradReady ? self::hexColorOrNull($input['gradient_end'] ?? '') : null;
+        if ($gradStart === '@@invalid@@' || $gradEnd === '@@invalid@@') {
+            return ['ok' => false, 'message' => 'Colors must be hex like #4f46e5.'];
+        }
 
         // P30 two-level taxonomy: a sub carries parent_id; a main has
         // NULL. Depth is exactly 2 (a sub cannot become a parent), and
@@ -1564,7 +1637,7 @@ final class MezmurHymnService
         if ($id > 0) {
             // Capture the previous state for the audit trail (before/after
             // on every administrative change — OWASP A09) and refuse no-ops.
-            $stmt = $conn->prepare("SELECT name, sort_order, is_active" . ($twoLevel ? ", parent_id" : "") . " FROM mezmur_categories WHERE id = ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT name, sort_order, is_active" . ($twoLevel ? ", parent_id" : "") . ($gradReady ? ", gradient_start, gradient_end" : "") . " FROM mezmur_categories WHERE id = ? LIMIT 1");
             $stmt->bind_param('i', $id);
             $stmt->execute();
             $old = $stmt->get_result()->fetch_assoc();
@@ -1572,12 +1645,18 @@ final class MezmurHymnService
             if (!$old) {
                 return ['ok' => false, 'message' => 'Category not found.'];
             }
+            // P32: a cover-color change is a real change even when the
+            // name and order are untouched (color-only edits).
+            $colorsChanged = $wantsColors && (
+                ($gradStart ?? null) !== (isset($old['gradient_start']) ? strtolower((string)$old['gradient_start']) : null)
+                || ($gradEnd ?? null) !== (isset($old['gradient_end']) ? strtolower((string)$old['gradient_end']) : null)
+            );
             if ($twoLevel && $parentId === null && $old['parent_id'] !== null) {
                 // Editing a sub without parent_id means "keep its parent".
                 $parentId = (int)$old['parent_id'];
             }
             $renamed = $old['name'] !== $name;
-            if (!$renamed && (int)$old['sort_order'] === $sortOrder) {
+            if (!$renamed && (int)$old['sort_order'] === $sortOrder && !$colorsChanged) {
                 return ['ok' => false, 'message' => 'Category not found or unchanged.'];
             }
             $relabelled = 0;
@@ -1595,7 +1674,12 @@ final class MezmurHymnService
                 if (!$ok) {
                     throw new \RuntimeException('category update failed');
                 }
-                if ($renamed) {
+                if ($wantsColors) {
+                // color-only edits (and clearing back to auto) are
+                // real changes — never a no-op.
+                self::saveCategoryGradient($conn, $id, $gradStart, $gradEnd);
+            }
+            if ($renamed) {
                     // MZ-3: a rename must reach every hymn that carries the
                     // label. One statement relabels the legacy mirror string
                     // (the web badge and legacy clients read it) AND touches
@@ -1634,6 +1718,9 @@ final class MezmurHymnService
         }
         $ok = $stmt->execute();
         $newId = $ok ? (int)$stmt->insert_id : 0;
+        if ($ok && $newId > 0 && $gradReady && ($gradStart !== null || $gradEnd !== null)) {
+            self::saveCategoryGradient($conn, $newId, $gradStart, $gradEnd);
+        }
         $dupRace = !$ok && self::isDuplicateKeyError($conn);
         $stmt->close();
         if ($dupRace) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/hymn_store.dart';
 import '../../utils/config.dart';
+import '../../utils/cover_palette.dart';
 import '../../utils/theme.dart';
 import 'mezmur_hymn_detail.dart';
 
@@ -22,11 +23,17 @@ class MezmurCategoryScreen extends StatefulWidget {
     required this.categoryId,
     required this.name,
     this.imageUrl,
+    this.gradientStart,
+    this.gradientEnd,
   });
 
   final int categoryId;
   final String name;
   final String? imageUrl;
+
+  /// Admin-pinned cover gradient (shows when no image is set).
+  final String? gradientStart;
+  final String? gradientEnd;
 
   @override
   State<MezmurCategoryScreen> createState() => _MezmurCategoryScreenState();
@@ -39,22 +46,12 @@ class _MezmurCategoryScreenState extends State<MezmurCategoryScreen> {
   Map<int, int> _counts = {};
   bool _loading = true;
 
-  static const _gradients = [
-    [Color(0xFF5A1212), Color(0xFFD4AF37)],
-    [Color(0xFF4f46e5), Color(0xFF7c3aed)],
-    [Color(0xFF0ea5e9), Color(0xFF2563eb)],
-    [Color(0xFF059669), Color(0xFF0d9488)],
-    [Color(0xFFd97706), Color(0xFFdc2626)],
-    [Color(0xFFdb2777), Color(0xFF9333ea)],
-  ];
+  List<Color> get _headerColors => coverColors(
+      {'gradient_start': widget.gradientStart,
+       'gradient_end': widget.gradientEnd},
+      widget.name);
 
-  List<Color> gradientFor(String name) {
-    var h = 0;
-    for (final c in name.codeUnits) {
-      h = ((h << 5) - h + c) & 0x7fffffff;
-    }
-    return _gradients[h % _gradients.length];
-  }
+  List<Color> gradientFor(String name) => coverColors(null, name);
 
   @override
   void initState() {
@@ -136,7 +133,7 @@ class _MezmurCategoryScreenState extends State<MezmurCategoryScreen> {
                           gradient: LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: gradientFor(widget.name)),
+                              colors: _headerColors),
                         ),
                       ),
               ),
@@ -215,7 +212,7 @@ class _MezmurCategoryScreenState extends State<MezmurCategoryScreen> {
                             name: 'All hymns',
                             count: rolledUp,
                             icon: Icons.library_music_outlined,
-                            colors: gradientFor(widget.name),
+                            colors: _headerColors,
                             imageUrl: widget.imageUrl,
                             onTap: () => _openList(
                                 id: widget.categoryId,
@@ -227,7 +224,7 @@ class _MezmurCategoryScreenState extends State<MezmurCategoryScreen> {
                               name: '${sub['name'] ?? ''}',
                               count: _counts[_asInt(sub['id'])] ?? 0,
                               icon: Icons.category_outlined,
-                              colors: gradientFor('${sub['name'] ?? ''}'),
+                              colors: coverColors(sub, '${sub['name'] ?? ''}'),
                               imageUrl:
                                   ('${sub['image_url'] ?? ''}').isEmpty
                                       ? null
@@ -321,11 +318,15 @@ class MezmurSubListScreen extends StatefulWidget {
     required this.categoryId,
     required this.name,
     this.imageUrl,
+    this.gradientStart,
+    this.gradientEnd,
   });
 
   final int categoryId;
   final String name;
   final String? imageUrl;
+  final String? gradientStart;
+  final String? gradientEnd;
 
   @override
   State<MezmurSubListScreen> createState() => _MezmurSubListScreenState();
@@ -337,21 +338,10 @@ class _MezmurSubListScreenState extends State<MezmurSubListScreen> {
   Map<int, int> _counts = {};
   bool _loading = true;
 
-  List<Color> get _gradient {
-    var h = 0;
-    for (final c in widget.name.codeUnits) {
-      h = ((h << 5) - h + c) & 0x7fffffff;
-    }
-    const palettes = [
-      [Color(0xFF5A1212), Color(0xFFD4AF37)],
-      [Color(0xFF4f46e5), Color(0xFF7c3aed)],
-      [Color(0xFF0ea5e9), Color(0xFF2563eb)],
-      [Color(0xFF059669), Color(0xFF0d9488)],
-      [Color(0xFFd97706), Color(0xFFdc2626)],
-      [Color(0xFFdb2777), Color(0xFF9333ea)],
-    ];
-    return palettes[h % palettes.length];
-  }
+  List<Color> get _gradient => coverColors(
+      {'gradient_start': widget.gradientStart,
+       'gradient_end': widget.gradientEnd},
+      widget.name);
 
   @override
   void initState() {

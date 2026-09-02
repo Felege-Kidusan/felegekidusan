@@ -1,7 +1,7 @@
 -- ════════════════════════════════════════════════════════════
 -- 025 — Mezmur hymns go offline-first on mobile
 -- ════════════════════════════════════════════════════════════
--- Local-first sync (Telegram/Drive pattern): the app keeps a
+-- Local-first sync pattern: the app keeps a
 -- full local copy of the library, pushes queued mutations with
 -- idempotency keys, and pulls a DELTA of rows changed since its
 -- last cursor. This migration gives the server what that needs:

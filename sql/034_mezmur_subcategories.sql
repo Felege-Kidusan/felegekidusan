@@ -1,5 +1,5 @@
 -- 034: two-level taxonomy (Patch 30) — main category → sub-categories.
--- Model (Spotify-style browse hierarchy): a handful of MAIN categories on
+-- Model (large-catalog browse hierarchy): a handful of MAIN categories on
 -- top, fine-grained SUB-categories under them, hymns live at the leaves.
 -- Browse drills down: main → subs → hymns. Filtering by a main category
 -- rolls up (matches itself + all of its subs) in every query path.

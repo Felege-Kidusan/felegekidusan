@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 17,
+      version: 18,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -206,7 +206,7 @@ class LocalDb {
           ''');
         }
         if (oldVersion < 11) {
-          // Offline-first hymn library (Telegram/Drive local-first model):
+          // Offline-first hymn library (local-first model):
           // full local copy + mutation outbox + delta-sync cursor.
           await _createHymnTables(db);
         }
@@ -305,6 +305,17 @@ class LocalDb {
                 'ALTER TABLE cached_mezmur_categories ADD COLUMN image_url TEXT NULL');
           } catch (_) {}
         }
+        if (oldVersion < 18) {
+          // P32: admin-pinned cover gradient colors.
+          try {
+            await db.execute(
+                'ALTER TABLE cached_mezmur_categories ADD COLUMN gradient_start TEXT NULL');
+          } catch (_) {}
+          try {
+            await db.execute(
+                'ALTER TABLE cached_mezmur_categories ADD COLUMN gradient_end TEXT NULL');
+          } catch (_) {}
+        }
         if (oldVersion < 16) {
           // P28 (item 9): single Amharic title. Fold any Amharic title
           // into the canonical one (the Amharic name IS the hymn's
@@ -348,6 +359,8 @@ class LocalDb {
         name TEXT NOT NULL,
         parent_id INTEGER NULL,
         image_url TEXT NULL,
+        gradient_start TEXT NULL,
+        gradient_end TEXT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT
@@ -1816,7 +1829,7 @@ class LocalDb {
   }
 
   /// Instant local search across title (P28: single Amharic title).
-  /// Telegram-style: the list never waits on the network.
+  /// Local-first: the list never waits on the network.
   Future<List<Map<String, dynamic>>> getLocalHymns({
     String? search,
     String? category,
@@ -1920,6 +1933,14 @@ class LocalDb {
             'image_url': c['image_url'] == null || '${c['image_url']}' == ''
                 ? null
                 : '${c['image_url']}',
+            'gradient_start':
+                c['gradient_start'] == null || '${c['gradient_start']}' == ''
+                    ? null
+                    : '${c['gradient_start']}',
+            'gradient_end':
+                c['gradient_end'] == null || '${c['gradient_end']}' == ''
+                    ? null
+                    : '${c['gradient_end']}',
             'sort_order': _asIntLocal(c['sort_order']),
             'is_active': _asIntLocal(c['is_active']),
             'updated_at': now,
@@ -1955,6 +1976,9 @@ class LocalDb {
                 : _asIntLocal(c['parent_id']))
             : prev['parent_id'],
         'image_url': '${c['image_url'] ?? prev['image_url'] ?? ''}',
+        'gradient_start':
+            '${c['gradient_start'] ?? prev['gradient_start'] ?? ''}',
+        'gradient_end': '${c['gradient_end'] ?? prev['gradient_end'] ?? ''}',
         'sort_order': _asIntLocal(c['sort_order'] ?? prev['sort_order'] ?? 0),
         'is_active': _isOne(c['is_active'] ?? prev['is_active']),
         'updated_at': DateTime.now().toIso8601String(),

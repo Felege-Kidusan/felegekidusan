@@ -516,11 +516,17 @@ class HymnStore extends ChangeNotifier {
       }
     }
 
+    // P32: optional admin-pinned cover gradient (strict hex or empty).
+    final gradStart = _hexOrNull(category['gradient_start']);
+    final gradEnd = _hexOrNull(category['gradient_end']);
+
     final localId = _localId(category);
     await _db.upsertCategoryLocal({
       'id': localId,
       'name': name,
       'parent_id': parentId,
+      'gradient_start': gradStart ?? '',
+      'gradient_end': gradEnd ?? '',
       'sort_order': _asInt(category['sort_order']),
       'is_active': 1,
     });
@@ -529,15 +535,35 @@ class HymnStore extends ChangeNotifier {
       'name': name,
       'parent_id': parentId,
       'sort_order': _asInt(category['sort_order']),
+      if (gradStart != null) 'gradient_start': gradStart,
+      if (gradEnd != null) 'gradient_end': gradEnd,
     });
     notifyListeners();
     unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 
+  /// '#rrggbb' or null (mirrors the server-side validator).
+  String? _hexOrNull(dynamic v) {
+    final s = (v ?? '').toString().trim();
+    if (s.isEmpty) return null;
+    return RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(s) ? s.toLowerCase() : null;
+  }
+
   /// Cover images are binary, not queueable JSON ops — they upload
   /// immediately and require connectivity (the caller shows a clear
   /// message when offline).
+  /// Remove the cover image (online-only by nature).
+  Future<String?> removeCategoryImage(int id) async {
+    if (!ConnectivityService().hasLink) {
+      return 'Go online once to remove the cover image.';
+    }
+    final res = await _api.removeCategoryImage(id);
+    if (!res.success) return res.message ?? 'Failed.';
+    unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
+    return null;
+  }
+
   Future<String?> setCategoryImage(int id, String filePath) async {
     if (!ConnectivityService().hasLink) {
       return 'Go online once to upload the cover image.';

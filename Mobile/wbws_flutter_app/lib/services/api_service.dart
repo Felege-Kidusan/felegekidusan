@@ -800,6 +800,11 @@ class ApiService {
     }
   }
 
+  /// Drop a category's cover image (the gradient shows instead).
+  Future<ApiResponse> removeCategoryImage(int id) {
+    return post('/mezmur/category-image-remove', body: {'id': id});
+  }
+
   Future<ApiResponse> setMezmurCategoryStatus(int id, bool active,
       {String? clientOpId}) {
     return post('/mezmur/category-status',

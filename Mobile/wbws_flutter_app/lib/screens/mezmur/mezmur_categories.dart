@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/hymn_store.dart';
 import '../../utils/config.dart';
+import '../../utils/cover_palette.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 
@@ -200,6 +201,212 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     ));
   }
 
+  /// '#rrggbb' string of a Color (alpha stripped).
+  String _hexOf(Color c) =>
+      '#${(c.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+
+  /// Cover-color picker: preset gradients, custom hex pair, or the
+  /// automatic name-hashed palette — with a live preview. Saves
+  /// offline-first like every other category edit.
+  Future<void> _pickColors(Map<String, dynamic> c) async {
+    const presets = [
+      ['0xFF5A1212', '0xFFD4AF37'],
+      ['0xFF4f46e5', '0xFF7c3aed'],
+      ['0xFF0ea5e9', '0xFF2563eb'],
+      ['0xFF059669', '0xFF0d9488'],
+      ['0xFFd97706', '0xFFdc2626'],
+      ['0xFFdb2777', '0xFF9333ea'],
+    ];
+    var start = (c['gradient_start'] ?? '').toString();
+    var end = (c['gradient_end'] ?? '').toString();
+    var auto = start.isEmpty && end.isEmpty;
+    if (auto) {
+      final g = coverColors(c, '${c['name'] ?? ''}');
+      start = _hexOf(g[0]);
+      end = _hexOf(g[1]);
+    }
+    final startCtrl = TextEditingController(text: start);
+    final endCtrl = TextEditingController(text: end);
+    final name = '${c['name'] ?? ''}';
+
+    Color? parse(String v) {
+      final m = RegExp(r'^#?([0-9a-fA-F]{6})$').firstMatch(v.trim());
+      return m == null ? null : Color(int.parse(m.group(1)!, radix: 16) | 0xFF000000);
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.palette_outlined, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('Cover color · $name',
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w700)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final g = coverColors(c, name);
+                    setSheet(() {
+                      auto = true;
+                      startCtrl.text = _hexOf(g[0]);
+                      endCtrl.text = _hexOf(g[1]);
+                    });
+                  },
+                  child: const Text('AUTO (BY NAME)'),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              // live preview: same treatment as tiles and headers
+              Container(
+                height: 88,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [parse(startCtrl.text) ?? const Color(0xFF4f46e5),
+                             parse(endCtrl.text) ?? const Color(0xFF7c3aed)],
+                  ),
+                ),
+                alignment: Alignment.bottomLeft,
+                padding: const EdgeInsets.all(12),
+                child: Text(name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15)),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final p in presets)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => setSheet(() {
+                        auto = false;
+                        startCtrl.text = '#${p[0].substring(2)}';
+                        endCtrl.text = '#${p[1].substring(2)}';
+                      }),
+                      child: Container(
+                        width: 48,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(int.parse(p[0])),
+                              Color(int.parse(p[1]))
+                            ],
+                          ),
+                          border: !auto &&
+                                  startCtrl.text.toLowerCase() ==
+                                      '#${p[0].substring(2).toLowerCase()}' &&
+                                  endCtrl.text.toLowerCase() ==
+                                      '#${p[1].substring(2).toLowerCase()}'
+                              ? Border.all(color: AppTheme.primary, width: 2)
+                              : null,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: startCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Start (#rrggbb)',
+                        isDense: true,
+                        border: OutlineInputBorder()),
+                    onChanged: (_) => setSheet(() {}),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: endCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'End (#rrggbb)',
+                        isDense: true,
+                        border: OutlineInputBorder()),
+                    onChanged: (_) => setSheet(() {}),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                  'Shows wherever this category appears without a cover image.',
+                  style: TextStyle(
+                      fontSize: 11, color: AppTheme.textSecondary)),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                  onPressed: () async {
+                    final err = await _store.saveCategory({
+                      'id': c['id'],
+                      'name': name,
+                      if (c['parent_id'] != null) 'parent_id': c['parent_id'],
+                      'sort_order': c['sort_order'],
+                      if (!auto) 'gradient_start': startCtrl.text.trim(),
+                      if (!auto) 'gradient_end': endCtrl.text.trim(),
+                    });
+                    if (ctx.mounted) {
+                      Navigator.of(ctx).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(
+                            err ?? 'Cover color saved — syncing.'),
+                        duration: const Duration(seconds: 2),
+                      ));
+                    }
+                    await _reload();
+                  },
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Save'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _removeImage(Map<String, dynamic> c) async {
+    final err = await _store.removeCategoryImage(_asInt(c['id']));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? 'Cover image removed — the gradient shows.'),
+      duration: Duration(seconds: err == null ? 2 : 3),
+    ));
+    await _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -274,9 +481,9 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                       ? Image.network(
                           '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/api/v1$'), '')}$img',
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _gradientThumb(name),
+                          errorBuilder: (_, __, ___) => _gradientThumb(c),
                         )
-                      : _gradientThumb(name),
+                      : _gradientThumb(c),
                 ),
               ),
         title: Row(
@@ -319,6 +526,12 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
               case 'image':
                 _pickImage(c);
                 break;
+              case 'color':
+                _pickColors(c);
+                break;
+              case 'removeimg':
+                _removeImage(c);
+                break;
               case 'addsub':
                 _nameDialog(parentId: _asInt(c['id']));
                 break;
@@ -356,6 +569,25 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                 Text('Cover image', style: TextStyle(fontSize: 12.5)),
               ]),
             ),
+            const PopupMenuItem(
+              value: 'color',
+              height: 40,
+              child: Row(children: [
+                Icon(Icons.palette_outlined, size: 16),
+                SizedBox(width: 8),
+                Text('Cover color', style: TextStyle(fontSize: 12.5)),
+              ]),
+            ),
+            if (img.isNotEmpty)
+              const PopupMenuItem(
+                value: 'removeimg',
+                height: 40,
+                child: Row(children: [
+                  Icon(Icons.hide_image_outlined, size: 16),
+                  SizedBox(width: 8),
+                  Text('Remove image', style: TextStyle(fontSize: 12.5)),
+                ]),
+              ),
             PopupMenuItem(
               value: 'toggle',
               height: 40,
@@ -376,8 +608,8 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     );
   }
 
-  Widget _gradientThumb(String name) {
-    final colors = _gradientFor(name);
+  Widget _gradientThumb(Map<String, dynamic> c) {
+    final colors = coverColors(c, '${c['name'] ?? ''}');
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -385,7 +617,9 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
       ),
       child: Center(
         child: Text(
-          name.trim().isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase(),
+          ('${c['name'] ?? ''}').trim().isEmpty
+              ? '?'
+              : ('${c['name'] ?? ''}').trim().substring(0, 1).toUpperCase(),
           style: const TextStyle(
               color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
         ),

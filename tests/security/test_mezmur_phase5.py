@@ -489,7 +489,7 @@ class TaxonomySyncTests(unittest.TestCase):
         self.assertIn("'A category with this name already exists.'", self.svc)
 
     def test_rename_echoes_real_is_active(self):
-        self.assertIn('"SELECT name, sort_order, is_active" . ($twoLevel ? ", parent_id" : "") . " FROM mezmur_categories WHERE id = ? LIMIT 1"', self.svc)  # P30 parent-aware
+        self.assertIn('"SELECT name, sort_order, is_active" . ($twoLevel ? ", parent_id" : "")', self.svc)  # P30 parent-aware (P32 appends gradient cols)
         self.assertIn("SELECT name, name_am, is_active FROM mezmur_zemarians", self.svc)
         self.assertIn("'is_active' => (int)$old['is_active']", self.svc)
 
@@ -847,7 +847,7 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertNotIn("_referenceCtrl", self.editor)
         self.assertIn("Title (ርዕስ) *", self.editor)
         # local DB folds on upgrade to v16 and rebuilds the word index.
-        self.assertIn("version: 17,", self.db)
+        self.assertIn("version: 18,", self.db)
         self.assertIn("UPDATE cached_hymns SET title = title_am", self.db)
         self.assertIn("UPDATE cached_hymns SET title_am = NULL, reference = NULL", self.db)
         # local LIKE search is title-only.
@@ -906,6 +906,90 @@ class DrillDownAndSingleBottomNavTests(unittest.TestCase):
         # the library carries the back icon when hosted in the shell
         self.assertIn("this.onBack", self.lib)
         self.assertIn("Back to home", self.lib)
+
+
+class CoverColorAndUxStateTests(unittest.TestCase):
+    """P32 (UI/UX audit): interaction-state polish everywhere (subtle
+    hover layers, visible focus, reduced-motion), plus the cover-color
+    system — image preview before upload, gradient picker with live
+    preview, clear-to-auto, and remove-image."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        cls.page = (R / "frontend/pages/mezmur_dept.php").read_text(encoding="utf-8")
+        cls.js = (R / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.css = (R / "themes/components.css").read_text(encoding="utf-8")
+        cls.svc = (R / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
+        cls.route = (R / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        M = R / "Mobile/wbws_flutter_app/lib"
+        cls.db = (M / "services/local_db.dart").read_text(encoding="utf-8")
+        cls.store = (M / "services/hymn_store.dart").read_text(encoding="utf-8")
+        cls.cats = (M / "screens/mezmur/mezmur_categories.dart").read_text(encoding="utf-8")
+        cls.hymns = (M / "screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+
+    # ── interaction states (hover / focus / motion) ────────────
+    def test_hover_and_focus_states_present(self):
+        self.assertIn(".mz-swatch:hover", self.css)
+        self.assertIn(".mz-swatch:focus-visible", self.css)
+        self.assertIn(".mz-mgr tbody tr:hover", self.css)
+        self.assertIn(".mz-pick-item label:focus-within", self.css)
+        self.assertIn(".btn-primary:active", self.css)
+
+    def test_reduced_motion_covers_new_elements(self):
+        block = self.css[self.css.index("@media (prefers-reduced-motion: reduce)"):]
+        self.assertIn(".mz-swatch", block)
+
+    # ── image preview + upload fix ─────────────────────────────
+    def test_image_preview_before_upload(self):
+        self.assertIn('id="mzImageDialog"', self.page)
+        self.assertIn("createObjectURL", self.js)
+        self.assertIn("revokeObjectURL", self.js)
+        # the browser upload actually reaches the action (latent P30
+        # bug: the FormData carried no action)
+        self.assertIn("fd.append('action', 'category_image')", self.js)
+
+    # ── gradient picker ────────────────────────────────────────
+    def test_color_dialog_markup(self):
+        self.assertIn('id="mzColorDialog"', self.page)
+        self.assertIn('id="mzSwatches"', self.page)
+        self.assertIn('type="color"', self.page)
+        self.assertIn('id="mzGradAuto"', self.page)   # clear to auto
+        self.assertIn('id="mzRemoveImg"', self.page)  # transparency path
+
+    def test_pinned_gradient_wins_in_js(self):
+        self.assertIn("function gradOf(item)", self.js)
+        self.assertIn("item.gradient_start && item.gradient_end", self.js)
+
+    def test_inline_edit_keyboard_behavior(self):
+        self.assertIn("initInlineKeys", self.js)      # Enter commits
+        self.assertIn("e.key === 'Escape'", self.js)
+
+    # ── server gradient contract ───────────────────────────────
+    def test_service_gradient_contract(self):
+        self.assertIn("gradientsReady", self.svc)
+        self.assertIn("hexColorOrNull", self.svc)
+        self.assertIn("removeCategoryImage", self.svc)
+        self.assertIn("wantsColors", self.svc)        # absent keys = untouched
+        self.assertIn("colorsChanged", self.svc)      # color-only edits allowed
+        self.assertIn("Colors must be hex like", self.svc)
+
+    def test_sql035_and_debrand(self):
+        self.assertTrue((ROOT / "sql/035_mezmur_category_gradient.sql").exists())
+        self.assertNotIn("Spotify", (ROOT / "sql/034_mezmur_subcategories.sql").read_text(encoding="utf-8"))
+
+    # ── mobile gradient system ─────────────────────────────────
+    def test_mobile_gradient_pipeline(self):
+        self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/utils/cover_palette.dart").exists())
+        self.assertIn("version: 18,", self.db)
+        self.assertIn("gradient_start", self.db)           # columns + upserts
+        self.assertIn("coverColors", self.hymns)           # shared util used
+        self.assertIn("Cover color", self.cats)            # manager entry
+        self.assertIn("_hexOrNull", self.store)            # offline validation
+        self.assertIn("removeCategoryImage", self.store)
+
+    def test_rest_remove_image_route_gated(self):
+        self.assertIn("category-image-remove", self.route)
 
 
 class AuditRegressionTests(unittest.TestCase):
@@ -1102,7 +1186,7 @@ class SubcategoryClientTests(unittest.TestCase):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_category_screen.dart").exists())
         self.assertIn("MezmurCategoryScreen(", self.hymns)
         self.assertIn("image_url", self.db)   # covers cached on-device
-        self.assertIn("version: 17,", self.db)
+        self.assertIn("version: 18,", self.db)
 
     def test_mobile_rollup(self):
         # local filter + counts roll a MAIN over its subs
@@ -1775,7 +1859,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertEqual(
             # hymn, category, category-status, category-image, zemarian,
             # zemarian-status, attendance sheet
-            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 7
+            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 8
         )
         # sheet + 4 library writers + submission review + category/singer mgmt
         self.assertEqual(self.route.count("apiIdempotencyBegin("), 8)
@@ -1823,7 +1907,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 17,", self.db)  # 17 = two-level taxonomy (P30); 16 = single title
+        self.assertIn("version: 18,", self.db)  # 17 = two-level taxonomy (P30); 16 = single title
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)
