@@ -37,9 +37,14 @@ class MezmurHymnsScreen extends StatefulWidget {
   /// Deep links — open straight into a filtered list (tapped a
   /// category/singer chip on a hymn, or a browse tile).
   const MezmurHymnsScreen(
-      {super.key, this.initialCategoryId, this.initialZemarianId});
+      {super.key, this.initialCategoryId, this.initialZemarianId, this.onBack});
   final int? initialCategoryId;
   final int? initialZemarianId;
+
+  /// When the library is hosted inside the app shell (not pushed as a
+  /// route), the shell hides the main bottom bar and hands us a way
+  /// back to the home screen (P31: one bottom bar at a time).
+  final VoidCallback? onBack;
   @override
   State<MezmurHymnsScreen> createState() => MezmurHymnsScreenState();
 }
@@ -276,6 +281,13 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
         title: const Text('Hymn Library · መዝሙር'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        leading: widget.onBack == null
+            ? null
+            : IconButton(
+                tooltip: 'Back to home',
+                icon: const Icon(Icons.arrow_back, size: 20),
+                onPressed: widget.onBack,
+              ),
         actions: [
           if (_store.canEdit)
             IconButton(
@@ -699,7 +711,29 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
           child: Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
-              onTap: () => _browseTaxonomy(id, singer: !categories),
+              onTap: () {
+                if (!categories) {
+                  _browseTaxonomy(id, singer: true);
+                } else if (r['parent_id'] == null) {
+                  final img = (r['image_url'] ?? '').toString();
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => MezmurCategoryScreen(
+                      categoryId: id,
+                      name: (r['name'] ?? '').toString(),
+                      imageUrl: img.isEmpty ? null : img,
+                    ),
+                  ));
+                } else {
+                  final img = (r['image_url'] ?? '').toString();
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => MezmurSubListScreen(
+                      categoryId: id,
+                      name: (r['name'] ?? '').toString(),
+                      imageUrl: img.isEmpty ? null : img,
+                    ),
+                  ));
+                }
+              },
               leading: CircleAvatar(
                 backgroundColor:
                     _palettes[i % _palettes.length][0].withOpacity(0.12),

@@ -46,6 +46,7 @@ ob_start();
             <ul class="school-nav-list">
                 <li><button class="school-nav-link active" data-section="overview"><i class="fa-solid fa-gauge-high"></i> Overview</button></li>
                 <li><button class="school-nav-link" data-section="library"><i class="fa-solid fa-book-open"></i> Hymn Library</button></li>
+                <li><button class="school-nav-link" data-section="catalog"><i class="fa-solid fa-tags"></i> Catalog</button></li>
                 <li><button class="school-nav-link" data-section="attendance"><i class="fa-solid fa-inbox"></i> Submissions</button></li>
                 <li><button class="school-nav-link" data-section="analytics"><i class="fa-solid fa-chart-column"></i> Analytics</button></li>
                 <li><button class="school-nav-link" data-section="takers"><i class="fa-solid fa-user-shield"></i> Attendance Takers</button></li>
@@ -715,6 +716,7 @@ ob_start();
     <div class="school-bottom-nav-inner">
         <button class="school-bottom-nav-btn active" data-section="overview" aria-label="Overview"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
         <button class="school-bottom-nav-btn" data-section="library" aria-label="Hymn Library"><i class="fa-solid fa-book-open"></i><span>Library</span></button>
+        <button class="school-bottom-nav-btn" data-section="catalog" aria-label="Catalog"><i class="fa-solid fa-tags"></i><span>Catalog</span></button>
         <button class="school-bottom-nav-btn" data-section="attendance" aria-label="Attendance"><i class="fa-solid fa-calendar-check"></i><span>Attend</span></button>
         <button class="school-bottom-nav-btn" data-section="analytics" aria-label="Analytics"><i class="fa-solid fa-chart-column"></i><span>Analyze</span></button>
         <button class="school-bottom-nav-btn" data-section="takers" aria-label="Attendance takers"><i class="fa-solid fa-user-shield"></i><span>Takers</span></button>

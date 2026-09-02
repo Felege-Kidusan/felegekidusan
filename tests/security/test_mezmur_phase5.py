@@ -764,7 +764,9 @@ class LibraryTopTabsTests(unittest.TestCase):
         self.assertIn("_taxonomyTab(categories: false)", self.lib)
         self.assertIn("Widget _resultList({required bool categories})", self.lib)
         # tapping a result opens the filtered hymns list
-        self.assertIn("_browseTaxonomy(id, singer: !categories)", self.lib)
+        # P31 drill-down: mains open the category screen, subs open the
+        # named hymn list; singers still use the filtered Hymns tab.
+        self.assertIn("MezmurSubListScreen(", self.lib)
         self.assertIn("_tabCtrl.animateTo(_hymnsTab)", self.lib)
 
     def test_hymn_rows_show_lyrics_match_context(self):
@@ -870,6 +872,42 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertIn("hymn_count", self.svc)
 
 
+class DrillDownAndSingleBottomNavTests(unittest.TestCase):
+    """P31 (mobile): category -> sub-category boxes (smaller than the
+    category boxes) -> named hymn list; and exactly ONE bottom bar at a
+    time — the shell hides the main bar while the hymn library shows."""
+
+    @classmethod
+    def setUpClass(cls):
+        M = ROOT / "Mobile/wbws_flutter_app/lib"
+        cls.catscr = (M / "screens/mezmur/mezmur_category_screen.dart").read_text(encoding="utf-8")
+        cls.lib = (M / "screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+        cls.shell = (M / "screens/shell/app_shell.dart").read_text(encoding="utf-8")
+
+    def test_sub_boxes_smaller_than_category_boxes(self):
+        # sub boxes: aspect 2.2 vs 1.45 for the browse category tiles
+        self.assertIn("childAspectRatio: 2.2", self.catscr)
+        self.assertIn("childAspectRatio: 1.45", self.lib)
+        self.assertIn("_subBox(", self.catscr)
+
+    def test_sub_images_render(self):
+        # sub boxes use their own uploaded cover or a name gradient
+        self.assertIn("sub['image_url']", self.catscr)
+        self.assertIn("NetworkImage(_img(imageUrl))", self.catscr)
+
+    def test_named_hymn_list_leaf(self):
+        self.assertIn("class MezmurSubListScreen", self.catscr)
+        self.assertIn("MezmurSubListScreen(", self.lib)  # reachable
+
+    def test_shell_hides_main_bar_for_hymn_library(self):
+        self.assertIn("hideMainNav", self.shell)
+        self.assertIn("_selectTabById('home')", self.shell)
+        self.assertIn("onBack: () => _selectTabById('home')", self.shell)
+        # the library carries the back icon when hosted in the shell
+        self.assertIn("this.onBack", self.lib)
+        self.assertIn("Back to home", self.lib)
+
+
 class CatalogManagerTests(unittest.TestCase):
     """P31 (web): standalone catalog management section, cascading hymn
     form, and a strict no-browser-popups rule — every interaction is
@@ -883,8 +921,16 @@ class CatalogManagerTests(unittest.TestCase):
         cls.css = (R / "themes/components.css").read_text(encoding="utf-8")
 
     def test_standalone_catalog_section(self):
-        self.assertIn('data-section="catalog"', self.page)          # nav item
-        self.assertIn('id="section-catalog"', self.page)            # section
+        # the section must be REACHABLE: sidebar item + mobile bottom
+        # bar button + the section itself (a section with no nav item
+        # once shipped invisibly — never again).
+        self.assertRegex(
+            self.page,
+            r'school-nav-link" data-section="catalog"')
+        self.assertRegex(
+            self.page,
+            r'school-bottom-nav-btn" data-section="catalog"')
+        self.assertIn('id="section-catalog"', self.page)
         self.assertIn("mzMgrCatRows", self.page)                    # categories table
         self.assertIn("mzMgrZemRows", self.page)                    # singers table
         self.assertIn("mzMgrMainName", self.page)                   # add-main form

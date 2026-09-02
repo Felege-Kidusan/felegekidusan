@@ -497,7 +497,7 @@ sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE hc FROM mezmur_h
 # --- 3ab. Standalone catalog manager + cascading form (Patch 31) ------------
 ssms_login audit_super >/dev/null 2>&1
 P31P=$(ssms_get "/frontend/pages/mezmur_dept.php")
-echo "$P31P" | grep -q 'data-section="catalog"' && echo "$P31P" | grep -q 'id="section-catalog"' && ok "standalone catalog section + nav served" || fail "catalog section missing"
+[ "$(echo "$P31P" | grep -c 'data-section="catalog"')" -ge 3 ] && echo "$P31P" | grep -q 'id="section-catalog"' && ok "standalone catalog section + sidebar + mobile nav served" || fail "catalog section/nav missing"
 echo "$P31P" | grep -q "mzHymnMainCat" && echo "$P31P" | grep -q "mzHymnSubCat" && ok "cascading category/subcategory selects served" || fail "cascade selects missing"
 P31J=$(curl -s "$BASE/frontend/js/mezmur.js")
 echo "$P31J" | grep -q "window.prompt\|window.confirm\|window.alert" && fail "browser popup still used in served JS" || ok "zero browser popups in served JS"

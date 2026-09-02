@@ -181,6 +181,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         (route) => false);
   }
 
+  void _selectTabById(String id) {
+    final i = _tabs.indexWhere((t) => t.id == id);
+    if (i >= 0) _onTabChanged(i);
+  }
+
   void _onTabChanged(int index) {
     if (index == _currentIndex) {
       _refreshCurrentTab();
@@ -268,7 +273,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case 'hr_attendance':
         return HrAttendanceScreen(key: _hrAttKey);
       case 'mezmur_hymns':
-        return const MezmurHymnsScreen();
+        // P31: while the hymn library is showing, the library owns the
+        // bottom of the screen — the main bar is hidden and a back
+        // icon in the library's app bar returns here.
+        return MezmurHymnsScreen(onBack: () => _selectTabById('home'));
       case 'mezmur_analytics':
         return const MezmurAnalyticsScreen();
       case 'grades':
@@ -382,6 +390,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
     if (_currentIndex >= _tabs.length) _currentIndex = 0;
 
+    // P31: the hymn library carries its own bottom navigation, so the
+    // main bar steps aside while that tab is active (no stacked bars).
+    final hideMainNav = _tabs.isNotEmpty &&
+        _currentIndex < _tabs.length &&
+        _tabs[_currentIndex].id == 'mezmur_hymns';
+
     return Scaffold(
       backgroundColor: AppTheme.bgLight,
       body: Column(
@@ -397,7 +411,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
+      bottomNavigationBar: hideMainNav ? null : SafeArea(
         child: Container(
           margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           decoration: BoxDecoration(
