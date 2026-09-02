@@ -1037,6 +1037,11 @@ class SyncFixAndCascadeParityTests(unittest.TestCase):
         self.assertIn("function withAlpha", self.js)
         self.assertIn("mz-checker", self.js)          # checkerboard preview
 
+    def test_manager_reorder_parity(self):
+        # web has up/down arrows; the app menu matches (offline swap)
+        self.assertIn("Move up", self.mgr)
+        self.assertIn("Future<void> _move(", self.mgr)
+
     def test_opacity_control_mobile(self):
         self.assertIn("opStart", self.mgr)
         self.assertIn("_opOf", self.mgr)

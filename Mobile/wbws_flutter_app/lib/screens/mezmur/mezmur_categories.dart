@@ -480,6 +480,45 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     );
   }
 
+  /// Reorder within the same level (web-manager parity): swap
+  /// sort_order with the adjacent sibling — offline-first, syncs like
+  /// every other category edit.
+  Future<void> _move(Map<String, dynamic> c, int dir) async {
+    final siblings = c['parent_id'] == null
+        ? _mains
+        : _subsOf(_asInt(c['parent_id']));
+    final idx =
+        siblings.indexWhere((s) => _asInt(s['id']) == _asInt(c['id']));
+    final other = (idx >= 0 && idx + dir >= 0 && idx + dir < siblings.length)
+        ? siblings[idx + dir]
+        : null;
+    if (!mounted) return;
+    if (other == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(dir < 0
+            ? 'Already at the top of its level.'
+            : 'Already at the bottom of its level.'),
+        duration: const Duration(seconds: 2),
+      ));
+      return;
+    }
+    final a = _asInt(c['sort_order']);
+    final b = _asInt(other['sort_order']);
+    await _store.saveCategory({
+      'id': c['id'],
+      'name': '${c['name']}',
+      if (c['parent_id'] != null) 'parent_id': c['parent_id'],
+      'sort_order': b == a ? a + dir : b,
+    });
+    await _store.saveCategory({
+      'id': other['id'],
+      'name': '${other['name']}',
+      if (other['parent_id'] != null) 'parent_id': other['parent_id'],
+      'sort_order': a == b ? b - dir : a,
+    });
+    await _reload();
+  }
+
   Future<void> _removeImage(Map<String, dynamic> c) async {
     final err = await _store.removeCategoryImage(_asInt(c['id']));
     if (!mounted) return;
@@ -612,6 +651,12 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
               case 'color':
                 _pickColors(c);
                 break;
+              case 'up':
+                _move(c, -1);
+                break;
+              case 'down':
+                _move(c, 1);
+                break;
               case 'removeimg':
                 _removeImage(c);
                 break;
@@ -659,6 +704,24 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                 Icon(Icons.palette_outlined, size: 16),
                 SizedBox(width: 8),
                 Text('Cover color', style: TextStyle(fontSize: 12.5)),
+              ]),
+            ),
+            const PopupMenuItem(
+              value: 'up',
+              height: 40,
+              child: Row(children: [
+                Icon(Icons.arrow_upward, size: 16),
+                SizedBox(width: 8),
+                Text('Move up', style: TextStyle(fontSize: 12.5)),
+              ]),
+            ),
+            const PopupMenuItem(
+              value: 'down',
+              height: 40,
+              child: Row(children: [
+                Icon(Icons.arrow_downward, size: 16),
+                SizedBox(width: 8),
+                Text('Move down', style: TextStyle(fontSize: 12.5)),
               ]),
             ),
             if (img.isNotEmpty)
