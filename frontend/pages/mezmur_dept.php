@@ -244,6 +244,9 @@ ob_start();
                         <select id="mzCategoryFilter" class="school-input" aria-label="Filter by category">
                             <option value="">All categories</option>
                         </select>
+                        <select id="mzZemarianFilter" class="school-input" aria-label="Filter by singer">
+                            <option value="">All singers</option>
+                        </select>
                         <select id="mzStatusFilter" class="school-input" aria-label="Filter by status">
                             <option value="active">Active</option>
                             <option value="archived">Archived</option>
@@ -259,17 +262,6 @@ ob_start();
                             <option value="amharic">Amharic</option>
                             <option value="geez">Geez (ግዕዝ)</option>
                         </select>
-                    </div>
-
-                    <!-- Tabs: All / Categories / Zemarians -->
-                    <div class="toolbar">
-                        <button class="btn-secondary btn-sm mz-tab active" data-tab="all" onclick="Mezmur.tab('all')">All</button>
-                        <button class="btn-secondary btn-sm mz-tab" data-tab="categories" onclick="Mezmur.tab('categories')">Categories</button>
-                        <button class="btn-secondary btn-sm mz-tab" data-tab="zemarians" onclick="Mezmur.tab('zemarians')">Zemarians</button>
-                    </div>
-
-                    <div id="mzBrowse" class="is-hidden">
-                        <div id="mzBrowseList" class="chip-list"></div>
                     </div>
 
                     <!-- List -->
@@ -305,8 +297,8 @@ ob_start();
                 </div>
                 <div class="school-card">
                     <div class="toolbar">
-                        <button class="btn-secondary btn-sm mz-cmgr-tab active" id="mzMgrCatTabBtn" onclick="Mezmur.mgrTab('categories')"><i class="fa-solid fa-sitemap"></i> Categories &amp; Sub-categories</button>
-                        <button class="btn-secondary btn-sm mz-cmgr-tab" id="mzMgrZemTabBtn" onclick="Mezmur.mgrTab('zemarians')"><i class="fa-solid fa-user-group"></i> Singers</button>
+                        <button class="btn-secondary btn-sm mz-cmgr-tab active" id="mzMgrCatTabBtn" onclick="Mezmur.mgrTab('categories')" aria-pressed="true"><i class="fa-solid fa-sitemap"></i> Categories</button>
+                        <button class="btn-secondary btn-sm mz-cmgr-tab" id="mzMgrZemTabBtn" onclick="Mezmur.mgrTab('zemarians')" aria-pressed="false"><i class="fa-solid fa-user-group"></i> Singers</button>
                     </div>
 
                     <!-- categories manager -->
@@ -330,7 +322,7 @@ ob_start();
                             <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddZem()"><i class="fa-solid fa-plus"></i> Add singer</button>
                         </div>
                         <div class="table-shell"><table class="school-table">
-                            <thead><tr><th>Name</th><th>ስም በአማርኛ</th><th style="width:70px">Hymns</th><th style="width:210px">Actions</th></tr></thead>
+                            <thead><tr><th style="width:44px">Cover</th><th>Name</th><th>ስም በአማርኛ</th><th style="width:70px">Hymns</th><th style="width:290px">Actions</th></tr></thead>
                             <tbody id="mzMgrZemRows"></tbody>
                         </table></div>
                     </div>

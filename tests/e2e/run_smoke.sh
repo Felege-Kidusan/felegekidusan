@@ -575,6 +575,42 @@ P33H=$(ssms_get "/frontend/pages/mezmur_dept.php")
 echo "$P33H" | grep -q 'id="mzGradStartOp"' && ok "opacity sliders served" || fail "opacity sliders missing"
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P33 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P33%'" >/dev/null 2>&1
 
+# --- 3be. P34: singer covers + collapsed catalog + one filter row ------------
+sudo -n mariadb ssms < sql/037_zemarian_images.sql 2>/dev/null
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P34Z=$(ssms_api POST mezmur/zemarian '{"id":0,"name":"P34 Smoke Singer"}')
+echo "$P34Z" | grep -q '"status":"success"' && ok "singer created" || fail "singer create: $P34Z"
+P34ZID=$(echo "$P34Z" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+python3 -c "import struct,zlib
+def chunk(t,d):
+    c=t+d; return struct.pack('>I',len(d))+c+struct.pack('>I',zlib.crc32(c))
+w=h=64; raw=b''.join(b'\x00'+bytes([9,90,160]*w) for _ in range(h))
+open('/tmp/p34s.png','wb').write(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b''))"
+P34UP=$(curl -s -X POST "$BASE/api/v1/mezmur/zemarian-image" -H "Authorization: Bearer $API_TOKEN" -F "id=$P34ZID" -F "image=@/tmp/p34s.png;type=image/png")
+echo "$P34UP" | grep -q '"saved":true' && echo "$P34UP" | grep -q 'mezmur_zemarians' && ok "singer cover uploaded (own dir)" || fail "singer upload: $P34UP"
+P34LIST=$(ssms_api GET "mezmur/zemarians")
+echo "$P34LIST" | grep -q 'P34 Smoke Singer' && echo "$P34LIST" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+z = [i for i in d['data']['items'] if i['name'] == 'P34 Smoke Singer'][0]
+assert z.get('image_url', '').startswith('/uploads/mezmur_zemarians/'), z
+print('singer list serves image_url')" >/dev/null && ok "singer list serves image_url" || fail "image_url missing from singer list"
+P34HT=$(ssms_get "/uploads/mezmur_zemarians/$(sudo -n mariadb -N ssms -e "SELECT image_path FROM mezmur_zemarians WHERE id=$P34ZID" | sed 's|.*/||;s|?.*||')")
+[ -n "$P34HT" ] && echo "$P34HT" | grep -q "PNG" && ok "cover image file served" || fail "cover file not served"
+P34RM=$(ssms_api POST mezmur/zemarian-image-remove '{"id":'"$P34ZID"'}')
+echo "$P34RM" | grep -q '"status":"success"' && ok "singer cover removed" || fail "singer remove: $P34RM"
+P34LEFT=$(ls uploads/mezmur_zemarians/ 2>/dev/null | grep -vc htaccess)
+[ "$P34LEFT" = "0" ] && ok "removed cover file deleted from disk" || fail "$P34LEFT file(s) survived removal"
+P34PG=$(ssms_get "/frontend/pages/mezmur_dept.php")
+echo "$P34PG" | grep -q 'id="mzZemarianFilter"' && ok "library singer filter served" || fail "singer filter missing"
+echo "$P34PG" | grep -q 'id="mzBrowse"' && fail "old duplicate browse markup still served" || ok "duplicate tab/chip browse removed"
+P34JS=$(curl -s "$BASE/frontend/js/mezmur.js")
+echo "$P34JS" | grep -q 'mz-cmgr-exp' && echo "$P34JS" | grep -q 'mgrToggleOpen' && ok "collapsed catalog manager served" || fail "collapse control missing"
+P34CSS=$(curl -s "$BASE/themes/components.css")
+echo "$P34CSS" | grep -q 'mz-cmgr-exp.open i' && ok "chevron animation css served" || fail "chevron css missing"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_zemarians WHERE name LIKE 'P34 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P34%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

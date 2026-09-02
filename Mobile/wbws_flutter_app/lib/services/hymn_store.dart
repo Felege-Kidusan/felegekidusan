@@ -556,6 +556,33 @@ class HymnStore extends ChangeNotifier {
   /// Cover images are binary, not queueable JSON ops — they upload
   /// immediately and require connectivity (the caller shows a clear
   /// message when offline).
+  /// P34: singer cover images (online-only, applied locally on
+  /// success exactly like category covers).
+  Future<String?> setZemarianImage(int id, String filePath) async {
+    if (!ConnectivityService().hasLink) {
+      return 'Go online once to upload the cover image.';
+    }
+    final res = await _api.uploadZemarianImage(id, filePath);
+    if (!res.success) return res.message ?? 'Upload failed.';
+    final url = res.data is Map ? '${(res.data as Map)['image_url'] ?? ''}' : '';
+    await _db.upsertZemarianLocal({'id': id, 'image_url': url});
+    notifyListeners();
+    unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
+    return null;
+  }
+
+  Future<String?> removeZemarianImage(int id) async {
+    if (!ConnectivityService().hasLink) {
+      return 'Go online once to remove the cover image.';
+    }
+    final res = await _api.post('/mezmur/zemarian-image-remove', body: {'id': id});
+    if (!res.success) return res.message ?? 'Failed.';
+    await _db.upsertZemarianLocal({'id': id, 'image_url': ''});
+    notifyListeners();
+    unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
+    return null;
+  }
+
   /// Remove the cover image (online-only by nature).
   Future<String?> removeCategoryImage(int id) async {
     if (!ConnectivityService().hasLink) {

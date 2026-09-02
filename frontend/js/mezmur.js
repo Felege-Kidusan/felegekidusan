@@ -511,7 +511,7 @@
     function clearFilters() {
         lib.search = ''; lib.category = ''; lib.length = ''; lib.language = '';
         lib.categoryId = 0; lib.zemarianId = 0; lib.page = 1;
-        ['mzSearch', 'mzCategoryFilter', 'mzLengthFilter', 'mzLanguageFilter'].forEach(function (id) {
+        ['mzSearch', 'mzCategoryFilter', 'mzZemarianFilter', 'mzLengthFilter', 'mzLanguageFilter'].forEach(function (id) {
             var el = $(id); if (el) el.value = '';
         });
         loadList();
@@ -563,7 +563,7 @@
     function loadCatalog() {
         apiGet('action=categories').then(function (d) {
             if (d && d.status === 'success') catalog.categories = d.items || [];
-            renderCatalogBoxes(); renderCatalogList(); populateCategoryFilter();
+            renderCatalogBoxes(); renderCatalogList(); populateCategoryFilter(); populateZemarianFilter();
         }).catch(function () {});
         apiGet('action=zemarians').then(function (d) {
             if (d && d.status === 'success') catalog.zemarians = d.items || [];
@@ -574,6 +574,22 @@
     /** P30: the library filter follows the two-level taxonomy — mains
      *  group their subs (optgroup); picking a MAIN filters roll-up (the
      *  server matches the main + all of its subs). */
+    /** P34: singers filter as a dropdown (one professional filter
+     *  system — search + selects; the old tab/chip browse is gone). */
+    function populateZemarianFilter() {
+        var sel = $('mzZemarianFilter');
+        if (!sel) return;
+        var cur = sel.value;
+        var zems = (catalog.zemarians || []).filter(function (z) {
+            return Number(z.is_active) === 1;
+        });
+        sel.innerHTML = '<option value="">All singers</option>' + zems.map(function (z) {
+            return '<option value="' + Number(z.id) + '">' + esc(z.name) +
+                ' (' + (z.hymn_count || 0) + ')</option>';
+        }).join('');
+        sel.value = cur;
+    }
+
     function populateCategoryFilter() {
         var sel = $('mzCategoryFilter');
         if (!sel) return;
@@ -700,38 +716,23 @@
     }
 
     // ── browse tabs (All / Categories / Zemarians) ──
-    function tab(mode) {
-        browseMode = mode;
-        document.querySelectorAll('.mz-tab').forEach(function (b) {
-            b.classList.toggle('active', b.getAttribute('data-tab') === mode);
-        });
-        var browse = $('mzBrowse');
-        if (browse) browse.classList.toggle('is-hidden', mode === 'all');
-        if (mode === 'all') { lib.categoryId = 0; lib.zemarianId = 0; loadList(); }
-        else { renderBrowse(); }
+    function syncFilterSelects() {
+        var c = $('mzCategoryFilter'), z = $('mzZemarianFilter');
+        if (c) c.value = lib.categoryId ? String(lib.categoryId) : '';
+        if (z) z.value = lib.zemarianId ? String(lib.zemarianId) : '';
     }
-
-    function renderBrowse() {
-        var list = $('mzBrowseList');
-        if (browseMode === 'categories') {
-            lib.zemarianId = 0;
-            list.innerHTML = (catalog.categories || []).map(function (c) {
-                return '<button class="btn-secondary btn-sm" onclick="Mezmur.browseCategory(' + c.id + ')">' + esc(c.name) + '</button>';
-            }).join('') || '<span class="text-dim" style="font-size:.8rem">No categories yet.</span>';
-        } else {
-            lib.categoryId = 0;
-            list.innerHTML = (catalog.zemarians || []).map(function (z) {
-                return '<button class="btn-secondary btn-sm" onclick="Mezmur.browseZemarian(' + z.id + ')">' + esc(z.name) + '</button>';
-            }).join('') || '<span class="text-dim" style="font-size:.8rem">No singers yet.</span>';
-        }
+    function browseCategory(id) {
+        lib.categoryId = id; lib.zemarianId = 0; lib.page = 1;
+        syncFilterSelects(); loadList();
     }
-
-    function browseCategory(id) { lib.categoryId = id; lib.zemarianId = 0; lib.page = 1; loadList(); }
-    function browseZemarian(id) { lib.zemarianId = id; lib.categoryId = 0; lib.page = 1; loadList(); }
+    function browseZemarian(id) {
+        lib.zemarianId = id; lib.categoryId = 0; lib.page = 1;
+        syncFilterSelects(); loadList();
+    }
 
     // ── standalone catalog manager (P31: its own section; every edit
     //    is INLINE — no popups, no browser dialogs) ──
-    var mgr = { tab: 'categories', edit: null, uploading: 0 };
+    var mgr = { tab: 'categories', edit: null, uploading: 0, open: {} };
 
     function hymnFormHasDraft() {
         var modal = $('mzHymnModal');
@@ -807,15 +808,31 @@
         var rows = $('mzMgrCatRows');
         if (rows) {
             var html = '';
+            // P34: mains only — a chevron expands a main's subs inline
+            // (short list; managing/navigating stays easy at any size).
             mgrMains().forEach(function (m) {
                 var editing = mgr.edit === 'cat:' + m.id;
                 var count = m.hymn_count_total || 0;
+                var subs = mgrSubsOf(m.id);
+                var open = !!mgr.open[m.id] || mgr.edit === 'addsub:' + m.id;
+                var chev = '<button class="btn-secondary btn-sm mz-cmgr-exp' + (open ? ' open' : '') + '"' +
+                    ' title="' + (open ? 'Collapse' : 'Expand') + ' sub-categories"' +
+                    ' aria-expanded="' + (open ? 'true' : 'false') + '"' +
+                    ' aria-label="Sub-categories of ' + esc(m.name) + '"' +
+                    ' onclick="Mezmur.mgrToggleOpen(' + m.id + ')"><i class="fa-solid fa-chevron-right"></i></button> ';
+                var nameHtml = editing ? mgrNameCell(m, editing, false)
+                    : '<div class="mz-mgr-name">' + chev + mgrThumb(m, 'mz-mgr-thumb') +
+                      '<span class="mz-mgr-namelabel">' + esc(m.name) +
+                      (Number(m.is_active) !== 1 ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '') +
+                      (subs.length ? ' <span class="text-dim" style="font-size:.7rem">· ' + subs.length + ' sub' + (subs.length === 1 ? '' : 's') + '</span>' : '') +
+                      '</span></div>';
                 html += '<tr' + (mgr.uploading === m.id ? ' class="mz-mgr-busy"' : '') + '>' +
-                    '<td>' + mgrThumb(m, 'mz-mgr-thumb') + '</td>' +
-                    '<td>' + mgrNameCell(m, editing, false) + '</td>' +
+                    '<td></td>' +
+                    '<td>' + nameHtml + '</td>' +
                     '<td class="text-dim">' + count + '</td>' +
                     '<td>' + mgrSortButtons('cat', m.id) + '</td>' +
                     '<td>' + mgrCatActions(m) + '</td></tr>';
+                if (!open) return; // collapsed: subs hidden until asked
                 mgrSubsOf(m.id).forEach(function (sb) {
                     var editingSub = mgr.edit === 'cat:' + sb.id;
                     html += '<tr class="mz-mgr-sub"' + (mgr.uploading === sb.id ? ' style="opacity:.45"' : '') + '>' +
@@ -849,15 +866,18 @@
                       '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrCancel()"><i class="fa-solid fa-xmark"></i></button></div>'
                     : '<span style="' + (hidden ? 'opacity:.5;' : '') + 'font-size:.84rem;font-weight:600">' + esc(z.name) +
                       (hidden ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '') + '</span>';
-                return '<tr><td>' + nameCell + '</td>' +
+                return '<tr' + (mgr.uploading === z.id ? ' class="mz-mgr-busy"' : '') + '><td>' + mgrThumb(z, 'mz-mgr-thumb') + '</td>' +
+                    '<td>' + nameCell + '</td>' +
                     '<td class="amharic">' + esc(z.name_am || '—') + '</td>' +
                     '<td class="text-dim">' + (z.hymn_count || 0) + '</td>' +
                     '<td>' +
                     (editing ? '' :
                     '<button class="btn-secondary btn-sm" title="Rename" onclick="Mezmur.mgrEdit(' + z.id + ')"><i class="fa-solid fa-pen"></i></button> ' +
+                    '<button class="btn-secondary btn-sm" title="Set cover image" onclick="Mezmur.mgrImage(' + z.id + ', true)"><i class="fa-solid fa-image"></i></button> ' +
+                    (z.image_url ? '<button class="btn-secondary btn-sm" title="Remove cover image" onclick="Mezmur.mgrRemoveZemImage(' + z.id + ')"><i class="fa-solid fa-hide"></i></button> ' : '') +
                     '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrToggle(' + z.id + ')">' + (hidden ? 'Show' : 'Hide') + '</button>') +
                     '</td></tr>';
-            }).join('') || '<tr><td colspan="4" class="text-dim" style="padding:.9rem .75rem">No singers yet — add the first one above.</td></tr>';
+            }).join('') || '<tr><td colspan="5" class="text-dim" style="padding:.9rem .75rem">No singers yet — add the first one above.</td></tr>';
             afterMgrRender('mzMgrEditName');
         }
     }
@@ -888,7 +908,15 @@
                !mgrCats().some(function (c) { return Number(c.id) === Number(id); });
     }
     function mgrCancel() { mgr.edit = null; renderCatalogManager(); }
-    function mgrAddSubOpen(mainId) { mgr.edit = 'addsub:' + mainId; renderCatalogManager(); }
+    function mgrAddSubOpen(mainId) {
+        mgr.edit = 'addsub:' + mainId;
+        mgr.open[mainId] = true; // adding reveals the pane
+        renderCatalogManager();
+    }
+    function mgrToggleOpen(id) {
+        mgr.open[id] = !mgr.open[id];
+        renderCatalogManager();
+    }
     function mgrSave(id) {
         var name = ($('mzMgrEditName') || {}).value || '';
         name = name.trim();
@@ -962,9 +990,19 @@
         apiPost({ action: 'save_category', id: found.id, name: found.name, parent_id: found.parent_id == null ? '' : found.parent_id, sort_order: b === a ? a + dir : b }).then(fin).catch(fin);
         apiPost({ action: 'save_category', id: other.id, name: other.name, parent_id: other.parent_id == null ? '' : other.parent_id, sort_order: a === b ? b - dir : a }).then(fin).catch(fin);
     }
-    var imgPick = { id: 0, file: null, url: '' };
+    var imgPick = { id: 0, file: null, url: '', kind: 'cat' };
 
-    function mgrImage(id) {
+    function mgrRemoveZemImage(id) {
+        sysConfirm('Remove the singer\'s cover image?', function () {
+            apiPost({ action: 'zemarian_image_remove', id: id }).then(function (d) {
+                if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
+                window.toast(d.message || 'Cover image removed.', 's');
+                loadCatalog();
+            }).catch(function () {});
+        });
+    }
+
+    function mgrImage(id, zem) {
         var input = $('mzMgrFile');
         if (!input) return;
         input.value = '';
@@ -976,7 +1014,7 @@
                 return;
             }
             // P32: a real preview BEFORE the upload leaves the device.
-            imgPick = { id: id, file: file, url: URL.createObjectURL(file) };
+            imgPick = { id: id, file: file, url: URL.createObjectURL(file), kind: zem ? 'zem' : 'cat' };
             $('mzImgPreviewImg').src = imgPick.url;
             $('mzImgMeta').textContent = file.name + ' · ' +
                 (file.size / 1024).toFixed(0) + ' KB · ' + (file.type || 'image');
@@ -994,11 +1032,11 @@
             var id = imgPick.id;
             closeModalF('mzImageDialog');
             URL.revokeObjectURL(imgPick.url);
-            imgPick = { id: 0, file: null, url: '' };
+            imgPick = { id: 0, file: null, url: '', kind: 'cat' };
             mgr.uploading = id;
             renderCatalogManager();
             var fd = new FormData();
-            fd.append('action', 'category_image');
+            fd.append('action', imgPick.kind === 'zem' ? 'zemarian_image' : 'category_image');
             fd.append('id', id);
             fd.append('image', file);
             apiPost(fd).then(function (d) {
@@ -1010,7 +1048,7 @@
         });
         $('mzImgCancel').addEventListener('click', function () {
             URL.revokeObjectURL(imgPick.url);
-            imgPick = { id: 0, file: null, url: '' };
+            imgPick = { id: 0, file: null, url: '', kind: 'cat' };
             closeModalF('mzImageDialog');
         });
     }
@@ -2101,6 +2139,9 @@
             lib.page = 1; loadList();
         });
         $('mzStatusFilter').addEventListener('change', function () { lib.status = this.value; lib.page = 1; loadList(); });
+        $('mzZemarianFilter').addEventListener('change', function () {
+            lib.zemarianId = parseInt(this.value, 10) || 0; lib.page = 1; loadList();
+        });
         $('mzHymnMainCat').addEventListener('change', onHymnMainChange);
         initPickPanels();
         initLyricsEditor();
@@ -2134,10 +2175,11 @@
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
         clearFilters: clearFilters,
-        tab: tab, browseCategory: browseCategory, browseZemarian: browseZemarian,
+        browseCategory: browseCategory, browseZemarian: browseZemarian,
         openCatalog: openCatalog,
         mgrTab: mgrTab, mgrAddMain: mgrAddMain, mgrAddSubOpen: mgrAddSubOpen, mgrAddSub: mgrAddSub, mgrAddZem: mgrAddZem,
         mgrEdit: mgrEdit, mgrSave: mgrSave, mgrCancel: mgrCancel, mgrToggle: mgrToggle, mgrSort: mgrSort, mgrImage: mgrImage,
+        mgrToggleOpen: mgrToggleOpen, mgrRemoveZemImage: mgrRemoveZemImage,
         mgrColors: mgrColors, closeColorDialog: function () { closeModalF('mzColorDialog'); }, closeImageDialog: function () { URL.revokeObjectURL(imgPick.url); imgPick = { id: 0, file: null, url: '' }; closeModalF('mzImageDialog'); },
         closeModal: function () { closeModalF('mzHymnModal'); },
         closeView: function () { closeModalF('mzViewModal'); },

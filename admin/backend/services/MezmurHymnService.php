@@ -605,19 +605,34 @@ final class MezmurHymnService
      */
     public static function uploadCategoryImage(\mysqli $conn, int $id, array $file, int $actorId): array
     {
-        if (!self::categoriesReady($conn)) {
-            return ['ok' => false, 'message' => 'Category tables are not ready.'];
+        return self::taxonomyImageStore($conn, 'mezmur_categories', 'mezmur_categories',
+            self::categoriesReady($conn), 'Category tables are not ready.',
+            $id, $file, $actorId, 'Mezmur Category Image Updated', 'mezmur_category');
+    }
+
+    /** P34: singers carry cover images too (same hardened chain). */
+    public static function uploadZemarianImage(\mysqli $conn, int $id, array $file, int $actorId): array
+    {
+        return self::taxonomyImageStore($conn, 'mezmur_zemarians', 'mezmur_zemarians',
+            self::zemariansReady($conn), 'Singer tables are not ready.',
+            $id, $file, $actorId, 'Mezmur Singer Image Updated', 'mezmur_zemarian');
+    }
+
+    private static function taxonomyImageStore(\mysqli $conn, string $table, string $dirName, bool $ready, string $readyMsg, int $id, array $file, int $actorId, string $auditTitle, string $auditTable): array
+    {
+        if (!$ready) {
+            return ['ok' => false, 'message' => $readyMsg];
         }
         if ($id <= 0) {
             return ['ok' => false, 'message' => 'Invalid category id.'];
         }
-        $stmt = $conn->prepare("SELECT id, image_path FROM mezmur_categories WHERE id = ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT id, image_path FROM " . $table . " WHERE id = ? LIMIT 1");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$row) {
-            return ['ok' => false, 'message' => 'Category not found.'];
+            return ['ok' => false, 'message' => 'Row not found.'];
         }
 
         if (empty($file['tmp_name']) || (int)($file['error'] ?? 1) !== UPLOAD_ERR_OK) {
@@ -655,7 +670,7 @@ final class MezmurHymnService
         // Re-encode: strips EXIF/metadata and any embedded payload.
         // PNG sources keep PNG (transparency); everything else -> JPEG.
         $keepPng = $mime === 'image/png';
-        $dir = dirname(__DIR__, 3) . '/uploads/mezmur_categories';
+        $dir = dirname(__DIR__, 3) . '/uploads/' . $dirName;
         if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
             return ['ok' => false, 'message' => 'Server storage is not writable.'];
         }
@@ -679,10 +694,10 @@ final class MezmurHymnService
         }
         @chmod($dest, 0644);
 
-        $rel = 'uploads/mezmur_categories/' . $name;
+        $rel = 'uploads/' . $dirName . '/' . $name;
         // updated_at bump: the change must reach every device on the
         // next categories refresh (P33 sync fix).
-        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = ?, updated_at = NOW() WHERE id = ?");
+        $stmt = $conn->prepare("UPDATE " . $table . " SET image_path = ?, updated_at = NOW() WHERE id = ?");
         $stmt->bind_param('si', $rel, $id);
         $ok = $stmt->execute();
         $stmt->close();
@@ -694,7 +709,7 @@ final class MezmurHymnService
         if (!empty($row['image_path']) && $row['image_path'] !== $rel) {
             @unlink(dirname(__DIR__, 3) . '/' . ltrim((string)$row['image_path'], '/'));
         }
-        self::audit($conn, 'Mezmur Category Image Updated', ['file' => $name], 'mezmur_category', $id, $actorId);
+        self::audit($conn, $auditTitle, ['file' => $name], $auditTable, $id, $actorId);
         return ['ok' => true, 'image_url' => self::categoryImageUrl($rel), 'message' => 'Image updated.'];
     }
 
@@ -1461,20 +1476,33 @@ final class MezmurHymnService
     /** Drop the cover image (the gradient/automatic palette shows). */
     public static function removeCategoryImage(\mysqli $conn, int $id, int $actorId): array
     {
+        return self::taxonomyImageDrop($conn, 'mezmur_categories', $id, $actorId,
+            'Mezmur Category Image Removed', 'mezmur_category');
+    }
+
+    /** P34: singers. */
+    public static function removeZemarianImage(\mysqli $conn, int $id, int $actorId): array
+    {
+        return self::taxonomyImageDrop($conn, 'mezmur_zemarians', $id, $actorId,
+            'Mezmur Singer Image Removed', 'mezmur_zemarian');
+    }
+
+    private static function taxonomyImageDrop(\mysqli $conn, string $table, int $id, int $actorId, string $auditTitle, string $auditTable): array
+    {
         if ($id <= 0) return ['ok' => false, 'message' => 'Invalid category id.'];
-        $stmt = $conn->prepare("SELECT image_path FROM mezmur_categories WHERE id = ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT image_path FROM " . $table . " WHERE id = ? LIMIT 1");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        if (!$row) return ['ok' => false, 'message' => 'Category not found.'];
+        if (!$row) return ['ok' => false, 'message' => 'Row not found.'];
         if (empty($row['image_path'])) return ['ok' => true, 'message' => 'No cover image set.'];
         @unlink(dirname(__DIR__, 3) . '/' . ltrim((string)$row['image_path'], '/'));
-        $stmt = $conn->prepare("UPDATE mezmur_categories SET image_path = NULL, updated_at = NOW() WHERE id = ?");
+        $stmt = $conn->prepare("UPDATE " . $table . " SET image_path = NULL, updated_at = NOW() WHERE id = ?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $stmt->close();
-        self::audit($conn, 'Mezmur Category Image Removed', [], 'mezmur_category', $id, $actorId);
+        self::audit($conn, $auditTitle, [], $auditTable, $id, $actorId);
         return ['ok' => true, 'message' => 'Cover image removed — the gradient shows.'];
     }
 
@@ -1792,7 +1820,7 @@ final class MezmurHymnService
         $out = [];
         // P28 (item 11): usage counts for the web catalog manager.
         $res = $conn->query(
-            "SELECT z.id, z.name, z.name_am, z.sort_order, z.is_active,
+            "SELECT z.id, z.name, z.name_am, z.image_path, z.sort_order, z.is_active,
                     (SELECT COUNT(*) FROM mezmur_hymn_zemarians hz
                      JOIN mezmur_hymns h ON h.id = hz.hymn_id AND h.status = 'active'
                      WHERE hz.zemarian_id = z.id) AS hymn_count
@@ -1803,6 +1831,8 @@ final class MezmurHymnService
                 $r['sort_order'] = (int)$r['sort_order'];
                 $r['is_active'] = (int)$r['is_active'];
                 $r['hymn_count'] = (int)$r['hymn_count'];
+                $r['image_url'] = self::categoryImageUrl($r['image_path'] ?? null);
+                unset($r['image_path']);
                 $out[] = $r;
             }
         }

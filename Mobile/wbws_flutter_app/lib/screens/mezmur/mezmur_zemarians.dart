@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../services/connectivity_service.dart';
 import '../../services/hymn_store.dart';
+import '../../utils/config.dart';
+import '../../utils/cover_palette.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 
@@ -18,6 +22,8 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
   List<Map<String, dynamic>> _zemarians = [];
   Map<int, int> _counts = {};
   bool _loading = true;
+  final _picker = ImagePicker();
+  int _uploadingId = 0;
 
   @override
   void initState() {
@@ -115,6 +121,91 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
     );
   }
 
+  Widget _thumb(Map<String, dynamic> z) {
+    final name = '${z['name'] ?? ''}';
+    final img = '${z['image_url'] ?? ''}';
+    if (_uploadingId == _asInt(z['id'])) {
+      return const SizedBox(
+          width: 34,
+          height: 34,
+          child: Center(
+              child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))));
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 34,
+        height: 34,
+        child: img.isNotEmpty
+            ? Image.network(
+                '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/api/v1$'), '')}$img',
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => _gradientThumb(z),
+              )
+            : _gradientThumb(z),
+      ),
+    );
+  }
+
+  Widget _gradientThumb(Map<String, dynamic> z) {
+    final colors = coverColors(z, '${z['name'] ?? ''}');
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
+      ),
+      child: Center(
+        child: Icon(Icons.music_note_outlined,
+            size: 16, color: Colors.white.withOpacity(0.95)),
+      ),
+    );
+  }
+
+  /// P34: singer cover images — pick, preview-free upload (same hardened
+  /// route as categories), remove falls back to the gradient.
+  Future<void> _pickImage(Map<String, dynamic> z) async {
+    if (_asInt(z['id']) <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'This singer is still syncing — go online once, then add the cover image.'),
+        duration: Duration(seconds: 3),
+      ));
+      return;
+    }
+    if (!ConnectivityService().hasLink) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Go online once to upload the cover image.'),
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
+    final picked = await _picker.pickImage(
+        source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
+    if (picked == null) return;
+    setState(() => _uploadingId = _asInt(z['id']));
+    final err =
+        await _store.setZemarianImage(_asInt(z['id']), picked.path);
+    if (!mounted) return;
+    setState(() => _uploadingId = 0);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? 'Cover image updated.'),
+      duration: Duration(seconds: err == null ? 2 : 3),
+    ));
+  }
+
+  Future<void> _removeImage(Map<String, dynamic> z) async {
+    final err = await _store.removeZemarianImage(_asInt(z['id']));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? 'Cover image removed — the gradient shows.'),
+      duration: Duration(seconds: err == null ? 2 : 3),
+    ));
+    await _reload();
+  }
+
   Future<void> _toggleActive(Map<String, dynamic> zemarian) async {
     final active = _asInt(zemarian['is_active']) == 1;
     await _store.setZemarianStatus(_asInt(zemarian['id']), !active);
@@ -156,11 +247,7 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: AppTheme.primary.withOpacity(0.1),
-                          child: const Icon(Icons.person_outline,
-                              size: 17, color: AppTheme.primary),
-                        ),
+                        leading: _thumb(z),
                         title: Row(
                           children: [
                             Expanded(
@@ -185,22 +272,72 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
                             active ? 'Active' : 'Hidden from pickers',
                             style: TextStyle(
                                 fontSize: 11, color: AppTheme.textSecondary)),
-                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                          IconButton(
-                            tooltip: 'Rename',
-                            icon: const Icon(Icons.edit_outlined, size: 17),
-                            onPressed: () => _nameDialog(zemarian: z),
-                          ),
-                          IconButton(
-                            tooltip: active ? 'Hide' : 'Restore',
-                            icon: Icon(
-                                active
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.visibility_outlined,
-                                size: 17),
-                            onPressed: () => _toggleActive(z),
-                          ),
-                        ]),
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert, size: 19),
+                          padding: EdgeInsets.zero,
+                          onSelected: (v) {
+                            switch (v) {
+                              case 'rename':
+                                _nameDialog(zemarian: z);
+                                break;
+                              case 'image':
+                                _pickImage(z);
+                                break;
+                              case 'removeimg':
+                                _removeImage(z);
+                                break;
+                              case 'toggle':
+                                _toggleActive(z);
+                                break;
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
+                              value: 'rename',
+                              height: 40,
+                              child: Row(children: [
+                                Icon(Icons.edit_outlined, size: 16),
+                                SizedBox(width: 8),
+                                Text('Rename', style: TextStyle(fontSize: 12.5)),
+                              ]),
+                            ),
+                            const PopupMenuItem(
+                              value: 'image',
+                              height: 40,
+                              child: Row(children: [
+                                Icon(Icons.image_outlined, size: 16),
+                                SizedBox(width: 8),
+                                Text('Cover image', style: TextStyle(fontSize: 12.5)),
+                              ]),
+                            ),
+                            if ('${z['image_url'] ?? ''}'.isNotEmpty)
+                              const PopupMenuItem(
+                                value: 'removeimg',
+                                height: 40,
+                                child: Row(children: [
+                                  Icon(Icons.hide_image_outlined, size: 16),
+                                  SizedBox(width: 8),
+                                  Text('Remove image',
+                                      style: TextStyle(fontSize: 12.5)),
+                                ]),
+                              ),
+                            PopupMenuItem(
+                              value: 'toggle',
+                              height: 40,
+                              child: Row(children: [
+                                Icon(
+                                    active
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    size: 16),
+                                const SizedBox(width: 8),
+                                Text(active ? 'Hide' : 'Restore',
+                                    style: const TextStyle(fontSize: 12.5)),
+                              ]),
+                            ),
+                          ],
+                        ),
+
                       ),
                     );
                   },

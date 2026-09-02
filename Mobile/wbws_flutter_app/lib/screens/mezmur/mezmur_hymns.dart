@@ -590,7 +590,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
       final id = _asInt(r['id']);
       final count =
           categories ? (_catCounts[id] ?? 0) : (_zemCounts[id] ?? 0);
-      final img = categories ? '${r['image_url'] ?? ''}' : '';
+      final img = '${r['image_url'] ?? ''}'; // singers carry covers too (P34)
       tiles.add(_tile(
         '${r['name']}',
         count,

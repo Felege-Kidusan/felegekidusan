@@ -176,8 +176,8 @@ class MezmurPhase5Tests(unittest.TestCase):
         ]:
             self.assertIn(token, self.api)
         # review is POST-only + role-checked + rate-limited as a write
-        self.assertIn("'zemarian_status'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
-        self.assertIn("'zemarian_status'], true)\n    ? 'mezmur_write'", self.api)
+        self.assertIn("'zemarian_status', 'zemarian_image', 'zemarian_image_remove'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
+        self.assertIn("'zemarian_status', 'zemarian_image', 'zemarian_image_remove'], true)\n    ? 'mezmur_write'", self.api)
         # schema-drift killer endpoints
         self.assertIn("case 'schema'", self.api)
         self.assertIn("case 'migrate'", self.api)
@@ -847,7 +847,7 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertNotIn("_referenceCtrl", self.editor)
         self.assertIn("Title (ርዕስ) *", self.editor)
         # local DB folds on upgrade to v16 and rebuilds the word index.
-        self.assertIn("version: 18,", self.db)
+        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)
         self.assertIn("UPDATE cached_hymns SET title = title_am", self.db)
         self.assertIn("UPDATE cached_hymns SET title_am = NULL, reference = NULL", self.db)
         # local LIKE search is title-only.
@@ -947,7 +947,7 @@ class CoverColorAndUxStateTests(unittest.TestCase):
         self.assertIn("revokeObjectURL", self.js)
         # the browser upload actually reaches the action (latent P30
         # bug: the FormData carried no action)
-        self.assertIn("fd.append('action', 'category_image')", self.js)
+        self.assertIn("imgPick.kind === 'zem' ? 'zemarian_image' : 'category_image'", self.js)
 
     # ── gradient picker ────────────────────────────────────────
     def test_color_dialog_markup(self):
@@ -981,7 +981,7 @@ class CoverColorAndUxStateTests(unittest.TestCase):
     # ── mobile gradient system ─────────────────────────────────
     def test_mobile_gradient_pipeline(self):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/utils/cover_palette.dart").exists())
-        self.assertIn("version: 18,", self.db)
+        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)
         self.assertIn("gradient_start", self.db)           # columns + upserts
         self.assertIn("coverColors", self.hymns)           # shared util used
         self.assertIn("Cover color", self.cats)            # manager entry
@@ -1248,7 +1248,7 @@ class SubcategoryClientTests(unittest.TestCase):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_category_screen.dart").exists())
         self.assertIn("MezmurCategoryScreen(", self.hymns)
         self.assertIn("image_url", self.db)   # covers cached on-device
-        self.assertIn("version: 18,", self.db)
+        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)
 
     def test_mobile_rollup(self):
         # local filter + counts roll a MAIN over its subs
@@ -1305,6 +1305,7 @@ class SubcategoryServerTests(unittest.TestCase):
         self.assertIn("bin2hex(random_bytes(16))", self.svc)      # random name
         self.assertIn("2 * 1024 * 1024", self.svc)                # size cap
         self.assertIn("case 'category_image':", self.api)
+        self.assertIn("case 'zemarian_image':", self.api)  # P34
 
 
 class TokenizerRegressionTests(unittest.TestCase):
@@ -1406,6 +1407,129 @@ class UnifiedSearchFixTests(unittest.TestCase):
     def test_page_js_is_cache_busted(self):
         self.assertIn(".js?v=<?= filemtime(ROOT_PATH", self.layout)
 
+
+
+class ZemarianImagesAndCatalogCollapseTests(unittest.TestCase):
+    """P34: singer cover images (web + mobile, same hardened chain as
+    categories), a collapsed-mains catalog manager, and exactly ONE
+    professional filter system in the hymn library (dropdowns only)."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = lambda rel: (ROOT / rel).read_text(encoding="utf-8")  # noqa: E731
+        cls.js = R("frontend/js/mezmur.js")
+        cls.page = R("frontend/pages/mezmur_dept.php")
+        cls.css = R("themes/components.css")
+        cls.svc = R("admin/backend/services/MezmurHymnService.php")
+        cls.api = R("admin/api_mezmur.php")
+        cls.route = R("api/v1/routes/mezmur.php")
+        cls.db = R("Mobile/wbws_flutter_app/lib/services/local_db.dart")
+        cls.apisvc = R("Mobile/wbws_flutter_app/lib/services/api_service.dart")
+        cls.store = R("Mobile/wbws_flutter_app/lib/services/hymn_store.dart")
+        cls.zems = R("Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_zemarians.dart")
+        cls.hymns = R("Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymns.dart")
+        cls.sql37 = R("sql/037_zemarian_images.sql")
+
+    # ── web catalog: collapsed mains ────────────────────────────
+    def test_catalog_mains_collapse(self):
+        self.assertIn("mgrToggleOpen", self.js)
+        self.assertIn("mz-cmgr-exp", self.js)
+        self.assertIn("aria-expanded=", self.js)  # a11y state
+        self.assertIn("mgr.open[id] = !mgr.open[id]", self.js)
+        self.assertIn("if (!open) return; // collapsed: subs hidden until asked", self.js)
+        self.assertIn(".mz-cmgr-exp.open i { transform: rotate(90deg); }", self.css)
+        self.assertIn("prefers-reduced-motion", self.css)  # chevron anim opt-out
+
+    def test_add_sub_forces_expansion(self):
+        self.assertIn("mgr.open[mainId] = true; // adding reveals the pane", self.js)
+
+    # ── one filter system: dropdowns only ───────────────────────
+    def test_library_single_filter_system(self):
+        # the old duplicate browse (tabs + chips) is gone for good
+        self.assertNotIn("function tab(mode)", self.js)
+        self.assertNotIn("function renderBrowse", self.js)
+        self.assertNotIn("mzBrowseList", self.js)
+        self.assertNotIn("mz-tab", self.page)
+        self.assertNotIn('id="mzBrowse"', self.page)
+        # the singer dropdown exists and drives the same lib state
+        self.assertIn('id="mzZemarianFilter"', self.page)
+        self.assertIn("function populateZemarianFilter", self.js)
+        self.assertIn("'mzZemarianFilter'", self.js)  # wired in clearFilters
+        self.assertIn("lib.zemarianId = parseInt(this.value, 10) || 0", self.js)
+        # view-modal browse shortcuts keep the selects in sync
+        self.assertIn("function syncFilterSelects", self.js)
+        self.assertIn("browseCategory: browseCategory", self.js)  # still exported
+        # the library toolbar is the ONLY browse surface: it holds all
+        # five selects (search box + category + singer + status + length
+        # + language) and the page has no other tab/chip browse markup
+        toolbar = self.page.split('id="mzSearch"')[1].split('<table')[0]
+        for sel_id in ("mzCategoryFilter", "mzZemarianFilter", "mzStatusFilter",
+                       "mzLengthFilter", "mzLanguageFilter"):
+            self.assertIn(sel_id, toolbar)
+
+    # ── singer images: server chain ─────────────────────────────
+    def test_service_image_chain_generalized(self):
+        self.assertIn("private static function taxonomyImageStore(", self.svc)
+        self.assertIn("private static function taxonomyImageDrop(", self.svc)
+        for w in ["uploadCategoryImage", "uploadZemarianImage",
+                  "removeCategoryImage", "removeZemarianImage"]:
+            self.assertIn(f"public static function {w}(", self.svc)
+        # singers keep their own directory + audit entity
+        self.assertIn("'uploads/' . $dirName", self.svc)
+        self.assertIn("'Mezmur Singer Image Updated', 'mezmur_zemarian'", self.svc)
+        self.assertIn("'Mezmur Singer Image Removed', 'mezmur_zemarian'", self.svc)
+
+    def test_list_zemarians_serves_image_url(self):
+        self.assertIn("z.image_path, z.sort_order", self.svc)
+        self.assertIn("self::categoryImageUrl($r['image_path'] ?? null)", self.svc)
+        self.assertIn("unset($r['image_path'])", self.svc)
+
+    def test_sql37_migration(self):
+        self.assertIn("mezmur_zemarians", self.sql37)
+        self.assertIn("image_path", self.sql37)
+
+    def test_web_and_rest_routes(self):
+        self.assertIn("case 'zemarian_image':", self.api)
+        self.assertIn("case 'zemarian_image_remove':", self.api)
+        self.assertIn("action === 'zemarian-image'", self.route)
+        self.assertIn("action === 'zemarian-image-remove'", self.route)
+        # multipart guard: a real uploaded file is required
+        self.assertIn("is_uploaded_file($zfile['tmp_name'] ?? '')", self.route)
+        # role + rate-limit gates on both new routes
+        self.assertEqual(self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 10)
+
+    # ── singer images: mobile ───────────────────────────────────
+    def test_mobile_local_schema_v19(self):
+        self.assertIn("version: 19,", self.db)
+        self.assertIn(
+            "ALTER TABLE cached_mezmur_zemarians ADD COLUMN image_url TEXT NULL", self.db)
+        self.assertIn("image_url TEXT NULL,", self.db)  # fresh installs
+        # sync carries the url; local rename/hide must not wipe it
+        self.assertIn("'image_url': z['image_url']", self.db)
+        self.assertIn("prev['image_url']", self.db)
+
+    def test_mobile_upload_uses_shared_multipart(self):
+        self.assertIn("_uploadTaxonomyImage(", self.apisvc)
+        self.assertIn("uploadZemarianImage(int id, String filePath)", self.apisvc)
+
+    def test_mobile_store_and_screens(self):
+        self.assertIn("Future<String?> setZemarianImage(", self.store)
+        self.assertIn("Future<String?> removeZemarianImage(", self.store)
+        self.assertIn("upsertZemarianLocal({'id': id, 'image_url': url})", self.store)
+        self.assertIn("Future<void> _pickImage(", self.zems)
+        self.assertIn("_removeImage(", self.zems)
+        self.assertIn("PopupMenuButton<String>", self.zems)
+        self.assertIn("case 'removeimg':", self.zems)
+        # browse tiles show singer covers now
+        self.assertIn("singers carry covers too (P34)", self.hymns)
+
+    def test_no_popup_dialogs_added(self):
+        for f in (self.js, self.zems):
+            for banned in ("window.prompt(", "window.confirm(", "window.alert("):
+                self.assertNotIn(banned, f)
+            self.assertNotIn(" alert(", f)
+            self.assertNotIn(" confirm(", f)
+            self.assertNotIn(" prompt(", f)
 
 if __name__ == "__main__":
     unittest.main()
@@ -1925,7 +2049,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertEqual(
             # hymn, category, category-status, category-image, zemarian,
             # zemarian-status, attendance sheet
-            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 8
+            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 10
         )
         # sheet + 4 library writers + submission review + category/singer mgmt
         self.assertEqual(self.route.count("apiIdempotencyBegin("), 8)
@@ -1973,7 +2097,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 18,", self.db)  # 17 = two-level taxonomy (P30); 16 = single title
+        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)  # 17 = two-level taxonomy (P30); 16 = single title
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)

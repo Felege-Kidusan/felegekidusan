@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 18,
+      version: 19,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -266,6 +266,7 @@ class LocalDb {
               id INTEGER PRIMARY KEY,
               name TEXT NOT NULL,
               name_am TEXT,
+              image_url TEXT NULL,
               sort_order INTEGER NOT NULL DEFAULT 0,
               is_active INTEGER NOT NULL DEFAULT 1,
               updated_at TEXT
@@ -303,6 +304,13 @@ class LocalDb {
           try {
             await db.execute(
                 'ALTER TABLE cached_mezmur_categories ADD COLUMN image_url TEXT NULL');
+          } catch (_) {}
+        }
+        if (oldVersion < 19) {
+          // P34: singer cover images.
+          try {
+            await db.execute(
+                'ALTER TABLE cached_mezmur_zemarians ADD COLUMN image_url TEXT NULL');
           } catch (_) {}
         }
         if (oldVersion < 18) {
@@ -371,6 +379,7 @@ class LocalDb {
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
         name_am TEXT,
+        image_url TEXT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT
@@ -2015,6 +2024,9 @@ class LocalDb {
             'id': id,
             'name': '${z['name'] ?? ''}',
             'name_am': z['name_am'],
+            'image_url': z['image_url'] == null || '${z['image_url']}' == ''
+                ? null
+                : '${z['image_url']}',
             'sort_order': _asIntLocal(z['sort_order']),
             'is_active': _asIntLocal(z['is_active']),
             'updated_at': now,
@@ -2028,14 +2040,20 @@ class LocalDb {
 
   Future<void> upsertZemarianLocal(Map<String, dynamic> z) async {
     final db = await database;
+    // Merge from the existing row: REPLACE rewrites the whole row and a
+    // local rename/hide must never wipe the singer's cover image (P34).
+    final existing = await db.query('cached_mezmur_zemarians',
+        where: 'id = ?', whereArgs: [_asIntLocal(z['id'])], limit: 1);
+    final prev = existing.isNotEmpty ? existing.first : <String, Object?>{};
     await db.insert(
       'cached_mezmur_zemarians',
       {
         'id': _asIntLocal(z['id']),
-        'name': '${z['name'] ?? ''}',
-        'name_am': z['name_am'],
-        'sort_order': _asIntLocal(z['sort_order'] ?? 0),
-        'is_active': _asIntLocal(z['is_active'] ?? 1),
+        'name': '${z['name'] ?? prev['name'] ?? ''}',
+        'name_am': z['name_am'] ?? prev['name_am'],
+        'image_url': '${z['image_url'] ?? prev['image_url'] ?? ''}',
+        'sort_order': _asIntLocal(z['sort_order'] ?? prev['sort_order'] ?? 0),
+        'is_active': _isOne(z['is_active'] ?? prev['is_active']),
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,

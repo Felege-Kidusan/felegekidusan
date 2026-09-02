@@ -772,10 +772,18 @@ class ApiService {
 
   /// Multipart cover-image upload for a hymn category. Binary body —
   /// never queued; callers gate it on connectivity.
-  Future<ApiResponse> uploadCategoryImage(int id, String filePath) async {
+  Future<ApiResponse> uploadCategoryImage(int id, String filePath) =>
+      _uploadTaxonomyImage('/mezmur/category-image', id, filePath);
+
+  /// P34: singer cover images ride the same hardened chain.
+  Future<ApiResponse> uploadZemarianImage(int id, String filePath) =>
+      _uploadTaxonomyImage('/mezmur/zemarian-image', id, filePath);
+
+  Future<ApiResponse> _uploadTaxonomyImage(
+      String path, int id, String filePath) async {
     try {
       Future<http.Response> send() async {
-        final uri = Uri.parse('${AppConfig.apiBaseUrl}/mezmur/category-image');
+        final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
         final req = http.MultipartRequest('POST', uri)
           ..fields['id'] = '$id'
           ..files.add(await http.MultipartFile.fromPath('image', filePath));

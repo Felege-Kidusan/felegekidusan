@@ -346,6 +346,38 @@ try {
         ok(['saved' => true, 'image_url' => $result['image_url'] ?? null]);
     }
 
+    // ── POST /mezmur/zemarian-image — singer cover (multipart) ──
+    if ($method === 'POST' && $action === 'zemarian-image') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage singers.', 403);
+        }
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many uploads. Please wait a moment.', 429);
+        }
+        $zid = (int)($_POST['id'] ?? 0);
+        $zfile = $_FILES['image'] ?? null;
+        if ($zid <= 0 || !is_array($zfile) || !is_uploaded_file($zfile['tmp_name'] ?? '')) {
+            err('Choose an image to upload.', 422);
+        }
+        $zr = MezmurHymnService::uploadZemarianImage($conn, $zid, $zfile, (int)$auth['uid']);
+        if (empty($zr['ok'])) err($zr['message'], 422);
+        ok(['saved' => true, 'image_url' => $zr['image_url'] ?? null]);
+    }
+
+    // ── POST /mezmur/zemarian-image-remove — drop the singer cover ─
+    if ($method === 'POST' && $action === 'zemarian-image-remove') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage singers.', 403);
+        }
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many changes. Please wait a moment.', 429);
+        }
+        $zin = getBody();
+        $zrr = MezmurHymnService::removeZemarianImage($conn, (int)($zin['id'] ?? 0), (int)$auth['uid']);
+        if (empty($zrr['ok'])) err($zrr['message'], 422);
+        ok(['saved' => true]);
+    }
+
     // ── POST /mezmur/category-image-remove — drop the cover ─────
     if ($method === 'POST' && $action === 'category-image-remove') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {

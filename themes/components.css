@@ -576,3 +576,8 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
 }
 .mz-opacity-row input[type='range'] { flex: 1; accent-color: var(--school-accent); }
 .mz-opacity-row span { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* P34: collapsible mains in the catalog manager */
+.mz-cmgr-exp i { transition: transform 0.15s ease; }
+.mz-cmgr-exp.open i { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .mz-cmgr-exp i { transition: none; } }
