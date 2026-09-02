@@ -1531,6 +1531,50 @@ class ZemarianImagesAndCatalogCollapseTests(unittest.TestCase):
             self.assertNotIn(" confirm(", f)
             self.assertNotIn(" prompt(", f)
 
+
+class AmharicOnlySingerNamesAndFilterRaceFixTests(unittest.TestCase):
+    """P35: ONE Amharic name field for singers everywhere (mirrored into
+    name_am server-side) and the library singer-filter race fix (the
+    dropdown populated from the categories promise while its own data
+    arrived in a parallel one, so it never filled)."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = lambda rel: (ROOT / rel).read_text(encoding="utf-8")  # noqa: E731
+        cls.js = R("frontend/js/mezmur.js")
+        cls.page = R("frontend/pages/mezmur_dept.php")
+        cls.svc = R("admin/backend/services/MezmurHymnService.php")
+        cls.zems = R("Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_zemarians.dart")
+
+    def test_singer_filter_populates_from_own_data(self):
+        lc = self.js[self.js.index("function loadCatalog"):][:900]
+        self.assertIn("populateCategoryFilter();", lc)
+        # the populate call must ride the ZEMARIANS promise, not the
+        # categories one (the P35 race fix)
+        self.assertEqual(lc.count("populateZemarianFilter();"), 1)
+        self.assertLess(lc.index("action=zemarians'"), lc.index("populateZemarianFilter();"))
+        # the old categories-then wiring is gone
+        self.assertNotIn("populateCategoryFilter(); populateZemarianFilter();", self.js)
+
+    def test_single_amharic_name_field_web(self):
+        self.assertNotIn("mzMgrZemNameAm", self.page)
+        self.assertNotIn("mzMgrEditNameAm", self.js)
+        self.assertNotIn("ስም በአማርኛ</th>", self.page)  # no twin column
+        self.assertIn('class="school-input amharic" maxlength="100" placeholder="የዘማሪያን ስም', self.page)
+        # both save paths mirror the single value into name_am
+        self.assertIn("{ action: 'save_zemarian', name: name, name_am: name }", self.js)
+        self.assertIn("{ action: 'save_zemarian', id: id, name: name, name_am: name }", self.js)
+
+    def test_single_amharic_name_field_mobile(self):
+        self.assertNotIn("amCtrl", self.zems)
+        self.assertIn("'name_am': nameCtrl.text,", self.zems)
+        self.assertIn("labelText: 'ስም — singer name (Amharic)'", self.zems)
+
+    def test_service_mirrors_name_am(self):
+        self.assertIn("if ($nameAm === '') $nameAm = $name;", self.svc)
+        # NULL default is gone (name_am can no longer drift empty)
+        self.assertNotIn("$nameAm = $nameAm === '' ? null : $nameAm;", self.svc)
+
 if __name__ == "__main__":
     unittest.main()
 

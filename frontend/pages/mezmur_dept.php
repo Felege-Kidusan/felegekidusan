@@ -317,12 +317,11 @@ ob_start();
                     <!-- singers manager -->
                     <div id="mzMgrZems" class="is-hidden">
                         <div class="toolbar">
-                            <div class="toolbar-grow"><input id="mzMgrZemName" class="school-input" maxlength="100" placeholder="New singer name…" autocomplete="off"></div>
-                            <input id="mzMgrZemNameAm" class="school-input amharic" maxlength="100" placeholder="የዘማሪያን ስም (በአማርኛ)" style="max-width:220px" autocomplete="off">
+                            <div class="toolbar-grow"><input id="mzMgrZemName" class="school-input amharic" maxlength="100" placeholder="የዘማሪያን ስም (በአማርኛ)…" autocomplete="off" aria-label="New singer name in Amharic"></div>
                             <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddZem()"><i class="fa-solid fa-plus"></i> Add singer</button>
                         </div>
                         <div class="table-shell"><table class="school-table">
-                            <thead><tr><th style="width:44px">Cover</th><th>Name</th><th>ስም በአማርኛ</th><th style="width:70px">Hymns</th><th style="width:290px">Actions</th></tr></thead>
+                            <thead><tr><th style="width:44px">Cover</th><th class="amharic">ስም</th><th style="width:70px">Hymns</th><th style="width:290px">Actions</th></tr></thead>
                             <tbody id="mzMgrZemRows"></tbody>
                         </table></div>
                     </div>

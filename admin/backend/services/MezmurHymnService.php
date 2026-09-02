@@ -1865,7 +1865,10 @@ final class MezmurHymnService
         if ($dup) {
             return ['ok' => false, 'message' => 'A singer with this name already exists.'];
         }
-        $nameAm = $nameAm === '' ? null : $nameAm;
+        // P35: singers carry ONE name, written in Amharic. When a client
+        // sends no separate Amharic value it mirrors the name, so name_am
+        // is never empty/NULL while name stays the canonical filter field.
+        if ($nameAm === '') $nameAm = $name;
 
         if ($id > 0) {
             // Capture previous names for the audit trail (before/after)

@@ -611,6 +611,31 @@ P34CSS=$(curl -s "$BASE/themes/components.css")
 echo "$P34CSS" | grep -q 'mz-cmgr-exp.open i' && ok "chevron animation css served" || fail "chevron css missing"
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_zemarians WHERE name LIKE 'P34 Smoke%'; DELETE FROM activity_logs WHERE details LIKE '%P34%'" >/dev/null 2>&1
 
+# --- 3bf. P35: Amharic-only singer names + singer-filter dropdown fix --------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+P35Z=$(ssms_api POST mezmur/zemarian '{"id":0,"name":"P35 የሙከራ ዘማሪያን"}')
+P35ZID=$(echo "$P35Z" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P35M=$(sudo -n mariadb -N ssms -e "SELECT name = name_am AND name_am IS NOT NULL FROM mezmur_zemarians WHERE id=$P35ZID")
+[ "$P35M" = "1" ] && ok "name_am mirrors the single Amharic name (create)" || fail "name_am not mirrored on create"
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api POST mezmur/zemarian "{"id":$P35ZID,"name":"P35 የተሻሻለ ስም"}" >/dev/null
+P35M2=$(sudo -n mariadb -N ssms -e "SELECT name = name_am FROM mezmur_zemarians WHERE id=$P35ZID")
+[ "$P35M2" = "1" ] && ok "name_am mirrors on rename too" || fail "name_am not mirrored on rename"
+P35PG=$(ssms_get "/frontend/pages/mezmur_dept.php")
+echo "$P35PG" | grep -q 'mzMgrZemName" class="school-input amharic"' && ok "single Amharic singer input served" || fail "singer input wrong"
+echo "$P35PG" | grep -q 'mzMgrZemNameAm' && fail "old twin name field still served" || ok "twin name field removed"
+P35JS=$(curl -s "$BASE/frontend/js/mezmur.js")
+echo "$P35JS" | grep -A3 "action=zemarians').then" | grep -q populateZemarianFilter && ok "singer dropdown populates from its own data" || fail "singer dropdown race still present"
+P35L=$(ssms_get "/admin/api_mezmur.php?action=list&page=1&per_page=25&search=&category=&length=&language=&category_id=&zemarian_id=$P35ZID&status=active")
+echo "$P35L" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+assert d['status'] == 'success', d
+assert all(any(z['id'] == $P35ZID for z in h.get('zemarians', [])) for h in d['items']), 'unfiltered row present'
+print('ok')" >/dev/null && ok "admin list filters by singer id" || fail "singer filter leak/broken"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_hymn_zemarians WHERE zemarian_id=$P35ZID; DELETE FROM mezmur_zemarians WHERE id=$P35ZID; DELETE FROM activity_logs WHERE details LIKE '%P35%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

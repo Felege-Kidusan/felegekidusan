@@ -77,7 +77,7 @@
         document.addEventListener('keydown', function (e) {
             var t = e.target;
             if (!t || !t.id) return;
-            var isEdit = ['mzMgrEditName', 'mzMgrEditNameAm', 'mzMgrSubName'].indexOf(t.id) >= 0;
+            var isEdit = ['mzMgrEditName', 'mzMgrSubName'].indexOf(t.id) >= 0;
             if (!isEdit) return;
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -563,11 +563,14 @@
     function loadCatalog() {
         apiGet('action=categories').then(function (d) {
             if (d && d.status === 'success') catalog.categories = d.items || [];
-            renderCatalogBoxes(); renderCatalogList(); populateCategoryFilter(); populateZemarianFilter();
+            renderCatalogBoxes(); renderCatalogList(); populateCategoryFilter();
         }).catch(function () {});
         apiGet('action=zemarians').then(function (d) {
             if (d && d.status === 'success') catalog.zemarians = d.items || [];
             renderCatalogBoxes(); renderCatalogList();
+            populateZemarianFilter(); // P35 fix: populate when the singer
+            // data itself arrives (was tied to the categories promise —
+            // a race that left the dropdown permanently empty).
         }).catch(function () {});
     }
 
@@ -860,15 +863,13 @@
                 var hidden = Number(z.is_active) !== 1;
                 var nameCell = editing
                     ? '<div class="mz-mgr-edit">' +
-                      '<input id="mzMgrEditName" class="school-input" maxlength="100" value="' + esc(z.name) + '">' +
-                      '<input id="mzMgrEditNameAm" class="school-input amharic" maxlength="100" placeholder="በአማርኛ" style="max-width:150px" value="' + esc(z.name_am || '') + '">' +
+                      '<input id="mzMgrEditName" class="school-input amharic" maxlength="100" value="' + esc(z.name) + '">' +
                       '<button class="btn-primary btn-sm" onclick="Mezmur.mgrSave(' + z.id + ')"><i class="fa-solid fa-check"></i></button> ' +
                       '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrCancel()"><i class="fa-solid fa-xmark"></i></button></div>'
                     : '<span style="' + (hidden ? 'opacity:.5;' : '') + 'font-size:.84rem;font-weight:600">' + esc(z.name) +
                       (hidden ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '') + '</span>';
                 return '<tr' + (mgr.uploading === z.id ? ' class="mz-mgr-busy"' : '') + '><td>' + mgrThumb(z, 'mz-mgr-thumb') + '</td>' +
                     '<td>' + nameCell + '</td>' +
-                    '<td class="amharic">' + esc(z.name_am || '—') + '</td>' +
                     '<td class="text-dim">' + (z.hymn_count || 0) + '</td>' +
                     '<td>' +
                     (editing ? '' :
@@ -877,7 +878,7 @@
                     (z.image_url ? '<button class="btn-secondary btn-sm" title="Remove cover image" onclick="Mezmur.mgrRemoveZemImage(' + z.id + ')"><i class="fa-solid fa-hide"></i></button> ' : '') +
                     '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrToggle(' + z.id + ')">' + (hidden ? 'Show' : 'Hide') + '</button>') +
                     '</td></tr>';
-            }).join('') || '<tr><td colspan="5" class="text-dim" style="padding:.9rem .75rem">No singers yet — add the first one above.</td></tr>';
+            }).join('') || '<tr><td colspan="4" class="text-dim" style="padding:.9rem .75rem">No singers yet — add the first one above.</td></tr>';
             afterMgrRender('mzMgrEditName');
         }
     }
@@ -923,7 +924,7 @@
         if (!name) { window.toast('Name is required.', 'e'); return; }
         var isZem = mgr.edit === 'zem:' + id;
         var payload = isZem
-            ? { action: 'save_zemarian', id: id, name: name, name_am: ((($('mzMgrEditNameAm') || {}).value) || '').trim() }
+            ? { action: 'save_zemarian', id: id, name: name, name_am: name } // P35: one Amharic name
             : { action: 'save_category', id: id, name: name, parent_id: mgrParentOf(id) };
         apiPost(payload).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Rename failed.', 'e'); return; }
@@ -959,9 +960,11 @@
         var name = ($('mzMgrZemName') || {}).value || '';
         name = name.trim();
         if (!name) { window.toast('Name is required.', 'e'); return; }
-        apiPost({ action: 'save_zemarian', name: name, name_am: (($('mzMgrZemNameAm') || {}).value || '').trim() }).then(function (d) {
+        // P35: singers carry ONE name, written in Amharic — stored in
+        // both name (canonical display/filter field) and name_am.
+        apiPost({ action: 'save_zemarian', name: name, name_am: name }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
-            $('mzMgrZemName').value = ''; $('mzMgrZemNameAm').value = '';
+            $('mzMgrZemName').value = '';
             loadCatalog();
         }).catch(function () {});
     }

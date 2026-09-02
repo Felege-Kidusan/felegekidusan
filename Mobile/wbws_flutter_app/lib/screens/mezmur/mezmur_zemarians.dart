@@ -53,10 +53,10 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
   Future<void> _nameDialog({Map<String, dynamic>? zemarian}) async {
+    // P35: ONE name field, written in Amharic — stored in both name
+    // (canonical display/filter field) and name_am.
     final nameCtrl =
         TextEditingController(text: zemarian == null ? '' : '${zemarian['name']}');
-    final amCtrl = TextEditingController(
-        text: zemarian == null ? '' : '${zemarian['name_am'] ?? ''}');
     final isEdit = zemarian != null;
     String? fieldError;
     await showDialog<void>(
@@ -71,16 +71,7 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
               autofocus: true,
               maxLength: 100,
               decoration: const InputDecoration(
-                labelText: 'Name (ስም)',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-            ),
-            TextField(
-              controller: amCtrl,
-              maxLength: 100,
-              decoration: const InputDecoration(
-                labelText: 'Amharic name (አማርኛ)',
+                labelText: 'ስም — singer name (Amharic)',
                 isDense: true,
                 border: OutlineInputBorder(),
               ),
@@ -102,7 +93,7 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
                 final err = await _store.saveZemarian({
                   if (isEdit) 'id': zemarian['id'],
                   'name': nameCtrl.text,
-                  'name_am': amCtrl.text,
+                  'name_am': nameCtrl.text,
                   'sort_order':
                       isEdit ? _asInt(zemarian['sort_order']) : _zemarians.length + 1,
                 });
