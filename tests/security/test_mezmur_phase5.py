@@ -386,7 +386,7 @@ class TypoTolerantSearchTests(unittest.TestCase):
         self.assertIn("$filterSql = $where ? implode(' AND ', $where) : '1=1'", self.svc)
         # stage 1: strict LIKE candidates, bounded
         self.assertIn(
-            "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?)",
+            "$filterSql AND title LIKE ? ORDER BY updated_at DESC, id DESC LIMIT 500",  # P28: single title
             self.svc,
         )
         # stage 2: rescue pool = same filters WITHOUT the text condition
@@ -673,7 +673,7 @@ class WordIndexSearchTests(unittest.TestCase):
         self.assertIn("self::searchWordCandidates($conn, $search)", self.svc)
         self.assertIn("id IN ($in) AND $filterSql", self.svc)
         # zero-guard fallback keeps the title LIKE path
-        self.assertIn("title LIKE ? OR title_am LIKE ? OR reference LIKE ?", self.svc)
+        self.assertIn("$filterSql AND title LIKE ?", self.svc)  # P28: single title
 
     def test_lyrics_tier_scoring_and_payload_hygiene(self):
         # 50/term lyrics tier, below title substring (70), above fuzzy
@@ -689,7 +689,7 @@ class WordIndexSearchTests(unittest.TestCase):
         self.assertIn("$searchMode = 'like';", self.api)
         self.assertIn("OR lyrics LIKE ?", self.api)
         # scoring happens where lyrics are still loaded, ranking is sort-only
-        self.assertIn("searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], (string)($r['lyrics'] ?? ''))", self.api)
+        self.assertIn("searchScore($search, (string)$r['title'], (string)($r['lyrics'] ?? ''))", self.api)  # P28 single title
 
     def test_reconciler_drops_fulltext_creates(self):
         self.assertIn("public const INDEXES = [];", self.rec)
@@ -780,6 +780,92 @@ class LibraryTopTabsTests(unittest.TestCase):
         # quick filters are length/language/archived only
         self.assertIn("_flagChip('Long'", self.lib)
         self.assertNotIn("_chip('All', '')", self.lib)
+
+
+class SingleTitleAndFilterSheetTests(unittest.TestCase):
+    """P28: one Amharic title (items 5/9/10/11).
+    - sql/033 folds title_am into title collision-safely and drops the
+      retired columns; the reconciler must NEVER re-add them.
+    - The service accepts-and-ignores the legacy fields (old app builds
+      keep working — no breakage) and never persists them.
+    - Web + mobile surfaces show exactly one title field.
+    - Filter sheet (item 5) and dropdown pickers (item 10) exist.
+    - Web catalog management (item 11) gained rename + usage counts."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        cls.svc = (R / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
+        cls.rec = (R / "admin/backend/services/MezmurSchemaReconciler.php").read_text(encoding="utf-8")
+        cls.page = (R / "frontend/pages/mezmur_dept.php").read_text(encoding="utf-8")
+        cls.js = (R / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.editor = (R / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymn_editor.dart").read_text(encoding="utf-8")
+        cls.list = (R / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+        cls.db = (R / "Mobile/wbws_flutter_app/lib/services/local_db.dart").read_text(encoding="utf-8")
+        cls.mig = (R / "sql/033_mezmur_single_title.sql").read_text(encoding="utf-8")
+
+    # ── item 9: single Amharic title ────────────────────────────
+    def test_migration_033_folds_and_drops(self):
+        self.assertIn("DROP COLUMN IF EXISTS title_am", self.mig)
+        self.assertIn("DROP COLUMN IF EXISTS reference", self.mig)
+        self.assertIn("DELETE FROM mezmur_hymn_words", self.mig)
+        # collision safety: the fold is skipped when another row owns
+        # the target title, and when two candidates share a target.
+        self.assertIn("o.title = x.title_am AND o.id <> x.id", self.mig)
+        self.assertIn("WHERE d.title_am = x.title_am) = 1", self.mig)
+
+    def test_reconciler_never_readds_retired_columns(self):
+        self.assertNotIn("'title_am'", self.rec)
+        self.assertNotIn("'reference'", self.rec)
+
+    def test_service_ignores_legacy_fields(self):
+        self.assertIn("accepted-and-ignored", self.svc)
+        # INSERT / UPDATE column lists are single-title.
+        self.assertIn(
+            "INSERT INTO mezmur_hymns (title, category, lyrics, length, language, status, created_by, updated_by)",
+            self.svc)
+        self.assertIn("'ssssssii', $title, $categoryName, $lyrics, $length, $language, $status, $actorId, $actorId", self.svc)
+        self.assertNotIn("SET title=?, title_am=?", self.svc)
+        # search scoring is single-title.
+        self.assertIn("public static function searchScore(string $query, ?string $title, ?string $lyrics = null)", self.svc)
+        self.assertNotIn("title_am LIKE", self.svc)
+
+    def test_web_single_title(self):
+        self.assertNotIn("mzTitleAm", self.page)
+        self.assertNotIn("mzReference", self.page)
+        self.assertNotIn("title_am", self.js)
+        self.assertIn("Title (ርዕስ) *", self.page)
+        self.assertIn("Search by title or lyrics", self.page)
+
+    def test_mobile_single_title(self):
+        self.assertNotIn("_titleAmCtrl", self.editor)
+        self.assertNotIn("_referenceCtrl", self.editor)
+        self.assertIn("Title (ርዕስ) *", self.editor)
+        # local DB folds on upgrade to v16 and rebuilds the word index.
+        self.assertIn("version: 16,", self.db)
+        self.assertIn("UPDATE cached_hymns SET title = title_am", self.db)
+        self.assertIn("UPDATE cached_hymns SET title_am = NULL, reference = NULL", self.db)
+        # local LIKE search is title-only.
+        self.assertIn("where.add('title LIKE ?')", self.db)
+
+    # ── item 10: dropdown pickers ───────────────────────────────
+    def test_searchable_picker_widget_exists_and_used(self):
+        self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/widgets/taxonomy_pick_sheet.dart").exists())
+        self.assertIn("TaxonomyPickField", self.editor)
+        self.assertNotIn("_multiSelectSection", self.editor)
+
+    # ── item 5: filter sheet ────────────────────────────────────
+    def test_filter_sheet_present(self):
+        self.assertIn("_openFilterSheet", self.list)
+        self.assertIn("CLEAR ALL", self.list)
+        self.assertIn("Show $count hymn", self.list)
+        self.assertIn("countLocalHymns", self.db)
+
+    # ── item 11: web catalog management ─────────────────────────
+    def test_web_catalog_rename_and_counts(self):
+        self.assertIn("catalogRename", self.js)
+        self.assertIn("hymn_count", self.svc)
+        self.assertIn("Mezmur.catalogRename", self.js)
 
 
 class TokenizerRegressionTests(unittest.TestCase):
@@ -1446,7 +1532,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 15,", self.db)  # 15 = on-device word index (P27c lineage)
+        self.assertIn("version: 16,", self.db)  # 16 = single Amharic title (P28); 15 = word index
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)

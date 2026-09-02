@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
-import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';

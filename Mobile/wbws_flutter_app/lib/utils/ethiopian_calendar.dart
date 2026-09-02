@@ -84,10 +84,6 @@ const List<String> _dayNamesAmharic = [
   'እሑድ', 'ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'ዓርብ', 'ቅዳሜ',
 ];
 
-const List<String> _dayNamesEnglishShort = [
-  'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat',
-];
-
 String monthNameAmharic(int month) =>
     (month >= 1 && month <= 13) ? _monthNamesAmharic[month - 1] : '?';
 

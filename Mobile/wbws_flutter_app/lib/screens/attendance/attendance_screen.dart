@@ -44,7 +44,6 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   bool _loadingClasses = true;
   bool _loadingStudents = false;
   bool _rosterReady = false;
-  bool _saving = false; // Kept for API symmetry; saves are non-blocking now.
   bool _isOffline = false;
   bool _loadFailed = false;
   String? _error;

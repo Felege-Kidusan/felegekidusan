@@ -241,7 +241,7 @@ class ApiService {
           _notifyIfRefreshRejected();
         }
       }
-      return _handleResponseAsync(response);
+      return await _handleResponseAsync(response);
     } catch (e) {
       return _handleError(e);
     }

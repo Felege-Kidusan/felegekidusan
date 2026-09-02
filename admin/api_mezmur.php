@@ -352,9 +352,11 @@ try {
                     $searchMode = 'word';
                 } else {
                     $searchMode = 'like';
-                    $where[] = '(title LIKE ? ESCAPE \'\\\\\' OR title_am LIKE ? ESCAPE \'\\\\\' OR reference LIKE ? ESCAPE \'\\\\\' OR lyrics LIKE ? ESCAPE \'\\\\\')';
-                    $types .= 'ssss';
-                    $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
+                    // P28: single Amharic title (title_am / reference
+                    // were retired by sql/033).
+                    $where[] = '(title LIKE ? ESCAPE \'\\\\\' OR lyrics LIKE ? ESCAPE \'\\\\\')';
+                    $types .= 'ss';
+                    $params[] = $like; $params[] = $like;
                 }
             }
             $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
@@ -386,7 +388,7 @@ try {
 
             if ($searchMode === 'word') {
                 $in = implode(',', array_map('intval', $wordIds));
-                $sql = "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics,
+                $sql = "SELECT id, title, category, length, language, status, updated_at, lyrics,
                         0 AS score
                         FROM mezmur_hymns
                         WHERE id IN ($in) AND $filterCond
@@ -395,7 +397,7 @@ try {
                 $stmt = $conn->prepare($sql);
                 $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
             } else {
-                $sql = "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics,
+                $sql = "SELECT id, title, category, length, language, status, updated_at, lyrics,
                         0 AS score
                         FROM mezmur_hymns $whereSql
                         ORDER BY updated_at DESC, id DESC
@@ -423,8 +425,8 @@ try {
                 }
                 // P25: score BEFORE stripping lyrics — title tiers plus the
                 // lyrics tier (50/term), and mark where the match landed.
-                $titleScore = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
-                $r['similarity'] = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], (string)($r['lyrics'] ?? ''));
+                $titleScore = MezmurHymnService::searchScore($search, (string)$r['title']);
+                $r['similarity'] = MezmurHymnService::searchScore($search, (string)$r['title'], (string)($r['lyrics'] ?? ''));
                 $r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';
                 if ($r['match_in'] === 'lyrics' && $snippet === '') {
                     $snippet = '…' . trim(mb_substr((string)($r['lyrics'] ?? ''), 0, 120)) . '…';
@@ -446,7 +448,7 @@ try {
             $rescued = 0;
             if ($search !== '' && $page === 1 && count($items) < $perPage) {
                 $pool = $conn->prepare(
-                    "SELECT id, title, title_am, category, length, language, reference, status, updated_at, lyrics, 0 AS score
+                    "SELECT id, title, category, length, language, status, updated_at, lyrics, 0 AS score
                      FROM mezmur_hymns $filterSql
                      ORDER BY updated_at DESC, id DESC
                      LIMIT 500"
@@ -461,8 +463,8 @@ try {
                 while ($r = $pres->fetch_assoc()) {
                     $rId = (int)$r['id'];
                     if (isset($seen[$rId])) continue;
-                    $titleScore = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
-                    $sim = MezmurHymnService::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], (string)($r['lyrics'] ?? ''));
+                    $titleScore = MezmurHymnService::searchScore($search, (string)$r['title']);
+                    $sim = MezmurHymnService::searchScore($search, (string)$r['title'], (string)($r['lyrics'] ?? ''));
                     if ($sim <= 0.0) continue;
                     $r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';
                     $snippet = '';
@@ -590,9 +592,7 @@ try {
             $input = [
                 'id'        => (int)($_POST['id'] ?? 0),
                 'title'     => (string)($_POST['title'] ?? ''),
-                'title_am'  => (string)($_POST['title_am'] ?? ''),
                 'category'  => (string)($_POST['category'] ?? ''),
-                'reference' => (string)($_POST['reference'] ?? ''),
                 'lyrics'    => (string)($_POST['lyrics'] ?? ''),
                 'length'    => (string)($_POST['length'] ?? 'long'),
                 'language'  => (string)($_POST['language'] ?? 'amharic'),

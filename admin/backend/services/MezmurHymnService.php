@@ -106,7 +106,7 @@ final class MezmurHymnService
 
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
-        $selectBase = "SELECT id, title, title_am, category, reference, status, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
+        $selectBase = "SELECT id, title, category, status, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
 
         $items = [];
         if ($search !== '') {
@@ -118,13 +118,13 @@ final class MezmurHymnService
             $terms = self::tokenizeWords($search);
             // lyrics is selected ONLY for scoring/snippets and stripped
             // from every list payload before it leaves this method.
-            $selectSearch = "SELECT id, title, title_am, category, reference, status, lyrics, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
+            $selectSearch = "SELECT id, title, category, status, lyrics, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
             $all = [];
             $scoreRow = static function (array $r) use ($search, $terms): array {
                 $r['id'] = (int)$r['id'];
                 $lyr = (string)($r['lyrics'] ?? '');
-                $titleScore = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference']);
-                $r['similarity'] = self::searchScore($search, (string)$r['title'], $r['title_am'], $r['reference'], $lyr);
+                $titleScore = self::searchScore($search, (string)$r['title']);
+                $r['similarity'] = self::searchScore($search, (string)$r['title'], $lyr);
                 $r['match_in'] = $titleScore > 0.0 ? 'title' : 'lyrics';
                 $r['snippet'] = $r['match_in'] === 'lyrics' ? self::lyricSnippet($terms, $lyr) : '';
                 return $r;
@@ -150,10 +150,10 @@ final class MezmurHymnService
             // used while the word path cannot fill the page.
             if (count($all) < $perPage) {
                 $like = '%' . self::escapeLike(mb_substr($search, 0, 100)) . '%';
-                $strictTypes = $types . 'sss';
-                $strictParams = array_merge($params, [$like, $like, $like]);
+                $strictTypes = $types . 's';
+                $strictParams = array_merge($params, [$like]);
                 $cand = $conn->prepare(
-                    $selectSearch . "$filterSql AND (title LIKE ? OR title_am LIKE ? OR reference LIKE ?) ORDER BY updated_at DESC, id DESC LIMIT 500"
+                    $selectSearch . "$filterSql AND title LIKE ? ORDER BY updated_at DESC, id DESC LIMIT 500"
                 );
                 $cand->bind_param($strictTypes, ...$strictParams);
                 $cand->execute();
@@ -254,7 +254,7 @@ final class MezmurHymnService
         if ($id <= 0) return null;
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
-        $stmt = $conn->prepare("SELECT id, title, title_am, category, reference, lyrics, status, $rev, $tax, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
+        $stmt = $conn->prepare("SELECT id, title, category, lyrics, status, $rev, $tax, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $item = $stmt->get_result()->fetch_assoc();
@@ -383,12 +383,15 @@ final class MezmurHymnService
     }
 
     /** Rebuild the word rows for one hymn (call INSIDE the save txn). */
-    public static function reindexHymnWords(\mysqli $conn, int $hymnId, string $title, ?string $titleAm, ?string $reference, ?string $lyrics): void
+    public static function reindexHymnWords(\mysqli $conn, int $hymnId, string $title, ?string $lyrics): void
     {
         if ($hymnId <= 0 || !self::wordsTableReady($conn)) {
             return;
         }
-        $words = self::tokenizeWords(implode(' ', [$title, (string)$titleAm, (string)$reference, (string)$lyrics]));
+        // P28: single Amharic title — the retired title_am / reference
+        // fields no longer feed the index (stale rows are cleared by
+        // sql/033; backfill rebuilds from title + lyrics only).
+        $words = self::tokenizeWords(implode(' ', [$title, (string)$lyrics]));
         $stmt = $conn->prepare('DELETE FROM mezmur_hymn_words WHERE hymn_id = ?');
         $stmt->bind_param('i', $hymnId);
         $stmt->execute();
@@ -408,7 +411,7 @@ final class MezmurHymnService
             return 0;
         }
         $stmt = $conn->prepare(
-            'SELECT id, title, title_am, reference, lyrics FROM mezmur_hymns h
+            'SELECT id, title, lyrics FROM mezmur_hymns h
              WHERE NOT EXISTS (SELECT 1 FROM mezmur_hymn_words w WHERE w.hymn_id = h.id)
              ORDER BY id LIMIT ?'
         );
@@ -417,7 +420,7 @@ final class MezmurHymnService
         $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
         foreach ($rows as $r) {
-            self::reindexHymnWords($conn, (int)$r['id'], (string)$r['title'], $r['title_am'], $r['reference'], $r['lyrics']);
+            self::reindexHymnWords($conn, (int)$r['id'], (string)$r['title'], $r['lyrics']);
         }
         return count($rows);
     }
@@ -757,21 +760,20 @@ final class MezmurHymnService
     }
 
     /**
-     * Telegram-style relevance score (0..N). Words are matched against the
-     * joined title / Amharic-title / reference text and tiered:
+     * Telegram-style relevance score (0..N). Words are matched against
+     * the single title (P28: one Amharic title; the old Amharic-title
+     * and reference fields were retired by sql/033) and tiered:
      *   exact string > prefix > substring > fuzzy (Levenshtein spelling
      *   tolerance). Higher = more similar; callers sort descending.
      */
-    public static function searchScore(string $query, ?string $title, ?string $titleAm = null, ?string $reference = null, ?string $lyrics = null): float
+    public static function searchScore(string $query, ?string $title, ?string $lyrics = null): float
     {
         $query = mb_strtolower(trim($query));
         if ($query === '') return 0.0;
         $terms = array_values(array_filter(preg_split('/\s+/u', $query), static fn ($t) => $t !== ''));
         if (!$terms) return 0.0;
 
-        $haystack = mb_strtolower(implode(' ', array_filter([
-            $title, $titleAm, $reference,
-        ], static fn ($f) => $f !== null && trim((string)$f) !== '')));
+        $haystack = mb_strtolower(trim((string)$title));
 
         $score = 0.0;
         foreach ($terms as $term) {
@@ -836,17 +838,18 @@ final class MezmurHymnService
      * base_revision and the row moved past it, the write is refused
      * with the current server copy so the device can reconcile.
      *
-     * @param array{id?:int|string,title?:string,title_am?:string,category?:string,reference?:string,lyrics?:string,status?:string,length?:string,language?:string,categories?:mixed,zemarians?:mixed,base_revision?:int|string|null} $input
+     * @param array{id?:int|string,title?:string,category?:string,lyrics?:string,status?:string,length?:string,language?:string,categories?:mixed,zemarians?:mixed,base_revision?:int|string|null} $input
      * @return array{ok:bool,conflict?:bool,item?:array|null,message:string,created?:bool}
      */
     public static function saveHymn(\mysqli $conn, array $input, int $actorId): array
     {
         $id        = (int)($input['id'] ?? 0);
         $title     = trim((string)($input['title'] ?? ''));
-        $titleAm   = trim((string)($input['title_am'] ?? ''));
         $category  = trim((string)($input['category'] ?? ''));
-        $reference = trim((string)($input['reference'] ?? ''));
         $lyrics    = (string)($input['lyrics'] ?? '');
+        // P28: title_am / reference are RETIRED. Older app builds still
+        // send them; they are deliberately accepted-and-ignored so those
+        // clients keep working (no breakage) while nothing persists them.
         $length    = (string)($input['length'] ?? 'long');
         $language  = (string)($input['language'] ?? 'amharic');
 
@@ -918,15 +921,13 @@ final class MezmurHymnService
         if ($title === '') {
             return ['ok' => false, 'message' => 'Title is required.'];
         }
-        if (mb_strlen($title) > 255 || mb_strlen($titleAm) > 255 || mb_strlen($reference) > 255) {
+        if (mb_strlen($title) > 255) {
             return ['ok' => false, 'message' => 'A field exceeds its maximum length.'];
         }
         if (mb_strlen($categoryName) > 50) $categoryName = mb_substr($categoryName, 0, 50);
         if (mb_strlen($lyrics) > 200000) {
             return ['ok' => false, 'message' => 'Lyrics text is too long.'];
         }
-        $titleAm   = $titleAm === '' ? null : $titleAm;
-        $reference = $reference === '' ? null : $reference;
         $lyrics    = trim($lyrics) === '' ? null : $lyrics;
 
         if ($id > 0) {
@@ -991,19 +992,19 @@ final class MezmurHymnService
                 if ($baseRevision !== null) {
                     $stmt = $conn->prepare(
                         "UPDATE mezmur_hymns
-                         SET title=?, title_am=?, category=?, reference=?, lyrics=?, length=?, language=?,
+                         SET title=?, category=?, lyrics=?, length=?, language=?,
                              updated_by=?, updated_at=NOW(), revision = revision + 1
                          WHERE id=? AND revision = ?"
                     );
-                    $stmt->bind_param('sssssssiii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $actorId, $id, $baseRevision);
+                    $stmt->bind_param('sssssiii', $title, $categoryName, $lyrics, $length, $language, $actorId, $id, $baseRevision);
                 } else {
                     $stmt = $conn->prepare(
                         "UPDATE mezmur_hymns
-                         SET title=?, title_am=?, category=?, reference=?, lyrics=?, length=?, language=?,
+                         SET title=?, category=?, lyrics=?, length=?, language=?,
                              updated_by=?, updated_at=NOW(), revision = revision + 1
                          WHERE id=?"
                     );
-                    $stmt->bind_param('sssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $actorId, $id);
+                    $stmt->bind_param('sssssii', $title, $categoryName, $lyrics, $length, $language, $actorId, $id);
                 }
                 $ok = $stmt->execute();
                 $affected = $ok ? $stmt->affected_rows : 0;
@@ -1033,7 +1034,7 @@ final class MezmurHymnService
                 }
                 self::syncHymnCategories($conn, $id, $categoryIds);
                 self::syncHymnZemarians($conn, $id, $zemarianIds);
-                self::reindexHymnWords($conn, $id, $title, $titleAm, $reference, $lyrics);
+                self::reindexHymnWords($conn, $id, $title, $lyrics);
                 $conn->commit();
             } catch (\Throwable $e) {
                 try { $conn->rollback(); } catch (\Throwable $r) {}
@@ -1085,10 +1086,10 @@ final class MezmurHymnService
             $categoryIds = array_values(array_unique($categoryIds));
             $zemarianIds = array_values(array_unique($zemarianIds));
             $stmt = $conn->prepare(
-                "INSERT INTO mezmur_hymns (title, title_am, category, reference, lyrics, length, language, status, created_by, updated_by)
-                 VALUES (?,?,?,?,?,?,?,?,?,?)"
+                "INSERT INTO mezmur_hymns (title, category, lyrics, length, language, status, created_by, updated_by)
+                 VALUES (?,?,?,?,?,?,?,?)"
             );
-            $stmt->bind_param('ssssssssii', $title, $titleAm, $categoryName, $reference, $lyrics, $length, $language, $status, $actorId, $actorId);
+            $stmt->bind_param('ssssssii', $title, $categoryName, $lyrics, $length, $language, $status, $actorId, $actorId);
             $ok = $stmt->execute();
             $newId = $ok ? (int)$stmt->insert_id : 0;
             $dupRace = !$ok && self::isDuplicateKeyError($conn);
@@ -1106,7 +1107,7 @@ final class MezmurHymnService
             }
             self::syncHymnCategories($conn, $newId, $categoryIds);
             self::syncHymnZemarians($conn, $newId, $zemarianIds);
-            self::reindexHymnWords($conn, $newId, $title, $titleAm, $reference, $lyrics);
+            self::reindexHymnWords($conn, $newId, $title, $lyrics);
             $conn->commit();
         } catch (\Throwable $e) {
             try { $conn->rollback(); } catch (\Throwable $r) {}
@@ -1189,7 +1190,7 @@ final class MezmurHymnService
         }
 
         if ($cursorTs !== null) {
-            $sql = "SELECT id, title, title_am, category, reference, status, $rev, $taxCols,
+            $sql = "SELECT id, title, category, status, $rev, $taxCols,
                            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol
                     FROM mezmur_hymns
                     WHERE updated_at > ? OR (updated_at = ? AND id > ?)
@@ -1198,7 +1199,7 @@ final class MezmurHymnService
             $stmt = $conn->prepare($sql);
             $stmt->bind_param('ssii', $cursorTs, $cursorTs, $cursorId, $limit);
         } else {
-            $sql = "SELECT id, title, title_am, category, reference, status, $rev, $taxCols,
+            $sql = "SELECT id, title, category, status, $rev, $taxCols,
                            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol
                     FROM mezmur_hymns
                     ORDER BY updated_at ASC, id ASC
@@ -1280,12 +1281,21 @@ final class MezmurHymnService
     {
         if (self::categoriesReady($conn)) {
             $out = [];
-            $res = $conn->query("SELECT id, name, sort_order, is_active FROM mezmur_categories ORDER BY sort_order, name LIMIT 200");
+            // P28 (item 11): usage counts for the web catalog manager —
+            // how many ACTIVE hymns reference each entry (indexed join,
+            // bounded by the LIMIT above).
+            $res = $conn->query(
+                "SELECT c.id, c.name, c.sort_order, c.is_active,
+                        (SELECT COUNT(*) FROM mezmur_hymn_categories hc
+                         JOIN mezmur_hymns h ON h.id = hc.hymn_id AND h.status = 'active'
+                         WHERE hc.category_id = c.id) AS hymn_count
+                 FROM mezmur_categories c ORDER BY c.sort_order, c.name LIMIT 200");
             if ($res) {
                 while ($r = $res->fetch_assoc()) {
                     $r['id'] = (int)$r['id'];
                     $r['sort_order'] = (int)$r['sort_order'];
                     $r['is_active'] = (int)$r['is_active'];
+                    $r['hymn_count'] = (int)$r['hymn_count'];
                     $out[] = $r;
                 }
             }
@@ -1296,7 +1306,7 @@ final class MezmurHymnService
         if ($res) {
             $i = 0;
             while ($c = $res->fetch_assoc()) {
-                $out[] = ['id' => 0, 'name' => $c['category'], 'sort_order' => ++$i, 'is_active' => 1];
+                $out[] = ['id' => 0, 'name' => $c['category'], 'sort_order' => ++$i, 'is_active' => 1, 'hymn_count' => 0];
             }
         }
         return $out;
@@ -1446,12 +1456,19 @@ final class MezmurHymnService
     {
         if (!self::zemariansReady($conn)) return [];
         $out = [];
-        $res = $conn->query("SELECT id, name, name_am, sort_order, is_active FROM mezmur_zemarians ORDER BY sort_order, name LIMIT 500");
+        // P28 (item 11): usage counts for the web catalog manager.
+        $res = $conn->query(
+            "SELECT z.id, z.name, z.name_am, z.sort_order, z.is_active,
+                    (SELECT COUNT(*) FROM mezmur_hymn_zemarians hz
+                     JOIN mezmur_hymns h ON h.id = hz.hymn_id AND h.status = 'active'
+                     WHERE hz.zemarian_id = z.id) AS hymn_count
+             FROM mezmur_zemarians z ORDER BY z.sort_order, z.name LIMIT 500");
         if ($res) {
             while ($r = $res->fetch_assoc()) {
                 $r['id'] = (int)$r['id'];
                 $r['sort_order'] = (int)$r['sort_order'];
                 $r['is_active'] = (int)$r['is_active'];
+                $r['hymn_count'] = (int)$r['hymn_count'];
                 $out[] = $r;
             }
         }

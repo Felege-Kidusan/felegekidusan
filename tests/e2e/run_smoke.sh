@@ -439,6 +439,37 @@ P27V=$(ssms_get "/frontend/pages/mezmur_dept.php" | grep -c "frontend/js/mezmur.
 P27J=$(curl -s "$BASE/frontend/js/mezmur.js" | grep -c "listCache")
 [ "$P27J" -ge 1 ] && ok "served mezmur.js is current (query cache present)" || fail "served JS looks stale"
 
+# --- 3z. Single Amharic title + catalog management (Patch 28) ---------------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null
+# 0) migration 033 applied: retired columns GONE server-side
+P28C=$(sudo -n mariadb ssms -N -e "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='mezmur_hymns' AND COLUMN_NAME IN ('title_am','reference')")
+[ "$P28C" = "0" ] && ok "mezmur_hymns single-title schema (title_am/reference dropped)" || fail "retired columns still present ($P28C)"
+# 1) OLD app builds still send title_am/reference -> accepted-and-ignored
+P28S=$(ssms_api POST mezmur/hymn '{"title":"P28 ሰላምታ Smoke","title_am":"legacy field","reference":"legacy ref","lyrics":"የመዝሙር ግጥም ሰላም"}')
+P28T=$(sudo -n mariadb --default-character-set=utf8mb4 ssms -N -e "SELECT title FROM mezmur_hymns WHERE title LIKE 'P28%'")
+if echo "$P28S" | grep -q '"success"' && [ "$P28T" = "P28 ሰላምታ Smoke" ]; then
+  ok "legacy title_am/reference payloads accepted + ignored (no breakage)"
+else
+  fail "legacy payload: resp=$P28S title=$P28T"
+fi
+# 2) single-title read contract: no retired keys in the API echo
+P28ID=$(sudo -n mariadb ssms -N -e "SELECT id FROM mezmur_hymns WHERE title LIKE 'P28%'")
+P28G=$(curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE/api/v1/index.php?_route=mezmur/hymn&id=$P28ID")
+echo "$P28G" | grep -vq 'title_am' && echo "$P28G" | grep -vq '"reference"' && ok "API echo is single-title (no retired keys)" || fail "retired keys in echo: $P28G"
+# 3) search still finds the Amharic-only title through the word engine
+P28Q=$(ssms_api GET "mezmur/hymns&search=$(python3 -c "import urllib.parse;print(urllib.parse.quote('ሰላምታ'))")")
+echo "$P28Q" | grep -q "P28" && ok "Amharic single-title searchable" || fail "amharic search: $P28Q"
+# 4) catalog lists carry usage counts (web manager, item 11)
+P28CAT=$(ssms_api GET "mezmur/categories")
+echo "$P28CAT" | grep -q 'hymn_count' && ok "categories list carries hymn_count" || fail "no hymn_count: $P28CAT"
+# 5) web form is single-title
+ssms_login audit_super >/dev/null 2>&1
+P28P=$(ssms_get "/frontend/pages/mezmur_dept.php")
+echo "$P28P" | grep -q "mzTitleAm" && fail "web still renders the Amharic-title field" || ok "web form single title (no mzTitleAm)"
+echo "$P28P" | grep -q "Search by title or lyrics" && ok "web search hint updated" || fail "web search hint stale"
+sudo -n mariadb ssms -e "DELETE w FROM mezmur_hymn_words w LEFT JOIN mezmur_hymns h ON h.id=w.hymn_id WHERE h.id IS NULL OR h.title LIKE 'P28%'; DELETE FROM mezmur_hymns WHERE title LIKE 'P28%'; DELETE FROM activity_logs WHERE details LIKE '%P28%'" >/dev/null 2>&1
+
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1
 D=$(ssms_get "/admin/api_subjects.php?action=get_subjects")

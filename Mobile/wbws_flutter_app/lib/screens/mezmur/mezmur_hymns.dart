@@ -9,6 +9,7 @@ import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/offline_banner.dart';
+import '../../widgets/taxonomy_pick_sheet.dart';
 import 'mezmur_categories.dart';
 import 'mezmur_hymn_detail.dart';
 import 'mezmur_hymn_editor.dart';
@@ -59,7 +60,6 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   late final TabController _tabCtrl;
   static const int _hymnsTab = 0;
   static const int _categoriesTab = 1;
-  static const int _singersTab = 2;
   // Add tab index differs by role; -1 when the role cannot curate.
   late final int _addTab;
 
@@ -369,9 +369,14 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                 ),
               ),
             ),
-          // Active-filter header (clearable) — hymns tab only.
+          // Active-filter header (clearable) — hymns tab only. Every
+          // active filter stays visible with its own clear (UX: active
+          // chips must always be in sight, never buried in the sheet).
           if (_tab == _hymnsTab &&
-              (_categoryId != null || _zemarianId != null))
+              (_categoryId != null ||
+                  _zemarianId != null ||
+                  _length.isNotEmpty ||
+                  _language.isNotEmpty))
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Wrap(
@@ -396,6 +401,30 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                           style: const TextStyle(fontSize: 11)),
                       onDeleted: () {
                         setState(() => _zemarianId = null);
+                        _reload();
+                      },
+                    ),
+                  if (_length.isNotEmpty)
+                    InputChip(
+                      avatar: const Icon(Icons.timeline,
+                          size: 13, color: AppTheme.success),
+                      label: Text(
+                          _length == 'long' ? 'Long' : 'Short',
+                          style: const TextStyle(fontSize: 11)),
+                      onDeleted: () {
+                        setState(() => _length = '');
+                        _reload();
+                      },
+                    ),
+                  if (_language.isNotEmpty)
+                    InputChip(
+                      avatar: const Icon(Icons.language,
+                          size: 13, color: AppTheme.warning),
+                      label: Text(
+                          _language == 'geez' ? 'Geez (ግዕዝ)' : 'Amharic',
+                          style: const TextStyle(fontSize: 11)),
+                      onDeleted: () {
+                        setState(() => _language = '');
                         _reload();
                       },
                     ),
@@ -444,6 +473,27 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                         },
                       ),
                     ),
+                  // P28 (item 5): full filter sheet — category + singer
+                  // pickers live here (chips above stay for one-tap
+                  // toggles). The dot marks filters only the sheet can
+                  // clear (taxonomy picks).
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 4, vertical: 6),
+                    child: FilterChip(
+                      avatar: Badge(
+                        isLabelVisible:
+                            _categoryId != null || _zemarianId != null,
+                        smallSize: 5,
+                        child: const Icon(Icons.tune, size: 13),
+                      ),
+                      label: const Text('Filters',
+                          style: TextStyle(fontSize: 11)),
+                      selected:
+                          _categoryId != null || _zemarianId != null,
+                      onSelected: (_) => _openFilterSheet(),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -698,8 +748,6 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${h['title_am'] ?? ''}'
-                      '${'${h['title_am'] ?? ''}'.isNotEmpty && '${h['category'] ?? ''}'.isNotEmpty ? ' · ' : ''}'
                       '${h['category'] ?? ''}'
                       '${!hasLyrics ? ' · lyrics downloading…' : ''}',
                       maxLines: 1,
@@ -779,6 +827,190 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
           ),
         );
       },
+    );
+  }
+
+  // ── P28 (item 5): the filter sheet ──────────────────────────
+  // Full-screen-context filters: taxonomy single-picks, length,
+  // language, archived. The Apply button carries the LIVE result count
+  // ("Show 47 hymns" — uxpin), a zero count warns instead of dead-
+  // ending (insaim), and Clear all resets every filter at once.
+  Future<void> _openFilterSheet() async {
+    var dCategoryId = _categoryId;
+    var dZemarianId = _zemarianId;
+    var dLength = _length;
+    var dLanguage = _language;
+    var dArchived = _showArchived;
+    var count = -1; // -1 = still counting
+    var searchGeneration = 0;
+
+    Future<void> recount(StateSetter setSheet) async {
+      final gen = ++searchGeneration;
+      final n = await _store.countHymns(
+          length: dLength.isEmpty ? null : dLength,
+          language: dLanguage.isEmpty ? null : dLanguage,
+          categoryId: dCategoryId,
+          zemarianId: dZemarianId,
+          includeArchived: dArchived);
+      if (gen != searchGeneration) return; // a newer draft is counting
+      setSheet(() => count = n);
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          void changed(void Function() fn) {
+            setSheet(fn);
+            recount(setSheet);
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.tune, size: 16),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text('Filter hymns',
+                          style: TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w700)),
+                    ),
+                    TextButton(
+                      onPressed: () => changed(() {
+                        dCategoryId = null;
+                        dZemarianId = null;
+                        dLength = '';
+                        dLanguage = '';
+                        dArchived = false;
+                      }),
+                      child: const Text('CLEAR ALL'),
+                    ),
+                  ]),
+                  const SizedBox(height: 4),
+                  TaxonomyPickField(
+                    label: 'Category',
+                    items: _categories,
+                    selected: dCategoryId == null ? {} : {dCategoryId!},
+                    icon: Icons.category_outlined,
+                    single: true,
+                    counts: _catCounts,
+                    onChanged: (sel) => changed(
+                        () => dCategoryId = sel.isEmpty ? null : sel.first),
+                  ),
+                  const SizedBox(height: 12),
+                  TaxonomyPickField(
+                    label: 'Singer / Zemarian',
+                    items: _zemarians,
+                    selected: dZemarianId == null ? {} : {dZemarianId!},
+                    icon: Icons.person_outline,
+                    single: true,
+                    counts: _zemCounts,
+                    onChanged: (sel) => changed(
+                        () => dZemarianId = sel.isEmpty ? null : sel.first),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Length',
+                      style:
+                          TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 6, children: [
+                    for (final v in ['', 'long', 'short'])
+                      ChoiceChip(
+                        label: Text(
+                            v.isEmpty ? 'Any' : (v == 'long' ? 'Long' : 'Short'),
+                            style: const TextStyle(fontSize: 11.5)),
+                        selected: dLength == v,
+                        onSelected: (_) => changed(() => dLength = v),
+                      ),
+                  ]),
+                  const SizedBox(height: 12),
+                  const Text('Language',
+                      style:
+                          TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 6, children: [
+                    for (final v in ['', 'amharic', 'geez'])
+                      ChoiceChip(
+                        label: Text(
+                            v.isEmpty
+                                ? 'Any'
+                                : (v == 'geez' ? 'Geez (ግዕዝ)' : 'Amharic (አማርኛ)'),
+                            style: const TextStyle(fontSize: 11.5)),
+                        selected: dLanguage == v,
+                        onSelected: (_) => changed(() => dLanguage = v),
+                      ),
+                  ]),
+                  if (_store.canEdit) ...[
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Show archived hymns',
+                          style: TextStyle(fontSize: 13)),
+                      value: dArchived,
+                      onChanged: (v) => changed(() => dArchived = v),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  // Live count: on Apply when there are results, a
+                  // friendly warning when there are none (never a dead
+                  // end — Clear all is one tap away).
+                  if (count == 0)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Row(children: [
+                        Icon(Icons.info_outline,
+                            size: 14, color: AppTheme.warning),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                              'No hymns match these filters yet — clear one or tap Clear all.',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppTheme.textSecondary)),
+                        ),
+                      ]),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        setState(() {
+                          _categoryId = dCategoryId;
+                          _zemarianId = dZemarianId;
+                          _length = dLength;
+                          _language = dLanguage;
+                          _showArchived = dArchived;
+                        });
+                        _reload();
+                      },
+                      icon: const Icon(Icons.check, size: 18),
+                      label: Text(count < 0
+                          ? 'Apply filters'
+                          : 'Show $count hymn${count == 1 ? '' : 's'}'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 

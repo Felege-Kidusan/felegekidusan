@@ -11,7 +11,6 @@ import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/offline_banner.dart';
 import '../auth/login_screen.dart';
-import '../update/update_screen.dart';
 // Role home screens
 import '../teacher/teacher_home.dart';
 import '../teacher/teacher_grades.dart';
@@ -354,41 +353,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             Text('This module is unavailable for this school deployment.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.textSecondary)),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _serverBanner() {
-    final text = AppUpdateService().config?.bannerText ?? '';
-    if (text.isEmpty) return const SizedBox.shrink();
-    final warn = AppUpdateService().config?.bannerKind == 'warn';
-    return Material(
-      color: warn ? AppTheme.warning.withOpacity(0.15) : AppTheme.info.withOpacity(0.12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Text(text, style: TextStyle(fontSize: 12, color: warn ? AppTheme.warning : AppTheme.info)),
-      ),
-    );
-  }
-
-  Widget _updateBanner() {
-    if (!AppUpdateService().decision.optional) return const SizedBox.shrink();
-    return Material(
-      color: AppTheme.primary.withOpacity(0.08),
-      child: InkWell(
-        onTap: () {
-          Navigator.of(context).push(SmoothPageRoute(page: const UpdateScreen()));
-        },
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(children: [
-            Icon(Icons.system_update_alt_rounded, size: 18, color: AppTheme.primary),
-            SizedBox(width: 8),
-            Expanded(child: Text('A newer FKSS app is ready — tap to update',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primary))),
-            Icon(Icons.chevron_right, size: 18, color: AppTheme.primary),
           ]),
         ),
       ),

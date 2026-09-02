@@ -34,6 +34,22 @@ class HymnStore extends ChangeNotifier {
 
   // ── local reads (never touch the network) ───────────────────
 
+  /// P28 (item 5): live count for the filter sheet Apply button —
+  /// on-device, instant, same filters as the list itself.
+  Future<int> countHymns(
+      {String? length,
+      String? language,
+      int? categoryId,
+      int? zemarianId,
+      bool includeArchived = false}) async {
+    return _db.countLocalHymns(
+        length: length,
+        language: language,
+        categoryId: categoryId,
+        zemarianId: zemarianId,
+        includeArchived: includeArchived);
+  }
+
   Future<List<Map<String, dynamic>>> hymns({
     String? search,
     String? category,
@@ -111,7 +127,7 @@ class HymnStore extends ChangeNotifier {
     if (search != null && search.trim().isNotEmpty) {
       final scored = <Map<String, dynamic>>[];
       for (final h in items) {
-        final titleScore = _similarity(search, h);
+        final titleScore = _similarity(search, '${h['title'] ?? ''}');
         final lyrics = '${h['lyrics'] ?? ''}';
         // P25 lyrics tier (server parity): a word in the lyrics body
         // scores 50/term — below a title substring (70), above fuzzy
@@ -266,7 +282,7 @@ class HymnStore extends ChangeNotifier {
     for (final r in rows) {
       final name = '${r['name'] ?? ''}';
       final nameAm = '${r['name_am'] ?? ''}';
-      final score = _similarity(query, {'title': name, 'title_am': nameAm});
+      final score = _similarity(query, name, nameAm);
       if (score <= 0) continue;
       hits.add({...r, 'similarity': score});
     }
@@ -277,7 +293,9 @@ class HymnStore extends ChangeNotifier {
 
   /// Telegram-style relevance (mirrors MezmurHymnService::searchScore):
   /// exact > prefix > substring > fuzzy (Levenshtein spelling tolerance).
-  double _similarity(String query, Map<String, dynamic> h) {
+  /// P28: hymns carry a single (Amharic) title; [alt] stays available
+  /// for taxonomy entries (their Amharic name_am).
+  double _similarity(String query, String title, [String? alt]) {
     final terms = query
         .toLowerCase()
         .trim()
@@ -285,11 +303,7 @@ class HymnStore extends ChangeNotifier {
         .where((t) => t.isNotEmpty)
         .toList();
     if (terms.isEmpty) return 0;
-    final haystack = [
-      h['title'],
-      h['title_am'],
-      h['reference'],
-    ].whereType<String>()
+    final haystack = [title, alt ?? '']
         .map((s) => s.toLowerCase())
         .where((s) => s.isNotEmpty)
         .join(' ');
@@ -412,15 +426,9 @@ class HymnStore extends ChangeNotifier {
           {
             'id': localId,
             'title': title,
-            'title_am': '${hymn['title_am'] ?? ''}'.isEmpty
-                ? null
-                : hymn['title_am'],
             'category': '${hymn['category'] ?? ''}'.isEmpty
                 ? 'general'
                 : hymn['category'],
-            'reference': '${hymn['reference'] ?? ''}'.isEmpty
-                ? null
-                : hymn['reference'],
             'lyrics': '${hymn['lyrics'] ?? ''}'.isEmpty ? null : hymn['lyrics'],
             'length': '${hymn['length'] ?? 'long'}',
             'language': '${hymn['language'] ?? 'amharic'}',
@@ -432,7 +440,7 @@ class HymnStore extends ChangeNotifier {
           }
         ]);
         notifyListeners();
-        unawaited(pushPending().catchError((_) {}));
+        unawaited(pushPending().catchError((_) => 0));
         return null;
       }
     }
@@ -441,14 +449,9 @@ class HymnStore extends ChangeNotifier {
       {
         'id': localId,
         'title': title,
-        'title_am':
-            '${hymn['title_am'] ?? ''}'.isEmpty ? null : hymn['title_am'],
         'category': '${hymn['category'] ?? ''}'.isEmpty
             ? 'general'
             : hymn['category'],
-        'reference': '${hymn['reference'] ?? ''}'.isEmpty
-            ? null
-            : hymn['reference'],
         'lyrics':
             '${hymn['lyrics'] ?? ''}'.isEmpty ? null : hymn['lyrics'],
         'length': '${hymn['length'] ?? 'long'}',
@@ -462,7 +465,7 @@ class HymnStore extends ChangeNotifier {
     ]);
     await _db.enqueueHymnOp('hymn_save', opPayload);
     notifyListeners();
-    unawaited(pushPending().catchError((_) {}));
+    unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 
@@ -487,7 +490,7 @@ class HymnStore extends ChangeNotifier {
       await _db.enqueueHymnOp('hymn_status', {'id': id, 'status': status});
     }
     notifyListeners();
-    unawaited(pushPending().catchError((_) {}));
+    unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 
@@ -514,7 +517,7 @@ class HymnStore extends ChangeNotifier {
     await _db.enqueueHymnOp(
         'category_save', {'id': category['id'] ?? 0, 'name': name});
     notifyListeners();
-    unawaited(pushPending().catchError((_) {}));
+    unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 
@@ -532,7 +535,7 @@ class HymnStore extends ChangeNotifier {
     await _db.enqueueHymnOp(
         'category_status', {'id': id, 'active': active, 'name': row['name']});
     notifyListeners();
-    unawaited(pushPending().catchError((_) {}));
+    unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 
@@ -567,7 +570,7 @@ class HymnStore extends ChangeNotifier {
     await _db.enqueueHymnOp('zemarian_save',
         {'id': zemarian['id'] ?? 0, 'name': name, 'name_am': zemarian['name_am'] ?? ''});
     notifyListeners();
-    unawaited(pushPending().catchError((_) {}));
+    unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 
@@ -585,7 +588,7 @@ class HymnStore extends ChangeNotifier {
     await _db.enqueueHymnOp(
         'zemarian_status', {'id': id, 'active': active, 'name': row['name']});
     notifyListeners();
-    unawaited(pushPending().catchError((_) {}));
+    unawaited(pushPending().catchError((_) => 0));
     return null;
   }
 

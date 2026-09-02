@@ -238,7 +238,7 @@ ob_start();
                     <div class="toolbar">
                         <div class="search-wrap">
                             <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                            <input id="mzSearch" class="school-input" type="search" placeholder="Search by title, Amharic title or reference…" autocomplete="off" aria-label="Search hymns">
+                            <input id="mzSearch" class="school-input" type="search" placeholder="Search by title or lyrics…" autocomplete="off" aria-label="Search hymns">
                         </div>
                         <select id="mzCategoryFilter" class="school-input" aria-label="Filter by category">
                             <option value="">All categories</option>
@@ -277,9 +277,7 @@ ob_start();
                             <thead>
                                 <tr>
                                     <th>Title</th>
-                                    <th class="amharic">ስም (አማርኛ)</th>
                                     <th>Category</th>
-                                    <th>Reference</th>
                                     <th>Updated</th>
                                     <th class="nowrap">Actions</th>
                                 </tr>
@@ -527,12 +525,8 @@ ob_start();
         </div>
         <input type="hidden" id="mzHymnId" value="0">
         <div class="school-form-group">
-            <label class="school-label" for="mzTitle">Title *</label>
+            <label class="school-label" for="mzTitle">Title (ርዕስ) *</label>
             <input id="mzTitle" class="school-input" maxlength="255" autocomplete="off">
-        </div>
-        <div class="school-form-group">
-            <label class="school-label" for="mzTitleAm">ስም በአማርኛ (Amharic title)</label>
-            <input id="mzTitleAm" class="school-input amharic" maxlength="255" autocomplete="off">
         </div>
         <div class="school-form-group">
             <label class="school-label">Categories (one or more)</label>
@@ -557,10 +551,6 @@ ob_start();
                 <option value="amharic" selected>Amharic (አማርኛ)</option>
                 <option value="geez">Geez (ግዕዝ)</option>
             </select>
-        </div>
-        <div class="school-form-group">
-            <label class="school-label" for="mzReference">Reference (composer / book / source)</label>
-            <input id="mzReference" class="school-input" maxlength="255">
         </div>
         <div class="school-form-group">
             <label class="school-label" for="mzLyrics">Lyrics</label>

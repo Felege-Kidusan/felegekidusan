@@ -487,9 +487,7 @@
             return '<tr style="border-top:1px solid var(--school-border,rgba(255,255,255,.06))' + (archived ? ';opacity:.55' : '') + '">' +
                 '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + hi(h.title) +
                 (h.snippet ? '<div class="text-dim" style="font-size:.72rem;font-weight:400;margin-top:2px">' + hi(h.snippet) + '</div>' : '') + '</td>' +
-                '<td class="amharic" style="padding:.65rem .75rem">' + hi(h.title_am || '—') + '</td>' +
                 '<td style="padding:.65rem .75rem">' + catBadges(h) + '</td>' +
-                '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + hi(h.reference || '—') + '</td>' +
                 '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + fmtDate(h.updated_at) + '</td>' +
                 '<td style="padding:.65rem .75rem;text-align:right;white-space:nowrap">' +
                 '<button class="btn-secondary btn-sm" title="View" onclick="Mezmur.view(' + h.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
@@ -619,10 +617,34 @@
         var items = catalog.tab === 'zemarians' ? catalog.zemarians : catalog.categories;
         el.innerHTML = (items || []).map(function (i) {
             var active = Number(i.is_active) === 1;
-            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--school-border,rgba(0,0,0,.08))">' +
-                '<span style="font-size:.82rem">' + esc(i.name) + '</span>' +
-                '<button class="btn-secondary btn-sm" onclick="Mezmur.catalogToggle(' + i.id + ')">' + (active ? 'Hide' : 'Show') + '</button></div>';
+            var count = Number(i.hymn_count || 0);
+            // P28 (item 11): usage count + inline rename — a curator can
+            // see what a rename/hide would affect before doing it.
+            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--school-border,rgba(0,0,0,.08))">' +
+                '<span style="font-size:.82rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' + (active ? '' : ';opacity:.5') + '">' + esc(i.name) +
+                ' <span class="text-dim" style="font-size:.7rem" title="Active hymns using this entry">' + count + '</span></span>' +
+                '<span style="white-space:nowrap">' +
+                '<button class="btn-secondary btn-sm" title="Rename" aria-label="Rename ' + esc(i.name) + '" onclick="Mezmur.catalogRename(' + i.id + ')"><i class="fa-solid fa-pen"></i></button> ' +
+                '<button class="btn-secondary btn-sm" onclick="Mezmur.catalogToggle(' + i.id + ')">' + (active ? 'Hide' : 'Show') + '</button>' +
+                '</span></div>';
         }).join('') || '<span class="text-dim" style="font-size:.8rem">Nothing yet.</span>';
+    }
+    function catalogRename(id) {
+        var items = catalog.tab === 'zemarians' ? catalog.zemarians : catalog.categories;
+        var found = (items || []).filter(function (i) { return Number(i.id) === Number(id); })[0];
+        if (!found) return;
+        var current = found.name || '';
+        var name = window.prompt('Rename to:', current);
+        if (name === null) return;
+        name = name.trim();
+        if (!name || name === current) return;
+        var payload = catalog.tab === 'zemarians'
+            ? { action: 'save_zemarian', id: id, name: name, name_am: found.name_am || '' }
+            : { action: 'save_category', id: id, name: name };
+        apiPost(payload).then(function (d) {
+            if (d.status !== 'success') { window.toast(d.message || 'Rename failed.', 'e'); return; }
+            loadCatalog();
+        }).catch(function () {});
     }
     function catalogToggle(id) {
         var items = catalog.tab === 'zemarians' ? catalog.zemarians : catalog.categories;
@@ -635,8 +657,8 @@
     }
 
     function clearHymnForm() {
-        $('mzHymnId').value = '0'; $('mzTitle').value = ''; $('mzTitleAm').value = '';
-        $('mzReference').value = ''; $('mzLyrics').value = '';
+        $('mzHymnId').value = '0'; $('mzTitle').value = '';
+        $('mzLyrics').value = '';
         $('mzLength').value = 'long'; $('mzLanguage').value = 'amharic';
         renderCatalogBoxes([], []);
         showError($('mzModalError'), '');
@@ -654,8 +676,8 @@
         apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
             var h = d.item;
-            $('mzHymnId').value = h.id; $('mzTitle').value = h.title || ''; $('mzTitleAm').value = h.title_am || '';
-            $('mzReference').value = h.reference || ''; $('mzLyrics').value = h.lyrics || '';
+            $('mzHymnId').value = h.id; $('mzTitle').value = h.title || '';
+            $('mzLyrics').value = h.lyrics || '';
             $('mzLength').value = h.length || 'long'; $('mzLanguage').value = h.language || 'amharic';
             renderCatalogBoxes(h.categories || [], h.zemarians || []);
             openModalF('mzHymnModal', '#mzTitle');
@@ -669,11 +691,10 @@
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
         apiPost({
             action: 'save', id: $('mzHymnId').value, title: title,
-            title_am: $('mzTitleAm').value.trim(),
             categories: checkedIds('mzCategoriesBox'),
             zemarians: checkedIds('mzZemariansBox'),
             length: $('mzLength').value, language: $('mzLanguage').value,
-            reference: $('mzReference').value.trim(), lyrics: $('mzLyrics').value
+            lyrics: $('mzLyrics').value
         }).then(function (d) {
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Hymn';
             if (d.status !== 'success') { showError($('mzModalError'), d.message || 'Unable to save the hymn.'); return; }
@@ -720,9 +741,7 @@
         apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
             var h = d.item, meta = '';
-            if (h.title_am) meta += '<span class="badge badge-info amharic">' + esc(h.title_am) + '</span>';
             if (h.category) meta += '<span class="badge badge-active">' + esc(h.category) + '</span>';
-            if (h.reference) meta += '<span class="badge badge-warning">' + esc(h.reference) + '</span>';
             if (h.status === 'archived') meta += '<span class="badge badge-inactive">Archived</span>';
             $('mzViewTitle').textContent = h.title;
             $('mzViewMeta').innerHTML = meta;
@@ -1455,7 +1474,7 @@
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
         clearFilters: clearFilters,
         tab: tab, browseCategory: browseCategory, browseZemarian: browseZemarian,
-        openCatalog: openCatalog, closeCatalog: closeCatalog, catalogTab: catalogTab,
+        openCatalog: openCatalog, closeCatalog: closeCatalog, catalogTab: catalogTab, catalogRename: catalogRename,
         catalogAdd: catalogAdd, catalogToggle: catalogToggle,
         closeModal: function () { closeModalF('mzHymnModal'); },
         closeView: function () { closeModalF('mzViewModal'); },

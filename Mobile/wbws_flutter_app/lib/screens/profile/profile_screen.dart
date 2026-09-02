@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/app_lock_service.dart';
-import '../../services/local_db.dart';
 import '../../services/session_service.dart';
 import '../../services/sync_service.dart';
 import '../../utils/config.dart';
@@ -20,11 +19,9 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _api = ApiService();
-  final _db = LocalDb();
   final _sync = SyncService();
   final _appLock = AppLockService();
   int _pendingSync = 0;
-  bool _syncing = false;
   bool _lockConfigured = false;
   int _autoLockSecs = 300;
   bool _biometricOn = false;

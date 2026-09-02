@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 15,
+      version: 16,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -294,6 +294,18 @@ class LocalDb {
           await _createHymnSearchIndex(db);
           await _rebuildHymnSearchIndex(db);
         }
+        if (oldVersion < 16) {
+          // P28 (item 9): single Amharic title. Fold any Amharic title
+          // into the canonical one (the Amharic name IS the hymn's
+          // name), retire reference, and rebuild the word index from
+          // title + lyrics only (stale tokens from the retired fields
+          // would keep matching queries nothing can satisfy).
+          await db.execute(
+              "UPDATE cached_hymns SET title = title_am WHERE IFNULL(title_am, '') <> '' AND title <> title_am");
+          await db.execute(
+              'UPDATE cached_hymns SET title_am = NULL, reference = NULL');
+          await _rebuildHymnSearchIndex(db);
+        }
       },
     );
   }
@@ -305,9 +317,7 @@ class LocalDb {
       CREATE TABLE IF NOT EXISTS cached_hymns (
         id INTEGER PRIMARY KEY,
         title TEXT NOT NULL DEFAULT '',
-        title_am TEXT,
         category TEXT,
-        reference TEXT,
         lyrics TEXT,
         status TEXT NOT NULL DEFAULT 'active',
         length TEXT NOT NULL DEFAULT 'long',
@@ -397,7 +407,7 @@ class LocalDb {
     await db.transaction((txn) async {
       await txn.delete('hymn_search_words');
       final rows = await txn.query('cached_hymns',
-          columns: ['id', 'title', 'title_am', 'reference', 'lyrics']);
+          columns: ['id', 'title', 'lyrics']);
       for (final row in rows) {
         await _reindexHymnSearchIndex(txn, row);
       }
@@ -427,10 +437,9 @@ class LocalDb {
     final id = _asIntLocal(hymn['id']);
     if (id <= 0) return;
     await db.delete('hymn_search_words', where: 'hymn_id = ?', whereArgs: [id]);
+    // P28: single title — the index feeds from title + lyrics only.
     final words = _searchTokens([
       hymn['title'],
-      hymn['title_am'],
-      hymn['reference'],
       hymn['lyrics'],
     ]);
     for (final word in words) {
@@ -1625,9 +1634,7 @@ class LocalDb {
           {
             'id': id,
             'title': '${h['title'] ?? ''}',
-            'title_am': h['title_am'],
             'category': h['category'] ?? '',
-            'reference': h['reference'],
             'lyrics': h.containsKey('lyrics')
               ? h['lyrics']
               : (existing.isEmpty ? null : existing.first['lyrics']),
@@ -1755,21 +1762,18 @@ class LocalDb {
         orderBy: 'title COLLATE NOCASE');
   }
 
-  /// Instant local search across title / Amharic title / reference.
-  /// Telegram-style: the list never waits on the network.
-  Future<List<Map<String, dynamic>>> getLocalHymns({
-    String? search,
+  /// Structural (non-search) hymn filters, shared by the list query and
+  /// the P28 filter-sheet count query so the two can never diverge.
+  void _hymnStructWhere(
+    List<String> where,
+    List<dynamic> args, {
     String? category,
     bool includeArchived = false,
     String? length,
     String? language,
     int? categoryId,
     int? zemarianId,
-    int limit = 500,
-  }) async {
-    final db = await database;
-    final where = <String>[];
-    final args = <dynamic>[];
+  }) {
     if (!includeArchived) where.add("status = 'active'");
     if (category != null && category.isNotEmpty) {
       where.add('category = ?');
@@ -1793,10 +1797,34 @@ class LocalDb {
           'EXISTS (SELECT 1 FROM cached_hymn_zemarians cz WHERE cz.hymn_id = cached_hymns.id AND cz.zemarian_id = ?)');
       args.add(zemarianId);
     }
+  }
+
+  /// Instant local search across title (P28: single Amharic title).
+  /// Telegram-style: the list never waits on the network.
+  Future<List<Map<String, dynamic>>> getLocalHymns({
+    String? search,
+    String? category,
+    bool includeArchived = false,
+    String? length,
+    String? language,
+    int? categoryId,
+    int? zemarianId,
+    int limit = 500,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+    _hymnStructWhere(where, args,
+        category: category,
+        includeArchived: includeArchived,
+        length: length,
+        language: language,
+        categoryId: categoryId,
+        zemarianId: zemarianId);
     if (search != null && search.trim().isNotEmpty) {
       final like = '%${search.trim()}%';
-      where.add('(title LIKE ? OR IFNULL(title_am, \'\') LIKE ? OR IFNULL(reference, \'\') LIKE ?)');
-      args.addAll([like, like, like]);
+      where.add('title LIKE ?');
+      args.add(like);
     }
     return db.query(
       'cached_hymns',
@@ -1805,6 +1833,32 @@ class LocalDb {
       orderBy: 'title COLLATE NOCASE',
       limit: limit,
     );
+  }
+
+  /// P28 (item 5): live result count for the filter sheet's Apply
+  /// button ("Show 47 hymns") — same structural filters as the list.
+  Future<int> countLocalHymns({
+    String? category,
+    bool includeArchived = false,
+    String? length,
+    String? language,
+    int? categoryId,
+    int? zemarianId,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+    _hymnStructWhere(where, args,
+        category: category,
+        includeArchived: includeArchived,
+        length: length,
+        language: language,
+        categoryId: categoryId,
+        zemarianId: zemarianId);
+    final rows = await db.rawQuery(
+        'SELECT COUNT(*) c FROM cached_hymns${where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}'}',
+        args.isEmpty ? null : args);
+    return rows.isEmpty ? 0 : _asIntLocal(rows.first['c']);
   }
 
   Future<Map<String, dynamic>?> getLocalHymn(int id) async {

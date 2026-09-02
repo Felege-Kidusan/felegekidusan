@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/hymn_store.dart';
 import '../../utils/theme.dart';
+import '../../widgets/taxonomy_pick_sheet.dart';
 import 'mezmur_zemarians.dart';
 
 /// Add / edit one hymn — fully offline.
@@ -34,8 +35,6 @@ class MezmurHymnEditorScreen extends StatefulWidget {
 class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
   final _store = HymnStore();
   final _titleCtrl = TextEditingController();
-  final _titleAmCtrl = TextEditingController();
-  final _referenceCtrl = TextEditingController();
   final _lyricsCtrl = TextEditingController();
 
   static const _lyricsMax = 200000;
@@ -67,9 +66,6 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     final h = widget.hymn;
     if (h != null) {
       _titleCtrl.text = '${h['title'] ?? ''}';
-      _titleAmCtrl.text = '${h['title_am'] ?? ''}';
-      _referenceCtrl.text = '${h['reference'] ?? ''}';
-      _referenceCtrl.text = '${h['reference'] ?? ''}';
       _lyricsCtrl.text = '${h['lyrics'] ?? ''}';
       _length = '${h['length'] ?? 'long'}';
       _language = '${h['language'] ?? 'amharic'}';
@@ -101,8 +97,6 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
   @override
   void dispose() {
     _titleCtrl.dispose();
-    _titleAmCtrl.dispose();
-    _referenceCtrl.dispose();
     _lyricsCtrl.dispose();
     super.dispose();
   }
@@ -126,13 +120,11 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     final hymn = <String, dynamic>{
       if (_isEdit) 'id': _localRowId,
       'title': title,
-      'title_am': _titleAmCtrl.text.trim(),
       'category': _primaryCategoryName().isEmpty ? 'general' : _primaryCategoryName(),
       'categories': _selectedCategories.toList(),
       'zemarians': _selectedZemarians.toList(),
       'length': _length,
       'language': _language,
-      'reference': _referenceCtrl.text.trim(),
       'lyrics': _lyricsCtrl.text.trim(),
     };
 
@@ -162,8 +154,6 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
       setState(() {
         _saving = false;
         _titleCtrl.clear();
-        _titleAmCtrl.clear();
-        _referenceCtrl.clear();
         _lyricsCtrl.clear();
         _selectedCategories.clear();
         _selectedZemarians.clear();
@@ -186,55 +176,27 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
     );
   }
 
-  Widget _multiSelectSection(
-    String label,
-    List<Map<String, dynamic>> items,
-    Set<int> selected,
-    IconData icon, {
-    VoidCallback? onManage,
-  }) {
+  // P28 (item 10): dropdown-style pickers replace the FilterChip walls.
+  // A taxonomy at scale holds hundreds of entries; chips give no search,
+  // no overview and grow the form without bound. The picker opens a
+  // searchable multi-select sheet (see taxonomy_pick_sheet.dart).
+  Widget _emptyCatalogNote(String label, IconData icon) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(icon, size: 16, color: AppTheme.textSecondary),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontSize: 12.5, color: AppTheme.textSecondary)),
-            ),
-            if (onManage != null)
-              TextButton(onPressed: onManage, child: const Text('Manage')),
-          ],
-        ),
-        const SizedBox(height: 6),
-        if (items.isEmpty)
-          const Text('Nothing yet — add one first.',
-              style: TextStyle(fontSize: 11.5, color: AppTheme.textSecondary))
-        else
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final it in items)
-                FilterChip(
-                  label: Text('${it['name']}',
-                      style: const TextStyle(fontSize: 12)),
-                  selected: selected.contains(_asInt(it['id'])),
-                  onSelected: (on) {
-                    setState(() {
-                      if (on) {
-                        selected.add(_asInt(it['id']));
-                      } else {
-                        selected.remove(_asInt(it['id']));
-                      }
-                    });
-                  },
-                ),
-            ],
+        Row(children: [
+          Icon(icon, size: 16, color: AppTheme.textSecondary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 12.5, color: AppTheme.textSecondary)),
           ),
+        ]),
+        const SizedBox(height: 6),
+        const Text('Nothing yet — add one first.',
+            style: TextStyle(fontSize: 11.5, color: AppTheme.textSecondary)),
+        const SizedBox(height: 12),
       ],
     );
   }
@@ -262,24 +224,39 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
           TextField(
               controller: _titleCtrl,
               maxLength: 255,
-              decoration: _deco('Title *', icon: Icons.music_note)),
-          const SizedBox(height: 10),
-          TextField(
-              controller: _titleAmCtrl,
-              maxLength: 255,
-              decoration: _deco('Amharic title (አማርኛ ርዕስ)',
-                  icon: Icons.translate)),
-          const SizedBox(height: 10),
-          _multiSelectSection('Categories (one or more)', _categories,
-              _selectedCategories, Icons.category_outlined),
+              // P28 (item 9): ONE title — the Amharic name IS the name.
+              decoration: _deco('Title (ርዕስ) *', icon: Icons.music_note)),
+          const SizedBox(height: 14),
+          if (_categories.isEmpty)
+            _emptyCatalogNote('Categories (one or more)',
+                Icons.category_outlined)
+          else
+            TaxonomyPickField(
+              label: 'Categories (one or more)',
+              items: _categories,
+              selected: _selectedCategories,
+              icon: Icons.category_outlined,
+              onChanged: (sel) =>
+                  setState(() => _selectedCategories..clear()..addAll(sel)),
+            ),
           const SizedBox(height: 12),
-          _multiSelectSection('Singers / Zemarians (one or more)', _zemarians,
-              _selectedZemarians, Icons.person_outline,
+          if (_zemarians.isEmpty)
+            _emptyCatalogNote('Singers / Zemarians (one or more)',
+                Icons.person_outline)
+          else
+            TaxonomyPickField(
+              label: 'Singers / Zemarians (one or more)',
+              items: _zemarians,
+              selected: _selectedZemarians,
+              icon: Icons.person_outline,
               onManage: () async {
                 await Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => const MezmurZemariansScreen()));
                 await _loadCatalog();
-              }),
+              },
+              onChanged: (sel) =>
+                  setState(() => _selectedZemarians..clear()..addAll(sel)),
+            ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -308,13 +285,7 @@ class _MezmurHymnEditorState extends State<MezmurHymnEditorScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          TextField(
-              controller: _referenceCtrl,
-              maxLength: 255,
-              decoration: _deco('Reference (መጽሐፍ ቅዱስ ማጣቀሻ)',
-                  icon: Icons.book_outlined)),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           TextField(
             controller: _lyricsCtrl,
             maxLines: 14,

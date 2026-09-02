@@ -74,7 +74,7 @@ class _HrDeptHomeScreenState extends State<HrDeptHomeScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          Text('Signed in as ${_api.userName ?? ''}',
+          Text('Signed in as ${_api.userName}',
               style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
         ],
       ),

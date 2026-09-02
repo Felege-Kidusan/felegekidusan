@@ -313,7 +313,6 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
   }
 
   Widget _buildWelcomeBanner() {
-    final now = DateTime.now();
     final dateStr = getTodayEthiopian();
 
     return Container(

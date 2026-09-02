@@ -141,10 +141,6 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                if ('${h['title_am'] ?? ''}'.isNotEmpty)
-                  Text('${h['title_am']}',
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
@@ -173,10 +169,6 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
                             style: const TextStyle(fontSize: 11)),
                         onPressed: () => _browse(_asInt(z['id']), singer: true),
                       ),
-                    if ('${h['reference'] ?? ''}'.isNotEmpty)
-                      Chip(
-                          label: Text('${h['reference']}',
-                              style: const TextStyle(fontSize: 11))),
                     if (archived)
                       const Chip(
                           label: Text('Archived',

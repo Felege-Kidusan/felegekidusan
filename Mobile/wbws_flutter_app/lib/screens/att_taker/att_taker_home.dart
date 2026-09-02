@@ -4,7 +4,6 @@ import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/sync_service.dart';
-import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';

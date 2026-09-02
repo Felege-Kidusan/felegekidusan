@@ -22,9 +22,7 @@ final class MezmurSchemaReconciler
     /** table => column => column DDL (the contract the queries rely on) */
     public const COLUMNS = [
         'mezmur_hymns' => [
-            'title_am'   => "VARCHAR(255) DEFAULT NULL",
             'category'   => "VARCHAR(50) NOT NULL DEFAULT 'general'",
-            'reference'  => "VARCHAR(255) DEFAULT NULL",
             'lyrics'     => "LONGTEXT DEFAULT NULL",
             'status'     => "ENUM('active','archived') NOT NULL DEFAULT 'active'",
             'created_by' => "INT UNSIGNED DEFAULT NULL",

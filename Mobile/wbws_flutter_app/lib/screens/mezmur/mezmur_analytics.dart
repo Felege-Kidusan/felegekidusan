@@ -5,7 +5,6 @@ import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
-import '../../widgets/fast_list.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/stat_card.dart';
 
