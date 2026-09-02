@@ -521,7 +521,8 @@ echo "$P31B" | grep -q "Only JPEG, PNG or WebP" && ok "REST upload rejects forge
 P31N=$(curl -s -X POST "$BASE/api/v1/mezmur/category-image" -H "Authorization: Bearer $API_TOKEN" -F "id=$P31C")
 echo "$P31N" | grep -q "Choose an image" && ok "REST upload requires a file" || fail "no-file upload: $P31N"
 P31F=$(sudo -n mariadb -N ssms -e "SELECT image_path FROM mezmur_categories WHERE id=$P31C")
-[ -n "$P31F" ] && sudo -n rm -f "${P31F#/}" && ok "uploaded file removed with test row" || ok "no leftover image path"
+P31F="${P31F%%\?*}"   # drop the ?v= cache-buster — the disk file has no query
+if [ -n "$P31F" ] && sudo -n rm -f "${P31F#/}"; then ok "uploaded file removed with test row"; else fail "uploaded file not cleaned: $P31F"; fi
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_categories WHERE name LIKE 'P31c%'; DELETE FROM activity_logs WHERE details LIKE '%P31c%'" >/dev/null 2>&1
 
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------

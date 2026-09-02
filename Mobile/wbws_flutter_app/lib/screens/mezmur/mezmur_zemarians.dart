@@ -16,6 +16,7 @@ class MezmurZemariansScreen extends StatefulWidget {
 class _MezmurZemariansState extends State<MezmurZemariansScreen> {
   final _store = HymnStore();
   List<Map<String, dynamic>> _zemarians = [];
+  Map<int, int> _counts = {};
   bool _loading = true;
 
   @override
@@ -34,9 +35,11 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
 
   Future<void> _reload() async {
     final z = await _store.zemarians(activeOnly: false);
+    final counts = await _store.zemarianHymnCounts();
     if (!mounted) return;
     setState(() {
       _zemarians = z;
+      _counts = counts;
       _loading = false;
     });
   }
@@ -158,14 +161,26 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
                           child: const Icon(Icons.person_outline,
                               size: 17, color: AppTheme.primary),
                         ),
-                        title: Text('${z['name']}',
-                            style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                                color:
-                                    active ? null : AppTheme.textSecondary,
-                                decoration:
-                                    active ? null : TextDecoration.lineThrough)),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text('${z['name']}',
+                                  style: TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: active
+                                          ? null
+                                          : AppTheme.textSecondary,
+                                      decoration: active
+                                          ? null
+                                          : TextDecoration.lineThrough)),
+                            ),
+                            Text('${_counts[_asInt(z['id'])] ?? 0}',
+                                style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: AppTheme.textSecondary)),
+                          ],
+                        ),
                         subtitle: Text(
                             active ? 'Active' : 'Hidden from pickers',
                             style: TextStyle(

@@ -749,9 +749,10 @@
 
     function mgrNameCell(item, editing, isSub) {
         if (editing) {
+            // Categories carry a single name (no translation column);
+            // only singers have the Amharic name field.
             return '<div class="mz-mgr-edit">' +
                 '<input id="mzMgrEditName" class="school-input" maxlength="50" value="' + esc(item.name) + '">' +
-                (isSub ? '' : '<input id="mzMgrEditNameAm" class="school-input amharic" maxlength="50" placeholder="በአማርኛ" style="max-width:130px" value="' + esc(item.name_am || '') + '">') +
                 '<button class="btn-primary btn-sm" onclick="Mezmur.mgrSave(' + item.id + ')"><i class="fa-solid fa-check"></i></button> ' +
                 '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrCancel()"><i class="fa-solid fa-xmark"></i></button></div>';
         }
@@ -852,9 +853,8 @@
         name = name.trim();
         if (!name) { window.toast('Name is required.', 'e'); return; }
         var isZem = mgr.edit === 'zem:' + id;
-        var nameAm = (($('mzMgrEditNameAm') || {}).value || '').trim();
         var payload = isZem
-            ? { action: 'save_zemarian', id: id, name: name, name_am: nameAm }
+            ? { action: 'save_zemarian', id: id, name: name, name_am: ((($('mzMgrEditNameAm') || {}).value) || '').trim() }
             : { action: 'save_category', id: id, name: name, parent_id: mgrParentOf(id) };
         apiPost(payload).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Rename failed.', 'e'); return; }
