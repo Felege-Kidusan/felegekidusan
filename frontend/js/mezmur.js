@@ -91,7 +91,6 @@
         sysConfirm('Align the mezmur database schema with the current code? This is safe to run at any time.', migrateRun);
     }
     function migrateRun() {
-        sysConfirm('Align the mezmur database schema with the current code? This is safe to run at any time.', function () { migrateRun(); });
         apiPost({ action: 'migrate' }).then(function (d) {
             if (d.status !== 'success') { window.toast(d.message || 'Schema sync failed.', 'e'); return; }
             var applied = (d.applied || []).length;
@@ -715,13 +714,27 @@
     //    is INLINE — no popups, no browser dialogs) ──
     var mgr = { tab: 'categories', edit: null, uploading: 0 };
 
+    function hymnFormHasDraft() {
+        var modal = $('mzHymnModal');
+        if (!modal || modal.classList.contains('is-hidden')) return false;
+        var t = ($('mzTitle').value || '').trim();
+        var body = ($('mzLyrics').value || '').trim();
+        return !!(t || body);
+    }
     function openCatalog(kind) {
-        // navigate to the standalone Catalog section (and close any open
-        // hymn form — the curator is leaving to manage the taxonomy)
-        closeModalF('mzHymnModal');
-        var nav = document.querySelector('.school-nav-link[data-section="catalog"]');
-        if (nav) nav.click(); else loadTab('catalog');
-        mgrTab(kind || 'categories');
+        // navigate to the standalone Catalog section; an open hymn form
+        // must close for it — but never silently discard a draft.
+        var go = function () {
+            closeModalF('mzHymnModal');
+            var nav = document.querySelector('.school-nav-link[data-section="catalog"]');
+            if (nav) nav.click(); else loadTab('catalog');
+            mgrTab(kind || 'categories');
+        };
+        if (hymnFormHasDraft()) {
+            sysConfirm('Leave the hymn form? Unsaved changes will be lost.', go);
+        } else {
+            go();
+        }
     }
     function mgrTab(kind) {
         mgr.tab = kind;
@@ -979,7 +992,7 @@
             return;
         }
         subSel.disabled = false;
-        subSel.innerHTML = subs.map(function (sb) {
+        subSel.innerHTML = '<option value="">— Select sub-category —</option>' + subs.map(function (sb) {
             return '<option value="' + Number(sb.id) + '">' + esc(sb.name) + '</option>';
         }).join('');
         subSel.value = selectId ? String(selectId) : subs.length === 1 ? String(subs[0].id) : '';
@@ -1024,6 +1037,10 @@
     function saveHymn() {
         var title = $('mzTitle').value.trim();
         if (!title) { showError($('mzModalError'), 'Title is required.'); $('mzTitle').focus(); return; }
+        if (!selectedCategoryIds().length) {
+            showError($('mzModalError'), 'Choose a category and sub-category for the hymn.');
+            return;
+        }
         var btn = $('mzSaveBtn');
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
         apiPost({

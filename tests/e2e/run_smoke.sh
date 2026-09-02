@@ -502,6 +502,8 @@ echo "$P31P" | grep -q "mzHymnMainCat" && echo "$P31P" | grep -q "mzHymnSubCat" 
 P31J=$(curl -s "$BASE/frontend/js/mezmur.js")
 echo "$P31J" | grep -q "window.prompt\|window.confirm\|window.alert" && fail "browser popup still used in served JS" || ok "zero browser popups in served JS"
 echo "$P31J" | grep -q "sysConfirm" && echo "$P31J" | grep -q "populateHymnCats" && ok "system confirm + cascade logic served" || fail "P31 JS missing"
+echo "$P31J" | grep -q "function () { migrateRun(); }" && fail "schema-sync confirm loop served" || ok "schema sync has no confirm loop"
+echo "$P31J" | grep -q "Choose a category and sub-category" && ok "hymn save enforces category choice" || fail "category save guard missing"
 
 # --- 3ac. REST cover-image upload + validation (Patch 31c) ------------------
 sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1

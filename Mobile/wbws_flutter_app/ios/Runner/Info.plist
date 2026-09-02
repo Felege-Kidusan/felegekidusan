@@ -51,5 +51,7 @@
 		<string>Unlock the FKSS app with Face ID instead of your passcode.</string>
 		<key>NSCameraUsageDescription</key>
 		<string>Scan member QR codes to take attendance. Codes are decoded on the device and no images leave the phone.</string>
-	</dict>
+		<key>NSPhotoLibraryUsageDescription</key>
+	<string>The app uses your photo library to set category cover images.</string>
+</dict>
 </plist>

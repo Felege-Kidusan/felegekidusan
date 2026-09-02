@@ -170,6 +170,16 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
   }
 
   Future<void> _pickImage(Map<String, dynamic> category) async {
+    if (_asInt(category['id']) <= 0) {
+      // Placeholder id: the category itself has not reached the server
+      // yet, and uploads address server ids.
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'This category is still syncing — go online once, then add the cover image.'),
+        duration: Duration(seconds: 3),
+      ));
+      return;
+    }
     if (!ConnectivityService().hasLink) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Go online once to upload the cover image.'),

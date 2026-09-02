@@ -908,6 +908,42 @@ class DrillDownAndSingleBottomNavTests(unittest.TestCase):
         self.assertIn("Back to home", self.lib)
 
 
+class AuditRegressionTests(unittest.TestCase):
+    """P31e audit locks: each assertion below pins a defect found by
+    the detailed self-audit, so it can never quietly return."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = ROOT
+        cls.js = (R / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.cats = (
+            R / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_categories.dart"
+        ).read_text(encoding="utf-8")
+        cls.plist = (R / "Mobile/wbws_flutter_app/ios/Runner/Info.plist").read_text(encoding="utf-8")
+
+    def test_schema_sync_has_no_confirm_loop(self):
+        # migrateRun must be confirm-free (the confirm lives in
+        # migrateSchema); this shape re-entered itself endlessly.
+        self.assertNotIn("function () { migrateRun(); }", self.js)
+        self.assertEqual(self.js.count("sysConfirm('Align the mezmur"), 1)
+
+    def test_hymn_save_enforces_category(self):
+        self.assertIn("Choose a category and sub-category", self.js)
+        self.assertIn("— Select sub-category —", self.js)  # placeholder
+
+    def test_hymn_draft_protected_on_catalog_jump(self):
+        self.assertIn("hymnFormHasDraft", self.js)
+        self.assertIn("Unsaved changes will be lost.", self.js)
+
+    def test_mobile_image_upload_guards(self):
+        self.assertIn("still syncing", self.cats)      # placeholder ids
+        self.assertIn("Go online once", self.cats)     # offline
+
+    def test_ios_photo_permission_declared(self):
+        # image_picker crashes on device without the usage description
+        self.assertIn("NSPhotoLibraryUsageDescription", self.plist)
+
+
 class MobileManagerParityTests(unittest.TestCase):
     """P31c (mobile): the category manager reaches two-level parity —
     subs creatable offline (queued ops carry parent_id), cover images
