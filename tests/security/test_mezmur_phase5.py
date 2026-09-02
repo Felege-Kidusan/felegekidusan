@@ -1603,6 +1603,76 @@ class LatestUpdatesAuditTests(unittest.TestCase):
         self.assertIn("uploads/mezmur_zemarians/", self.sql37)
         self.assertNotIn("share the uploads/mezmur_categories", self.sql37)
 
+
+class FilteringDeepAuditTests(unittest.TestCase):
+    """P36 deep audit: the library filter matrix and every singer
+    endpoint, end to end (admin + REST + mobile local query)."""
+
+    @classmethod
+    def setUpClass(cls):
+        R = lambda rel: (ROOT / rel).read_text(encoding="utf-8")  # noqa: E731
+        cls.js = R("frontend/js/mezmur.js")
+        cls.admin = R("admin/api_mezmur.php")
+        cls.svc = R("admin/backend/services/MezmurHymnService.php")
+        cls.route = R("api/v1/routes/mezmur.php")
+        cls.db = R("Mobile/wbws_flutter_app/lib/services/local_db.dart")
+
+    def test_status_all_is_honest(self):
+        # '' must NOT force active-only on the admin surface (the web
+        # dropdown's "All" option sends '') — REST semantics win
+        self.assertNotIn("default view: active only", self.admin)
+
+    def test_selects_self_heal(self):
+        # both filter selects sync from lib state and drop a filter
+        # whose row vanished (hidden/removed) instead of silently
+        # filtering under an "All …" label
+        self.assertIn("lib.categoryId > 0", self.js)
+        self.assertIn("lib.zemarianId = 0; sel.value = ''; loadList();", self.js)
+        self.assertIn("lib.categoryId = 0; sel.value = ''; loadList();", self.js)
+
+    def test_filter_semantics_parity_admin_rest_local(self):
+        # roll-up + singer EXISTS filters present in all three layers
+        for blob, name in ((self.admin, "admin"), (self.svc, "service")):
+            self.assertIn("mc2.id = ? OR mc2.parent_id = ?", blob, name)
+            self.assertIn("mhz.zemarian_id = ?", blob, name)
+        self.assertIn(
+            "cc.category_id = ? OR cc.category_id IN (SELECT id FROM cached_mezmur_categories WHERE parent_id = ?)",
+            self.db, "mobile local")
+        self.assertIn("cz.zemarian_id = ?", self.db, "mobile local")
+
+    def test_rest_passes_filters_through(self):
+        self.assertIn("MezmurHymnService::listHymns($conn, $_GET)", self.route)
+
+    def test_singer_routes_gated(self):
+        # every singer write route: role gate + rate limit; reads limited
+        for a in ("'zemarian'", "'zemarian-status'", "'zemarian-image'", "'zemarian-image-remove'"):
+            i = self.route.index(f"=== {a}")
+            block = self.route[i:i + 700]
+            self.assertIn("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)", block, a)
+            self.assertIn("isApiRateLimited(", block, a)
+        i = self.route.index("=== 'zemarians'")
+        self.assertIn("isApiRateLimited('mezmur_api_read'", self.route[i:i + 400])
+
+    def test_taxonomy_propagates_via_full_refresh(self):
+        # singer/category changes reach devices through the per-pull
+        # full-list refresh (the hymn delta feed carries only hymns)
+        store = (ROOT / "Mobile/wbws_flutter_app/lib/services/hymn_store.dart").read_text(encoding="utf-8")
+        pull = store[store.index("Future<void> pullChanges"):][:1600]
+        self.assertIn("getMezmurZemarians()", pull)
+        self.assertIn("upsertZemarians", pull)
+
+    def test_zemarian_cap_documented(self):
+        self.assertIn("LIMIT 500: singers are a small canonical list", self.svc)
+
+    def test_smoke_script_json_quoting(self):
+        # bash eats bare inner quotes in double-quoted JSON args — such
+        # requests become silent no-ops and their checks pass vacuously
+        # (the P35 rename hollow-check incident)
+        smoke = (ROOT / "tests/e2e/run_smoke.sh").read_text(encoding="utf-8")
+        for ln in smoke.splitlines():
+            if "ssms_api" in ln and '"{"' in ln:
+                self.fail(f"double-quoted JSON body in smoke: {ln[:80]}")
+
 if __name__ == "__main__":
     unittest.main()
 

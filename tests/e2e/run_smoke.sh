@@ -619,8 +619,8 @@ P35ZID=$(echo "$P35Z" | python3 -c 'import sys,json;print(json.load(sys.stdin)["
 P35M=$(sudo -n mariadb -N ssms -e "SELECT name = name_am AND name_am IS NOT NULL FROM mezmur_zemarians WHERE id=$P35ZID")
 [ "$P35M" = "1" ] && ok "name_am mirrors the single Amharic name (create)" || fail "name_am not mirrored on create"
 sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
-ssms_api POST mezmur/zemarian "{"id":$P35ZID,"name":"P35 የተሻሻለ ስም"}" >/dev/null
-P35M2=$(sudo -n mariadb -N ssms -e "SELECT name = name_am FROM mezmur_zemarians WHERE id=$P35ZID")
+ssms_api POST mezmur/zemarian '{"id":'"$P35ZID"',"name":"P35 የተሻሻለ ስም"}' >/dev/null
+P35M2=$(sudo -n mariadb --default-character-set=utf8mb4 -N ssms -e "SELECT name = 'P35 የተሻሻለ ስም' AND name = name_am FROM mezmur_zemarians WHERE id=$P35ZID")
 [ "$P35M2" = "1" ] && ok "name_am mirrors on rename too" || fail "name_am not mirrored on rename"
 P35PG=$(ssms_get "/frontend/pages/mezmur_dept.php")
 echo "$P35PG" | grep -q 'mzMgrZemName" class="school-input amharic"' && ok "single Amharic singer input served" || fail "singer input wrong"
@@ -635,6 +635,27 @@ assert d['status'] == 'success', d
 assert all(any(z['id'] == $P35ZID for z in h.get('zemarians', [])) for h in d['items']), 'unfiltered row present'
 print('ok')" >/dev/null && ok "admin list filters by singer id" || fail "singer filter leak/broken"
 sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE FROM mezmur_hymn_zemarians WHERE zemarian_id=$P35ZID; DELETE FROM mezmur_zemarians WHERE id=$P35ZID; DELETE FROM activity_logs WHERE details LIKE '%P35%'" >/dev/null 2>&1
+
+# --- 3bg. P36 deep audit: honest "All" status + singer endpoint matrix ------
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api_login audit_super >/dev/null 2>&1; ssms_login audit_super >/dev/null 2>&1
+P36RAW=$(ssms_api POST mezmur/zemarian '{"id":0,"name":"P36 Matrix Singer"}'); echo "$P36RAW" > /tmp/p36debug.log
+P36Z2=$(echo "$P36RAW" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])' 2>/dev/null)
+P36H1=$(ssms_api POST mezmur/hymn '{"id":0,"title":"P36 Matrix On","zemarians":['"$P36Z2"'],"status":"active"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+P36H2=$(ssms_api POST mezmur/hymn '{"id":0,"title":"P36 Matrix Off","zemarians":['"$P36Z2"'],"status":"active"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["item"]["id"])')
+sudo -n mariadb ssms -e "DELETE FROM security_rate_limits" >/dev/null 2>&1
+ssms_api POST mezmur/hymn-status '{"id":'"$P36H2"',"status":"archived"}' >/dev/null
+P36ALL=$(ssms_get "/admin/api_mezmur.php?action=list&search=P36+Matrix&zemarian_id=$P36Z2&status=")
+P36ACT=$(ssms_get "/admin/api_mezmur.php?action=list&search=P36+Matrix&zemarian_id=$P36Z2&status=active")
+echo "$P36ALL" | grep -q "P36 Matrix On" && echo "$P36ALL" | grep -q "P36 Matrix Off" && ok "status='' is a TRUE all (archived included)" || fail "status='' hides archived: $P36ALL"
+echo "$P36ACT" | grep -q "P36 Matrix On" && echo "$P36ACT" | grep -vq "P36 Matrix Off" && ok "status=active excludes archived" || fail "active filter wrong: $P36ACT"
+P36R=$(curl -s -H "Authorization: Bearer $API_TOKEN" "$BASE/api/v1/index.php?_route=mezmur/hymns&zemarian_id=$P36Z2&status=active&search=P36%20Matrix")
+echo "$P36R" | grep -q "P36 Matrix On" && echo "$P36R" | grep -vq "P36 Matrix Off" && ok "REST singer filter parity" || fail "REST singer filter: $P36R"
+P36HID=$(ssms_api POST mezmur/zemarian '{"id":'"$P36Z2"',"name":"P36 Matrix Singer"}')
+echo "$P36HID" | grep -q '"id":' && ok "duplicate singer create stays idempotent" || fail "dup create: $P36HID"
+P36CNT=$(sudo -n mariadb -N ssms -e "SELECT COUNT(*) FROM mezmur_zemarians WHERE name='P36 Matrix Singer'")
+[ "$P36CNT" = "1" ] && ok "idempotent create made no duplicate row" || fail "dup row created: $P36CNT"
+sudo -n mariadb --default-character-set=utf8mb4 ssms -e "DELETE hz FROM mezmur_hymn_zemarians hz JOIN mezmur_hymns h ON h.id=hz.hymn_id WHERE h.title LIKE 'P36 Matrix%'; DELETE FROM mezmur_hymn_words WHERE hymn_id IN (SELECT id FROM mezmur_hymns WHERE title LIKE 'P36 Matrix%'); DELETE FROM mezmur_hymns WHERE title LIKE 'P36 Matrix%'; DELETE FROM mezmur_zemarians WHERE name='P36 Matrix Singer'; DELETE FROM activity_logs WHERE details LIKE '%P36 Matrix%'" >/dev/null 2>&1
 
 # --- 4. Access control (finance must stay blocked from edu APIs) ------------
 ssms_login audit_fin > /dev/null 2>&1

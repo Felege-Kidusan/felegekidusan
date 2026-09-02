@@ -590,7 +590,14 @@
             return '<option value="' + Number(z.id) + '">' + esc(z.name) +
                 ' (' + (z.hymn_count || 0) + ')</option>';
         }).join('');
-        sel.value = cur;
+        // Same source-of-truth + self-heal contract as the category
+        // select (deep-audit fix): never silently filter under an
+        // "All singers" label.
+        if (lib.zemarianId > 0) {
+            var zopt = sel.querySelector('option[value="' + lib.zemarianId + '"]');
+            if (zopt) { sel.value = String(lib.zemarianId); }
+            else { lib.zemarianId = 0; sel.value = ''; loadList(); }
+        }
     }
 
     function populateCategoryFilter() {
@@ -616,8 +623,16 @@
             }
         });
         sel.innerHTML = html;
-        sel.value = cur;
-        if (sel.value !== cur) { sel.value = ''; lib.categoryId = 0; }
+        // Deep-audit fix: lib is the source of truth (a browse shortcut
+        // may set it while options are still loading). Reflect it, and
+        // when the chosen category no longer exists (hidden/removed on
+        // the server) drop the filter AND refresh — the list must never
+        // stay silently filtered under an "All categories" label.
+        if (lib.categoryId > 0) {
+            var opt = sel.querySelector('option[value="' + lib.categoryId + '"]');
+            if (opt) { sel.value = String(lib.categoryId); }
+            else { lib.categoryId = 0; sel.value = ''; loadList(); }
+        }
     }
 
     /** P23: hidden catalog entries stay pickable (a hymn may legitimately

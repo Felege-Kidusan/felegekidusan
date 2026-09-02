@@ -1825,6 +1825,10 @@ final class MezmurHymnService
                      JOIN mezmur_hymns h ON h.id = hz.hymn_id AND h.status = 'active'
                      WHERE hz.zemarian_id = z.id) AS hymn_count
              FROM mezmur_zemarians z ORDER BY z.sort_order, z.name LIMIT 500");
+            // LIMIT 500: singers are a small canonical list, fully
+            // refreshed on every device pull and in the dropdowns — the
+            // bound keeps the response bounded if a deployment ever
+            // balloons (audited P36; scale decision, not a leak).
         if ($res) {
             while ($r = $res->fetch_assoc()) {
                 $r['id'] = (int)$r['id'];

@@ -283,9 +283,11 @@ try {
                 $where[] = 'status = ?';
                 $types .= 's';
                 $params[] = $status;
-            } elseif ($status === '') {
-                $where[] = "status = 'active'";   // default view: active only
             }
+            // Deep-audit fix: '' now means TRUE all (active + archived),
+            // matching the REST service and the dropdown's "All" label.
+            // The page itself always sends an explicit status (default
+            // active), so the default view is unchanged.
             if ($category !== '') {
                 // MZ-4: join-aware name filter (same semantics as
                 // MezmurHymnService::listHymns) — multi-category hymns must
