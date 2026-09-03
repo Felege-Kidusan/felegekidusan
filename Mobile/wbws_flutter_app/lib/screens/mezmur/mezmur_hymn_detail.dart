@@ -4,10 +4,12 @@ import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/hymn_store.dart';
 import '../../services/local_db.dart';
+import '../../services/mezmur_audio_player.dart';
 import '../../utils/theme.dart';
 import '../../widgets/loading_skeleton.dart';
 import 'mezmur_hymn_editor.dart';
 import 'mezmur_hymns.dart';
+import 'mezmur_player_screen.dart';
 
 /// Single hymn reader — LOCAL-FIRST: opens instantly from the on-device
 /// copy; when the lyrics blob has not been downloaded yet it streams it
@@ -28,6 +30,11 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
   bool _fetchingLyrics = false;
   List<Map<String, dynamic>> _cats = [];
   List<Map<String, dynamic>> _zems = [];
+
+  /// ids refreshed from the single-hymn endpoint this session, so a hymn
+  /// that is still audio-less does not trigger a network call on every
+  /// open while the P0 media columns converge.
+  final Set<int> _refreshedSession = {};
 
   @override
   void initState() {
@@ -66,19 +73,28 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
   Future<void> _open() async {
     await _reload();
     final h = _hymn;
-    // Lazy lyrics blob: stream once, then cached for offline reading.
-    if (h != null && h['lyrics'] == null && ConnectivityService().hasLink) {
-      setState(() => _fetchingLyrics = true);
-      try {
-        final res = await _api.getMezmurHymn(widget.id);
-        if (res.success && res.data is Map && res.data['item'] is Map) {
-          final item = Map<String, dynamic>.from(res.data['item']);
-          await _db.upsertHymns([item]);
-          await _reload();
-        }
-      } catch (_) {}
-      if (mounted) setState(() => _fetchingLyrics = false);
-    }
+    if (h == null || !ConnectivityService().hasLink) return;
+    // Lazy blob + P0 media fields (audio_status/url, lyrics_synced) stream
+    // from the single-hymn read once per session; the upsert then keeps
+    // them cached for offline playback / lyrics. The lyrics blob itself is
+    // still fetched only when missing (it is the heavy field).
+    final needLyrics = h['lyrics'] == null;
+    final id = widget.id;
+    final needRefresh =
+        needLyrics ||
+        h['lyrics_synced'] == null ||
+        '${h['audio_status'] ?? 'none'}' != 'ready';
+    if (!needRefresh || !_refreshedSession.add(id)) return;
+    if (needLyrics) setState(() => _fetchingLyrics = true);
+    try {
+      final res = await _api.getMezmurHymn(id);
+      if (res.success && res.data is Map && res.data['item'] is Map) {
+        final item = Map<String, dynamic>.from(res.data['item']);
+        await _db.upsertHymns([item]);
+        await _reload();
+      }
+    } catch (_) {}
+    if (mounted && needLyrics) setState(() => _fetchingLyrics = false);
   }
 
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -142,6 +158,17 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 const SizedBox(height: 8),
+                // P0 audio: a ready hymn opens the parchment player.
+                if (MezmurTrack.audioReady(h)) ...[
+                  _PlayTile(
+                    title: '${h['title'] ?? ''}',
+                    hasSynced:
+                        (h['lyrics_synced'] as String?)?.isNotEmpty == true,
+                    onTap: () => MezmurPlayerScreen.open(
+                        context, MezmurTrack.fromHymnRow(h)),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -304,4 +331,73 @@ class _LyricsView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: _build(),
       );
+}
+
+/// P0 audio entry on the hymn reader: a maroon/gold listen tile that opens
+/// the parchment Spotify-style player for this single hymn.
+class _PlayTile extends StatelessWidget {
+  final String title;
+  final bool hasSynced;
+  final VoidCallback onTap;
+
+  const _PlayTile({
+    required this.title,
+    required this.hasSynced,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.primary,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      elevation: 1,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  color: AppTheme.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.play_arrow_rounded,
+                    color: Color(0xFF4A2C0C), size: 28),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasSynced
+                          ? 'ማዳመጥ · Live lyrics ያለው'
+                          : 'ማዳመጥ · Play audio',
+                      style: const TextStyle(
+                          color: AppTheme.accent, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.graphic_eq,
+                  color: AppTheme.accent, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

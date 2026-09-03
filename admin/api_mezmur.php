@@ -25,6 +25,10 @@
  *   GET  get        → single hymn
  *   POST save       → create or update a hymn
  *   POST set_status → archive / restore (soft delete)
+ *   POST audio_presign → presigned R2 PUT url (browser uploads DIRECT)
+ *   POST audio_confirm → verify object landed + mark ready
+ *   POST audio_set_duration → persist measured duration (s)
+ *   POST audio_remove → delete object on R2 + clear fields
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -91,7 +95,8 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-if (in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+$__postActions = ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove', 'audio_presign', 'audio_confirm', 'audio_remove', 'audio_set_duration'];
+if (in_array($action, $__postActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
 
@@ -105,17 +110,19 @@ require_once __DIR__ . '/backend/services/MezmurSchemaReconciler.php';
 require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/MezmurHymnService.php';
+require_once __DIR__ . '/backend/services/MezmurMediaService.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
 use App\Services\MezmurHymnService;
+use App\Services\MezmurMediaService;
 
 // ── 5. Rate limiting (per user; DB-backed with file fallback) ─
 $__rl = new \App\Services\SecurityRateLimiter(
     $pdo ?? null,
     sys_get_temp_dir() . '/ssms_ratelimit'
 );
-$__rlAction = in_array($action, ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove'], true)
+$__rlAction = in_array($action, $__postActions, true)
     ? 'mezmur_write' : 'mezmur_read';
 $__rlLimit  = $__rlAction === 'mezmur_write' ? 30 : 240;   // per minute
 $__rlCheck  = $__rl->consume($__rlAction, 'user:' . $adminId, $__rlLimit, 60);
@@ -369,6 +376,13 @@ try {
             // `id IN (...)` text condition.
             $filterCond = $filterSql !== '' ? substr($filterSql, 6) : '1=1';
 
+            // P0 audio media: the list must know each hymn's audio state so
+            // the console can show a play/upload control per row. Probed so
+            // a pre-038 deployment degrades to "no audio" instead of a 1054.
+            $mediaSel = MezmurMediaService::audioColumnsReady($conn)
+                ? 'audio_key, audio_status, audio_duration_s, audio_size, audio_format'
+                : "'' AS audio_key, 'none' AS audio_status, NULL AS audio_duration_s, NULL AS audio_size, NULL AS audio_format";
+
             if ($searchMode === 'word') {
                 $in = implode(',', array_map('intval', $wordIds));
                 $stmt = $conn->prepare("SELECT COUNT(*) c FROM mezmur_hymns WHERE id IN ($in) AND $filterCond");
@@ -393,7 +407,7 @@ try {
             if ($searchMode === 'word') {
                 $in = implode(',', array_map('intval', $wordIds));
                 $sql = "SELECT id, title, category, length, language, status, updated_at, lyrics,
-                        0 AS score
+                        $mediaSel, 0 AS score
                         FROM mezmur_hymns
                         WHERE id IN ($in) AND $filterCond
                         ORDER BY updated_at DESC, id DESC
@@ -402,7 +416,7 @@ try {
                 $stmt->bind_param($types . 'ii', ...array_merge($params, [$perPage, $offset]));
             } else {
                 $sql = "SELECT id, title, category, length, language, status, updated_at, lyrics,
-                        0 AS score
+                        $mediaSel, 0 AS score
                         FROM mezmur_hymns $whereSql
                         ORDER BY updated_at DESC, id DESC
                         LIMIT ? OFFSET ?";
@@ -452,7 +466,8 @@ try {
             $rescued = 0;
             if ($search !== '' && $page === 1 && count($items) < $perPage) {
                 $pool = $conn->prepare(
-                    "SELECT id, title, category, length, language, status, updated_at, lyrics, 0 AS score
+                    "SELECT id, title, category, length, language, status, updated_at, lyrics,
+                            $mediaSel, 0 AS score
                      FROM mezmur_hymns $filterSql
                      ORDER BY updated_at DESC, id DESC
                      LIMIT 500"
@@ -516,6 +531,9 @@ try {
             foreach ($items as &$it) {
                 $it['categories'] = $taxonomy[(int)$it['id']]['categories'] ?? [];
                 $it['zemarians'] = $taxonomy[(int)$it['id']]['zemarians'] ?? [];
+                // P0 media payload: expose audio_url only when ready;
+                // the internal R2 key never leaves the server.
+                $it = MezmurMediaService::decorateRow($it);
             }
             unset($it);
 
@@ -692,6 +710,67 @@ try {
                 'message' => $result['message'],
                 'item' => $result['item'] ?? null,
             ]);
+        }
+
+        // ══════════════════════════════════════════════════════
+        // AUDIO MEDIA (P0) — the console drives the same two-phase
+        // direct-to-R2 flow as the mobile REST route. The browser
+        // PUTs bytes to R2 (never through PHP), so shared-hosting
+        // upload limits do not apply. Same role gate (mezmur staff +
+        // admins) enforced at the top of this controller.
+        // ══════════════════════════════════════════════════════
+
+        // ── Phase 1: reserve a key + return a presigned PUT URL ──
+        case 'audio_presign': {
+            $result = MezmurMediaService::beginUpload(
+                $conn,
+                (int)($_POST['hymn_id'] ?? 0),
+                (string)($_POST['ext'] ?? ''),
+                (int)($_POST['size'] ?? 0),
+                $adminId
+            );
+            if (empty($result['ok'])) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond([
+                'status' => 'success',
+                'message' => $result['message'],
+                'upload_url' => $result['upload_url'] ?? '',
+                'key' => $result['key'] ?? '',
+                'expires_in' => $result['expires_in'] ?? 900,
+            ]);
+        }
+
+        // ── Phase 2: confirm (signed HEAD verifies the object) ──
+        case 'audio_confirm': {
+            $result = MezmurMediaService::confirmUpload(
+                $conn,
+                (int)($_POST['hymn_id'] ?? 0),
+                $adminId
+            );
+            if (empty($result['ok'])) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message'], 'audio' => $result['audio'] ?? null]);
+        }
+
+        // ── Store a measured duration after the player has read it ──
+        case 'audio_set_duration': {
+            $result = MezmurMediaService::setDuration(
+                $conn,
+                (int)($_POST['hymn_id'] ?? 0),
+                (int)($_POST['duration_s'] ?? 0),
+                $adminId
+            );
+            if (empty($result['ok'])) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
+        }
+
+        // ── Remove audio (delete object on R2 + clear fields) ──
+        case 'audio_remove': {
+            $result = MezmurMediaService::removeAudio(
+                $conn,
+                (int)($_POST['hymn_id'] ?? 0),
+                $adminId
+            );
+            if (empty($result['ok'])) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
         }
 
         // ── DAYS (date-based attendance) ──────────────────────

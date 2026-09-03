@@ -23,6 +23,7 @@ namespace App\Services;
 // guarantee — Google's admin-activity model: audit is a property of the
 // writer, not a courtesy of the caller.
 require_once __DIR__ . '/SecurityAuditService.php';
+require_once __DIR__ . '/MezmurMediaService.php';
 
 final class MezmurHymnService
 {
@@ -110,7 +111,8 @@ final class MezmurHymnService
 
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
-        $selectBase = "SELECT id, title, category, status, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
+        $media = self::mediaColsExpr($conn);
+        $selectBase = "SELECT id, title, category, status, $rev, $tax, $media, updated_at FROM mezmur_hymns WHERE ";      
 
         $items = [];
         if ($search !== '') {
@@ -122,7 +124,7 @@ final class MezmurHymnService
             $terms = self::tokenizeWords($search);
             // lyrics is selected ONLY for scoring/snippets and stripped
             // from every list payload before it leaves this method.
-            $selectSearch = "SELECT id, title, category, status, lyrics, $rev, $tax, updated_at FROM mezmur_hymns WHERE ";
+            $selectSearch = "SELECT id, title, category, status, lyrics, $rev, $tax, $media, updated_at FROM mezmur_hymns WHERE ";
             $all = [];
             $scoreRow = static function (array $r) use ($search, $terms): array {
                 $r['id'] = (int)$r['id'];
@@ -237,6 +239,8 @@ final class MezmurHymnService
             // Lyrics never travel in list payloads (P25: selected for
             // scoring/snippet only).
             unset($it['lyrics']);
+            // P0 media payload: audio_url built from the R2 key (hidden).
+            $it = self::applyMedia($it);
         }
         unset($it);
 
@@ -258,13 +262,16 @@ final class MezmurHymnService
         if ($id <= 0) return null;
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
-        $stmt = $conn->prepare("SELECT id, title, category, lyrics, status, $rev, $tax, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
+        $media = self::mediaColsExpr($conn);
+        $synced = self::syncedColExpr($conn);
+        $stmt = $conn->prepare("SELECT id, title, category, lyrics, $synced, status, $rev, $tax, $media, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $item = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$item) return null;
         $item['id'] = (int)$item['id'];
+        $item = self::applyMedia($item);
         return array_merge($item, self::attachTaxonomy($conn, $id));
     }
 
@@ -308,6 +315,49 @@ final class MezmurHymnService
             self::$hasTaxonomyCache = $has;
         }
         return self::$hasTaxonomyCache ? 'length, language' : "'long' AS length, 'amharic' AS language";
+    }
+
+    // ── P0 audio media columns (038) — probe-guarded like the rest ──
+    private static ?bool $hasMediaColumnsCache = null;
+
+    /** SELECT fragment for the audio fields, safe on a pre-038 schema. */
+    private static function mediaColsExpr(\mysqli $conn): string
+    {
+        if (self::$hasMediaColumnsCache === null) {
+            $has = false;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_hymns LIKE 'audio_key'");
+                $has = $r ? (bool)$r->fetch_assoc() : false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $has = false; }
+            self::$hasMediaColumnsCache = $has;
+        }
+        return self::$hasMediaColumnsCache
+            ? 'audio_key, audio_status, audio_duration_s, audio_size, audio_format, audio_updated_at'
+            : "'' AS audio_key, 'none' AS audio_status, NULL AS audio_duration_s, NULL AS audio_size, NULL AS audio_format, NULL AS audio_updated_at";
+    }
+
+    private static ?bool $hasSyncedCache = null;
+
+    /** SELECT fragment for the timed-lyrics field (probe-guarded). */
+    private static function syncedColExpr(\mysqli $conn): string
+    {
+        if (self::$hasSyncedCache === null) {
+            $has = false;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_hymns LIKE 'lyrics_synced'");
+                $has = $r ? (bool)$r->fetch_assoc() : false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $has = false; }
+            self::$hasSyncedCache = $has;
+        }
+        return self::$hasSyncedCache ? 'lyrics_synced' : "'' AS lyrics_synced";
+    }
+
+    /** Merge the media payload (audio_url from key) into a hymn row. */
+    private static function applyMedia(array $item): array
+    {
+        return \App\Services\MezmurMediaService::decorateRow($item);
     }
 
     /**
@@ -1320,6 +1370,7 @@ final class MezmurHymnService
         $rev = self::revisionExpr($conn);
         $lyricsCol = $includeLyrics ? 'lyrics' : "'' AS lyrics";
         $taxCols = self::taxonomyCols($conn);
+        $mediaCols = self::mediaColsExpr($conn);
 
         $cursorTs = null;
         $cursorId = 0;
@@ -1331,7 +1382,7 @@ final class MezmurHymnService
 
         if ($cursorTs !== null) {
             $sql = "SELECT id, title, category, status, $rev, $taxCols,
-                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol
+                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols
                     FROM mezmur_hymns
                     WHERE updated_at > ? OR (updated_at = ? AND id > ?)
                     ORDER BY updated_at ASC, id ASC
@@ -1340,7 +1391,7 @@ final class MezmurHymnService
             $stmt->bind_param('ssii', $cursorTs, $cursorTs, $cursorId, $limit);
         } else {
             $sql = "SELECT id, title, category, status, $rev, $taxCols,
-                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol
+                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols
                     FROM mezmur_hymns
                     ORDER BY updated_at ASC, id ASC
                     LIMIT ?";
@@ -1358,6 +1409,9 @@ final class MezmurHymnService
             if (!$includeLyrics) {
                 unset($r['lyrics']);
             }
+            // P0 media payload: audio_url + status ride the delta so
+            // devices converge audio metadata over the SAME cursor.
+            $r = self::applyMedia($r);
             $items[] = $r;
             $lastTs = (string)$r['updated_at'];
             $lastId = (int)$r['id'];

@@ -539,6 +539,9 @@
                 '<td style="padding:.65rem .75rem">' + catBadges(h) + '</td>' +
                 '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + fmtDate(h.updated_at) + '</td>' +
                 '<td style="padding:.65rem .75rem;text-align:right;white-space:nowrap">' +
+                (h.audio_status === 'ready'
+                    ? '<button class="btn-secondary btn-sm" title="Play / manage audio" style="color:var(--school-accent2,#22c55e)" onclick="Mezmur.audioManage(' + h.id + ')"><i class="fa-solid fa-circle-play"></i></button> '
+                    : '<button class="btn-secondary btn-sm" title="' + (h.audio_status === 'pending' ? 'Finish audio upload' : 'Attach audio') + '" onclick="Mezmur.audioManage(' + h.id + ')"><i class="fa-solid fa-headphones"></i></button> ') +
                 '<button class="btn-secondary btn-sm" title="View" onclick="Mezmur.view(' + h.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
                 '<button class="btn-secondary btn-sm" title="Edit" onclick="Mezmur.openEdit(' + h.id + ')"><i class="fa-solid fa-pen"></i></button> ' +
                 (archived
@@ -2176,6 +2179,167 @@
     }
 
     // ── wiring ─────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════
+    // P0 AUDIO MANAGER — attach / play / remove hymn audio.
+    // The upload is a DIRECT browser PUT to a short-lived presigned
+    // Cloudflare R2 URL (two-phase): PHP only hands out the signed
+    // URL and later verifies the object. Shared-hosting upload limits
+    // never apply because the bytes never cross PHP.
+    // ══════════════════════════════════════════════════════════
+    var audioMgr = { id: 0, file: null };
+
+    function openAudio(id) {
+        apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
+            if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
+            var h = d.item;
+            audioMgr.id = h.id;
+            audioMgr.file = null;
+            $('mzAudioHymnId').value = h.id;
+            $('mzAudioHymnName').textContent = h.title || '';
+            var meta = [];
+            if (h.categories && h.categories.length) meta.push(h.categories.map(function (c) { return c.name; }).join(', '));
+            if (h.zemarians && h.zemarians.length) meta.push(h.zemarians.map(function (z) { return z.name; }).join(', '));
+            $('mzAudioMeta').textContent = meta.join(' · ');
+
+            var status = h.audio_status || 'none';
+            var player = $('mzAudioPlayer');
+            var pWrap = $('mzAudioPlayerWrap');
+            var err = $('mzAudioErr');
+            err.classList.add('is-hidden'); err.textContent = '';
+            $('mzAudioFile').value = '';
+
+            if (status === 'ready' && h.audio_url) {
+                pWrap.classList.remove('is-hidden');
+                player.src = h.audio_url;
+                $('mzAudioPickLabel').textContent = 'Replace audio';
+                $('mzAudioState').textContent = 'Ready · ' + (h.audio_format || '').toUpperCase() +
+                    (h.audio_size ? ' · ' + fmtBytes(h.audio_size) : '') +
+                    (h.audio_duration_s ? ' · ' + fmtDur(h.audio_duration_s) : '') +
+                    ' — streams from the media CDN.';
+                $('mzAudioRemoveBtn').classList.remove('is-hidden');
+            } else if (status === 'pending') {
+                pWrap.classList.add('is-hidden');
+                $('mzAudioPickLabel').textContent = 'Finish upload (choose the file again)';
+                $('mzAudioState').textContent = 'An upload was started but not finished. Pick the file again to complete it.';
+                $('mzAudioRemoveBtn').classList.remove('is-hidden');
+            } else {
+                pWrap.classList.add('is-hidden');
+                $('mzAudioPickLabel').textContent = 'Choose audio file…';
+                $('mzAudioState').textContent = 'No audio yet. Pick an mp3 / m4a / ogg / wav (up to 15 MB) — it is uploaded straight to the media CDN.';
+                $('mzAudioRemoveBtn').classList.add('is-hidden');
+            }
+            openModalF('mzAudioModal');
+        }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
+    }
+
+    function pickAudio() {
+        var input = $('mzAudioFile');
+        if (!input) return;
+        input.click();
+    }
+
+    function fmtBytes(b) {
+        b = parseInt(b, 10) || 0;
+        return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : (b / 1024).toFixed(0) + ' KB';
+    }
+    function fmtDur(s) {
+        s = parseInt(s, 10) || 0;
+        return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function audioErr(msg) {
+        var err = $('mzAudioErr');
+        err.textContent = msg; err.classList.remove('is-hidden');
+    }
+
+    function uploadAudio(file) {
+        if (!audioMgr.id) return;
+        var err = $('mzAudioErr');
+        err.classList.add('is-hidden'); err.textContent = '';
+        var ext = (file.name.split('.').pop() || '').toLowerCase();
+        var allowed = ['mp3', 'm4a', 'ogg', 'wav', 'aac', 'opus'];
+        if (allowed.indexOf(ext) === -1) { audioErr('Unsupported audio format. Allowed: mp3, m4a, ogg, wav, aac, opus.'); return; }
+        if (file.size <= 0 || file.size > 15 * 1024 * 1024) { audioErr('Audio must be between 1 byte and 15 MB.'); return; }
+
+        apiPost({ action: 'audio_presign', hymn_id: audioMgr.id, ext: ext, size: file.size }).then(function (d) {
+            if (d.status !== 'success' || !d.upload_url) {
+                audioErr(d.message || 'Could not start the upload. If this persists, the R2 media settings may be missing on the server.');
+                return;
+            }
+            var pw = $('mzAudioProgressWrap');
+            var bar = $('mzAudioProgressBar');
+            var lbl = $('mzAudioProgressLabel');
+            pw.classList.remove('is-hidden');
+            bar.style.width = '0%'; lbl.textContent = 'Uploading… 0%';
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('PUT', d.upload_url, true);
+            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable) {
+                    var pct = Math.round((e.loaded / e.total) * 100);
+                    bar.style.width = pct + '%';
+                    lbl.textContent = 'Uploading… ' + pct + '%';
+                }
+            };
+            xhr.onload = function () {
+                pw.classList.add('is-hidden');
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    audioErr('Upload to the media CDN failed (HTTP ' + xhr.status + '). If you are on a private/old browser this may be a browser CORS rule on the bucket — ask the administrator to allow this site in the bucket CORS settings.');
+                    return;
+                }
+                // Phase 2: verify the object landed and mark the hymn ready.
+                apiPost({ action: 'audio_confirm', hymn_id: audioMgr.id }).then(function (c) {
+                    if (c.status !== 'success') { audioErr(c.message || 'The file uploaded but could not be confirmed. Please retry.'); return; }
+                    window.toast('Audio attached — streaming from the CDN.', 's');
+                    loadList(); loadStats();
+                    openAudio(audioMgr.id); // refresh state; player metadata triggers duration save
+                }).catch(function (e) {
+                    audioErr(((e && e.message) || 'Could not confirm the upload.') + ' The file may still be on storage — press the audio button again to check.');
+                });
+            };
+            xhr.onerror = function () {
+                pw.classList.add('is-hidden');
+                audioErr('Upload failed — network error while talking to the media CDN. Check your connection and retry.');
+            };
+            xhr.send(file);
+        }).catch(function (e) {
+            audioErr(((e && e.message) || 'Connection error.') + ' The server may be outdated — ask the administrator to pull the latest code.');
+        });
+    }
+
+    function initAudioDialog() {
+        var el = $('mzAudioModal');
+        if (!el || el.dataset.p0) return;
+        el.dataset.p0 = '1';
+        // Save measured duration when the player can read it (once per open).
+        $('mzAudioPlayer').addEventListener('loadedmetadata', function () {
+            var a = this;
+            var s = Math.round(a.duration || 0);
+            if (s > 0 && audioMgr.id) {
+                apiPost({ action: 'audio_set_duration', hymn_id: audioMgr.id, duration_s: s });
+            }
+        });
+        $('mzAudioFile').addEventListener('change', function () {
+            var file = this.files && this.files[0];
+            if (!file) return;
+            if (!audioMgr.id) { this.value = ''; return; }
+            uploadAudio(file);
+        });
+    }
+
+    function removeAudio() {
+        if (!audioMgr.id) return;
+        sysConfirm('Remove the audio from this hymn? The file is deleted from the media CDN and the hymn returns to lyrics-only.', function () {
+            apiPost({ action: 'audio_remove', hymn_id: audioMgr.id }).then(function (d) {
+                if (d.status !== 'success') { window.toast(d.message || 'Could not remove audio.', 'e'); return; }
+                window.toast(d.message || 'Audio removed.', 's');
+                loadList(); loadStats();
+                openAudio(audioMgr.id);
+            }).catch(function () {});
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var debounce = null;
         $('mzSearch').addEventListener('input', function () {
@@ -2201,6 +2365,7 @@
         initLyricsEditor();
         initSysDialog();
         initImageDialog();
+        initAudioDialog();
         initColorDialog();
         initInlineKeys();
         initSecPop();
@@ -2228,6 +2393,9 @@
         gotoAttendance: gotoAttendance, jumpToDate: jumpToDate,
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
+        // P0 audio
+        audioManage: openAudio, audioPick: pickAudio, audioRemove: removeAudio,
+        closeAudio: function () { closeModalF('mzAudioModal'); },
         clearFilters: clearFilters,
         browseCategory: browseCategory, browseZemarian: browseZemarian,
         openCatalog: openCatalog,

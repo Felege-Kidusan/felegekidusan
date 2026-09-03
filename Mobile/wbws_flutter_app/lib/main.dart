@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 import 'services/api_service.dart';
@@ -21,6 +22,17 @@ import 'screens/update/update_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // P0 background mezmur playback: register the single auto-managed
+  // player channel BEFORE runApp so audio_service can connect. Kept
+  // tolerant — on a platform without the plugin the app still starts.
+  try {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'com.arkeonethiopia.fkss.channel.audio',
+      androidNotificationChannelName: 'መዝሙር · FKSS Mezmur',
+      androidNotificationOngoing: true,
+    );
+  } catch (_) {}
 
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

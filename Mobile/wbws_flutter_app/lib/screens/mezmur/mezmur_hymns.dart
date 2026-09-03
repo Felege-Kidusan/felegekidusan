@@ -8,11 +8,13 @@ import '../../utils/cover_palette.dart';
 import '../../services/sync_service.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
+import '../../services/mezmur_audio_player.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/taxonomy_pick_sheet.dart';
 import 'mezmur_categories.dart';
+import 'mezmur_player_screen.dart';
 import 'mezmur_hymn_detail.dart';
 import 'mezmur_category_screen.dart';
 import 'mezmur_hymn_editor.dart';
@@ -272,6 +274,23 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   }
 
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
+
+  // ── P0 audio: play from the CURRENT view (queue = rows with audio
+  //    ready in the active filter/search result, list order). ─────────
+  void _playFrom(Map<String, dynamic> h) {
+    final tracks = _items
+        .where(MezmurTrack.audioReady)
+        .map(MezmurTrack.fromHymnRow)
+        .toList(growable: false);
+    if (tracks.isEmpty) return;
+    final id = _asInt(h['id']);
+    var idx = tracks.indexWhere((t) => t.hymnId == id);
+    if (idx < 0) idx = 0;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) =>
+          MezmurPlayerScreen(queue: tracks, initialIndex: idx),
+    ));
+  }
 
   // ── build ───────────────────────────────────────────────────
 
@@ -872,8 +891,21 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                     ],
                   ],
                 ),
-                trailing: _store.canEdit
-                    ? PopupMenuButton<String>(
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // P0 audio: ready hymns get a one-tap play shortcut.
+                    if (MezmurTrack.audioReady(h))
+                      IconButton(
+                        tooltip: 'Play audio',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 22,
+                        color: AppTheme.primary,
+                        icon: const Icon(Icons.play_circle_fill),
+                        onPressed: () => _playFrom(h),
+                      ),
+                    if (_store.canEdit)
+                      PopupMenuButton<String>(
                         icon: const Icon(Icons.more_vert, size: 18),
                         onSelected: (v) async {
                           if (v == 'edit') await _editHymn(h);
@@ -903,7 +935,10 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                               ])),
                         ],
                       )
-                    : const Icon(Icons.chevron_right, size: 18),
+                    else
+                      const Icon(Icons.chevron_right, size: 18),
+                  ],
+                ),
               ),
             ),
           ),

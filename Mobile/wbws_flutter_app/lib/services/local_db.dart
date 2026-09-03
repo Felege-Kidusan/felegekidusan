@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 19,
+      version: 20,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -313,6 +313,29 @@ class LocalDb {
                 'ALTER TABLE cached_mezmur_zemarians ADD COLUMN image_url TEXT NULL');
           } catch (_) {}
         }
+        if (oldVersion < 20) {
+          // P0 audio + synced lyrics: metadata-only columns on the hymn
+          // cache. Audio BYTES never live here — this stores the R2
+          // status + public URL so the player can stream directly and
+          // timed LRC text can render offline. Guarded ALTERs (a fresh
+          // v20 install already carries the columns from the DDL).
+          final colDefs = <String, String>{
+            "audio_status": "TEXT NOT NULL DEFAULT 'none'",
+            'audio_url': 'TEXT NULL',
+            'audio_format': 'TEXT NULL',
+            'audio_size': 'INTEGER NULL',
+            'audio_duration_s': 'INTEGER NULL',
+            'audio_updated_at': 'TEXT NULL',
+            'lyrics_synced': 'TEXT NULL',
+            'lyrics_synced_at': 'TEXT NULL',
+          };
+          for (final e in colDefs.entries) {
+            try {
+              await db.execute(
+                  'ALTER TABLE cached_hymns ADD COLUMN ${e.key} ${e.value}');
+            } catch (_) {}
+          }
+        }
         if (oldVersion < 18) {
           // P32: admin-pinned cover gradient colors.
           try {
@@ -354,7 +377,15 @@ class LocalDb {
         language TEXT NOT NULL DEFAULT 'amharic',
         revision INTEGER NOT NULL DEFAULT 1,
         server_updated_at TEXT,
-        fetched_at TEXT
+        fetched_at TEXT,
+        audio_status TEXT NOT NULL DEFAULT 'none',
+        audio_url TEXT,
+        audio_format TEXT,
+        audio_size INTEGER,
+        audio_duration_s INTEGER,
+        audio_updated_at TEXT,
+        lyrics_synced TEXT,
+        lyrics_synced_at TEXT
       )
     ''');
     await db.execute(
@@ -1658,12 +1689,33 @@ class LocalDb {
         if (id <= 0) continue;
         if (protected.contains(id)) continue;
         final existing = await txn.query('cached_hymns',
-            columns: ['lyrics'], where: 'id = ?', whereArgs: [id], limit: 1);
+            columns: [
+              'lyrics',
+              'lyrics_synced',
+              'audio_status',
+              'audio_url',
+              'audio_format',
+              'audio_size',
+              'audio_duration_s',
+              'audio_updated_at'
+            ],
+            where: 'id = ?',
+            whereArgs: [id],
+            limit: 1);
         final stored = Map<String, dynamic>.from(h);
         if (!h.containsKey('lyrics') && existing.isNotEmpty) {
           stored['lyrics'] = existing.first['lyrics'];
         }
         indexedRows.add(stored);
+        // P0 audio/synced-lyrics preservation: a delta that does NOT
+        // carry a heavy field (e.g. synced LRC, which is fetched lazily
+        // per hymn) must not wipe the cached copy — same rule as lyrics.
+        final old = existing.isEmpty ? <String, dynamic>{} : existing.first;
+        String? textPreserve(String key, [String? def]) =>
+            h.containsKey(key) ? '${h[key] ?? ''}' : (old[key] as String? ?? def);
+        int? intPreserve(String key) => h.containsKey(key)
+            ? (h[key] == null ? null : _asIntLocal(h[key]))
+            : (old[key] == null ? null : _asIntLocal(old[key]));
         batch.insert(
           'cached_hymns',
           {
@@ -1679,6 +1731,18 @@ class LocalDb {
             'revision': _asIntLocal(h['revision']),
             'server_updated_at': '${h['updated_at'] ?? ''}',
             'fetched_at': now,
+            // P0 media columns (audio_status always rides the delta; the
+            // rest preserve the cached copy when the payload omits them).
+            'audio_status': textPreserve('audio_status', 'none') ?? 'none',
+            'audio_url': textPreserve('audio_url') ?? '',
+            'audio_format': textPreserve('audio_format'),
+            'audio_size': intPreserve('audio_size'),
+            'audio_duration_s': intPreserve('audio_duration_s'),
+            'audio_updated_at': textPreserve('audio_updated_at'),
+            'lyrics_synced': h.containsKey('lyrics_synced')
+                ? (h['lyrics_synced'] as String?)
+                : (old['lyrics_synced'] as String?),
+            'lyrics_synced_at': textPreserve('lyrics_synced_at'),
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );

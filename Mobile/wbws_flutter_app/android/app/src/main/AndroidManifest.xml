@@ -1,6 +1,16 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- P0 background mezmur playback (just_audio_background / audio_service) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- Target SDK 34+: media playback foreground-service type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- Android 13+: media-session notifications are exempt, but declaring
+         the runtime-notification permission keeps the shutter visible on
+         devices where the exemption is not applied. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- QR-scan attendance taking (Phase 8): camera is used only by the
          in-app scanner (on-device decode, no images leave the phone). -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -44,6 +54,28 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- P0 background audio: the service keeps playing + exposes the
+             media notification / lock-screen transport while the app is in
+             the background. MainActivity subclasses
+             AudioServiceFragmentActivity (see MainActivity.kt) so the Flutter
+             engine that owns the player stays bound to this service. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

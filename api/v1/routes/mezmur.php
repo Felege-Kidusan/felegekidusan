@@ -38,6 +38,7 @@ if (!apiRoleIs($auth, $MEZMUR_ROLES)) {
 require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurSubmissionService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurHymnService.php';
+require_once __DIR__ . '/../../../admin/backend/services/MezmurMediaService.php';
 // MZ-1: every mezmur write below audits through SecurityAuditService.
 // The services also self-load it now, but the route declares the
 // dependency explicitly like grades.php does (defense in depth).
@@ -46,6 +47,7 @@ require_once __DIR__ . '/../../../admin/backend/services/SecurityAuditService.ph
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
 use App\Services\MezmurHymnService;
+use App\Services\MezmurMediaService;
 
 $action = $ROUTE['id'] ?? '';
 $method = $ROUTE['method'] ?? 'GET';
@@ -453,6 +455,104 @@ try {
         );
         if (empty($result['ok'])) err($result['message'], 422);
         ok(['saved' => true]);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // AUDIO MEDIA (P0) — two-phase direct-to-R2 upload + synced lyrics
+    //  1. POST /mezmur/audio-presign  → short-lived presigned PUT URL
+    //  2. client PUTs bytes DIRECTLY to R2 (never through PHP)
+    //  3. POST /mezmur/audio-confirm  → signed HEAD verifies, ready
+    // Bytes never touch the shared host. Read URLs are rebuilt from
+    // MEZMUR_MEDIA_PUBLIC_BASE, so changing the media domain later is
+    // a one-line config change (nothing stored in the DB).
+    // ════════════════════════════════════════════════════════════
+
+    // ── POST /mezmur/audio-presign — phase 1 ─────────────────────
+    if ($method === 'POST' && $action === 'audio-presign') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage hymn audio.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_audio_write', 30)) {
+            err('Too many uploads. Please wait a moment.', 429);
+        }
+        $result = MezmurMediaService::beginUpload(
+            $conn,
+            (int)($input['hymn_id'] ?? 0),
+            (string)($input['ext'] ?? ''),
+            (int)($input['size'] ?? 0),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok([
+            'saved' => true,
+            'upload_url' => $result['upload_url'],
+            'key' => $result['key'],
+            'expires_in' => $result['expires_in'],
+        ], 201);
+    }
+
+    // ── POST /mezmur/audio-confirm — phase 2 (verifies object) ───
+    if ($method === 'POST' && $action === 'audio-confirm') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage hymn audio.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_audio_write', 30)) {
+            err('Too many confirms. Please wait a moment.', 429);
+        }
+        $result = MezmurMediaService::confirmUpload(
+            $conn,
+            (int)($input['hymn_id'] ?? 0),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err($result['message'], 409);
+        // Optional measured duration rides along when the client knew it.
+        if (!empty($input['duration_s']) && (int)$input['duration_s'] > 0) {
+            MezmurMediaService::setDuration($conn, (int)($input['hymn_id'] ?? 0), (int)$input['duration_s'], (int)$auth['uid']);
+        }
+        ok(['saved' => true, 'audio' => $result['audio'] ?? null]);
+    }
+
+    // ── POST /mezmur/audio-remove — detach + delete object ───────
+    if ($method === 'POST' && $action === 'audio-remove') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage hymn audio.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_audio_write', 30)) {
+            err('Too many changes. Please wait a moment.', 429);
+        }
+        $result = MezmurMediaService::removeAudio(
+            $conn,
+            (int)($input['hymn_id'] ?? 0),
+            (int)$auth['uid']
+        );
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true]);
+    }
+
+    // ── POST /mezmur/lyrics-synced — store timed LRC ─────────────
+    // Empty lrc clears the synced lyrics back to static-only.
+    if ($method === 'POST' && $action === 'lyrics-synced') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can edit synced lyrics.', 403);
+        }
+        $input = getBody();
+        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
+        if (isApiRateLimited('mezmur_hymn_write', 30)) {
+            err('Too many lyric changes. Please wait a moment.', 429);
+        }
+        $hymnId = (int)($input['id'] ?? 0);
+        $lrc = trim((string)($input['lrc'] ?? ''));
+        $result = $lrc === ''
+            ? MezmurMediaService::removeSyncedLyrics($conn, $hymnId, (int)$auth['uid'])
+            : MezmurMediaService::saveSyncedLyrics($conn, $hymnId, $lrc, (int)$auth['uid']);
+        if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true, 'message' => $result['message']]);
     }
 
     // ════════════════════════════════════════════════════════════

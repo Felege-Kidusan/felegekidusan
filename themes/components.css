@@ -595,6 +595,18 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
 .mz-body { font-size: .85rem; line-height: 1.6; }
 .mw-380 { max-width: 380px; }
 .mw-420 { max-width: 420px; }
+.mw-520 { max-width: 520px; }
+
+/* ── P0 audio manager (mezmur hymn audio dialog) ───────────── */
+.mz-audio-hymn { font-size: 1rem; font-weight: 800; margin-bottom: .15rem; }
+.mz-audio-sub { font-size: .75rem; margin-bottom: .6rem; }
+.mz-audio-player-wrap { margin: .5rem 0 .75rem; }
+.mz-audio-note { font-size: .8rem; line-height: 1.5; }
+.mz-audio-actions { margin: .6rem 0 .1rem; }
+.mz-audio-fineprint { font-size: .7rem; line-height: 1.5; margin-top: .7rem; border-top: 1px solid var(--school-border); padding-top: .6rem; }
+.mz-progress-track { height: 8px; border-radius: 6px; background: var(--school-border, rgba(255,255,255,.08)); overflow: hidden; margin-top: .5rem; }
+.mz-progress-bar { height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, var(--school-accent, #4f46e5), var(--school-accent2, #22c55e)); transition: width .15s linear; }
+#mzAudioProgressLabel { font-size: .72rem; margin-top: .25rem; }
 .toolbar-end { justify-content: flex-end; margin-bottom: 0; }
 .toolbar-between { justify-content: space-between; margin-bottom: 0; }
 .gap-sm { gap: .4rem; }

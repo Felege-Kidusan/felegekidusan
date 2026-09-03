@@ -689,6 +689,56 @@ ob_start();
     </div>
 </div>
 
+<!-- ═══ MODAL: AUDIO (attach / play / remove hymn audio) ═══
+     P0 audio upgrade: the file is uploaded DIRECTLY to Cloudflare R2
+     (browser PUT to a short-lived presigned URL), never through PHP.
+     The hymn row only stores a key; the public URL is rebuilt from the
+     MEZMUR_MEDIA_PUBLIC_BASE config at read time. -->
+<div class="school-modal" id="mzAudioModal" role="dialog" aria-modal="true" aria-labelledby="mzAudioTitle">
+    <div class="school-modal-content mw-520">
+        <div class="page-head">
+            <h3 id="mzAudioTitle"><i class="fa-solid fa-headphones"></i> Hymn Audio</h3>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.closeAudio()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <input type="hidden" id="mzAudioHymnId" value="0">
+
+        <div class="mz-audio-hymn amharic" id="mzAudioHymnName"></div>
+        <div class="text-dim mz-audio-sub" id="mzAudioMeta"></div>
+
+        <!-- Player (shown when a verified file exists) -->
+        <div class="mz-audio-player-wrap is-hidden" id="mzAudioPlayerWrap">
+            <audio id="mzAudioPlayer" controls preload="metadata" style="width:100%"></audio>
+        </div>
+
+        <!-- Status / guidance line -->
+        <p class="text-dim mz-audio-note" id="mzAudioState"></p>
+
+        <!-- Upload controls -->
+        <input type="file" id="mzAudioFile" accept="audio/*,.mp3,.m4a,.ogg,.wav,.aac,.opus" class="is-hidden" aria-hidden="true">
+        <div class="toolbar toolbar-between mz-audio-actions">
+            <button class="btn-primary btn-sm" id="mzAudioPickBtn" onclick="Mezmur.audioPick()">
+                <i class="fa-solid fa-upload"></i> <span id="mzAudioPickLabel">Choose audio file…</span>
+            </button>
+            <button class="btn-secondary btn-sm is-hidden" id="mzAudioRemoveBtn" onclick="Mezmur.audioRemove()">
+                <i class="fa-solid fa-trash-can"></i> Remove
+            </button>
+        </div>
+
+        <!-- Upload progress (direct PUT to R2) -->
+        <div class="is-hidden" id="mzAudioProgressWrap">
+            <div class="mz-progress-track"><div class="mz-progress-bar" id="mzAudioProgressBar" style="width:0%"></div></div>
+            <div class="text-dim" id="mzAudioProgressLabel">Uploading… 0%</div>
+        </div>
+
+        <div class="school-error-msg is-hidden" id="mzAudioErr" role="alert"></div>
+        <p class="text-dim mz-audio-fineprint">
+            <i class="fa-solid fa-circle-info"></i>
+            Audio streams from the media CDN — it is never stored on this server, so shared-hosting limits do not apply.
+            Allowed: mp3, m4a, ogg, wav, aac, opus (max 15 MB).
+        </p>
+    </div>
+</div>
+
 <!-- ═══ MODAL: ADD TAKER ═══ -->
 <div class="school-modal" id="mzTakerModal" role="dialog" aria-modal="true" aria-labelledby="mzTakerModalTitle">
     <div class="school-modal-content">

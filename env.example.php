@@ -88,3 +88,24 @@ define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password
 // ---- Phone app updates (OPTIONAL) ----
 // Do NOT put the APK in this file. See Mobile/HOW_TO_SHIP_AN_UPDATE.md
 // and api/v1/app_release.example.php  →  /home/USER/.fkss_app_release.php
+
+// ---- Mezmur audio media (Cloudflare R2) — P0 audio upgrade (OPTIONAL) ----
+// Fill these to stream hymns from Cloudflare R2 (free tier: 10 GB storage,
+// $0 egress). Until they are set, hymn audio endpoints answer
+// "not configured" and the rest of the system is untouched.
+// How to get them: R2 → Manage R2 API Tokens → Create API Token (Object
+// Read & Write, scoped to ONE bucket) — the Secret is shown only once.
+//   ACCOUNT_ID     → dashboard right rail (Account Details) — a 32-hex id
+//   PUBLIC_BASE    → your bucket's custom domain, e.g.
+//                    https://media.fkss.arkeonethiopia.com
+//                    (NOT the r2.dev dev URL — that one is test-only).
+//                    This is the ONE value to change when you move to a
+//                    new server/domain — nothing is stored in the DB.
+// The real values below live ONLY in .fkss_env.php, never in git.
+// define('MEZMUR_MEDIA_ACCOUNT_ID',          'REPLACE_WITH_YOUR_R2_ACCOUNT_ID');
+// define('MEZMUR_MEDIA_ACCESS_KEY_ID',       'REPLACE_WITH_YOUR_R2_ACCESS_KEY');
+// define('MEZMUR_MEDIA_SECRET_ACCESS_KEY',   'REPLACE_WITH_YOUR_R2_SECRET_KEY');
+// define('MEZMUR_MEDIA_BUCKET',              'fkss-media');
+// define('MEZMUR_MEDIA_PUBLIC_BASE',         'https://media.fkss.arkeonethiopia.com');
+// define('MEZMUR_MEDIA_MAX_BYTES',           15728640);            // 15 MB
+// define('MEZMUR_MEDIA_ALLOWED_EXT',         'mp3,m4a,ogg,wav,aac,opus');

@@ -27,3 +27,16 @@
 -dontwarn javax.annotation.**
 -dontwarn org.checkerframework.**
 -dontwarn com.google.errorprone.**
+
+# ── P0 background audio (audio_service + just_audio_background) ──
+# The audio service / media-button receiver are instantiated by the OS from
+# the manifest and reached through the platform channel, so R8 must keep
+# their full class shapes (state machine, reflection-free serialization).
+-keep class com.ryanheise.audioservice.** { *; }
+-dontwarn com.ryanheise.audioservice.**
+-keep class com.ryanheise.just_audio.** { *; }
+-dontwarn com.ryanheise.just_audio.**
+
+# ExoPlayer / media3 keep the manifest-declared playback classes reachable.
+-dontwarn androidx.media3.**
+-keep class androidx.media3.** { *; }
