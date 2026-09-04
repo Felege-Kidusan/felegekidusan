@@ -734,6 +734,11 @@ class ApiService {
   Future<ApiResponse> getMezmurHymn(int id) =>
       get('/mezmur/hymn', params: {'id': '$id'});
 
+  /// Returns a short-lived signed GET URL for a verified hymn audio object.
+  /// The object key and storage credentials never leave the server.
+  Future<ApiResponse> getMezmurAudioUrl(int hymnId) =>
+      get('/mezmur/audio/$hymnId');
+
   // ── Hymn library offline sync (delta + outbox) ──────────────
 
   /// Delta pull: rows changed after [cursor] ("ts|id" change token).

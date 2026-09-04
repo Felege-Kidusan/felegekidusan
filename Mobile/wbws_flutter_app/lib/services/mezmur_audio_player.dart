@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'api_service.dart';
 import 'mezmur_playback_policy.dart';
 
 /// P0 mezmur — a single mezmur hymn that can be played.
@@ -13,6 +14,7 @@ class MezmurTrack {
   final int hymnId;
   final String title;
   final String audioUrl;
+  final String audioStatus;
   final String? category;
   final int? durationSeconds;
   final String? lyrics;
@@ -22,6 +24,7 @@ class MezmurTrack {
     required this.hymnId,
     required this.title,
     required this.audioUrl,
+    this.audioStatus = 'none',
     this.category,
     this.durationSeconds,
     this.lyrics,
@@ -42,6 +45,7 @@ class MezmurTrack {
       hymnId: _asInt(row['id']),
       title: '${row['title'] ?? ''}',
       audioUrl: '${row['audio_url'] ?? ''}',
+      audioStatus: '${row['audio_status'] ?? 'none'}',
       category: row['category'] is String ? row['category'] as String : null,
       durationSeconds: _asIntOrNull(row['audio_duration_s']),
       lyrics: row['lyrics'] is String ? row['lyrics'] as String : null,
@@ -49,6 +53,17 @@ class MezmurTrack {
           row['lyrics_synced'] is String ? row['lyrics_synced'] as String : null,
     );
   }
+
+  MezmurTrack copyWith({String? audioUrl}) => MezmurTrack(
+        hymnId: hymnId,
+        title: title,
+        audioUrl: audioUrl ?? this.audioUrl,
+        audioStatus: audioStatus,
+        category: category,
+        durationSeconds: durationSeconds,
+        lyrics: lyrics,
+        lyricsSynced: lyricsSynced,
+      );
 
   /// True when a hymn row is verified-ready AND has a public URL — the two
   /// conditions that make it playable without a server round trip.
@@ -144,6 +159,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       MezmurAudioPlayerController._();
 
   final AudioPlayer _player = AudioPlayer();
+  final ApiService _api = ApiService();
   List<MezmurTrack> _queue = const [];
   int? _index;
   bool _playing = false;
@@ -386,7 +402,9 @@ class MezmurAudioPlayerController extends ChangeNotifier {
         }
       }
     }
-    if (samePlayable && _queue.isNotEmpty) {
+    if (samePlayable &&
+      _queue.isNotEmpty &&
+      currentTrack?.hymnId == v.hymnId) {
       try {
         await _player.seek(Duration.zero, index: si);
         _index = si;
@@ -405,13 +423,31 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     int startIndex = 0,
     bool autoPlay = true,
   }) async {
-    await _ensureConfigured();
     if (tracks.isEmpty) return false;
+    final selectedIndex = startIndex.clamp(0, tracks.length - 1);
+    final selected = tracks[selectedIndex];
+    var selectedTrack = selected;
+    if (selected.audioStatus == 'ready') {
+      final response = await _api.getMezmurAudioUrl(selected.hymnId);
+      if (response.success && response.data is Map) {
+        final signedUrl = '${response.data['url'] ?? ''}'.trim();
+        if (signedUrl.isNotEmpty) {
+          selectedTrack = selected.copyWith(audioUrl: signedUrl);
+        }
+      }
+      if (selectedTrack.audioUrl.trim().isEmpty) {
+        _playbackError = response.message ??
+            'Audio could not be loaded. Check your connection and try again.';
+        notifyListeners();
+        return false;
+      }
+    }
+    await _ensureConfigured();
     final playable = <MezmurTrack>[];
     final sources = <AudioSource>[];
     var offset = -1;
     for (var i = 0; i < tracks.length; i++) {
-      final t = tracks[i];
+      final t = i == selectedIndex ? selectedTrack : tracks[i];
       if (t.audioUrl.trim().isEmpty) continue;
       sources.add(AudioSource.uri(
         Uri.parse(t.audioUrl),

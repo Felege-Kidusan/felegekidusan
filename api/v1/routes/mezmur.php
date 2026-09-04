@@ -258,6 +258,24 @@ try {
         ok($out);
     }
 
+    // ── GET /mezmur/audio/{hymnId} — fresh signed playback URL ──
+    // Audio keys never leave the server. The URL is short-lived and scoped
+    // to a verified READY object, so mobile playback does not depend on a
+    // public CDN hostname or a stale cached URL.
+    if ($method === 'GET' && $action === 'audio') {
+        if (isApiRateLimited('mezmur_audio_read', 240)) {
+            err('Too many requests. Please wait a moment.', 429);
+        }
+        $hymnId = (int)($ROUTE['sub'] ?? 0);
+        $result = MezmurMediaService::playUrl($conn, $hymnId);
+        if (empty($result['ok'])) err($result['message'], 404);
+        ok([
+            'url' => $result['url'] ?? '',
+            'content_type' => $result['content_type'] ?? '',
+            'expires_in' => (int)($result['expires_in'] ?? 3600),
+        ]);
+    }
+
     // ── POST /mezmur/hymn — create / update (offline outbox) ───
     if ($method === 'POST' && $action === 'hymn') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
