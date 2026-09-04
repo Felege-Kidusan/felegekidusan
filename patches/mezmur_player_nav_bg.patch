@@ -1,0 +1,505 @@
+diff --git a/Mobile/wbws_flutter_app/lib/services/mezmur_audio_player.dart b/Mobile/wbws_flutter_app/lib/services/mezmur_audio_player.dart
+index ae60674..9dedc7e 100644
+--- a/Mobile/wbws_flutter_app/lib/services/mezmur_audio_player.dart
++++ b/Mobile/wbws_flutter_app/lib/services/mezmur_audio_player.dart
+@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
+ import 'package:just_audio/just_audio.dart';
+ import 'package:permission_handler/permission_handler.dart';
+ 
++import 'mezmur_playback_policy.dart';
++
+ /// P0 mezmur — a single mezmur hymn that can be played.
+ class MezmurTrack {
+   final int hymnId;
+@@ -172,9 +174,24 @@ class MezmurAudioPlayerController extends ChangeNotifier {
+   Duration get position => Duration(milliseconds: _posMs);
+   Duration? get duration =>
+       _durMs > 0 ? Duration(milliseconds: _durMs) : null;
+-  bool get canPrevious => _catalog.length > 1 || _viewIndex > 0;
++
++  /// Whether each catalog row is playable (has an audio URL). This mirrors
++  /// the audio-queue membership and is the single source of truth the pure
++  /// [MezmurPlaybackPolicy] works on, so buttons/swipe and the engine can
++  /// never disagree about what a navigation means.
++  List<bool> get _audioFlags => List<bool>.generate(
++        _catalog.length,
++        (i) => _catalog[i].audioUrl.trim().isNotEmpty,
++        growable: false,
++      );
++
++  bool get canPrevious =>
++      _catalog.length > 1 &&
++      MezmurPlaybackPolicy.canGoPrevious(
++          _audioFlags, _viewIndex, _loop);
++
+   bool get canNext =>
+-      _catalog.length > 1 && (_loop == 1 || _viewIndex < _catalog.length - 1);
++      MezmurPlaybackPolicy.canGoNext(_audioFlags, _viewIndex, _loop);
+   int get loopMode => _loop;
+   bool get shuffle => _shuffle;
+   double get rate => _rate;
+@@ -189,7 +206,11 @@ class MezmurAudioPlayerController extends ChangeNotifier {
+       !_playerVisible &&
+       !_miniDismissed &&
+       _catalog.isNotEmpty &&
+-      (_playing || viewHasAudio);
++      // A "live session" is any context that still has playable audio
++      // loaded (or is currently playing). Keeping the bar visible even
++      // when the user has browsed on to a lyrics-only hymn means the
++      // session can always be returned to — it never silently vanishes.
++      (_playing || _queue.isNotEmpty || viewHasAudio);
+ 
+   MezmurTrack? get currentTrack {
+     final i = _index;
+@@ -290,29 +311,35 @@ class MezmurAudioPlayerController extends ChangeNotifier {
+     await _syncAudio(autoPlay: autoPlay);
+   }
+ 
++  /// Moves to the adjacent VISIBLE catalog row (+/-1), then tells the audio
++  /// engine to follow. Next/previous and swipe always land on the very next
++  /// hymn in the list — with or without audio — so a lyrics-only hymn is a
++  /// real neighbour (never skipped, never mangled by the audio-only queue).
++  ///
++  /// Previous uses the industry rule: if the selected hymn is a playable one
++  /// that is currently playing past the restart threshold, it restarts it in
++  /// place; otherwise it steps back one visible row.
+   Future<void> skipView(int delta) async {
+     if (_catalog.isEmpty) return;
+-    final viewingPlaying = viewHasAudio &&
+-        currentTrack?.hymnId == viewTrack?.hymnId &&
+-        _playing;
+-    if (delta < 0 &&
+-        viewingPlaying &&
+-        position > const Duration(seconds: 3)) {
+-      await seek(Duration.zero);
+-      return;
+-    }
+-    var i = _viewIndex + delta;
+-    if (_loop == 1 && _catalog.isNotEmpty) {
+-      i = (i % _catalog.length + _catalog.length) % _catalog.length;
+-    } else {
+-      if (i < 0) i = 0;
+-      if (i >= _catalog.length) i = _catalog.length - 1;
+-    }
+-    if (i == _viewIndex) {
+-      if (delta < 0 && viewingPlaying) await seek(Duration.zero);
++    if (delta < 0) {
++      final decision = MezmurPlaybackPolicy.previousTarget(
++        _audioFlags,
++        _viewIndex,
++        loop: _loop,
++        isPlaying: _playing,
++        positionMs: position.inMilliseconds,
++      );
++      if (decision.restartCurrent) {
++        await seek(Duration.zero);
++        return;
++      }
++      if (decision.targetRow == _viewIndex) return; // first row, loop off
++      await moveTo(decision.targetRow, autoPlay: decision.shouldAutoPlay);
+       return;
+     }
+-    await moveTo(i, autoPlay: true);
++    final target = MezmurPlaybackPolicy.nextRow(_audioFlags, _viewIndex, _loop);
++    if (target == _viewIndex) return; // last row, loop off
++    await moveTo(target, autoPlay: true);
+   }
+ 
+   Future<bool> _syncAudio({
+diff --git a/Mobile/wbws_flutter_app/lib/services/mezmur_playback_policy.dart b/Mobile/wbws_flutter_app/lib/services/mezmur_playback_policy.dart
+new file mode 100644
+index 0000000..4b1d474
+--- /dev/null
++++ b/Mobile/wbws_flutter_app/lib/services/mezmur_playback_policy.dart
+@@ -0,0 +1,223 @@
++/// Mezmur playback navigation policy — PURE Dart (no Flutter / plugin imports).
++///
++/// Why this file exists
++/// --------------------
++/// The player mixes two kinds of data that must stay in sync but are not the
++/// same length:
++///
++///   * the VISIBLE CATALOG — every hymn the user browsed into, in list order.
++///     Some rows have audio, some are lyrics-only. Next/previous/swipe are
++///     defined on THIS list: they always step exactly one *visible* row, so a
++///     lyrics-only hymn is a real neighbour you can land on (this is exactly
++///     what the product request asks for).
++///   * the AUDIO QUEUE — only the rows that have a playable URL, fed to the
++///     engine. The engine auto-advances in THIS space when a track ends or a
++///     lock-screen / headset skip arrives.
++///
++/// The "confusion" bug this module eliminates comes from conflating the two:
++/// the visible row you are reading and the audio item actually playing can
++/// diverge, which makes next/previous feel random. Keeping every navigation
++/// *decision* here as a pure, unit-testable function means the policy is
++/// proven once and reused by every caller (buttons, swipe, completion,
++/// lock-screen remap) — so the UI and the audio can never disagree about the
++/// intended target again.
++///
++/// Loop-mode convention (matches the controller): 0 = off, 1 = all, 2 = one.
++library;
++
++/// Loop mode constants, kept in one place.
++class PlaybackLoop {
++  static const int off = 0;
++  static const int all = 1;
++  static const int one = 2;
++}
++
++/// Decision returned by [previousTarget].
++class PreviousDecision {
++  /// Catalog row to select after the gesture. Equal to [row] when the action
++  /// is a plain restart (industry behaviour) or a no-op at the first row.
++  final int targetRow;
++
++  /// True when the gesture should *restart the current hymn* instead of
++  /// moving rows. Restart happens only when the selected row actually has
++  /// audio AND is playing past the restart threshold — the industry rule
++  /// used by Spotify/Apple (see the surrounding analysis doc).
++  final bool restartCurrent;
++
++  /// True when the selected row has audio that should be played after the
++  /// move (auto-play). False for a lyrics-only target or a restart that is
++  /// already playing.
++  final bool shouldAutoPlay;
++
++  const PreviousDecision({
++    required this.targetRow,
++    required this.restartCurrent,
++    required this.shouldAutoPlay,
++  });
++}
++
++/// Navigation + cursor policy for the Mezmur player.
++///
++/// Pure functions only. The caller builds `audioFlags` once from the catalog
++/// (`audioFlags[i] == has playable URL`) and asks this class what should
++/// happen; the caller then performs the audio-engine work. Because nothing
++/// here touches a plugin, it is deterministic and unit-testable.
++abstract final class MezmurPlaybackPolicy {
++  /// Industry-standard previous-track restart threshold. Tapping previous
++  /// while a playable hymn has been playing longer than this *restarts* it;
++  /// otherwise it moves to the previous visible row. Set to 0 to make
++  /// previous always move to the previous hymn (some users prefer this).
++  static const int restartThresholdMs = 3000;
++
++  /// ── index mapping (catalog <-> audio queue) ───────────────────────────
++
++  /// Ordinal (0-based index among the *audio-bearing* rows) of [row], or null
++  /// when [row] has no audio. e.g. for flags [T,F,T], row 2 -> 1.
++  static int? audioOrdinalForRow(List<bool> audioFlags, int row) {
++    if (row < 0 || row >= audioFlags.length || !audioFlags[row]) return null;
++    var seen = 0;
++    for (var i = 0; i < row; i++) {
++      if (audioFlags[i]) seen++;
++    }
++    return seen;
++  }
++
++  /// Catalog row of the `ordinal`-th (0-based) audio-bearing row, or -1 when
++  /// the ordinal is out of range. e.g. for flags [T,F,T], ordinal 1 -> row 2.
++  static int rowForAudioOrdinal(List<bool> audioFlags, int ordinal) {
++    var seen = -1;
++    for (var i = 0; i < audioFlags.length; i++) {
++      if (!audioFlags[i]) continue;
++      seen++;
++      if (seen == ordinal) return i;
++    }
++    return -1;
++  }
++
++  /// ── visible-catalog stepping (buttons + swipe) ────────────────────────
++  ///
++  /// These move exactly ONE visible row (audio or not), wrapping only in
++  /// loop-all mode. This is the behaviour the product request wants: next /
++  /// previous opens the adjacent hymn whether or not it has audio.
++
++  /// Row reached by moving +1 from [row]. Returns [row] when at the end and
++  /// not wrapping.
++  static int nextRow(List<bool> audioFlags, int row, int loop) {
++    if (audioFlags.isEmpty) return 0;
++    var i = row + 1;
++    if (i >= audioFlags.length) i = loop == PlaybackLoop.all ? 0 : row;
++    return i;
++  }
++
++  /// Row reached by moving -1 from [row]. Returns [row] when at the start and
++  /// not wrapping.
++  static int previousRow(List<bool> audioFlags, int row, int loop) {
++    if (audioFlags.isEmpty) return 0;
++    var i = row - 1;
++    if (i < 0) i = loop == PlaybackLoop.all ? audioFlags.length - 1 : row;
++    return i;
++  }
++
++  /// Whole-list stepping for arbitrary delta (used by keyboard-free UI that
++  /// passes +/-1, kept general for tests). Clamps/wraps per [loop].
++  static int stepRow(List<bool> audioFlags, int row, int delta, int loop) {
++    if (audioFlags.isEmpty) return 0;
++    final target = row + delta;
++    if (target < 0 || target >= audioFlags.length) {
++      if (loop == PlaybackLoop.all) {
++        return (target % audioFlags.length + audioFlags.length) %
++            audioFlags.length;
++      }
++      return row < 0
++          ? 0
++          : (row >= audioFlags.length ? audioFlags.length - 1 : row);
++    }
++    return target;
++  }
++
++  /// ── previous-button high-level decision ───────────────────────────────
++  ///
++  /// Industry semantics:
++  ///   1. If the selected row is a playable hymn and it is *currently
++  ///      playing* for longer than the threshold → restart it in place.
++  ///   2. Otherwise step back one visible row (audio or not).
++  ///   3. At the very first visible row with loop off there is nothing to go
++  ///      back to — if that row is playing it restarts, else it is a no-op.
++  static PreviousDecision previousTarget(
++    List<bool> audioFlags,
++    int row, {
++    required int loop,
++    required bool isPlaying,
++    required int positionMs,
++  }) {
++    final hasAudio = row >= 0 && row < audioFlags.length && audioFlags[row];
++    final restart = hasAudio && isPlaying && positionMs > restartThresholdMs;
++    if (restart) {
++      return PreviousDecision(
++        targetRow: row,
++        restartCurrent: true,
++        shouldAutoPlay: false, // already playing; keep its state
++      );
++    }
++    final target = previousRow(audioFlags, row, loop);
++    final targetHasAudio =
++        target >= 0 && target < audioFlags.length && audioFlags[target];
++    return PreviousDecision(
++      targetRow: target,
++      restartCurrent: false,
++      shouldAutoPlay: targetHasAudio,
++    );
++  }
++
++  /// True when the in-app previous gesture should be enabled (there is more
++  /// than one visible row, or wrapping is possible). Used to grey out the
++  /// button on the first row when loop is off.
++  static bool canGoPrevious(List<bool> audioFlags, int row, int loop) {
++    return audioFlags.length > 1 &&
++        (loop == PlaybackLoop.all || row > 0);
++  }
++
++  static bool canGoNext(List<bool> audioFlags, int row, int loop) {
++    return audioFlags.length > 1 &&
++        (loop == PlaybackLoop.all || row < audioFlags.length - 1);
++  }
++
++  /// ── auto-advance after a track finishes ───────────────────────────────
++  ///
++  /// When the engine completes the audio at [completedAudioOrdinal], decide
++  /// which visible row to move the UI to next and whether to keep playing.
++  ///
++  /// Policy (continuous-list model):
++  ///   * loop-one  → stay on the same hymn, repeat it.
++  ///   * otherwise → jump to the NEXT *playable* visible row after the one
++  ///     that just finished, wrapping in loop-all. Lyrics-only rows in
++  ///     between are stepped over so sound keeps flowing (this is what a
++  ///     real "play the list" experience does); the visible cursor is updated
++  ///     to that next playable hymn so the on-screen page, the audio and the
++  ///     mini-player all point at the same hymn again.
++  ///   * end of list with loop off → no further hymn; playback should stop.
++  ///
++  /// Returns the target *visible* row, or -1 to stop. [audioFlags] length is
++  /// the catalog length.
++  static int autoAdvanceRowAfter(
++    List<bool> audioFlags,
++    int completedAudioOrdinal, {
++    required int loop,
++  }) {
++    final audioCount = audioFlags.where((a) => a).length;
++    if (audioCount == 0) return -1;
++    if (loop == PlaybackLoop.one) {
++      // Repeat the hymn that just finished.
++      return rowForAudioOrdinal(audioFlags, completedAudioOrdinal);
++    }
++    var next = completedAudioOrdinal + 1;
++    if (next >= audioCount) {
++      if (loop == PlaybackLoop.all) {
++        next = 0;
++      } else {
++        return -1; // end of the playable list, loop off → stop.
++      }
++    }
++    return rowForAudioOrdinal(audioFlags, next);
++  }
++}
+diff --git a/Mobile/wbws_flutter_app/test/mezmur_playback_policy_test.dart b/Mobile/wbws_flutter_app/test/mezmur_playback_policy_test.dart
+new file mode 100644
+index 0000000..cef1037
+--- /dev/null
++++ b/Mobile/wbws_flutter_app/test/mezmur_playback_policy_test.dart
+@@ -0,0 +1,162 @@
++import 'package:flutter_test/flutter_test.dart';
++
++import 'package:fkss_app/services/mezmur_playback_policy.dart';
++
++/// Regression guard for the Mezmur next/previous/auto-advance policy.
++///
++/// Every navigation DECISION the player makes lives in the pure module
++/// `mezmur_playback_policy.dart` so it can be pinned here without a device or
++/// an audio engine. Catalog rows are given by audio flags ([T] = has audio,
++/// [F] = lyrics-only). The policy must always move exactly one visible row
++/// for buttons/swipe (so lyrics-only hymns are real neighbours) while
++/// auto-advance skips to the next playable hymn so continuous sound flows.
++void main() {
++  // Catalog [A(audio), B(lyrics), C(audio), D(lyrics), E(audio)].
++  const flags = [true, false, true, false, true];
++
++  group('catalog <-> audio-queue mapping', () {
++    test('audioOrdinalForRow maps visible rows to playable ordinals', () {
++      expect(MezmurPlaybackPolicy.audioOrdinalForRow(flags, 0), 0);
++      expect(MezmurPlaybackPolicy.audioOrdinalForRow(flags, 1), isNull); // B
++      expect(MezmurPlaybackPolicy.audioOrdinalForRow(flags, 2), 1);
++      expect(MezmurPlaybackPolicy.audioOrdinalForRow(flags, 4), 2);
++    });
++
++    test('rowForAudioOrdinal inverts the mapping', () {
++      expect(MezmurPlaybackPolicy.rowForAudioOrdinal(flags, 0), 0);
++      expect(MezmurPlaybackPolicy.rowForAudioOrdinal(flags, 1), 2);
++      expect(MezmurPlaybackPolicy.rowForAudioOrdinal(flags, 2), 4);
++      expect(MezmurPlaybackPolicy.rowForAudioOrdinal(flags, 3), -1);
++    });
++  });
++
++  group('buttons + swipe step exactly one VISIBLE row', () {
++    test('next lands on the adjacent hymn even when it is lyrics-only', () {
++      // from A(0) audio -> B(1) lyrics: the neighbour is still visited.
++      expect(MezmurPlaybackPolicy.nextRow(flags, 0, PlaybackLoop.off), 1);
++      expect(MezmurPlaybackPolicy.nextRow(flags, 1, PlaybackLoop.off), 2);
++      expect(MezmurPlaybackPolicy.nextRow(flags, 4, PlaybackLoop.off), 4); // end
++    });
++
++    test('previous lands on the adjacent hymn', () {
++      expect(MezmurPlaybackPolicy.previousRow(flags, 2, PlaybackLoop.off), 1);
++      expect(MezmurPlaybackPolicy.previousRow(flags, 1, PlaybackLoop.off), 0);
++      expect(MezmurPlaybackPolicy.previousRow(flags, 0, PlaybackLoop.off), 0); // start
++    });
++
++    test('loop-all wraps at both ends', () {
++      expect(MezmurPlaybackPolicy.nextRow(flags, 4, PlaybackLoop.all), 0);
++      expect(MezmurPlaybackPolicy.previousRow(flags, 0, PlaybackLoop.all), 4);
++    });
++
++    test('whole-list delta stepping wraps only in loop-all', () {
++      expect(MezmurPlaybackPolicy.stepRow(flags, 4, 1, PlaybackLoop.all), 0);
++      expect(MezmurPlaybackPolicy.stepRow(flags, 0, -1, PlaybackLoop.all), 4);
++      expect(MezmurPlaybackPolicy.stepRow(flags, 4, 1, PlaybackLoop.off), 4);
++    });
++  });
++
++  group('industry previous semantics', () {
++    test('restarts the playing hymn once past the threshold', () {
++      final d = MezmurPlaybackPolicy.previousTarget(
++        flags,
++        0,
++        loop: PlaybackLoop.off,
++        isPlaying: true,
++        positionMs: 5000,
++      );
++      expect(d.restartCurrent, isTrue);
++      expect(d.targetRow, 0);
++      expect(d.shouldAutoPlay, isFalse);
++    });
++
++    test('moves back one row before the threshold', () {
++      final d = MezmurPlaybackPolicy.previousTarget(
++        flags,
++        2,
++        loop: PlaybackLoop.off,
++        isPlaying: true,
++        positionMs: 500, // early -> go back, do not restart
++      );
++      expect(d.restartCurrent, isFalse);
++      expect(d.targetRow, 1); // B, the adjacent visible row
++      expect(d.shouldAutoPlay, isFalse); // B has no audio
++    });
++
++    test('a lyrics-only current row always moves back (no restart)', () {
++      final d = MezmurPlaybackPolicy.previousTarget(
++        flags,
++        1,
++        loop: PlaybackLoop.off,
++        isPlaying: false,
++        positionMs: 0,
++      );
++      expect(d.restartCurrent, isFalse);
++      expect(d.targetRow, 0);
++      expect(d.shouldAutoPlay, isTrue); // A has audio -> autoplay
++    });
++
++    test('first row + loop off and playing early -> no-op (stays, no restart)',
++        () {
++      final d = MezmurPlaybackPolicy.previousTarget(
++        flags,
++        0,
++        loop: PlaybackLoop.off,
++        isPlaying: true,
++        positionMs: 200,
++      );
++      expect(d.restartCurrent, isFalse);
++      expect(d.targetRow, 0);
++    });
++  });
++
++  group('completion / auto-advance keeps continuous audio', () {
++    test('completion jumps to the NEXT playable row, skipping lyrics rows', () {
++      // A(0) completes; the next playable row after A is C(2), not B.
++      expect(MezmurPlaybackPolicy.autoAdvanceRowAfter(
++        flags, 0, loop: PlaybackLoop.off), 2);
++    });
++
++    test('completion of C(ordinal 1) goes to E(ordinal 2)', () {
++      expect(MezmurPlaybackPolicy.autoAdvanceRowAfter(
++        flags, 1, loop: PlaybackLoop.off), 4);
++    });
++
++    test('end of list + loop off stops playback', () {
++      expect(MezmurPlaybackPolicy.autoAdvanceRowAfter(
++        flags, 2, loop: PlaybackLoop.off), -1);
++    });
++
++    test('loop-all wraps to the first playable row', () {
++      expect(MezmurPlaybackPolicy.autoAdvanceRowAfter(
++        flags, 2, loop: PlaybackLoop.all), 0);
++    });
++
++    test('loop-one repeats the same hymn', () {
++      expect(MezmurPlaybackPolicy.autoAdvanceRowAfter(
++        flags, 1, loop: PlaybackLoop.one), 2); // row of ordinal 1 is C
++    });
++  });
++
++  group('canNext / canPrevious button affordance', () {
++    test('grey out previous on the first row when loop is off', () {
++      expect(MezmurPlaybackPolicy.canGoPrevious(flags, 0, PlaybackLoop.off),
++          isFalse);
++      expect(MezmurPlaybackPolicy.canGoPrevious(flags, 1, PlaybackLoop.off),
++          isTrue);
++    });
++    test('single-row catalog cannot navigate either direction', () {
++      expect(MezmurPlaybackPolicy.canGoNext(const [true], 0, PlaybackLoop.off),
++          isFalse);
++      expect(
++          MezmurPlaybackPolicy.canGoPrevious(
++              const [true], 0, PlaybackLoop.off),
++          isFalse);
++    });
++    test('loop-all enables navigation at the boundary', () {
++      expect(MezmurPlaybackPolicy.canGoPrevious(flags, 0, PlaybackLoop.all),
++          isTrue);
++      expect(MezmurPlaybackPolicy.canGoNext(flags, 4, PlaybackLoop.all), isTrue);
++    });
++  });
++}

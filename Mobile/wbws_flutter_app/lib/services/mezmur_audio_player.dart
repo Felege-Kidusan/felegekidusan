@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'mezmur_playback_policy.dart';
+
 /// P0 mezmur — a single mezmur hymn that can be played.
 class MezmurTrack {
   final int hymnId;
@@ -172,9 +174,24 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   Duration get position => Duration(milliseconds: _posMs);
   Duration? get duration =>
       _durMs > 0 ? Duration(milliseconds: _durMs) : null;
-  bool get canPrevious => _catalog.length > 1 || _viewIndex > 0;
+
+  /// Whether each catalog row is playable (has an audio URL). This mirrors
+  /// the audio-queue membership and is the single source of truth the pure
+  /// [MezmurPlaybackPolicy] works on, so buttons/swipe and the engine can
+  /// never disagree about what a navigation means.
+  List<bool> get _audioFlags => List<bool>.generate(
+        _catalog.length,
+        (i) => _catalog[i].audioUrl.trim().isNotEmpty,
+        growable: false,
+      );
+
+  bool get canPrevious =>
+      _catalog.length > 1 &&
+      MezmurPlaybackPolicy.canGoPrevious(
+          _audioFlags, _viewIndex, _loop);
+
   bool get canNext =>
-      _catalog.length > 1 && (_loop == 1 || _viewIndex < _catalog.length - 1);
+      MezmurPlaybackPolicy.canGoNext(_audioFlags, _viewIndex, _loop);
   int get loopMode => _loop;
   bool get shuffle => _shuffle;
   double get rate => _rate;
@@ -189,7 +206,11 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       !_playerVisible &&
       !_miniDismissed &&
       _catalog.isNotEmpty &&
-      (_playing || viewHasAudio);
+      // A "live session" is any context that still has playable audio
+      // loaded (or is currently playing). Keeping the bar visible even
+      // when the user has browsed on to a lyrics-only hymn means the
+      // session can always be returned to — it never silently vanishes.
+      (_playing || _queue.isNotEmpty || viewHasAudio);
 
   MezmurTrack? get currentTrack {
     final i = _index;
@@ -290,29 +311,35 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     await _syncAudio(autoPlay: autoPlay);
   }
 
+  /// Moves to the adjacent VISIBLE catalog row (+/-1), then tells the audio
+  /// engine to follow. Next/previous and swipe always land on the very next
+  /// hymn in the list — with or without audio — so a lyrics-only hymn is a
+  /// real neighbour (never skipped, never mangled by the audio-only queue).
+  ///
+  /// Previous uses the industry rule: if the selected hymn is a playable one
+  /// that is currently playing past the restart threshold, it restarts it in
+  /// place; otherwise it steps back one visible row.
   Future<void> skipView(int delta) async {
     if (_catalog.isEmpty) return;
-    final viewingPlaying = viewHasAudio &&
-        currentTrack?.hymnId == viewTrack?.hymnId &&
-        _playing;
-    if (delta < 0 &&
-        viewingPlaying &&
-        position > const Duration(seconds: 3)) {
-      await seek(Duration.zero);
+    if (delta < 0) {
+      final decision = MezmurPlaybackPolicy.previousTarget(
+        _audioFlags,
+        _viewIndex,
+        loop: _loop,
+        isPlaying: _playing,
+        positionMs: position.inMilliseconds,
+      );
+      if (decision.restartCurrent) {
+        await seek(Duration.zero);
+        return;
+      }
+      if (decision.targetRow == _viewIndex) return; // first row, loop off
+      await moveTo(decision.targetRow, autoPlay: decision.shouldAutoPlay);
       return;
     }
-    var i = _viewIndex + delta;
-    if (_loop == 1 && _catalog.isNotEmpty) {
-      i = (i % _catalog.length + _catalog.length) % _catalog.length;
-    } else {
-      if (i < 0) i = 0;
-      if (i >= _catalog.length) i = _catalog.length - 1;
-    }
-    if (i == _viewIndex) {
-      if (delta < 0 && viewingPlaying) await seek(Duration.zero);
-      return;
-    }
-    await moveTo(i, autoPlay: true);
+    final target = MezmurPlaybackPolicy.nextRow(_audioFlags, _viewIndex, _loop);
+    if (target == _viewIndex) return; // last row, loop off
+    await moveTo(target, autoPlay: true);
   }
 
   Future<bool> _syncAudio({
