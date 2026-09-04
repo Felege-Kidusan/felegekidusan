@@ -9,7 +9,8 @@
  *   - code updates arrive (cron git reset) while SQL migrations lag.
  *
  * This service knows the exact column contract every mezmur query
- * relies on. report() lists the drift; apply() closes it with guarded,
+ * relies on — through migration 038 inclusive (audio media + synced
+ * lyrics). report() lists the drift; apply() closes it with guarded,
  * idempotent ALTER/CREATE statements (safe to run any number of times).
  * Exposed via action=schema (GET, report) and action=migrate
  * (POST + CSRF, apply) in admin/api_mezmur.php, and via ?diag=2.
@@ -31,6 +32,20 @@ final class MezmurSchemaReconciler
             'updated_at' => "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
             // 025: offline-first sync — monotonic row version + delta index.
             'revision'   => "INT UNSIGNED NOT NULL DEFAULT 1",
+            // 038: audio media plane. Without these the media service fails
+            // closed and its error message points admins HERE, so the
+            // reconciler must be able to close this drift on its own.
+            'audio_key'         => "VARCHAR(255) DEFAULT NULL",
+            'audio_duration_s'  => "INT UNSIGNED DEFAULT NULL",
+            'audio_size'        => "INT UNSIGNED DEFAULT NULL",
+            'audio_format'      => "VARCHAR(10) DEFAULT NULL",
+            'audio_status'      => "ENUM('none','pending','ready','rejected') NOT NULL DEFAULT 'none'",
+            'audio_uploaded_by' => "INT UNSIGNED DEFAULT NULL",
+            'audio_updated_at'  => "DATETIME DEFAULT NULL",
+            // 038: timed (LRC) lyrics — a SEPARATE field from `lyrics`.
+            'lyrics_synced'     => "LONGTEXT DEFAULT NULL",
+            'lyrics_synced_at'  => "DATETIME DEFAULT NULL",
+            'lyrics_synced_by'  => "INT UNSIGNED DEFAULT NULL",
         ],
         'mezmur_categories' => [
             'name'       => "VARCHAR(50) NOT NULL",
@@ -129,6 +144,27 @@ final class MezmurSchemaReconciler
             `is_active` TINYINT(1) NOT NULL DEFAULT 1,
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_mezmur_categories_name` (`name`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        // 038: play counters + per-user favorites. No code path reads or
+        // writes these yet (the P0 player does not report plays); they are
+        // created so the schema converges with the migration and a future
+        // "Top hymns" / "Your Library" feature is a code-only change.
+        'mezmur_play_stats' => "CREATE TABLE `mezmur_play_stats` (
+            `hymn_id` BIGINT UNSIGNED NOT NULL,
+            `day` DATE NOT NULL,
+            `plays` INT UNSIGNED NOT NULL DEFAULT 0,
+            PRIMARY KEY (`hymn_id`, `day`),
+            CONSTRAINT `fk_mps_hymn` FOREIGN KEY (`hymn_id`)
+                REFERENCES `mezmur_hymns` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        'mezmur_user_favorites' => "CREATE TABLE `mezmur_user_favorites` (
+            `user_id` INT UNSIGNED NOT NULL,
+            `hymn_id` BIGINT UNSIGNED NOT NULL,
+            `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`user_id`, `hymn_id`),
+            KEY `idx_muf_hymn` (`hymn_id`),
+            CONSTRAINT `fk_muf_hymn` FOREIGN KEY (`hymn_id`)
+                REFERENCES `mezmur_hymns` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     ];
 
@@ -251,6 +287,23 @@ final class MezmurSchemaReconciler
             }
         } catch (\Throwable $e) {
             // table absent -> nothing to do
+        }
+        // 038's audio_status index — keeps a "missing audio" curation view
+        // (and any status filter) index-scanned instead of a table scan.
+        try {
+            $r = $conn->query("SHOW INDEX FROM mezmur_hymns WHERE Key_name = 'idx_mz38_audio_status'");
+            $has = $r ? (bool)$r->fetch_assoc() : false;
+            if ($r) { $r->close(); }
+            if (!$has) {
+                $sql = "ALTER TABLE mezmur_hymns ADD KEY `idx_mz38_audio_status` (`audio_status`)";
+                if ($conn->query($sql) === false) {
+                    $failed['index:idx_mz38_audio_status'] = (string)$conn->error;
+                } else {
+                    $applied[] = 'added index idx_mz38_audio_status';
+                }
+            }
+        } catch (\Throwable $e) {
+            // audio columns absent (freshly created table above) -> skip
         }
         // 031's storage-level title uniqueness (MZ-6): the SELECT-then-
         // INSERT dup check loses under concurrency; a real UNIQUE key

@@ -65,3 +65,6 @@ __pycache__/
 *.pyc
 uploads/mezmur_categories/*
 !uploads/mezmur_categories/.htaccess
+# singer (zemarian) cover images live here too — same rule
+uploads/mezmur_zemarians/*
+!uploads/mezmur_zemarians/.htaccess

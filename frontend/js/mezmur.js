@@ -2219,8 +2219,8 @@
                 $('mzAudioRemoveBtn').classList.remove('is-hidden');
             } else if (status === 'pending') {
                 pWrap.classList.add('is-hidden');
-                $('mzAudioPickLabel').textContent = 'Finish upload (choose the file again)';
-                $('mzAudioState').textContent = 'An upload was started but not finished. Pick the file again to complete it.';
+                $('mzAudioPickLabel').textContent = 'Upload audio (choose the file)';
+                $('mzAudioState').textContent = 'A previous upload was started but never finished, so it was discarded — choosing the file starts a fresh upload (there is no resume).';
                 $('mzAudioRemoveBtn').classList.remove('is-hidden');
             } else {
                 pWrap.classList.add('is-hidden');
@@ -2274,7 +2274,12 @@
 
             var xhr = new XMLHttpRequest();
             xhr.open('PUT', d.upload_url, true);
-            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+            // Content-Type is SIGNED into the presigned URL, so it must be
+            // the server-chosen value, not file.type. Sending anything else
+            // makes storage reject the PUT. (Content-Length is signed too,
+            // but browsers set it from the real body and forbid overriding
+            // it — which is what pins the reserved size.)
+            xhr.setRequestHeader('Content-Type', d.content_type || file.type || 'application/octet-stream');
             xhr.upload.onprogress = function (e) {
                 if (e.lengthComputable) {
                     var pct = Math.round((e.loaded / e.total) * 100);

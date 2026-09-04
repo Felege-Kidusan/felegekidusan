@@ -57,10 +57,10 @@ dependencies:
   path: ^1.8.0
   crypto: ^3.0.3
 
-  # P0 mezmur audio player — Spotify-style playback with background
-  # support. just_audio is the playback engine; just_audio_background
-  # (built on audio_service) adds the media notification, lock-screen
-  # transport + headset buttons for its single auto-managed player.
+  # P0 mezmur audio player — streaming playback with background support.
+  # just_audio is the playback engine; just_audio_background (built on
+  # audio_service) adds the media notification, lock-screen transport +
+  # headset buttons for its single auto-managed player.
   # audio_service is a DIRECT dependency so its public types (MediaItem,
   # AudioProcessingState…) resolve in app code, and audio_session lets
   # us configure the shared session for music (interruptions/ducking).
@@ -68,6 +68,10 @@ dependencies:
   just_audio_background: ^0.0.1-beta.17
   audio_service: ^0.18.19
   audio_session: ^0.2.4
+  # Android 13+ will not show the media notification (and therefore no
+  # lock-screen transport) unless POST_NOTIFICATIONS is granted at
+  # runtime; declaring it in the manifest alone is not enough.
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

@@ -90,8 +90,11 @@ define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password
 // and api/v1/app_release.example.php  →  /home/USER/.fkss_app_release.php
 
 // ---- Mezmur audio media (Cloudflare R2) — P0 audio upgrade (OPTIONAL) ----
-// Fill these to stream hymns from Cloudflare R2 (free tier: 10 GB storage,
-// $0 egress). Until they are set, hymn audio endpoints answer
+// Fill these to stream hymns from Cloudflare R2. Egress is free, but Class A
+// (PUT/LIST) and Class B (GET) OPERATIONS are billed past the free monthly
+// allowance, and streaming generates a Class B read per play — size the
+// budget on operations, not on bandwidth.
+// Until they are set, hymn audio endpoints answer
 // "not configured" and the rest of the system is untouched.
 // How to get them: R2 → Manage R2 API Tokens → Create API Token (Object
 // Read & Write, scoped to ONE bucket) — the Secret is shown only once.

@@ -4,6 +4,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// P0 mezmur — a single mezmur hymn that can be played.
 class MezmurTrack {
@@ -160,6 +161,13 @@ class MezmurAudioPlayerController extends ChangeNotifier {
 
   Future<void> _ensureConfigured() async {
     if (_configured) return;
+    // Android 13+ hides the media notification — and with it the
+    // lock-screen transport and headset controls — unless
+    // POST_NOTIFICATIONS is granted. Declaring the permission in the
+    // manifest is not enough; it is a runtime permission. Asked once,
+    // before the first play, and a refusal only costs the notification:
+    // audio itself keeps playing.
+    await _ensureNotificationPermission();
     try {
       // Music-grade session: interrupts other audio apps; other apps
       // duck/pause us appropriately (headphones out → just_audio pauses
@@ -170,6 +178,22 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     } catch (_) {
       // Session config is advisory; playback still works with defaults.
       _configured = true;
+    }
+  }
+
+  bool _notificationAsked = false;
+
+  Future<void> _ensureNotificationPermission() async {
+    if (_notificationAsked) return;
+    _notificationAsked = true;
+    try {
+      final status = await Permission.notification.status;
+      if (!status.isGranted) {
+        await Permission.notification.request();
+      }
+    } catch (_) {
+      // No plugin on this platform, or the host denies the dialog.
+      // Playback is unaffected — only the shutter is missing.
     }
   }
 

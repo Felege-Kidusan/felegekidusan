@@ -116,10 +116,31 @@ class MezmurUiUxTests(unittest.TestCase):
 
     def test_modals_are_dialogs_with_close_labels(self):
         # hymn, view, taker + phase-5 review & packet modals + catalog dialog
-        # + cover/color/system dialogs (P34)
-        self.assertEqual(self.shell.count('role="dialog"'), 8)
-        self.assertEqual(self.shell.count('aria-modal="true"'), 8)
+        # + cover/color/system dialogs (P34) + hymn audio dialog (P0)
+        self.assertEqual(self.shell.count('role="dialog"'), 9)
+        self.assertEqual(self.shell.count('aria-modal="true"'), 9)
         self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 7)
+
+    def test_audio_modal_is_wired_and_accessible(self):
+        # P0: the audio dialog follows the same contract as every other
+        # modal — labelled, closable, driven by the shared focus manager.
+        self.assertIn('id="mzAudioModal" role="dialog" aria-modal="true" aria-labelledby="mzAudioTitle"', self.shell)
+        self.assertIn('aria-label="Close dialog"', self.shell.split('id="mzAudioModal"')[1][:600])
+        self.assertIn('id="mzAudioErr" role="alert"', self.shell)
+        # the row button and the modal's close button both go through the
+        # module's public surface, never through a global
+        self.assertIn("audioManage: openAudio,", self.js)
+        self.assertIn("closeAudio: function () { closeModalF('mzAudioModal'); },", self.js)
+        self.assertIn("Mezmur.audioManage(", self.js)
+        self.assertIn("Mezmur.closeAudio()", self.shell)
+        # the file input is the only thing that can start an upload
+        self.assertIn('id="mzAudioFile" accept="audio/', self.shell)
+
+    def test_audio_progress_bar_width_comes_from_css_not_markup(self):
+        # test_shell_has_zero_inline_styles is only meaningful if the
+        # replacement actually exists: the bar's resting width lives in CSS.
+        self.assertIn(".mz-progress-bar { height: 100%; width: 0;", self.css)
+        self.assertIn("#mzAudioPlayer { display: block; width: 100%; }", self.css)
 
     def test_modal_focus_management(self):
         self.assertIn("function openModalF(", self.js)

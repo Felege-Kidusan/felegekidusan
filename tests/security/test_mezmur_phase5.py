@@ -16,6 +16,7 @@ Static analysis only (mirrors the rest of the suite).
 """
 
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -175,9 +176,18 @@ class MezmurPhase5Tests(unittest.TestCase):
             "case 'submission_review':",
         ]:
             self.assertIn(token, self.api)
-        # review is POST-only + role-checked + rate-limited as a write
-        self.assertIn("'zemarian_status', 'zemarian_image', 'zemarian_image_remove'], true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
-        self.assertIn("'zemarian_status', 'zemarian_image', 'zemarian_image_remove'], true)\n    ? 'mezmur_write'", self.api)
+        # review is POST-only + role-checked + rate-limited as a write.
+        # Asserted against the $postActions ARRAY itself rather than its
+        # trailing literal, which moved when P0 appended the audio actions.
+        post_actions = re.search(r"\$__postActions = \[(.*?)\];", self.api, re.S).group(1)
+        for action in ("'submission_review'", "'save'", "'set_status'",
+                       "'zemarian_status'", "'zemarian_image'", "'zemarian_image_remove'",
+                       "'audio_presign'", "'audio_confirm'", "'audio_remove'",
+                       "'audio_set_duration'", "'migrate'"):
+            self.assertIn(action, post_actions)
+        self.assertIn("in_array($action, $__postActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST'", self.api)
+        # the same list drives the write rate-limit bucket
+        self.assertIn("in_array($action, $__postActions, true)\n    ? 'mezmur_write'", self.api)
         # schema-drift killer endpoints
         self.assertIn("case 'schema'", self.api)
         self.assertIn("case 'migrate'", self.api)
@@ -847,7 +857,7 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertNotIn("_referenceCtrl", self.editor)
         self.assertIn("Title (ርዕስ) *", self.editor)
         # local DB folds on upgrade to v16 and rebuilds the word index.
-        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)
+        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34)
         self.assertIn("UPDATE cached_hymns SET title = title_am", self.db)
         self.assertIn("UPDATE cached_hymns SET title_am = NULL, reference = NULL", self.db)
         # local LIKE search is title-only.
@@ -981,7 +991,7 @@ class CoverColorAndUxStateTests(unittest.TestCase):
     # ── mobile gradient system ─────────────────────────────────
     def test_mobile_gradient_pipeline(self):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/utils/cover_palette.dart").exists())
-        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)
+        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34)
         self.assertIn("gradient_start", self.db)           # columns + upserts
         self.assertIn("coverColors", self.hymns)           # shared util used
         self.assertIn("Cover color", self.cats)            # manager entry
@@ -1248,7 +1258,7 @@ class SubcategoryClientTests(unittest.TestCase):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_category_screen.dart").exists())
         self.assertIn("MezmurCategoryScreen(", self.hymns)
         self.assertIn("image_url", self.db)   # covers cached on-device
-        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)
+        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34)
 
     def test_mobile_rollup(self):
         # local filter + counts roll a MAIN over its subs
@@ -1496,11 +1506,11 @@ class ZemarianImagesAndCatalogCollapseTests(unittest.TestCase):
         # multipart guard: a real uploaded file is required
         self.assertIn("is_uploaded_file($zfile['tmp_name'] ?? '')", self.route)
         # role + rate-limit gates on both new routes
-        self.assertEqual(self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 10)
+        self.assertEqual(self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 14)
 
     # ── singer images: mobile ───────────────────────────────────
     def test_mobile_local_schema_v19(self):
-        self.assertIn("version: 19,", self.db)
+        self.assertIn("version: 20,", self.db)
         self.assertIn(
             "ALTER TABLE cached_mezmur_zemarians ADD COLUMN image_url TEXT NULL", self.db)
         self.assertIn("image_url TEXT NULL,", self.db)  # fresh installs
@@ -1850,6 +1860,26 @@ class MezmurProdDiagTests(unittest.TestCase):
         self.assertIn("class_wiring", self.shim)
         self.assertIn("controller_requires_rate_limiter", self.shim)
 
+    def test_diag_endpoint_is_super_admin_only(self):
+        """The diagnostic deliberately runs BEFORE the controller, so it
+        needs its own gate. Ungated it handed any anonymous visitor the
+        PHP version, extension list, OPcache state, internal file map,
+        class wiring and — on ?diag=2 — the database name, migration state
+        and feature flags."""
+        gate_start = self.shim.index("isset($_GET['diag'])")
+        body_start = self.shim.index("$root = dirname(dirname(__DIR__))")
+        gate = self.shim[gate_start:body_start]
+        # the gate sits between the diag entry and the first disclosure
+        self.assertIn("$_SESSION['admin_logged_in']", gate)
+        self.assertIn("'super_admin'", gate)
+        self.assertIn("$diagRole !== 'super_admin'", gate)
+        # a rejection must not confirm that a diagnostic lives here
+        self.assertIn("Unknown endpoint.", gate)
+        self.assertIn("http_response_code(404)", gate)
+        # and it must run before the controller's own session gate,
+        # otherwise the controller (not this block) is what answered
+        self.assertLess(gate_start, self.shim.index("admin/api_mezmur.php"))
+
     def test_shim_php_lint(self):
         if shutil.which("php") is None:
             self.skipTest("php CLI not available")
@@ -1879,8 +1909,30 @@ class MezmurSchemaReconcilerTests(unittest.TestCase):
 
     def test_reconciler_covers_every_mezmur_table(self):
         for tbl in ["mezmur_hymns", "mezmur_days", "mezmur_attendance",
-                    "mezmur_attendance_audit", "mezmur_submissions"]:
+                    "mezmur_attendance_audit", "mezmur_submissions",
+                    # 038 (P0 audio plane) — reserved by the migration
+                    "mezmur_play_stats", "mezmur_user_favorites"]:
             self.assertIn("'" + tbl + "'", self.rec)
+
+    def test_reconciler_closes_the_038_audio_drift(self):
+        """The P0 media service fails closed without sql/038 and its error
+        message sends admins to the "Sync DB schema" button — so the
+        reconciler must actually be able to close that drift. If these
+        columns leave the contract, that message becomes a lie again."""
+        for col in ["audio_key", "audio_duration_s", "audio_size", "audio_format",
+                    "audio_status", "audio_uploaded_by", "audio_updated_at",
+                    "lyrics_synced", "lyrics_synced_at", "lyrics_synced_by"]:
+            self.assertIn(f"'{col}'", self.rec, col)
+        self.assertIn("ENUM('none','pending','ready','rejected')", self.rec)
+        self.assertIn("idx_mz38_audio_status", self.rec)
+        # every column the reconciler promises must exist in the migration
+        # it claims to mirror — the two contracts must not drift apart
+        sql038 = (ROOT / "sql/038_mezmur_audio_media.sql").read_text(encoding="utf-8")
+        for col in ["audio_key", "audio_status", "lyrics_synced", "lyrics_synced_by"]:
+            self.assertIn(f"`{col}`", sql038, col)
+        # and the error text must point at something that now works
+        media = (ROOT / "admin/backend/services/MezmurMediaService.php").read_text(encoding="utf-8")
+        self.assertIn("Sync DB schema", media)
 
     def test_reconciler_is_guarded_and_idempotent(self):
         self.assertIn("SHOW COLUMNS FROM", self.rec)
@@ -1895,8 +1947,12 @@ class MezmurSchemaReconcilerTests(unittest.TestCase):
         self.assertIn("case 'schema'", self.api)
         self.assertIn("case 'migrate'", self.api)
         # migrate is POST-enforced and write-rate-limited
-        mig = self.api.split("in_array($action, [")[1]
-        self.assertIn("'migrate'", mig)
+        post_actions = re.search(r"\$__postActions = \[(.*?)\];", self.api, re.S).group(1)
+        self.assertIn("'migrate'", post_actions)
+        # MZ-13: schema reconciliation stays admin-only even though the
+        # reconciler itself emits nothing but guarded mezmur DDL.
+        migrate_block = self.api.split("case 'migrate':")[1].split("case '")[0]
+        self.assertIn("['super_admin', 'school_admin']", migrate_block)
 
     def test_one_click_ui_exists(self):
         self.assertIn("migrateSchema", self.js)
@@ -2194,16 +2250,51 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertIn("categoriesReady", self.hymn_svc)
 
     # ── mobile routes: gated + idempotent + rate-limited ──────
+    # Every library/media WRITE action, by name. A bare count went stale
+    # the moment the P0 audio plane added four routes; naming them makes a
+    # new ungated write impossible to merge silently.
+    WRITE_ACTIONS = (
+        "hymn", "hymn-status", "category", "category-status", "category-image",
+        "category-image-remove", "zemarian", "zemarian-status", "zemarian-image",
+        "zemarian-image-remove",
+        "audio-presign", "audio-confirm", "audio-remove", "lyrics-synced",
+    )
+
+    def _action_block(self, action, span=900):
+        marker = f"── POST /mezmur/{action} "
+        i = self.route.index(marker)
+        return self.route[i:i + span]
+
     def test_routes_gate_writes_and_keep_reads_open(self):
         self.assertIn("$MEZMUR_LIBRARY_WRITE_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];", self.route)
+        for action in self.WRITE_ACTIONS:
+            block = self._action_block(action)
+            self.assertIn("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)", block, action)
+            self.assertIn("isApiRateLimited(", block, action)
         self.assertEqual(
-            # hymn, category, category-status, category-image, zemarian,
-            # zemarian-status, attendance sheet
-            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 10
+            self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"),
+            len(self.WRITE_ACTIONS),
         )
-        # sheet + 4 library writers + submission review + category/singer mgmt
-        self.assertEqual(self.route.count("apiIdempotencyBegin("), 8)
+        # Idempotency keys: the 12 offline-replayable writes (library,
+        # taxonomy, media, lyrics, sheet, submission review).
+        self.assertEqual(self.route.count("apiIdempotencyBegin("), 12)
         self.assertGreaterEqual(self.route.count("isApiRateLimited('mezmur_hymn_write'"), 4)
+        # the three media writes get their own bucket
+        self.assertEqual(self.route.count("isApiRateLimited('mezmur_audio_write'"), 3)
+
+    def test_reads_stay_open_to_takers(self):
+        # Reads are gated to the READ role list, never the write list —
+        # a taker must keep seeing the library.
+        for action, marker in (
+            ("hymns", "── GET /mezmur/hymns "),
+            ("hymn", "── GET /mezmur/hymn?id="),
+            ("categories", "── GET /mezmur/categories "),
+            ("zemarians", "── GET /mezmur/zemarians "),
+        ):
+            i = self.route.index(marker)
+            block = self.route[i:i + 500]
+            self.assertNotIn("$MEZMUR_LIBRARY_WRITE_ROLES", block, action)
+            self.assertIn("isApiRateLimited(", block, action)
 
     def test_routes_delta_and_conflict_shapes(self):
         self.assertIn("($ROUTE['sub'] ?? '') === 'changes'", self.route)
@@ -2247,7 +2338,8 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 19,", self.db)  # 19 = singer covers (P34)  # 17 = two-level taxonomy (P30); 16 = single title
+        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34);
+        # 17 = two-level taxonomy (P30); 16 = single title
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {t}", self.db)
@@ -2477,3 +2569,214 @@ class MobileDartParityTests(unittest.TestCase):
         cleanup = self.store.split("Future<void> _dropLocalPlaceholder")[1][:900]
         self.assertIn("cached_hymn_categories", cleanup)
         self.assertIn("cached_hymn_zemarians", cleanup)
+
+
+class MezmurMediaPlaneTests(unittest.TestCase):
+    """P0 audio plane (R2 direct upload). Findings F3/F4 from the deep
+    audit: the original presign constrained nothing but the key, so a
+    client could reserve 1 byte and store 5 MB, or store text/html under
+    an .mp3 key on the public media domain; confirmUpload() only checked
+    existence, never size; and replacing audio orphaned the old object.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.media = (
+            ROOT / "admin/backend/services/MezmurMediaService.php"
+        ).read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
+        cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
+        cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+
+    # ── presign signs what the upload is allowed to be ────────────
+    def test_presign_signs_content_type_and_length(self):
+        self.assertIn("array $extraHeaders = []", self.media)
+        self.assertIn("$signedHeaders = implode(';', array_keys($signed));", self.media)
+        self.assertIn("$query['X-Amz-SignedHeaders'] = $signedHeaders;", self.media)
+        # the canonical request must use the full signed-header list, not
+        # a hardcoded 'host'
+        self.assertNotIn(". 'host' . \"\\n\"", self.media)
+        self.assertIn(". $signedHeaders . \"\\n\"", self.media)
+        # the upload presign actually passes both headers
+        presign_call = self.media.split("$uploadUrl = self::presign('PUT'")[1][:400]
+        self.assertIn("'content-type' => $contentType", presign_call)
+        self.assertIn("'content-length' => (string)$size", presign_call)
+
+    def test_content_type_is_server_chosen_never_client_chosen(self):
+        self.assertIn("private static function contentTypeFor(string $ext): string", self.media)
+        for pair in ("'mp3'  => 'audio/mpeg'", "'m4a'  => 'audio/mp4'",
+                     "'wav'  => 'audio/wav'", "'opus' => 'audio/ogg'"):
+            self.assertIn(pair, self.media)
+        begin = self.media.split("public static function beginUpload(")[1].split("public static function confirmUpload(")[0]
+        self.assertIn("$contentType = self::contentTypeFor($ext);", begin)
+        # the client's own guess must not be what gets stored/served
+        self.assertNotIn("$_FILES", begin)
+        self.assertNotIn("$_POST['content_type']", begin)
+
+    def test_presign_response_tells_clients_the_headers_to_send(self):
+        self.assertIn("'content_type' => $contentType", self.media)
+        self.assertIn("'content_length' => $size", self.media)
+        self.assertIn("'content_type' => $result['content_type'] ?? ''", self.api)
+        self.assertIn("'content_type' => $result['content_type'] ?? ''", self.route)
+        # and the browser sends the server-chosen type, not file.type
+        self.assertIn("d.content_type || file.type", self.js)
+
+    # ── confirm verifies SIZE, not just existence ─────────────────
+    def test_http_client_captures_response_headers(self):
+        self.assertIn("CURLOPT_HEADER => true", self.media)
+        self.assertIn("private static function parseHeaders(string $block): array", self.media)
+        self.assertIn("self::parseHeaders($headBlock)", self.media)
+        # the stream-wrapper fallback must capture them too
+        self.assertIn("self::parseHeaders(implode(\"\\r\\n\", $rawHeaders))", self.media)
+        self.assertNotIn("'headers' => []", self.media)
+
+    def test_confirm_rejects_a_size_mismatch(self):
+        confirm = self.media.split("public static function confirmUpload(")[1].split("public static function removeAudio(")[0]
+        self.assertIn("$head['headers']['content-length']", confirm)
+        self.assertIn("(int)$actualRaw !== $reserved", confirm)
+        self.assertIn("SET audio_status='rejected'", confirm)
+        self.assertIn("Mezmur Audio Upload Rejected", confirm)
+        # the reject path must return a failure, not fall through to ready
+        self.assertLess(confirm.index("audio_status='rejected'"), confirm.index("audio_status='ready'"))
+
+    # ── F4: no orphaned objects ───────────────────────────────────
+    def test_begin_upload_retires_the_outgoing_object(self):
+        begin = self.media.split("public static function beginUpload(")[1].split("public static function confirmUpload(")[0]
+        self.assertIn("SELECT id, audio_key FROM mezmur_hymns WHERE id = ?", begin)
+        self.assertIn("self::http('DELETE', self::presign('DELETE', $previousKey, 120));", begin)
+        # ...and it happens BEFORE the new key is reserved
+        self.assertLess(begin.index("$previousKey"), begin.index("self::keyFor("))
+
+    # ── the internal key still never leaves the server ────────────
+    def test_audio_key_never_reaches_a_client(self):
+        self.assertIn("unset($r['audio_key']);", self.media)
+        for src, name in ((self.api, "web controller"), (self.route, "REST route")):
+            self.assertNotIn("'audio_key'", src, name)
+        # and audio_url only when verified ready
+        self.assertIn("($status === 'ready' && $key !== '') ? self::publicUrl($key) : ''", self.media)
+
+
+class MezmurMobileAudioPlatformTests(unittest.TestCase):
+    """Android/iOS wiring for P0 background playback (findings F7/F8) and
+    the dependency lock the mobile build resolves against."""
+
+    @classmethod
+    def setUpClass(cls):
+        app = ROOT / "Mobile/wbws_flutter_app"
+        cls.manifest = (app / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        cls.pubspec = (app / "pubspec.yaml").read_text(encoding="utf-8")
+        cls.lock = (app / "pubspec.lock").read_text(encoding="utf-8")
+        cls.player = (app / "lib/services/mezmur_audio_player.dart").read_text(encoding="utf-8")
+
+    # ── F7: the media service must not be world-bindable ──────────
+    def test_audio_service_is_not_exported(self):
+        svc = self.manifest.split('android:name="com.ryanheise.audioservice.AudioService"')[1][:400]
+        self.assertIn('android:exported="false"', svc)
+        self.assertNotIn('android:exported="true"', svc)
+        # media buttons still work: the receiver stays exported
+        rcv = self.manifest.split('android:name="com.ryanheise.audioservice.MediaButtonReceiver"')[1][:400]
+        self.assertIn('android:exported="true"', rcv)
+
+    # ── F8: POST_NOTIFICATIONS is declared AND requested ──────────
+    def test_notification_permission_is_declared_and_requested(self):
+        self.assertIn('android:name="android.permission.POST_NOTIFICATIONS"', self.manifest)
+        self.assertIn("permission_handler:", self.pubspec)
+        self.assertIn("import 'package:permission_handler/permission_handler.dart';", self.player)
+        self.assertIn("Permission.notification.request()", self.player)
+        # asked once, before the first play, and a refusal is survivable
+        self.assertIn("_ensureNotificationPermission()", self.player)
+        self.assertIn("if (_notificationAsked) return;", self.player)
+        ensure = self.player.split("Future<void> _ensureConfigured()")[1].split("bool _notificationAsked")[0]
+        self.assertIn("await _ensureNotificationPermission();", ensure)
+
+    # ── the mobile build must actually be able to resolve its deps ─
+    def test_pubspec_lock_contains_the_audio_dependencies(self):
+        """pubspec.lock is what `flutter build` resolves against. If a
+        dependency is added to pubspec.yaml without re-running pub get,
+        the committed lock has no entry for it and every `package:` import
+        fails to resolve — the app cannot build at all."""
+        for pkg in ("just_audio", "just_audio_background", "audio_service",
+                    "audio_session", "permission_handler"):
+            self.assertIn(pkg + ":", self.pubspec, f"{pkg} missing from pubspec.yaml")
+            self.assertRegex(self.lock, r"(?m)^  " + pkg + r":",
+                             f"{pkg} is in pubspec.yaml but NOT in pubspec.lock — "
+                             f"run `flutter pub get` in Mobile/wbws_flutter_app and commit the lock")
+
+
+class MezmurSyncedLyricsContractTests(unittest.TestCase):
+    """F5 convergence + canonical dialect.
+
+    The canonicalizer is pure and DB-free, so these tests EXECUTE the
+    real PHP code path (php -r) instead of re-implementing it; the
+    delta wiring is asserted at source level (it needs mysqli)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.media = (ROOT / "admin/backend/services/MezmurMediaService.php").read_text(encoding="utf-8")
+        cls.hymn = (ROOT / "admin/backend/services/MezmurHymnService.php").read_text(encoding="utf-8")
+        cls.local_db = (ROOT / "Mobile/wbws_flutter_app/lib/services/local_db.dart").read_text(encoding="utf-8")
+
+    @staticmethod
+    def canon(lrc):
+        import json as _json
+        import os as _os
+        env = dict(_os.environ)
+        env["LRC"] = lrc
+        env["SRV"] = str(ROOT / "admin/backend/services/MezmurMediaService.php")
+        p = subprocess.run(
+            ["php", "-r",
+             'require getenv("SRV"); '
+             '$r = App\\Services\\MezmurMediaService::canonicalizeLrc(getenv("LRC")); '
+             'echo json_encode($r, JSON_UNESCAPED_UNICODE);'],
+            capture_output=True, text=True, env=env, timeout=60)
+        if p.returncode != 0:
+            raise AssertionError("php canonicalizeLrc crashed: " + p.stderr[:400])
+        return _json.loads(p.stdout)
+
+    @unittest.skipUnless(shutil.which("php"), "php CLI not installed")
+    def test_bracket_runs_are_expanded_not_lost(self):
+        r = self.canon("[ti:Test]\n[00:09.00][00:01.00]መዝሙር\n[00:75]ቅጥያ")
+        self.assertTrue(r["ok"], r.get("message"))
+        self.assertEqual(r["timed"], 3)
+        self.assertEqual(
+            r["doc"],
+            "[ti:Test]\n"
+            "[00:01.000] መዝሙር\n"
+            "[00:09.000] መዝሙር\n"
+            "[01:15.000] ቅጥያ")
+
+    @unittest.skipUnless(shutil.which("php"), "php CLI not installed")
+    def test_hand_made_quirks_are_repaired(self):
+        r = self.canon("[00:01.5]a\n[00:02]b")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["doc"], "[00:01.500] a\n[00:02.000] b")
+
+    @unittest.skipUnless(shutil.which("php"), "php CLI not installed")
+    def test_unrepairable_lines_are_rejected_loudly(self):
+        for bad in ("[Verse 1] chorus", "[01:02:03.00] hour format", "plain text"):
+            r = self.canon(bad)
+            self.assertFalse(r["ok"], f"should reject: {bad}")
+            self.assertIn("not a timestamp line", r["message"])
+
+    @unittest.skipUnless(shutil.which("php"), "php CLI not installed")
+    def test_empty_document_is_rejected(self):
+        r = self.canon("   \n  ")
+        self.assertFalse(r["ok"])
+        self.assertIn("at least one timed line", r["message"])
+
+    def test_save_synced_lyrics_stores_the_canonical_form(self):
+        self.assertIn("self::canonicalizeLrc($lrc)", self.media)
+        # the canonical doc, not the raw input, is what gets persisted
+        save = self.media.split("public static function saveSyncedLyrics")[1].split("public static function")[0]
+        self.assertIn("$lrc = (string)$canon['doc'];", save)
+
+    def test_delta_pull_carries_synced_lyrics(self):
+        delta = self.hymn.split("public static function listChangedSince")[1].split("public static function attachTaxonomyBulk")[0]
+        self.assertIn("$syncedCols = self::syncedColExpr($conn) . ', ' . self::syncedAtColExpr($conn);", delta)
+        self.assertEqual(delta.count("$mediaCols, $syncedCols"), 2,
+                         "both delta SELECT branches (cursor + bootstrap) must carry the synced columns")
+
+    def test_flutter_delta_upsert_still_applies_synced_keys(self):
+        # the client side of the convergence contract (regression guard)
+        self.assertIn("h.containsKey('lyrics_synced')", self.local_db)
+        self.assertIn("'lyrics_synced_at'", self.local_db)

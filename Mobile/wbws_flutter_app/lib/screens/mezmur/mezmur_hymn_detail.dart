@@ -334,7 +334,7 @@ class _LyricsView extends StatelessWidget {
 }
 
 /// P0 audio entry on the hymn reader: a maroon/gold listen tile that opens
-/// the parchment Spotify-style player for this single hymn.
+/// the parchment full-screen player for this single hymn.
 class _PlayTile extends StatelessWidget {
   final String title;
   final bool hasSynced;

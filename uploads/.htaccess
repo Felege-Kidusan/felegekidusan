@@ -10,7 +10,10 @@
 </FilesMatch>
 
 # Allow images (Apache 2.4 and 2.2 / LiteSpeed)
-<FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|pdf|doc|docx)$">
+# SVG is deliberately NOT listed: it is served as a document and can
+# carry script, so an uploaded .svg is stored XSS. Nothing in this app
+# writes SVG here (image uploads are re-encoded to JPEG/PNG).
+<FilesMatch "\.(jpg|jpeg|png|gif|webp|pdf|doc|docx)$">
     <IfModule mod_authz_core.c>
         Require all granted
     </IfModule>

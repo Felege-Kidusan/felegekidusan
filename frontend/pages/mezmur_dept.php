@@ -707,7 +707,7 @@ ob_start();
 
         <!-- Player (shown when a verified file exists) -->
         <div class="mz-audio-player-wrap is-hidden" id="mzAudioPlayerWrap">
-            <audio id="mzAudioPlayer" controls preload="metadata" style="width:100%"></audio>
+            <audio id="mzAudioPlayer" controls preload="metadata"></audio>
         </div>
 
         <!-- Status / guidance line -->
@@ -726,7 +726,7 @@ ob_start();
 
         <!-- Upload progress (direct PUT to R2) -->
         <div class="is-hidden" id="mzAudioProgressWrap">
-            <div class="mz-progress-track"><div class="mz-progress-bar" id="mzAudioProgressBar" style="width:0%"></div></div>
+            <div class="mz-progress-track"><div class="mz-progress-bar" id="mzAudioProgressBar"></div></div>
             <div class="text-dim" id="mzAudioProgressLabel">Uploading… 0%</div>
         </div>
 

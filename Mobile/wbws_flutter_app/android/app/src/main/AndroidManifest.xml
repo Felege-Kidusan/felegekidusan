@@ -58,11 +58,16 @@
              media notification / lock-screen transport while the app is in
              the background. MainActivity subclasses
              AudioServiceFragmentActivity (see MainActivity.kt) so the Flutter
-             engine that owns the player stays bound to this service. -->
+             engine that owns the player stays bound to this service.
+             exported="false": the service is only ever bound from inside
+             this process. Exporting it (the template default) would let any
+             app on the device connect to the MediaBrowserService and drive
+             the media session. Media-button intents arrive through the
+             separate MediaButtonReceiver below, which does need exporting. -->
         <service
             android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="true"
+            android:exported="false"
             tools:ignore="Instantiatable">
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />

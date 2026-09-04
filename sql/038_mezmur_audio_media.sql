@@ -1,7 +1,9 @@
 -- ════════════════════════════════════════════════════════════
--- 038 — Mezmur audio media + synced lyrics (DRAFT — for review)
+-- 038 — Mezmur audio media + synced lyrics
 -- ════════════════════════════════════════════════════════════
--- Companion to mezmur-audio-upgrade/DEEP_ANALYSIS_AUDIO_UPGRADE.md
+-- Applied by hand OR by MezmurSchemaReconciler::apply() (action=migrate
+-- in the Mezmur console) — the reconciler carries the same column
+-- contract, so the two paths cannot drift apart.
 --
 -- Design intent (read first):
 --   • Audio BYTES never live in this database nor on the shared

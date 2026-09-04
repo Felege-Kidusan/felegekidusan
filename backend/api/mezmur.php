@@ -10,6 +10,8 @@
  * making every real error invisible. The diagnostic:
  *   - uses only ancient PHP syntax (parses on any PHP >= 5.4),
  *   - ALWAYS answers HTTP 200 so no host handler can mask it,
+ *   - refuses anyone who is not a logged-in super_admin (it runs before
+ *     the controller, so it carries its own gate — see below),
  *   - ?diag=1 : zero-dependency facts — PHP version, extensions, OPcache
  *     state, parse-check of every mezmur file under the server's own PHP,
  *     and whether the controller on DISK is the current version. It never
@@ -22,6 +24,26 @@
 if (isset($_GET['diag'])) {
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-cache, no-store, must-revalidate');
+
+    // ── AUTH GATE ────────────────────────────────────────────────
+    // This diagnostic deliberately runs BEFORE the real controller (that
+    // is the whole point — it survives whatever killed the controller),
+    // so it must carry its own gate. Without one, any anonymous visitor
+    // could read the PHP version, the extension list, the OPcache state,
+    // the internal file map, the class wiring and — on ?diag=2 — the
+    // database name, the migration state and the feature flags.
+    //
+    // super_admin only. It answers like any other unknown endpoint so it
+    // does not advertise that a diagnostic exists here at all.
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    $diagRole = isset($_SESSION['admin_role']) ? (string)$_SESSION['admin_role'] : '';
+    if (empty($_SESSION['admin_logged_in']) || $diagRole !== 'super_admin') {
+        http_response_code(404);
+        echo json_encode(array('status' => 'error', 'message' => 'Unknown endpoint.'));
+        exit;
+    }
 
     $root = dirname(dirname(__DIR__)); // repo root / webroot
     $out = array(

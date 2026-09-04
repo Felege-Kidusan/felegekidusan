@@ -1,0 +1,240 @@
+arkeonethiopia.com.                                     86400 IN SOA ns1.etsecureserver.com. support.gojohost.net. 2026090303 3600 1800 1209600 86400
+arkeonethiopia.com.                                     86400 IN NS ns1.etsecureserver.com.
+arkeonethiopia.com.                                     86400 IN NS ns2.etsecureserver.com.
+arkeonethiopia.com.                                     14400 IN A 135.181.160.205
+arkeonethiopia.com.                                     14400 IN MX 0 arkeonethiopia.com.
+mail.arkeonethiopia.com.                                14400 IN CNAME arkeonethiopia.com.
+www.arkeonethiopia.com.                                 14400 IN CNAME arkeonethiopia.com.
+ftp.arkeonethiopia.com.                                 14400 IN A 135.181.160.205
+arkeonethiopia.com.                                     14400 IN TXT "v=spf1 ip4:135.181.160.205 +a +mx +ip4:65.21.72.120 ~all"
+whm.arkeonethiopia.com.                                 14400 IN A 135.181.160.205
+cpcontacts.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+webmail.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+cpanel.arkeonethiopia.com.                              14400 IN A 135.181.160.205
+webdisk.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+cpcalendars.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+default._domainkey.arkeonethiopia.com.                  14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu+BwwjAMUj/Cug/hVOgwk4y485oZEOC8XcqlPTgejek+o6Ig0qI0lhDQCbrzsci9aFpzCVmU3iO7sCpc4lIVaJKTJZahRjLyZfeCxzF9T5lr1mHgoA5IZaIeodW2vn3qOXhEH6HGV7XDfMTctDD2wUhJn0fAprYdkm6vG61kArcTEKVtbSP0+xycpPFBhuL+S" "DU6PwrFh9fgY1MdX6RlJRMhKH9wEvZWGrJmxrkO5vf9P95eiF/gFm9JkHS0k5ybFIyFCyYAIiBndUxIeRCwDIhYKlxyJsCdiAckdi3R7PKViuS2/K7d9WaNmhKdnBQqa1sfbou96zP4oZ+82nfw2QIDAQAB;"
+_cpanel-dcv-test-record.arkeonethiopia.com.             14400 IN TXT "_cpanel-dcv-test-record=fJzpJalZvOeEs3YjTzOzDnO80OQwJ7QQ9VPC8ksxuArZKc7NiVnTWGoyfnLPCkYj"
+_acme-challenge.arkeonethiopia.com.                     14400 IN TXT "iL6J8b2nbj57ZPEGISd8qXlzLH2Kaj206bOFgyw-lc8"
+popular.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+www.popular.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+default._domainkey.popular.arkeonethiopia.com.          14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxezbIQ8KVOwfR4QShMUynIbtAAZ1wvxFZIp7p2J/DeXUZ+buMKp9bJAmu5VoJgh4r5dlAJQQwvOVnaw/HTu8NxrcLdz3+8Kgl4JJUjjzEQ59smadi2OVnByJOtPL7vCCgWfy+sCrszmAWkjs7s0SRCL036MLuIrfqg0MFb37U0RxuXPrbs2j9bui31tuBkNVw" "kRF7fstsib79qV/9BFLPqrMhoJV4P0nW5XkuD61LE4turUcYRnjg5FmqpF2l+uesgQMrujTcFaiijejW2J7y9hTmTy2gWrvlkH6Z0ihcraEUI4UHNhZPxZC2ukyOezexEJmLOKjmCVjO0+JmP751wIDAQAB;"
+popular.arkeonethiopia.com.                             14400 IN TXT "v=spf1 ip4:135.181.160.205 +a +mx +ip4:65.21.72.120 ~all"
+cpcalendars.popular.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+webmail.popular.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+whm.popular.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+webdisk.popular.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+cpanel.popular.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpcontacts.popular.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+ethiovision.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+www.ethiovision.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+default._domainkey.ethiovision.arkeonethiopia.com.      14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtnQAfqiLzablqC9vZqt+I0PuWSJ1f9UYTjasRkHUCCNWMNYOKp2rxk5D5SDX1lOJqNrl0T3/6gGEvq6HCYyi7PrhWEc6FX9yfPgQpdwrFB8/7GKYfIFIc1BVo5bKruKmsLuvDUhAKB0uELh5enTo3JyaBtrfdNXVw+WYoj2j4cxIKmZH37G1XBLiHsZ7dqPMe" "aeHe4aU9BenV39nP4LsKqWJARXU2FGOT0wRBKT7QRv6/u7USnqyvRA/bWxwxEfFZRF83ZST4JCA89qv4i6uwY2jZHAsgmBy5yWDQEshN++fu3PaFZrW6CBvC6JvGmUDuHvkXieI09o8DdOWMfFaGQIDAQAB;"
+ethiovision.arkeonethiopia.com.                         14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpanel.ethiovision.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+whm.ethiovision.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+webmail.ethiovision.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+webdisk.ethiovision.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+cpcontacts.ethiovision.arkeonethiopia.com.              14400 IN A 135.181.160.205
+cpcalendars.ethiovision.arkeonethiopia.com.             14400 IN A 135.181.160.205
+qrmenu.arkeonethiopia.com.                              14400 IN A 135.181.160.205
+www.qrmenu.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+default._domainkey.qrmenu.arkeonethiopia.com.           14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3akgz6usPjCQWEYMe5FbqkFWv4vGDS2uR3mWM5qEJkyupq8JvOA09oELJLh3C+obq8OkbP5n7fdXTEpKUkJjyY56OOusSf4G+C4wybeAUVgcaE1u4VNCCvKvjJ9NFUOJeCOyxzjxfVFXEnDEfYFRXeouU8bzr9/yF6hP5jmwu3knMDE9Q5C+VpuHFDHexmAA4" "F1mgjH/gGGXdu2eg44IcRnMIl/L+O6/itnHgPtYBCXofcOWwHCoJrYjcKpUA61bpkb/HGx60unCn1MJeTBo+Bjiz7izeuu6fYFSahe+acj+GUsBb4GO26C636b/ihVNoctoSbevH1XPUZgFEk39vQIDAQAB;"
+qrmenu.arkeonethiopia.com.                              14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webdisk.qrmenu.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+webmail.qrmenu.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpanel.qrmenu.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+cpcalendars.qrmenu.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+cpcontacts.qrmenu.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+whm.qrmenu.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+pictures.arkeonethiopia.com.                            14400 IN A 135.181.160.205
+www.pictures.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+default._domainkey.pictures.arkeonethiopia.com.         14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8HnNi0PPzOoAdxnaqd6CYHctAFw4FmzpKDuLtbURd/K8XylH9LwaBBOqosyPT/2yy7zrw8k5LRTbR1iezUAOj+W0LshrD6U250p3M++77dNwizjgPoStsu1yhRg3d83PZacaXGHu7mkyCVWngEIGXjjDl/sOIRs4j9+CfbiHRws3Gt6Ni/V/j5OHCCY13rNOn" "uJNdTPEE8rFJlZnjCUgZUyPR+AXERTtVOZq4vphLTXWjl45mGa0YaJziV00lwnYfp+PzWVK/7VpXP1YmIfC1dUACfeGicr35A3VYA9IFNKAahn3Uijh77cZgPnWoKtAaXhw/xrNbIORRRDmIQ1KnwIDAQAB;"
+pictures.arkeonethiopia.com.                            14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webmail.pictures.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+whm.pictures.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+cpanel.pictures.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+cpcalendars.pictures.arkeonethiopia.com.                14400 IN A 135.181.160.205
+webdisk.pictures.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+cpcontacts.pictures.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+tukya.arkeonethiopia.com.                               14400 IN A 135.181.160.205
+www.tukya.arkeonethiopia.com.                           14400 IN A 135.181.160.205
+default._domainkey.tukya.arkeonethiopia.com.            14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxiI+f/A2TFI1YO6yug8Q4sC8g4yYzZjSproCQ6aruuKfCHgwTQrcf0zbCBGFQGEAcEuRxfEA5wvs2YWNZqwQp/SEcC/plGK5LecrJdNYMgf18uNGC2dMooQw8Jc/iByrhhMCsMVPsP5R4KCwksLKmPSfDSXbuemTk+F/cb3HeJhskTDvsmnUg6Fceju5qeHrm" "JlFgtsSX/GRGn9kfKqwC6bai70LHvoKvA5tgzR4/dB49zti8UTiejYnL8uyVisNEzQFT286Qz4E82wc426mRXyZbUvZthpbw5ep+7simS4gNBdWvvVBfsww2xhJrNjUzgGh6vH21ROL9AwKPkSRTwIDAQAB;"
+tukya.arkeonethiopia.com.                               14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+whm.tukya.arkeonethiopia.com.                           14400 IN A 135.181.160.205
+cpcalendars.tukya.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+webmail.tukya.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+webdisk.tukya.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+cpanel.tukya.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+cpcontacts.tukya.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+tukiya.arkeonethiopia.com.                              14400 IN A 135.181.160.205
+www.tukiya.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+default._domainkey.tukiya.arkeonethiopia.com.           14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsGIm4mmLAzyA99zZJxgelycyU2hZkgwuguKNBZcuuHWdNECiCMFDUnqduX4CSfDOM5Fe0fO31SAXD1ym9HBWCq+cQjdvKuaEOs8SsmmyRqkXMIfyub8wMc/YngjftxzhJ67w9K5XhT6s79aUfafdKaopflhqlMCJlENL7KBJChNb53LZwDmD7zcFy3XSoRiBG" "A7SmMtfK3VzKwa2i+Mcy3Zwxf6o5KzrF2S/b10XsC7wxOLG3gv4wCV3bbzjeRj2fT02/42xShhN6RxUK/NnTUmps/2JJ93mmh7O01lhAg1lBByRD5nEqD6r7bL0j8vOptxHnNdDJFSDpo6l6L5byQIDAQAB;"
+tukiya.arkeonethiopia.com.                              14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpanel.tukiya.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+webmail.tukiya.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpcalendars.tukiya.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+whm.tukiya.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+cpcontacts.tukiya.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+webdisk.tukiya.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+_acme-challenge.www.tukiya.arkeonethiopia.com.          14400 IN TXT "Q1wGcFMmqTdkE-9y-CG_rzRh_GbfumqpEx45t2SBrHQ"
+_acme-challenge.tukiya.arkeonethiopia.com.              14400 IN TXT "p7-5Apy02kFMo24xNRZhnMEVKpPV0CefpTQYxIUYs04"
+tukiya2.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+www.tukiya2.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+default._domainkey.tukiya2.arkeonethiopia.com.          14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoMSIiyrDE3SFgcG4LtFzDefurai2np8qGUV8kZF2QNedlWDw84yDidLxN5rqECPI+Px+hxvnxLvNeE0LFYnSDare52v0tRC31Uw2f+2nCr1TVZTJ8vK6uADVLbddeG2NEQdF8pP95DAjd2smlOYEN5cW58nRzEL7EPiBbFRxLM7aPSmMLfvbVF6pUJX1pTCg5" "c1DD1in1HqQMeHkgSaCHbWSKZj+xc0Kd20IBenIlyH/gZfg7wdxwkXqUGYbMXW4qVhmaZFJosvd2XZXpObKgEtTDp+glRdrC964cuM3smStwOPsYptxN2p30o3s4E0abY289cHwb3yuI9x/2b8S6wIDAQAB;"
+tukiya2.arkeonethiopia.com.                             14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webmail.tukiya2.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+whm.tukiya2.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+cpanel.tukiya2.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+webdisk.tukiya2.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+cpcalendars.tukiya2.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+cpcontacts.tukiya2.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+daron.arkeonethiopia.com.                               14400 IN A 135.181.160.205
+www.daron.arkeonethiopia.com.                           14400 IN A 135.181.160.205
+default._domainkey.daron.arkeonethiopia.com.            14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoCbDFoEFK2u5vcEvKJQM6QV+fDnt6bJ6TOsdDgJUyUF6BJk8BE5yB3VMdBciAK4M7FBfJgN1QYpqjZj5CAz1w+wN5jGQEopXDJq/ESS882xh9NDAOqlU158ZcHcLsSzbI9GuV2Y861lmru6a3gW9t4KXnwtAyb+JsCh4cfHEm/AjSHKWrJ0YWGQvSJCv/px3K" "y0xcZvCo/j1H9YZjUCDBXpSzbiRTlbmAHUfg89Q2mJbX9zTnwVxL21A/VBN0mW3YFLidACvGQk0rxMq+hMQTBiUHslKlzq94uzRdHqANEXCaPhfvYvpb0+RX4JbabsRs12wS6fKRWLbGAxUDW2Q6wIDAQAB;"
+daron.arkeonethiopia.com.                               14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+whm.daron.arkeonethiopia.com.                           14400 IN A 135.181.160.205
+cpanel.daron.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+webmail.daron.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+cpcalendars.daron.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+webdisk.daron.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+cpcontacts.daron.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+felegekidusan.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+www.felegekidusan.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+default._domainkey.felegekidusan.arkeonethiopia.com.    14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvLo8b5OuuPaRs/z9rx9ADN4eoHncDvzS4u/UvewJbjakcOQx/xyHwBxyQ22mIO20Kz6Mo0/qIUo0DOeTBp+mq1wOxKBQn4HJj7tl+n36LRuBy81pcWpuhoDWxn5YXyI6Ju6ArKj1fp4ZqnS2TkNos1mw8g4VtSJswOtBA3dzMo2DRyxaGUPz3pgrcC4EZv3dq" "swuEN+OyrHRJ4fmXKCpmLjDgiXs+fPUzKyLUN+F9tvmRfQWAbb3IEjvVfaZvgU44U7JhRy6k29LSOF6ofJO1cuEYJqcTNzqPKdeIcaJtDziUtrtKnU2Lb2UqGw88InbnK/OagICI82mzgsCtKZk8QIDAQAB;"
+felegekidusan.arkeonethiopia.com.                       14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webdisk.felegekidusan.arkeonethiopia.com.               14400 IN A 135.181.160.205
+cpcontacts.felegekidusan.arkeonethiopia.com.            14400 IN A 135.181.160.205
+whm.felegekidusan.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+cpanel.felegekidusan.arkeonethiopia.com.                14400 IN A 135.181.160.205
+cpcalendars.felegekidusan.arkeonethiopia.com.           14400 IN A 135.181.160.205
+webmail.felegekidusan.arkeonethiopia.com.               14400 IN A 135.181.160.205
+bdilela.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+www.bdilela.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+default._domainkey.bdilela.arkeonethiopia.com.          14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApmrBxDHrcUbB8zGxe817JFobDUvX75S2urz1lcexDc8n8BbucIYcfN337TiAe2S1BldG/zpjTPr8xkBDGRUjnyRWYg/OGOEd/0M7PG3DxaDrAaj8+ZHk93suvZARqtvKinCXCHDdOu/IOGFERpyxNM35KTfN2g1uvUMVziYAtwh3MUPkNVZcndwyAB77Srk75" "r31jp8MIPksgfH/5tRMT63uk6GtLHbl6eVW4lwY0SjGiFfStqyI/W/A7ThfuJQ5SyY5rj1TuHHeysirOPbrb1sCuJ4iKoUGMH9lAtYzl1Uyj3X4xL6DSqOpKJu8xAgzQ4cTmUd3iH4WEWCZ0Z0XYQIDAQAB;"
+bdilela.arkeonethiopia.com.                             14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webdisk.bdilela.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+webmail.bdilela.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+cpcalendars.bdilela.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+cpcontacts.bdilela.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+whm.bdilela.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+cpanel.bdilela.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+norhotel.arkeonethiopia.com.                            14400 IN A 135.181.160.205
+www.norhotel.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+default._domainkey.norhotel.arkeonethiopia.com.         14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0FX2QDgt9bn+2bjL+TWXkzjjY8iqA/d9vqzjZ4o7WwLtvlUGf8lvrvz2FzLomtN+nmf4yAA4OnWs020yUObVc2ubYmgpls77J+thcThdynS5Krah0Pb3+BcTQSR7sU+U02nYqI5XUs/1NIQ+pVi5BESFkIo9ztP7GIkc5grO1A81O5K+5OQDy1UVIG6+t7ebi" "lsYb6TSVccjuacd1zlXbAjZANikh6TSSNxxq4LTmze0tfznEg5N10Eno4HdCeqkep7+oCYKxuq9ZOMmuCpyuL1feZSTqwiBepGzkUriDIJQ2axNvwoD0zL6t43v0NQVAN+0QZg7B7LpmragStMZhQIDAQAB;"
+norhotel.arkeonethiopia.com.                            14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webmail.norhotel.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+whm.norhotel.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+webdisk.norhotel.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+cpanel.norhotel.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+cpcalendars.norhotel.arkeonethiopia.com.                14400 IN A 135.181.160.205
+cpcontacts.norhotel.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+endcap.arkeonethiopia.com.                              14400 IN A 135.181.160.205
+www.endcap.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+default._domainkey.endcap.arkeonethiopia.com.           14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs4t429o8Lzt89UeZr7domOZl8lkT7j8IqLAJtZl1Yqs2uLmdWHDk38AE+fX4eLGqgWiRbnzOR3E7hEczIZ80cjuwGW0OqLs+pR9m0UlTY4LRiDMvOb0ew8NUfHrFpj6BglZa1/CTNYr3cfQXjrYz/VzhHqJniX0fgKA+ld0ufDLZuJ7kAHdZWRacyF6U59oBN" "Fn8Nil3oegEBQKrsbsB3VXa0/VwvDj2S9HYZHSHxSxLSif9g64JJjkoZxwUnNd9aHdgMncIa1+eXcX/ozzt7atYmQ+H05a/wiDnVzk5956i77LzsKs+JugHXR36sjXOZm9rpA2kF/7nymSYPjubEQIDAQAB;"
+endcap.arkeonethiopia.com.                              14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+whm.endcap.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+webmail.endcap.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpanel.endcap.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+webdisk.endcap.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpcalendars.endcap.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+cpcontacts.endcap.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+wbsselection.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+www.wbsselection.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+default._domainkey.wbsselection.arkeonethiopia.com.     14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA9Y5wEQTAV13uaaaDB2VO6zw76b7Dc6m/hrAFFqxEL1JaELcwjiQLlAB6EoHPxaYfN8jggAFv5+GxI7c7UgVOUc7bi2vw0D/Dt+QgU79XGM3HGFAwgw3h5GyYFSqOUtU7ttcVYTZPzKb/0bqhDKSkO6ViwppaiL8DlHlnvzHSBCRNglJIjUX1UEBJBwijKtlmC" "UXzET6YWcDJ5xV87Siy3BZ8FHrdWxigmqZb2rqxqm3gThBiZL+StQ+/ZJhqnAVUoi5CIJIm3PpMHDeZ+vU47TpI1mwT5FVahweH72vmUlUtdlHbXLWXFXWgaR1T2A6L4hXaVgfYSRe3WJd1M31lhwIDAQAB;"
+wbsselection.arkeonethiopia.com.                        14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpcalendars.wbsselection.arkeonethiopia.com.            14400 IN A 135.181.160.205
+cpanel.wbsselection.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+whm.wbsselection.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+webmail.wbsselection.arkeonethiopia.com.                14400 IN A 135.181.160.205
+webdisk.wbsselection.arkeonethiopia.com.                14400 IN A 135.181.160.205
+cpcontacts.wbsselection.arkeonethiopia.com.             14400 IN A 135.181.160.205
+candidateform.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+www.candidateform.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+default._domainkey.candidateform.arkeonethiopia.com.    14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA513Xy7GD3G2xlmHBs9FBLScr0xAD0ltTU/yNTQIiUjxrd14nGa+rqmGu2dyjOtchzmkHK7Rimoq/ee4nodeF6g/bN7WPzVRQxBoVfD6OT0ixkCAUq4idiyuNfCHzKtdwmj/RhQ0R4vwYCTScRVrJBkqzwfgYviXW9u1HEz1OWevbP6YGWkjdARi/MBbeXowuk" "ZPM0F+ON7FTWyqpG7ncCzZiOIEK6tNSBssMrnV5qTWTow8KkuwCDSz/qPX0aPFopXyhcVzAvsONkOXCDbRnp2/qaFhpzIJPUEbrSdRMLZEraKnaXvYZtXxqQjkZp/PdlVT0u0l2164tNQN5Dz+wQQIDAQAB;"
+candidateform.arkeonethiopia.com.                       14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webmail.candidateform.arkeonethiopia.com.               14400 IN A 135.181.160.205
+cpanel.candidateform.arkeonethiopia.com.                14400 IN A 135.181.160.205
+webdisk.candidateform.arkeonethiopia.com.               14400 IN A 135.181.160.205
+cpcontacts.candidateform.arkeonethiopia.com.            14400 IN A 135.181.160.205
+cpcalendars.candidateform.arkeonethiopia.com.           14400 IN A 135.181.160.205
+whm.candidateform.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+mercyhabesha.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+www.mercyhabesha.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+default._domainkey.mercyhabesha.arkeonethiopia.com.     14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxM+dFkW5rstW/qxGm6wcnP49L04detsu2PjAkyymDQH5Vtt+tHPWjtPeCDsq2uqn+zh8MwD+alltLP8RFG4UVmhNPqOn+c3DlVKLLu9CqzqMLY3NnnQ2MG9vy8ZwN0AuTOUEDI1WKzKmp58Ip58IzVQ0WfVXRPfmFxbvUmJFozLXpCWc/ejS495I43yS5oHK2" "Edq8KTcojk4JeqQu+UjNKbks/X2/g04nbgQ2XrrQ0tainhIRBPwL5V2025I48KTQCj2u3o+3CCNwu1oOHsFoIqS5vrquToJBY1q3aHnf4t8gJn4TJTESX94zpHbvcrrY8anp6gDWsm2BmVb0j1hCwIDAQAB;"
+mercyhabesha.arkeonethiopia.com.                        14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpanel.mercyhabesha.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+cpcontacts.mercyhabesha.arkeonethiopia.com.             14400 IN A 135.181.160.205
+webmail.mercyhabesha.arkeonethiopia.com.                14400 IN A 135.181.160.205
+cpcalendars.mercyhabesha.arkeonethiopia.com.            14400 IN A 135.181.160.205
+whm.mercyhabesha.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+webdisk.mercyhabesha.arkeonethiopia.com.                14400 IN A 135.181.160.205
+verify.arkeonethiopia.com.                              14400 IN A 135.181.160.205
+www.verify.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+default._domainkey.verify.arkeonethiopia.com.           14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApl9y8bxeazttd7QJEUQuQpWYMxlLW/N3fObw7Rdxd3TkhWigk7q+FsBmhgjf53xLpvhVPdPNAYKk6Lxn/41/GW+MR4KOKXWSDIUWllxLsWdmd5vymShILWerb+1ONKadqwAqvnp5sFuXHwWxat7iOsKAco7g3Q/62XB3/hQs/Wrd5LwXQ7M712VKRZQgdO3gS" "jbowbLoFHppvLzjvYhEhYXZYi1Xv0OZg4rt1f18bEp83pdbCNA/kys7zaZxTXDeA/uwDmBLNJi746xciwj7o50kwuJg5X6qV6YQZ6q4SAviZ0jXaN8vMdKXjAlMCghI1KMlmPANFT8nRISCb4NDHwIDAQAB;"
+verify.arkeonethiopia.com.                              14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpcontacts.verify.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+webdisk.verify.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpcalendars.verify.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+webmail.verify.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+whm.verify.arkeonethiopia.com.                          14400 IN A 135.181.160.205
+cpanel.verify.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+laravel.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+www.laravel.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+default._domainkey.laravel.arkeonethiopia.com.          14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1GEYvmAbKL3bb6UQJrd6lwYz+xdq8kdgZEUHvpwvFI3nkfDIY19lQxG1vbRJCkfFBbEHe+R7YaUx+A0gXwUYk/Do/MfK1UjzlXzLwehxZ4LfmA7TJNP0TjuiQUkLR4tD7RnSNdtuLcTc7vwYxGpee5SywRUEzSYTI0XjVsCz3w3vXeH4AuBlU4eDDErvyOl9d" "fB5bWQXLjwGXuMiz2H/LXnsfHCF9+Zd2Z3AlEy0krzRKmBpV7pq6GOkwU7NZUQ6wLRJfcwOy8plLmlJw3FMbElhpFPW+/K3gI5vkRomGICO8RRmtqkuagAcj1EnUTf1x7JOnzOcrXAANXz8fwcWvQIDAQAB;"
+laravel.arkeonethiopia.com.                             14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpcontacts.laravel.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+cpanel.laravel.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+webdisk.laravel.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+whm.laravel.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+cpcalendars.laravel.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+webmail.laravel.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+arkeoid.arkeonethiopia.com.                             14400 IN A 135.181.160.205
+www.arkeoid.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+default._domainkey.arkeoid.arkeonethiopia.com.          14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAp3izKvEgDQEMNET+lM8YkmgNOoERD8K3LHr7n4Rpi66L0zT3JIujaXf3R5SRyvjRM0auCVY2XNC+jHCuMgBADBjYM4AuRUIa5KsHAfLkSpkXB/i481n56BgMdtzX2tCwEBmxOPYnIwypPvVDoSbH1+R2cizbn5WNDgJk+zMl/iFbHH5UcmNiSOUOjMgneRQi3" "N0QdIsoh9bVxw9OzlVegzxDpWfwe5CGVndi9s9sdam9uMX12pV5F+V/NwohKapkZcjMeBvcRRBCvAl691pN5VGP3OpA0NBfanGNhYN9tO756dHv3Qtg5BTc7FtAzbGHTeCmH2y4Ea0Z1FYvMVUWtQIDAQAB;"
+arkeoid.arkeonethiopia.com.                             14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpanel.arkeoid.arkeonethiopia.com.                      14400 IN A 135.181.160.205
+cpcalendars.arkeoid.arkeonethiopia.com.                 14400 IN A 135.181.160.205
+webdisk.arkeoid.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+whm.arkeoid.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+webmail.arkeoid.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+cpcontacts.arkeoid.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+fkss.arkeonethiopia.com.                                14400 IN A 135.181.160.205
+www.fkss.arkeonethiopia.com.                            14400 IN A 135.181.160.205
+default._domainkey.fkss.arkeonethiopia.com.             14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx5q2uvZAK1meKN/WMMluGw0nMNiB3S6wYdCGTe45tLaqn/WdJolg6ycNW9vbylAuTNNVLWuTrNFvt/ffthYCJqF/ZKI1e6u86P39rlQrPdUQ2Z53YO++TIWEniSK5voRnC17eIIKOty9cQx5rdOmyKOXfYZ4OK30B8Nqiju60cqvTxpMtJVKD44J2kJ4mxXQA" "gRrKDr/jS7HZB4FwoGAnJZOMeNWv6nhzU2g4Ag3aT9X3j1fmj0Hry9tta1KUIH+pYra0UmJ0fwVjfrxJ2uIP76l0X5lXGSZC4BeSMk+/pFIzmWIuH/g+PWXK2VnIHYrm+EWJLQ2ztC6fyQJV80AxQIDAQAB;"
+fkss.arkeonethiopia.com.                                14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+whm.fkss.arkeonethiopia.com.                            14400 IN A 135.181.160.205
+cpanel.fkss.arkeonethiopia.com.                         14400 IN A 135.181.160.205
+cpcalendars.fkss.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+webmail.fkss.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+webdisk.fkss.arkeonethiopia.com.                        14400 IN A 135.181.160.205
+cpcontacts.fkss.arkeonethiopia.com.                     14400 IN A 135.181.160.205
+temaribet.arkeonethiopia.com.                           14400 IN A 135.181.160.205
+www.temaribet.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+default._domainkey.temaribet.arkeonethiopia.com.        14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuERSJkbwDAFGMHN0wpgllpE09WSsTfmCQpp6KDKR4pi4pTxuKM7P2YZ8JVgsSDxNBWBrSurpyvWR0lj6h+duDt8JAm2e3kac8QExrO4Z2LLCZPaC2kAOOTRBpa5/tI3b8Lt4RPidjtJUaMw9Jt2q7cd470wj879zakR0Z+uti9DmBSf0wn1IP21DUv1QkVXlN" "n3z5NnXRmo440ZYAaXIZgpTshh934Ows2Pesp9NbPWi9NcePI5nBY/0PUlq4ynRRvvIQNf1aPfBOmeX388EBIy73jQ44geG0gJ5jk+bWMtPTP2dPqkq6y1+VobjLyF+DGvUCvtY5pSav2zCUCPoXQIDAQAB;"
+temaribet.arkeonethiopia.com.                           14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpcontacts.temaribet.arkeonethiopia.com.                14400 IN A 135.181.160.205
+webmail.temaribet.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+whm.temaribet.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+cpcalendars.temaribet.arkeonethiopia.com.               14400 IN A 135.181.160.205
+webdisk.temaribet.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+cpanel.temaribet.arkeonethiopia.com.                    14400 IN A 135.181.160.205
+app.temaribet.arkeonethiopia.com.                       14400 IN A 135.181.160.205
+www.app.temaribet.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+default._domainkey.app.temaribet.arkeonethiopia.com.    14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn+u9J43X97CU0K+2MhP3O4LNKXstsba8mf8DG1RUnhCMcgXdP/H3qzQ3MkoVoYOmDxcJQAI28gRXpAK9LMdYbUoadZQnx+FLVWMz4Y3xcQ6v9zYW/7PIOKK3g1/DH4t/ft9NE4YCjlHBEPQ6BWC9rVpYt3Qwyr0Aw67o1sEZoJBoaEiKa7kWkyVc5wolHuguc" "v8+Dd8JqhTszprsiQdcBiMlGn45FHaihxNSed+agBW5ls9oaoDH11P7lOne5FlMHvuIx6fALYaPtsfRyDeUI25gmERXbl3/yNzOV7W9y4oPz5N5y0uS9h8iY0SnnIWFuWDb7JmEt1otujUxzrVEBQIDAQAB;"
+app.temaribet.arkeonethiopia.com.                       14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+cpcalendars.app.temaribet.arkeonethiopia.com.           14400 IN A 135.181.160.205
+whm.app.temaribet.arkeonethiopia.com.                   14400 IN A 135.181.160.205
+cpcontacts.app.temaribet.arkeonethiopia.com.            14400 IN A 135.181.160.205
+cpanel.app.temaribet.arkeonethiopia.com.                14400 IN A 135.181.160.205
+webdisk.app.temaribet.arkeonethiopia.com.               14400 IN A 135.181.160.205
+webmail.app.temaribet.arkeonethiopia.com.               14400 IN A 135.181.160.205
+mediafelegekidusan.arkeonethiopia.com.                  14400 IN A 135.181.160.205
+www.mediafelegekidusan.arkeonethiopia.com.              14400 IN A 135.181.160.205
+default._domainkey.mediafelegekidusan.arkeonethiopia.com. 14400 IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvB9sWZU5/5c8wv5ZAKGoR6MW7l4PP0wzECMOMBiqk99jS8dqnU53KgISaiWnjZcKbr69lPd3KiYOCTZ/zxYBAqwMD3/nXK9ZfEGpdBtirj2ODPwwXzlDc0FdLEe5uJSBPcsp3kDUs+s/EVJfGo8e02UBChDuXYL8rgiFWDM7X37VGyafgyTrgzQjiMrPGFoTq" "2yXcDpY8LhR1rx09rjPxFlLMAiTAzJoevFoXyBtb78Tr1pIfgq+taGolNthOMr7dI5KV88wZpmmix9iliDZgGKZds+M9b81HBAqUOUTvuHVtSYXzgiDySMSCQx+t4wPyE2Q+PFXtrJxBLWCqFMFSQIDAQAB;"
+mediafelegekidusan.arkeonethiopia.com.                  14400 IN TXT "v=spf1 +a +mx +ip4:135.181.160.205 ~all"
+webmail.mediafelegekidusan.arkeonethiopia.com.          14400 IN A 135.181.160.205
+webdisk.mediafelegekidusan.arkeonethiopia.com.          14400 IN A 135.181.160.205
+cpcontacts.mediafelegekidusan.arkeonethiopia.com.       14400 IN A 135.181.160.205
+cpanel.mediafelegekidusan.arkeonethiopia.com.           14400 IN A 135.181.160.205
+whm.mediafelegekidusan.arkeonethiopia.com.              14400 IN A 135.181.160.205
+cpcalendars.mediafelegekidusan.arkeonethiopia.com.      14400 IN A 135.181.160.205

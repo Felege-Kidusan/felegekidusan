@@ -62,7 +62,7 @@ set_exception_handler(static function (\Throwable $e): void {
  * Bump when the mezmur API contract changes.
  */
 if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy02');
-define('MEZMUR_SCHEMA_MIN', 30); // highest migration the mezmur module relies on
+define('MEZMUR_SCHEMA_MIN', 38); // highest migration the mezmur module relies on (038 = audio media)
 
 function mezmur_respond(array $payload, int $code = 200): void
 {
@@ -736,6 +736,11 @@ try {
                 'upload_url' => $result['upload_url'] ?? '',
                 'key' => $result['key'] ?? '',
                 'expires_in' => $result['expires_in'] ?? 900,
+                // signed into the URL — the browser must send this exact
+                // Content-Type (it cannot set Content-Length itself; the
+                // real body size satisfies that half of the signature).
+                'content_type' => $result['content_type'] ?? '',
+                'content_length' => $result['content_length'] ?? 0,
             ]);
         }
 

@@ -354,6 +354,15 @@ final class MezmurHymnService
         return self::$hasSyncedCache ? 'lyrics_synced' : "'' AS lyrics_synced";
     }
 
+    /** SELECT fragment for the synced-lyrics edit time (probe-guarded). */
+    private static function syncedAtColExpr(\mysqli $conn): string
+    {
+        self::syncedColExpr($conn); // warms the shared column-probe cache
+        return self::$hasSyncedCache
+            ? "COALESCE(DATE_FORMAT(lyrics_synced_at, '%Y-%m-%dT%H:%i:%sZ'), '') AS lyrics_synced_at"
+            : "'' AS lyrics_synced_at";
+    }
+
     /** Merge the media payload (audio_url from key) into a hymn row. */
     private static function applyMedia(array $item): array
     {
@@ -733,7 +742,12 @@ final class MezmurHymnService
 "
                 . "Options -ExecCGI -Indexes\n"
                 . "<FilesMatch \"\\.(php|phtml|phar|cgi|pl|py|sh|htaccess)$\">\n"
-                . "  Require all denied\n</FilesMatch>\n");
+                // Both authorization modules are covered: `Require all denied`
+                // is Apache 2.4+ only, and on a 2.2 host an unrecognized
+                // directive inside .htaccess 500s the whole directory.
+                . "  <IfModule mod_authz_core.c>\n    Require all denied\n  </IfModule>\n"
+                . "  <IfModule !mod_authz_core.c>\n    Order Allow,Deny\n    Deny from all\n  </IfModule>\n"
+                . "</FilesMatch>\n");
         }
         $name = bin2hex(random_bytes(16)) . ($keepPng ? '.png' : '.jpg');
         $dest = $dir . '/' . $name;
@@ -1371,6 +1385,10 @@ final class MezmurHymnService
         $lyricsCol = $includeLyrics ? 'lyrics' : "'' AS lyrics";
         $taxCols = self::taxonomyCols($conn);
         $mediaCols = self::mediaColsExpr($conn);
+        // F5 convergence: timed lyrics ride the SAME delta cursor, so a
+        // server-side LRC edit reaches every cached device (the Flutter
+        // local_db upsert already applies these keys when present).
+        $syncedCols = self::syncedColExpr($conn) . ', ' . self::syncedAtColExpr($conn);
 
         $cursorTs = null;
         $cursorId = 0;
@@ -1382,7 +1400,7 @@ final class MezmurHymnService
 
         if ($cursorTs !== null) {
             $sql = "SELECT id, title, category, status, $rev, $taxCols,
-                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols
+                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols, $syncedCols
                     FROM mezmur_hymns
                     WHERE updated_at > ? OR (updated_at = ? AND id > ?)
                     ORDER BY updated_at ASC, id ASC
@@ -1391,7 +1409,7 @@ final class MezmurHymnService
             $stmt->bind_param('ssii', $cursorTs, $cursorTs, $cursorId, $limit);
         } else {
             $sql = "SELECT id, title, category, status, $rev, $taxCols,
-                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols
+                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols, $syncedCols
                     FROM mezmur_hymns
                     ORDER BY updated_at ASC, id ASC
                     LIMIT ?";

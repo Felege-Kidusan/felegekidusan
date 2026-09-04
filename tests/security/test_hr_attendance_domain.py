@@ -176,8 +176,9 @@ class HrMobileContracts(unittest.TestCase):
     def test_offline_outbox_is_separate_from_mezmur(self):
         for table in ("pending_hr", "cached_hr_sheet", "cached_hr_sections"):
             self.assertIn(table, self.localdb)
-        # schema bump + fresh-install parity
-        self.assertIn("version: 14", self.localdb)
+        # schema bump + fresh-install parity (20 = P0 audio/synced lyrics;
+        # bump this with every local_db version change)
+        self.assertIn("version: 20", self.localdb)
         self.assertIn("CREATE TABLE pending_hr", self.localdb)
         # sync flushes HR packets through /hr/sheet with idempotency
         self.assertIn("getPendingHr", self.sync)

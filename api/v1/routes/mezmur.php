@@ -490,6 +490,12 @@ try {
             'upload_url' => $result['upload_url'],
             'key' => $result['key'],
             'expires_in' => $result['expires_in'],
+            // Both are SIGNED into the URL. The client must send
+            // Content-Type verbatim; Content-Length is set automatically
+            // by every HTTP stack from the real body, so the signature
+            // also pins the reserved size.
+            'content_type' => $result['content_type'] ?? '',
+            'content_length' => $result['content_length'] ?? 0,
         ], 201);
     }
 
