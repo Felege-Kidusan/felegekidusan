@@ -59,7 +59,7 @@ class MezmurMiniPlayer extends StatelessWidget {
                           : Icons.play_arrow_rounded,
                       color: Parchment.inkStrong,
                     ),
-                    onPressed: c.viewHasAudio ? c.toggle : null,
+                    onPressed: c.canPlayControl ? c.toggle : null,
                   ),
                   IconButton(
                     tooltip: 'Hide',

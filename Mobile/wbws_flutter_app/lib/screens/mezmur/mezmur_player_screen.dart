@@ -417,7 +417,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   }
 
   Widget _buildConsole(BuildContext context) {
-    if (!_hasAudio || (_failed && !_c.hasQueue)) {
+    if (!_hasAudio || (_c.playbackError != null && !_c.canPlayCurrentView)) {
       return _GlassPanel(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
@@ -425,9 +425,9 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                _failed
+                _c.playbackError ?? (_failed
                     ? 'ኦዲዮ መጫን አልተቻለም።\nAudio could not be loaded for this hymn.'
-                    : 'ለዚህ መዝሙር በአሁኑ ጊዜ ኦዲዮ የለም።\nThere is no audio for this hymn currently.',
+                  : 'ለዚህ መዝሙር በአሁኑ ጊዜ ኦዲዮ የለም።\nThere is no audio for this hymn currently.'),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Parchment.inkStrong,
@@ -446,6 +446,13 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                     size: 34,
                     onTap: _catalog.length > 1 ? _c.previous : null,
                   ),
+                  if (_hasAudio)
+                    _CtrlIcon(
+                      icon: Icons.refresh_rounded,
+                      tooltip: 'Retry audio',
+                      size: 34,
+                      onTap: _c.play,
+                    ),
                   const SizedBox(width: 18),
                   _CtrlIcon(
                     icon: Icons.skip_next_rounded,
@@ -546,7 +553,9 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                     _PlayButton(
                       loading: loading,
                       playing: _c.playing,
-                      onTap: _c.hasQueue ? _c.toggle : null,
+                        onTap: _c.canPlayCurrentView
+                          ? _c.toggle
+                          : (_c.canPlayControl ? _c.play : null),
                     ),
                     _CtrlIcon(
                       icon: Icons.skip_next_rounded,

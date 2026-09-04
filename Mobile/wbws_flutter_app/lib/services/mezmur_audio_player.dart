@@ -131,6 +131,9 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     });
     _player.errorStream.listen((e) {
       if (kDebugMode) debugPrint('mezmur-audio error: $e');
+      _sourceLoaded = false;
+      _playbackError = 'Audio could not be played. Check your connection and try again.';
+      notifyListeners();
     });
   }
 
@@ -146,6 +149,9 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   bool _playing = false;
   bool _buffering = false;
   bool _completed = false;
+  bool _sourceLoaded = false;
+  bool _controlInFlight = false;
+  String? _playbackError;
   bool _configured = false;
   int _posMs = 0;
   int _durMs = 0;
@@ -171,6 +177,11 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   bool get playing => _playing;
   bool get buffering => _buffering;
   bool get completed => _completed;
+  String? get playbackError => _playbackError;
+  bool get canPlay => _sourceLoaded && _index != null && _queue.isNotEmpty;
+  bool get canPlayCurrentView =>
+      canPlay && currentTrack?.hymnId == viewTrack?.hymnId;
+  bool get canPlayControl => viewHasAudio || canPlay;
   Duration get position => Duration(milliseconds: _posMs);
   Duration? get duration =>
       _durMs > 0 ? Duration(milliseconds: _durMs) : null;
@@ -295,7 +306,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     _miniDismissed = false;
     notifyListeners();
     if (same && viewTrack?.hymnId == currentTrack?.hymnId && viewHasAudio) {
-      return true;
+      return canPlayCurrentView;
     }
     return _syncAudio(autoPlay: autoPlay, forceReload: !same);
   }
@@ -357,7 +368,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     }
     if (!forceReload &&
         currentTrack?.hymnId == v.hymnId &&
-        _queue.isNotEmpty) {
+        canPlayCurrentView) {
       if (autoPlay) await play();
       return true;
     }
@@ -413,13 +424,17 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     if (offset < 0) offset = 0;
     try {
       await _player.stop();
-      _queue = playable;
+      _sourceLoaded = false;
+      _playbackError = null;
+      _queue = const [];
       _index = null;
       _durMs = 0;
       notifyListeners();
       await _player.setAudioSources(sources,
           initialIndex: offset, initialPosition: Duration.zero);
+      _queue = playable;
       _index = offset;
+      _sourceLoaded = true;
       if (_rate != 1) {
         try {
           await _player.setSpeed(_rate);
@@ -429,20 +444,58 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (_) {
+      _sourceLoaded = false;
+      _queue = const [];
+      _index = null;
+      _durMs = 0;
+      _playbackError = 'Audio could not be loaded. Check your connection and try again.';
+      notifyListeners();
       return false;
     }
   }
 
   Future<void> play() async {
-    if (_queue.isNotEmpty && _completed) {
-      await seek(Duration.zero);
+    if (_controlInFlight) return;
+    _controlInFlight = true;
+    try {
+      if (!canPlay && (viewTrack?.audioUrl.trim().isNotEmpty ?? false)) {
+        final loaded = await _syncAudio(autoPlay: false);
+        if (!loaded) return;
+      }
+      if (!canPlay) return;
+      _playbackError = null;
+      if (_completed) {
+        await _player.seek(Duration.zero, index: _index);
+      }
+      await _player.play();
+    } catch (_) {
+      _playbackError = 'Audio could not be played. Check your connection and try again.';
+      notifyListeners();
+    } finally {
+      _controlInFlight = false;
     }
-    await _player.play();
   }
 
   Future<void> pause() => _player.pause();
 
-  Future<void> toggle() => _playing ? _player.pause() : play();
+  Future<void> toggle() async {
+    if (_controlInFlight) return;
+    _controlInFlight = true;
+    try {
+      if (_player.playing) {
+        await _player.pause();
+      } else {
+        _controlInFlight = false;
+        await play();
+        return;
+      }
+    } catch (_) {
+      _playbackError = 'Audio control failed. Please try again.';
+      notifyListeners();
+    } finally {
+      _controlInFlight = false;
+    }
+  }
 
   Future<void> seek(Duration to) async {
     try {
@@ -504,6 +557,8 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     _viewIndex = 0;
     _playing = false;
     _buffering = false;
+    _sourceLoaded = false;
+    _playbackError = null;
     _durMs = 0;
     _posMs = 0;
     _miniDismissed = true;
