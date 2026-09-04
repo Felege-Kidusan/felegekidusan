@@ -177,6 +177,37 @@ class MezmurUiUxTests(unittest.TestCase):
         self.assertIn("$requiredRoles = ['super_admin', 'school_admin', 'mezmur_dept'];", self.shell)
         self.assertIn("$requiredFeature = 'mezmur';", self.shell)
 
+    # ── Mezmur player dock (web now-playing chrome) ────────────
+    def test_player_is_not_a_tenth_dialog(self):
+        self.assertEqual(self.shell.count('role="dialog"'), 9)
+        self.assertIn('id="mzPlayer"', self.shell)
+        self.assertIn('id="mzEngine"', self.shell)
+        self.assertIn('<aside id="mzNowPlaying"', self.shell)
+        self.assertNotIn('id="mzNowPlaying" role="dialog"', self.shell)
+        player = self.shell[self.shell.index('id="mzPlayer"'):self.shell.index('id="mzNowPlaying"')]
+        self.assertNotIn("style=", player)
+
+    def test_player_module_is_isolated_and_loaded_first(self):
+        self.assertIn("$pageScripts = ['mezmur_player'];", self.shell)
+        self.assertIn("$pageScript = 'mezmur';", self.shell)
+        self.assertIn("$pageScripts = $pageScripts ?? [];", self.base)
+        self.assertIn("/^[a-zA-Z0-9_-]+$/", self.base)
+        player = (ROOT / "frontend/js/mezmur_player.js").read_text(encoding="utf-8")
+        self.assertIn("global.MezmurPlayer", player)
+        self.assertIn("action=audio_stream&id=", player)
+        self.assertNotIn("crossOrigin", player)
+        self.assertNotIn("'audio_key'", player)
+        self.assertNotIn("Spotify", player)
+        self.assertNotIn("Genius", player)
+        self.assertIn("window.MezmurPlayer.init", self.js)
+        self.assertIn("audioPlay: audioPlay", self.js)
+        self.assertIn("Mezmur.audioPlay(", self.js)
+        self.assertIn("audioManage: openAudio,", self.js)
+        self.assertNotIn("ArrowDown", self.js)
+        self.assertIn(".mz-player", self.css)
+        self.assertIn("z-index: 45", self.css)
+        self.assertIn("#mzAudioPlayer { display: block; width: 100%; }", self.css)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@
 
 $pageTitle  = 'Mezmur Department';
 $pageScript = 'mezmur';
+$pageScripts = ['mezmur_player'];
 $bodyClass  = 'page-mezmur';
 
 // Only mezmur staff and admins may open the mezmur dashboard.
@@ -705,10 +706,14 @@ ob_start();
         <div class="mz-audio-hymn amharic" id="mzAudioHymnName"></div>
         <div class="text-dim mz-audio-sub" id="mzAudioMeta"></div>
 
-        <!-- Player (shown when a verified file exists) -->
+        <!-- Hidden fallback element (contract tests + duration probe).
+             Listening happens in the Mezmur player dock, not here. -->
         <div class="mz-audio-player-wrap is-hidden" id="mzAudioPlayerWrap">
-            <audio id="mzAudioPlayer" controls preload="auto" playsinline></audio>
+            <audio id="mzAudioPlayer" preload="none" playsinline></audio>
         </div>
+        <button type="button" class="btn-primary btn-sm is-hidden" id="mzAudioListenBtn">
+            <i class="fa-solid fa-play"></i> Play in player
+        </button>
 
         <!-- Status / guidance line -->
         <p class="text-dim mz-audio-note" id="mzAudioState"></p>
@@ -800,6 +805,59 @@ ob_start();
         <div id="mzPacketBody"></div>
     </div>
 </div>
+
+<!-- ═══ NOW PLAYING DOCK (custom chrome over a hidden HTML5 engine) ═══ -->
+<div id="mzPlayer" class="mz-player is-hidden" hidden>
+    <audio id="mzEngine" preload="metadata" playsinline></audio>
+    <div class="mz-player-left">
+        <button type="button" id="mzPArtBtn" class="mz-player-art" aria-label="Open now playing">
+            <span id="mzPArtLetter" class="mz-player-art-letter">♪</span>
+        </button>
+        <div class="mz-player-meta">
+            <div id="mzPTitle" class="mz-player-title amharic">—</div>
+            <div id="mzPSub" class="mz-player-sub">—</div>
+        </div>
+    </div>
+    <div class="mz-player-center">
+        <div class="mz-player-controls">
+            <button type="button" id="mzPShuffle" title="Shuffle" aria-pressed="false" aria-label="Shuffle"><i class="fa-solid fa-shuffle"></i></button>
+            <button type="button" id="mzPPrev" title="Previous" aria-label="Previous hymn"><i class="fa-solid fa-backward-step"></i></button>
+            <button type="button" id="mzPBack" title="Back 15 seconds" aria-label="Back 15 seconds"><i class="fa-solid fa-rotate-left"></i></button>
+            <button type="button" id="mzPPlay" class="mz-player-play" title="Play" aria-label="Play"><i class="fa-solid fa-play"></i></button>
+            <button type="button" id="mzPFwd" title="Forward 15 seconds" aria-label="Forward 15 seconds"><i class="fa-solid fa-rotate-right"></i></button>
+            <button type="button" id="mzPNext" title="Next" aria-label="Next hymn"><i class="fa-solid fa-forward-step"></i></button>
+            <button type="button" id="mzPRepeat" title="Repeat off" aria-pressed="false" aria-label="Repeat"><i class="fa-solid fa-repeat"></i></button>
+        </div>
+        <div class="mz-player-seekrow">
+            <span id="mzPCur">0:00</span>
+            <input type="range" id="mzPSeek" min="0" max="1000" value="0" aria-label="Seek">
+            <span id="mzPDur">0:00</span>
+        </div>
+    </div>
+    <div class="mz-player-right">
+        <button type="button" id="mzPLyricsBtn" title="Lyrics" aria-pressed="false" aria-label="Lyrics"><i class="fa-solid fa-align-left"></i></button>
+        <button type="button" id="mzPQueueBtn" title="Queue" aria-pressed="false" aria-label="Queue"><i class="fa-solid fa-list-ol"></i></button>
+        <button type="button" id="mzPRate" class="mz-p-rate" title="Playback speed" aria-label="Playback speed">1×</button>
+        <button type="button" id="mzPMute" title="Mute" aria-pressed="false" aria-label="Mute"><i class="fa-solid fa-volume-high"></i></button>
+        <input type="range" id="mzPVol" min="0" max="100" value="100" aria-label="Volume">
+    </div>
+</div>
+
+<aside id="mzNowPlaying" class="mz-np is-hidden" hidden aria-hidden="true" aria-labelledby="mzNpHeading">
+    <div class="mz-np-head">
+        <h2 id="mzNpHeading">Now playing</h2>
+        <button type="button" id="mzNpClose" aria-label="Close now playing"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="mz-np-artwrap"><div id="mzNpArt" class="mz-np-art"><span id="mzNpArtLetter">♪</span></div></div>
+    <div id="mzNpTitle" class="mz-np-title amharic"></div>
+    <div id="mzNpSub" class="mz-np-sub"></div>
+    <div class="mz-np-tabs" role="tablist" aria-label="Now playing views">
+        <button type="button" id="mzNpTabLyrics" class="mz-np-tab active" role="tab" aria-selected="true">Lyrics</button>
+        <button type="button" id="mzNpTabQueue" class="mz-np-tab" role="tab" aria-selected="false">Queue</button>
+    </div>
+    <div id="mzNpLyrics" class="mz-np-lyrics amharic" role="tabpanel"></div>
+    <div id="mzNpQueue" class="mz-np-queue is-hidden" role="tabpanel"></div>
+</aside>
 
 <!-- ═══ MOBILE BOTTOM NAV ═══ -->
 <nav class="school-bottom-nav" aria-label="Mezmur sections">

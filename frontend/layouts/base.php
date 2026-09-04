@@ -87,6 +87,7 @@ if (!file_exists($_themeCssPath)) {
 // Page defaults
 $pageTitle   = $pageTitle   ?? (defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'Dashboard');
 $pageScript  = $pageScript  ?? null;
+$pageScripts = $pageScripts ?? [];
 $bodyClass   = $bodyClass   ?? '';
 $bodyContent = $bodyContent ?? '';
 $extraHead   = $extraHead   ?? '';
@@ -199,6 +200,19 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     <!-- Core JS — shared utilities for ALL dashboards -->
     <script src="/frontend/js/core.js"></script>
     
+    <?php
+    if (!empty($pageScripts) && is_array($pageScripts)) {
+        foreach ($pageScripts as $__js) {
+            if (!is_string($__js) || !preg_match('/^[a-zA-Z0-9_-]+$/', $__js)) continue;
+            if (!empty($pageScript) && $__js === $pageScript) continue;
+            $__jsPath = ROOT_PATH . '/frontend/js/' . $__js . '.js';
+            if (!is_file($__jsPath)) continue;
+            ?>
+    <script src="/frontend/js/<?= e($__js) ?>.js?v=<?= filemtime($__jsPath) ?>"></script>
+            <?php
+        }
+    }
+    ?>
     <?php if ($pageScript): ?>
     <script src="/frontend/js/<?= e($pageScript) ?>.js?v=<?= filemtime(ROOT_PATH . '/frontend/js/' . $pageScript . '.js') ?>"></script>
     <?php endif; ?>

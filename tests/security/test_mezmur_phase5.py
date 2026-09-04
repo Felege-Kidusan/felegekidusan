@@ -2587,6 +2587,7 @@ class MezmurMediaPlaneTests(unittest.TestCase):
         cls.api = (ROOT / "admin/api_mezmur.php").read_text(encoding="utf-8")
         cls.route = (ROOT / "api/v1/routes/mezmur.php").read_text(encoding="utf-8")
         cls.js = (ROOT / "frontend/js/mezmur.js").read_text(encoding="utf-8")
+        cls.player = (ROOT / "frontend/js/mezmur_player.js").read_text(encoding="utf-8")
 
     # ── presign signs what the upload is allowed to be ────────────
     def test_presign_signs_content_type_and_length(self):
@@ -2672,14 +2673,17 @@ class MezmurMediaPlaneTests(unittest.TestCase):
         self.assertIn("case 'audio_stream':", self.api)
         self.assertNotIn("'audio_stream'", re.search(r"\$__postActions = \[(.*?)\];", self.api, re.S).group(1))
         self.assertIn("MezmurMediaService::playUrl(", self.api)
-        # console player uses the signed URL, modal-visible, with a real error
+        # manage-modal helpers stay for upload/replace; listening uses the dock
         self.assertIn("function attachAudioStream(", self.js)
         self.assertIn("action=audio_stream&id=", self.js)
         self.assertIn("function bindAudioSrc(", self.js)
         self.assertIn("player.load();", self.js)
         self.assertIn("player.addEventListener('error'", self.js)
-        # Chrome will not fetch media inside display:none — open first
-        self.assertIn("openModalF('mzAudioModal');\n                setTimeout(function () { attachAudioStream(h); }, 80);", self.js)
+        self.assertIn("action=audio_stream&id=", self.player)
+        self.assertIn("MezmurPlayer", self.player)
+        self.assertNotIn("crossOrigin", self.player)
+        self.assertIn("window.MezmurPlayer.init", self.js)
+        self.assertIn("audioPlay: audioPlay", self.js)
 
 
 class MezmurMobileAudioPlatformTests(unittest.TestCase):

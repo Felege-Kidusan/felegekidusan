@@ -478,6 +478,7 @@
         }
         lib.totalPages = d.total_pages || 1;
         lib.total = d.total || 0;
+        lib.lastItems = d.items || [];
         renderHymnRows(d.items || []);
         renderLibPagination();
     }
@@ -533,14 +534,16 @@
         }
         tb.innerHTML = items.map(function (h) {
             var archived = h.status === 'archived';
-            return '<tr style="border-top:1px solid var(--school-border,rgba(255,255,255,.06))' + (archived ? ';opacity:.55' : '') + '">' +
+            var playing = window.MezmurPlayer && window.MezmurPlayer.currentId && Number(window.MezmurPlayer.currentId()) === Number(h.id);
+            return '<tr data-hymn="' + h.id + '" class="' + (archived ? 'mz-archived' : '') + (playing ? ' mz-is-playing' : '') + '">' +
                 '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + hi(h.title) +
                 (h.snippet ? '<div class="text-dim" style="font-size:.72rem;font-weight:400;margin-top:2px">' + hi(h.snippet) + '</div>' : '') + '</td>' +
                 '<td style="padding:.65rem .75rem">' + catBadges(h) + '</td>' +
                 '<td style="padding:.65rem .75rem;color:var(--school-text-dim)">' + fmtDate(h.updated_at) + '</td>' +
                 '<td style="padding:.65rem .75rem;text-align:right;white-space:nowrap">' +
                 (h.audio_status === 'ready'
-                    ? '<button class="btn-secondary btn-sm" title="Play / manage audio" style="color:var(--school-accent2,#22c55e)" onclick="Mezmur.audioManage(' + h.id + ')"><i class="fa-solid fa-circle-play"></i></button> '
+                    ? '<button class="btn-secondary btn-sm" title="Play" style="color:var(--school-success,#22c55e)" onclick="Mezmur.audioPlay(' + h.id + ')"><i class="fa-solid fa-circle-play"></i></button> ' +
+                      '<button class="btn-secondary btn-sm" title="Manage audio" onclick="Mezmur.audioManage(' + h.id + ')"><i class="fa-solid fa-headphones"></i></button> '
                     : '<button class="btn-secondary btn-sm" title="' + (h.audio_status === 'pending' ? 'Finish audio upload' : 'Attach audio') + '" onclick="Mezmur.audioManage(' + h.id + ')"><i class="fa-solid fa-headphones"></i></button> ') +
                 '<button class="btn-secondary btn-sm" title="View" onclick="Mezmur.view(' + h.id + ')"><i class="fa-solid fa-eye"></i></button> ' +
                 '<button class="btn-secondary btn-sm" title="Edit" onclick="Mezmur.openEdit(' + h.id + ')"><i class="fa-solid fa-pen"></i></button> ' +
@@ -2207,6 +2210,8 @@
             var err = $('mzAudioErr');
             err.classList.add('is-hidden'); err.textContent = '';
             $('mzAudioFile').value = '';
+            var listenBtn = $('mzAudioListenBtn');
+            if (listenBtn) listenBtn.classList.add('is-hidden');
             // Always detach the previous object so a stale src cannot
             // sit at 0:00/0:00 after the modal reopens.
             try { player.pause(); } catch (e) {}
@@ -2214,20 +2219,14 @@
             player.load();
 
             if (status === 'ready') {
-                pWrap.classList.remove('is-hidden');
+                pWrap.classList.add('is-hidden');
+                if (listenBtn) listenBtn.classList.remove('is-hidden');
                 $('mzAudioPickLabel').textContent = 'Replace audio';
                 $('mzAudioState').textContent = 'Ready · ' + (h.audio_format || '').toUpperCase() +
                     (h.audio_size ? ' · ' + fmtBytes(h.audio_size) : '') +
                     (h.audio_duration_s ? ' · ' + fmtDur(h.audio_duration_s) : '') +
-                    ' — fetching a playback URL…';
+                    ' — listen in the Mezmur player (lyrics, queue, next/previous).';
                 $('mzAudioRemoveBtn').classList.remove('is-hidden');
-                // Chrome will not fetch media inside display:none. Open
-                // the modal FIRST, then attach a signed GET (same R2
-                // host the upload already used). The public CDN URL is
-                // a fallback only.
-                openModalF('mzAudioModal');
-                setTimeout(function () { attachAudioStream(h); }, 80);
-                return;
             } else if (status === 'pending') {
                 pWrap.classList.add('is-hidden');
                 $('mzAudioPickLabel').textContent = 'Upload audio (choose the file)';
@@ -2348,7 +2347,8 @@
                     if (c.status !== 'success') { audioErr(c.message || 'The file uploaded but could not be confirmed. Please retry.'); return; }
                     window.toast('Audio attached — streaming from the CDN.', 's');
                     loadList(); loadStats();
-                    openAudio(audioMgr.id); // refresh state; player metadata triggers duration save
+                    openAudio(audioMgr.id);
+                    audioPlay(audioMgr.id);
                 }).catch(function (e) {
                     audioErr(((e && e.message) || 'Could not confirm the upload.') + ' The file may still be on storage — press the audio button again to check.');
                 });
@@ -2393,6 +2393,25 @@
             if (!audioMgr.id) { this.value = ''; return; }
             uploadAudio(file);
         });
+        var listenBtn = $('mzAudioListenBtn');
+        if (listenBtn) listenBtn.addEventListener('click', function () {
+            if (audioMgr.id) audioPlay(audioMgr.id);
+        });
+    }
+
+    function audioPlay(id) {
+        var queue = (lib.lastItems || []).filter(function (h) {
+            return h && h.audio_status === 'ready';
+        });
+        if (window.MezmurPlayer && typeof window.MezmurPlayer.play === 'function') {
+            if (Number(window.MezmurPlayer.currentId()) === Number(id)) {
+                window.MezmurPlayer.toggle();
+                return;
+            }
+            window.MezmurPlayer.play(id, queue);
+            return;
+        }
+        openAudio(id);
     }
 
     function removeAudio() {
@@ -2433,6 +2452,13 @@
         initSysDialog();
         initImageDialog();
         initAudioDialog();
+        if (window.MezmurPlayer && typeof window.MezmurPlayer.init === 'function') {
+            window.MezmurPlayer.init({
+                get: apiGet,
+                post: apiPost,
+                toast: function (m, t) { window.toast(m, t); }
+            });
+        }
         initColorDialog();
         initInlineKeys();
         initSecPop();
@@ -2461,7 +2487,7 @@
         // library
         openAdd: openAdd, openEdit: openEdit, save: saveHymn, view: viewHymn, setStatus: setHymnStatus,
         // P0 audio
-        audioManage: openAudio, audioPick: pickAudio, audioRemove: removeAudio,
+        audioManage: openAudio, audioPlay: audioPlay, audioPick: pickAudio, audioRemove: removeAudio,
         closeAudio: function () { closeModalF('mzAudioModal'); },
         clearFilters: clearFilters,
         browseCategory: browseCategory, browseZemarian: browseZemarian,
