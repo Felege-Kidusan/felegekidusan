@@ -2810,3 +2810,63 @@ class MezmurSyncedLyricsContractTests(unittest.TestCase):
         # the client side of the convergence contract (regression guard)
         self.assertIn("h.containsKey('lyrics_synced')", self.local_db)
         self.assertIn("'lyrics_synced_at'", self.local_db)
+
+
+class MezmurMobilePlayerChromeTests(unittest.TestCase):
+    """Now-playing chrome: lyrics live in the painted ornamental box,
+    the transport sits in the band under it, and the parchment asset is
+    the full-bleed backdrop. Lyrics fade at both edges so scroll eases
+    in and out instead of clipping on the frame."""
+
+    @classmethod
+    def setUpClass(cls):
+        app = ROOT / "Mobile/wbws_flutter_app"
+        cls.player = (app / "lib/screens/mezmur/mezmur_player_screen.dart").read_text(encoding="utf-8")
+        cls.lyrics = (app / "lib/screens/mezmur/mezmur_lyrics_screen.dart").read_text(encoding="utf-8")
+        cls.style = (app / "lib/screens/mezmur/parchment_style.dart").read_text(encoding="utf-8")
+        cls.engine = (app / "lib/services/mezmur_audio_player.dart").read_text(encoding="utf-8")
+        cls.bg = app / "assets/parchment_hymn_bg.jpg"
+
+    def test_parchment_backdrop_is_present(self):
+        self.assertTrue(self.bg.is_file())
+        self.assertGreater(self.bg.stat().st_size, 50_000)
+        self.assertIn("assets/parchment_hymn_bg.jpg", self.engine)
+
+    def test_lyrics_sit_in_the_painted_box(self):
+        self.assertIn("class ParchmentArt", self.style)
+        self.assertIn("boxTop", self.style)
+        self.assertIn("playerTop", self.style)
+        self.assertIn("ParchmentArt.boxTop", self.player)
+        self.assertIn("MezmurLyricsScreen(", self.player)
+        self.assertNotIn("builder: (_) => MezmurLyricsScreen", self.player)
+
+    def test_lyrics_fade_in_and_out_both_edges(self):
+        self.assertIn("class ParchmentFade", self.style)
+        self.assertIn("ShaderMask", self.style)
+        self.assertIn("ParchmentFade", self.lyrics)
+        self.assertIn("alignment: 0.5", self.lyrics)
+        self.assertIn("Scrollable.ensureVisible", self.lyrics)
+
+    def test_transport_has_seek_skip_shuffle_repeat(self):
+        self.assertIn("seekBy", self.engine)
+        self.assertIn("cycleLoop", self.engine)
+        self.assertIn("toggleShuffle", self.engine)
+        self.assertIn("setLoopMode", self.engine)
+        self.assertIn("setShuffleModeEnabled", self.engine)
+        self.assertIn("_c.seekBy", self.player)
+        self.assertIn("_c.cycleLoop", self.player)
+        self.assertIn("_c.toggleShuffle", self.player)
+        self.assertIn("_c.previous", self.player)
+        self.assertIn("_c.next", self.player)
+        self.assertIn("_c.toggle", self.player)
+
+    def test_no_company_names_on_player_surfaces(self):
+        for src in (self.player, self.lyrics, self.style):
+            self.assertNotIn("Spotify", src)
+            self.assertNotIn("Genius", src)
+
+    def test_audio_key_stays_off_the_client(self):
+        self.assertNotIn("'audio_key'", self.player)
+        self.assertNotIn("'audio_key'", self.lyrics)
+        self.assertNotIn("'audio_key'", self.engine)
+

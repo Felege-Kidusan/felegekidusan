@@ -5,12 +5,9 @@ import '../../services/mezmur_audio_player.dart';
 import 'mezmur_lyrics_screen.dart';
 import 'parchment_style.dart';
 
-/// P0 mezmur — Spotify-style full-screen player.
-///
-/// The user's parchment artwork is the backdrop for BOTH this screen and
-/// the synced-lyrics screen. Text follows the artwork study: dark sepia ink
-/// on the bright paper panel; cream glyphs on restrained dark-leather chips
-/// wherever controls float over the painted gold frame / bottom ornament.
+/// Full-screen now-playing: parchment artwork is the backdrop, lyrics
+/// live inside the painted ornamental box, and the transport sits in
+/// the band between that box and the bottom cylinder.
 class MezmurPlayerScreen extends StatefulWidget {
   /// Hymns available in the current view (queue order = list order).
   final List<MezmurTrack> queue;
@@ -46,7 +43,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
       MezmurAudioPlayerController.instance;
   bool _opening = true;
   bool _failed = false;
-  double? _dragMs; // user is scrubbing
+  double? _dragMs;
 
   String get _sessionKey =>
       widget.queue.map((t) => 'mz-${t.hymnId}').join(',');
@@ -85,14 +82,6 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     });
   }
 
-  void _goLyrics() {
-    final track = _c.currentTrack;
-    if (track == null) return;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => MezmurLyricsScreen(track: track),
-    ));
-  }
-
   int get _totalMs {
     final d = _c.duration;
     if (d != null && d.inMilliseconds > 0) return d.inMilliseconds;
@@ -106,12 +95,59 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     return (p < 0 ? 0 : (total > 0 && p > total ? total : p)).toDouble();
   }
 
+  void _showQueue() {
+    final q = _c.queue;
+    if (q.isEmpty) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFFF3E4C4),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
+            itemCount: q.length,
+            itemBuilder: (_, i) {
+              final t = q[i];
+              final active = _c.index == i;
+              return ListTile(
+                leading: Text('${i + 1}',
+                    style: TextStyle(
+                        color: active ? Parchment.bronze : Parchment.inkFaint,
+                        fontWeight: FontWeight.w700)),
+                title: Text(t.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'NotoSansEthiopic',
+                      fontWeight:
+                          active ? FontWeight.w800 : FontWeight.w500,
+                      color: Parchment.inkStrong,
+                    )),
+                trailing: active
+                    ? const Icon(Icons.volume_up_rounded,
+                        color: Parchment.bronze, size: 18)
+                    : null,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _c.openQueue(q, startIndex: i, autoPlay: true);
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final overlay = SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
       systemNavigationBarColor: const Color(0xE62A150A),
       systemNavigationBarIconBrightness: Brightness.light,
     );
@@ -119,50 +155,123 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlay,
       child: ParchmentScaffold(
-        topWash: _EdgeWash(alignBottom: true),
-        bottomWash: _EdgeWash(alignBottom: false),
-        child: SafeArea(
-          bottom: true,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: LayoutBuilder(builder: (context, box) {
+          final h = box.maxHeight;
+          final w = box.maxWidth;
+          final pad = MediaQuery.paddingOf(context);
+          return Stack(
+            fit: StackFit.expand,
             children: [
-              _buildTopRow(context),
-              Expanded(child: _buildStage(context)),
-              _buildConsole(context),
+              Positioned(
+                top: pad.top + h * 0.012,
+                left: w * 0.055,
+                right: w * 0.055,
+                child: _buildHeader(context),
+              ),
+              Positioned(
+                top: h * ParchmentArt.titleTop,
+                left: w * 0.14,
+                right: w * 0.14,
+                height: h * 0.086,
+                child: _buildTitle(),
+              ),
+              Positioned(
+                top: h * (ParchmentArt.boxTop + ParchmentArt.boxInsetInner),
+                bottom: h * (1.0 - ParchmentArt.boxBottom +
+                    ParchmentArt.boxInsetInner),
+                left: w * ParchmentArt.boxInsetX,
+                right: w * ParchmentArt.boxInsetX,
+                child: _buildLyricsBox(),
+              ),
+              Positioned(
+                top: h * ParchmentArt.playerTop,
+                left: w * 0.05,
+                right: w * 0.05,
+                bottom: pad.bottom + h * 0.012,
+                child: _buildConsole(context),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Row(
+      children: [
+        _InkIcon(
+          icon: Icons.arrow_back_rounded,
+          tooltip: 'Close',
+          onTap: () => Navigator.of(context).maybePop(),
+        ),
+        const Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('☩',
+                  style: TextStyle(color: Parchment.bronze, fontSize: 18)),
+              Text(
+                'መዝሙር',
+                style: TextStyle(
+                  color: Parchment.bronze,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.4,
+                  fontFamily: 'NotoSansEthiopic',
+                ),
+              ),
             ],
           ),
         ),
-      ),
+        _InkIcon(
+          icon: Icons.more_horiz_rounded,
+          tooltip: 'Queue',
+          onTap: _showQueue,
+        ),
+      ],
     );
   }
 
-  // ── top chrome ────────────────────────────────────────────
-
-  Widget _buildTopRow(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 14, 0),
-      child: Row(
-        children: [
-          _ChipIcon(
-            icon: Icons.keyboard_arrow_down,
-            tooltip: 'Close',
-            onTap: () => Navigator.of(context).maybePop(),
+  Widget _buildTitle() {
+    final track = _c.currentTrack;
+    final n = _c.queue.length;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          track?.title ?? (_opening ? '…' : 'መዝሙር'),
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Parchment.inkStrong,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            height: 1.25,
+            fontFamily: 'NotoSansEthiopic',
           ),
-          const Spacer(),
-          if (_c.hasQueue)
-            _ChipIcon(
-              icon: Icons.lyrics_outlined,
-              tooltip: 'Live lyrics',
-              onTap: _goLyrics,
-            ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          [
+            if (track?.category?.isNotEmpty == true) track!.category,
+            if (n > 1) '${(_c.index ?? 0) + 1} / $n',
+          ].whereType<String>().join(' · '),
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Parchment.inkFaint,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 
-  // ── middle stage (on the bright parchment panel) ──────────
-
-  Widget _buildStage(BuildContext context) {
+  Widget _buildLyricsBox() {
     if (_opening) {
       return const Center(
         child: SizedBox(
@@ -177,269 +286,179 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     }
     final track = _c.currentTrack;
     if (_failed || track == null) {
-      return Center(
+      return const Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
+          padding: EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             'ይህ መዝሙር ገና ኦዲዮ የለውም — ከአስተዳዳሪው ጋር ተገናኝ።\n(This hymn has no playable audio yet.)',
             textAlign: TextAlign.center,
-            style: const TextStyle(
-                color: Parchment.inkFaint,
-                fontSize: 13.5,
-                height: 1.6),
+            style: TextStyle(
+                color: Parchment.inkFaint, fontSize: 13.5, height: 1.6),
           ),
         ),
       );
     }
-
-    final n = _c.queue.length;
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const SizedBox(height: 6),
-        const _OrnamentRule(),
-        const SizedBox(height: 18),
-        Text(
-          track.category?.isNotEmpty == true
-              ? '${track.category}'
-              : 'መዝሙር · FKSS',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Parchment.inkFaint,
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.1,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 42),
-          child: Text(
-            track.title,
-            textAlign: TextAlign.center,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Parchment.inkStrong,
-              fontSize: 21,
-              fontWeight: FontWeight.w800,
-              height: 1.35,
-              fontFamily: 'NotoSansEthiopic',
-            ),
-          ),
-        ),
-        if (n > 1) ...[
-          const SizedBox(height: 10),
-          Text(
-            '${(_c.index ?? 0) + 1} ከ $n · ${(_c.index ?? 0) + 1} of $n',
-            style: const TextStyle(
-                color: Parchment.inkFaint, fontSize: 12),
-          ),
-        ],
-        const SizedBox(height: 22),
-        const _OrnamentRule(),
-        const SizedBox(height: 26),
-        // Live-lyrics affordance on the paper panel.
-        OutlinedButton.icon(
-          onPressed: _goLyrics,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Parchment.ink,
-            side: const BorderSide(color: Parchment.bronzeSoft, width: 1.1),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30),
-            ),
-            textStyle: const TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w700),
-          ),
-          icon: const Icon(Icons.lyrics_outlined,
-              size: 18, color: Parchment.bronze),
-          label: const Text('የግጥም ገጽ · Live lyrics'),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'በጊዜ የሚከተሉ ግጥሞች · synced to the audio',
-          style: TextStyle(color: Parchment.inkFaint, fontSize: 10.5),
-        ),
-      ],
-    );
+    return MezmurLyricsScreen(key: ValueKey(track.hymnId), track: track);
   }
-
-  // ── bottom console ────────────────────────────────────────
 
   Widget _buildConsole(BuildContext context) {
     final totalMs = _totalMs;
     final posMs = _dragMs ?? _clampedPositionMs;
     final dur = Duration(milliseconds: totalMs);
+    final loop = _c.loopMode;
+    final shuffleOn = _c.shuffle;
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-      decoration: BoxDecoration(
-        color: Parchment.leather,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Parchment.cream.withOpacity(0.10)),
-        boxShadow: const [
-          BoxShadow(
-              color: Color(0x55201508),
-              blurRadius: 14,
-              offset: Offset(0, 6)),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Text(Parchment.fmt(_c.position),
-                  style: const TextStyle(
-                      color: Parchment.cream, fontSize: 10.5)),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2.4,
-                    activeTrackColor: Parchment.gold,
-                    inactiveTrackColor: Parchment.cream.withOpacity(0.22),
-                    thumbColor: Parchment.creamBright,
-                    overlayColor: Parchment.gold.withOpacity(0.14),
-                    thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 6),
-                    overlayShape: const RoundSliderOverlayShape(
-                        overlayRadius: 12),
-                  ),
-                  child: Slider(
-                    min: 0,
-                    max: totalMs > 0 ? totalMs.toDouble() : 1,
-                    value: posMs
-                        .clamp(0, totalMs > 0 ? totalMs.toDouble() : 1)
-                        .toDouble(),
-                    onChangeStart: (_) => setState(() {
-                      _dragMs = posMs;
-                    }),
-                    onChanged: (v) => setState(() => _dragMs = v),
-                    onChangeEnd: (v) {
-                      _c.seek(Duration(milliseconds: v.round()));
-                      setState(() => _dragMs = null);
-                    },
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Text(Parchment.fmt(_c.position),
+                    style: const TextStyle(
+                        color: Parchment.inkFaint, fontSize: 11)),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 3,
+                      activeTrackColor: Parchment.bronze,
+                      inactiveTrackColor: Parchment.bronzeSoft.withOpacity(0.28),
+                      thumbColor: Parchment.inkStrong,
+                      overlayColor: Parchment.gold.withOpacity(0.16),
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 12),
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: totalMs > 0 ? totalMs.toDouble() : 1,
+                      value: posMs
+                          .clamp(0, totalMs > 0 ? totalMs.toDouble() : 1)
+                          .toDouble(),
+                      onChangeStart: (_) => setState(() {
+                        _dragMs = posMs;
+                      }),
+                      onChanged: (v) => setState(() => _dragMs = v),
+                      onChangeEnd: (v) {
+                        _c.seek(Duration(milliseconds: v.round()));
+                        setState(() => _dragMs = null);
+                      },
+                    ),
                   ),
                 ),
-              ),
-              Text(Parchment.fmt(dur),
-                  style: const TextStyle(
-                      color: Parchment.cream, fontSize: 10.5)),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              IconButton(
-                tooltip: 'Previous',
-                iconSize: 30,
-                color: Parchment.cream,
-                disabledColor: Parchment.cream.withOpacity(0.28),
-                icon: const Icon(Icons.skip_previous_rounded),
-                onPressed: !_opening && _c.hasQueue ? _c.previous : null,
-              ),
-              _PlayButton(
-                loading: _opening || _c.buffering,
-                playing: _c.playing,
-                onTap: _c.hasQueue ? _c.toggle : null,
-              ),
-              IconButton(
-                tooltip: 'Next',
-                iconSize: 30,
-                color: Parchment.cream,
-                disabledColor: Parchment.cream.withOpacity(0.28),
-                icon: const Icon(Icons.skip_next_rounded),
-                onPressed:
-                    !_opening && _c.hasQueue ? _c.next : null,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── private chrome pieces ──────────────────────────────────
-
-class _EdgeWash extends StatelessWidget {
-  /// true → gradient is darkest at the TOP of the widget (fades downward).
-  final bool alignBottom;
-  const _EdgeWash({required this.alignBottom});
-
-  @override
-  Widget build(BuildContext context) {
-    final top = MediaQuery.paddingOf(context).top;
-    final h = alignBottom ? (56.0 + top) : 64.0;
-    return IgnorePointer(
-      child: Container(
-        height: h,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: alignBottom
-                ? Alignment.topCenter
-                : Alignment.bottomCenter,
-            end: alignBottom
-                ? Alignment.bottomCenter
-                : Alignment.topCenter,
-            colors: [
-              Parchment.leatherSoft,
-              Parchment.leatherSoft.withOpacity(0.0),
-            ],
-          ),
+                Text(Parchment.fmt(dur),
+                    style: const TextStyle(
+                        color: Parchment.inkFaint, fontSize: 11)),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _CtrlIcon(
+                  icon: Icons.shuffle_rounded,
+                  tooltip: 'Shuffle',
+                  active: shuffleOn,
+                  onTap: _c.hasQueue ? _c.toggleShuffle : null,
+                ),
+                _CtrlIcon(
+                  icon: Icons.rotate_left_rounded,
+                  tooltip: 'Back 15 seconds',
+                  onTap: _c.hasQueue
+                      ? () => _c.seekBy(const Duration(seconds: -15))
+                      : null,
+                ),
+                _CtrlIcon(
+                  icon: Icons.skip_previous_rounded,
+                  tooltip: 'Previous',
+                  size: 34,
+                  onTap: !_opening && _c.hasQueue ? _c.previous : null,
+                ),
+                _PlayButton(
+                  loading: _opening || _c.buffering,
+                  playing: _c.playing,
+                  onTap: _c.hasQueue ? _c.toggle : null,
+                ),
+                _CtrlIcon(
+                  icon: Icons.skip_next_rounded,
+                  tooltip: 'Next',
+                  size: 34,
+                  onTap: !_opening && _c.hasQueue ? _c.next : null,
+                ),
+                _CtrlIcon(
+                  icon: Icons.rotate_right_rounded,
+                  tooltip: 'Forward 15 seconds',
+                  onTap: _c.hasQueue
+                      ? () => _c.seekBy(const Duration(seconds: 15))
+                      : null,
+                ),
+                _CtrlIcon(
+                  icon: loop == 2
+                      ? Icons.repeat_one_rounded
+                      : Icons.repeat_rounded,
+                  tooltip: loop == 2
+                      ? 'Repeat one'
+                      : loop == 1
+                          ? 'Repeat all'
+                          : 'Repeat off',
+                  active: loop > 0,
+                  onTap: _c.hasQueue ? _c.cycleLoop : null,
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _ChipIcon extends StatelessWidget {
+class _InkIcon extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-  const _ChipIcon(
+  const _InkIcon(
       {required this.icon, required this.tooltip, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Parchment.leatherSoft,
-      shape: const CircleBorder(),
-      child: IconButton(
-        tooltip: tooltip,
-        icon: Icon(icon, color: Parchment.cream),
-        iconSize: 22,
-        onPressed: onTap,
-      ),
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon, color: Parchment.bronze),
+      iconSize: 22,
+      onPressed: onTap,
     );
   }
 }
 
-class _OrnamentRule extends StatelessWidget {
-  const _OrnamentRule();
+class _CtrlIcon extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool active;
+  final double size;
+  const _CtrlIcon({
+    required this.icon,
+    required this.tooltip,
+    this.onTap,
+    this.active = false,
+    this.size = 24,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _line(),
-        const SizedBox(width: 6),
-        const Icon(Icons.diamond, size: 7, color: Parchment.gold),
-        const SizedBox(width: 6),
-        _line(),
-      ],
+    return IconButton(
+      tooltip: tooltip,
+      iconSize: size,
+      color: active ? Parchment.bronze : Parchment.ink,
+      disabledColor: Parchment.inkFaint.withOpacity(0.35),
+      icon: Icon(icon),
+      onPressed: onTap,
     );
   }
-
-  static Widget _line() => Container(
-        width: 46,
-        height: 1.2,
-        color: Parchment.bronzeSoft.withOpacity(0.65),
-      );
 }
 
 class _PlayButton extends StatelessWidget {
@@ -461,11 +480,11 @@ class _PlayButton extends StatelessWidget {
         customBorder: const CircleBorder(),
         onTap: enabled ? onTap : null,
         child: SizedBox(
-          width: 62,
-          height: 62,
+          width: 58,
+          height: 58,
           child: loading
               ? const Padding(
-                  padding: EdgeInsets.all(19),
+                  padding: EdgeInsets.all(17),
                   child: CircularProgressIndicator(
                     strokeWidth: 2.2,
                     color: Color(0xFF5A3A12),
@@ -474,7 +493,7 @@ class _PlayButton extends StatelessWidget {
               : Icon(
                   playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                   color: const Color(0xFF4A2C0C),
-                  size: 40,
+                  size: 36,
                 ),
         ),
       ),

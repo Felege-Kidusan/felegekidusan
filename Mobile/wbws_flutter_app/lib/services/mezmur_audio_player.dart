@@ -63,7 +63,7 @@ class MezmurTrack {
 
 /// P0 mezmur — single playback engine for the whole app.
 ///
-/// Spotify-style requirements land on just_audio + just_audio_background:
+/// Playback requirements land on just_audio + just_audio_background:
 ///  - STREAMING: hymns play straight from the R2 public URL, no download.
 ///  - BACKGROUND: just_audio_background (audio_service under the hood)
 ///    keeps the auto-managed player alive when the app leaves the screen
@@ -131,6 +131,8 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   bool _configured = false;
   int _posMs = 0;
   int _durMs = 0;
+  int _loop = 0; // 0 off, 1 all, 2 one
+  bool _shuffle = false;
 
   // ── public state ───────────────────────────────────────────
 
@@ -150,6 +152,8 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   bool get canPrevious => _queue.length > 1 && (_index ?? 0) > 0;
   bool get canNext =>
       _queue.length > 1 && (_index ?? 0) < _queue.length - 1;
+  int get loopMode => _loop;
+  bool get shuffle => _shuffle;
 
   MezmurTrack? get currentTrack {
     final i = _index;
@@ -253,6 +257,34 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     try {
       await _player.seek(to);
     } catch (_) {}
+  }
+
+  Future<void> seekBy(Duration delta) async {
+    final cap = duration ?? Duration.zero;
+    var t = position + delta;
+    if (t < Duration.zero) t = Duration.zero;
+    if (cap > Duration.zero && t > cap) t = cap;
+    await seek(t);
+  }
+
+  Future<void> cycleLoop() async {
+    _loop = (_loop + 1) % 3;
+    try {
+      await _player.setLoopMode(_loop == 2
+          ? LoopMode.one
+          : _loop == 1
+              ? LoopMode.all
+              : LoopMode.off);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> toggleShuffle() async {
+    _shuffle = !_shuffle;
+    try {
+      await _player.setShuffleModeEnabled(_shuffle);
+    } catch (_) {}
+    notifyListeners();
   }
 
   /// Advances (or restarts at 0 when already at the last item).

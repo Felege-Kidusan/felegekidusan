@@ -1,12 +1,13 @@
 /// P0 mezmur — parchment design tokens.
 ///
 /// Every value below was taken from a pixel-level study of the user's
-/// artwork (1440×2560):
+/// artwork (1440×2560 blank scroll):
 ///   * Bright paper panel (luma ≈ 205–215) → dark sepia INK text, not black.
 ///   * Outer gold frame / ornament (luma ≈ 116–155) → CREAM glyphs on a
 ///     translucent dark-leather chip when controls must sit over it.
-///   * Dark ornamental bands live only at the very top/bottom edges, so
-///     headers/footers may dip there — content never does.
+///   * Dark ornamental bands live only at the very top/bottom cylinders.
+///   * The ornamental inner box is the lyrics stage; the transport lives
+///     in the band between that box and the bottom cylinder.
 library;
 
 import 'package:flutter/material.dart';
@@ -48,6 +49,18 @@ class Parchment {
   }
 }
 
+/// Fractional layout of the 1440×2560 blank scroll, so overlays stay
+/// inside the painted regions when the image is `BoxFit.cover` on a
+/// 9:16 phone (the same aspect as the art).
+class ParchmentArt {
+  static const double titleTop = 0.118;
+  static const double boxTop = 0.210;
+  static const double boxBottom = 0.798;
+  static const double boxInsetX = 0.168;
+  static const double boxInsetInner = 0.022;
+  static const double playerTop = 0.808;
+}
+
 /// Full-bleed parchment backdrop. Child content is laid on top; the top and
 /// bottom edges get restrained translucent sepia washes so cream status-bar
 /// icons and any pinned header/footer stay legible over the painted
@@ -87,6 +100,37 @@ class ParchmentScaffold extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+/// Soft in/out points at both edges of the lyrics stage so lines ease
+/// in from the top and out through the bottom (and the reverse) instead
+/// of clipping hard against the ornamental frame.
+class ParchmentFade extends StatelessWidget {
+  final Widget child;
+  final double stop;
+
+  const ParchmentFade({super.key, required this.child, this.stop = 0.14});
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) {
+        return LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [
+            Color(0x00FFFFFF),
+            Color(0xFFFFFFFF),
+            Color(0xFFFFFFFF),
+            Color(0x00FFFFFF),
+          ],
+          stops: [0.0, stop, 1.0 - stop, 1.0],
+        ).createShader(rect);
+      },
+      child: child,
     );
   }
 }
