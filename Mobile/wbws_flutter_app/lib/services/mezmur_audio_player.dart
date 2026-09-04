@@ -167,6 +167,9 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   bool _completed = false;
   bool _sourceLoaded = false;
   bool _controlInFlight = false;
+  bool _pauseRequested = false;
+  bool _pausePending = false;
+  int _commandVersion = 0;
   String? _playbackError;
   bool _configured = false;
   int _posMs = 0;
@@ -424,6 +427,8 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     bool autoPlay = true,
   }) async {
     if (tracks.isEmpty) return false;
+    final loadCommand = ++_commandVersion;
+    _pauseRequested = !autoPlay;
     final selectedIndex = startIndex.clamp(0, tracks.length - 1);
     final selected = tracks[selectedIndex];
     var selectedTrack = selected;
@@ -476,7 +481,11 @@ class MezmurAudioPlayerController extends ChangeNotifier {
           await _player.setSpeed(_rate);
         } catch (_) {}
       }
-      if (autoPlay) await _player.play();
+      if (autoPlay &&
+          !_pauseRequested &&
+          loadCommand == _commandVersion) {
+        await _player.play();
+      }
       notifyListeners();
       return true;
     } catch (_) {
@@ -492,6 +501,8 @@ class MezmurAudioPlayerController extends ChangeNotifier {
 
   Future<void> play() async {
     if (_controlInFlight) return;
+    _pauseRequested = false;
+    _commandVersion++;
     _controlInFlight = true;
     try {
       if (!canPlay && (viewTrack?.audioUrl.trim().isNotEmpty ?? false)) {
@@ -509,21 +520,52 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       notifyListeners();
     } finally {
       _controlInFlight = false;
+      if (_pausePending) {
+        _pausePending = false;
+        try {
+          await _player.pause();
+          _playing = false;
+          notifyListeners();
+        } catch (_) {}
+      }
     }
   }
 
-  Future<void> pause() => _player.pause();
-
-  Future<void> toggle() async {
-    if (_controlInFlight) return;
+  Future<void> pause() async {
+    _pauseRequested = true;
+    _commandVersion++;
+    if (_controlInFlight) {
+      _pausePending = true;
+      return;
+    }
     _controlInFlight = true;
     try {
-      if (_player.playing) {
-        await _player.pause();
+      await _player.pause();
+      _playing = false;
+      notifyListeners();
+    } catch (_) {
+      _playbackError = 'Audio control failed. Please try again.';
+      notifyListeners();
+    } finally {
+      _controlInFlight = false;
+    }
+  }
+
+  Future<void> toggle() async {
+    if (_controlInFlight) {
+      _pauseRequested = true;
+      _commandVersion++;
+      _pausePending = true;
+      return;
+    }
+    _controlInFlight = true;
+    try {
+      final shouldPause = _player.playing || _playing;
+      _controlInFlight = false;
+      if (shouldPause) {
+        await pause();
       } else {
-        _controlInFlight = false;
         await play();
-        return;
       }
     } catch (_) {
       _playbackError = 'Audio control failed. Please try again.';
