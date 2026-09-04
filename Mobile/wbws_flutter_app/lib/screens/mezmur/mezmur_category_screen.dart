@@ -4,7 +4,7 @@ import '../../services/hymn_store.dart';
 import '../../utils/config.dart';
 import '../../utils/cover_palette.dart';
 import '../../utils/theme.dart';
-import 'mezmur_hymn_detail.dart';
+import 'mezmur_player_screen.dart';
 
 /// P31: the category browse drill-down, three visual levels.
 ///
@@ -503,11 +503,12 @@ Widget hymnList(List<Map<String, dynamic>> hymns, VoidCallback reload) {
         child: Opacity(
           opacity: archived ? 0.55 : 1,
           child: ListTile(
-            onTap: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => MezmurHymnDetailScreen(id: asInt(h['id'])),
-              ));
-              reload();
+            onTap: () {
+              MezmurPlayerScreen.openFromRows(
+                context,
+                rows: hymns,
+                hymnId: asInt(h['id']),
+              );
             },
             leading: CircleAvatar(
               backgroundColor: AppTheme.primary.withOpacity(0.1),

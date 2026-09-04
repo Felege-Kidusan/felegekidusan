@@ -49,9 +49,35 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
   bool get _syncedAvailable =>
       _doc != null && !_doc!.isEmpty && _mode == _LyricsMode.synced;
 
+  void _paintFrom(String synced, String staticText) {
+    final parsed = SyncedLyrics.tryParse(synced.trim());
+    if (parsed != null && !parsed.isEmpty) {
+      _doc = parsed;
+      _mode = _LyricsMode.synced;
+      _keys = List<GlobalKey>.generate(
+          parsed.lines.length, (_) => GlobalKey());
+      _staticLyrics = staticText;
+      _loading = false;
+    } else if (staticText.trim().isNotEmpty) {
+      _doc = null;
+      _mode = _LyricsMode.staticOnly;
+      _staticLyrics = staticText;
+      _keys = const [];
+      _loading = false;
+    } else {
+      _doc = null;
+      _mode = _LyricsMode.none;
+      _staticLyrics = staticText;
+      _keys = const [];
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    // Seed from the list row when it already carries lyrics so the
+    // first frame is never a spinner waiting on audio or the network.
+    _paintFrom(widget.track.lyricsSynced ?? '', widget.track.lyrics ?? '');
     _load();
     _ticker = Timer.periodic(const Duration(milliseconds: 220), (_) {
       _syncActive();
@@ -64,6 +90,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     if (old.track.hymnId != widget.track.hymnId) {
       _userHold = false;
       _resumeHold?.cancel();
+      _paintFrom(widget.track.lyricsSynced ?? '', widget.track.lyrics ?? '');
       _load();
     }
   }
@@ -77,17 +104,17 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _mode = _LyricsMode.none;
-      _doc = null;
-      _active = -1;
-      _keys = const [];
-    });
+    // Never blank lyrics that are already on screen. The player must
+    // show text while audio is still opening.
+    if (_mode == _LyricsMode.none && mounted) {
+      setState(() => _loading = true);
+    }
     final db = LocalDb();
     var row = await db.getLocalHymn(widget.track.hymnId);
     var synced = (row?['lyrics_synced'] as String?)?.trim() ?? '';
-    final staticText = (row?['lyrics'] as String?) ?? '';
+    var staticText = (row?['lyrics'] as String?) ?? '';
+    if (synced.isEmpty) synced = (widget.track.lyricsSynced ?? '').trim();
+    if (staticText.isEmpty) staticText = widget.track.lyrics ?? '';
     if (synced.isEmpty && ConnectivityService().hasLink) {
       try {
         final res = await ApiService().getMezmurHymn(widget.track.hymnId);
@@ -95,7 +122,8 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
           final item = Map<String, dynamic>.from(res.data['item']);
           await db.upsertHymns([item]);
           row = await db.getLocalHymn(widget.track.hymnId);
-          synced = ((row?['lyrics_synced'] as String?) ?? '').trim();
+          synced = ((row?['lyrics_synced'] as String?) ?? synced).trim();
+          staticText = (row?['lyrics'] as String?) ?? staticText;
         }
       } catch (_) {
         _hadNetworkError = true;
@@ -104,18 +132,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     if (!mounted) return;
     setState(() {
       _loading = false;
-      _staticLyrics = staticText;
-      final parsed = SyncedLyrics.tryParse(synced);
-      if (parsed != null && !parsed.isEmpty) {
-        _doc = parsed;
-        _mode = _LyricsMode.synced;
-        _keys = List<GlobalKey>.generate(
-            parsed.lines.length, (_) => GlobalKey());
-      } else if (staticText.trim().isNotEmpty) {
-        _mode = _LyricsMode.staticOnly;
-      } else {
-        _mode = _LyricsMode.none;
-      }
+      _paintFrom(synced, staticText);
       _syncActive(force: true);
     });
   }
@@ -170,17 +187,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.2,
-            valueColor: AlwaysStoppedAnimation(Parchment.bronze),
-          ),
-        ),
-      );
+    if (_loading && _mode == _LyricsMode.none) {
+      // Empty parchment while the local row is read — never a spinner
+      // sitting in the lyrics box while audio opens.
+      return const SizedBox.shrink();
     }
     if (_syncedAvailable) return _buildSynced();
     if (_mode == _LyricsMode.staticOnly) return _buildStatic();

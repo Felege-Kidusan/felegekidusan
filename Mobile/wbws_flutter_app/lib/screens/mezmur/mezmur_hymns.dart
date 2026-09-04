@@ -8,7 +8,6 @@ import '../../utils/cover_palette.dart';
 import '../../services/sync_service.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
-import '../../services/mezmur_audio_player.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/offline_banner.dart';
@@ -275,21 +274,21 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
 
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
-  // ── P0 audio: play from the CURRENT view (queue = rows with audio
-  //    ready in the active filter/search result, list order). ─────────
-  void _playFrom(Map<String, dynamic> h) {
-    final tracks = _items
-        .where(MezmurTrack.audioReady)
-        .map(MezmurTrack.fromHymnRow)
-        .toList(growable: false);
-    if (tracks.isEmpty) return;
-    final id = _asInt(h['id']);
-    var idx = tracks.indexWhere((t) => t.hymnId == id);
-    if (idx < 0) idx = 0;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) =>
-          MezmurPlayerScreen(queue: tracks, initialIndex: idx),
+  // ── P0 audio: one tap opens the parchment player for ANY hymn in
+  //    the current view (audio optional — lyrics still show). ────────
+  void _openPlayer(Map<String, dynamic> h) {
+    MezmurPlayerScreen.openFromRows(
+      context,
+      rows: _items,
+      hymnId: _asInt(h['id']),
+    );
+  }
+
+  Future<void> _openDetails(Map<String, dynamic> h) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MezmurHymnDetailScreen(id: _asInt(h['id'])),
     ));
+    await _reload();
   }
 
   // ── build ───────────────────────────────────────────────────
@@ -827,12 +826,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
             child: Card(
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
-                onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => MezmurHymnDetailScreen(id: _asInt(h['id'])),
-                  ));
-                  await _reload();
-                },
+                onTap: () => _openPlayer(h),
                 leading: CircleAvatar(
                   backgroundColor: AppTheme.primary.withOpacity(0.1),
                   child: Icon(
@@ -891,52 +885,45 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                     ],
                   ],
                 ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // P0 audio: ready hymns get a one-tap play shortcut.
-                    if (MezmurTrack.audioReady(h))
-                      IconButton(
-                        tooltip: 'Play audio',
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 22,
-                        color: AppTheme.primary,
-                        icon: const Icon(Icons.play_circle_fill),
-                        onPressed: () => _playFrom(h),
-                      ),
-                    if (_store.canEdit)
-                      PopupMenuButton<String>(
-                        icon: const Icon(Icons.more_vert, size: 18),
-                        onSelected: (v) async {
-                          if (v == 'edit') await _editHymn(h);
-                          if (v == 'archive') await _toggleArchive(h);
-                        },
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(
-                              value: 'edit',
-                              height: 36,
-                              child: Row(children: [
-                                Icon(Icons.edit_outlined, size: 16),
-                                SizedBox(width: 8),
-                                Text('Edit', style: TextStyle(fontSize: 12.5))
-                              ])),
-                          PopupMenuItem(
-                              value: 'archive',
-                              height: 36,
-                              child: Row(children: [
-                                Icon(
-                                    archived
-                                        ? Icons.unarchive_outlined
-                                        : Icons.archive_outlined,
-                                    size: 16),
-                                const SizedBox(width: 8),
-                                Text(archived ? 'Restore' : 'Archive',
-                                    style: const TextStyle(fontSize: 12.5))
-                              ])),
-                        ],
-                      )
-                    else
-                      const Icon(Icons.chevron_right, size: 18),
+                trailing: PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, size: 18),
+                  onSelected: (v) async {
+                    if (v == 'details') await _openDetails(h);
+                    if (v == 'edit') await _editHymn(h);
+                    if (v == 'archive') await _toggleArchive(h);
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'details',
+                        height: 36,
+                        child: Row(children: [
+                          Icon(Icons.info_outline, size: 16),
+                          SizedBox(width: 8),
+                          Text('Details', style: TextStyle(fontSize: 12.5))
+                        ])),
+                    if (_store.canEdit) ...[
+                      const PopupMenuItem(
+                          value: 'edit',
+                          height: 36,
+                          child: Row(children: [
+                            Icon(Icons.edit_outlined, size: 16),
+                            SizedBox(width: 8),
+                            Text('Edit', style: TextStyle(fontSize: 12.5))
+                          ])),
+                      PopupMenuItem(
+                          value: 'archive',
+                          height: 36,
+                          child: Row(children: [
+                            Icon(
+                                archived
+                                    ? Icons.unarchive_outlined
+                                    : Icons.archive_outlined,
+                                size: 16),
+                            const SizedBox(width: 8),
+                            Text(archived ? 'Restore' : 'Archive',
+                                style: const TextStyle(fontSize: 12.5))
+                          ])),
+                    ],
                   ],
                 ),
               ),

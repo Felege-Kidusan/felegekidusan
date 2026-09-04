@@ -13,6 +13,8 @@ class MezmurTrack {
   final String audioUrl;
   final String? category;
   final int? durationSeconds;
+  final String? lyrics;
+  final String? lyricsSynced;
 
   const MezmurTrack({
     required this.hymnId,
@@ -20,6 +22,8 @@ class MezmurTrack {
     required this.audioUrl,
     this.category,
     this.durationSeconds,
+    this.lyrics,
+    this.lyricsSynced,
   });
 
   static int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -38,6 +42,9 @@ class MezmurTrack {
       audioUrl: '${row['audio_url'] ?? ''}',
       category: row['category'] is String ? row['category'] as String : null,
       durationSeconds: _asIntOrNull(row['audio_duration_s']),
+      lyrics: row['lyrics'] is String ? row['lyrics'] as String : null,
+      lyricsSynced:
+          row['lyrics_synced'] is String ? row['lyrics_synced'] as String : null,
     );
   }
 
@@ -133,6 +140,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   int _durMs = 0;
   int _loop = 0; // 0 off, 1 all, 2 one
   bool _shuffle = false;
+  double _rate = 1;
 
   // ── public state ───────────────────────────────────────────
 
@@ -234,6 +242,11 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       await _player.setAudioSources(sources,
           initialIndex: offset, initialPosition: Duration.zero);
       _index = offset;
+      if (_rate != 1) {
+        try {
+          await _player.setSpeed(_rate);
+        } catch (_) {}
+      }
       if (autoPlay) await _player.play();
       notifyListeners();
       return true;
@@ -283,6 +296,14 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     _shuffle = !_shuffle;
     try {
       await _player.setShuffleModeEnabled(_shuffle);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> setRate(double r) async {
+    _rate = r;
+    try {
+      await _player.setSpeed(r);
     } catch (_) {}
     notifyListeners();
   }

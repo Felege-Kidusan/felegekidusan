@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,10 +8,13 @@ import 'mezmur_lyrics_screen.dart';
 import 'parchment_style.dart';
 
 /// Full-screen now-playing: parchment artwork is the backdrop, lyrics
-/// live inside the painted ornamental box, and the transport sits in
-/// the band between that box and the bottom cylinder.
+/// live inside the painted ornamental box, and the transport sits in a
+/// frosted glass panel in the band between that box and the bottom
+/// cylinder. Audio is optional — a hymn without a file still opens
+/// here so the lyrics are one tap away from any list.
 class MezmurPlayerScreen extends StatefulWidget {
-  /// Hymns available in the current view (queue order = list order).
+  /// Hymns in the current view (queue order = list order). Rows
+  /// without audio stay in the list so the tapped hymn is always shown.
   final List<MezmurTrack> queue;
 
   /// Which row of [queue] to start at.
@@ -34,6 +39,23 @@ class MezmurPlayerScreen extends StatefulWidget {
     ));
   }
 
+  /// One tap from a hymn list: open THIS screen for [hymnId], whether
+  /// or not that row has audio. Neighbours become the skip queue.
+  static Future<void> openFromRows(
+    BuildContext context, {
+    required List<Map<String, dynamic>> rows,
+    required int hymnId,
+  }) {
+    final tracks =
+        rows.map(MezmurTrack.fromHymnRow).toList(growable: false);
+    if (tracks.isEmpty) return Future.value();
+    var idx = tracks.indexWhere((t) => t.hymnId == hymnId);
+    if (idx < 0) idx = 0;
+    return Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MezmurPlayerScreen(queue: tracks, initialIndex: idx),
+    ));
+  }
+
   @override
   State<MezmurPlayerScreen> createState() => _MezmurPlayerScreenState();
 }
@@ -45,8 +67,23 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   bool _failed = false;
   double? _dragMs;
 
-  String get _sessionKey =>
-      widget.queue.map((t) => 'mz-${t.hymnId}').join(',');
+  /// The hymn this screen was opened for — lyrics and title come from
+  /// here on the first frame, even while audio is still opening and
+  /// even when the row has no audio at all.
+  MezmurTrack get _focus => widget.queue[widget.initialIndex];
+
+  /// Follow the live engine when it is playing a neighbour from this
+  /// same list; otherwise stay on the tapped hymn (audio may be empty
+  /// or still loading, in which case currentTrack is null).
+  MezmurTrack get _view {
+    final cur = _c.currentTrack;
+    if (cur == null) return _focus;
+    final i = widget.queue.indexWhere((t) => t.hymnId == cur.hymnId);
+    if (i >= 0) return widget.queue[i];
+    return cur;
+  }
+
+  bool get _hasAudio => _view.audioUrl.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -65,16 +102,42 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     if (mounted) setState(() {});
   }
 
-  /// Reuses the running session when the SAME queue is already loaded so a
-  /// re-entry does not restart the hymn; otherwise loads + starts the new
-  /// queue (which is exactly what a tap on another hymn should do).
+  /// Audio loads in the background. Lyrics never wait on this.
   Future<void> _ensureSession() async {
-    final already = _c.hasQueue && _c.sessionKey == _sessionKey;
-    var ok = already;
-    if (!already) {
-      ok = await _c.openQueue(widget.queue,
-          startIndex: widget.initialIndex, autoPlay: true);
+    final focus = _focus;
+    if (focus.audioUrl.trim().isEmpty) {
+      try {
+        await _c.pause();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _opening = false;
+        _failed = false;
+      });
+      return;
     }
+    if (_c.currentTrack?.hymnId == focus.hymnId && _c.hasQueue) {
+      if (!mounted) return;
+      setState(() {
+        _opening = false;
+        _failed = false;
+      });
+      return;
+    }
+    final playable = widget.queue
+        .where((t) => t.audioUrl.trim().isNotEmpty)
+        .toList(growable: false);
+    final si = playable.indexWhere((t) => t.hymnId == focus.hymnId);
+    if (si < 0) {
+      if (!mounted) return;
+      setState(() {
+        _opening = false;
+        _failed = false;
+      });
+      return;
+    }
+    final ok = await _c.openQueue(playable,
+        startIndex: si, autoPlay: true);
     if (!mounted) return;
     setState(() {
       _opening = false;
@@ -85,7 +148,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   int get _totalMs {
     final d = _c.duration;
     if (d != null && d.inMilliseconds > 0) return d.inMilliseconds;
-    final secs = _c.currentTrack?.durationSeconds ?? 0;
+    final secs = _view.durationSeconds ?? 0;
     return secs * 1000;
   }
 
@@ -93,6 +156,90 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     final total = _totalMs;
     final p = _c.position.inMilliseconds;
     return (p < 0 ? 0 : (total > 0 && p > total ? total : p)).toDouble();
+  }
+
+  void _showSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFFF3E4C4),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Playback settings',
+                  style: TextStyle(
+                    fontFamily: 'NotoSansEthiopic',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: Parchment.inkStrong,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Speed',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Parchment.inkFaint,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final r in MezmurAudioPlayerController.rates)
+                      ChoiceChip(
+                        label: Text(
+                          r == 1 ? '1×' : '${r}×',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        selected: (_c.rate - r).abs() < 0.01,
+                        selectedColor: Parchment.gold,
+                        onSelected: (_) {
+                          _c.setRate(r);
+                          Navigator.pop(ctx);
+                        },
+                      ),
+                  ],
+                ),
+                if (_c.hasQueue) ...[
+                  const SizedBox(height: 18),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.queue_music_rounded,
+                        color: Parchment.inkStrong),
+                    title: const Text(
+                      'Up next',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Parchment.inkStrong,
+                      ),
+                    ),
+                    trailing: Text(
+                      '${_c.queue.length}',
+                      style: const TextStyle(color: Parchment.inkFaint),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showQueue();
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showQueue() {
@@ -144,11 +291,11 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final overlay = SystemUiOverlayStyle(
+    const overlay = SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
       statusBarBrightness: Brightness.light,
-      systemNavigationBarColor: const Color(0xE62A150A),
+      systemNavigationBarColor: Color(0xE62A150A),
       systemNavigationBarIconBrightness: Brightness.light,
     );
 
@@ -200,47 +347,32 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   Widget _buildHeader(BuildContext context) {
     return Row(
       children: [
-        _InkIcon(
+        _ChipIcon(
           icon: Icons.arrow_back_rounded,
           tooltip: 'Close',
           onTap: () => Navigator.of(context).maybePop(),
         ),
-        const Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('☩',
-                  style: TextStyle(color: Parchment.bronze, fontSize: 18)),
-              Text(
-                'መዝሙር',
-                style: TextStyle(
-                  color: Parchment.bronze,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.4,
-                  fontFamily: 'NotoSansEthiopic',
-                ),
-              ),
-            ],
-          ),
-        ),
-        _InkIcon(
-          icon: Icons.more_horiz_rounded,
-          tooltip: 'Queue',
-          onTap: _showQueue,
+        const Expanded(child: SizedBox.shrink()),
+        _ChipIcon(
+          icon: Icons.tune_rounded,
+          tooltip: 'Playback settings',
+          onTap: _showSettings,
         ),
       ],
     );
   }
 
   Widget _buildTitle() {
-    final track = _c.currentTrack;
-    final n = _c.queue.length;
+    final track = _view;
+    final n = _c.hasQueue ? _c.queue.length : widget.queue.length;
+    final idx = _c.hasQueue
+        ? (_c.index ?? 0)
+        : widget.initialIndex;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          track?.title ?? (_opening ? '…' : 'መዝሙር'),
+          track.title.isEmpty ? 'መዝሙር' : track.title,
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -255,8 +387,8 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
         const SizedBox(height: 4),
         Text(
           [
-            if (track?.category?.isNotEmpty == true) track!.category,
-            if (n > 1) '${(_c.index ?? 0) + 1} / $n',
+            if (track.category?.isNotEmpty == true) track.category,
+            if (n > 1) '${idx + 1} / $n',
           ].whereType<String>().join(' · '),
           textAlign: TextAlign.center,
           maxLines: 1,
@@ -271,165 +403,207 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     );
   }
 
+  /// Lyrics paint from the tapped hymn on the first frame. They are
+  /// never gated on audio open / currentTrack.
   Widget _buildLyricsBox() {
-    if (_opening) {
-      return const Center(
-        child: SizedBox(
-          width: 26,
-          height: 26,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            valueColor: AlwaysStoppedAnimation(Parchment.bronze),
-          ),
-        ),
-      );
-    }
-    final track = _c.currentTrack;
-    if (_failed || track == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            'ይህ መዝሙር ገና ኦዲዮ የለውም — ከአስተዳዳሪው ጋር ተገናኝ።\n(This hymn has no playable audio yet.)',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                color: Parchment.inkFaint, fontSize: 13.5, height: 1.6),
-          ),
-        ),
-      );
-    }
+    final track = _view;
     return MezmurLyricsScreen(key: ValueKey(track.hymnId), track: track);
   }
 
   Widget _buildConsole(BuildContext context) {
+    if (!_hasAudio || (_failed && !_c.hasQueue)) {
+      return _GlassPanel(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Text(
+            _failed
+                ? 'ኦዲዮ መጫን አልተቻለም።\nAudio could not be loaded for this hymn.'
+                : 'ለዚህ መዝሙር በአሁኑ ጊዜ ኦዲዮ የለም።\nThere is no audio for this hymn currently.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Parchment.inkStrong,
+              fontSize: 13,
+              height: 1.55,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'NotoSansEthiopic',
+            ),
+          ),
+        ),
+      );
+    }
+
     final totalMs = _totalMs;
     final posMs = _dragMs ?? _clampedPositionMs;
     final dur = Duration(milliseconds: totalMs);
     final loop = _c.loopMode;
     final shuffleOn = _c.shuffle;
+    // Spinner only while audio is still opening. Buffering mid-stream
+    // must never replace the pause glyph.
+    final loading = !_c.playing && (_opening || _c.buffering);
 
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+    return _GlassPanel(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: SizedBox(
+          width: 360,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(Parchment.fmt(_c.position),
-                    style: const TextStyle(
-                        color: Parchment.inkFaint, fontSize: 11)),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3,
-                      activeTrackColor: Parchment.bronze,
-                      inactiveTrackColor: Parchment.bronzeSoft.withOpacity(0.28),
-                      thumbColor: Parchment.inkStrong,
-                      overlayColor: Parchment.gold.withOpacity(0.16),
-                      thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape:
-                          const RoundSliderOverlayShape(overlayRadius: 12),
+                Row(
+                  children: [
+                    Text(Parchment.fmt(_c.position),
+                        style: const TextStyle(
+                            color: Parchment.inkFaint, fontSize: 11)),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 3,
+                          activeTrackColor: Parchment.bronze,
+                          inactiveTrackColor:
+                              Parchment.bronzeSoft.withOpacity(0.28),
+                          thumbColor: Parchment.inkStrong,
+                          overlayColor: Parchment.gold.withOpacity(0.16),
+                          thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(
+                              overlayRadius: 12),
+                        ),
+                        child: Slider(
+                          min: 0,
+                          max: totalMs > 0 ? totalMs.toDouble() : 1,
+                          value: posMs
+                              .clamp(0, totalMs > 0 ? totalMs.toDouble() : 1)
+                              .toDouble(),
+                          onChangeStart: (_) => setState(() {
+                            _dragMs = posMs;
+                          }),
+                          onChanged: (v) => setState(() => _dragMs = v),
+                          onChangeEnd: (v) {
+                            _c.seek(Duration(milliseconds: v.round()));
+                            setState(() => _dragMs = null);
+                          },
+                        ),
+                      ),
                     ),
-                    child: Slider(
-                      min: 0,
-                      max: totalMs > 0 ? totalMs.toDouble() : 1,
-                      value: posMs
-                          .clamp(0, totalMs > 0 ? totalMs.toDouble() : 1)
-                          .toDouble(),
-                      onChangeStart: (_) => setState(() {
-                        _dragMs = posMs;
-                      }),
-                      onChanged: (v) => setState(() => _dragMs = v),
-                      onChangeEnd: (v) {
-                        _c.seek(Duration(milliseconds: v.round()));
-                        setState(() => _dragMs = null);
-                      },
-                    ),
-                  ),
+                    Text(Parchment.fmt(dur),
+                        style: const TextStyle(
+                            color: Parchment.inkFaint, fontSize: 11)),
+                  ],
                 ),
-                Text(Parchment.fmt(dur),
-                    style: const TextStyle(
-                        color: Parchment.inkFaint, fontSize: 11)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _CtrlIcon(
+                      icon: Icons.shuffle_rounded,
+                      tooltip: 'Shuffle',
+                      active: shuffleOn,
+                      onTap: _c.hasQueue ? _c.toggleShuffle : null,
+                    ),
+                    _CtrlIcon(
+                      icon: Icons.rotate_left_rounded,
+                      tooltip: 'Back 15 seconds',
+                      onTap: _c.hasQueue
+                          ? () => _c.seekBy(const Duration(seconds: -15))
+                          : null,
+                    ),
+                    _CtrlIcon(
+                      icon: Icons.skip_previous_rounded,
+                      tooltip: 'Previous',
+                      size: 34,
+                      onTap: !_opening && _c.hasQueue ? _c.previous : null,
+                    ),
+                    _PlayButton(
+                      loading: loading,
+                      playing: _c.playing,
+                      onTap: _c.hasQueue ? _c.toggle : null,
+                    ),
+                    _CtrlIcon(
+                      icon: Icons.skip_next_rounded,
+                      tooltip: 'Next',
+                      size: 34,
+                      onTap: !_opening && _c.hasQueue ? _c.next : null,
+                    ),
+                    _CtrlIcon(
+                      icon: Icons.rotate_right_rounded,
+                      tooltip: 'Forward 15 seconds',
+                      onTap: _c.hasQueue
+                          ? () => _c.seekBy(const Duration(seconds: 15))
+                          : null,
+                    ),
+                    _CtrlIcon(
+                      icon: loop == 2
+                          ? Icons.repeat_one_rounded
+                          : Icons.repeat_rounded,
+                      tooltip: loop == 2
+                          ? 'Repeat one'
+                          : loop == 1
+                              ? 'Repeat all'
+                              : 'Repeat off',
+                      active: loop > 0,
+                      onTap: _c.hasQueue ? _c.cycleLoop : null,
+                    ),
+                  ],
+                ),
               ],
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _CtrlIcon(
-                  icon: Icons.shuffle_rounded,
-                  tooltip: 'Shuffle',
-                  active: shuffleOn,
-                  onTap: _c.hasQueue ? _c.toggleShuffle : null,
-                ),
-                _CtrlIcon(
-                  icon: Icons.rotate_left_rounded,
-                  tooltip: 'Back 15 seconds',
-                  onTap: _c.hasQueue
-                      ? () => _c.seekBy(const Duration(seconds: -15))
-                      : null,
-                ),
-                _CtrlIcon(
-                  icon: Icons.skip_previous_rounded,
-                  tooltip: 'Previous',
-                  size: 34,
-                  onTap: !_opening && _c.hasQueue ? _c.previous : null,
-                ),
-                _PlayButton(
-                  loading: _opening || _c.buffering,
-                  playing: _c.playing,
-                  onTap: _c.hasQueue ? _c.toggle : null,
-                ),
-                _CtrlIcon(
-                  icon: Icons.skip_next_rounded,
-                  tooltip: 'Next',
-                  size: 34,
-                  onTap: !_opening && _c.hasQueue ? _c.next : null,
-                ),
-                _CtrlIcon(
-                  icon: Icons.rotate_right_rounded,
-                  tooltip: 'Forward 15 seconds',
-                  onTap: _c.hasQueue
-                      ? () => _c.seekBy(const Duration(seconds: 15))
-                      : null,
-                ),
-                _CtrlIcon(
-                  icon: loop == 2
-                      ? Icons.repeat_one_rounded
-                      : Icons.repeat_rounded,
-                  tooltip: loop == 2
-                      ? 'Repeat one'
-                      : loop == 1
-                          ? 'Repeat all'
-                          : 'Repeat off',
-                  active: loop > 0,
-                  onTap: _c.hasQueue ? _c.cycleLoop : null,
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _InkIcon extends StatelessWidget {
+/// Frosted glass plate that sits on the parchment under the transport.
+class _GlassPanel extends StatelessWidget {
+  final Widget child;
+  const _GlassPanel({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0x99F6E7C8),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: Parchment.bronze.withOpacity(0.34),
+              width: 1,
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// High-contrast cream chip so the back arrow stays readable on the
+/// gold roll (bronze-on-gold disappears).
+class _ChipIcon extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-  const _InkIcon(
+  const _ChipIcon(
       {required this.icon, required this.tooltip, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      icon: Icon(icon, color: Parchment.bronze),
-      iconSize: 22,
-      onPressed: onTap,
+    return Material(
+      color: const Color(0xF5F8EBCB),
+      shape: const CircleBorder(),
+      elevation: 2,
+      shadowColor: const Color(0x66000000),
+      child: IconButton(
+        tooltip: tooltip,
+        icon: Icon(icon, color: const Color(0xFF1A0C06), size: 24),
+        iconSize: 24,
+        onPressed: onTap,
+      ),
     );
   }
 }

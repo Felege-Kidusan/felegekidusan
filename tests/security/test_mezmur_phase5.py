@@ -2825,6 +2825,8 @@ class MezmurMobilePlayerChromeTests(unittest.TestCase):
         cls.lyrics = (app / "lib/screens/mezmur/mezmur_lyrics_screen.dart").read_text(encoding="utf-8")
         cls.style = (app / "lib/screens/mezmur/parchment_style.dart").read_text(encoding="utf-8")
         cls.engine = (app / "lib/services/mezmur_audio_player.dart").read_text(encoding="utf-8")
+        cls.hymns = (app / "lib/screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
+        cls.cat = (app / "lib/screens/mezmur/mezmur_category_screen.dart").read_text(encoding="utf-8")
         cls.bg = app / "assets/parchment_hymn_bg.jpg"
 
     def test_parchment_backdrop_is_present(self):
@@ -2869,4 +2871,42 @@ class MezmurMobilePlayerChromeTests(unittest.TestCase):
         self.assertNotIn("'audio_key'", self.player)
         self.assertNotIn("'audio_key'", self.lyrics)
         self.assertNotIn("'audio_key'", self.engine)
+
+    def test_list_tap_opens_parchment_even_without_audio(self):
+        self.assertIn("openFromRows", self.player)
+        self.assertIn("MezmurPlayerScreen.openFromRows", self.hymns)
+        self.assertIn("MezmurPlayerScreen.openFromRows", self.cat)
+        self.assertIn("There is no audio for this hymn currently.", self.player)
+        # curator details stay reachable so the offline-detail contract holds
+        self.assertIn("MezmurHymnDetailScreen", self.hymns)
+
+    def test_frosted_glass_under_transport(self):
+        self.assertIn("BackdropFilter", self.player)
+        self.assertIn("ImageFilter.blur", self.player)
+        self.assertIn("class _GlassPanel", self.player)
+
+    def test_header_is_empty_with_high_contrast_back(self):
+        header = self.player.split("Widget _buildHeader")[1].split("Widget _buildTitle")[0]
+        self.assertNotIn("☩", header)
+        self.assertNotIn("መዝሙር", header)
+        self.assertNotIn("more_horiz", header)
+        self.assertIn("Icons.tune_rounded", header)
+        self.assertIn("Playback settings", self.player)
+        self.assertIn("0xFF1A0C06", self.player)
+        self.assertIn("0xF5F8EBCB", self.player)
+
+    def test_lyrics_paint_before_audio_opens(self):
+        # Lyrics box is never gated on _opening / currentTrack.
+        box = self.player.split("Widget _buildLyricsBox()")[1].split("Widget _buildConsole")[0]
+        self.assertNotIn("_opening", box)
+        self.assertNotIn("CircularProgressIndicator", box)
+        self.assertIn("MezmurLyricsScreen(", box)
+        self.assertIn("_paintFrom", self.lyrics)
+        self.assertIn("widget.track.lyrics", self.lyrics)
+
+    def test_play_button_does_not_spin_while_playing(self):
+        self.assertIn("final loading = !_c.playing && (_opening || _c.buffering);", self.player)
+        self.assertNotIn("loading: _opening || _c.buffering", self.player)
+        self.assertIn("setRate", self.engine)
+        self.assertIn("setSpeed", self.engine)
 
