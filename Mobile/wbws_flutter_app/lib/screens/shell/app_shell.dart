@@ -30,6 +30,7 @@ import '../members/member_list_screen.dart';
 import '../mezmur/mezmur_home.dart';
 import '../mezmur/mezmur_attendance.dart';
 import '../mezmur/mezmur_hymns.dart';
+import '../mezmur/mezmur_mini_player.dart';
 import '../mezmur/mezmur_analytics.dart';
 import '../profile/profile_screen.dart';
 
@@ -398,16 +399,26 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
     return Scaffold(
       backgroundColor: AppTheme.bgLight,
-      body: Column(
+      body: Stack(
         children: [
-          // Global offline banner — appears at top when offline
-          const OfflineBanner(),
-          // Main content
-          Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: List.generate(_tabs.length, _tabChild),
-            ),
+          Column(
+            children: [
+              // Global offline banner — appears at top when offline
+              const OfflineBanner(),
+              // Main content
+              Expanded(
+                child: IndexedStack(
+                  index: _currentIndex,
+                  children: List.generate(_tabs.length, _tabChild),
+                ),
+              ),
+            ],
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: hideMainNav ? 72 : 8,
+            child: const MezmurMiniPlayer(),
           ),
         ],
       ),

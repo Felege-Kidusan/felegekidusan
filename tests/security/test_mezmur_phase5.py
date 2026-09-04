@@ -2827,6 +2827,8 @@ class MezmurMobilePlayerChromeTests(unittest.TestCase):
         cls.engine = (app / "lib/services/mezmur_audio_player.dart").read_text(encoding="utf-8")
         cls.hymns = (app / "lib/screens/mezmur/mezmur_hymns.dart").read_text(encoding="utf-8")
         cls.cat = (app / "lib/screens/mezmur/mezmur_category_screen.dart").read_text(encoding="utf-8")
+        cls.mini = (app / "lib/screens/mezmur/mezmur_mini_player.dart").read_text(encoding="utf-8")
+        cls.shell = (app / "lib/screens/shell/app_shell.dart").read_text(encoding="utf-8")
         cls.bg = app / "assets/parchment_hymn_bg.jpg"
 
     def test_parchment_backdrop_is_present(self):
@@ -2909,4 +2911,26 @@ class MezmurMobilePlayerChromeTests(unittest.TestCase):
         self.assertNotIn("loading: _opening || _c.buffering", self.player)
         self.assertIn("setRate", self.engine)
         self.assertIn("setSpeed", self.engine)
+
+    def test_catalog_skip_visits_hymns_without_audio(self):
+        self.assertIn("openCatalog", self.engine)
+        self.assertIn("skipView", self.engine)
+        self.assertIn("moveTo", self.engine)
+        self.assertIn("_c.openCatalog", self.player)
+        self.assertIn("PageView.builder", self.player)
+        self.assertIn("onPageChanged", self.player)
+        # Skip buttons stay wired even when the hymn has no audio.
+        self.assertGreaterEqual(self.player.count("_c.previous"), 2)
+        self.assertGreaterEqual(self.player.count("_c.next"), 2)
+
+    def test_mini_player_returns_to_session(self):
+        self.assertIn("class MezmurMiniPlayer", self.mini)
+        self.assertIn("openSession", self.mini)
+        self.assertIn("showMiniPlayer", self.engine)
+        self.assertIn("setPlayerVisible", self.engine)
+        self.assertIn("MezmurMiniPlayer", self.shell)
+        self.assertIn("JustAudioBackground.init", (
+            ROOT / "Mobile/wbws_flutter_app/lib/main.dart"
+        ).read_text(encoding="utf-8"))
+        self.assertNotIn("'audio_key'", self.mini)
 

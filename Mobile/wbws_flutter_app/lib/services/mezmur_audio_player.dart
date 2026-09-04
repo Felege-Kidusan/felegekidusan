@@ -97,6 +97,15 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     _player.currentIndexStream.listen((i) {
       if (i == _index) return;
       _index = i;
+      // Headset / lock-screen skip moves the audio queue. Mirror that
+      // hymn into the visible catalog index so the parchment page and
+      // mini-player stay in lockstep (no-audio rows are only visited
+      // by in-app next/prev/swipe).
+      if (i != null && i >= 0 && i < _queue.length && _catalog.isNotEmpty) {
+        final id = _queue[i].hymnId;
+        final vi = _catalog.indexWhere((t) => t.hymnId == id);
+        if (vi >= 0) _viewIndex = vi;
+      }
       notifyListeners();
     });
     _player.durationStream.listen((d) {
@@ -141,32 +150,71 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   int _loop = 0; // 0 off, 1 all, 2 one
   bool _shuffle = false;
   double _rate = 1;
+  List<MezmurTrack> _catalog = const [];
+  int _viewIndex = 0;
+  bool _playerVisible = false;
+  bool _miniDismissed = false;
 
   // ── public state ───────────────────────────────────────────
 
-  /// Stable identity of the loaded queue (used by screens to decide whether
-  /// a re-entry can reuse the running session instead of reloading).
-  String get sessionKey => _queue.map((t) => 'mz-${t.hymnId}').join(',');
+  /// Stable identity of the visible catalog (list order, audio optional).
+  String get sessionKey => _catalog.map((t) => 'mz-${t.hymnId}').join(',');
 
   List<MezmurTrack> get queue => List.unmodifiable(_queue);
+  List<MezmurTrack> get catalog => List.unmodifiable(_catalog);
   int? get index => _index;
+  int get viewIndex => _viewIndex;
   bool get hasQueue => _queue.isNotEmpty;
+  bool get hasCatalog => _catalog.isNotEmpty;
   bool get playing => _playing;
   bool get buffering => _buffering;
   bool get completed => _completed;
   Duration get position => Duration(milliseconds: _posMs);
   Duration? get duration =>
       _durMs > 0 ? Duration(milliseconds: _durMs) : null;
-  bool get canPrevious => _queue.length > 1 && (_index ?? 0) > 0;
+  bool get canPrevious => _catalog.length > 1 || _viewIndex > 0;
   bool get canNext =>
-      _queue.length > 1 && (_index ?? 0) < _queue.length - 1;
+      _catalog.length > 1 && (_loop == 1 || _viewIndex < _catalog.length - 1);
   int get loopMode => _loop;
   bool get shuffle => _shuffle;
+  double get rate => _rate;
+  static const List<double> rates = [0.75, 1, 1.25, 1.5];
+  bool get playerVisible => _playerVisible;
+  bool get viewHasAudio =>
+      (viewTrack?.audioUrl.trim().isNotEmpty ?? false);
+
+  /// Mini bar: session exists, full player is not on screen, and either
+  /// audio is playing or the current hymn can still be resumed.
+  bool get showMiniPlayer =>
+      !_playerVisible &&
+      !_miniDismissed &&
+      _catalog.isNotEmpty &&
+      (_playing || viewHasAudio);
 
   MezmurTrack? get currentTrack {
     final i = _index;
     if (i == null || i < 0 || i >= _queue.length) return null;
     return _queue[i];
+  }
+
+  /// The hymn the UI is showing — independent of the audio engine, so a
+  /// lyrics-only row can sit between two playable ones.
+  MezmurTrack? get viewTrack {
+    if (_catalog.isEmpty) return currentTrack;
+    if (_viewIndex < 0 || _viewIndex >= _catalog.length) return null;
+    return _catalog[_viewIndex];
+  }
+
+  void setPlayerVisible(bool v) {
+    if (_playerVisible == v) return;
+    _playerVisible = v;
+    if (v) _miniDismissed = false;
+    notifyListeners();
+  }
+
+  void dismissMiniPlayer() {
+    _miniDismissed = true;
+    notifyListeners();
   }
 
   // ── playback control ───────────────────────────────────────
@@ -207,6 +255,109 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       // No plugin on this platform, or the host denies the dialog.
       // Playback is unaffected — only the shutter is missing.
     }
+  }
+
+  /// Opens the user-visible list (audio optional) at [startIndex]. The
+  /// audio engine only loads rows with a URL; skip/swipe still walk every
+  /// row. Re-entry with the same catalog and hymn does not restart audio.
+  Future<bool> openCatalog(
+    List<MezmurTrack> tracks, {
+    int startIndex = 0,
+    bool autoPlay = true,
+  }) async {
+    if (tracks.isEmpty) return false;
+    await _ensureConfigured();
+    final key = tracks.map((t) => 'mz-${t.hymnId}').join(',');
+    final same = key == sessionKey && _catalog.isNotEmpty;
+    _catalog = List<MezmurTrack>.from(tracks);
+    _viewIndex = startIndex.clamp(0, _catalog.length - 1);
+    _miniDismissed = false;
+    notifyListeners();
+    if (same && viewTrack?.hymnId == currentTrack?.hymnId && viewHasAudio) {
+      return true;
+    }
+    return _syncAudio(autoPlay: autoPlay, forceReload: !same);
+  }
+
+  /// Jump to a catalog row. Playable rows start audio; lyrics-only rows
+  /// pause so next/prev never skip them.
+  Future<void> moveTo(int index, {bool autoPlay = true}) async {
+    if (_catalog.isEmpty) return;
+    if (index < 0 || index >= _catalog.length) return;
+    _viewIndex = index;
+    _miniDismissed = false;
+    notifyListeners();
+    await _syncAudio(autoPlay: autoPlay);
+  }
+
+  Future<void> skipView(int delta) async {
+    if (_catalog.isEmpty) return;
+    final viewingPlaying = viewHasAudio &&
+        currentTrack?.hymnId == viewTrack?.hymnId &&
+        _playing;
+    if (delta < 0 &&
+        viewingPlaying &&
+        position > const Duration(seconds: 3)) {
+      await seek(Duration.zero);
+      return;
+    }
+    var i = _viewIndex + delta;
+    if (_loop == 1 && _catalog.isNotEmpty) {
+      i = (i % _catalog.length + _catalog.length) % _catalog.length;
+    } else {
+      if (i < 0) i = 0;
+      if (i >= _catalog.length) i = _catalog.length - 1;
+    }
+    if (i == _viewIndex) {
+      if (delta < 0 && viewingPlaying) await seek(Duration.zero);
+      return;
+    }
+    await moveTo(i, autoPlay: true);
+  }
+
+  Future<bool> _syncAudio({
+    required bool autoPlay,
+    bool forceReload = false,
+  }) async {
+    final v = viewTrack;
+    if (v == null) return false;
+    if (v.audioUrl.trim().isEmpty) {
+      try {
+        await _player.pause();
+      } catch (_) {}
+      notifyListeners();
+      return true;
+    }
+    if (!forceReload &&
+        currentTrack?.hymnId == v.hymnId &&
+        _queue.isNotEmpty) {
+      if (autoPlay) await play();
+      return true;
+    }
+    final playable = _catalog
+        .where((t) => t.audioUrl.trim().isNotEmpty)
+        .toList(growable: false);
+    final si = playable.indexWhere((t) => t.hymnId == v.hymnId);
+    if (si < 0) return false;
+    var samePlayable = playable.length == _queue.length;
+    if (samePlayable) {
+      for (var i = 0; i < playable.length; i++) {
+        if (playable[i].hymnId != _queue[i].hymnId) {
+          samePlayable = false;
+          break;
+        }
+      }
+    }
+    if (samePlayable && _queue.isNotEmpty) {
+      try {
+        await _player.seek(Duration.zero, index: si);
+        _index = si;
+        if (autoPlay) await _player.play();
+        notifyListeners();
+        return true;
+      } catch (_) {}
+    }
+    return openQueue(playable, startIndex: si, autoPlay: autoPlay);
   }
 
   /// Loads [tracks] (only rows with a non-empty URL play) and starts at
@@ -308,31 +459,12 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Advances (or restarts at 0 when already at the last item).
-  Future<void> next() async {
-    final i = _index;
-    if (i == null || _queue.isEmpty) return;
-    if (i < _queue.length - 1) {
-      await _player.seekToNext();
-    } else {
-      await _player.seek(Duration.zero);
-    }
-  }
+  /// In-app / lock-screen next: walk the visible catalog (audio optional).
+  Future<void> next() => skipView(1);
 
-  /// Goes back one item (restart current when at the first item).
-  Future<void> previous() async {
-    final i = _index;
-    if (i == null || _queue.isEmpty) return;
-    if (position > const Duration(seconds: 4)) {
-      await seek(Duration.zero);
-      return;
-    }
-    if (i > 0) {
-      await _player.seekToPrevious();
-    } else {
-      await seek(Duration.zero);
-    }
-  }
+  /// Industry previous: restart if this hymn has been playing > 3s,
+  /// otherwise go to the previous catalog row (audio optional).
+  Future<void> previous() => skipView(-1);
 
   /// Stops streaming + drops the queue (used when leaving for good).
   Future<void> stopAndClear() async {
@@ -340,11 +472,14 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       await _player.stop();
     } catch (_) {}
     _queue = const [];
+    _catalog = const [];
     _index = null;
+    _viewIndex = 0;
     _playing = false;
     _buffering = false;
     _durMs = 0;
     _posMs = 0;
+    _miniDismissed = true;
     notifyListeners();
   }
 }

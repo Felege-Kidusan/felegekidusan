@@ -39,6 +39,19 @@ class MezmurPlayerScreen extends StatefulWidget {
     ));
   }
 
+  /// Re-opens the live session (mini-player tap). No-ops when already
+  /// on this route so a double-tap cannot stack two parchment screens.
+  static Future<void> openSession(BuildContext context) {
+    final c = MezmurAudioPlayerController.instance;
+    if (c.playerVisible || c.catalog.isEmpty) return Future.value();
+    return Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MezmurPlayerScreen(
+        queue: c.catalog.toList(growable: false),
+        initialIndex: c.viewIndex.clamp(0, c.catalog.length - 1),
+      ),
+    ));
+  }
+
   /// One tap from a hymn list: open THIS screen for [hymnId], whether
   /// or not that row has audio. Neighbours become the skip queue.
   static Future<void> openFromRows(
@@ -65,22 +78,17 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
       MezmurAudioPlayerController.instance;
   bool _opening = true;
   bool _failed = false;
+  bool _paging = false;
   double? _dragMs;
+  late final PageController _pages;
 
-  /// The hymn this screen was opened for — lyrics and title come from
-  /// here on the first frame, even while audio is still opening and
-  /// even when the row has no audio at all.
-  MezmurTrack get _focus => widget.queue[widget.initialIndex];
+  List<MezmurTrack> get _catalog =>
+      _c.hasCatalog ? _c.catalog : widget.queue;
 
-  /// Follow the live engine when it is playing a neighbour from this
-  /// same list; otherwise stay on the tapped hymn (audio may be empty
-  /// or still loading, in which case currentTrack is null).
   MezmurTrack get _view {
-    final cur = _c.currentTrack;
-    if (cur == null) return _focus;
-    final i = widget.queue.indexWhere((t) => t.hymnId == cur.hymnId);
-    if (i >= 0) return widget.queue[i];
-    return cur;
+    final v = _c.viewTrack;
+    if (v != null) return v;
+    return widget.queue[widget.initialIndex];
   }
 
   bool get _hasAudio => _view.audioUrl.trim().isNotEmpty;
@@ -88,61 +96,48 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _pages = PageController(initialPage: widget.initialIndex);
     _c.addListener(_onController);
+    _c.setPlayerVisible(true);
     _ensureSession();
   }
 
   @override
   void dispose() {
+    _c.setPlayerVisible(false);
     _c.removeListener(_onController);
+    _pages.dispose();
     super.dispose();
   }
 
   void _onController() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_paging) return;
+    if (!_pages.hasClients) return;
+    final i = _c.viewIndex;
+    final page = _pages.page?.round();
+    if (page != i && i >= 0 && i < _catalog.length) {
+      _pages.jumpToPage(i);
+    }
   }
 
   /// Audio loads in the background. Lyrics never wait on this.
   Future<void> _ensureSession() async {
-    final focus = _focus;
-    if (focus.audioUrl.trim().isEmpty) {
-      try {
-        await _c.pause();
-      } catch (_) {}
-      if (!mounted) return;
-      setState(() {
-        _opening = false;
-        _failed = false;
-      });
-      return;
-    }
-    if (_c.currentTrack?.hymnId == focus.hymnId && _c.hasQueue) {
-      if (!mounted) return;
-      setState(() {
-        _opening = false;
-        _failed = false;
-      });
-      return;
-    }
-    final playable = widget.queue
-        .where((t) => t.audioUrl.trim().isNotEmpty)
-        .toList(growable: false);
-    final si = playable.indexWhere((t) => t.hymnId == focus.hymnId);
-    if (si < 0) {
-      if (!mounted) return;
-      setState(() {
-        _opening = false;
-        _failed = false;
-      });
-      return;
-    }
-    final ok = await _c.openQueue(playable,
-        startIndex: si, autoPlay: true);
+    final ok = await _c.openCatalog(widget.queue,
+        startIndex: widget.initialIndex, autoPlay: true);
     if (!mounted) return;
     setState(() {
       _opening = false;
-      _failed = !ok;
+      _failed = _hasAudio && !ok;
     });
+  }
+
+  Future<void> _onPageChanged(int i) async {
+    if (i == _c.viewIndex) return;
+    _paging = true;
+    await _c.moveTo(i, autoPlay: true);
+    _paging = false;
   }
 
   int get _totalMs {
@@ -211,7 +206,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                       ),
                   ],
                 ),
-                if (_c.hasQueue) ...[
+                if (_catalog.length > 1) ...[
                   const SizedBox(height: 18),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -225,7 +220,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                       ),
                     ),
                     trailing: Text(
-                      '${_c.queue.length}',
+                      '${_catalog.length}',
                       style: const TextStyle(color: Parchment.inkFaint),
                     ),
                     onTap: () {
@@ -243,7 +238,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   }
 
   void _showQueue() {
-    final q = _c.queue;
+    final q = _catalog;
     if (q.isEmpty) return;
     showModalBottomSheet<void>(
       context: context,
@@ -258,7 +253,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
             itemCount: q.length,
             itemBuilder: (_, i) {
               final t = q[i];
-              final active = _c.index == i;
+              final active = _c.viewIndex == i;
               return ListTile(
                 leading: Text('${i + 1}',
                     style: TextStyle(
@@ -279,7 +274,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                     : null,
                 onTap: () {
                   Navigator.pop(ctx);
-                  _c.openQueue(q, startIndex: i, autoPlay: true);
+                  _c.moveTo(i, autoPlay: true);
                 },
               );
             },
@@ -364,10 +359,8 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
 
   Widget _buildTitle() {
     final track = _view;
-    final n = _c.hasQueue ? _c.queue.length : widget.queue.length;
-    final idx = _c.hasQueue
-        ? (_c.index ?? 0)
-        : widget.initialIndex;
+    final n = _catalog.length;
+    final idx = _c.hasCatalog ? _c.viewIndex : widget.initialIndex;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -404,29 +397,65 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   }
 
   /// Lyrics paint from the tapped hymn on the first frame. They are
-  /// never gated on audio open / currentTrack.
+  /// never gated on audio open / currentTrack. Horizontal pages swipe
+  /// to the next/previous catalog hymn (audio optional).
   Widget _buildLyricsBox() {
-    final track = _view;
-    return MezmurLyricsScreen(key: ValueKey(track.hymnId), track: track);
+    final pages = _catalog;
+    if (pages.isEmpty) {
+      final track = _view;
+      return MezmurLyricsScreen(key: ValueKey(track.hymnId), track: track);
+    }
+    return PageView.builder(
+      controller: _pages,
+      itemCount: pages.length,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, i) {
+        final track = pages[i];
+        return MezmurLyricsScreen(key: ValueKey(track.hymnId), track: track);
+      },
+    );
   }
 
   Widget _buildConsole(BuildContext context) {
     if (!_hasAudio || (_failed && !_c.hasQueue)) {
       return _GlassPanel(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Text(
-            _failed
-                ? 'ኦዲዮ መጫን አልተቻለም።\nAudio could not be loaded for this hymn.'
-                : 'ለዚህ መዝሙር በአሁኑ ጊዜ ኦዲዮ የለም።\nThere is no audio for this hymn currently.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Parchment.inkStrong,
-              fontSize: 13,
-              height: 1.55,
-              fontWeight: FontWeight.w600,
-              fontFamily: 'NotoSansEthiopic',
-            ),
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _failed
+                    ? 'ኦዲዮ መጫን አልተቻለም።\nAudio could not be loaded for this hymn.'
+                    : 'ለዚህ መዝሙር በአሁኑ ጊዜ ኦዲዮ የለም።\nThere is no audio for this hymn currently.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Parchment.inkStrong,
+                  fontSize: 13,
+                  height: 1.45,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'NotoSansEthiopic',
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _CtrlIcon(
+                    icon: Icons.skip_previous_rounded,
+                    tooltip: 'Previous',
+                    size: 34,
+                    onTap: _catalog.length > 1 ? _c.previous : null,
+                  ),
+                  const SizedBox(width: 18),
+                  _CtrlIcon(
+                    icon: Icons.skip_next_rounded,
+                    tooltip: 'Next',
+                    size: 34,
+                    onTap: _catalog.length > 1 ? _c.next : null,
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       );
@@ -512,7 +541,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                       icon: Icons.skip_previous_rounded,
                       tooltip: 'Previous',
                       size: 34,
-                      onTap: !_opening && _c.hasQueue ? _c.previous : null,
+                      onTap: _catalog.length > 1 ? _c.previous : null,
                     ),
                     _PlayButton(
                       loading: loading,
@@ -523,7 +552,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                       icon: Icons.skip_next_rounded,
                       tooltip: 'Next',
                       size: 34,
-                      onTap: !_opening && _c.hasQueue ? _c.next : null,
+                      onTap: _catalog.length > 1 ? _c.next : null,
                     ),
                     _CtrlIcon(
                       icon: Icons.rotate_right_rounded,
