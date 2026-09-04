@@ -2207,16 +2207,27 @@
             var err = $('mzAudioErr');
             err.classList.add('is-hidden'); err.textContent = '';
             $('mzAudioFile').value = '';
+            // Always detach the previous object so a stale src cannot
+            // sit at 0:00/0:00 after the modal reopens.
+            try { player.pause(); } catch (e) {}
+            player.removeAttribute('src');
+            player.load();
 
-            if (status === 'ready' && h.audio_url) {
+            if (status === 'ready') {
                 pWrap.classList.remove('is-hidden');
-                player.src = h.audio_url;
                 $('mzAudioPickLabel').textContent = 'Replace audio';
                 $('mzAudioState').textContent = 'Ready · ' + (h.audio_format || '').toUpperCase() +
                     (h.audio_size ? ' · ' + fmtBytes(h.audio_size) : '') +
                     (h.audio_duration_s ? ' · ' + fmtDur(h.audio_duration_s) : '') +
-                    ' — streams from the media CDN.';
+                    ' — fetching a playback URL…';
                 $('mzAudioRemoveBtn').classList.remove('is-hidden');
+                // Chrome will not fetch media inside display:none. Open
+                // the modal FIRST, then attach a signed GET (same R2
+                // host the upload already used). The public CDN URL is
+                // a fallback only.
+                openModalF('mzAudioModal');
+                setTimeout(function () { attachAudioStream(h); }, 80);
+                return;
             } else if (status === 'pending') {
                 pWrap.classList.add('is-hidden');
                 $('mzAudioPickLabel').textContent = 'Upload audio (choose the file)';
@@ -2230,6 +2241,45 @@
             }
             openModalF('mzAudioModal');
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
+    }
+
+    /** Bind a playable URL onto the modal <audio> and start loading. */
+    function bindAudioSrc(url) {
+        var player = $('mzAudioPlayer');
+        if (!player || !url) return;
+        player.pause();
+        player.src = url;
+        player.load();
+    }
+
+    /**
+     * Mint a short-lived signed GET against the R2 API host. Upload
+     * already proved that host works; the public custom-domain URL
+     * often 403s (bucket not public / domain not connected), which
+     * is why the native player sat at 0:00/0:00 on a Ready hymn.
+     */
+    function attachAudioStream(h) {
+        if (!audioMgr.id) return;
+        apiGet('action=audio_stream&id=' + encodeURIComponent(audioMgr.id)).then(function (s) {
+            if (s.status === 'success' && s.url) {
+                bindAudioSrc(s.url);
+                $('mzAudioState').textContent = 'Ready · ' + (h.audio_format || '').toUpperCase() +
+                    (h.audio_size ? ' · ' + fmtBytes(h.audio_size) : '') +
+                    (h.audio_duration_s ? ' · ' + fmtDur(h.audio_duration_s) : '') +
+                    ' — press play.';
+                return;
+            }
+            if (h.audio_url) {
+                bindAudioSrc(h.audio_url);
+                $('mzAudioState').textContent = 'Ready · ' + (h.audio_format || '').toUpperCase() +
+                    ' — using the public media URL.';
+                return;
+            }
+            audioErr(s.message || 'Could not get a playback URL. Re-upload the file, or ask the administrator to check the R2 media settings.');
+        }).catch(function (e) {
+            if (h.audio_url) { bindAudioSrc(h.audio_url); return; }
+            audioErr(((e && e.message) || 'Could not get a playback URL.') + ' Check your connection and retry.');
+        });
     }
 
     function pickAudio() {
@@ -2317,13 +2367,25 @@
         var el = $('mzAudioModal');
         if (!el || el.dataset.p0) return;
         el.dataset.p0 = '1';
+        var player = $('mzAudioPlayer');
         // Save measured duration when the player can read it (once per open).
-        $('mzAudioPlayer').addEventListener('loadedmetadata', function () {
+        player.addEventListener('loadedmetadata', function () {
             var a = this;
             var s = Math.round(a.duration || 0);
             if (s > 0 && audioMgr.id) {
                 apiPost({ action: 'audio_set_duration', hymn_id: audioMgr.id, duration_s: s });
             }
+        });
+        // Surface a real reason instead of a silent 0:00/0:00 player.
+        player.addEventListener('error', function () {
+            var code = (player.error && player.error.code) || 0;
+            var map = {
+                1: 'Playback was aborted.',
+                2: 'Network error talking to the media host. The file may not be publicly reachable — try Replace audio.',
+                3: 'This file could not be decoded. Re-encode as AAC M4A (ffmpeg -c:a aac -b:a 96k -movflags +faststart) and upload again.',
+                4: 'No supported audio source. Re-upload as mp3 or m4a.'
+            };
+            audioErr(map[code] || 'Playback failed. Re-upload the file as mp3 or m4a.');
         });
         $('mzAudioFile').addEventListener('change', function () {
             var file = this.files && this.files[0];

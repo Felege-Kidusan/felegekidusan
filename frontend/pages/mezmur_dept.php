@@ -707,7 +707,7 @@ ob_start();
 
         <!-- Player (shown when a verified file exists) -->
         <div class="mz-audio-player-wrap is-hidden" id="mzAudioPlayerWrap">
-            <audio id="mzAudioPlayer" controls preload="metadata"></audio>
+            <audio id="mzAudioPlayer" controls preload="auto" playsinline></audio>
         </div>
 
         <!-- Status / guidance line -->

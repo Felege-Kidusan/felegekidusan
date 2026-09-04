@@ -778,6 +778,25 @@ try {
             mezmur_respond(['status' => 'success', 'message' => $result['message']]);
         }
 
+        // ── Signed playback URL (GET). Upload talks to the signed
+        // R2 API host; the public CDN hostname is a separate custom
+        // domain that is often not public yet. The console player
+        // must use the same signed host confirm already proved.
+        case 'audio_stream': {
+            $result = MezmurMediaService::playUrl(
+                $conn,
+                (int)($_GET['id'] ?? $_REQUEST['id'] ?? 0)
+            );
+            if (empty($result['ok'])) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond([
+                'status' => 'success',
+                'message' => $result['message'],
+                'url' => $result['url'] ?? '',
+                'content_type' => $result['content_type'] ?? '',
+                'expires_in' => $result['expires_in'] ?? 3600,
+            ]);
+        }
+
         // ── DAYS (date-based attendance) ──────────────────────
         case 'days_list': {
             $out = MezmurAttendanceService::listDays(

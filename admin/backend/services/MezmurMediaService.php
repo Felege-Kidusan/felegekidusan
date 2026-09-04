@@ -117,6 +117,12 @@ final class MezmurMediaService
      * Public streaming URL for an object key. Empty when the media
      * base is not configured (or key empty). The base is one config
      * constant — changing the media hostname never touches rows.
+     *
+     * This is the long-lived URL the mobile app caches. The WEB
+     * console must NOT depend on it for playback: upload/confirm
+     * talk to the signed R2 API endpoint, but this hostname is a
+     * custom domain that is often not wired yet — which is exactly
+     * why the HTML5 player showed 0:00/0:00 on a "Ready" hymn.
      */
     public static function publicUrl(string $key): string
     {
@@ -125,6 +131,73 @@ final class MezmurMediaService
         $base = self::publicBase();
         if ($base === '') return '';
         return $base . '/' . ltrim($key, '/');
+    }
+
+    /**
+     * Short-lived signed GET against the R2 S3 API endpoint — the
+     * same host confirmUpload() already HEADs successfully. Browser
+     * <audio> does not need CORS for a media element src; Range is
+     * an unsigned extra header so seeking still works.
+     */
+    public static function signedGetUrl(string $key, int $expiresSeconds = 3600): string
+    {
+        $key = trim($key);
+        if ($key === '') return '';
+        return self::presign('GET', $key, $expiresSeconds);
+    }
+
+    /**
+     * Fresh playback URL for a READY hymn. Always a signed GET so
+     * the web console plays as soon as upload+confirm succeed, even
+     * when MEZMUR_MEDIA_PUBLIC_BASE is missing or the custom domain
+     * is not public.
+     *
+     * @return array{ok:bool,message:string,url?:string,content_type?:string,expires_in?:int}
+     */
+    public static function playUrl(\mysqli $conn, int $hymnId): array
+    {
+        if (!self::isConfigured()) {
+            return ['ok' => false, 'message' => self::notConfiguredMessage()];
+        }
+        if ($hymnId <= 0) {
+            return ['ok' => false, 'message' => 'A hymn id is required.'];
+        }
+        if (!self::audioColumnsReady($conn)) {
+            return ['ok' => false, 'message' => 'Audio columns are missing. Run sql/038_mezmur_audio_media.sql, or press Sync DB schema in the Mezmur console.'];
+        }
+
+        $stmt = $conn->prepare(
+            'SELECT audio_key, audio_status, audio_format FROM mezmur_hymns WHERE id = ? LIMIT 1'
+        );
+        if (!$stmt) {
+            return ['ok' => false, 'message' => 'Could not look up the hymn audio.'];
+        }
+        $stmt->bind_param('i', $hymnId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Hymn not found.'];
+        }
+        $status = (string)($row['audio_status'] ?? 'none');
+        $key = trim((string)($row['audio_key'] ?? ''));
+        if ($status !== 'ready' || $key === '') {
+            return ['ok' => false, 'message' => 'This hymn has no playable audio yet.'];
+        }
+
+        $ext = strtolower((string)($row['audio_format'] ?? ''));
+        $expires = 3600;
+        $url = self::signedGetUrl($key, $expires);
+        if ($url === '') {
+            return ['ok' => false, 'message' => 'Could not sign a playback URL. Check the MEZMUR_MEDIA_* settings.'];
+        }
+        return [
+            'ok' => true,
+            'message' => 'Stream ready.',
+            'url' => $url,
+            'content_type' => self::contentTypeFor($ext !== '' ? $ext : 'm4a'),
+            'expires_in' => $expires,
+        ];
     }
 
     // ── schema probe (repo convention: never crash pre-038) ────

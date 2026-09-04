@@ -2655,6 +2655,32 @@ class MezmurMediaPlaneTests(unittest.TestCase):
         # and audio_url only when verified ready
         self.assertIn("($status === 'ready' && $key !== '') ? self::publicUrl($key) : ''", self.media)
 
+    # ── web console playback must not depend on the public CDN ──
+    def test_signed_get_playback_url_exists(self):
+        """Upload PUTs to the signed R2 API host; confirm HEADs that
+        same host. The public custom-domain URL is a separate hostname
+        that 403s when the bucket is not public — which is exactly the
+        0:00/0:00 player on a Ready hymn. Playback therefore mints a
+        signed GET against the API host."""
+        self.assertIn("public static function signedGetUrl(string $key, int $expiresSeconds = 3600): string", self.media)
+        self.assertIn("return self::presign('GET', $key, $expiresSeconds);", self.media)
+        self.assertIn("public static function playUrl(\\mysqli $conn, int $hymnId): array", self.media)
+        play = self.media.split("public static function playUrl(")[1].split("public static function")[0]
+        self.assertIn("$status !== 'ready'", play)
+        self.assertIn("self::signedGetUrl($key, $expires)", play)
+        # GET action, not a CSRF-gated write
+        self.assertIn("case 'audio_stream':", self.api)
+        self.assertNotIn("'audio_stream'", re.search(r"\$__postActions = \[(.*?)\];", self.api, re.S).group(1))
+        self.assertIn("MezmurMediaService::playUrl(", self.api)
+        # console player uses the signed URL, modal-visible, with a real error
+        self.assertIn("function attachAudioStream(", self.js)
+        self.assertIn("action=audio_stream&id=", self.js)
+        self.assertIn("function bindAudioSrc(", self.js)
+        self.assertIn("player.load();", self.js)
+        self.assertIn("player.addEventListener('error'", self.js)
+        # Chrome will not fetch media inside display:none — open first
+        self.assertIn("openModalF('mzAudioModal');\n                setTimeout(function () { attachAudioStream(h); }, 80);", self.js)
+
 
 class MezmurMobileAudioPlatformTests(unittest.TestCase):
     """Android/iOS wiring for P0 background playback (findings F7/F8) and
