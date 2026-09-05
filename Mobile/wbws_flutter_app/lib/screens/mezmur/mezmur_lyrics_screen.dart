@@ -114,6 +114,28 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   Color get _lyricInk =>
       _reader.highContrast ? Parchment.inkStrong : Parchment.ink;
 
+  /// Emphasised properties derived from a SINGLE tweened value so size, opacity,
+  /// color and weight animate as one motion (no competing implicit animations
+  /// making the size look like it lags the fade/position). We tween the line's
+  /// *distance* (a continuously-interpolating value), then derive every visual
+  /// from it with the real profile falloff — so the endpoints are exact and the
+  /// path is smooth.
+
+  // Scale is a paint transform below (never a fontSize change), so it is smooth
+  // and can't reflow; these helpers are pure functions of distance.
+  double _scaleForDistance(LyricEmphasisProfile p, double d) =>
+      p.scaleStep <= 0 ? 1.0 : (1.0 - d * p.scaleStep).clamp(p.minScale, 1.0);
+
+  double _opacityForDistance(LyricEmphasisProfile p, double d) =>
+      (1.0 - d * p.opacityStep).clamp(p.minOpacity, 1.0);
+
+  /// 0..1 "is this the sung line right now" strength, also derived from distance
+  /// so it is in lockstep with the size and fade.
+  double _activityForDistance(double d) => (1.0 - d * 0.25).clamp(0.0, 1.0);
+
+  FontWeight _weightForActivity(double a) =>
+      FontWeight.fromWeight((500 + 300 * a).round());
+
   void _onReaderChanged() {
     if (!mounted) return;
     setState(() {});
@@ -457,53 +479,49 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                     child: Padding(
                       padding:
                           EdgeInsets.symmetric(vertical: reading ? 13 : 10),
-                      child: AnimatedOpacity(
-                        opacity: e.isActive ? 1.0 : e.opacity,
+                      // ONE tween (the line's distance) drives size, opacity,
+                      // color AND weight so the highlight moves as a single
+                      // motion — the size changes in perfect step with the fade,
+                      // never lagging behind the line's scroll/final position.
+                      // Size is still a paint transform (never a fontSize
+                      // change), so nothing re-layouts and the constant fontSize
+                      // keeps the FittedBox one-line guarantee intact.
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(end: e.distance.toDouble()),
                         duration: anim,
                         curve: _curve,
-                        // Size emphasis is a PAINT transform, never a font-size
-                        // change. Animating fontSize forces the Amharic glyphs
-                        // to re-shape and re-layout every frame (and the
-                        // FittedBox to re-fit), which is what made the exiting
-                        // line visibly drop / jank. AnimatedScale just scales
-                        // the already-laid-out line on the GPU — perfectly
-                        // smooth, zero reflow — and it scales the WHOLE fitted
-                        // line so it can never re-wrap. Since the underlying
-                        // fontSize never changes, the FittedBox keeps every
-                        // line on exactly one row.
-                        child: AnimatedScale(
-                          scale: e.scale,
-                          duration: anim,
-                          curve: _curve,
-                          alignment: Alignment.center,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.center,
-                            child: AnimatedDefaultTextStyle(
-                              duration: anim,
-                              curve: _curve,
-                              style: TextStyle(
-                                // Sung line = darkest, boldest ink; the rest
-                                // recede to a warm bronze so the hierarchy is
-                                // obvious (a real color change, animated).
-                                color: e.isActive ? _activeInk : _restInk,
-                                fontSize: size,
-                                height: lineHeight,
-                                fontWeight: e.isActive
-                                    ? FontWeight.w800
-                                    : FontWeight.w500,
-                                fontFamily: 'NotoSansEthiopic',
-                              ),
-                              child: Text(
-                                isEmpty ? '· · ·' : line.text,
-                                softWrap: false,
-                                maxLines: 1,
-                                overflow: TextOverflow.visible,
-                                textAlign: TextAlign.center,
+                        builder: (context, d, _) {
+                          final scale = _scaleForDistance(profile, d);
+                          final opacity = _opacityForDistance(profile, d);
+                          final activity = _activityForDistance(d);
+                          final color =
+                              Color.lerp(_restInk, _activeInk, activity)!;
+                          return Opacity(
+                            opacity: opacity,
+                            child: Transform.scale(
+                              scale: scale,
+                              alignment: Alignment.center,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.center,
+                                child: Text(
+                                  isEmpty ? '· · ·' : line.text,
+                                  softWrap: false,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.visible,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: size,
+                                    height: lineHeight,
+                                    fontWeight: _weightForActivity(activity),
+                                    fontFamily: 'NotoSansEthiopic',
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ),

@@ -59,11 +59,13 @@ behind a `RepaintBoundary`, and `MediaQuery.disableAnimations` is honoured.
 > ink, identical weight). The active line is now unmistakable — **bold,
 > darkest** — while the rest recede to bronze and fade to ~42%.
 >
-> Smoothness tuning (P55–P58): the size emphasis is a **paint-only
-> `AnimatedScale` wrapper** around the `FittedBox` — it never changes
-> `fontSize`, so the Amharic glyphs never re-shape/re-layout and the size
-> change scales the already-composited line on the GPU (perfectly smooth, zero
-> reflow). The falloff is gentle (nearest line 0.92, settling 0.86), the
+> Smoothness tuning (P55–P58): size, opacity, color and weight are driven by
+> **ONE tween** — the line's distance — via a `TweenAnimationBuilder`, so the
+> whole highlight moves as a single motion and the size changes in perfect step
+> with the fade (never lagging the line's scroll/final position). Size is still
+> a **paint-only `Transform.scale`** around the `FittedBox` — it never changes
+> `fontSize`, so the Amharic glyphs never re-shape/re-layout and nothing
+> reflows. The falloff is gentle (nearest line 0.92, settling 0.86), the
 > transition uses a 360 ms `easeInOutCubic`, and the centering scroll glide
 > uses stiffness 4.5 so the exiting line drifts away in step with its fade.
 
