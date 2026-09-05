@@ -313,7 +313,7 @@ ob_start();
                     <div id="mzMgrCats">
                         <div class="toolbar">
                             <div class="toolbar-grow"><input id="mzMgrMainName" class="school-input" maxlength="50" placeholder="New main category name…" autocomplete="off"></div>
-                            <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddMain()"><i class="fa-solid fa-plus"></i> Add main category</button>
+                            <button id="mzMgrMainAdd" class="btn-primary btn-sm" onclick="Mezmur.mgrAddMain()"><i class="fa-solid fa-plus"></i> Add main category</button>
                         </div>
                         <div class="table-shell"><table class="school-table">
                             <thead><tr><th class="th-cover">Cover</th><th>Name</th><th class="th-hymns">Hymns</th><th class="th-order">Order</th><th class="th-actions">Actions</th></tr></thead>
@@ -326,7 +326,7 @@ ob_start();
                     <div id="mzMgrZems" class="is-hidden">
                         <div class="toolbar">
                             <div class="toolbar-grow"><input id="mzMgrZemName" class="school-input amharic" maxlength="100" placeholder="የዘማሪያን ስም (በአማርኛ)…" autocomplete="off" aria-label="New singer name in Amharic"></div>
-                            <button class="btn-primary btn-sm" onclick="Mezmur.mgrAddZem()"><i class="fa-solid fa-plus"></i> Add singer</button>
+                            <button id="mzMgrZemAdd" class="btn-primary btn-sm" onclick="Mezmur.mgrAddZem()"><i class="fa-solid fa-plus"></i> Add singer</button>
                         </div>
                         <div class="table-shell"><table class="school-table">
                             <thead><tr><th class="th-cover">Cover</th><th class="amharic">ስም</th><th class="th-hymns">Hymns</th><th class="th-actions">Actions</th></tr></thead>

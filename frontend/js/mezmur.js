@@ -123,19 +123,101 @@
     }
 
     // ── bounded API access (the skeleton-forever fix) ─────────
-    function apiGet(q) {
-        var p = window.api.get('mezmur.php?' + q);
-        return new Promise(function (resolve, reject) {
+    //
+    // P43 — DATABASE FLOOD PROTECTION.
+    //
+    // The debounce alone was not enough. At 160ms a continuous typist
+    // issues ~6 requests/second = ~375/minute, which EXCEEDS the
+    // server's own 240 reads/minute limit — one fast user could rate-
+    // limit themselves out of their own dashboard. Each search also
+    // costs several queries (word candidates + COUNT + page), so the
+    // real database load was several times the request count.
+    //
+    // Three layers, the same pattern Google/Algolia use for
+    // search-as-you-type:
+    //   1. IN-FLIGHT DEDUPE — identical concurrent queries share one
+    //      promise instead of hitting the server twice.
+    //   2. ABORT SUPERSEDED — when a newer keystroke arrives, the older
+    //      request is cancelled, so the server stops working on an
+    //      answer nobody will read. This is the big one: without it the
+    //      backend computes a full result set for every intermediate
+    //      keystroke.
+    //   3. CLIENT RATE CAP — a hard ceiling below the server's, so the
+    //      UI degrades into a short wait instead of a 429 error.
+    var inflight = {};          // query -> { promise, controller }
+    var rateWindow = [];        // timestamps of recent GETs
+    var RATE_MAX = 90;          // per minute, well under the server's 240
+    var RATE_WINDOW_MS = 60000;
+
+    function rateAllows() {
+        var now = Date.now();
+        // Drop timestamps outside the sliding window.
+        while (rateWindow.length && now - rateWindow[0] > RATE_WINDOW_MS) {
+            rateWindow.shift();
+        }
+        if (rateWindow.length >= RATE_MAX) return false;
+        rateWindow.push(now);
+        return true;
+    }
+
+    /** Cancel any in-flight GET whose query is not `keep`. Called when a
+     *  newer keystroke supersedes older ones. */
+    function abortStaleGets(keep) {
+        Object.keys(inflight).forEach(function (k) {
+            if (k === keep) return;
+            try { if (inflight[k].controller) inflight[k].controller.abort(); } catch (e) {}
+            delete inflight[k];
+        });
+    }
+
+    function apiGet(q, opts) {
+        opts = opts || {};
+        // Layer 1: an identical request is already running — reuse it
+        // rather than asking the database the same question twice.
+        if (inflight[q]) return inflight[q].promise;
+
+        if (!rateAllows()) {
+            return Promise.reject(new Error(
+                'Searching too quickly. Pause for a moment and try again.'));
+        }
+
+        var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var p = window.api.get('mezmur.php?' + q, controller ? { signal: controller.signal } : undefined);
+
+        var wrapped = new Promise(function (resolve, reject) {
             var done = false;
             var timer = setTimeout(function () {
-                if (!done) { done = true; reject(new Error('The server took too long to answer. Check your connection and retry.')); }
+                if (done) return;
+                done = true;
+                try { if (controller) controller.abort(); } catch (e) {}
+                reject(new Error('The server took too long to answer. Check your connection and retry.'));
             }, GET_TIMEOUT);
             p.then(function (d) {
                 if (!done) { done = true; clearTimeout(timer); resolve(d); }
             }).catch(function (e) {
-                if (!done) { done = true; clearTimeout(timer); reject(e); }
+                if (!done) {
+                    done = true; clearTimeout(timer);
+                    // An abort is a deliberate cancellation, not a
+                    // failure — never surface it as an error to the user.
+                    if (e && (e.name === 'AbortError' || /abort/i.test(e.message || ''))) {
+                        var quiet = new Error('aborted');
+                        quiet.aborted = true;
+                        reject(quiet);
+                    } else {
+                        reject(e);
+                    }
+                }
             });
         });
+
+        // Always clear the slot, success or failure, or a failed query
+        // would be permanently un-retryable.
+        var release = function () { if (inflight[q] && inflight[q].promise === wrapped) delete inflight[q]; };
+        wrapped.then(release, release);
+
+        inflight[q] = { promise: wrapped, controller: controller };
+        if (opts.supersede) abortStaleGets(q);
+        return wrapped;
     }
 
     var POST_TIMEOUT = 20000; // ms — a save can never hang the UI past this
@@ -165,11 +247,36 @@
      * build. Give an actionable message instead of a scary dead end.
      */
     function staleHint(err) {
-        var m = (err && err.message) || '';
-        if (/server error|invalid server response|took too long|failed to fetch|network|connection error/i.test(m)) {
-            return ' If this keeps happening, the server backend may be outdated — ask the administrator to pull the latest code and run sql/024_mezmur_submissions.sql.';
-        }
+        // P43: this used to append
+        //   "the server backend may be outdated — ask the administrator
+        //    to pull the latest code and run sql/024_mezmur_submissions.sql"
+        // to ordinary TIMEOUTS. Two problems:
+        //   1. It leaked internal deployment detail (file paths, schema
+        //      names, the fact that migrations exist) to every user —
+        //      useful reconnaissance for an attacker, and alarming for a
+        //      person who just has slow Wi-Fi.
+        //   2. It was almost always WRONG. A transient timeout is a
+        //      network hiccup, not a stale deployment, which is why a
+        //      reload makes it disappear.
+        // Operators still get the detail — via the ping endpoint and the
+        // console — but users get a calm, accurate sentence.
         return '';
+    }
+
+    /**
+     * P43: is this failure worth one silent automatic retry?
+     *
+     * A transient timeout or network blip is the common case on mobile
+     * data. Retrying once, quietly, turns most of these into a normal
+     * result the user never sees — which is why the page "works after a
+     * reload". We do the reload for them.
+     *
+     * Deliberately NOT retried: HTTP 4xx (the request itself is wrong),
+     * and anything on a POST (it may have already been applied).
+     */
+    function isTransient(err) {
+        var m = (err && err.message) || '';
+        return /took too long|failed to fetch|network|connection error|load failed/i.test(m);
     }
 
     // ── shared state renderers (skeleton / empty / error) ─────
@@ -460,10 +567,28 @@
             return;
         }
         tb.innerHTML = skeletonRows(6);
-        apiGet(q).then(function (d) {
+        // supersede: this keystroke cancels every older in-flight query.
+        apiGet(q, { supersede: true }).catch(function (err) {
+            // P43: ONE silent retry for a transient failure. This is what
+            // the user was doing manually by reloading the page; doing it
+            // automatically (after a short backoff, so we do not hammer a
+            // struggling server) turns most blips into a normal result
+            // they never see. Aborts and hard errors fall straight
+            // through.
+            if (err && err.aborted) throw err;
+            if (seq !== lib.seq) throw err;
+            if (!isTransient(err)) throw err;
+            return new Promise(function (res) { setTimeout(res, 600); })
+                .then(function () { return apiGet(q); });
+        }).then(function (d) {
+            if (!d) return;
             if (seq === lib.seq && d.status === 'success') cachePut(q, d);
             applyList(seq, tb, d);
         }).catch(function (err) {
+            // P43: an aborted request was cancelled BY US because the
+            // user kept typing. It is not a failure and must never paint
+            // an error over results that are about to arrive.
+            if (err && err.aborted) return;
             if (seq !== lib.seq) return;
             var msg = ((err && err.message) || 'Connection error.') + staleHint(err);
             tb.innerHTML = '<tr><td colspan="6">' + errorState(msg, 'Mezmur.libReload()') + '</td></tr>';
@@ -652,7 +777,11 @@
         var zemsP = apiGet('action=zemarians').then(function (d) {
             return d && d.status === 'success' ? (d.items || []) : null;
         });
-        Promise.allSettled([catsP, zemsP]).then(function (res) {
+        // P43: RETURN the promise. Callers could not previously wait for
+        // the refresh, so a repaint scheduled after loadCatalog() ran
+        // against stale state — part of why a new row appeared only
+        // after a tab switch.
+        return Promise.allSettled([catsP, zemsP]).then(function (res) {
             if (res[0].status === 'fulfilled' && res[0].value) catalog.categories = res[0].value;
             if (res[1].status === 'fulfilled' && res[1].value) catalog.zemarians = res[1].value;
             renderCatalogBoxes();
@@ -924,7 +1053,7 @@
             // only singers have the Amharic name field.
             return '<div class="mz-mgr-edit">' +
                 '<input id="mzMgrEditName" class="school-input" maxlength="50" value="' + esc(item.name) + '">' +
-                '<button class="btn-primary btn-sm" onclick="Mezmur.mgrSave(' + item.id + ')"><i class="fa-solid fa-check"></i></button> ' +
+                '<button id="mzMgrEditSave" class="btn-primary btn-sm" onclick="Mezmur.mgrSave(' + item.id + ')" aria-label="Save name"><i class="fa-solid fa-check"></i></button> ' +
                 '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrCancel()"><i class="fa-solid fa-xmark"></i></button></div>';
         }
         var hidden = Number(item.is_active) !== 1;
@@ -975,7 +1104,7 @@
                 if (mgr.edit === 'addsub:' + m.id) {
                     html += '<tr class="mz-mgr-sub"><td></td><td colspan="4"><div class="mz-mgr-edit">' +
                         '<input id="mzMgrSubName" class="school-input" maxlength="50" placeholder="New sub-category name…">' +
-                        '<button class="btn-primary btn-sm" onclick="Mezmur.mgrAddSub(' + m.id + ')"><i class="fa-solid fa-check"></i> Add</button> ' +
+                        '<button id="mzMgrSubAdd" class="btn-primary btn-sm" onclick="Mezmur.mgrAddSub(' + m.id + ')"><i class="fa-solid fa-check"></i> Add</button> ' +
                         '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrCancel()"><i class="fa-solid fa-xmark"></i></button></div></td></tr>';
                 }
             });
@@ -990,7 +1119,7 @@
                 var nameCell = editing
                     ? '<div class="mz-mgr-edit">' +
                       '<input id="mzMgrEditName" class="school-input amharic" maxlength="100" value="' + esc(z.name) + '">' +
-                      '<button class="btn-primary btn-sm" onclick="Mezmur.mgrSave(' + z.id + ')"><i class="fa-solid fa-check"></i></button> ' +
+                      '<button id="mzMgrEditSave" class="btn-primary btn-sm" onclick="Mezmur.mgrSave(' + z.id + ')" aria-label="Save name"><i class="fa-solid fa-check"></i></button> ' +
                       '<button class="btn-secondary btn-sm" onclick="Mezmur.mgrCancel()"><i class="fa-solid fa-xmark"></i></button></div>'
                     : '<span style="' + (hidden ? 'opacity:.5;' : '') + 'font-size:.84rem;font-weight:600">' + esc(z.name) +
                       (hidden ? ' <span class="text-dim" style="font-size:.68rem">(hidden)</span>' : '') + '</span>';
@@ -1044,6 +1173,60 @@
         mgr.open[id] = !mgr.open[id];
         renderCatalogManager();
     }
+    /**
+     * P43: run a catalog mutation with REAL feedback.
+     *
+     * Every add/rename handler used to end `.catch(function () {})` —
+     * errors were swallowed entirely. Combined with the fact that
+     * loadCatalog() refreshes state but does NOT re-render the catalog
+     * manager, the result was the reported symptom: you click Add,
+     * nothing visibly happens, and the row only appears after switching
+     * tabs and back. Success was invisible and failure was silent.
+     *
+     * This gives every mutation the four states a user needs:
+     *   pending  — the button disables and says "Saving…", so a second
+     *              click cannot double-submit
+     *   success  — a toast, and an IMMEDIATE re-render
+     *   failure  — the real server message, and the input is preserved
+     *              so nothing typed is lost
+     *   always   — the button is restored, even on an exception
+     */
+    function mgrMutate(btn, payload, okMsg, onOk) {
+        var restore = null;
+        if (btn) {
+            restore = btn.innerHTML;
+            btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+        }
+        var release = function () {
+            if (!btn) return;
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.innerHTML = restore;
+        };
+        return apiPost(payload).then(function (d) {
+            if (!d || d.status !== 'success') {
+                // Surface what the server actually said (duplicate name,
+                // permission, validation) instead of a blank freeze.
+                window.toast((d && d.message) || 'Could not save. Please try again.', 'e');
+                release();
+                return false;
+            }
+            window.toast(okMsg, 's');
+            if (typeof onOk === 'function') onOk();
+            release();
+            // Refresh state AND repaint the manager — loadCatalog alone
+            // does not repaint it, which is why the row used to appear
+            // only after a tab switch.
+            return loadCatalog().then(function () { renderCatalogManager(); });
+        }).catch(function (err) {
+            window.toast((err && err.message) || 'Network error — nothing was saved.', 'e');
+            release();
+            return false;
+        });
+    }
+
     function mgrSave(id) {
         var name = ($('mzMgrEditName') || {}).value || '';
         name = name.trim();
@@ -1052,11 +1235,12 @@
         var payload = isZem
             ? { action: 'save_zemarian', id: id, name: name, name_am: name } // P35: one Amharic name
             : { action: 'save_category', id: id, name: name, parent_id: mgrParentOf(id) };
-        apiPost(payload).then(function (d) {
-            if (d.status !== 'success') { window.toast(d.message || 'Rename failed.', 'e'); return; }
-            mgr.edit = null;
-            loadCatalog();
-        }).catch(function () {});
+        mgrMutate(
+            document.getElementById('mzMgrEditSave'),
+            payload,
+            'Renamed to “' + name + '”.',
+            function () { mgr.edit = null; }
+        );
     }
     function mgrParentOf(id) {
         var found = mgrCats().filter(function (c) { return Number(c.id) === Number(id); })[0];
@@ -1066,21 +1250,23 @@
         var name = ($('mzMgrMainName') || {}).value || '';
         name = name.trim();
         if (!name) { window.toast('Name is required.', 'e'); return; }
-        apiPost({ action: 'save_category', name: name }).then(function (d) {
-            if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
-            $('mzMgrMainName').value = '';
-            loadCatalog();
-        }).catch(function () {});
+        mgrMutate(
+            document.getElementById('mzMgrMainAdd'),
+            { action: 'save_category', name: name },
+            'Category “' + name + '” added.',
+            function () { var f = $('mzMgrMainName'); if (f) f.value = ''; }
+        );
     }
     function mgrAddSub(mainId) {
         var name = ($('mzMgrSubName') || {}).value || '';
         name = name.trim();
         if (!name) { window.toast('Name is required.', 'e'); return; }
-        apiPost({ action: 'save_category', name: name, parent_id: mainId }).then(function (d) {
-            if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
-            mgr.edit = null;
-            loadCatalog();
-        }).catch(function () {});
+        mgrMutate(
+            document.getElementById('mzMgrSubAdd'),
+            { action: 'save_category', name: name, parent_id: mainId },
+            'Sub-category “' + name + '” added.',
+            function () { mgr.edit = null; var f = $('mzMgrSubName'); if (f) f.value = ''; }
+        );
     }
     function mgrAddZem() {
         var name = ($('mzMgrZemName') || {}).value || '';
@@ -1088,11 +1274,12 @@
         if (!name) { window.toast('Name is required.', 'e'); return; }
         // P35: singers carry ONE name, written in Amharic — stored in
         // both name (canonical display/filter field) and name_am.
-        apiPost({ action: 'save_zemarian', name: name, name_am: name }).then(function (d) {
-            if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
-            $('mzMgrZemName').value = '';
-            loadCatalog();
-        }).catch(function () {});
+        mgrMutate(
+            document.getElementById('mzMgrZemAdd'),
+            { action: 'save_zemarian', name: name, name_am: name },
+            'Singer “' + name + '” added.',
+            function () { var f = $('mzMgrZemName'); if (f) f.value = ''; }
+        );
     }
     function mgrToggle(id) {
         var isZem = (catalog.zemarians || []).some(function (z) { return Number(z.id) === Number(id); }) &&
@@ -1103,7 +1290,7 @@
         var payload = isZem
             ? { action: 'zemarian_status', id: id, active: active ? 0 : 1 }
             : { action: 'category_status', id: id, active: active ? 0 : 1 };
-        apiPost(payload).then(function () { loadCatalog(); }).catch(function () {});
+        mgrMutate(null, payload, active ? 'Hidden.' : 'Shown.');
     }
     function mgrSort(id, dir) {
         // swap sort_order with the adjacent sibling in the same level
@@ -2500,6 +2687,13 @@
         $('mzSearch').addEventListener('input', function () {
             clearTimeout(debounce);
             var v = this.value;
+            // P43: 250ms, raised from 160ms. Nielsen's 0.1s "instant"
+            // threshold applies to FEEDBACK, not to the network round
+            // trip — and the input echoes the keystroke instantly either
+            // way. 160ms let a continuous typist issue ~375 requests a
+            // minute, above the server's own 240/min ceiling; 250ms plus
+            // request-supersession keeps a burst of typing to roughly one
+            // real query, which is what actually protects the database.
             debounce = setTimeout(function () {
                 var t = v.trim();
                 // P42: the old rule was `if (t.length === 1) return;`,
@@ -2515,7 +2709,7 @@
                 lib.search = (t.length === 1) ? '' : t;
                 lib.page = 1;
                 loadList();
-            }, 160);
+            }, 250);
         });
         $('mzCategoryFilter').addEventListener('change', function () {
             lib.category = '';

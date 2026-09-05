@@ -39,18 +39,31 @@
          * @param {string} endpoint - e.g. 'attendance.php?action=get_class_attendance&class_id=5'
          * @returns {Promise<Object>} parsed JSON response
          */
-        get: function(endpoint) {
+        get: function(endpoint, opts) {
             var url = _resolveUrl(endpoint);
-            return fetch(url, {
+            var init = {
                 method: 'GET',
                 credentials: 'same-origin',
                 headers: {
                     'X-CSRF-TOKEN': APP.csrf || '',
                     'Accept': 'application/json'
                 }
-            })
+            };
+            // P43: allow callers to pass an AbortSignal so a superseded
+            // request can be cancelled. Without this the browser and the
+            // server keep working on results nobody will read — the main
+            // source of database load in search-as-you-type. Optional, so
+            // every existing caller is unaffected.
+            if (opts && opts.signal) init.signal = opts.signal;
+            return fetch(url, init)
             .then(_handleResponse)
-            .catch(_handleError);
+            .catch(function (e) {
+                // An abort is a deliberate cancellation, not a network
+                // failure: rethrow it untouched so callers can ignore it
+                // instead of showing the user a scary error.
+                if (e && e.name === 'AbortError') throw e;
+                return _handleError(e);
+            });
         },
 
         /**
