@@ -117,7 +117,16 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     var staticText = (row?['lyrics'] as String?) ?? '';
     if (synced.isEmpty) synced = (widget.track.lyricsSynced ?? '').trim();
     if (staticText.isEmpty) staticText = widget.track.lyrics ?? '';
-    if (synced.isEmpty && ConnectivityService().hasLink) {
+    // P50: always refresh timed lyrics from the server when online, not
+    // only when the cache is empty. The web player re-fetches the row on
+    // every open; the app used to trust a possibly-stale local cache
+    // (populated only by the last delta pull), so timings authored on the
+    // console after the phone's last sync never appeared. One cheap
+    // single-hymn read closes that gap and makes "web works ⇒ app works"
+    // structural rather than dependent on a prior sync cycle. Online is
+    // an optimization, not a requirement: when offline the cache above is
+    // enough, and a failed fetch keeps the cached text on screen.
+    if (ConnectivityService().hasLink) {
       try {
         final res = await ApiService().getMezmurHymn(widget.track.hymnId);
         if (res.success && res.data is Map && res.data['item'] is Map) {

@@ -783,7 +783,13 @@ final class MezmurMediaService
             error_log('[mezmur-lrc] prepare failed: ' . $conn->error);
             return ['ok' => false, 'message' => 'The database rejected the synced-lyrics update. Press “Sync DB schema” in the Mezmur console, then try again.'];
         }
-        $stmt->bind_param('siiii', $lrc, $actorId, $actorId, $hymnId);
+        // 4 placeholders (lyrics_synced, lyrics_synced_by, updated_by, id) →
+        // exactly 4 type specifiers. The previous 'siiii' (5) with only 4
+        // variables threw ArgumentCountError on PHP 8, which the controller's
+        // generic catch surfaced as the opaque "Unable to complete the
+        // request." The save path (web console AND mobile REST) both call
+        // this, so a single mismatch broke karaoke authoring on every surface.
+        $stmt->bind_param('siii', $lrc, $actorId, $actorId, $hymnId);
         $ok = $stmt->execute();
         $affected = $ok ? $conn->affected_rows : -1;
         $err = $ok ? '' : $stmt->error;

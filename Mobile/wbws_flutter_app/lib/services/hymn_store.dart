@@ -1155,7 +1155,7 @@ class HymnStore extends ChangeNotifier {
     if (!_api.isLoggedIn || _pulling) return;
     _pulling = true;
     try {
-      final cursor = await _db.getHymnSyncCursor();
+      var cursor = await _db.getHymnSyncCursor();
       // Rows with queued local edits are protected from server deltas.
       final protect = <int>{};
       for (final op in await _db.getPendingHymnOps()) {
@@ -1167,13 +1167,26 @@ class HymnStore extends ChangeNotifier {
           }
         } catch (_) {}
       }
-      final res = await _api.getMezmurHymnsChanges(cursor: cursor);
-      if (res.success && res.data is Map) {
-        final data = Map<String, dynamic>.from(res.data);
+      // P50: drain the WHOLE delta backlog in one pull, not just one page
+      // (server caps a response at ~200 rows). The old code applied one
+      // batch and stored its cursor, so a first run of a larger library —
+      // or a burst of `updated_at` bumps from a category rename cascade —
+      // needed many separate sync cycles to converge, leaving a device
+      // visibly behind for a long time. Bounded so a pathological loop can
+      // never spin forever; each page advances the persisted cursor.
+      var pages = 0;
+      while (pages < 10) {
+        pages++;
+        final res = await _api.getMezmurHymnsChanges(cursor: cursor);
+        if (!res.success || res.data is! Map) break;
+        final data = Map<String, dynamic>.from(res.data as Map);
         final items = (data['items'] is List) ? data['items'] as List : [];
         await _db.upsertHymns(items, protectIds: protect);
         final next = '${data['next_cursor'] ?? ''}';
         if (next.isNotEmpty) await _db.setHymnSyncCursor(next);
+        final hasMore = data['has_more'] == true;
+        if (!hasMore || next.isEmpty) break;
+        cursor = next;
       }
       // Categories: small canonical list — refresh on every pull.
       //
@@ -1203,11 +1216,13 @@ class HymnStore extends ChangeNotifier {
           final one = await _api.getMezmurHymn(_asInt(h['id']));
           if (one.success && one.data is Map && one.data['item'] is Map) {
             final item = Map<String, dynamic>.from(one.data['item']);
-            await _db.updateHymnLyrics(
-              _asInt(item['id']),
-              '${item['lyrics'] ?? ''}',
-              _asInt(item['revision']),
-            );
+            // P50: store the whole row through the same reconciling upsert
+            // used for deltas. The single-hymn read returns BOTH `lyrics`
+            // and `lyrics_synced`, but the previous `updateHymnLyrics`
+            // wrote only lyrics + revision, silently discarding the LRC
+            // that was just fetched — so a hymn only ever cached via this
+            // path never gained its timed lyrics.
+            await _db.upsertHymns([item]);
           }
         } catch (_) {}
       }
