@@ -41,11 +41,13 @@ class LyricEmphasisProfile {
     required this.minOpacity,
   });
 
-  /// Default sing-along "deep water" reveal.
+  /// Default sing-along emphasis (Spotify-like: the current line is bold and
+  /// bright, the rest recede). Scale shrinks only gently (~2.5%/line down to
+  /// 90%) so lines never look cramped; the fade does the "recede" work.
   static const LyricEmphasisProfile karaoke = LyricEmphasisProfile(
-    scaleStep: 0.055,
+    scaleStep: 0.025,
     opacityStep: 0.15,
-    minScale: 0.80,
+    minScale: 0.90,
     minOpacity: 0.30,
   );
 

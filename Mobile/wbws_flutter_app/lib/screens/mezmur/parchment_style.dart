@@ -56,7 +56,10 @@ class ParchmentArt {
   static const double titleTop = 0.118;
   static const double boxTop = 0.210;
   static const double boxBottom = 0.798;
-  static const double boxInsetX = 0.168;
+  // P53: the lyric stage was pinned far narrower than the painted frame
+  // (0.168), so even single-line hymns wrapped onto two rows. 0.11 lines the
+  // text up with the frame's inner writing area — much more room per line.
+  static const double boxInsetX = 0.11;
   static const double boxInsetInner = 0.022;
   static const double playerTop = 0.808;
 }

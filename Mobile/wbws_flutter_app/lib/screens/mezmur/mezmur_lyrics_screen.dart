@@ -28,13 +28,16 @@ import 'parchment_style.dart';
 /// is read locally first (offline-friendly), then refreshed from the
 /// single-hymn endpoint while online.
 ///
-/// Rendering model (P51) — Apple-Music / Spotech "float on the surface, loom
-/// in deep water":
-///   * The active line sits at natural size and full ink, on a soft gold
-///     glow pill; every other line is progressively smaller and fainter the
-///     further it is from the sung line. It is a pure distance formula
-///     (LyricEmphasis), never a font-size/weight change, so a long Amharic
-///     line can never re-wrap and push its words onto a second row.
+/// Rendering model (P51/P53) — Spotify-style lyric emphasis on parchment:
+///   * NO bubble / background per line. The sung line is simply bold + bright
+///     + full size (and very slightly larger via a pure scale transform);
+///     every other line recedes with distance (smaller and fainter) through
+///     the pure distance formula (LyricEmphasis). This is never a font-size
+///     or weight change that alters layout, so a long Amharic line can never
+///     re-wrap and push its words onto a second row.
+///   * Every lyric is rendered as exactly ONE row: it is laid out with
+///     `softWrap:false` inside a `FittedBox(scaleDown)`, so if a line is too
+///     wide it scales down to fit the width rather than wrapping.
 ///   * Auto-scroll is NOT a per-line `ensureVisible` (which restarted and
 ///     stuttered). A single Ticker eases the scroll offset toward the
 ///     centred target with an exponential glide, so transitions are smooth
@@ -48,22 +51,6 @@ class MezmurLyricsScreen extends StatefulWidget {
   @override
   State<MezmurLyricsScreen> createState() => _MezmurLyricsScreenState();
 }
-
-/// Soft gold "surface" glow behind the active line (tuned from the parchment
-/// ornament palette; alpha values are deliberate, not arbitrary).
-const LinearGradient _kActiveGradient = LinearGradient(
-  begin: Alignment.topLeft,
-  end: Alignment.bottomRight,
-  colors: [
-    Color(0x1FD4AF37), // gold @ 12%
-    Color(0x148A5A1B), // bronze @ 8%
-    Color(0x00FFFFFF), // transparent — fades into the parchment
-  ],
-);
-
-const List<BoxShadow> _kActiveGlow = [
-  BoxShadow(color: Color(0x2ED4AF37), blurRadius: 24, spreadRadius: 2),
-];
 
 enum _LyricsMode { synced, staticOnly, none }
 
@@ -425,13 +412,16 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
           child: ListView.builder(
             controller: _scroll,
             cacheExtent: 4000,
-            padding: EdgeInsets.fromLTRB(10, pad, 10, pad),
+            // P53: keep side padding tiny so every line has the widest run of
+            // text possible (FittedBox guarantees one row either way).
+            padding: EdgeInsets.fromLTRB(6, pad, 6, pad),
             itemCount: lines.length,
             itemBuilder: (context, i) {
               final line = lines[i];
               final isEmpty = line.isEmpty;
-              // Pure distance rule (no reflow) drives scale/opacity/active.
-              // Reading mode uses the flat profile so nothing shrinks.
+              // Pure distance rule (never changing font size/weight in layout)
+              // drives scale/opacity/active. Reading mode uses the flat
+              // profile so nothing shrinks and all lines stay fully readable.
               final e = LyricEmphasis.forIndex(
                   index: i, active: _active, profile: profile);
               return KeyedSubtree(
@@ -440,86 +430,47 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                   behavior: HitTestBehavior.opaque,
                   onTap: isEmpty ? null : () => _tapLine(i, line),
                   // RepaintBoundary isolates each line so animating one can
-                  // never repaint the whole list (performance guidance for
-                  // long lyric bodies on low-end hardware).
+                  // never repaint the whole list (long bodies on low-end).
                   child: RepaintBoundary(
-                    child: AnimatedScale(
-                      scale: e.scale,
-                      duration: anim,
-                      curve: _curve,
-                      alignment: Alignment.center,
+                    child: Padding(
+                      padding:
+                          EdgeInsets.symmetric(vertical: reading ? 13 : 10),
                       child: AnimatedOpacity(
                         opacity: e.isActive ? 1.0 : e.opacity,
                         duration: anim,
                         curve: _curve,
-                        child: AnimatedContainer(
+                        child: AnimatedScale(
+                          scale: e.scale,
                           duration: anim,
                           curve: _curve,
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 6),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: reading ? 15 : 13),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(18),
-                            gradient: e.isActive ? _kActiveGradient : null,
-                            // Reading mode reads like a clean lyric sheet, so
-                            // the heavy gold blur halo is dropped; karaoke mode
-                            // keeps the soft gold "surface" glow.
-                            boxShadow:
-                                e.isActive && !reading ? _kActiveGlow : null,
-                          ),
-                          // Stack centres the text; the accent bar is
-                          // absolutely placed on the left so it uses the side
-                          // space and never shifts the words into the middle.
-                          child: Stack(
+                          alignment: Alignment.center,
+                          // FittedBox + softWrap:false GUARANTEES the lyric
+                          // renders as exactly ONE row — it scales the line to
+                          // the available width instead of wrapping it, which
+                          // is the fix for "one line is being split into two".
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
                             alignment: Alignment.center,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16),
-                                child: Text(
-                                  isEmpty ? '· · ·' : line.text,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: e.isActive
-                                        ? Parchment.inkStrong
-                                        : _lyricInk,
-                                    fontSize: size,
-                                    height: lineHeight,
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'NotoSansEthiopic',
-                                  ),
-                                ),
+                            child: Text(
+                              isEmpty ? '· · ·' : line.text,
+                              softWrap: false,
+                              maxLines: 1,
+                              overflow: TextOverflow.visible,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: e.isActive
+                                    ? Parchment.inkStrong
+                                    : _lyricInk,
+                                fontSize: size,
+                                height: lineHeight,
+                                // Spotify-style: the sung line is bold and
+                                // bright, the rest recede. No bubble/background.
+                                fontWeight: e.isActive
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                fontFamily: 'NotoSansEthiopic',
                               ),
-                              Positioned(
-                                left: 4,
-                                top: 0,
-                                bottom: 0,
-                                child: Center(
-                                  child: AnimatedContainer(
-                                    duration: anim,
-                                    curve: _curve,
-                                    width: 3,
-                                    height: e.isActive
-                                        ? (26 * rs.textScale).clamp(20.0, 46.0)
-                                        : 0,
-                                    decoration: BoxDecoration(
-                                      color: Parchment.bronze,
-                                      borderRadius: BorderRadius.circular(3),
-                                      boxShadow: e.isActive
-                                          ? const [
-                                              BoxShadow(
-                                                  color: Color(0x66D4AF37),
-                                                  blurRadius: 8,
-                                                  spreadRadius: 1)
-                                            ]
-                                          : null,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -545,7 +496,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
       return ParchmentFade(
         child: ListView(
           controller: _scroll,
-          padding: EdgeInsets.fromLTRB(10, pad, 10, pad),
+          padding: EdgeInsets.fromLTRB(6, pad, 6, pad),
           children: [
             for (final para in (_staticLyrics ?? '').split(RegExp(r'\n{2,}')))
               if (para.trim().isNotEmpty)
