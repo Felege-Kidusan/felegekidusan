@@ -8,6 +8,8 @@ import '../../utils/cover_palette.dart';
 import '../../services/sync_service.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
+import '../../widgets/highlighted_text.dart';
+import '../../services/lyrics_search.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/offline_banner.dart';
@@ -371,6 +373,11 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     _tabCtrl.animateTo(_hymnsTab);
     _reload();
   }
+
+  /// P37: ranges travel from the ranker as objects; guard the cast so a
+  /// server row without them renders plain instead of throwing.
+  List<HighlightRange> _rangesOf(dynamic v) =>
+      v is List<HighlightRange> ? v : const <HighlightRange>[];
 
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
@@ -941,11 +948,19 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                       size: 18,
                       color: AppTheme.primary),
                 ),
-                title: Text('${h['title']}',
+                // P37: highlight the matched part of the title too —
+                // Telegram emphasises the hit wherever it occurs, which
+                // is what makes a long result list scannable.
+                title: HighlightedText(
+                    text: '${h['title']}',
+                    ranges: _rangesOf(h['title_ranges']),
                     style: const TextStyle(
                         fontSize: 13.5, fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
+                    highlightStyle: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.primary),
+                    maxLines: 1),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -988,14 +1003,24 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                         ),
                         const SizedBox(width: 6),
                         Expanded(
-                          child: Text(
-                            '${h['snippet'] ?? ''}',
+                          // P37: the matched words are painted in the
+                          // accent colour, Telegram-style, using ranges
+                          // the ranker already computed.
+                          child: HighlightedText(
+                            text: '${h['snippet'] ?? ''}',
+                            ranges: _rangesOf(h['snippet_ranges']),
+                            ellipsisBefore: h['snippet_before'] == true,
+                            ellipsisAfter: h['snippet_after'] == true,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                                 fontSize: 10.5,
                                 fontStyle: FontStyle.italic,
                                 color: AppTheme.textSecondary),
+                            highlightStyle: TextStyle(
+                                fontSize: 10.5,
+                                fontStyle: FontStyle.italic,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.primary),
                           ),
                         ),
                       ]),

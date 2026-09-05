@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 import 'connectivity_service.dart';
 import 'local_db.dart';
+import 'lyrics_search.dart';
+import 'amharic_text.dart' as amharic;
 import 'taxonomy_names.dart';
 
 /// Local-first hymn library (Telegram / Google Drive model).
@@ -126,51 +128,35 @@ class HymnStore extends ChangeNotifier {
           zemarianId: zemarianId);
     }
     if (search != null && search.trim().isNotEmpty) {
-      final scored = <Map<String, dynamic>>[];
+      // P37: ranking, snippets and highlight ranges all come from the
+      // tested LyricsSearch engine so the phone and the list row can
+      // never disagree about what matched. The old inline scoring is
+      // gone: it compared raw code points, so Amharic homophones
+      // (ጸ/ፀ, ሀ/ሐ/ኀ, አ/ዐ) never matched each other.
+      final hits = LyricsSearch.rankAll(rows: items, query: search);
+      final byId = <int, Map<String, dynamic>>{};
       for (final h in items) {
-        final titleScore = _similarity(search, '${h['title'] ?? ''}');
-        final lyrics = '${h['lyrics'] ?? ''}';
-        // P25 lyrics tier (server parity): a word in the lyrics body
-        // scores 50/term — below a title substring (70), above fuzzy
-        // (<=40). Only rows whose lyrics blob has been downloaded can
-        // match locally; the server covers the rest.
-        var score = titleScore;
-        var lyricHit = false;
-        if (lyrics.isNotEmpty) {
-          final low = lyrics.toLowerCase();
-          for (final t in search.toLowerCase().split(RegExp(r'\s+'))) {
-            if (t.trim().length >= 2 && low.contains(t)) {
-              score += 50;
-              lyricHit = true;
-            }
-          }
-        }
-        if (score <= 0) continue;
-        h['similarity'] = score;
-        h['match_in'] = titleScore > 0 ? 'title' : 'lyrics';
-        if (lyricHit) h['snippet'] = _lyricSnippet(search, lyrics);
-        scored.add(h);
+        byId[_asInt(h['id'])] = h;
       }
-      scored.sort((a, b) => ((b['similarity'] as num?) ?? 0)
-          .compareTo((a['similarity'] as num?) ?? 0));
-      return scored;
+      final out = <Map<String, dynamic>>[];
+      for (final hit in hits) {
+        final row = byId[hit.hymnId];
+        if (row == null) continue;
+        row['similarity'] = hit.score;
+        row['match_in'] = hit.field == MatchField.title ? 'title' : 'lyrics';
+        row['snippet'] = hit.snippet.text;
+        // Ranges travel with the row so the widget highlights exactly
+        // what the ranker matched, without re-searching the string.
+        row['title_ranges'] = hit.titleRanges;
+        row['snippet_ranges'] = hit.snippet.ranges;
+        row['snippet_before'] = hit.snippet.ellipsisBefore;
+        row['snippet_after'] = hit.snippet.ellipsisAfter;
+        row['partial_match'] = hit.isPartial;
+        out.add(row);
+      }
+      return out;
     }
     return items;
-  }
-
-  /// Tight context window around the first search term found in the
-  /// lyrics (server parity: ±60 chars around the hit).
-  String _lyricSnippet(String search, String lyrics) {
-    for (final t in search.toLowerCase().split(RegExp(r'\s+'))) {
-      final idx = lyrics.toLowerCase().indexOf(t);
-      if (t.trim().length >= 2 && idx >= 0) {
-        final start = idx > 60 ? idx - 60 : 0;
-        final end = (start + 160) < lyrics.length ? start + 160 : null;
-        return '${start > 0 ? '…' : ''}'
-            '${lyrics.substring(start, end ?? lyrics.length).trim()}…';
-      }
-    }
-    return '';
   }
 
   /// P27 unified hymn search (Telegram/Spotify model). The on-device
@@ -249,7 +235,12 @@ class HymnStore extends ChangeNotifier {
       if (ss > ls) localRow['similarity'] = ss;
       final serverLyricHit = '${m['match_in'] ?? ''}' == 'lyrics';
       if (serverLyricHit && ('${localRow['snippet'] ?? ''}').isEmpty) {
-        localRow['snippet'] = m['snippet'];
+        final text = '${m['snippet'] ?? ''}';
+        localRow['snippet'] = text;
+        // P37: the server sends snippet TEXT but no ranges, so compute
+        // them here — otherwise server-discovered rows would be the
+        // only results rendered without highlighting.
+        localRow['snippet_ranges'] = highlightRangesFor(text, q);
         if (ls <= 0) localRow['match_in'] = 'lyrics';
       }
     }
@@ -283,7 +274,11 @@ class HymnStore extends ChangeNotifier {
     for (final r in rows) {
       final name = '${r['name'] ?? ''}';
       final nameAm = '${r['name_am'] ?? ''}';
-      final score = _similarity(query, name, nameAm);
+      // P37: normalise both sides so a singer typed with ፀ still
+      // matches one stored with ጸ.
+      final score = _similarity(
+          amharic.normalize(query), amharic.normalize(name),
+          amharic.normalize(nameAm ?? ''));
       if (score <= 0) continue;
       hits.add({...r, 'similarity': score});
     }

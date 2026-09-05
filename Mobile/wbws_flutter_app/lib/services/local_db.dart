@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:sqflite/sqflite.dart';
+
+import 'amharic_text.dart' as amharic;
 import 'package:path/path.dart';
 
 import 'taxonomy_reconcile.dart';
@@ -41,7 +43,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 21,
+      version: 22,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -341,6 +343,18 @@ class LocalDb {
         if (oldVersion < 21) {
           // P33: Spotify-style offline downloads for mezmur audio.
           await _createDownloadTables(db);
+        }
+        if (oldVersion < 22) {
+          // P37: Telegram-style lyrics search. The word index is
+          // rebuilt from scratch because normalisation changed —
+          // every previously indexed word was stored WITHOUT Amharic
+          // homophone folding, so the old rows can never match a
+          // normalised query and must not be left behind.
+          try {
+            await db.execute('DROP TABLE IF EXISTS hymn_search_words');
+          } catch (_) {}
+          await _createHymnSearchIndex(db);
+          await _rebuildHymnSearchIndex(db);
         }
         if (oldVersion < 18) {
           // P32: admin-pinned cover gradient colors.
@@ -774,37 +788,24 @@ class LocalDb {
     });
   }
 
-  List<String> _searchTokens(Iterable<dynamic> values) {
-    final tokens = <String>{};
-    // P27c FIX: the previous raw string carried QUADRUPLE backslashes,
-    // so the class matched only the literal chars p { L } M N \ —
-    // empirically [] tokens for Amharic AND English, silently killing
-    // local search. A raw string needs exactly ONE backslash here.
-    final tokenPattern = RegExp(r'[\p{L}\p{M}\p{N}]+', unicode: true);
-    for (final value in values) {
-      for (final match in tokenPattern.allMatches('${value ?? ''}'.toLowerCase())) {
-        final token = match.group(0);
-        // Server parity (WORD_MIN_CHARS = 2): 1-char words never index
-        // and must not burn the candidate budget.
-        if (token != null && token.length >= 2) tokens.add(token);
-      }
-    }
-    return tokens.toList();
-  }
-
   Future<void> _reindexHymnSearchIndex(
       DatabaseExecutor db, Map<String, dynamic> hymn) async {
     final id = _asIntLocal(hymn['id']);
     if (id <= 0) return;
     await db.delete('hymn_search_words', where: 'hymn_id = ?', whereArgs: [id]);
     // P28: single title — the index feeds from title + lyrics only.
-    final words = _searchTokens([
-      hymn['title'],
-      hymn['lyrics'],
-    ]);
+    // P37: normalisation now folds Amharic homophones, so a member who
+    // types ጸሀይ finds a hymn stored as ፀሐይ. Index and query MUST use
+    // the same normaliser or nothing matches.
+    final words = <String>{
+      ...amharic.indexWords('${hymn['title'] ?? ''}'),
+      ...amharic.indexWords('${hymn['lyrics'] ?? ''}'),
+    };
+    final batch = db.batch();
     for (final word in words) {
-      await db.insert('hymn_search_words', {'word': word, 'hymn_id': id});
+      batch.insert('hymn_search_words', {'word': word, 'hymn_id': id});
     }
+    await batch.commit(noResult: true);
   }
 
   /// Version 1.1.15 briefly attempted an in-place SQLCipher upgrade. If that
@@ -2097,15 +2098,24 @@ class LocalDb {
     int limit = 500,
   }) async {
     final db = await database;
-    final terms = _searchTokens([search]);
+    final terms = amharic.queryTerms(search);
     if (terms.isEmpty) return const [];
-    final placeholders = terms.map((_) => 'word LIKE ?').join(' OR ');
-    final args = <dynamic>[];
-    for (final term in terms) {
-      args.add('$term%');
-    }
+    // P37: rank candidates by HOW MANY query terms they contain, so a
+    // hymn matching every word is fetched even when thousands of rows
+    // contain one common word.
+    //
+    // The previous query was `WHERE word LIKE a% OR word LIKE b% LIMIT n`,
+    // which is wrong twice over: LIMIT applied to an unordered set, so
+    // the best row was routinely cut before ranking ever saw it, and
+    // multi-word queries behaved as pure OR with no preference for rows
+    // matching everything. GROUP BY + ORDER BY hits fixes both while
+    // still returning partial matches (below the complete ones).
+    final ors = terms.map((_) => 'word LIKE ?').join(' OR ');
+    final args = <dynamic>[for (final t in terms) '$t%'];
     final idRows = await db.rawQuery(
-        'SELECT DISTINCT hymn_id FROM hymn_search_words WHERE word LIKE $placeholders LIMIT ?',
+        'SELECT hymn_id, COUNT(DISTINCT word) AS hits '
+        'FROM hymn_search_words WHERE $ors '
+        'GROUP BY hymn_id ORDER BY hits DESC LIMIT ?',
         [...args, limit]);
     final ids = idRows.map((row) => _asIntLocal(row['hymn_id'])).where((id) => id > 0).toList();
     if (ids.isEmpty) return const [];
