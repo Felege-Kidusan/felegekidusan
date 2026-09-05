@@ -54,6 +54,17 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: flutter analyze
 
+      # P49: catches unguarded access on nullable, non-final fields.
+      # `flutter analyze` already covers this in CI, but the linter also
+      # runs in environments that cannot host the Flutter SDK (the
+      # development sandbox), which is where three build breaks
+      # originated. Cheap, precise, and no false positives.
+      - name: Nullable-field lint
+        working-directory: ${{ env.APP_DIR }}/tool
+        run: |
+          dart pub get
+          dart run nullable_field_lint.dart ../lib
+
       - name: Run tests
         working-directory: ${{ env.APP_DIR }}
         run: flutter test --reporter expanded

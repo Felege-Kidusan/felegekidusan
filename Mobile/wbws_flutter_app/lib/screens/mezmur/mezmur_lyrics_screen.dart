@@ -229,7 +229,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
   }
 
   bool get _hasStaticLyrics =>
-      (_staticLyrics).trim().isNotEmpty ||
+      (_staticLyrics ?? '').trim().isNotEmpty ||
       (widget.track.lyrics ?? '').trim().isNotEmpty;
 
   /// P48: open the tap-to-sync editor, then reload so the new timings

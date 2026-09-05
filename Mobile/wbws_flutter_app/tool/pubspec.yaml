@@ -1,0 +1,5 @@
+name: mezmur_tools
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  analyzer: ^6.4.1
