@@ -123,8 +123,13 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     });
   }
 
-  static const Duration _anim = Duration(milliseconds: 280);
-  static const Curve _curve = Curves.easeOutCubic;
+  // P56 — easy-in/out emphasis. `easeOutCubic` started at max velocity, so a
+  // line that stopped being sung snapped most of the way to its faded/small
+  // state in the first frames then settled — the "not smooth exit". A gentle
+  // ease-in-and-out makes the exit (and the entry) begin slowly. A little more
+  // time lets the fade settle in step with the scroll glide.
+  static const Duration _anim = Duration(milliseconds: 360);
+  static const Curve _curve = Curves.easeInOutCubic;
 
   void _paintFrom(String synced, String staticText) {
     final parsed = SyncedLyrics.tryParse(synced.trim());
@@ -304,7 +309,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     var target = _targetOffset;
     if (target < 0) target = 0;
     if (target > max) target = max;
-    const stiffness = 6.0; // higher = snappier, lower = lazier glide
+    // P56 — gentler centring glide so the exiting line drifts away in step with
+    // the emphasis fade instead of being whipped out of place (the transition
+    // reads as one smooth motion, not two competing ones).
+    const stiffness = 4.5; // higher = snappier, lower = lazier glide
     final k = 1 - math.exp(-stiffness * dt);
     final next = current + (target - current) * k;
     if ((next - current).abs() > 0.02) {
