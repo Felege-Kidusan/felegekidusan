@@ -8,13 +8,25 @@ plugins {
 android {
     namespace = "com.arkeonethiopia.fkss"
     compileSdk = flutter.compileSdkVersion
-    // P47: every plugin in this app (audio_service, just_audio, sqflite,
-    // mobile_scanner, connectivity_plus, ...) requires NDK 27.0.12077973.
-    // NDK releases are backward compatible, so pinning the highest one
-    // any dependency asks for is the documented fix and is what the
-    // Flutter tool itself recommends. Left at 26.x this warns on every
-    // build and will eventually fail.
-    ndkVersion = "27.0.12077973"
+    // NDK 26.1 is PINNED DELIBERATELY — do not "fix" the warning.
+    //
+    // Flutter prints a notice that plugins request 27.0.12077973. That
+    // notice is advisory: this app ships NO native C/C++ of its own
+    // (no externalNativeBuild, no CMakeLists under android/), so the
+    // NDK is never actually invoked during an Android build. The
+    // plugins ship prebuilt .so files.
+    //
+    // P47 bumped this to 27.0.12077973 and the build broke immediately:
+    //   [CXX1101] NDK at C:\Android\ndk\27.0.12077973 did not have a
+    //   source.properties file
+    // because that NDK is not installed (or is a partial download) on
+    // the build machine, and fetching it is a ~1 GB download — a real
+    // cost on a slow connection, for zero benefit to this app.
+    //
+    // 26.1.10909125 is the version that provably produces a working
+    // 44.5 MB release APK here. Revisit ONLY if this app gains its own
+    // native code, or a plugin genuinely fails to link.
+    ndkVersion = "26.1.10909125"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
