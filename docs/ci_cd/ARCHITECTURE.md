@@ -339,3 +339,60 @@ never in the repo):
 
 If the keystore was ever lost, say so early — it changes the plan, and
 existing users would have to uninstall before updating.
+
+---
+
+## 14. Adding the workflow file (one-time, needs your action)
+
+The workflow is written and verified at `.github/workflows/ci.yml` in
+your local clone, but it is **not on GitHub yet**. GitHub refused the
+push:
+
+```
+refusing to allow a Personal Access Token to create or update
+workflow `.github/workflows/ci.yml` without `workflow` scope
+```
+
+This is a deliberate security control: a token that can add workflows
+can make GitHub run arbitrary code with your repository's secrets, so
+that permission is separate and opt-in. The block is correct behaviour.
+
+Two ways to add it — the second is safer.
+
+### Option A — paste it in the GitHub web UI (no token change)
+
+1. On GitHub, open the repo → **Add file** → **Create new file**
+2. Name it exactly `.github/workflows/ci.yml`
+3. Paste the contents of your local `.github/workflows/ci.yml`
+4. Choose **Create a new branch and start a pull request**
+5. Open the PR — CI runs on itself, so you see it work immediately
+
+### Option B — grant `workflow` scope to a token
+
+Only if you prefer the command line. Add the `workflow` scope on a
+**new** token, then push.
+
+> 🔑 **Rotate the current token regardless.** It has been pasted into a
+> chat transcript, so treat it as compromised: GitHub → Settings →
+> Developer settings → Personal access tokens → revoke it and issue a
+> new one. Grant only the scopes you need (`repo`, plus `workflow` if
+> you choose Option B).
+
+### After it is added
+
+Turn on branch protection, which is what actually enforces the gate:
+
+**Settings → Branches → Add rule**, branch name pattern `main`:
+
+- ☑ Require a pull request before merging
+  - Required approvals: **1** (you have 2-5 people)
+- ☑ Require status checks to pass before merging
+  - Select: `Analyze and test (Flutter)`, `Build release APK`,
+    `Lint PHP`, `Repo hygiene`
+- ☑ Require branches to be up to date before merging
+
+The status checks only appear in that list **after the workflow has run
+at least once**, so add the workflow first, then set the rule.
+
+From then on, a red check makes the merge button unavailable. That is
+the entire mechanism — the gate is not advisory.
