@@ -23,12 +23,23 @@ class MezmurMiniPlayer extends StatelessWidget {
         final track = c.viewTrack;
         if (track == null) return const SizedBox.shrink();
         return Material(
-          color: const Color(0xF2F3E4C4),
+          // Opaque: a translucent fill let the page behind bleed through
+          // and win hit-tests in some stacking contexts.
+          color: const Color(0xFFF3E4C4),
           elevation: 6,
           shadowColor: const Color(0x66000000),
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
+            // P35: a mouse/trackpad produces hover + focus states that a
+            // finger never does, and the default grey overlay on this
+            // light parchment fill made the bar look DISABLED when the
+            // pointer rested on it. Tint the overlays with the bronze
+            // accent instead so pointer input reads as interactive.
+            hoverColor: Parchment.bronze.withOpacity(0.07),
+            focusColor: Parchment.bronze.withOpacity(0.10),
+            highlightColor: Parchment.bronze.withOpacity(0.10),
+            splashColor: Parchment.bronze.withOpacity(0.16),
             onTap: () => MezmurPlayerScreen.openSession(context),
             child: SizedBox(
               height: 56,
@@ -62,7 +73,7 @@ class MezmurMiniPlayer extends StatelessWidget {
                     onPressed: c.canPlayControl ? c.toggle : null,
                   ),
                   IconButton(
-                    tooltip: 'Hide',
+                    tooltip: 'Close player',
                     icon: const Icon(Icons.close_rounded,
                         color: Parchment.inkFaint, size: 20),
                     onPressed: () {

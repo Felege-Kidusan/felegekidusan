@@ -14,6 +14,7 @@ import 'screens/lock/lock_screen.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/warm_store.dart';
+import 'services/app_navigator.dart';
 import 'services/mezmur_download_manager.dart';
 import 'utils/scrolling.dart';
 import 'utils/theme.dart';
@@ -237,6 +238,10 @@ class _FKSSAppState extends State<FKSSApp> {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.light,
       scrollBehavior: const SmoothScrollBehavior(),
+      // P35: the mini player is mounted above the Navigator, so
+      // Navigator.of(its context) finds no ancestor. This key lets it
+      // push the full player on the root navigator.
+      navigatorKey: AppNavigator.key,
       // P34: the now-playing bar is mounted ABOVE the Navigator so it
       // follows the user across every pushed route and consumes real
       // layout height (never covers FABs or save bars).

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 import 'connectivity_service.dart';
 import 'local_db.dart';
+import 'taxonomy_names.dart';
 
 /// Local-first hymn library (Telegram / Google Drive model).
 ///
@@ -523,15 +524,24 @@ class HymnStore extends ChangeNotifier {
     final parentId = parentRaw == null || '${parentRaw}'.trim().isEmpty
         ? null
         : (_asInt(parentRaw) <= 0 ? null : _asInt(parentRaw));
+    // P35: normalised duplicate detection — case-insensitive and
+    // whitespace-collapsing, so "Test", "test " and "te  st" cannot all
+    // be created as separate rows. Scoped per parent, mirroring the
+    // server's unique key.
     final existing = await _db.getLocalCategories(activeOnly: false);
-    for (final c in existing) {
-      if ('${c['name']}'.toLowerCase() == name.toLowerCase() &&
-          _asInt(c['id']) != _asInt(category['id']) &&
-          _asInt(c['parent_id']) == (parentId ?? 0)) {
-        return parentId == null
-            ? 'A main category with this name already exists.'
-            : 'A sub-category with this name already exists here.';
-      }
+    final clash = TaxonomyNames.findDuplicate(
+      name: name,
+      rows: existing,
+      idOf: (r) => _asInt(r['id']),
+      nameOf: (r) => '${r['name'] ?? ''}',
+      selfId: _asInt(category['id']),
+      parentId: parentId,
+      parentOf: (r) => _asInt(r['parent_id']),
+    );
+    if (clash != null) {
+      return parentId == null
+          ? 'A main category named "${clash['name']}" already exists.'
+          : 'A sub-category named "${clash['name']}" already exists here.';
     }
 
     // P32: optional admin-pinned cover gradient (strict hex or empty).
@@ -548,8 +558,18 @@ class HymnStore extends ChangeNotifier {
       'sort_order': _asInt(category['sort_order']),
       'is_active': 1,
     });
+    // P35 — THE duplication bug.
+    //
+    // The local row is written with `localId` (a negative placeholder for
+    // a create), but this op used to be enqueued with `category['id'] ?? 0`
+    // — i.e. 0 for a create. At push time the handler reads
+    // `catLocalId = payload['id']` and only cleans up the placeholder when
+    // it is < 0. With 0 that branch never ran, so the placeholder survived
+    // and the server's real row synced in BESIDE it: one tap, two rows.
+    // The hymn save path already did this correctly (opPayload['id'] =
+    // localId); categories and singers did not.
     await _db.enqueueHymnOp('category_save', {
-      'id': category['id'] ?? 0,
+      'id': localId,
       'name': name,
       'parent_id': parentId,
       'sort_order': _asInt(category['sort_order']),
@@ -653,17 +673,33 @@ class HymnStore extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> zemarians({bool activeOnly = true}) =>
       _db.getLocalZemarians(activeOnly: activeOnly);
 
-  Future<String?> saveZemarian(Map<String, dynamic> zemarian) async {
+  /// P35: serialised like saveCategory — the duplicate check reads then
+  /// writes, so concurrent calls must not interleave.
+  Future<String?> saveZemarian(Map<String, dynamic> zemarian) {
+    final result = _taxonomyChain
+        .then((_) => _saveZemarianLocked(zemarian))
+        .catchError((_) => 'Could not save the singer. Please try again.');
+    _taxonomyChain = result.then((_) {}).catchError((_) {});
+    return result;
+  }
+
+  Future<String?> _saveZemarianLocked(Map<String, dynamic> zemarian) async {
     final name = '${zemarian['name'] ?? ''}'.trim();
     if (name.isEmpty) return 'Singer name is required.';
     if (name.length > 100) return 'Singer name is too long.';
 
+    // P35: same normalised detection as categories (singers are a flat
+    // list, so there is no parent scope).
     final existing = await _db.getLocalZemarians(activeOnly: false);
-    for (final z in existing) {
-      if ('${z['name']}'.toLowerCase() == name.toLowerCase() &&
-          _asInt(z['id']) != _asInt(zemarian['id'])) {
-        return 'A singer with this name already exists.';
-      }
+    final clash = TaxonomyNames.findDuplicate(
+      name: name,
+      rows: existing,
+      idOf: (r) => _asInt(r['id']),
+      nameOf: (r) => '${r['name'] ?? ''}',
+      selfId: _asInt(zemarian['id']),
+    );
+    if (clash != null) {
+      return 'A singer named "${clash['name']}" already exists.';
     }
 
     final localId = _localId(zemarian);
@@ -676,8 +712,14 @@ class HymnStore extends ChangeNotifier {
       'sort_order': _asInt(zemarian['sort_order']),
       'is_active': 1,
     });
-    await _db.enqueueHymnOp('zemarian_save',
-        {'id': zemarian['id'] ?? 0, 'name': name, 'name_am': zemarian['name_am'] ?? ''});
+    // P35: enqueue the placeholder id we actually wrote (see the note in
+    // saveCategory) so the push handler can retire it. Using 0 here left
+    // the placeholder orphaned and duplicated every new singer.
+    await _db.enqueueHymnOp('zemarian_save', {
+      'id': localId,
+      'name': name,
+      'name_am': zemarian['name_am'] ?? '',
+    });
     notifyListeners();
     unawaited(pushPending().catchError((_) => 0));
     return null;
@@ -815,12 +857,17 @@ class HymnStore extends ChangeNotifier {
           await _db.dropHymnOp(id);
           return false;
         case 'category_save':
+          final catLocalId = _asInt(payload['id']);
+          // P35: the payload carries our negative placeholder so the
+          // cleanup below can retire it, but the server must see a
+          // create (id 0), never a negative row id.
+          final catBody = Map<String, dynamic>.from(payload);
+          if (catLocalId < 0) catBody['id'] = 0;
           final res =
-              await _api.saveMezmurCategory(payload, clientOpId: opId);
+              await _api.saveMezmurCategory(catBody, clientOpId: opId);
           if (res.success) {
             final item = _itemFrom(res.data);
             if (item != null) await _db.upsertCategoryLocal(item);
-            final catLocalId = _asInt(payload['id']);
             if (catLocalId < 0) {
               // P23: repoint hymn joins at the real server id BEFORE
               // dropping the placeholder — they used to be orphaned, so
@@ -870,11 +917,15 @@ class HymnStore extends ChangeNotifier {
           await _db.dropHymnOp(id);
           return false;
         case 'zemarian_save':
-          final res = await _api.saveMezmurZemarian(payload, clientOpId: opId);
+          final zLocalId = _asInt(payload['id']);
+          // P35: see category_save — placeholder stays local, the wire
+          // payload is a clean create.
+          final zBody = Map<String, dynamic>.from(payload);
+          if (zLocalId < 0) zBody['id'] = 0;
+          final res = await _api.saveMezmurZemarian(zBody, clientOpId: opId);
           if (res.success) {
             final item = _itemFrom(res.data);
             if (item != null) await _db.upsertZemarianLocal(item);
-            final zLocalId = _asInt(payload['id']);
             if (zLocalId < 0) {
               // P23: repoint hymn joins first (see category_save).
               if (item != null) {

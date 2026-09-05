@@ -59,6 +59,9 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
         TextEditingController(text: zemarian == null ? '' : '${zemarian['name']}');
     final isEdit = zemarian != null;
     String? fieldError;
+    // P35: in-flight guard so a double tap cannot enter saveZemarian
+    // twice (same guard the category dialog carries).
+    bool saving = false;
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -89,7 +92,13 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
                 child: const Text('CANCEL')),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-              onPressed: () async {
+              onPressed: saving
+                  ? null
+                  : () async {
+                setDialogState(() {
+                  saving = true;
+                  fieldError = null;
+                });
                 final err = await _store.saveZemarian({
                   if (isEdit) 'id': zemarian['id'],
                   'name': nameCtrl.text,
@@ -98,13 +107,23 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
                       isEdit ? _asInt(zemarian['sort_order']) : _zemarians.length + 1,
                 });
                 if (err != null) {
-                  setDialogState(() => fieldError = err);
+                  setDialogState(() {
+                    fieldError = err;
+                    saving = false;
+                  });
                   return;
                 }
+                if (!ctx.mounted) return;
                 Navigator.of(ctx).pop();
                 await _reload();
               },
-              child: const Text('SAVE'),
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('SAVE'),
             ),
           ],
         ),

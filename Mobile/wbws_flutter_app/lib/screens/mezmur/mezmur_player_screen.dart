@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../services/app_navigator.dart';
 import '../../services/mezmur_audio_player.dart';
 import '../../services/mezmur_download_manager.dart';
 import 'mezmur_lyrics_screen.dart';
@@ -42,10 +43,14 @@ class MezmurPlayerScreen extends StatefulWidget {
 
   /// Re-opens the live session (mini-player tap). No-ops when already
   /// on this route so a double-tap cannot stack two parchment screens.
-  static Future<void> openSession(BuildContext context) {
+  /// P35: pushes on the ROOT navigator via [AppNavigator]. The caller is
+  /// usually the mini player, which is mounted above the Navigator in
+  /// MaterialApp.builder — `Navigator.of(context)` from there finds no
+  /// ancestor and the tap silently does nothing.
+  static Future<void> openSession(BuildContext context) async {
     final c = MezmurAudioPlayerController.instance;
-    if (c.playerVisible || c.catalog.isEmpty) return Future.value();
-    return Navigator.of(context).push(MaterialPageRoute(
+    if (c.playerVisible || c.catalog.isEmpty) return;
+    await AppNavigator.push(MaterialPageRoute(
       builder: (_) => MezmurPlayerScreen(
         queue: c.catalog.toList(growable: false),
         initialIndex: c.viewIndex.clamp(0, c.catalog.length - 1),
@@ -124,9 +129,14 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   }
 
   /// Audio loads in the background. Lyrics never wait on this.
+  ///
+  /// P35: the source is PREPARED but never auto-started. Opening a hymn
+  /// is usually about reading the lyrics, so sound must not start on its
+  /// own — the user taps play when they want it. Loading eagerly keeps
+  /// that first tap instant.
   Future<void> _ensureSession() async {
     final ok = await _c.openCatalog(widget.queue,
-        startIndex: widget.initialIndex, autoPlay: true);
+        startIndex: widget.initialIndex, autoPlay: false);
     if (!mounted) return;
     setState(() {
       _opening = false;
@@ -137,7 +147,10 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   Future<void> _onPageChanged(int i) async {
     if (i == _c.viewIndex) return;
     _paging = true;
-    await _c.moveTo(i, autoPlay: true);
+    // P35: swiping to another hymn carries the CURRENT intent — if audio
+    // is playing it keeps playing (continuous listening), if the user is
+    // just browsing lyrics it stays silent. Never starts sound on its own.
+    await _c.moveTo(i, autoPlay: _c.playing);
     _paging = false;
   }
 
@@ -275,6 +288,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                     : null,
                 onTap: () {
                   Navigator.pop(ctx);
+                  // Explicit tap on a queue row = play that hymn.
                   _c.moveTo(i, autoPlay: true);
                 },
               );
