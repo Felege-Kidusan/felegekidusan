@@ -461,48 +461,41 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                         opacity: e.isActive ? 1.0 : e.opacity,
                         duration: anim,
                         curve: _curve,
-                        child: AnimatedScale(
-                          scale: e.scale,
-                          duration: anim,
-                          curve: _curve,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
                           alignment: Alignment.center,
-                          // FittedBox + softWrap:false GUARANTEES the lyric
-                          // renders as exactly ONE row — it scales the line to
-                          // the available width instead of wrapping it, which
-                          // is the fix for "one line is being split into two".
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.center,
-                            // AnimatedDefaultTextStyle tweens the WHOLE style —
-                            // color, weight and size — when the sung line moves
-                            // to the next line, so the highlight eases over
-                            // instead of snapping. The FittedBox + softWrap:false
-                            // below still guarantees exactly one row, so the
-                            // animating weight can never re-wrap the line.
-                            child: AnimatedDefaultTextStyle(
-                              duration: anim,
-                              curve: _curve,
-                              style: TextStyle(
-                                // Sung line = darkest, boldest ink; the rest
-                                // recede to a warm, lighter bronze so the
-                                // hierarchy is obvious (a real color change
-                                // AND a size change, never a font-size layout
-                                // swap, so nothing can re-wrap).
-                                color: e.isActive ? _activeInk : _restInk,
-                                fontSize: size,
-                                height: lineHeight,
-                                fontWeight: e.isActive
-                                    ? FontWeight.w800
-                                    : FontWeight.w500,
-                                fontFamily: 'NotoSansEthiopic',
-                              ),
-                              child: Text(
-                                isEmpty ? '· · ·' : line.text,
-                                softWrap: false,
-                                maxLines: 1,
-                                overflow: TextOverflow.visible,
-                                textAlign: TextAlign.center,
-                              ),
+                          // AnimatedDefaultTextStyle tweens the WHOLE style —
+                          // color, weight AND size — as one continuous motion,
+                          // so the size change is as smooth as the color fade.
+                          // The active line is full size; every other line
+                          // shrinks to e.scale (a real size difference, but
+                          // animated, not a snap). The FittedBox +
+                          // softWrap:false below still guarantees exactly one
+                          // row, so the animating size/weight can never re-wrap
+                          // the line.
+                          child: AnimatedDefaultTextStyle(
+                            duration: anim,
+                            curve: _curve,
+                            style: TextStyle(
+                              // Sung line = darkest, boldest ink; the rest
+                              // recede to a warm, lighter bronze so the
+                              // hierarchy is obvious (a real color change AND
+                              // a size change, never a font-size layout swap,
+                              // so nothing can re-wrap).
+                              color: e.isActive ? _activeInk : _restInk,
+                              fontSize: size * e.scale,
+                              height: lineHeight,
+                              fontWeight: e.isActive
+                                  ? FontWeight.w800
+                                  : FontWeight.w500,
+                              fontFamily: 'NotoSansEthiopic',
+                            ),
+                            child: Text(
+                              isEmpty ? '· · ·' : line.text,
+                              softWrap: false,
+                              maxLines: 1,
+                              overflow: TextOverflow.visible,
+                              textAlign: TextAlign.center,
                             ),
                           ),
                         ),
