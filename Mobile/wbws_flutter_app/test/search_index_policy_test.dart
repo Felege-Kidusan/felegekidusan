@@ -61,10 +61,18 @@ void main() {
       );
     });
 
+    test('a P38 install (v2) rebuilds to gain the trigram index', () {
+      expect(
+        SearchIndexPolicy.decide(const IndexState(stampedVersion: 2),
+            currentVersion: 3),
+        IndexAction.fullRebuild,
+      );
+    });
+
     test('the shipped constant matches what the code indexes with', () {
       // Guards against bumping the analyzer without bumping the version,
       // which is the one way to reintroduce silent staleness.
-      expect(kAnalyzerVersion, 2);
+      expect(kAnalyzerVersion, 3);
     });
   });
 

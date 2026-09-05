@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fkss_app/services/amharic_text.dart';
 import 'package:fkss_app/services/lyrics_search.dart';
+import 'package:fkss_app/services/search_matching.dart';
 
 /// P37: Telegram-style lyrics search.
 void main() {
@@ -69,8 +70,12 @@ void main() {
       expect(text.substring(toks[1].start, toks[1].end), 'ለኪ');
     });
 
-    test('single characters never index (server parity)', () {
+    test('single characters never index (documents stay clean)', () {
       expect(tokenize('a bc d').map((t) => t.word), ['bc']);
+    });
+
+    test('but a single-character QUERY is kept (P39)', () {
+      expect(queryTerms('ሰ'), ['ሰ']);
     });
 
     test('a skipped short word still consumes an ordinal', () {
@@ -313,8 +318,10 @@ void main() {
       expect(LyricsSearch.rankAll(rows: rows, query: ''), isEmpty);
     });
 
-    test('a 1-character query returns nothing (parity)', () {
-      expect(LyricsSearch.rankAll(rows: rows, query: 'ሰ'), isEmpty);
+    test('a 1-character query DOES search now (P39 real-time)', () {
+      // Telegram shows results from the first character; refusing to
+      // search until the second makes the feature feel dead.
+      expect(LyricsSearch.rankAll(rows: rows, query: 'ሰ'), isNotEmpty);
     });
 
     test('ties break deterministically by id', () {
@@ -341,6 +348,97 @@ void main() {
         {'id': '9', 'title': 'ሰላም', 'lyrics': ''}
       ];
       expect(LyricsSearch.rankAll(rows: rows2, query: 'ሰላም').single.hymnId, 9);
+    });
+  });
+
+  group('P39 substring matching — the "no match but there is" bug', () {
+    SearchHit? hit(String title, String lyrics, String q) => LyricsSearch.rank(
+          hymnId: 1,
+          title: title,
+          lyrics: lyrics,
+          terms: queryTerms(q),
+        );
+
+    test('an Amharic grammatical prefix no longer hides the root', () {
+      // በሰላም = "be-selam" (in peace). The user types the root ሰላም.
+      // startsWith() said no; this is the reported bug.
+      expect(hit('በሰላም', '', 'ሰላም'), isNotNull);
+    });
+
+    test('the root is found inside lyrics too', () {
+      expect(hit('x', 'እግዚአብሔር በሰላም ይጠብቀን', 'ሰላም'), isNotNull);
+    });
+
+    test('a mid-word English match is found', () {
+      expect(hit('hallelujah', '', 'lelu'), isNotNull);
+    });
+
+    test('highlight lands on the matched characters, not the word start', () {
+      const title = 'በሰላም';
+      final h = LyricsSearch.rank(
+          hymnId: 1, title: title, lyrics: '', terms: queryTerms('ሰላም'))!;
+      final r = h.titleRanges.single;
+      expect(title.substring(r.start, r.end), 'ሰላም');
+    });
+
+    test('an exact match still outranks a prefix, suffix and infix', () {
+      final exact = hit('ሰላም', '', 'ሰላም')!.score;
+      final prefix = hit('ሰላምታ', '', 'ሰላም')!.score;
+      final suffix = hit('በሰላም', '', 'ሰላም')!.score;
+      final infix = hit('በሰላምታ', '', 'ሰላም')!.score;
+      expect(exact, greaterThan(prefix));
+      expect(prefix, greaterThan(suffix));
+      expect(suffix, greaterThan(infix));
+    });
+
+    test('a genuine non-match is still null', () {
+      expect(hit('ሰላም', 'ለኪ', 'ማርያም'), isNull);
+    });
+
+    test('substring matching composes with homophone folding', () {
+      // stored uses ፀ + prefix; query uses ጸ and no prefix.
+      expect(hit('በፀሐይ', '', 'ጸሀይ'), isNotNull);
+    });
+  });
+
+  group('P39 trigrams — substring retrieval', () {
+    test('grams of a word carry boundary markers', () {
+      expect(SearchMatching.gramsOf('ሰላም'),
+          {'\u0001ሰላ', 'ሰላም', 'ላም\u0002'});
+    });
+
+    test('a query gram set is interior-only, so it matches inside words', () {
+      // These must be findable in the grams of በሰላም.
+      final q = SearchMatching.queryGrams('ሰላም');
+      final stored = SearchMatching.gramsOf('በሰላም');
+      expect(q.intersection(stored), isNotEmpty);
+    });
+
+    test('a short term yields no query grams and needs the fallback', () {
+      expect(SearchMatching.queryGrams('ሰ'), isEmpty);
+      expect(SearchMatching.isIndexable('ሰ'), isFalse);
+      expect(SearchMatching.isIndexable('ሰላም'), isTrue);
+    });
+
+    test('a very short word still produces one padded gram', () {
+      expect(SearchMatching.gramsOf('ለ'), isNotEmpty);
+    });
+
+    test('an empty word produces no grams', () {
+      expect(SearchMatching.gramsOf(''), isEmpty);
+    });
+
+    test('classify reports the right kind', () {
+      expect(SearchMatching.classify('ሰላም', 'ሰላም'), TermMatch.exact);
+      expect(SearchMatching.classify('ሰላምታ', 'ሰላም'), TermMatch.prefix);
+      expect(SearchMatching.classify('በሰላም', 'ሰላም'), TermMatch.suffix);
+      expect(SearchMatching.classify('በሰላምታ', 'ሰላም'), TermMatch.infix);
+      expect(SearchMatching.classify('ማርያም', 'ሰላም'), TermMatch.none);
+    });
+
+    test('classify is safe on empty input', () {
+      expect(SearchMatching.classify('', 'a'), TermMatch.none);
+      expect(SearchMatching.classify('a', ''), TermMatch.none);
     });
   });
 }

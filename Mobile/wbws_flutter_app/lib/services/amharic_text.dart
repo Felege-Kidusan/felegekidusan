@@ -121,6 +121,16 @@ final RegExp tokenPattern = RegExp(r'[\p{L}\p{M}\p{N}]+', unicode: true);
 /// Minimum indexable token length. Server parity: WORD_MIN_CHARS = 2.
 const int kWordMinChars = 2;
 
+/// Minimum QUERY term length (P39).
+///
+/// Deliberately 1, unlike [kWordMinChars]. Telegram shows results from
+/// the first character, and refusing to search until the second makes
+/// the feature feel dead — the user cannot tell "still typing" from
+/// "nothing found". Indexing still skips 1-character words (they are
+/// noise in a document), but a 1-character QUERY is answered by a
+/// prefix probe.
+const int kQueryMinChars = 1;
+
 /// Maximum indexable token length, matching the server's guard so a
 /// pathological blob cannot bloat the index.
 const int kWordMaxChars = 30;
@@ -180,7 +190,7 @@ List<String> queryTerms(String query) {
   final out = <String>[];
   for (final m in tokenPattern.allMatches(normalized)) {
     final w = m.group(0);
-    if (w != null && w.length >= kWordMinChars) out.add(w);
+    if (w != null && w.length >= kQueryMinChars) out.add(w);
   }
   return out;
 }

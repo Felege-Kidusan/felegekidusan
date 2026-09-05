@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'amharic_text.dart' as amharic;
 import 'search_index_policy.dart';
+import 'search_matching.dart';
 import 'package:path/path.dart';
 
 import 'taxonomy_reconcile.dart';
@@ -44,7 +45,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 23,
+      version: 24,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -344,6 +345,12 @@ class LocalDb {
         if (oldVersion < 21) {
           // P33: Spotify-style offline downloads for mezmur audio.
           await _createDownloadTables(db);
+        }
+        if (oldVersion < 24) {
+          // P39: substring retrieval. Creating the table is enough —
+          // the analyzer bump to v3 makes the on-open check rebuild
+          // both indexes together.
+          await _createHymnTrigramIndex(db);
         }
         if (oldVersion < 23) {
           // P38: self-healing index. No rebuild is scheduled here on
@@ -793,6 +800,27 @@ class LocalDb {
     ''');
   }
 
+  /// P39: trigram index for SUBSTRING retrieval.
+  ///
+  /// `word LIKE 'term%'` can only find prefixes, so any Amharic word
+  /// carrying a grammatical prefix (በሰላም for ሰላም) was unfindable. A
+  /// `LIKE '%term%'` scan would find it but cannot use an index. The
+  /// standard fix is an n-gram index: look candidates up by trigram
+  /// equality (indexed), then verify exactly in Dart.
+  Future<void> _createHymnTrigramIndex(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hymn_search_grams (
+        gram TEXT NOT NULL,
+        hymn_id INTEGER NOT NULL,
+        PRIMARY KEY (gram, hymn_id)
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hymn_grams_gram ON hymn_search_grams (gram)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hymn_grams_hymn ON hymn_search_grams (hymn_id)');
+  }
+
   Future<void> _createHymnSearchIndex(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS hymn_search_words (
@@ -806,6 +834,7 @@ class LocalDb {
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_hymn_search_words_hymn ON hymn_search_words (hymn_id)');
     await _createSearchMetaTables(db);
+    await _createHymnTrigramIndex(db);
   }
 
   // ---------------------------------------------------------------
@@ -882,6 +911,8 @@ class LocalDb {
           // linger as a phantom result.
           await db.delete('hymn_search_words',
               where: 'hymn_id = ?', whereArgs: [id]);
+          await db.delete('hymn_search_grams',
+              where: 'hymn_id = ?', whereArgs: [id]);
         } else {
           await _reindexHymnSearchIndex(db, rows.first);
         }
@@ -934,6 +965,7 @@ class LocalDb {
   Future<void> _rebuildHymnSearchIndex(Database db) async {
     await db.transaction((txn) async {
       await txn.delete('hymn_search_words');
+      await txn.delete('hymn_search_grams');
       final rows = await txn.query('cached_hymns',
           columns: ['id', 'title', 'lyrics']);
       for (final row in rows) {
@@ -955,9 +987,19 @@ class LocalDb {
       ...amharic.indexWords('${hymn['title'] ?? ''}'),
       ...amharic.indexWords('${hymn['lyrics'] ?? ''}'),
     };
+    await db.delete('hymn_search_grams', where: 'hymn_id = ?', whereArgs: [id]);
     final batch = db.batch();
     for (final word in words) {
       batch.insert('hymn_search_words', {'word': word, 'hymn_id': id});
+    }
+    // P39: trigrams enable SUBSTRING retrieval. Deduped across the whole
+    // hymn, so a repeated word costs nothing extra.
+    final grams = <String>{};
+    for (final word in words) {
+      grams.addAll(SearchMatching.gramsOf(word));
+    }
+    for (final g in grams) {
+      batch.insert('hymn_search_grams', {'gram': g, 'hymn_id': id});
     }
     await batch.commit(noResult: true);
   }
@@ -2293,13 +2335,47 @@ class LocalDb {
     // multi-word queries behaved as pure OR with no preference for rows
     // matching everything. GROUP BY + ORDER BY hits fixes both while
     // still returning partial matches (below the complete ones).
-    final ors = terms.map((_) => 'word LIKE ?').join(' OR ');
-    final args = <dynamic>[for (final t in terms) '$t%'];
-    final idRows = await db.rawQuery(
-        'SELECT hymn_id, COUNT(DISTINCT word) AS hits '
-        'FROM hymn_search_words WHERE $ors '
-        'GROUP BY hymn_id ORDER BY hits DESC LIMIT ?',
-        [...args, limit]);
+    // P39: retrieval must find SUBSTRINGS, not just prefixes. Amharic
+    // words carry grammatical prefixes (በ-, ለ-, የ-, ከ-), so the root the
+    // user types is usually NOT at the start of the stored word — the
+    // old `word LIKE 'term%'` silently missed those, which is the
+    // "it says no match but there is" bug.
+    //
+    // `LIKE '%term%'` would find them but cannot use an index. So we
+    // look candidates up by TRIGRAM equality (indexed) and let the Dart
+    // ranker verify exactly. Terms shorter than a trigram have no
+    // interior grams, so they fall back to a prefix probe on the word
+    // index — that is the 1-2 character type-ahead case.
+    final gramTerms = terms.where(SearchMatching.isIndexable).toList();
+    final shortTerms = terms.where((t) => !SearchMatching.isIndexable(t));
+
+    List<Map<String, Object?>> idRows = const [];
+    if (gramTerms.isNotEmpty) {
+      final grams = <String>{};
+      for (final t in gramTerms) {
+        grams.addAll(SearchMatching.queryGrams(t));
+      }
+      if (grams.isNotEmpty) {
+        final ph = List.filled(grams.length, '?').join(',');
+        idRows = await db.rawQuery(
+            'SELECT hymn_id, COUNT(DISTINCT gram) AS hits '
+            'FROM hymn_search_grams WHERE gram IN ($ph) '
+            'GROUP BY hymn_id ORDER BY hits DESC LIMIT ?',
+            [...grams, limit]);
+      }
+    }
+    if (idRows.isEmpty) {
+      // Short query (or nothing gram-indexed): prefix probe. Cheap and
+      // indexed, and enough to make single letters feel instant.
+      final probes = [...shortTerms, ...gramTerms];
+      if (probes.isEmpty) return const [];
+      final ors = probes.map((_) => 'word LIKE ?').join(' OR ');
+      idRows = await db.rawQuery(
+          'SELECT hymn_id, COUNT(DISTINCT word) AS hits '
+          'FROM hymn_search_words WHERE $ors '
+          'GROUP BY hymn_id ORDER BY hits DESC LIMIT ?',
+          [for (final t in probes) '$t%', limit]);
+    }
     final ids = idRows.map((row) => _asIntLocal(row['hymn_id'])).where((id) => id > 0).toList();
     if (ids.isEmpty) return const [];
     return _getLocalHymnsByIds(db, ids,

@@ -22,6 +22,7 @@
 library;
 
 import 'amharic_text.dart';
+import 'search_matching.dart';
 
 /// Where a match was found. Drives both ranking and the UI's label.
 enum MatchField { title, lyrics }
@@ -104,10 +105,22 @@ class SearchWeights {
   static const double titleExact = 1000;
   static const double titlePrefix = 600;
   static const double titleWord = 400;
+
+  /// P39: the term matched the END of a title word. In Amharic the
+  /// inflection sits at the FRONT (በ-, ለ-, የ-, ከ-), so the root the user
+  /// types is very often a suffix of the stored word — this is a strong
+  /// signal, not a weak one.
+  static const double titleSuffix = 330;
+
+  /// P39: matched mid-word.
+  static const double titleInfix = 240;
+
   static const double titleFuzzy = 150;
 
   static const double lyricsPhrase = 300;
   static const double lyricsWord = 60;
+  static const double lyricsSuffix = 48;
+  static const double lyricsInfix = 34;
   static const double lyricsProximity = 40;
 
   /// Every query term present, in any field.
@@ -152,21 +165,31 @@ class LyricsSearch {
       for (final term in terms) {
         var best = 0.0;
         for (final tok in titleTokens) {
-          if (tok.word == term) {
-            best = best < SearchWeights.titleWord
-                ? SearchWeights.titleWord
-                : best;
+          // P39: substring-aware. Prefix-only matching silently missed
+          // every Amharic word carrying a grammatical prefix (በሰላም vs
+          // ሰላም), which is the "no match but there is" bug.
+          final kind = SearchMatching.classify(tok.word, term);
+          if (kind == TermMatch.none) continue;
+          final w = switch (kind) {
+            TermMatch.exact => SearchWeights.titleWord,
+            TermMatch.prefix => SearchWeights.titlePrefix,
+            TermMatch.suffix => SearchWeights.titleSuffix,
+            TermMatch.infix => SearchWeights.titleInfix,
+            TermMatch.none => 0.0,
+          };
+          if (w > best) best = w;
+          // Highlight exactly the matched characters, wherever they sit
+          // in the word — Telegram highlights the match, not the token.
+          if (kind == TermMatch.exact) {
             titleRanges.add(HighlightRange(tok.start, tok.end));
-            matched.add(term);
-          } else if (tok.word.startsWith(term)) {
-            best = best < SearchWeights.titlePrefix
-                ? SearchWeights.titlePrefix
-                : best;
-            // Highlight only the matched prefix, exactly as Telegram
-            // does — the rest of the word stays plain.
-            titleRanges.add(HighlightRange(tok.start, tok.start + term.length));
-            matched.add(term);
+          } else {
+            final at = SearchMatching.offsetIn(tok.word, term);
+            if (at >= 0) {
+              titleRanges.add(HighlightRange(
+                  tok.start + at, tok.start + at + term.length));
+            }
           }
+          matched.add(term);
         }
         score += best;
       }
@@ -198,15 +221,24 @@ class LyricsSearch {
         lyricHitOrdinals.add(phrase);
       }
       final perTerm = <String, List<TextToken>>{};
+      final bestKind = <String, TermMatch>{};
       for (final tok in lyricTokens) {
         for (final term in terms) {
-          if (tok.word == term || tok.word.startsWith(term)) {
-            (perTerm[term] ??= []).add(tok);
+          final kind = SearchMatching.classify(tok.word, term);
+          if (kind == TermMatch.none) continue;
+          (perTerm[term] ??= []).add(tok);
+          final prior = bestKind[term];
+          if (prior == null || kind.index < prior.index) {
+            bestKind[term] = kind;
           }
         }
       }
       for (final entry in perTerm.entries) {
-        score += SearchWeights.lyricsWord;
+        score += switch (bestKind[entry.key] ?? TermMatch.infix) {
+          TermMatch.exact || TermMatch.prefix => SearchWeights.lyricsWord,
+          TermMatch.suffix => SearchWeights.lyricsSuffix,
+          _ => SearchWeights.lyricsInfix,
+        };
         matched.add(entry.key);
       }
       // Proximity: terms appearing close together are likelier to be the
@@ -277,14 +309,18 @@ class LyricsSearch {
     final ranges = <HighlightRange>[];
     for (final tok in tokenize(flattened)) {
       for (final term in terms) {
-        if (tok.word == term) {
+        final kind = SearchMatching.classify(tok.word, term);
+        if (kind == TermMatch.none) continue;
+        if (kind == TermMatch.exact) {
           ranges.add(HighlightRange(tok.start, tok.end));
-          break;
+        } else {
+          final at = SearchMatching.offsetIn(tok.word, term);
+          if (at >= 0) {
+            ranges.add(
+                HighlightRange(tok.start + at, tok.start + at + term.length));
+          }
         }
-        if (tok.word.startsWith(term)) {
-          ranges.add(HighlightRange(tok.start, tok.start + term.length));
-          break;
-        }
+        break;
       }
     }
 
@@ -311,7 +347,7 @@ class LyricsSearch {
           ok = false;
           break;
         }
-        if (tok.word != terms[j] && !tok.word.startsWith(terms[j])) {
+        if (SearchMatching.classify(tok.word, terms[j]) == TermMatch.none) {
           ok = false;
           break;
         }
@@ -334,12 +370,12 @@ class LyricsSearch {
     const window = 12;
     for (var i = 0; i < tokens.length; i++) {
       final hit = terms.any((t) =>
-          tokens[i].word == t || tokens[i].word.startsWith(t));
+          SearchMatching.classify(tokens[i].word, t) != TermMatch.none);
       if (!hit) continue;
       var count = 0;
       for (var j = i; j < tokens.length && j < i + window; j++) {
         if (terms.any(
-            (t) => tokens[j].word == t || tokens[j].word.startsWith(t))) {
+            (t) => SearchMatching.classify(tokens[j].word, t) != TermMatch.none)) {
           count++;
         }
       }
@@ -466,14 +502,18 @@ List<HighlightRange> highlightRangesFor(String text, String query) {
   final ranges = <HighlightRange>[];
   for (final tok in tokenize(text)) {
     for (final term in terms) {
-      if (tok.word == term) {
+      final kind = SearchMatching.classify(tok.word, term);
+      if (kind == TermMatch.none) continue;
+      if (kind == TermMatch.exact) {
         ranges.add(HighlightRange(tok.start, tok.end));
-        break;
+      } else {
+        final at = SearchMatching.offsetIn(tok.word, term);
+        if (at >= 0) {
+          ranges.add(
+              HighlightRange(tok.start + at, tok.start + at + term.length));
+        }
       }
-      if (tok.word.startsWith(term)) {
-        ranges.add(HighlightRange(tok.start, tok.start + term.length));
-        break;
-      }
+      break;
     }
   }
   return LyricsSearch.mergeRanges(ranges);

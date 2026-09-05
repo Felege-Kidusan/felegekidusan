@@ -54,7 +54,10 @@ library;
 /// History:
 ///   1 — pre-P37: raw code points, no homophone folding.
 ///   2 — P37: Amharic homophone folding, Ethiopic punctuation, ordinals.
-const int kAnalyzerVersion = 2;
+///   3 — P39: trigram index added for substring retrieval. Same
+///       tokenisation, but the stored index gained a table, so existing
+///       installs must rebuild to populate it.
+const int kAnalyzerVersion = 3;
 
 /// What the app should do to the index when it opens.
 enum IndexAction {

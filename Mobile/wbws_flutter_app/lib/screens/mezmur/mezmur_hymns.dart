@@ -97,7 +97,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
 
   /// Keystroke rule (parity with the server + store):
   /// a single character never triggers a search.
-  bool get _searching => _searchCtrl.text.trim().length >= 2;
+  /// P39: results mode from the FIRST character (Telegram behaviour).
+  bool get _searching => _searchCtrl.text.trim().isNotEmpty;
 
   int get _tab => _tabCtrl.index;
 
@@ -152,7 +153,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   Future<void> _reload() async {
     final generation = ++_searchGeneration;
     final query = _searchCtrl.text;
-    final searching = query.trim().length >= 2;
+    final searching = query.trim().isNotEmpty;
     // P27: while searching, the store merges the on-device index with
     // the SERVER word index (lyrics blobs are lazily downloaded, so
     // the local copy alone cannot see most lyrics yet).
@@ -181,7 +182,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     // category / singer catalogs for their result tabs.
     var catResults = const <Map<String, dynamic>>[];
     var zemResults = const <Map<String, dynamic>>[];
-    if (query.trim().length >= 2) {
+    if (query.trim().isNotEmpty) {
       catResults = await _store.searchCategories(query);
       zemResults = await _store.searchZemarians(query);
     }
@@ -228,10 +229,12 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   void _onSearchChanged(String _) {
     setState(() {}); // hint / result-mode update, zero latency
     _searchDebounce?.cancel();
-    // 180ms: long enough to coalesce a typing burst, short enough that
-    // the field never feels unresponsive (research consensus is
-    // 150-250ms for search-as-you-type).
-    _searchDebounce = Timer(const Duration(milliseconds: 180), _reload);
+    // P39: 60ms. The earlier 180ms was tuned for a SERVER round-trip,
+    // but local results come from an indexed on-device lookup, so the
+    // list can repaint essentially per keystroke — which is what makes
+    // Telegram feel live. The server leg is still debounced by its own
+    // 2-char floor and the generation guard.
+    _searchDebounce = Timer(const Duration(milliseconds: 60), _reload);
   }
 
   Future<void> _refresh() async {

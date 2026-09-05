@@ -62,9 +62,12 @@ class HymnStore extends ChangeNotifier {
     int? categoryId,
     int? zemarianId,
   }) async {
-    // Keystroke hygiene: single-character queries are ignored (a 1-char
-    // match can never produce a meaningful ranking) — server-side parity.
-    if (search != null && search.trim().length < 2) search = null;
+    // P39: single characters ARE searched now. The old rule silently
+    // returned the unfiltered list for a 1-char query, so the first
+    // letter typed showed every hymn — indistinguishable from "broken".
+    // Local retrieval answers 1-char queries with an indexed prefix
+    // probe; only the SERVER round-trip keeps a 2-char floor (below).
+    if (search != null && search.trim().isEmpty) search = null;
 
     // Two-stage typo-tolerant search (P22, mirrors MezmurHymnService):
     // SQL applies ONLY the structural filters; the text match happens in
@@ -184,7 +187,9 @@ class HymnStore extends ChangeNotifier {
       categoryId: categoryId,
       zemarianId: zemarianId,
     );
-    if (q.length < 2) return local; // 1-char never searches (parity)
+    // Local results already cover 1-char queries; the server keeps a
+    // 2-char floor so a single letter cannot ask it for the whole corpus.
+    if (q.length < 2) return local;
     if (!ConnectivityService().hasLink || !_api.isLoggedIn) return local;
 
     final res = await _api.getMezmurHymns(
