@@ -7,6 +7,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'api_service.dart';
+import 'mezmur_download_manager.dart';
 import 'mezmur_playback_policy.dart';
 
 /// P0 mezmur — a single mezmur hymn that can be played.
@@ -160,6 +161,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
 
   final AudioPlayer _player = AudioPlayer();
   final ApiService _api = ApiService();
+  final MezmurDownloadManager _downloads = MezmurDownloadManager.instance;
   List<MezmurTrack> _queue = const [];
   int? _index;
   bool _playing = false;
@@ -432,17 +434,29 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     final selectedIndex = startIndex.clamp(0, tracks.length - 1);
     final selected = tracks[selectedIndex];
     var selectedTrack = selected;
-    if (selected.audioStatus == 'ready') {
+
+    // ── P33: offline-first source resolution ──────────────────
+    // A downloaded hymn plays from disk, so it needs NO network at all:
+    // no signed-URL round trip, no R2 fetch, works in airplane mode.
+    // Only when there is no local copy do we mint a short-lived URL.
+    final localPath = await _downloads.localPathFor(selected.hymnId);
+    if (localPath != null) {
+      selectedTrack = selected.copyWith(audioUrl: Uri.file(localPath).toString());
+    } else if (selected.audioStatus == 'ready') {
+      var signed = false;
       final response = await _api.getMezmurAudioUrl(selected.hymnId);
       if (response.success && response.data is Map) {
         final signedUrl = '${response.data['url'] ?? ''}'.trim();
         if (signedUrl.isNotEmpty) {
           selectedTrack = selected.copyWith(audioUrl: signedUrl);
+          signed = true;
         }
       }
-      if (selectedTrack.audioUrl.trim().isEmpty) {
+      if (!signed && selectedTrack.audioUrl.trim().isEmpty) {
+        // No local copy and no reachable server: name the remedy rather
+        // than just failing, since downloading is exactly the fix.
         _playbackError = response.message ??
-            'Audio could not be loaded. Check your connection and try again.';
+            'Audio could not be loaded. Download this hymn on Wi‑Fi to play it offline.';
         notifyListeners();
         return false;
       }
@@ -452,7 +466,13 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     final sources = <AudioSource>[];
     var offset = -1;
     for (var i = 0; i < tracks.length; i++) {
-      final t = i == selectedIndex ? selectedTrack : tracks[i];
+      var t = i == selectedIndex ? selectedTrack : tracks[i];
+      // Queue neighbours also prefer their local copy, so skipping to
+      // the next downloaded hymn stays instant and offline.
+      if (i != selectedIndex) {
+        final lp = await _downloads.localPathFor(t.hymnId);
+        if (lp != null) t = t.copyWith(audioUrl: Uri.file(lp).toString());
+      }
       if (t.audioUrl.trim().isEmpty) continue;
       sources.add(AudioSource.uri(
         Uri.parse(t.audioUrl),

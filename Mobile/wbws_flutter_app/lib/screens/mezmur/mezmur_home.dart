@@ -10,6 +10,7 @@ import 'mezmur_analytics.dart';
 import '../reviews/review_inbox_screen.dart';
 import 'mezmur_attendance.dart';
 import 'mezmur_hymns.dart';
+import 'mezmur_downloads.dart';
 
 /// Mezmur Department hub (mobile) — Ethiopian greeting, feature
 /// tiles and recent attendance days. Attendance itself lives in
@@ -116,6 +117,13 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen> {
                   color: AppTheme.warning,
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => const MezmurHymnsScreen())),
+                ),
+                FeatureTile(
+                  label: 'Downloads',
+                  icon: Icons.download_for_offline_outlined,
+                  color: AppTheme.success,
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const MezmurDownloadsScreen())),
                 ),
                 FeatureTile(
                   label: 'Analytics',

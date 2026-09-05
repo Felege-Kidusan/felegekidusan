@@ -12,12 +12,15 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/taxonomy_pick_sheet.dart';
+import '../../widgets/download_button.dart';
+import '../../services/mezmur_download_manager.dart';
 import 'mezmur_categories.dart';
 import 'mezmur_player_screen.dart';
 import 'mezmur_hymn_detail.dart';
 import 'mezmur_category_screen.dart';
 import 'mezmur_hymn_editor.dart';
 import 'mezmur_zemarians.dart';
+import 'mezmur_downloads.dart';
 
 /// Hymn library — LOCAL-FIRST (local-first model).
 ///
@@ -242,6 +245,89 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     await _reload();
   }
 
+  /// P33 — download sheet: bulk-pin exactly what the user is looking at
+  /// (search results / filtered category), or manage what is already
+  /// stored. Mirrors Spotify's "Download" toggle on a playlist header.
+  Future<void> _openDownloads() async {
+    final dl = MezmurDownloadManager.instance;
+    final withAudio = _items
+        .where((h) => '${h['audio_status'] ?? ''}' == 'ready')
+        .toList(growable: false);
+    final notYet = withAudio
+        .where((h) => !dl.isDownloaded(_asInt(h['id'])))
+        .toList(growable: false);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 8),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.sd_storage_outlined, size: 20),
+            title: Text(
+                '${dl.downloadedCount} hymns offline · '
+                '${MezmurDownloadManager.formatBytes(dl.bytesOnDisk)}',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w700)),
+            subtitle: Text(
+                dl.wifiOnly ? 'Downloading on Wi‑Fi only' : 'Mobile data allowed',
+                style: const TextStyle(fontSize: 11)),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            dense: true,
+            enabled: notYet.isNotEmpty,
+            leading: const Icon(Icons.download_rounded,
+                size: 20, color: AppTheme.success),
+            title: Text(
+                notYet.isEmpty
+                    ? 'Everything here is already downloaded'
+                    : 'Download these ${notYet.length} hymns',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600)),
+            subtitle: Text(
+                notYet.isEmpty
+                    ? 'This view plays fully offline.'
+                    : 'Queues the hymns currently listed, including your search '
+                        'and filters.',
+                style: const TextStyle(fontSize: 11)),
+            onTap: notYet.isEmpty
+                ? null
+                : () async {
+                    Navigator.pop(sheetCtx);
+                    final n = await dl.downloadAll(notYet);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(dl.waitingForWifi
+                          ? '$n queued — will start on Wi‑Fi'
+                          : '$n hymns queued for download'),
+                      duration: const Duration(seconds: 2),
+                    ));
+                    setState(() {});
+                  },
+          ),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.tune_rounded, size: 20),
+            title: const Text('Manage downloads & storage',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            subtitle: const Text(
+                'Storage limit, mobile-data switch, remove downloads.',
+                style: TextStyle(fontSize: 11)),
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const MezmurDownloadsScreen()));
+            },
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openCategories() async {
     await Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const MezmurCategoriesScreen()));
@@ -308,6 +394,13 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                 onPressed: widget.onBack,
               ),
         actions: [
+          // P33: offline downloads — bulk-download the current view and
+          // reach the storage manager.
+          IconButton(
+            tooltip: 'Downloads',
+            icon: const Icon(Icons.download_for_offline_outlined, size: 20),
+            onPressed: _openDownloads,
+          ),
           if (_store.canEdit)
             IconButton(
               tooltip: 'Manage categories',
@@ -842,14 +935,24 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${h['category'] ?? ''}'
-                      '${!hasLyrics ? ' · lyrics downloading…' : ''}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11, color: AppTheme.textSecondary),
-                    ),
+                    Row(children: [
+                      // P33: at-a-glance "this one plays with no signal".
+                      if (MezmurDownloadManager.instance
+                          .isDownloaded(_asInt(h['id']))) ...[
+                        const OfflineBadge(),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: Text(
+                          '${h['category'] ?? ''}'
+                          '${!hasLyrics ? ' · lyrics downloading…' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 11, color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    ]),
                     // P25/P26: lyrics matches carry a "Lyrics" tag and the
                     // matching line (bold title, grey context).
                     if (lyricMatch) ...[
@@ -885,7 +988,11 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                     ],
                   ],
                 ),
-                trailing: PopupMenuButton<String>(
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  // P33: Spotify-style offline download, right where the
+                  // hymn is — one tap, no menu digging.
+                  HymnDownloadButton(hymn: h, size: 19),
+                  PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, size: 18),
                   onSelected: (v) async {
                     if (v == 'details') await _openDetails(h);
@@ -926,6 +1033,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                     ],
                   ],
                 ),
+                ]),
               ),
             ),
           ),

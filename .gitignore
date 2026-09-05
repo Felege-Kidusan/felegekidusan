@@ -68,3 +68,9 @@ uploads/mezmur_categories/*
 # singer (zemarian) cover images live here too — same rule
 uploads/mezmur_zemarians/*
 !uploads/mezmur_zemarians/.htaccess
+
+# --- Composer deps (run composer install on deploy) ---
+/vendor/
+
+# --- Patch files / scratch ---
+*.patch

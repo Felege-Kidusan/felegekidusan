@@ -39,7 +39,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 20,
+      version: 21,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -336,6 +336,10 @@ class LocalDb {
             } catch (_) {}
           }
         }
+        if (oldVersion < 21) {
+          // P33: Spotify-style offline downloads for mezmur audio.
+          await _createDownloadTables(db);
+        }
         if (oldVersion < 18) {
           // P32: admin-pinned cover gradient colors.
           try {
@@ -453,6 +457,294 @@ class LocalDb {
       )
     ''');
     await _createHymnSearchIndex(db);
+    await _createDownloadTables(db);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // P33 — offline audio downloads (Spotify model)
+  // ══════════════════════════════════════════════════════════════
+  // One row per hymn the user asked to keep offline. The AUDIO BYTES
+  // live on the filesystem (app support dir, excluded from backup);
+  // this table is the durable index the player consults BEFORE it
+  // ever asks the network for a signed URL.
+  //
+  //   state: queued | downloading | done | failed | paused
+  //
+  // `source` records WHY the file is on the device:
+  //   'user'  — explicitly pinned (never auto-evicted)
+  //   'auto'  — smart/bulk download (evictable under a storage cap)
+  //
+  // `etag` + `audio_updated_at` let a delta pull notice the server
+  // replaced the object and re-download instead of playing stale audio.
+  Future<void> _createDownloadTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hymn_downloads (
+        hymn_id INTEGER PRIMARY KEY,
+        state TEXT NOT NULL DEFAULT 'queued',
+        source TEXT NOT NULL DEFAULT 'user',
+        file_path TEXT,
+        bytes_total INTEGER NOT NULL DEFAULT 0,
+        bytes_done INTEGER NOT NULL DEFAULT 0,
+        audio_format TEXT,
+        audio_updated_at TEXT,
+        etag TEXT,
+        sha256 TEXT,
+        error TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        queued_at TEXT,
+        completed_at TEXT,
+        last_played_at TEXT
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hymn_downloads_state ON hymn_downloads (state)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hymn_downloads_source ON hymn_downloads (source, last_played_at)');
+    // Collection-level pins ("download this category / this singer"),
+    // so newly-synced hymns inside a pinned collection auto-download
+    // the way a Spotify playlist keeps itself current.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hymn_download_pins (
+        kind TEXT NOT NULL,
+        ref_id INTEGER NOT NULL,
+        label TEXT,
+        created_at TEXT,
+        PRIMARY KEY (kind, ref_id)
+      )
+    ''');
+  }
+
+  // ── downloads: reads ────────────────────────────────────────
+
+  /// Every download row, newest completion first — powers the
+  /// "Downloads" management screen.
+  Future<List<Map<String, dynamic>>> downloadRows() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT d.*, h.title AS title, h.category AS category,
+             h.audio_duration_s AS audio_duration_s
+        FROM hymn_downloads d
+        LEFT JOIN cached_hymns h ON h.id = d.hymn_id
+       ORDER BY (d.state = 'done') DESC, d.completed_at DESC, d.queued_at DESC
+    ''');
+  }
+
+  Future<Map<String, dynamic>?> downloadRow(int hymnId) async {
+    final db = await database;
+    final r = await db.query('hymn_downloads',
+        where: 'hymn_id = ?', whereArgs: [hymnId], limit: 1);
+    return r.isEmpty ? null : r.first;
+  }
+
+  /// hymn_id → state, for painting list badges in one query.
+  Future<Map<int, String>> downloadStates() async {
+    final db = await database;
+    final rows = await db.query('hymn_downloads',
+        columns: ['hymn_id', 'state']);
+    return {
+      for (final r in rows) (r['hymn_id'] as int): '${r['state']}',
+    };
+  }
+
+  /// Local file for a hymn, but only when the download actually finished.
+  Future<String?> downloadedPath(int hymnId) async {
+    final db = await database;
+    final r = await db.query('hymn_downloads',
+        columns: ['file_path'],
+        where: "hymn_id = ? AND state = 'done'",
+        whereArgs: [hymnId],
+        limit: 1);
+    if (r.isEmpty) return null;
+    final p = '${r.first['file_path'] ?? ''}';
+    return p.isEmpty ? null : p;
+  }
+
+  Future<List<Map<String, dynamic>>> pendingDownloads({int limit = 50}) async {
+    final db = await database;
+    return db.query('hymn_downloads',
+        where: "state IN ('queued','downloading')",
+        orderBy: 'queued_at ASC',
+        limit: limit);
+  }
+
+  Future<int> downloadedBytes() async {
+    final db = await database;
+    final r = await db.rawQuery(
+        "SELECT COALESCE(SUM(bytes_done), 0) AS n FROM hymn_downloads WHERE state = 'done'");
+    return (r.first['n'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> downloadedCount() async {
+    final db = await database;
+    final r = await db.rawQuery(
+        "SELECT COUNT(*) AS n FROM hymn_downloads WHERE state = 'done'");
+    return (r.first['n'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Auto-downloaded rows, least-recently-played first — the eviction
+  /// order when the user's storage cap is exceeded. User-pinned rows
+  /// are never returned.
+  Future<List<Map<String, dynamic>>> evictionCandidates() async {
+    final db = await database;
+    return db.query('hymn_downloads',
+        where: "state = 'done' AND source = 'auto'",
+        orderBy: "COALESCE(last_played_at, completed_at, '') ASC");
+  }
+
+  // ── downloads: writes ───────────────────────────────────────
+
+  Future<void> enqueueDownload(int hymnId,
+      {String source = 'user', String? audioUpdatedAt, String? format}) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    // A row already 'done' and still current must not be reset to
+    // 'queued' — that would re-download the whole library on a re-pin.
+    final existing = await downloadRow(hymnId);
+    if (existing != null &&
+        '${existing['state']}' == 'done' &&
+        '${existing['audio_updated_at'] ?? ''}' == '${audioUpdatedAt ?? ''}') {
+      if (source == 'user' && '${existing['source']}' != 'user') {
+        await db.update('hymn_downloads', {'source': 'user'},
+            where: 'hymn_id = ?', whereArgs: [hymnId]);
+      }
+      return;
+    }
+    await db.insert(
+      'hymn_downloads',
+      {
+        'hymn_id': hymnId,
+        'state': 'queued',
+        'source': source,
+        'audio_updated_at': audioUpdatedAt,
+        'audio_format': format,
+        'bytes_done': 0,
+        'error': null,
+        'attempts': 0,
+        'queued_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> markDownloadState(int hymnId, String state,
+      {String? filePath,
+      int? bytesTotal,
+      int? bytesDone,
+      String? etag,
+      String? sha256,
+      String? error,
+      bool bumpAttempts = false}) async {
+    final db = await database;
+    final data = <String, Object?>{'state': state};
+    if (filePath != null) data['file_path'] = filePath;
+    if (bytesTotal != null) data['bytes_total'] = bytesTotal;
+    if (bytesDone != null) data['bytes_done'] = bytesDone;
+    if (etag != null) data['etag'] = etag;
+    if (sha256 != null) data['sha256'] = sha256;
+    data['error'] = error;
+    if (state == 'done') {
+      data['completed_at'] = DateTime.now().toIso8601String();
+      data['error'] = null;
+    }
+    if (bumpAttempts) {
+      await db.rawUpdate(
+          'UPDATE hymn_downloads SET attempts = attempts + 1 WHERE hymn_id = ?',
+          [hymnId]);
+    }
+    await db.update('hymn_downloads', data,
+        where: 'hymn_id = ?', whereArgs: [hymnId]);
+  }
+
+  Future<void> updateDownloadProgress(int hymnId, int done, int total) async {
+    final db = await database;
+    await db.update('hymn_downloads', {'bytes_done': done, 'bytes_total': total},
+        where: 'hymn_id = ?', whereArgs: [hymnId]);
+  }
+
+  Future<void> touchDownloadPlayed(int hymnId) async {
+    final db = await database;
+    await db.update(
+        'hymn_downloads', {'last_played_at': DateTime.now().toIso8601String()},
+        where: 'hymn_id = ?', whereArgs: [hymnId]);
+  }
+
+  Future<void> deleteDownloadRow(int hymnId) async {
+    final db = await database;
+    await db.delete('hymn_downloads', where: 'hymn_id = ?', whereArgs: [hymnId]);
+  }
+
+  /// Rows whose server-side audio changed since the file was stored —
+  /// the delta-sync hook that keeps offline copies honest.
+  Future<List<Map<String, dynamic>>> staleDownloads() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT d.hymn_id, h.audio_updated_at AS server_updated, d.source
+        FROM hymn_downloads d
+        JOIN cached_hymns h ON h.id = d.hymn_id
+       WHERE d.state = 'done'
+         AND IFNULL(h.audio_updated_at, '') <> IFNULL(d.audio_updated_at, '')
+    ''');
+  }
+
+  // ── collection pins ─────────────────────────────────────────
+
+  Future<void> addDownloadPin(String kind, int refId, String label) async {
+    final db = await database;
+    await db.insert(
+        'hymn_download_pins',
+        {
+          'kind': kind,
+          'ref_id': refId,
+          'label': label,
+          'created_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> removeDownloadPin(String kind, int refId) async {
+    final db = await database;
+    await db.delete('hymn_download_pins',
+        where: 'kind = ? AND ref_id = ?', whereArgs: [kind, refId]);
+  }
+
+  Future<List<Map<String, dynamic>>> downloadPins() async {
+    final db = await database;
+    return db.query('hymn_download_pins', orderBy: 'created_at DESC');
+  }
+
+  Future<bool> hasDownloadPin(String kind, int refId) async {
+    final db = await database;
+    final r = await db.query('hymn_download_pins',
+        where: 'kind = ? AND ref_id = ?', whereArgs: [kind, refId], limit: 1);
+    return r.isNotEmpty;
+  }
+
+  /// Ready-to-play hymn ids inside a pinned collection — used to top up
+  /// downloads after a delta sync adds hymns to a pinned category.
+  Future<List<Map<String, dynamic>>> readyAudioHymnsIn(
+      {int? categoryId, int? zemarianId}) async {
+    final db = await database;
+    if (categoryId != null) {
+      return db.rawQuery('''
+        SELECT h.id, h.audio_updated_at, h.audio_format
+          FROM cached_hymns h
+          JOIN cached_hymn_categories c ON c.hymn_id = h.id
+         WHERE c.category_id = ? AND h.audio_status = 'ready'
+               AND h.status <> 'archived'
+      ''', [categoryId]);
+    }
+    if (zemarianId != null) {
+      return db.rawQuery('''
+        SELECT h.id, h.audio_updated_at, h.audio_format
+          FROM cached_hymns h
+          JOIN cached_hymn_zemarians z ON z.hymn_id = h.id
+         WHERE z.zemarian_id = ? AND h.audio_status = 'ready'
+               AND h.status <> 'archived'
+      ''', [zemarianId]);
+    }
+    return db.query('cached_hymns',
+        columns: ['id', 'audio_updated_at', 'audio_format'],
+        where: "audio_status = 'ready' AND status <> 'archived'");
   }
 
   Future<void> _createHymnSearchIndex(Database db) async {

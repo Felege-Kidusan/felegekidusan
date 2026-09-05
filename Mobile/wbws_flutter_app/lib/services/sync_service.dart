@@ -2,6 +2,7 @@ import 'dart:async';
 import 'api_service.dart';
 import 'catalog_service.dart';
 import 'connectivity_service.dart';
+import 'mezmur_download_manager.dart';
 import 'hymn_store.dart';
 import 'local_db.dart';
 
@@ -305,6 +306,9 @@ class SyncService {
         }
         if (ConnectivityService().hasLink) {
           await hymnStore.pullChanges();
+          // P33: a delta may have added hymns to a pinned category or
+          // replaced an audio object — top up / refresh offline copies.
+          await MezmurDownloadManager.instance.syncPins();
         }
       } catch (e) {
         await _db.logSync('hymns', e.toString(), 'error');

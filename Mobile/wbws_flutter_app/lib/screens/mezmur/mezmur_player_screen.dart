@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/mezmur_audio_player.dart';
+import '../../services/mezmur_download_manager.dart';
 import 'mezmur_lyrics_screen.dart';
 import 'parchment_style.dart';
 
@@ -348,6 +349,10 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
           onTap: () => Navigator.of(context).maybePop(),
         ),
         const Expanded(child: SizedBox.shrink()),
+        // P33: keep the hymn you are listening to. The parchment chip
+        // reflects live download state, same vocabulary as the list.
+        _DownloadChip(hymnId: _view.hymnId, ready: _c.viewHasAudio),
+        const SizedBox(width: 8),
         _ChipIcon(
           icon: Icons.tune_rounded,
           tooltip: 'Playback settings',
@@ -710,5 +715,94 @@ class _PlayButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+
+/// P33 — parchment-styled download control for the now-playing header.
+class _DownloadChip extends StatefulWidget {
+  const _DownloadChip({required this.hymnId, required this.ready});
+  final int hymnId;
+  final bool ready;
+
+  @override
+  State<_DownloadChip> createState() => _DownloadChipState();
+}
+
+class _DownloadChipState extends State<_DownloadChip> {
+  final _dl = MezmurDownloadManager.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _dl.addListener(_onChange);
+  }
+
+  @override
+  void dispose() {
+    _dl.removeListener(_onChange);
+    super.dispose();
+  }
+
+  void _onChange() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _tap() async {
+    final id = widget.hymnId;
+    if (id <= 0) return;
+    final state = _dl.stateOf(id);
+    if (state == 'done') {
+      await _dl.remove(id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Removed from downloads'),
+          duration: Duration(seconds: 2)));
+      return;
+    }
+    if (state == 'queued' || state == 'downloading') {
+      await _dl.remove(id);
+      return;
+    }
+    // The manager resolves the cached hymn row itself, so the stored
+    // copy carries audio_updated_at and stays refreshable.
+    await _dl.downloadById(id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_dl.waitingForWifi
+          ? 'Queued — will download on Wi‑Fi'
+          : 'Downloading for offline use'),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.ready || widget.hymnId <= 0) return const SizedBox.shrink();
+    final state = _dl.stateOf(widget.hymnId);
+    IconData icon;
+    String tip;
+    switch (state) {
+      case 'done':
+        icon = Icons.download_done_rounded;
+        tip = 'Downloaded — plays offline';
+        break;
+      case 'downloading':
+        icon = Icons.downloading_rounded;
+        tip = 'Downloading ${(_dl.progressOf(widget.hymnId) * 100).round()}%';
+        break;
+      case 'queued':
+        icon = Icons.schedule_rounded;
+        tip = _dl.waitingForWifi ? 'Waiting for Wi\u2011Fi' : 'Queued';
+        break;
+      case 'failed':
+        icon = Icons.error_outline_rounded;
+        tip = 'Download failed — tap to retry';
+        break;
+      default:
+        icon = Icons.arrow_circle_down_outlined;
+        tip = 'Download for offline listening';
+    }
+    return _ChipIcon(icon: icon, tooltip: tip, onTap: _tap);
   }
 }

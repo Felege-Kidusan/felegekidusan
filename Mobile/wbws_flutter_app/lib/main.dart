@@ -14,6 +14,7 @@ import 'screens/lock/lock_screen.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/warm_store.dart';
+import 'services/mezmur_download_manager.dart';
 import 'utils/scrolling.dart';
 import 'utils/theme.dart';
 import 'screens/auth/login_screen.dart';
@@ -82,6 +83,9 @@ Future<void> runBootstrap() async {
     if (ApiService().isLoggedIn) {
       Future<void>.delayed(const Duration(seconds: 2), () {
         WarmStore().afterLogin();
+        // P33: restore the offline-download queue (resumes interrupted
+        // downloads as soon as the radio/Wi-Fi allows).
+        MezmurDownloadManager.instance.boot();
       });
       SyncService().startAutoSync();
     }

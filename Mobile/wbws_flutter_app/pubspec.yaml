@@ -57,6 +57,11 @@ dependencies:
   path: ^1.8.0
   crypto: ^3.0.3
 
+  # P33 offline downloads: hymn audio is stored under the app-support
+  # directory (survives cache sweeps, excluded from cloud backup) so a
+  # downloaded mezmur plays with the radio off.
+  path_provider: ^2.1.4
+
   # P0 mezmur audio player — streaming playback with background support.
   # just_audio is the playback engine; just_audio_background (built on
   # audio_service) adds the media notification, lock-screen transport +

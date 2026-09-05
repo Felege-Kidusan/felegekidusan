@@ -58,9 +58,17 @@ class ConnectivityService {
     }
   }
 
+  /// True when the phone is on an UNMETERED interface (Wi‑Fi/ethernet).
+  /// P33: the offline-download queue defaults to Wi‑Fi-only so a bulk
+  /// "download this category" never quietly eats a mobile bundle.
+  bool _unmetered = true;
+  bool get isUnmetered => _unmetered;
+
   void _applyResults(List<ConnectivityResult> results) {
     // Treat any real interface as a link. `none` alone means waiting.
     final link = results.any((r) => r != ConnectivityResult.none);
+    _unmetered = results.any((r) =>
+        r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet);
     _setHasLink(link);
   }
 
