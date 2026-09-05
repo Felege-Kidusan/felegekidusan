@@ -217,6 +217,35 @@ final class MezmurMediaService
         return self::$hasAudioColumns;
     }
 
+    /**
+     * P45: are the SYNCED-LYRICS columns present?
+     *
+     * audioColumnsReady() probes `audio_key`, but sql/038 adds the audio
+     * columns and the lyrics_synced columns in TWO SEPARATE guarded
+     * ALTERs. A database can therefore have audio working while
+     * lyrics_synced is still missing — exactly the state that made the
+     * save throw a raw SQL error and surface as the generic
+     * "Unable to complete the request", with the real cause only in the
+     * PHP error log.
+     *
+     * Probing the column we are about to write is the only honest guard.
+     */
+    private static ?bool $hasSyncedColumns = null;
+
+    public static function syncedLyricsColumnsReady(\mysqli $conn): bool
+    {
+        if (self::$hasSyncedColumns === null) {
+            $ok = false;
+            try {
+                $r = $conn->query("SHOW COLUMNS FROM mezmur_hymns LIKE 'lyrics_synced'");
+                $ok = $r ? (bool)$r->fetch_assoc() : false;
+                if ($r) { $r->close(); }
+            } catch (\Throwable $e) { $ok = false; }
+            self::$hasSyncedColumns = $ok;
+        }
+        return self::$hasSyncedColumns;
+    }
+
     // ── audit (same contract as MezmurHymnService) ─────────────
     private static function audit(\mysqli $conn, string $action, array $details, int $hymnId, int $actorId): void
     {
@@ -721,8 +750,9 @@ final class MezmurMediaService
 
     public static function saveSyncedLyrics(\mysqli $conn, int $hymnId, string $lrc, int $actorId): array
     {
-        if (!self::audioColumnsReady($conn)) {
-            return ['ok' => false, 'message' => 'Audio columns are missing. Run sql/038_mezmur_audio_media.sql, or press Sync DB schema in the Mezmur console.'];
+        // P45: probe the columns this function actually WRITES.
+        if (!self::syncedLyricsColumnsReady($conn)) {
+            return ['ok' => false, 'message' => 'The synced-lyrics columns are missing from this database. Press “Sync DB schema” in the Mezmur console (or run sql/038_mezmur_audio_media.sql), then try again.'];
         }
         $lrc = (string)$lrc;
         if (strlen($lrc) > 262144) {
@@ -740,17 +770,32 @@ final class MezmurMediaService
         $lrc = (string)$canon['doc'];
         $timed = (int)$canon['timed'];
 
-        $stmt = $conn->prepare(
-            "UPDATE mezmur_hymns
+        // P45: prepare() returns false on an unknown column instead of
+        // throwing, and calling bind_param() on false is a fatal — which
+        // is how a missing column became the generic
+        // "Unable to complete the request" with no clue for the user.
+        $sql = "UPDATE mezmur_hymns
              SET lyrics_synced=?, lyrics_synced_at=NOW(), lyrics_synced_by=?,
                  updated_by=?, updated_at=NOW(), revision = revision + 1
-             WHERE id=?"
-        );
+             WHERE id=?";
+        $stmt = $conn->prepare($sql);
+        if ($stmt === false) {
+            error_log('[mezmur-lrc] prepare failed: ' . $conn->error);
+            return ['ok' => false, 'message' => 'The database rejected the synced-lyrics update. Press “Sync DB schema” in the Mezmur console, then try again.'];
+        }
         $stmt->bind_param('siiii', $lrc, $actorId, $actorId, $hymnId);
         $ok = $stmt->execute();
+        $affected = $ok ? $conn->affected_rows : -1;
+        $err = $ok ? '' : $stmt->error;
         $stmt->close();
         if (!$ok) {
-            return ['ok' => false, 'message' => 'Could not save synced lyrics.'];
+            error_log('[mezmur-lrc] save failed for hymn#' . $hymnId . ': ' . $err);
+            return ['ok' => false, 'message' => 'Could not save synced lyrics: ' . $err];
+        }
+        if ($affected === 0) {
+            // Row id did not match anything — silently "succeeding" here
+            // would tell the user their work was saved when it was not.
+            return ['ok' => false, 'message' => 'That hymn no longer exists (id ' . $hymnId . '). Reload the library and try again.'];
         }
         self::audit($conn, 'Mezmur Synced Lyrics Saved', ['lines' => $timed], $hymnId, $actorId);
         return ['ok' => true, 'message' => 'Synced lyrics saved (' . $timed . ' timed lines).'];
@@ -759,8 +804,8 @@ final class MezmurMediaService
     /** Clear synced lyrics back to "static only". */
     public static function removeSyncedLyrics(\mysqli $conn, int $hymnId, int $actorId): array
     {
-        if (!self::audioColumnsReady($conn)) {
-            return ['ok' => false, 'message' => 'Audio columns are missing. Run sql/038_mezmur_audio_media.sql, or press Sync DB schema in the Mezmur console.'];
+        if (!self::syncedLyricsColumnsReady($conn)) {
+            return ['ok' => false, 'message' => 'The synced-lyrics columns are missing from this database. Press “Sync DB schema” in the Mezmur console (or run sql/038_mezmur_audio_media.sql), then try again.'];
         }
         $stmt = $conn->prepare(
             "UPDATE mezmur_hymns
@@ -768,6 +813,10 @@ final class MezmurMediaService
                  updated_by=?, updated_at=NOW(), revision = revision + 1
              WHERE id=?"
         );
+        if ($stmt === false) {
+            error_log('[mezmur-lrc] remove prepare failed: ' . $conn->error);
+            return ['ok' => false, 'message' => 'The database rejected the update. Press “Sync DB schema” in the Mezmur console, then try again.'];
+        }
         $stmt->bind_param('ii', $actorId, $hymnId);
         $stmt->execute();
         $stmt->close();
