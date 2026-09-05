@@ -145,17 +145,12 @@ class HymnStore extends ChangeNotifier {
       for (final hit in hits) {
         final row = byId[hit.hymnId];
         if (row == null) continue;
-        row['similarity'] = hit.score;
-        row['match_in'] = hit.field == MatchField.title ? 'title' : 'lyrics';
-        row['snippet'] = hit.snippet.text;
-        // Ranges travel with the row so the widget highlights exactly
-        // what the ranker matched, without re-searching the string.
-        row['title_ranges'] = hit.titleRanges;
-        row['snippet_ranges'] = hit.snippet.ranges;
-        row['snippet_before'] = hit.snippet.ellipsisBefore;
-        row['snippet_after'] = hit.snippet.ellipsisAfter;
-        row['partial_match'] = hit.isPartial;
-        out.add(row);
+        // P41: sqflite hands back READ-ONLY QueryRow maps. Assigning
+        // into one throws "Unsupported operation: read-only", which
+        // aborted every single search before a result could render —
+        // the screen kept whatever list was there. Always copy first;
+        // never mutate a row that came out of a query.
+        out.add(_decorate(row, hit));
       }
       return out;
     }
@@ -263,18 +258,44 @@ class HymnStore extends ChangeNotifier {
       final serverLyricHit = '${m['match_in'] ?? ''}' == 'lyrics';
       if (serverLyricHit && ('${localRow['snippet'] ?? ''}').isEmpty) {
         final text = '${m['snippet'] ?? ''}';
-        localRow['snippet'] = text;
-        // P37: the server sends snippet TEXT but no ranges, so compute
-        // them here — otherwise server-discovered rows would be the
-        // only results rendered without highlighting.
-        localRow['snippet_ranges'] = highlightRangesFor(text, q);
-        if (ls <= 0) localRow['match_in'] = 'lyrics';
+        // P41: same read-only hazard — localRow may be a QueryRow when
+        // hymns() returned it untouched. Replace, never mutate.
+        byId[id] = {
+          ...localRow,
+          'snippet': text,
+          'snippet_ranges': highlightRangesFor(text, q),
+          if (ls <= 0) 'match_in': 'lyrics',
+        };
       }
     }
     final merged = byId.values.toList()
       ..sort((a, b) => ((b['similarity'] as num?) ?? 0)
           .compareTo((a['similarity'] as num?) ?? 0));
     return merged;
+  }
+
+  /// P41: return a WRITABLE copy of [row] carrying the match metadata
+  /// the list widget renders.
+  ///
+  /// Copying is not a style choice. sqflite returns `QueryRow`, whose
+  /// `operator []=` throws `Unsupported operation: read-only`. Writing
+  /// match data straight onto a query row threw on the first result of
+  /// the first search, so no search ever completed. One helper now owns
+  /// this so a future caller cannot reintroduce it.
+  Map<String, dynamic> _decorate(Map<String, dynamic> row, SearchHit hit) {
+    return {
+      ...row,
+      'similarity': hit.score,
+      'match_in': hit.field == MatchField.title ? 'title' : 'lyrics',
+      'snippet': hit.snippet.text,
+      // Ranges travel with the row so the widget highlights exactly what
+      // the ranker matched, without re-searching the string.
+      'title_ranges': hit.titleRanges,
+      'snippet_ranges': hit.snippet.ranges,
+      'snippet_before': hit.snippet.ellipsisBefore,
+      'snippet_after': hit.snippet.ellipsisAfter,
+      'partial_match': hit.isPartial,
+    };
   }
 
   /// P40: score a server-supplied row with the SAME engine the local
@@ -301,15 +322,7 @@ class HymnStore extends ChangeNotifier {
       terms: terms,
     );
     if (hit == null) return null;
-    m['similarity'] = hit.score;
-    m['match_in'] = hit.field == MatchField.title ? 'title' : 'lyrics';
-    m['snippet'] = hit.snippet.text;
-    m['title_ranges'] = hit.titleRanges;
-    m['snippet_ranges'] = hit.snippet.ranges;
-    m['snippet_before'] = hit.snippet.ellipsisBefore;
-    m['snippet_after'] = hit.snippet.ellipsisAfter;
-    m['partial_match'] = hit.isPartial;
-    return m;
+    return _decorate(m, hit);
   }
 
   /// P25 (Telegram-style unified search): fuzzy collection search over
