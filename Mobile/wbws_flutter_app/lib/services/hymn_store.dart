@@ -230,14 +230,36 @@ class HymnStore extends ChangeNotifier {
       if (id <= 0) continue;
       final localRow = byId[id];
       if (localRow == null) {
-        byId[id] = m;
+        // P40 — THE BUG. This used to be `byId[id] = m;`: every row the
+        // server returned was spliced into the results unverified. When
+        // the deployed server ignores `search` (old build, or an empty
+        // `mezmur_hymn_words` index making searchWordCandidates return
+        // []), it answers with the ordinary hymn LIST — and the app
+        // rendered that verbatim. Symptoms, all from this one line:
+        // identical results for every query, no highlighting on any
+        // row, and "no match" for words plainly present in the lyrics.
+        // It failed in English and Amharic alike because it never
+        // looked at the text at all.
+        //
+        // The client is now authoritative: a server row is a CANDIDATE,
+        // never a result. It must match here to be shown. The server
+        // still earns its keep — it surfaces hymns whose lyrics have
+        // not been downloaded yet — but it can no longer inject noise,
+        // and a stale backend degrades to local-only instead of wrong.
+        final hit = _verifyServerRow(m, q);
+        if (hit == null) continue;
+        byId[id] = hit;
         continue;
       }
       // Both know the row: keep the better score (the server scored
       // the full corpus incl. lyrics) and fill missing match context.
+      // Scores are NOT comparable across engines: the server's
+      // searchScore and LyricsSearch use different scales, so importing
+      // the server number reorders the list arbitrarily. The local row
+      // already ranked against the same query — keep its score and take
+      // only the match CONTEXT the server can add (a lyrics snippet
+      // from lyrics we have not downloaded).
       final ls = (localRow['similarity'] as num?) ?? 0;
-      final ss = (m['similarity'] as num?) ?? 0;
-      if (ss > ls) localRow['similarity'] = ss;
       final serverLyricHit = '${m['match_in'] ?? ''}' == 'lyrics';
       if (serverLyricHit && ('${localRow['snippet'] ?? ''}').isEmpty) {
         final text = '${m['snippet'] ?? ''}';
@@ -253,6 +275,41 @@ class HymnStore extends ChangeNotifier {
       ..sort((a, b) => ((b['similarity'] as num?) ?? 0)
           .compareTo((a['similarity'] as num?) ?? 0));
     return merged;
+  }
+
+  /// P40: score a server-supplied row with the SAME engine the local
+  /// rows went through, so one ranked list comes out of two sources.
+  ///
+  /// Returns null when the row does not match [q] — that is what stops
+  /// a server which ignored the query from filling the screen. The row
+  /// is ranked on its title plus whatever text the server sent
+  /// (`lyrics`, else the `snippet` it built), so a hymn whose lyrics
+  /// are not on the device yet can still be found by its lyrics.
+  Map<String, dynamic>? _verifyServerRow(Map<String, dynamic> m, String q) {
+    final terms = amharic.queryTerms(q);
+    if (terms.isEmpty) return null;
+    final title = '${m['title'] ?? ''}';
+    // Prefer full lyrics; fall back to the server's snippet so a lyrics
+    // hit is not lost just because the blob was omitted from the list.
+    final lyrics = '${m['lyrics'] ?? ''}'.isNotEmpty
+        ? '${m['lyrics']}'
+        : '${m['snippet'] ?? ''}';
+    final hit = LyricsSearch.rank(
+      hymnId: _asInt(m['id']),
+      title: title,
+      lyrics: lyrics,
+      terms: terms,
+    );
+    if (hit == null) return null;
+    m['similarity'] = hit.score;
+    m['match_in'] = hit.field == MatchField.title ? 'title' : 'lyrics';
+    m['snippet'] = hit.snippet.text;
+    m['title_ranges'] = hit.titleRanges;
+    m['snippet_ranges'] = hit.snippet.ranges;
+    m['snippet_before'] = hit.snippet.ellipsisBefore;
+    m['snippet_after'] = hit.snippet.ellipsisAfter;
+    m['partial_match'] = hit.isPartial;
+    return m;
   }
 
   /// P25 (Telegram-style unified search): fuzzy collection search over

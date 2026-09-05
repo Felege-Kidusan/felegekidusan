@@ -117,6 +117,11 @@ class SearchWeights {
 
   static const double titleFuzzy = 150;
 
+  /// P40: fuzzy rescue inside LYRICS. Ranks below every real lyrics hit
+  /// (lyricsInfix = 34) so a near-miss can never displace an actual
+  /// match — it only turns an empty screen into a useful one.
+  static const double lyricsFuzzy = 20;
+
   static const double lyricsPhrase = 300;
   static const double lyricsWord = 60;
   static const double lyricsSuffix = 48;
@@ -250,7 +255,32 @@ class LyricsSearch {
         if (span <= terms.length * 3) score += SearchWeights.lyricsProximity;
       }
 
-      final anchor = _bestAnchor(lyricTokens, terms, phrase);
+      // P40: fuzzy rescue for LYRICS. Previously only titles had one, so
+      // a near-miss in the lyrics fell straight to "no results". In
+      // Amharic this is the common case: verb and possessive endings
+      // shift the final syllable (ሰላምከ / ሰላምክ / ሰላምህ), which is a
+      // one-character edit — the user typed the word correctly as they
+      // know it, and the hymn really does contain it. Same guard as the
+      // title tier: only when nothing else matched.
+      int? fuzzyAnchor;
+      if (matched.isEmpty) {
+        for (final term in terms) {
+          for (final tok in lyricTokens) {
+            if (_within1Edit(term, tok.word)) {
+              score += SearchWeights.lyricsFuzzy;
+              matched.add(term);
+              lyricHitOrdinals.add(tok.ordinal);
+              // The snippet must centre on the fuzzy hit: _bestAnchor
+              // only recognises exact/substring matches, so without this
+              // a fuzzy-only result would render with no snippet at all.
+              fuzzyAnchor ??= tok.ordinal;
+              break;
+            }
+          }
+        }
+      }
+
+      final anchor = _bestAnchor(lyricTokens, terms, phrase ?? fuzzyAnchor);
       if (anchor != null) {
         if (anchor.start <= 2) score += SearchWeights.leadingBonus;
         snippet = buildSnippet(

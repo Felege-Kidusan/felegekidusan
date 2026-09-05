@@ -441,4 +441,99 @@ void main() {
       expect(SearchMatching.classify('a', ''), TermMatch.none);
     });
   });
+
+  group('P40 — a non-matching row must be REJECTED, not displayed', () {
+    // The shipped bug: server rows were merged into the result list
+    // without ever being scored, so when the backend ignored the query
+    // the app showed the whole catalogue for every search. The guard is
+    // that rank() returns null for a row that does not match; these
+    // tests pin that contract for exactly the rows seen on the device.
+
+    SearchHit? verify(String title, String lyrics, String q) =>
+        LyricsSearch.rank(
+            hymnId: 1, title: title, lyrics: lyrics, terms: queryTerms(q));
+
+    test('an unrelated Amharic hymn is rejected for query "test"', () {
+      // Row 2 from the screenshot: shown for BOTH "test" and "ሰላምክ".
+      expect(verify('ልዑል ውኑቱ', 'የሚነኘል', 'test'), isNull);
+    });
+
+    test('an unrelated Amharic hymn is rejected for query "ሰላምክ"', () {
+      expect(verify('ሐረ እያሱስ', 'ጥሞቀተ', 'ሰላምክ'), isNull);
+    });
+
+    test('the hymn that DOES contain the word is accepted', () {
+      // Row 1: its lyrics really contain "test search abebe".
+      final h = verify('ሃሌ ሃሌ ሉያ', 'ሃሌ ሃሌ ሉያ test search abebe', 'test');
+      expect(h, isNotNull);
+      expect(h!.field, MatchField.lyrics);
+    });
+
+    test('the accepted row carries highlight ranges (none rendered before)',
+        () {
+      final h = verify('ሃሌ ሃሌ ሉያ', 'ሃሌ ሃሌ ሉያ test search abebe', 'test')!;
+      expect(h.snippet.ranges, isNotEmpty);
+      final r = h.snippet.ranges.first;
+      expect(h.snippet.text.substring(r.start, r.end).toLowerCase(), 'test');
+    });
+
+    test('a whole unfiltered catalogue collapses to only real matches', () {
+      // Simulates the server returning its ordinary hymn LIST.
+      const catalogue = [
+        {'id': 1, 'title': 'ሃሌ ሃሌ ሉያ', 'lyrics': 'test search abebe'},
+        {'id': 2, 'title': 'ልዑል ውኑቱ', 'lyrics': 'የሚነኘል'},
+        {'id': 3, 'title': 'ሐረ እያሱስ', 'lyrics': 'ጥሞቀተ'},
+      ];
+      expect(LyricsSearch.rankAll(rows: catalogue, query: 'test')
+          .map((h) => h.hymnId), [1]);
+      expect(LyricsSearch.rankAll(rows: catalogue, query: 'ሰላምክ'), isEmpty);
+    });
+
+    test('two different queries cannot yield identical result sets', () {
+      const catalogue = [
+        {'id': 1, 'title': 'ሃሌ ሃሌ ሉያ', 'lyrics': 'test search abebe'},
+        {'id': 2, 'title': 'ልዑል ውኑቱ', 'lyrics': 'የሚነኘል'},
+      ];
+      final a = LyricsSearch.rankAll(rows: catalogue, query: 'test')
+          .map((h) => h.hymnId).toList();
+      final b = LyricsSearch.rankAll(rows: catalogue, query: 'ሰላምክ')
+          .map((h) => h.hymnId).toList();
+      expect(a, isNot(equals(b)));
+    });
+  });
+
+  group('P40 fuzzy rescue in lyrics (Amharic inflected endings)', () {
+    SearchHit? h(String lyrics, String q) => LyricsSearch.rank(
+        hymnId: 1, title: 'ሃሌ ሉያ', lyrics: lyrics, terms: queryTerms(q));
+
+    test('a one-syllable ending difference still matches', () {
+      // stored ሰላምከ vs typed ሰላምክ — possessive ending shifts the final
+      // syllable. Previously fell straight through to "no results".
+      expect(h('ሀባ ሰላምከ ዘኢትዮጵያ', 'ሰላምክ'), isNotNull);
+    });
+
+    test('an English typo in lyrics is rescued too', () {
+      expect(h('sing hallelujah today', 'hallelujeh'), isNotNull);
+    });
+
+    test('fuzzy NEVER outranks a real lyrics match', () {
+      final real = h('ሀባ ሰላም ዘኢትዮጵያ', 'ሰላም')!.score;
+      final fuzzy = h('ሀባ ሰላምከ ዘኢትዮጵያ', 'ሰላምክ')!.score;
+      expect(fuzzy, lessThan(real));
+    });
+
+    test('a fuzzy-only hit still renders a snippet', () {
+      // _bestAnchor cannot see fuzzy hits; the anchor is passed
+      // explicitly, else the row would show with an empty snippet.
+      expect(h('ሀባ ሰላምከ ዘኢትዮጵያ', 'ሰላምክ')!.snippet.text, isNotEmpty);
+    });
+
+    test('two edits away is still correctly rejected', () {
+      expect(h('ሀባ ሰላምከ ዘኢትዮጵያ', 'ማርያምና'), isNull);
+    });
+
+    test('fuzzy does not resurrect a genuinely unrelated hymn', () {
+      expect(h('የሚነኘል', 'test'), isNull);
+    });
+  });
 }
