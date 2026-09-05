@@ -4,6 +4,8 @@ import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
+import 'taxonomy_reconcile.dart';
+
 String newClientOpId() {
   final r = Random.secure();
   final b = List<int>.generate(16, (_) => r.nextInt(256));
@@ -2280,15 +2282,35 @@ class LocalDb {
 
   // ── categories ──────────────────────────────────────────────
 
-  Future<void> upsertCategories(List<dynamic> rows) async {
-    if (rows.isEmpty) return;
+  /// Replace the local category list with the server's canonical one.
+  ///
+  /// This is a RECONCILING sync, not a blind upsert. The categories
+  /// endpoint always returns the *complete* list, so any local row whose
+  /// id is absent from [rows] no longer exists on the server and must be
+  /// deleted — otherwise a category deleted in the web admin lingers on
+  /// every phone forever (there is no per-row tombstone to pull).
+  ///
+  /// Two things are deliberately preserved:
+  ///   • negative ids — offline-created rows that have not been pushed
+  ///     yet. They are not "missing from the server", they were never
+  ///     sent. Deleting them would destroy unsynced user work.
+  ///   • rows named in [protectIds] — ids with a queued local edit.
+  ///
+  /// [authoritative] must be false when the caller could not actually
+  /// reach the server; an empty list from a failed request must never be
+  /// read as "the server has no categories".
+  Future<void> upsertCategories(List<dynamic> rows,
+      {bool authoritative = false, Set<int> protectIds = const {}}) async {
+    if (rows.isEmpty && !authoritative) return;
     final db = await database;
     final now = DateTime.now().toIso8601String();
+    final serverIds = <int>{};
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final c in rows.whereType<Map>()) {
         final id = _asIntLocal(c['id']);
         if (id <= 0) continue;
+        serverIds.add(id);
         batch.insert(
           'cached_mezmur_categories',
           {
@@ -2314,6 +2336,32 @@ class LocalDb {
         );
       }
       await batch.commit(noResult: true);
+
+      if (!authoritative) return;
+      // ── reconcile: drop what the server no longer has ──────────
+      // Decision lives in TaxonomyReconcile so it is unit-tested; this
+      // block only applies the result.
+      final localRows =
+          await txn.query('cached_mezmur_categories', columns: ['id']);
+      final stale = TaxonomyReconcile.staleIds(
+        localIds: localRows.map((r) => _asIntLocal(r['id'])),
+        serverIds: serverIds,
+        protectIds: protectIds,
+      );
+      if (stale.isEmpty) return;
+      final marks = List.filled(stale.length, '?').join(',');
+      await txn.delete('cached_mezmur_categories',
+          where: 'id IN ($marks)', whereArgs: stale);
+      // Join rows would otherwise keep pointing at a category that is
+      // gone, leaving hymns filed under a phantom section.
+      await txn.delete('cached_hymn_categories',
+          where: 'category_id IN ($marks)', whereArgs: stale);
+      // A deleted MAIN category orphans its subs. The server drops them
+      // too (FK cascade), so they are already absent from `rows` and the
+      // sweep above catches them; this only cleans a parent pointer left
+      // dangling by an out-of-order response.
+      await txn.update('cached_mezmur_categories', {'parent_id': null},
+          where: 'parent_id IN ($marks)', whereArgs: stale);
     });
   }
 
@@ -2365,15 +2413,21 @@ class LocalDb {
 
   // ── zemarians (singers) + associations ─────────────────────
 
-  Future<void> upsertZemarians(List<dynamic> rows) async {
-    if (rows.isEmpty) return;
+  /// Reconciling sync for singers — same contract as [upsertCategories]:
+  /// server list is canonical, absent ids are deleted, negative
+  /// (offline-created) and [protectIds] rows survive.
+  Future<void> upsertZemarians(List<dynamic> rows,
+      {bool authoritative = false, Set<int> protectIds = const {}}) async {
+    if (rows.isEmpty && !authoritative) return;
     final db = await database;
     final now = DateTime.now().toIso8601String();
+    final serverIds = <int>{};
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final z in rows.whereType<Map>()) {
         final id = _asIntLocal(z['id']);
         if (id <= 0) continue;
+        serverIds.add(id);
         batch.insert(
           'cached_mezmur_zemarians',
           {
@@ -2391,6 +2445,21 @@ class LocalDb {
         );
       }
       await batch.commit(noResult: true);
+
+      if (!authoritative) return;
+      final localRows =
+          await txn.query('cached_mezmur_zemarians', columns: ['id']);
+      final stale = TaxonomyReconcile.staleIds(
+        localIds: localRows.map((r) => _asIntLocal(r['id'])),
+        serverIds: serverIds,
+        protectIds: protectIds,
+      );
+      if (stale.isEmpty) return;
+      final marks = List.filled(stale.length, '?').join(',');
+      await txn.delete('cached_mezmur_zemarians',
+          where: 'id IN ($marks)', whereArgs: stale);
+      await txn.delete('cached_hymn_zemarians',
+          where: 'zemarian_id IN ($marks)', whereArgs: stale);
     });
   }
 

@@ -934,6 +934,30 @@ class HymnStore extends ChangeNotifier {
 
   // ── delta pull (change-token cursor + lazy lyrics) ──────────
 
+  /// Ids of categories/singers with an unpushed local edit in the
+  /// outbox. The reconciling taxonomy sweep must not delete these: the
+  /// server has not seen the row yet, so its absence from the canonical
+  /// list says nothing about whether the user still wants it.
+  Future<({Set<int> categories, Set<int> zemarians})>
+      _pendingTaxonomyIds() async {
+    final cats = <int>{};
+    final zems = <int>{};
+    for (final op in await _db.getPendingHymnOps()) {
+      final kind = '${op['op'] ?? ''}';
+      if (!kind.startsWith('category_') && !kind.startsWith('zemarian_')) {
+        continue;
+      }
+      try {
+        final payload = jsonDecode('${op['payload_json'] ?? '{}'}');
+        if (payload is! Map) continue;
+        final id = int.tryParse('${payload['id'] ?? 0}') ?? 0;
+        if (id <= 0) continue;
+        (kind.startsWith('category_') ? cats : zems).add(id);
+      } catch (_) {}
+    }
+    return (categories: cats, zemarians: zems);
+  }
+
   Future<void> pullChanges({int lyricsBatch = 15}) async {
     if (!_api.isLoggedIn || _pulling) return;
     _pulling = true;
@@ -959,14 +983,24 @@ class HymnStore extends ChangeNotifier {
         if (next.isNotEmpty) await _db.setHymnSyncCursor(next);
       }
       // Categories: small canonical list — refresh on every pull.
+      //
+      // RECONCILING, not additive: the endpoint returns the COMPLETE
+      // list, so anything missing from it was deleted server-side and
+      // is removed locally too. Passing `authoritative` only on a
+      // genuinely successful response is what makes an empty list mean
+      // "no categories exist" instead of "the request failed".
+      // Rows with queued local edits are protected from the sweep.
+      final taxProtect = await _pendingTaxonomyIds();
       final cats = await _api.getMezmurCategories();
       if (cats.success && cats.data is Map && cats.data['items'] is List) {
-        await _db.upsertCategories(cats.data['items'] as List);
+        await _db.upsertCategories(cats.data['items'] as List,
+            authoritative: true, protectIds: taxProtect.categories);
       }
-      // Singers (zemarians): same small canonical list.
+      // Singers (zemarians): same small canonical list, same contract.
       final zem = await _api.getMezmurZemarians();
       if (zem.success && zem.data is Map && zem.data['items'] is List) {
-        await _db.upsertZemarians(zem.data['items'] as List);
+        await _db.upsertZemarians(zem.data['items'] as List,
+            authoritative: true, protectIds: taxProtect.zemarians);
       }
       // Lazy lyrics: bounded, resumable batch per cycle (Telegram-style
       // "download media as you go" — keeps the first sync seconds-fast).

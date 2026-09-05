@@ -21,6 +21,7 @@ import 'mezmur_category_screen.dart';
 import 'mezmur_hymn_editor.dart';
 import 'mezmur_zemarians.dart';
 import 'mezmur_downloads.dart';
+import 'mezmur_download_settings.dart';
 
 /// Hymn library — LOCAL-FIRST (local-first model).
 ///
@@ -309,16 +310,29 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
           ),
           ListTile(
             dense: true,
-            leading: const Icon(Icons.tune_rounded, size: 20),
-            title: const Text('Manage downloads & storage',
+            leading: const Icon(Icons.library_music_outlined, size: 20),
+            title: const Text('Go to Downloads',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-            subtitle: const Text(
-                'Storage limit, mobile-data switch, remove downloads.',
+            subtitle: const Text('Play and manage what is on this phone.',
                 style: TextStyle(fontSize: 11)),
             onTap: () {
               Navigator.pop(sheetCtx);
               Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => const MezmurDownloadsScreen()));
+            },
+          ),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.settings_outlined, size: 20),
+            title: const Text('Download settings',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            subtitle: const Text(
+                'Storage limit, mobile data, pause the queue.',
+                style: TextStyle(fontSize: 11)),
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const MezmurDownloadSettingsScreen()));
             },
           ),
           const SizedBox(height: 8),

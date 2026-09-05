@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
 
 import '../../services/local_db.dart';
-import '../../services/mezmur_audio_player.dart';
 import '../../services/mezmur_download_manager.dart';
+import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
+import 'mezmur_download_settings.dart';
+import 'mezmur_player_screen.dart';
 
-/// P33 — "Downloads": the storage screen Spotify puts under Settings.
+/// P33b — "Downloads": a clean audio library of what plays offline.
 ///
-/// Answers the three questions a user on a metered Ethio Telecom bundle
-/// actually has: what is on my phone, how much space is it using, and
-/// how do I stop it eating my data.
+/// Deliberately shaped like the Hymn Library list, not like a settings
+/// page: same card rows, same tap-to-play gesture, same player. All
+/// policy controls (storage cap, mobile data, remove-all) moved to
+/// [MezmurDownloadSettingsScreen] behind the gear button, so this screen
+/// is purely content.
+///
+/// Tapping a row opens the full player with **the whole downloaded list
+/// as its queue**, so next/previous walk your offline collection exactly
+/// the way they walk a category in the library.
 class MezmurDownloadsScreen extends StatefulWidget {
   const MezmurDownloadsScreen({super.key});
 
@@ -21,7 +29,9 @@ class MezmurDownloadsScreen extends StatefulWidget {
 class _MezmurDownloadsScreenState extends State<MezmurDownloadsScreen> {
   final _dl = MezmurDownloadManager.instance;
   final _db = LocalDb();
-  List<Map<String, dynamic>> _rows = const [];
+
+  List<Map<String, dynamic>> _done = const [];
+  List<Map<String, dynamic>> _pending = const [];
   bool _loading = true;
 
   @override
@@ -38,227 +48,265 @@ class _MezmurDownloadsScreenState extends State<MezmurDownloadsScreen> {
   }
 
   void _onChange() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    // A finished download moves between sections — refresh the rows so
+    // the list reflects it without the user pulling to refresh.
+    _reloadRowsSoon();
+  }
+
+  bool _reloadQueued = false;
+  Future<void> _reloadRowsSoon() async {
+    if (_reloadQueued) return;
+    _reloadQueued = true;
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    _reloadQueued = false;
+    if (mounted) await _load();
   }
 
   Future<void> _load() async {
     final rows = await _db.downloadRows();
     if (!mounted) return;
     setState(() {
-      _rows = rows;
+      _done = rows.where((r) => '${r['state']}' == 'done').toList();
+      _pending = rows.where((r) => '${r['state']}' != 'done').toList();
       _loading = false;
     });
   }
 
-  Future<void> _playRow(Map<String, dynamic> r) async {
-    final id = _int(r['hymn_id']);
-    final track = MezmurTrack(
-      hymnId: id,
-      title: '${r['title'] ?? 'መዝሙር $id'}',
-      // Proper file:// URI — the player also re-resolves the local copy,
-      // this just makes the track valid before it gets there.
-      audioUrl: Uri.file('${r['file_path'] ?? ''}').toString(),
-      audioStatus: 'ready',
-      category: r['category'] as String?,
-      durationSeconds: _int(r['audio_duration_s']) > 0
-          ? _int(r['audio_duration_s'])
-          : null,
-    );
-    await MezmurAudioPlayerController.instance
-        .openCatalog([track], startIndex: 0);
+  /// Open the real player, queued with every downloaded hymn.
+  ///
+  /// The rows are hydrated from `cached_hymns` so the player gets the
+  /// same shape the library gives it (lyrics, synced lyrics, duration,
+  /// audio_status) — a downloaded hymn must not be a second-class
+  /// citizen with a degraded now-playing screen.
+  Future<void> _play(Map<String, dynamic> row) async {
+    final tapped = _int(row['hymn_id']);
+    final hymnRows = <Map<String, dynamic>>[];
+    for (final r in _done) {
+      final id = _int(r['hymn_id']);
+      final h = await _db.getLocalHymn(id);
+      if (h != null) {
+        hymnRows.add(h);
+      } else {
+        // Library row missing (hymn deleted server-side but the file is
+        // still here): synthesise the minimum the player needs.
+        hymnRows.add({
+          'id': id,
+          'title': '${r['title'] ?? 'መዝሙር $id'}',
+          'category': r['category'],
+          'audio_status': 'ready',
+          'audio_duration_s': r['audio_duration_s'],
+        });
+      }
+    }
+    if (!mounted || hymnRows.isEmpty) return;
+    await MezmurPlayerScreen.openFromRows(context,
+        rows: hymnRows, hymnId: tapped);
+    if (mounted) await _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final done = _rows.where((r) => '${r['state']}' == 'done').toList();
-    final pending = _rows.where((r) => '${r['state']}' != 'done').toList();
-
     return Scaffold(
+      backgroundColor: AppTheme.bgLight,
       appBar: AppBar(
         title: const Text('Downloads'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
         actions: [
-          if (done.isNotEmpty)
-            IconButton(
-              tooltip: 'Remove all downloads',
-              icon: const Icon(Icons.delete_sweep_outlined),
-              onPressed: _confirmRemoveAll,
-            ),
+          IconButton(
+            tooltip: 'Download settings',
+            icon: const Icon(Icons.settings_outlined, size: 21),
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const MezmurDownloadSettingsScreen()));
+              if (mounted) await _load();
+            },
+          ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                children: [
-                  _storageCard(),
-                  const SizedBox(height: 14),
-                  _settingsCard(),
-                  if (pending.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _sectionTitle('In progress', pending.length),
-                    ...pending.map(_pendingTile),
-                  ],
-                  const SizedBox(height: 18),
-                  _sectionTitle('On this phone', done.length),
-                  if (done.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 24),
-                      child: EmptyState(
+              child: (_done.isEmpty && _pending.isEmpty)
+                  ? ListView(children: const [
+                      SizedBox(height: 70),
+                      EmptyState(
                         icon: Icons.download_outlined,
                         title: 'No downloads yet',
                         subtitle:
                             'Tap the download arrow on any hymn to keep it on '
-                            'your phone. Downloaded hymns play with no internet.',
+                            'your phone. Downloaded hymns play with no '
+                            'internet — useful for church, travel and areas '
+                            'with weak signal.',
                       ),
-                    )
-                  else
-                    ...done.map(_doneTile),
-                ],
-              ),
+                    ])
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 96),
+                      cacheExtent: kListCacheExtent,
+                      itemCount: _headerCount + _done.length,
+                      itemBuilder: (context, i) {
+                        if (i < _headerCount) return _buildHeader(i);
+                        return _hymnTile(_done[i - _headerCount]);
+                      },
+                    ),
             ),
     );
   }
 
-  Widget _sectionTitle(String label, int n) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text('$label · $n',
+  /// Summary strip + (optionally) the in-progress block, above the list.
+  int get _headerCount => _pending.isEmpty ? 1 : 2;
+
+  Widget _buildHeader(int i) {
+    if (i == 0) return _summaryStrip();
+    return _inProgressBlock();
+  }
+
+  Widget _summaryStrip() {
+    final status = _dl.queueStatus;
+    final warn = status == 'waiting-wifi' || status == 'no-network';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.download_done_rounded,
+              size: 15, color: AppTheme.success),
+          const SizedBox(width: 6),
+          Text(
+            '${_done.length} hymn${_done.length == 1 ? '' : 's'} · '
+            '${MezmurDownloadManager.formatBytes(_dl.bytesOnDisk)}',
             style: const TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.4,
-                color: AppTheme.textSecondary)),
-      );
-
-  Widget _storageCard() {
-    final used = _dl.bytesOnDisk;
-    final cap = _dl.capMb * 1024 * 1024;
-    final frac = cap > 0 ? (used / cap).clamp(0.0, 1.0) : 0.0;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.sd_storage_outlined,
-                size: 18, color: AppTheme.primary),
-            const SizedBox(width: 8),
-            Text('${MezmurDownloadManager.formatBytes(used)} used',
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w700)),
-            const Spacer(),
-            Text('${_dl.downloadedCount} hymns',
-                style: const TextStyle(
-                    fontSize: 11.5, color: AppTheme.textSecondary)),
-          ]),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: cap > 0 ? frac : null,
-              minHeight: 6,
-              backgroundColor: AppTheme.borderLight,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                  frac > 0.9 ? AppTheme.warning : AppTheme.success),
-            ),
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textSecondary),
           ),
-          const SizedBox(height: 6),
-          Text(
-            _dl.capMb == 0
-                ? 'No storage limit set'
-                : 'Limit ${_dl.capMb >= 1024 ? '${(_dl.capMb / 1024).toStringAsFixed(_dl.capMb % 1024 == 0 ? 0 : 1)} GB' : '${_dl.capMb} MB'}'
-                    ' · least-played automatic downloads are removed first',
-            style: const TextStyle(
-                fontSize: 10.5, color: AppTheme.textSecondary),
-          ),
-          if (_dl.waitingForWifi || _dl.waitingForNetwork) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppTheme.warning.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(children: [
-                const Icon(Icons.info_outline,
-                    size: 14, color: AppTheme.warning),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    _dl.waitingForNetwork
-                        ? '${_dl.queuedCount} waiting for a network connection.'
-                        : '${_dl.queuedCount} waiting for Wi‑Fi. Turn on '
-                            '"Download over mobile data" to continue now.',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ),
-              ]),
-            ),
-          ],
         ]),
-      ),
-    );
-  }
-
-  Widget _settingsCard() {
-    return Card(
-      child: Column(children: [
-        SwitchListTile(
-          dense: true,
-          value: !_dl.wifiOnly,
-          onChanged: (v) => _dl.setWifiOnly(!v),
-          title: const Text('Download over mobile data',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          subtitle: const Text(
-              'Off = downloads only start on Wi‑Fi. Recommended.',
-              style: TextStyle(fontSize: 11)),
-        ),
-        const Divider(height: 1),
-        ListTile(
-          dense: true,
-          title: const Text('Storage limit',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          subtitle: const Text(
-              'When exceeded, the least-played automatic downloads go first. '
-              'Hymns you downloaded yourself are always kept.',
-              style: TextStyle(fontSize: 11)),
-          trailing: DropdownButton<int>(
-            value: _dl.capMb,
-            underline: const SizedBox.shrink(),
-            style: const TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
-            items: const [
-              DropdownMenuItem(value: 512, child: Text('512 MB')),
-              DropdownMenuItem(value: 1024, child: Text('1 GB')),
-              DropdownMenuItem(value: 2048, child: Text('2 GB')),
-              DropdownMenuItem(value: 5120, child: Text('5 GB')),
-              DropdownMenuItem(value: 0, child: Text('No limit')),
-            ],
-            onChanged: (v) => v == null ? null : _dl.setCapMb(v),
-          ),
-        ),
-        if (_dl.queuedCount > 0) ...[
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        if (warn) ...[
+          const SizedBox(height: 9),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppTheme.warning.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: Row(children: [
+              const Icon(Icons.info_outline, size: 14, color: AppTheme.warning),
+              const SizedBox(width: 8),
               Expanded(
-                child: Text('${_dl.queuedCount} in the queue',
-                    style: const TextStyle(fontSize: 12)),
+                child: Text(
+                  status == 'no-network'
+                      ? '${_dl.queuedCount} waiting for a network connection.'
+                      : '${_dl.queuedCount} waiting for Wi‑Fi.',
+                  style: const TextStyle(fontSize: 11.2),
+                ),
               ),
-              TextButton.icon(
-                onPressed: _dl.pauseAll,
-                icon: const Icon(Icons.pause, size: 15),
-                label: const Text('Pause', style: TextStyle(fontSize: 12)),
-              ),
-              TextButton.icon(
-                onPressed: _dl.resumeAll,
-                icon: const Icon(Icons.play_arrow, size: 15),
-                label: const Text('Resume', style: TextStyle(fontSize: 12)),
-              ),
+              if (status == 'waiting-wifi')
+                TextButton(
+                  onPressed: () => _dl.setWifiOnly(false),
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: const Size(0, 30)),
+                  child: const Text('Use data',
+                      style: TextStyle(fontSize: 11.5)),
+                ),
             ]),
           ),
         ],
       ]),
+    );
+  }
+
+  Widget _inProgressBlock() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 7, top: 2),
+        child: Text('DOWNLOADING · ${_pending.length}',
+            style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
+                color: AppTheme.textSecondary)),
+      ),
+      ..._pending.map(_pendingTile),
+      const Padding(
+        padding: EdgeInsets.only(top: 10, bottom: 7),
+        child: Text('ON THIS PHONE',
+            style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
+                color: AppTheme.textSecondary)),
+      ),
+    ]);
+  }
+
+  /// A downloaded hymn — same visual language as the Hymn Library row.
+  Widget _hymnTile(Map<String, dynamic> r) {
+    final id = _int(r['hymn_id']);
+    final secs = _int(r['audio_duration_s']);
+    final meta = <String>[
+      if ('${r['category'] ?? ''}'.isNotEmpty) '${r['category']}',
+      if (secs > 0) _duration(secs),
+      MezmurDownloadManager.formatBytes(_int(r['bytes_done'])),
+    ].join(' · ');
+
+    return RepaintBoundaryListItem(
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          onTap: () => _play(r),
+          leading: CircleAvatar(
+            backgroundColor: AppTheme.primary.withOpacity(0.1),
+            child: const Icon(Icons.music_note,
+                size: 18, color: AppTheme.primary),
+          ),
+          title: Text('${r['title'] ?? 'መዝሙር $id'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 13.5, fontWeight: FontWeight.w600)),
+          subtitle: Row(children: [
+            const Icon(Icons.download_done_rounded,
+                size: 11, color: AppTheme.success),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 11, color: AppTheme.textSecondary)),
+            ),
+          ]),
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 18),
+            onSelected: (v) async {
+              if (v == 'play') await _play(r);
+              if (v == 'remove') await _confirmRemove(r);
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                  value: 'play',
+                  height: 36,
+                  child: Row(children: [
+                    Icon(Icons.play_arrow_rounded, size: 16),
+                    SizedBox(width: 8),
+                    Text('Play', style: TextStyle(fontSize: 12.5)),
+                  ])),
+              PopupMenuItem(
+                  value: 'remove',
+                  height: 36,
+                  child: Row(children: [
+                    Icon(Icons.delete_outline, size: 16),
+                    SizedBox(width: 8),
+                    Text('Remove download',
+                        style: TextStyle(fontSize: 12.5)),
+                  ])),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -268,34 +316,39 @@ class _MezmurDownloadsScreenState extends State<MezmurDownloadsScreen> {
     final pr = _dl.progressOf(id);
     final failed = state == 'failed';
     return Card(
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        dense: true,
         leading: SizedBox(
-          width: 26,
-          height: 26,
+          width: 34,
+          height: 34,
           child: failed
               ? const Icon(Icons.error_outline,
                   color: AppTheme.warning, size: 22)
-              : CircularProgressIndicator(
-                  value: state == 'downloading' && pr > 0 ? pr : null,
-                  strokeWidth: 2.5,
-                  valueColor:
-                      const AlwaysStoppedAnimation<Color>(AppTheme.success),
-                  backgroundColor: AppTheme.borderLight,
-                ),
+              : Stack(alignment: Alignment.center, children: [
+                  CircularProgressIndicator(
+                    value: state == 'downloading' && pr > 0 ? pr : null,
+                    strokeWidth: 2.5,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppTheme.success),
+                    backgroundColor: AppTheme.borderLight,
+                  ),
+                  if (state == 'downloading' && pr > 0)
+                    Text('${(pr * 100).round()}',
+                        style: const TextStyle(
+                            fontSize: 8.5, fontWeight: FontWeight.w700)),
+                ]),
         ),
         title: Text('${r['title'] ?? 'መዝሙር $id'}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            style:
+                const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
         subtitle: Text(
           failed
-              ? '${r['error'] ?? 'Download failed'} · tap retry'
-              : (state == 'downloading'
-                  ? '${(pr * 100).round()}% · '
-                      '${MezmurDownloadManager.formatBytes(_int(r['bytes_total']))}'
-                  : _queueLabel(state)),
+              ? '${r['error'] ?? 'Download failed'}'
+              : _pendingLabel(state, r),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
               fontSize: 11,
               color: failed ? AppTheme.warning : AppTheme.textSecondary),
@@ -303,13 +356,13 @@ class _MezmurDownloadsScreenState extends State<MezmurDownloadsScreen> {
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           if (failed)
             IconButton(
-              icon: const Icon(Icons.refresh, size: 18),
+              icon: const Icon(Icons.refresh_rounded, size: 19),
               tooltip: 'Retry',
               onPressed: () => _dl.retry(id),
             ),
           IconButton(
-            icon: const Icon(Icons.close, size: 18),
-            tooltip: 'Cancel',
+            icon: const Icon(Icons.close_rounded, size: 19),
+            tooltip: 'Cancel download',
             onPressed: () async {
               await _dl.remove(id);
               await _load();
@@ -320,71 +373,51 @@ class _MezmurDownloadsScreenState extends State<MezmurDownloadsScreen> {
     );
   }
 
-  Widget _doneTile(Map<String, dynamic> r) {
-    final id = _int(r['hymn_id']);
-    final auto = '${r['source']}' == 'auto';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        dense: true,
-        onTap: () => _playRow(r),
-        leading: Container(
-          width: 26,
-          height: 26,
-          decoration: const BoxDecoration(
-              color: AppTheme.success, shape: BoxShape.circle),
-          child: const Icon(Icons.check, size: 16, color: Colors.white),
-        ),
-        title: Text('${r['title'] ?? 'መዝሙር $id'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-        subtitle: Text(
-          '${MezmurDownloadManager.formatBytes(_int(r['bytes_done']))}'
-          '${r['category'] != null ? ' · ${r['category']}' : ''}'
-          '${auto ? ' · auto' : ''}',
-          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, size: 18),
-          tooltip: 'Remove download',
-          onPressed: () async {
-            await _dl.remove(id);
-            await _load();
-          },
-        ),
-      ),
-    );
-  }
-
-  String _queueLabel(String state) {
+  String _pendingLabel(String state, Map<String, dynamic> r) {
     if (state == 'paused') return 'Paused';
-    if (_dl.waitingForNetwork) return 'Waiting for network';
-    if (_dl.waitingForWifi) return 'Waiting for Wi‑Fi';
-    return 'Queued';
+    if (state == 'downloading') {
+      final total = _int(r['bytes_total']);
+      return total > 0
+          ? 'Downloading · ${MezmurDownloadManager.formatBytes(total)}'
+          : 'Downloading…';
+    }
+    switch (_dl.queueStatus) {
+      case 'no-network':
+        return 'Waiting for network';
+      case 'waiting-wifi':
+        return 'Waiting for Wi‑Fi';
+      default:
+        return 'Queued';
+    }
   }
 
-  Future<void> _confirmRemoveAll() async {
+  Future<void> _confirmRemove(Map<String, dynamic> r) async {
+    final id = _int(r['hymn_id']);
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Remove all downloads?'),
-        content: Text(
-            'This frees ${MezmurDownloadManager.formatBytes(_dl.bytesOnDisk)}. '
-            'The hymn library stays — only the offline audio is deleted.'),
+        title: const Text('Remove download?'),
+        content: Text('"${r['title'] ?? 'This hymn'}" will no longer play '
+            'without internet. It stays in the hymn library.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(c, false),
-              child: const Text('Cancel')),
+              child: const Text('Keep')),
           TextButton(
               onPressed: () => Navigator.pop(c, true),
-              child: const Text('Remove all')),
+              child: const Text('Remove')),
         ],
       ),
     );
     if (ok != true) return;
-    await _dl.removeAll();
+    await _dl.remove(id);
     await _load();
+  }
+
+  static String _duration(int s) {
+    final m = s ~/ 60;
+    final r = s % 60;
+    return '$m:${r.toString().padLeft(2, '0')}';
   }
 
   static int _int(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}') ?? 0;

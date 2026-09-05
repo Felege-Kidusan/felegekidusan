@@ -112,10 +112,27 @@ re-download forever.
 | Surface | Control |
 |---|---|
 | Hymn list row | download arrow → ring → green check; `OFFLINE` badge |
-| Hymn library app bar | ⤓ sheet: "Download these N hymns" (respects the current search/filters) + link to storage |
+| Hymn library app bar | ⤓ sheet: "Download these N hymns" (respects the current search/filters) + links to Downloads and Settings |
 | Now-playing header | parchment download chip for the current hymn |
 | Mezmur home | **Downloads** tile |
-| Downloads screen | usage bar, mobile-data switch, storage limit, pause/resume, per-item remove, remove-all |
+| **Downloads** screen | a clean audio list — tap any row to open the full player |
+| **Download settings** (gear in Downloads) | storage meter, mobile-data switch, storage limit, queue pause/resume, remove-all |
+
+### Downloads vs. Download settings
+
+The two are deliberately separate, the same way Spotify separates its
+downloaded-content list from Settings → Storage:
+
+* **Downloads** is *content*. It reuses the Hymn Library's row design, so
+  a downloaded hymn looks and behaves like any other hymn. Tapping a row
+  calls `MezmurPlayerScreen.openFromRows` with **every downloaded hymn as
+  the queue**, so next/previous walk the offline collection just like
+  they walk a category. Rows are hydrated from `cached_hymns`, so the
+  now-playing screen gets full metadata (lyrics, synced lyrics, duration)
+  — a downloaded hymn is never a second-class citizen with a degraded
+  player. In-progress downloads sit in a small block above the list.
+* **Download settings** is *policy*. Nothing in it is content, so it does
+  not belong in a media list.
 
 ## 8. Server side
 
