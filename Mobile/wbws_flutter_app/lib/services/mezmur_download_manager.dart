@@ -413,23 +413,28 @@ class MezmurDownloadManager extends ChangeNotifier {
       }
 
       final total = have + (resp.contentLength > 0 ? resp.contentLength : 0);
-      sink = partFile.openWrite(
-          mode: have > 0 ? FileMode.append : FileMode.write);
+      // `writer` is non-nullable so it can be used directly; `sink` is only
+      // a cleanup handle for the catch block. Writing through a nullable
+      // local instead would not type-check — Dart cannot promote a local
+      // that is reassigned to null inside the loop.
+      final writer =
+          partFile.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
+      sink = writer;
 
       var done = have;
       var lastTick = 0;
       await for (final chunk in resp) {
         if (_cancelled.contains(hymnId)) {
-          await sink.flush();
-          await sink.close();
-          sink = null;
+          await writer.flush();
+          await writer.close();
+          sink = null; // already closed — keep the catch from double-closing
           _states[hymnId] = 'paused';
           await _db.markDownloadState(hymnId, 'paused',
               bytesDone: done, bytesTotal: total);
           notifyListeners();
           return;
         }
-        sink.add(chunk);
+        writer.add(chunk);
         done += chunk.length;
         _progress[hymnId] = total > 0 ? (done / total).clamp(0.0, 1.0) : 0;
         // Throttle UI + DB writes to ~every 256 KB.
@@ -439,8 +444,8 @@ class MezmurDownloadManager extends ChangeNotifier {
           unawaited(_db.updateDownloadProgress(hymnId, done, total));
         }
       }
-      await sink.flush();
-      await sink.close();
+      await writer.flush();
+      await writer.close();
       sink = null;
 
       // 3. Integrity: a truncated body must never be promoted.
