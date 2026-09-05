@@ -100,6 +100,17 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     return h;
   }
 
+  /// Sung (active) line color — the darkest, most saturated ink so the line
+  /// being sung is unmistakable at a glance. It never changes font-size in
+  /// layout, only this color + weight + a scale transform, so a line cannot
+  /// re-wrap.
+  static const Color _activeInk = Parchment.inkStrong;
+
+  /// Receding lines: a warm bronze that visibly recedes against the parchment
+  /// (in high-contrast mode they fall back to the darkest ink for legibility).
+  Color get _restInk =>
+      _reader.highContrast ? Parchment.inkStrong : Parchment.bronze;
+
   Color get _lyricInk =>
       _reader.highContrast ? Parchment.inkStrong : Parchment.ink;
 
@@ -402,7 +413,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     final profile =
         reading ? LyricEmphasisProfile.reading : LyricEmphasisProfile.karaoke;
     return LayoutBuilder(builder: (context, box) {
-      final pad = box.maxHeight * 0.42;
+      // P54: the padding lets the first/last lines scroll to the centre. 0.30
+      // (was 0.42) keeps that centring while removing the big "loose" empty
+      // strip that pushed the lyrics too far down on short hymns.
+      final pad = box.maxHeight * 0.30;
       return ParchmentFade(
         child: NotificationListener<ScrollNotification>(
           onNotification: (n) {
@@ -458,16 +472,17 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                               overflow: TextOverflow.visible,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: e.isActive
-                                    ? Parchment.inkStrong
-                                    : _lyricInk,
+                                // Sung line = darkest, boldest ink; the rest
+                                // recede to a warm, lighter bronze so the
+                                // hierarchy is obvious (a real color change
+                                // AND a size change, never a font-size layout
+                                // swap, so nothing can re-wrap).
+                                color: e.isActive ? _activeInk : _restInk,
                                 fontSize: size,
                                 height: lineHeight,
-                                // Spotify-style: the sung line is bold and
-                                // bright, the rest recede. No bubble/background.
                                 fontWeight: e.isActive
                                     ? FontWeight.w800
-                                    : FontWeight.w600,
+                                    : FontWeight.w500,
                                 fontFamily: 'NotoSansEthiopic',
                               ),
                             ),

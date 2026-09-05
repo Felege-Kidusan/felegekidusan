@@ -41,14 +41,16 @@ class LyricEmphasisProfile {
     required this.minOpacity,
   });
 
-  /// Default sing-along emphasis (Spotify-like: the current line is bold and
-  /// bright, the rest recede). Scale shrinks only gently (~2.5%/line down to
-  /// 90%) so lines never look cramped; the fade does the "recede" work.
+  /// Default sing-along emphasis (Spotify-like): the current line is bold,
+  /// bright and full-size; the rest recede with distance. The size drop is
+  /// clear (nearest neighbour ~14% smaller, settling ~82%) so the sung line
+  /// always reads as the biggest, and the fade does the depth. Far lines stay
+  /// readable (never below 42% ink) so surrounding lyrics remain legible.
   static const LyricEmphasisProfile karaoke = LyricEmphasisProfile(
-    scaleStep: 0.025,
+    scaleStep: 0.14,
     opacityStep: 0.15,
-    minScale: 0.90,
-    minOpacity: 0.30,
+    minScale: 0.82,
+    minOpacity: 0.42,
   );
 
   /// "Lyrics only" reading mode — full size, gentle fade, no shrink.

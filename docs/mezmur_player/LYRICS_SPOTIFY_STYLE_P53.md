@@ -45,17 +45,21 @@ rendering, not by a box:
 
 | Element | Sung line | Other lines |
 |---|---|---|
-| Color | darkest ink (`inkStrong`) | `ink` (or `inkStrong` in high-contrast) |
-| Weight | **bold** (`w800`) | `w600` |
-| Opacity | 1.0 | recedes with distance (down to 0.30) |
-| Scale | 1.0 | gentle 0.975 → 0.90 with distance |
+| Color | darkest ink (`inkStrong`) — hard, saturated highlight | warm **bronze** that visibly recedes (`inkStrong` in high-contrast mode) |
+| Weight | **bold** (`w800`) | `w500` |
+| Opacity | 1.0 | recedes with distance (down to 0.42) |
+| Scale | 1.0 | 0.86 at the nearest line, settling at 0.82 |
 
 This is still the pure distance rule (`LyricEmphasis`) and still never changes
 font *size* in layout (only a scale transform), so nothing reflows onto an extra
 row. The emphasis is animated with implicit `AnimatedOpacity` + `AnimatedScale`
 behind a `RepaintBoundary`, and `MediaQuery.disableAnimations` is honoured.
-The karaoke falloff was softened (scale step 2.5%, floor 90%; fade does the
-"recede" work) so it reads as a subtle, non-cramped, Spotify-like hierarchy.
+
+> Tuning (P54): the first pass was too subtle (scale step 2.5%, uniform dark
+> ink, identical weight). The active line is now unmistakable — **biggest, bold,
+> darkest** — while the rest recede to bronze and shrink to ~82% and fade to
+> ~42%. The leading padding was also reduced `0.42 → 0.30` so a short hymn no
+> longer floats with a big empty strip at the top.
 
 ---
 
