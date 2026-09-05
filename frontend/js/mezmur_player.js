@@ -142,6 +142,32 @@
         dock.classList.remove('is-hidden');
         document.body.classList.add('mz-playing');
     }
+
+    /**
+     * P42: dismiss the dock — stop audio, hide the bar, release the
+     * reserved space.
+     *
+     * `mz-playing` was previously added and NEVER removed, so the
+     * content kept its bottom padding for the rest of the session even
+     * with nothing playing, and there was no way to get the dock off
+     * the screen at all.
+     */
+    function closeDock() {
+        try {
+            if (engine) { engine.pause(); engine.currentTime = 0; }
+        } catch (e) { /* engine may not exist yet */ }
+        var dock = $('mzPlayer');
+        if (dock) {
+            dock.hidden = true;
+            dock.classList.add('is-hidden');
+        }
+        setPanel('');
+        document.body.classList.remove('mz-playing');
+        // Return focus somewhere sensible instead of leaving it on a
+        // now-hidden button (keyboard users would lose their place).
+        var search = document.getElementById('mzSearch');
+        if (search) { try { search.focus({ preventScroll: true }); } catch (e) { search.focus(); } }
+    }
     function setPanel(which) {
         var np = $('mzNowPlaying');
         if (!np) return;
@@ -632,6 +658,9 @@
             prefSet(PREF_MUTE, engine.muted ? '1' : '0');
             paintMute();
         });
+        // P42: dismiss the dock (stops audio, frees the reserved space).
+        click('mzPClose', closeDock);
+
 
         var seek = $('mzPSeek');
         if (seek) {
@@ -682,7 +711,14 @@
     function onKey(e) {
         if (inField(e.target)) return;
         if (e.key === 'Escape') {
-            if (state.panel) { setPanel(''); e.stopPropagation(); e.preventDefault(); }
+            // P42: layered dismiss — the panel first, then the dock.
+            // Extends the EXISTING handler rather than adding a second
+            // listener, which would have fired twice and closed both at
+            // once. inField() above already protects typing.
+            if (state.panel) { setPanel(''); e.stopPropagation(); e.preventDefault(); return; }
+            if (document.body.classList.contains('mz-playing')) {
+                closeDock(); e.stopPropagation(); e.preventDefault();
+            }
             return;
         }
         if (e.altKey || e.metaKey || e.ctrlKey) return;

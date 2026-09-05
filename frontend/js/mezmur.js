@@ -481,18 +481,87 @@
         lib.lastItems = d.items || [];
         renderHymnRows(d.items || []);
         renderLibPagination();
+        announceResults();
     }
 
     /** Escape then wrap the user's search tokens in <mark>. */
+    /** P42: tell screen readers what the search produced.
+     *
+     * The table repainted silently, so a non-sighted user had no way to
+     * know whether a query matched anything — the only feedback was
+     * visual. role="status" + aria-live="polite" waits for a pause in
+     * speech, so it informs without interrupting typing. */
+    function announceResults() {
+        var el = $('mzSearchStatus');
+        if (!el) return;
+        var n = lib.total || 0;
+        var msg;
+        if (!lib.search) {
+            msg = n + ' hymn' + (n === 1 ? '' : 's') + ' listed.';
+        } else if (n === 0) {
+            msg = 'No hymns match “' + lib.search + '”.';
+        } else {
+            msg = n + ' hymn' + (n === 1 ? '' : 's') + ' match “' + lib.search + '”.';
+        }
+        // Only speak on change, or the same string is re-announced on
+        // every keystroke.
+        if (el.textContent !== msg) el.textContent = msg;
+    }
+
+    /** P42: fold Amharic homophones exactly like the server's
+     *  foldAmharic(), so the letters the server MATCHED are the letters
+     *  we highlight. Without this the server returns a ፀሐይ row for a
+     *  ጸሀይ query and the row renders with nothing marked, which reads
+     *  as "why is this here?". Length-preserving: one syllable maps to
+     *  one, so offsets into the original string stay valid. */
+    var MZ_FOLD = (function () {
+        var fams = [
+            ['ሀሁሂሃሄህሆ', ['ሐሑሒሓሔሕሖ', 'ኀኁኂኃኄኅኆ']],
+            ['ሰሱሲሳሴስሶ', ['ሠሡሢሣሤሥሦ']],
+            ['ጸጹጺጻጼጽጾ', ['ፀፁፂፃፄፅፆ']],
+            ['አኡኢኣኤእኦ', ['ዐዑዒዓዔዕዖ']]
+        ];
+        var m = {};
+        fams.forEach(function (f) {
+            var canon = Array.from(f[0]);
+            f[1].forEach(function (variant) {
+                Array.from(variant).forEach(function (ch, i) {
+                    if (canon[i]) m[ch] = canon[i];
+                });
+            });
+        });
+        return function (s) {
+            var out = '';
+            for (var i = 0; i < s.length; i++) {
+                var c = s.charAt(i);
+                out += (m[c] || c);
+            }
+            return out;
+        };
+    })();
+
+    /** Escape then wrap the user's search tokens in <mark>. */
     function hi(text) {
-        var out = esc(text == null ? '' : text);
-        if (!lib.search) return out;
+        var raw = text == null ? '' : String(text);
+        if (!lib.search) return esc(raw);
         var toks = lib.search.split(/\s+/).filter(function (t) { return t.length >= 2; });
-        if (!toks.length) return out;
+        if (!toks.length) return esc(raw);
+
+        // Match against the FOLDED text, then slice the ORIGINAL so the
+        // user still sees the real spelling inside <mark>.
+        var folded = MZ_FOLD(raw.toLowerCase());
         var re = new RegExp('(' + toks.map(function (t) {
-            return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }).join('|') + ')', 'gi');
-        return out.replace(re, '<mark>$1</mark>');
+            return MZ_FOLD(t.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }).join('|') + ')', 'g');
+
+        var out = '', last = 0, m;
+        while ((m = re.exec(folded)) !== null) {
+            if (m[0] === '') { re.lastIndex++; continue; }
+            out += esc(raw.slice(last, m.index))
+                + '<mark>' + esc(raw.slice(m.index, m.index + m[0].length)) + '</mark>';
+            last = m.index + m[0].length;
+        }
+        return out + esc(raw.slice(last));
     }
 
     /** MZ-15: render every category the hymn carries (server attaches the
@@ -2433,8 +2502,19 @@
             var v = this.value;
             debounce = setTimeout(function () {
                 var t = v.trim();
-                if (t.length === 1) return; // P22: wait for the 2nd character
-                lib.search = t; lib.page = 1; loadList();
+                // P42: the old rule was `if (t.length === 1) return;`,
+                // which ABANDONED the reload. Typing one character (or
+                // deleting back to one) left the previous result list
+                // frozen on screen with no indication it was stale — the
+                // list said one thing, the search box another.
+                //
+                // The server still ignores 1-char queries (an unindexed
+                // '%x%' scan over every hymn), so we do not send one.
+                // Instead we treat it as "no filter yet" and show the
+                // unfiltered list, which is honest and self-consistent.
+                lib.search = (t.length === 1) ? '' : t;
+                lib.page = 1;
+                loadList();
             }, 160);
         });
         $('mzCategoryFilter').addEventListener('change', function () {

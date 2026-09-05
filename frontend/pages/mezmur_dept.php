@@ -240,8 +240,15 @@ ob_start();
                     <div class="toolbar toolbar-compact">
                         <div class="search-wrap">
                             <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                            <input id="mzSearch" class="school-input" type="search" placeholder="Search by title or lyrics…" autocomplete="off" aria-label="Search hymns">
+                            <input id="mzSearch" class="school-input" type="search" placeholder="Search by title or lyrics…" autocomplete="off" aria-label="Search hymns"
+                                   role="searchbox" aria-controls="mzTbody" aria-describedby="mzSearchStatus">
                         </div>
+                        <!-- P42: results changed silently for screen-reader
+                             users — the table repainted with no announcement,
+                             so there was no way to know whether a query had
+                             matched anything. Other sections of this page
+                             already use aria-live; the hymn list did not. -->
+                        <p id="mzSearchStatus" class="sr-only" role="status" aria-live="polite"></p>
                         <select id="mzCategoryFilter" class="school-input" aria-label="Filter by category">
                             <option value="">All categories</option>
                         </select>
@@ -840,6 +847,11 @@ ob_start();
         <button type="button" id="mzPRate" class="mz-p-rate" title="Playback speed" aria-label="Playback speed">1×</button>
         <button type="button" id="mzPMute" title="Mute" aria-pressed="false" aria-label="Mute"><i class="fa-solid fa-volume-high"></i></button>
         <input type="range" id="mzPVol" min="0" max="100" value="100" aria-label="Volume">
+        <!-- P42: the dock had NO way to dismiss it. Once opened it
+             covered the bottom of every page for the rest of the
+             session, with no affordance to close. Mirrors the mobile
+             app, where X stops audio and hides the bar. -->
+        <button type="button" id="mzPClose" title="Close player" aria-label="Stop and close player"><i class="fa-solid fa-xmark"></i></button>
     </div>
 </div>
 

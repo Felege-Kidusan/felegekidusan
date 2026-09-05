@@ -431,11 +431,84 @@ final class MezmurHymnService
         return self::$hasWordsTable;
     }
 
+    /**
+     * P42: fold Amharic homophones so ጸ/ፀ, ሀ/ሐ/ኀ, አ/ዐ, ሠ/ሰ match each
+     * other — the web had NO normalisation, so a hymn stored with ፀ was
+     * unfindable by anyone typing ጸ. These letters are pronounced
+     * identically and users type whichever they learned; treating them
+     * as distinct is the single biggest cause of "it is there but the
+     * search says no".
+     *
+     * Mirrors lib/services/amharic_text.dart in the app so the phone and
+     * the dashboard agree on what matches. Length-preserving by design:
+     * one Ethiopic syllable maps to exactly one, so character offsets
+     * into the ORIGINAL string stay valid for highlighting.
+     */
+    public static function foldAmharic(string $text): string
+    {
+        static $map = null;
+        if ($map === null) {
+            $map = [];
+            // Each group: every form folds to the first member. The
+            // seventh-order vowels line up index-for-index.
+            // Ethiopic syllables are (consonant, vowel-order) pairs. Fold
+            // the homophonous CONSONANT families onto one representative
+            // while keeping the vowel order intact, so ፀ→ጸ, ሐ/ኀ→ሀ,
+            // ሠ→ሰ, ዐ→አ across all seven orders.
+            //
+            // Every family below MUST list its orders in the same vowel
+            // sequence; the fold is index-for-index. Getting this wrong
+            // makes folding non-convergent (an earlier draft mapped
+            // ሀ→ሃ while ሐ→ሀ, so ፀሐይ and ጸሀይ produced DIFFERENT keys and
+            // still failed to match).
+            $families = [
+                // ሀ-family: ሀ ሁ ሂ ሃ ሄ ህ ሆ  ← ሐ… and ኀ… fold onto it
+                ['ሀሁሂሃሄህሆ', ['ሐሑሒሓሔሕሖ', 'ኀኁኂኃኄኅኆ']],
+                // ሰ-family ← ሠ…
+                ['ሰሱሲሳሴስሶ', ['ሠሡሢሣሤሥሦ']],
+                // ጸ-family ← ፀ…
+                ['ጸጹጺጻጼጽጾ', ['ፀፁፂፃፄፅፆ']],
+                // አ-family ← ዐ…
+                ['አኡኢኣኤእኦ', ['ዐዑዒዓዔዕዖ']],
+            ];
+            foreach ($families as [$canon, $variants]) {
+                $canonChars = preg_split('//u', $canon, -1, PREG_SPLIT_NO_EMPTY);
+                foreach ($variants as $variant) {
+                    $varChars = preg_split('//u', $variant, -1, PREG_SPLIT_NO_EMPTY);
+                    foreach ($varChars as $i => $ch) {
+                        if (isset($canonChars[$i])) {
+                            $map[$ch] = $canonChars[$i];
+                        }
+                    }
+                }
+            }
+            // ኣ and ኧ are written variants of አ's 4th order.
+            $map['ኣ'] = 'ኣ';
+            $groups = [];
+            foreach ($groups as [$from, $to]) {
+                $map[$from] = $to;
+            }
+        }
+        return strtr($text, $map);
+    }
+
+    /**
+     * P42: the search key for a word — lowercased and homophone-folded.
+     * Both the index writer and the query path must use this, or they
+     * disagree about what is stored.
+     */
+    public static function searchKey(string $text): string
+    {
+        return self::foldAmharic(mb_strtolower($text, 'UTF-8'));
+    }
+
     /** Lowercased unicode words (letters + digits) — works for any script. */
     public static function tokenizeWords(string $text): array
     {
         $words = [];
-        foreach (preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($text, 'UTF-8')) ?: [] as $w) {
+        // P42: fold BEFORE splitting so the stored key and the query key
+        // are produced by the same function.
+        foreach (preg_split('/[^\p{L}\p{N}]+/u', self::searchKey($text)) ?: [] as $w) {
             $len = mb_strlen($w, 'UTF-8');
             if ($len < self::WORD_MIN_CHARS || $len > 30 || strlen($w) > self::WORD_MAX_BYTES) {
                 continue;
@@ -500,9 +573,23 @@ final class MezmurHymnService
         }
         $ids = [];
         foreach (self::tokenizeWords(mb_substr($search, 0, 100)) as $tok) {
-            $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $tok) . '%';
+            // P42: SUBSTRING, not prefix. Amharic takes grammatical
+            // prefixes (በ- ለ- የ- ከ-), so the root a user types sits in
+            // the MIDDLE of the stored word: stored በሰላም, typed ሰላም.
+            // The old 'word LIKE tok%' could never return that row —
+            // yet searchScore() scores it 70. Retrieval and scoring
+            // disagreed, so the row was silently lost before it could
+            // ever be ranked. That is the "it says no match but there
+            // is" bug, and it hit English (hallelujah / lelu) too.
+            //
+            // '%tok%' cannot use the B-tree index, so the query is
+            // bounded by WORD_CANDIDATE_CAP and the word table is small
+            // (distinct words, not rows). Correctness first: a fast
+            // wrong answer is still wrong.
+            $esc  = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $tok);
+            $like = '%' . $esc . '%';
             $stmt = $conn->prepare(
-                'SELECT DISTINCT hymn_id FROM mezmur_hymn_words WHERE word = ? OR word LIKE ? LIMIT ' . self::WORD_CANDIDATE_CAP
+                'SELECT DISTINCT hymn_id FROM mezmur_hymn_words WHERE word = ? OR word LIKE ? ESCAPE \'\\\\\' LIMIT ' . self::WORD_CANDIDATE_CAP
             );
             $stmt->bind_param('ss', $tok, $like);
             $stmt->execute();
@@ -972,12 +1059,13 @@ final class MezmurHymnService
      */
     public static function searchScore(string $query, ?string $title, ?string $lyrics = null): float
     {
-        $query = mb_strtolower(trim($query));
+        // P42: fold homophones on BOTH sides so ጸ/ፀ, ሀ/ሐ/ኀ and አ/ዐ match.
+        $query = self::searchKey(trim($query));
         if ($query === '') return 0.0;
         $terms = array_values(array_filter(preg_split('/\s+/u', $query), static fn ($t) => $t !== ''));
         if (!$terms) return 0.0;
 
-        $haystack = mb_strtolower(trim((string)$title));
+        $haystack = self::searchKey(trim((string)$title));
 
         $score = 0.0;
         foreach ($terms as $term) {
@@ -988,7 +1076,7 @@ final class MezmurHymnService
         // term. Fuzzy matching stays TITLE-only (Levenshtein over whole
         // lyric bodies would be O(lyrics) per keystroke).
         if ($lyrics !== null && $lyrics !== '') {
-            $low = mb_strtolower($lyrics);
+            $low = self::searchKey($lyrics);
             foreach ($terms as $term) {
                 if (mb_strpos($low, $term) !== false) {
                     $score += 50.0;
@@ -1002,8 +1090,15 @@ final class MezmurHymnService
     private static function lyricSnippet(array $terms, string $lyrics): string
     {
         if ($lyrics === '') return '';
+        // P42: search the FOLDED text so a ጸ query finds a ፀ lyric, but
+        // slice the ORIGINAL so the snippet shows the real spelling.
+        // foldAmharic() is length-preserving (one syllable maps to one),
+        // so the offset found in the folded copy is valid in the source.
+        $folded = self::searchKey($lyrics);
         foreach ($terms as $t) {
-            $pos = mb_stripos($lyrics, $t);
+            $needle = self::searchKey($t);
+            if ($needle === '') continue;
+            $pos = mb_strpos($folded, $needle);
             if ($pos !== false) {
                 $start = max(0, $pos - 60);
                 return ($start > 0 ? '…' : '') . trim(mb_substr($lyrics, $start, 160)) . '…';

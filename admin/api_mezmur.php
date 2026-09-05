@@ -365,6 +365,10 @@ try {
                     $searchMode = 'like';
                     // P28: single Amharic title (title_am / reference
                     // were retired by sql/033).
+                    // P42: the fallback compares raw columns, so it
+                    // cannot fold. It stays as a safety net for rows not
+                    // yet word-indexed; the word path above is the one
+                    // that handles homophones and substrings.
                     $where[] = '(title LIKE ? ESCAPE \'\\\\\' OR lyrics LIKE ? ESCAPE \'\\\\\')';
                     $types .= 'ss';
                     $params[] = $like; $params[] = $like;
@@ -431,8 +435,15 @@ try {
                 // snippet around the first matched token instead.
                 $snippet = '';
                 if ($search !== '' && !empty($r['lyrics'])) {
+                    // P42: match on the FOLDED lyrics so a ጸ query finds
+                    // a ፀ lyric, but slice the ORIGINAL so the snippet
+                    // shows the real spelling. foldAmharic is
+                    // length-preserving, so the offset carries over.
+                    $foldedLyr = MezmurHymnService::searchKey((string)$r['lyrics']);
                     foreach ($tokens as $t) {
-                        $pos = mb_stripos((string)$r['lyrics'], $t);
+                        $needle = MezmurHymnService::searchKey($t);
+                        if ($needle === '') continue;
+                        $pos = mb_strpos($foldedLyr, $needle);
                         if ($pos !== false) {
                             $start = max(0, $pos - 60);
                             $snippet = ($start > 0 ? '…' : '')

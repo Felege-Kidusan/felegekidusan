@@ -321,7 +321,12 @@ body.light-mode .school-logout-btn:hover { background: var(--school-danger); col
     padding: 1rem 2rem;
     background: var(--school-surface);
     border-bottom: 1px solid var(--school-border);
-    position: sticky; top: 0; z-index: 20;
+    /* P42: `position: sticky` here was INERT. The element that scrolls is
+     * .school-content (overflow-y:auto); .school-topbar is its SIBLING,
+     * so its scroll container never scrolls and the header never stuck.
+     * The flex parent already pins it above the scroll area, so `sticky`
+     * only ever cost a stacking context. Declared static and honest. */
+    position: relative; z-index: 20; flex: 0 0 auto;
     flex-wrap: wrap; gap: 0.75rem;
     transition: background 0.3s;
 }

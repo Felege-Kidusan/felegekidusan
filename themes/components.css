@@ -6,6 +6,21 @@
    Reusable by every department dashboard (finance, mezmur, edu…).
    ═══════════════════════════════════════════════════════════════ */
 
+/* P42: visually hidden but announced by screen readers. The standard
+ * clip-rect pattern — `display:none` would remove it from the
+ * accessibility tree entirely, defeating the purpose. */
+.sr-only {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0; border: 0;
+    overflow: hidden; white-space: nowrap;
+    clip: rect(0 0 0 0); clip-path: inset(50%);
+}
+
+/* P42: one source of truth for the player dock height — the dock, the
+ * content padding and the toast offset all derive from it. */
+:root { --mz-dock-h: 82px; }
+
 /* ── Focus visibility (WCAG 2.4.7) ───────────────────────────── */
 :focus-visible {
     outline: 2px solid var(--school-accent);
@@ -619,7 +634,7 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
     display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr) minmax(180px, 1fr);
     gap: .75rem; align-items: center;
-    height: 82px; padding: .55rem 1rem;
+    height: var(--mz-dock-h); padding: .55rem 1rem;
     background: var(--school-bg-alt);
     border-top: 1px solid var(--school-border);
     box-shadow: var(--school-shadow-lg);
@@ -687,8 +702,24 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
     width: auto !important; padding: 0 .45rem; font-size: .72rem; font-weight: 700;
     color: var(--school-text-muted); border-radius: 8px !important;
 }
-body.mz-playing .school-content { padding-bottom: 100px; }
-body.mz-playing .school-toast { bottom: 100px; }
+/* P42: reserve space for the fixed 82px dock.
+ *
+ * The dock is position:fixed, so it sits OVER the content — the last
+ * rows of every list were unreachable behind it (visible in the
+ * dashboard screenshot: the table runs under the player bar).
+ *
+ * The old 100px left only 18px of clearance below an 82px dock, so the
+ * final row was still half-covered and there was no breathing room at
+ * the end of a scroll. A single custom property now drives the dock
+ * height, the content padding and the toast offset together, so they
+ * can never drift apart again. */
+body.mz-playing .school-content { padding-bottom: calc(var(--mz-dock-h) + 2rem); }
+body.mz-playing .school-toast { bottom: calc(var(--mz-dock-h) + 1rem); }
+/* Anchor links and keyboard focus must not land under the dock either. */
+body.mz-playing .school-content :target,
+body.mz-playing .school-content tr:focus-within {
+    scroll-margin-bottom: calc(var(--mz-dock-h) + 1rem);
+}
 
 .mz-np {
     position: fixed; top: 0; right: 0; bottom: 82px; width: min(420px, 100%);
@@ -753,6 +784,8 @@ tr.mz-archived { opacity: .55; }
 @media (max-width: 768px) {
     .mz-player {
         grid-template-columns: 1fr auto; grid-template-rows: auto auto;
+        /* Sits above the 56px bottom nav; height is content-driven here
+         * because the transport wraps to a second row. */
         height: auto; bottom: 56px; padding: .45rem .7rem .35rem;
     }
     .mz-player-center { grid-column: 1 / -1; order: 3; }
