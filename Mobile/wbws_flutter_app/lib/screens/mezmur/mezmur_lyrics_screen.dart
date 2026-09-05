@@ -465,12 +465,15 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.center,
-                            child: Text(
-                              isEmpty ? '· · ·' : line.text,
-                              softWrap: false,
-                              maxLines: 1,
-                              overflow: TextOverflow.visible,
-                              textAlign: TextAlign.center,
+                            // AnimatedDefaultTextStyle tweens the WHOLE style —
+                            // color, weight and size — when the sung line moves
+                            // to the next line, so the highlight eases over
+                            // instead of snapping. The FittedBox + softWrap:false
+                            // below still guarantees exactly one row, so the
+                            // animating weight can never re-wrap the line.
+                            child: AnimatedDefaultTextStyle(
+                              duration: anim,
+                              curve: _curve,
                               style: TextStyle(
                                 // Sung line = darkest, boldest ink; the rest
                                 // recede to a warm, lighter bronze so the
@@ -484,6 +487,13 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                                     ? FontWeight.w800
                                     : FontWeight.w500,
                                 fontFamily: 'NotoSansEthiopic',
+                              ),
+                              child: Text(
+                                isEmpty ? '· · ·' : line.text,
+                                softWrap: false,
+                                maxLines: 1,
+                                overflow: TextOverflow.visible,
+                                textAlign: TextAlign.center,
                               ),
                             ),
                           ),
