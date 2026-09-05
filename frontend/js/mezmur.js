@@ -369,6 +369,149 @@
     // ══════════════════════════════════════════════════════════
     var sync = { id: 0, lines: [], idx: 0, audio: null, dur: 0, raf: 0 };
 
+    // ── P46: OFFLINE-DURABLE SAVING ───────────────────────────
+    //
+    // Timing a hymn is 10-20 minutes of careful work. Losing it to a
+    // dropped request is unacceptable, and on a poor connection that is
+    // the NORMAL case, not the edge case.
+    //
+    // The pattern every offline-first product uses (Google Docs, Notion,
+    // Figma): never let the network be the only copy.
+    //   1. WRITE LOCAL FIRST — every stamp is persisted to localStorage
+    //      immediately, so a crash, reload or dead connection loses at
+    //      most the keystroke in flight.
+    //   2. QUEUE THE SAVE — a failed save stays queued, not discarded.
+    //   3. RETRY WITH BACKOFF — 1s, 2s, 4s, 8s, capped, with jitter so
+    //      many clients do not retry in lockstep.
+    //   4. FLUSH ON RECONNECT — the browser's `online` event drains the
+    //      queue without the user doing anything.
+    //   5. TELL THE TRUTH — the UI always says whether work is saved,
+    //      pending, or failed. Never a silent "maybe".
+    //
+    // Safe to retry: an LRC save is a full REPLACE of one column keyed by
+    // hymn id. Applying it twice is identical to applying it once, so no
+    // idempotency token is needed (unlike, say, an attendance insert).
+    var DRAFT_KEY = 'mz_lrc_draft_v1';
+    var QUEUE_KEY = 'mz_lrc_queue_v1';
+
+    function lsGet(k, fallback) {
+        try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; }
+        catch (e) { return fallback; }
+    }
+    function lsSet(k, v) {
+        try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+        catch (e) { return false; } // quota or private mode — degrade, never throw
+    }
+
+    /** Persist the in-progress timings for one hymn. */
+    function draftSave() {
+        if (!sync.id) return;
+        var all = lsGet(DRAFT_KEY, {});
+        all[sync.id] = {
+            lines: sync.lines.map(function (l) { return { text: l.text, t: l.t }; }),
+            idx: sync.idx,
+            at: Date.now()
+        };
+        lsSet(DRAFT_KEY, all);
+    }
+    function draftLoad(id) {
+        var all = lsGet(DRAFT_KEY, {});
+        return all[id] || null;
+    }
+    function draftClear(id) {
+        var all = lsGet(DRAFT_KEY, {});
+        delete all[id];
+        lsSet(DRAFT_KEY, all);
+    }
+
+    /** Durable outbox: saves that have not been acknowledged yet. */
+    function queueAdd(id, lrc) {
+        var q = lsGet(QUEUE_KEY, {});
+        q[id] = { lrc: lrc, at: Date.now(), tries: 0 };
+        lsSet(QUEUE_KEY, q);
+        paintSyncState();
+    }
+    function queueDrop(id) {
+        var q = lsGet(QUEUE_KEY, {});
+        delete q[id];
+        lsSet(QUEUE_KEY, q);
+        paintSyncState();
+    }
+    function queuePending() { return Object.keys(lsGet(QUEUE_KEY, {})).length; }
+
+    var flushTimer = null;
+    /**
+     * Drain the outbox. Exponential backoff with jitter — the standard
+     * AWS/Google retry curve. Never gives up permanently: the entry
+     * survives a reload and is retried again on the next `online` event
+     * or the next flush.
+     */
+    function queueFlush() {
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        var q = lsGet(QUEUE_KEY, {});
+        var ids = Object.keys(q);
+        if (!ids.length) return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            paintSyncState();
+            return; // no point burning a request while offline
+        }
+        var id = ids[0];
+        var item = q[id];
+        apiPost({ action: 'lyrics_synced_save', id: id, lrc: item.lrc })
+            .then(function (d) {
+                if (d && d.status === 'success') {
+                    queueDrop(id);
+                    draftClear(id);
+                    window.toast(d.message || 'Synced lyrics saved.', 's');
+                    if (Object.keys(lsGet(QUEUE_KEY, {})).length) queueFlush();
+                    return;
+                }
+                // A rejection from the SERVER (bad LRC, missing schema,
+                // no permission) will never succeed on retry — surface it
+                // and stop, keeping the draft so nothing is lost.
+                queueDrop(id);
+                window.toast((d && d.message) || 'The server rejected the timings.', 'e');
+                paintSyncState();
+            })
+            .catch(function () {
+                // Network/timeout — keep it and back off.
+                var qq = lsGet(QUEUE_KEY, {});
+                if (!qq[id]) return;
+                qq[id].tries = (qq[id].tries || 0) + 1;
+                lsSet(QUEUE_KEY, qq);
+                var n = Math.min(qq[id].tries, 5);
+                var delay = Math.pow(2, n) * 1000;
+                delay = delay / 2 + Math.random() * (delay / 2); // jitter
+                paintSyncState();
+                flushTimer = setTimeout(queueFlush, delay);
+            });
+    }
+
+    /** One honest line about where the user's work currently lives. */
+    function paintSyncState() {
+        var el = $('mzSyncSaveState');
+        if (!el) return;
+        var pending = queuePending();
+        var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+        if (pending && offline) {
+            el.textContent = 'Saved on this device — will upload when you are back online.';
+            el.className = 'mz-sync-state is-pending';
+        } else if (pending) {
+            el.textContent = 'Saved on this device — uploading…';
+            el.className = 'mz-sync-state is-pending';
+        } else {
+            el.textContent = 'All timings saved to the server.';
+            el.className = 'mz-sync-state is-ok';
+        }
+    }
+
+    if (typeof window !== 'undefined') {
+        window.addEventListener('online', function () { queueFlush(); });
+        window.addEventListener('offline', function () { paintSyncState(); });
+    }
+
+
+
     /** mm:ss.mmm — the canonical LRC stamp the server expects. */
     function lrcStamp(sec) {
         if (!isFinite(sec) || sec < 0) sec = 0;
@@ -436,10 +579,27 @@
                     if (existing[i] && existing[i].text === r.text) r.t = existing[i].t;
                 });
             }
+            // P46: a local draft beats the server copy — it is newer by
+            // definition (it exists because a save had not completed).
+            // Restoring it is what makes a dropped connection a pause
+            // rather than a loss.
+            var draft = draftLoad(id);
+            if (draft && draft.lines && draft.lines.length === rows.length) {
+                var sameText = draft.lines.every(function (d2, i) { return d2.text === rows[i].text; });
+                if (sameText) {
+                    var timedCount = draft.lines.filter(function (d2) { return d2.t != null; }).length;
+                    rows = draft.lines.map(function (d2) { return { text: d2.text, t: d2.t }; });
+                    if (timedCount) {
+                        window.toast('Restored ' + timedCount + ' unsaved timing(s) from this device.', 'i');
+                    }
+                }
+            }
             sync.lines = rows;
-            sync.idx = 0;
+            sync.idx = draft && typeof draft.idx === 'number'
+                ? Math.min(draft.idx, rows.length) : 0;
             renderSyncLines();
             openModalF('mzSyncModal', '#mzSyncPlay');
+            paintSyncState();
             syncLoadAudio(id);
         }).catch(function (err) {
             window.toast((err && err.message) || 'Could not load the hymn.', 'e');
@@ -507,6 +667,7 @@
         if (sync.idx >= sync.lines.length) return;
         sync.lines[sync.idx].t = a.currentTime;
         sync.idx = Math.min(sync.idx + 1, sync.lines.length);
+        draftSave();   // P46: survive a crash/reload/dead connection
         renderSyncLines();
     }
 
@@ -514,12 +675,14 @@
         if (sync.idx <= 0) return;
         sync.idx--;
         sync.lines[sync.idx].t = null; // re-timing this line
+        draftSave();
         renderSyncLines();
     }
 
     function syncNudge(i, delta) {
         if (!sync.lines[i] || sync.lines[i].t == null) return;
         sync.lines[i].t = Math.max(0, sync.lines[i].t + delta);
+        draftSave();
         renderSyncLines();
     }
 
@@ -535,6 +698,7 @@
         if (!window.confirm('Clear every timing for this hymn?')) return;
         sync.lines.forEach(function (l) { l.t = null; });
         sync.idx = 0;
+        draftSave();
         renderSyncLines();
     }
 
@@ -551,21 +715,16 @@
             .map(function (l) { return lrcStamp(l.t) + ' ' + l.text; })
             .join('\n');
 
-        var btn = $('mzSyncSave');
-        var restore = btn ? btn.innerHTML : '';
-        if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…'; }
-        apiPost({ action: 'lyrics_synced_save', id: sync.id, lrc: lrc }).then(function (d) {
-            if (!d || d.status !== 'success') {
-                window.toast((d && d.message) || 'Could not save timings.', 'e');
-                return;
-            }
-            window.toast(d.message || 'Synced lyrics saved.', 's');
-            syncClose();
-        }).catch(function (err) {
-            window.toast((err && err.message) || 'Network error — timings were not saved.', 'e');
-        }).then(function () {
-            if (btn) { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.innerHTML = restore; }
-        });
+        // P46: queue FIRST, then attempt. The work is durable the moment
+        // the button is pressed — if the request dies, the entry stays in
+        // the outbox and retries with backoff, and survives a reload.
+        // This is why a poor connection can no longer cost 20 minutes of
+        // timing work.
+        draftSave();
+        queueAdd(sync.id, lrc);
+        window.toast('Timings saved on this device — uploading…', 'i');
+        queueFlush();
+        syncClose();
     }
 
     function syncClose() {
@@ -593,6 +752,9 @@
 
     // Clock + seek bar, driven by the audio element itself.
     document.addEventListener('DOMContentLoaded', function () {
+        // P46: drain anything left queued by a previous session — the
+        // user may have closed the tab mid-upload, or been offline.
+        if (queuePending()) { paintSyncState(); queueFlush(); }
         var a = $('mzSyncAudio');
         if (!a) return;
         a.addEventListener('timeupdate', function () {

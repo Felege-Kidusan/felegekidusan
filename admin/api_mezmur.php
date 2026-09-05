@@ -190,6 +190,36 @@ try {
                     $missing[$tbl] = $migration;
                 }
             }
+            // P46: COLUMN-level checks. Table-only probing is why the
+            // synced-lyrics failure was invisible: every table existed,
+            // so ping said "deployment is current" while the column the
+            // write needed was absent. Report the columns each feature
+            // actually writes.
+            $requiredCols = [
+                'mezmur_hymns' => [
+                    'audio_key'         => 'sql/038_mezmur_audio_media.sql',
+                    'audio_status'      => 'sql/038_mezmur_audio_media.sql',
+                    'lyrics_synced'     => 'sql/038_mezmur_audio_media.sql',
+                    'lyrics_synced_at'  => 'sql/038_mezmur_audio_media.sql',
+                    'lyrics_synced_by'  => 'sql/038_mezmur_audio_media.sql',
+                    'revision'          => 'sql/025_mezmur_hymn_offline.sql',
+                    'updated_by'        => 'sql/021_mezmur_department.sql',
+                ],
+            ];
+            $missingCols = [];
+            foreach ($requiredCols as $tbl => $cols) {
+                foreach ($cols as $col => $migration) {
+                    try {
+                        $r = $conn->query("SHOW COLUMNS FROM `{$tbl}` LIKE '" . $conn->real_escape_string($col) . "'");
+                        $present = $r ? (bool)$r->fetch_assoc() : false;
+                        if ($r) { $r->close(); }
+                        if (!$present) { $missingCols["{$tbl}.{$col}"] = $migration; }
+                    } catch (\Throwable $e) {
+                        $missingCols["{$tbl}.{$col}"] = $migration;
+                    }
+                }
+            }
+
             // nullable session_id check (024 block #4)
             $sessionIdOk = null;
             try {
@@ -200,15 +230,20 @@ try {
                     $r->close();
                 }
             } catch (\Throwable $e) { $sessionIdOk = null; }
+            $allMissing = array_merge(array_values($missing), array_values($missingCols));
+            $allMissing = array_values(array_unique($allMissing));
             mezmur_respond([
-                'status' => empty($missing) ? 'success' : 'error',
+                'status' => (empty($missing) && empty($missingCols)) ? 'success' : 'error',
                 'code_version' => MEZMUR_API_VERSION,
                 'php' => PHP_VERSION,
                 'missing_tables' => $missing,
+                'missing_columns' => $missingCols,
                 'session_id_nullable' => $sessionIdOk,
-                'message' => empty($missing)
-                    ? 'Mezmur deployment is current — all tables present.'
-                    : 'Run these migrations on the server: ' . implode(', ', array_values($missing)),
+                'message' => empty($allMissing)
+                    ? 'Mezmur deployment is current — all tables and columns present.'
+                    : 'Missing schema: ' . implode(', ', array_keys($missingCols) ?: []) .
+                      ($missing ? ' | tables: ' . implode(', ', array_keys($missing)) : '') .
+                      ' — run: ' . implode(', ', $allMissing) . ' (or press “Sync DB schema”).',
             ]);
         }
 

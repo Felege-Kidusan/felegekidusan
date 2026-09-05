@@ -74,6 +74,11 @@
 }
 .mz-sync-nudge button:disabled { opacity: .35; cursor: default; }
 .mz-sync-actions { margin-top: .7rem; }
+/* P46: save-state line. Colour is a reinforcement, never the only
+   signal — the wording alone says where the work lives. */
+.mz-sync-state { font-size: .78rem; margin: .1rem 0 .5rem; }
+.mz-sync-state.is-ok { color: var(--school-text-dim); }
+.mz-sync-state.is-pending { color: var(--school-warning, #d97706); font-weight: 600; }
 @media (max-width: 640px) {
     .mz-sync-line { grid-template-columns: 62px 1fr; }
     .mz-sync-nudge { grid-column: 1 / -1; justify-content: flex-end; }

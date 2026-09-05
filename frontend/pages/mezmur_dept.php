@@ -738,6 +738,8 @@ ob_start();
         </div>
 
         <div class="school-error-msg is-hidden" id="mzSyncError" role="alert"></div>
+        <!-- P46: always say where the user's work currently lives. -->
+        <p class="mz-sync-state is-ok" id="mzSyncSaveState" role="status" aria-live="polite">All timings saved to the server.</p>
         <div id="mzSyncStatus" class="sr-only" role="status" aria-live="polite"></div>
 
         <!-- One row per lyric line; the pending line is highlighted. -->
