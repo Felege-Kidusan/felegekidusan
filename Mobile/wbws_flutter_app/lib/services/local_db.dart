@@ -2298,6 +2298,24 @@ class LocalDb {
   }
 
   /// Fill lyrics into an already-cached row (lazy blob download).
+  /// P46: write timed (LRC) lyrics locally.
+  ///
+  /// Optimistic: the karaoke view reflects an edit before the upload
+  /// happens, so timing work is visible offline. `revision` is left
+  /// alone — the server owns it, and the delta pull will reconcile.
+  Future<void> updateHymnSyncedLyrics(int hymnId, String? lrc) async {
+    final db = await database;
+    await db.update(
+      'cached_hymns',
+      {
+        'lyrics_synced': lrc,
+        'lyrics_synced_at': DateTime.now().toUtc().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [hymnId],
+    );
+  }
+
   Future<void> updateHymnLyrics(int id, String lyrics, int revision) async {
     final db = await database;
     await db.rawUpdate(

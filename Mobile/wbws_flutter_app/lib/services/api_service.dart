@@ -734,6 +734,20 @@ class ApiService {
   Future<ApiResponse> getMezmurHymn(int id) =>
       get('/mezmur/hymn', params: {'id': '$id'});
 
+  /// P46: store timed (LRC) lyrics for a hymn.
+  ///
+  /// Empty [lrc] clears the timings and falls back to static lyrics.
+  /// Safe to retry: the server does a full REPLACE of one column keyed
+  /// by hymn id, so applying the same body twice is identical to once.
+  Future<ApiResponse> saveMezmurSyncedLyrics(int hymnId, String lrc,
+      {String? clientOpId}) {
+    return post('/mezmur/lyrics-synced', {
+      'id': hymnId,
+      'lrc': lrc,
+      if (clientOpId != null && clientOpId.isNotEmpty) 'client_op_id': clientOpId,
+    });
+  }
+
   /// Returns a short-lived signed GET URL for a verified hymn audio object.
   /// The object key and storage credentials never leave the server.
   Future<ApiResponse> getMezmurAudioUrl(int hymnId) =>

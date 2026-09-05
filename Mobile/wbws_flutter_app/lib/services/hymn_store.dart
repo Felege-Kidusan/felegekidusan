@@ -817,6 +817,29 @@ class HymnStore extends ChangeNotifier {
 
   Completer<int>? _pushInflight;
 
+  /// P46: save timed (LRC) lyrics, offline-first.
+  ///
+  /// Writes to the local row immediately so the player shows the new
+  /// timings at once, then queues the upload. Nothing is lost if the
+  /// connection is down — the op waits in `pending_hymn_ops` and is
+  /// pushed on the next successful sync.
+  ///
+  /// Pass an empty [lrc] to clear the timings.
+  Future<void> saveSyncedLyrics(int hymnId, String lrc) async {
+    if (hymnId <= 0) return;
+    // Optimistic local write: the karaoke view reflects the edit before
+    // the network is involved at all.
+    await _db.updateHymnSyncedLyrics(hymnId, lrc.isEmpty ? null : lrc);
+    // enqueueHymnOp() mints the client_op_id itself — the server uses it
+    // for idempotency, so a retried push can never double-apply.
+    await _db.enqueueHymnOp('lyrics_synced', {
+      'id': hymnId,
+      'lrc': lrc,
+    });
+    notifyListeners();
+    unawaited(pushPending().catchError((_) => 0));
+  }
+
   Future<int> pushPending() async {
     if (_pushInflight != null) return _pushInflight!.future;
     // Queued hymn edits survive logout by design; they wait here until
@@ -1016,6 +1039,33 @@ class HymnStore extends ChangeNotifier {
           await _db.logSync('zemarian_save', res.message ?? 'Rejected', 'error');
           await _db.dropHymnOp(id);
           return false;
+        case 'lyrics_synced':
+          // P46: timed-lyric edits ride the SAME durable queue as every
+          // other hymn write — offline capture, retry, and idempotency
+          // come for free rather than being reimplemented.
+          final lyricHymnId = _asInt(payload['id']);
+          if (lyricHymnId <= 0) {
+            await _db.dropHymnOp(id); // nothing addressable to update
+            return true;
+          }
+          final res = await _api.saveMezmurSyncedLyrics(
+              lyricHymnId, '${payload['lrc'] ?? ''}',
+              clientOpId: opId);
+          if (res.success || res.statusCode == 409) {
+            await _db.markHymnOpSynced(id);
+            return true;
+          }
+          if (res.isNetworkError) {
+            await _db.failHymnOp(id, 'network');
+            return false; // stays queued; retried on the next push
+          }
+          // A server rejection (bad LRC, missing schema, no permission)
+          // cannot be fixed by retrying — log it and stop looping.
+          await _db.logSync(
+              'lyrics_synced', res.message ?? 'Rejected', 'error');
+          await _db.dropHymnOp(id);
+          return true;
+
         case 'zemarian_status':
           var zemId = _asInt(payload['id']);
           if (zemId < 0) {
