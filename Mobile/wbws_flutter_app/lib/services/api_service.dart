@@ -741,11 +741,11 @@ class ApiService {
   /// by hymn id, so applying the same body twice is identical to once.
   Future<ApiResponse> saveMezmurSyncedLyrics(int hymnId, String lrc,
       {String? clientOpId}) {
-    return post('/mezmur/lyrics-synced', {
-      'id': hymnId,
-      'lrc': lrc,
-      if (clientOpId != null && clientOpId.isNotEmpty) 'client_op_id': clientOpId,
-    });
+    // `body:` is a NAMED parameter, and idempotencyKey both sets the
+    // Idempotency-Key header and injects client_op_id — the same
+    // contract every other mezmur write uses.
+    return post('/mezmur/lyrics-synced',
+        body: {'id': hymnId, 'lrc': lrc}, idempotencyKey: clientOpId);
   }
 
   /// Returns a short-lived signed GET URL for a verified hymn audio object.

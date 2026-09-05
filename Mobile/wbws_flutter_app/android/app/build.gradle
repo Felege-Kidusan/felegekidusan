@@ -8,7 +8,13 @@ plugins {
 android {
     namespace = "com.arkeonethiopia.fkss"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "26.1.10909125"
+    // P47: every plugin in this app (audio_service, just_audio, sqflite,
+    // mobile_scanner, connectivity_plus, ...) requires NDK 27.0.12077973.
+    // NDK releases are backward compatible, so pinning the highest one
+    // any dependency asks for is the documented fix and is what the
+    // Flutter tool itself recommends. Left at 26.x this warns on every
+    // build and will eventually fail.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
