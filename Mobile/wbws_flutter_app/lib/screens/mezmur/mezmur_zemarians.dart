@@ -195,6 +195,10 @@ class _MezmurZemariansState extends State<MezmurZemariansScreen> {
     final picked = await _picker.pickImage(
         source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
     if (picked == null) return;
+    // P36: the gallery backgrounds the app and Android may recreate the
+    // activity, so this screen can be gone by the time the picker
+    // returns. Every other await here is guarded; this one was not.
+    if (!mounted) return;
     setState(() => _uploadingId = _asInt(z['id']));
     final err =
         await _store.setZemarianImage(_asInt(z['id']), picked.path);

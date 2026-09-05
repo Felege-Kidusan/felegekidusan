@@ -97,7 +97,11 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     return widget.queue[widget.initialIndex];
   }
 
-  bool get _hasAudio => _view.audioUrl.trim().isNotEmpty;
+  /// P36: use the track's own signal, not the URL — a streamed hymn has
+  /// an empty audioUrl until its short-lived link is minted, and testing
+  /// the URL hid the transport controls for every hymn that was not
+  /// already downloaded.
+  bool get _hasAudio => _view.hasAudio;
 
   @override
   void initState() {

@@ -55,6 +55,8 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   List<Map<String, dynamic>> _members = [];
 
   bool _loading = true;
+
+  bool _submitting = false;
   bool _rosterReady = false;
   bool _loadFailed = false;
   bool _isOffline = false;
@@ -460,17 +462,24 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   Future<void> _submit() async {
     final section = _selectedSection;
     if (section == null || _members.isEmpty || _locked) return;
+    // P36: in-flight guard, matching the hymn editor. The write itself is
+    // keyed by (date, section) and idempotent, but an unguarded double
+    // tap fired two forced syncs and stacked two toasts.
+    if (_submitting) return;
     if (!_requireCompleteSheet()) return;
+    _submitting = true;
     try {
       await _db.saveMezmurLocal(_selectedDate, section, _records(),
           packetKind: 'submitted');
     } catch (_) {
+      _submitting = false;
       if (mounted) {
         setState(() =>
             _error = 'Phone storage refused the save. Free up space and try again.');
       }
       return;
     }
+    _submitting = false;
     if (!mounted) return;
     HapticFeedback.mediumImpact();
     _dirty.value = false;

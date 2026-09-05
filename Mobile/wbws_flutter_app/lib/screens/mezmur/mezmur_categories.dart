@@ -86,6 +86,22 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
 
   bool get _isDetail => _parentId != null;
 
+  /// P36: the LIVE parent row, re-read from the loaded list on every
+  /// build. `widget.parent` is the snapshot captured when the row was
+  /// tapped, so renaming the main from inside its own sub-screen left the
+  /// AppBar showing the old name until the user popped. Falls back to the
+  /// snapshot until the first load completes.
+  Map<String, dynamic>? get _liveParent {
+    final id = _parentId;
+    if (id == null) return null;
+    for (final c in _categories) {
+      if (_asInt(c['id']) == id) return c;
+    }
+    return widget.parent;
+  }
+
+  String get _parentName => '${_liveParent?['name'] ?? ''}';
+
   /// Rows shown at this level: mains at the top, that main's subs below.
   List<Map<String, dynamic>> get _visible =>
       _isDetail ? _subsOf(_parentId!) : _mains;
@@ -99,6 +115,14 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
       _counts = counts;
       _loading = false;
     });
+    // P36: taxonomy sync can genuinely delete rows now. If the main this
+    // screen manages disappeared server-side, leave rather than sit on an
+    // orphan screen with no explanation.
+    final id = _parentId;
+    if (id != null && !_categories.any((c) => _asInt(c['id']) == id)) {
+      if (!mounted) return;
+      Navigator.of(context).maybePop();
+    }
   }
 
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
@@ -218,8 +242,27 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
 
   Future<void> _toggleActive(Map<String, dynamic> category) async {
     final active = _asInt(category['is_active']) == 1;
-    await _store.setCategoryStatus(_asInt(category['id']), !active);
+    final id = _asInt(category['id']);
+    final isMain = category['parent_id'] == null;
+    // P36: hiding a MAIN must take its sub-categories with it. Flipping
+    // only the parent left the subs active, so they kept appearing in
+    // hymn-editor pickers and filters under a category the user believed
+    // was hidden.
+    final subs = isMain ? _subsOf(id) : const <Map<String, dynamic>>[];
+    final affected =
+        subs.where((sc) => (_asInt(sc['is_active']) == 1) == active).toList();
+    await _store.setCategoryStatus(id, !active);
+    for (final sc in affected) {
+      await _store.setCategoryStatus(_asInt(sc['id']), !active);
+    }
     await _reload();
+    if (!mounted || affected.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(seconds: 3),
+      content: Text(active
+          ? 'Hidden, along with ${affected.length} sub-categor${affected.length == 1 ? 'y' : 'ies'}.'
+          : 'Shown, along with ${affected.length} sub-categor${affected.length == 1 ? 'y' : 'ies'}.'),
+    ));
   }
 
   Future<void> _pickImage(Map<String, dynamic> category) async {
@@ -243,6 +286,10 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     final picked = await _picker.pickImage(
         source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
     if (picked == null) return;
+    // P36: the gallery backgrounds the app and Android may recreate the
+    // activity, so this screen can be gone by the time the picker
+    // returns. Every other await here is guarded; this one was not.
+    if (!mounted) return;
     setState(() => _uploadingId = _asInt(category['id']));
     final err = await _store.setCategoryImage(_asInt(category['id']), picked.path);
     if (!mounted) return;
@@ -583,11 +630,10 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final parent = widget.parent;
     final rows = _visible;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isDetail ? '${parent!['name']}' : 'Hymn Categories'),
+        title: Text(_isDetail ? _parentName : 'Hymn Categories'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
       ),
@@ -609,7 +655,7 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                         ? 'No sub-categories yet'
                         : 'No categories yet',
                     subtitle: _isDetail
-                        ? 'Add the first sub-category under "${parent!['name']}".'
+                        ? 'Add the first sub-category under "$_parentName".'
                         : 'Add the first category — it syncs automatically.',
                   ),
                 ])

@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'api_service.dart';
 import 'mezmur_download_manager.dart';
 import 'mezmur_playback_policy.dart';
+import 'mezmur_queue_window.dart';
 import 'mezmur_transport_gate.dart';
 
 /// P0 mezmur — a single mezmur hymn that can be played.
@@ -32,6 +33,20 @@ class MezmurTrack {
     this.lyrics,
     this.lyricsSynced,
   });
+
+  /// P36: whether this hymn HAS audio — the honest playability signal.
+  ///
+  /// `audioUrl` must NOT be used for this. The server never returns an
+  /// `audio_url` column; playback URLs are short-lived links minted on
+  /// demand by `GET /mezmur/audio/{id}`. A streamed hymn therefore
+  /// carries an EMPTY audioUrl until the moment it is resolved, so any
+  /// URL-based check misclassifies every not-yet-downloaded hymn as
+  /// lyrics-only. `audio_status == 'ready'` is the cached authoritative
+  /// field; a non-empty URL additionally covers already-resolved and
+  /// local `file://` tracks.
+  bool get hasAudio =>
+      audioStatus.trim().toLowerCase() == 'ready' ||
+      audioUrl.trim().isNotEmpty;
 
   static int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
   static int? _asIntOrNull(dynamic v) {
@@ -121,11 +136,19 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       // mini-player stay in lockstep (no-audio rows are only visited
       // by in-app next/prev/swipe).
       if (i != null && i >= 0 && i < _queue.length && _catalog.isNotEmpty) {
-        final id = _queue[i].hymnId;
-        final vi = _catalog.indexWhere((t) => t.hymnId == id);
+        // P36: the engine queue is a WINDOW, so its index is not the
+        // catalog row. Prefer the explicit map and fall back to a hymn-id
+        // lookup.
+        var vi = (i < _queueRows.length) ? _queueRows[i] : -1;
+        if (vi < 0 || vi >= _catalog.length ||
+            _catalog[vi].hymnId != _queue[i].hymnId) {
+          vi = _catalog.indexWhere((t) => t.hymnId == _queue[i].hymnId);
+        }
         if (vi >= 0) _viewIndex = vi;
       }
       notifyListeners();
+      // Advancing may have moved us near the edge of the resolved window.
+      unawaited(_ensureWindow());
     });
     _player.durationStream.listen((d) {
       final ms = d?.inMilliseconds ?? 0;
@@ -143,13 +166,58 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       }
       _playing = playing;
       _buffering = buffering;
-      _completed = s.processingState == ProcessingState.completed;
+      final nowCompleted = s.processingState == ProcessingState.completed;
+      final justCompleted = nowCompleted && !_completed;
+      _completed = nowCompleted;
       notifyListeners();
+      if (justCompleted) _handleCompletion();
     });
     _player.errorStream.listen((e) {
       if (kDebugMode) debugPrint('mezmur-audio error: $e');
       _sourceLoaded = false;
       _playbackError = 'Audio could not be played. Check your connection and try again.';
+      notifyListeners();
+    });
+  }
+
+  /// P36: the queue has run out.
+  ///
+  /// just_audio's contract is that `playing` stays true until `pause` or
+  /// `stop` is called — so at the end of the last track the player sits
+  /// at playing==true with processingState==completed and the position
+  /// pinned at the end. Nothing reset it, so the transport button showed
+  /// "pause" forever and tapping it did nothing audible.
+  ///
+  /// The documented remedy is pause + seek(zero). It is deferred with a
+  /// zero-duration timer because just_audio's event subject is
+  /// `sync: true`: calling back into the player from inside its own state
+  /// listener risks "Cannot fire new event. Controller is already firing
+  /// an event".
+  void _handleCompletion() {
+    Future<void>.delayed(Duration.zero, () async {
+      if (!_completed) return; // superseded by a new command
+      // With loop-all/loop-one just_audio wraps on its own.
+      if (_loop != 0) return;
+      // P36: the window may end before the catalog does. If a playable
+      // hymn remains beyond the resolved window, advance to it rather
+      // than stopping early — otherwise playback halts at the window
+      // edge instead of the real end of the list.
+      final idx = _index;
+      if (idx != null && idx >= 0 && idx < _queueRows.length) {
+        final finishedRow = _queueRows[idx];
+        final target = MezmurPlaybackPolicy.nextRow(
+            _audioFlags, finishedRow, _loop);
+        if (target != finishedRow) {
+          await moveTo(target, autoPlay: true);
+          return;
+        }
+      }
+      try {
+        await _player.pause();
+        await _player.seek(Duration.zero, index: _index);
+      } catch (_) {}
+      _wantPlaying = false;
+      _playing = false;
       notifyListeners();
     });
   }
@@ -200,7 +268,15 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   int _loop = 0; // 0 off, 1 all, 2 one
   bool _shuffle = false;
   double _rate = 1;
-  List<MezmurTrack> _catalog = const [];
+  List<MezmurTrack> _catalog = <MezmurTrack>[];
+
+  /// P36: catalog row index for each entry of [_queue]. The engine queue
+  /// is a WINDOW over the catalog, so engine index != catalog row and the
+  /// two must be mapped explicitly.
+  List<int> _queueRows = const [];
+
+  /// Guard so overlapping stream events cannot slide the window twice.
+  bool _windowRefreshing = false;
   int _viewIndex = 0;
   bool _playerVisible = false;
   bool _miniDismissed = false;
@@ -228,13 +304,19 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   Duration? get duration =>
       _durMs > 0 ? Duration(milliseconds: _durMs) : null;
 
-  /// Whether each catalog row is playable (has an audio URL). This mirrors
-  /// the audio-queue membership and is the single source of truth the pure
-  /// [MezmurPlaybackPolicy] works on, so buttons/swipe and the engine can
-  /// never disagree about what a navigation means.
+  /// Whether each catalog row HAS audio, from `audio_status` (P36) —
+  /// never from `audioUrl`, which is empty for any hymn whose signed URL
+  /// has not been minted yet.
+  ///
+  /// This is the display/navigation truth the pure [MezmurPlaybackPolicy]
+  /// reasons over. It is deliberately a SUPERSET of what the engine holds
+  /// at any instant: the engine carries a sliding window of resolved
+  /// sources (see [MezmurQueueWindow]) while these flags describe the
+  /// whole catalog. Navigation targets come from the flags; the window
+  /// follows.
   List<bool> get _audioFlags => List<bool>.generate(
         _catalog.length,
-        (i) => _catalog[i].audioUrl.trim().isNotEmpty,
+        (i) => _catalog[i].hasAudio,
         growable: false,
       );
 
@@ -250,8 +332,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   double get rate => _rate;
   static const List<double> rates = [0.75, 1, 1.25, 1.5];
   bool get playerVisible => _playerVisible;
-  bool get viewHasAudio =>
-      (viewTrack?.audioUrl.trim().isNotEmpty ?? false);
+  bool get viewHasAudio => viewTrack?.hasAudio ?? false;
 
   /// Mini bar: session exists, full player is not on screen, and either
   /// audio is playing or the current hymn can still be resumed.
@@ -400,7 +481,12 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   }) async {
     final v = viewTrack;
     if (v == null) return false;
-    if (v.audioUrl.trim().isEmpty) {
+    // P36: a hymn with no audio at all (lyrics-only) simply stops the
+    // engine. This MUST test hasAudio, not audioUrl — a streamed hymn
+    // has an empty URL until it is resolved, and testing the URL made
+    // every not-yet-downloaded hymn look lyrics-only, so skipping to one
+    // silently paused instead of playing it.
+    if (!v.hasAudio) {
       try {
         await _player.pause();
       } catch (_) {}
@@ -413,39 +499,135 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       if (autoPlay) await play();
       return true;
     }
-    final playable = _catalog
-        .where((t) => t.audioUrl.trim().isNotEmpty)
-        .toList(growable: false);
-    final si = playable.indexWhere((t) => t.hymnId == v.hymnId);
-    if (si < 0) return false;
-    var samePlayable = playable.length == _queue.length;
-    if (samePlayable) {
-      for (var i = 0; i < playable.length; i++) {
-        if (playable[i].hymnId != _queue[i].hymnId) {
-          samePlayable = false;
-          break;
-        }
+    // Already inside the resolved window: seek within the engine queue
+    // instead of rebuilding it, so short skips stay instant.
+    if (!forceReload && _queue.isNotEmpty) {
+      final qi = _queue.indexWhere((t) => t.hymnId == v.hymnId);
+      if (qi >= 0) {
+        try {
+          await _player.seek(Duration.zero, index: qi);
+          _index = qi;
+          if (autoPlay) {
+            _wantPlaying = true;
+            unawaited(_player.play().catchError((_) {}));
+          }
+          notifyListeners();
+          unawaited(_ensureWindow());
+          return true;
+        } catch (_) {}
       }
     }
-    if (samePlayable &&
-      _queue.isNotEmpty &&
-      currentTrack?.hymnId == v.hymnId) {
-      try {
-        await _player.seek(Duration.zero, index: si);
-        _index = si;
-        if (autoPlay) {
-          _wantPlaying = true;
-          unawaited(_player.play().catchError((_) {}));
-        }
-        notifyListeners();
-        return true;
-      } catch (_) {}
-    }
-    return openQueue(playable, startIndex: si, autoPlay: autoPlay);
+    // Outside the window (or a forced reload): rebuild it centred on the
+    // hymn the listener actually wants.
+    return openQueue(_catalog, startIndex: _viewIndex, autoPlay: autoPlay);
   }
 
-  /// Loads [tracks] (only rows with a non-empty URL play) and starts at
-  /// [startIndex]. Returns false when nothing could be loaded.
+  /// Slides the resolved window forward as playback advances (P36).
+  ///
+  /// just_audio only advances within the sources it already holds, so the
+  /// window must be topped up before the listener reaches its edge —
+  /// otherwise gapless advance and the lock-screen next-track button stop
+  /// at the last resolved hymn.
+  Future<void> _ensureWindow() async {
+    if (_catalog.isEmpty || _queueRows.isEmpty) return;
+    if (_windowRefreshing) return;
+    final flags = _audioFlags;
+    if (!MezmurQueueWindow.needsRefresh(
+      resolvedRows: _queueRows,
+      currentRow: _viewIndex,
+      playable: flags,
+    )) {
+      return;
+    }
+    _windowRefreshing = true;
+    try {
+      final want = MezmurQueueWindow.plan(
+        playable: flags,
+        centerRow: _viewIndex,
+        loop: _loop == 1,
+      );
+      final missing =
+          want.where((r) => !_queueRows.contains(r)).toList(growable: false);
+      if (missing.isEmpty) return;
+      for (final row in missing) {
+        if (row < 0 || row >= _catalog.length) continue;
+        final url = await _resolveSource(_catalog[row]);
+        if (url == null) continue;
+        final track = _catalog[row].copyWith(audioUrl: url);
+        _catalog[row] = track;
+        // Keep engine order aligned with catalog order.
+        var insertAt = _queueRows.length;
+        for (var i = 0; i < _queueRows.length; i++) {
+          if (_queueRows[i] > row) {
+            insertAt = i;
+            break;
+          }
+        }
+        try {
+          await _player.insertAudioSource(
+            insertAt,
+            AudioSource.uri(Uri.parse(url), tag: track.toMediaItem()),
+          );
+        } catch (_) {
+          continue;
+        }
+        final rows = List<int>.from(_queueRows)..insert(insertAt, row);
+        final q = List<MezmurTrack>.from(_queue)..insert(insertAt, track);
+        _queueRows = rows;
+        _queue = q;
+        final idx = _index;
+        if (idx != null && insertAt <= idx) _index = idx + 1;
+      }
+      notifyListeners();
+    } finally {
+      _windowRefreshing = false;
+    }
+  }
+
+  /// Resolves ONE hymn to a playable source URL (P36).
+  ///
+  /// Order matters: a downloaded copy plays from disk with no network at
+  /// all (works in airplane mode, costs no rate-limit budget), and only a
+  /// hymn with no local copy gets a short-lived signed URL minted for it.
+  /// Returns null when the hymn cannot be played right now.
+  Future<String?> _resolveSource(MezmurTrack t) async {
+    final localPath = await _downloads.localPathFor(t.hymnId);
+    if (localPath != null) return Uri.file(localPath).toString();
+    // An already-resolved URL (file:// or a signed link minted earlier
+    // this session) is reused rather than re-minted.
+    final existing = t.audioUrl.trim();
+    if (existing.isNotEmpty) return existing;
+    if (t.audioStatus.trim().toLowerCase() != 'ready') return null;
+    try {
+      final response = await _api.getMezmurAudioUrl(t.hymnId);
+      if (response.success && response.data is Map) {
+        final signed = '${response.data['url'] ?? ''}'.trim();
+        if (signed.isNotEmpty) return signed;
+      }
+    } catch (_) {
+      // Offline or refused — the caller surfaces the message.
+    }
+    return null;
+  }
+
+  /// Loads a WINDOW of [tracks] around [startIndex]. False when nothing
+  /// could be loaded.
+  ///
+  /// P36 — why a window rather than the whole list.
+  ///
+  /// This used to sign only the selected hymn and then drop every
+  /// neighbour whose `audioUrl` was empty. Because the server never sends
+  /// an `audio_url` column, that meant every streamed neighbour: the
+  /// engine queue held a single item, so native gapless advance had
+  /// nowhere to go and the lock-screen / headset / Bluetooth next-track
+  /// button did nothing.
+  ///
+  /// Signing the whole catalog is not the fix either — links expire in an
+  /// hour and the endpoint is rate limited, so a long list would burn the
+  /// budget on URLs nobody reaches. A bounded window around the listener
+  /// is resolved instead and slid forward as playback advances (see
+  /// [_ensureWindow]), keeping the engine queue genuinely multi-item
+  /// while requests stay proportional to what is actually heard.
   Future<bool> openQueue(
     List<MezmurTrack> tracks, {
     int startIndex = 0,
@@ -455,70 +637,67 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     final loadCommand = ++_commandVersion;
     _wantPlaying = autoPlay;
     final selectedIndex = startIndex.clamp(0, tracks.length - 1);
-    final selected = tracks[selectedIndex];
-    var selectedTrack = selected;
 
-    // ── P33: offline-first source resolution ──────────────────
-    // A downloaded hymn plays from disk, so it needs NO network at all:
-    // no signed-URL round trip, no R2 fetch, works in airplane mode.
-    // Only when there is no local copy do we mint a short-lived URL.
-    final localPath = await _downloads.localPathFor(selected.hymnId);
-    if (localPath != null) {
-      selectedTrack = selected.copyWith(audioUrl: Uri.file(localPath).toString());
-    } else if (selected.audioStatus == 'ready') {
-      var signed = false;
-      final response = await _api.getMezmurAudioUrl(selected.hymnId);
-      if (response.success && response.data is Map) {
-        final signedUrl = '${response.data['url'] ?? ''}'.trim();
-        if (signedUrl.isNotEmpty) {
-          selectedTrack = selected.copyWith(audioUrl: signedUrl);
-          signed = true;
-        }
-      }
-      if (!signed && selectedTrack.audioUrl.trim().isEmpty) {
-        // No local copy and no reachable server: name the remedy rather
-        // than just failing, since downloading is exactly the fix.
-        _playbackError = response.message ??
-            'Audio could not be loaded. Download this hymn on Wi‑Fi to play it offline.';
-        notifyListeners();
-        return false;
-      }
-    }
     await _ensureConfigured();
+
+    final flags =
+        List<bool>.generate(tracks.length, (i) => tracks[i].hasAudio);
+    if (!flags.contains(true)) return false;
+
+    final windowRows = MezmurQueueWindow.plan(
+      playable: flags,
+      centerRow: selectedIndex,
+      loop: _loop == 1,
+    );
+
+    // The selected hymn resolves first so playback can begin without
+    // waiting on its neighbours.
+    final resolved = <int, String>{};
+    final selectedUrl = await _resolveSource(tracks[selectedIndex]);
+    if (selectedUrl == null) {
+      _playbackError =
+          'Audio could not be loaded. Download this hymn on Wi\u2011Fi to play it offline.';
+      notifyListeners();
+      return false;
+    }
+    resolved[selectedIndex] = selectedUrl;
+
+    for (final row in windowRows) {
+      if (row == selectedIndex) continue;
+      if (loadCommand != _commandVersion) break; // superseded mid-load
+      final url = await _resolveSource(tracks[row]);
+      if (url != null) resolved[row] = url;
+    }
+
     final playable = <MezmurTrack>[];
     final sources = <AudioSource>[];
-    var offset = -1;
-    for (var i = 0; i < tracks.length; i++) {
-      var t = i == selectedIndex ? selectedTrack : tracks[i];
-      // Queue neighbours also prefer their local copy, so skipping to
-      // the next downloaded hymn stays instant and offline.
-      if (i != selectedIndex) {
-        final lp = await _downloads.localPathFor(t.hymnId);
-        if (lp != null) t = t.copyWith(audioUrl: Uri.file(lp).toString());
-      }
-      if (t.audioUrl.trim().isEmpty) continue;
-      sources.add(AudioSource.uri(
-        Uri.parse(t.audioUrl),
-        tag: t.toMediaItem(),
-      ));
+    final rows = <int>[];
+    var offset = 0;
+    for (final row in resolved.keys.toList()..sort()) {
+      final t = tracks[row].copyWith(audioUrl: resolved[row]);
+      if (row == selectedIndex) offset = playable.length;
+      sources.add(AudioSource.uri(Uri.parse(t.audioUrl), tag: t.toMediaItem()));
       playable.add(t);
-      if (i == startIndex) offset = playable.length - 1;
+      rows.add(row);
     }
     if (sources.isEmpty) return false;
-    if (offset < 0) offset = 0;
+
     try {
       await _player.stop();
       _sourceLoaded = false;
       _playbackError = null;
       _queue = const [];
+      _queueRows = const [];
       _index = null;
       _durMs = 0;
       notifyListeners();
       await _player.setAudioSources(sources,
           initialIndex: offset, initialPosition: Duration.zero);
       _queue = playable;
+      _queueRows = rows;
       _index = offset;
       _sourceLoaded = true;
+      _rememberResolved(rows, playable);
       if (_rate != 1) {
         try {
           await _player.setSpeed(_rate);
@@ -533,11 +712,25 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     } catch (_) {
       _sourceLoaded = false;
       _queue = const [];
+      _queueRows = const [];
       _index = null;
       _durMs = 0;
-      _playbackError = 'Audio could not be loaded. Check your connection and try again.';
+      _playbackError =
+          'Audio could not be loaded. Check your connection and try again.';
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Caches resolved URLs back onto the catalog rows so revisiting a hymn
+  /// in the same session does not mint a second signed link.
+  void _rememberResolved(List<int> rows, List<MezmurTrack> resolvedTracks) {
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      if (row >= 0 && row < _catalog.length) {
+        _catalog[row] =
+            _catalog[row].copyWith(audioUrl: resolvedTracks[i].audioUrl);
+      }
     }
   }
 
@@ -555,7 +748,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     final gen = ++_commandVersion;
     _wantPlaying = true;
     try {
-      if (!canPlay && (viewTrack?.audioUrl.trim().isNotEmpty ?? false)) {
+      if (!canPlay && (viewTrack?.hasAudio ?? false)) {
         final loaded = await _syncAudio(autoPlay: false);
         if (!loaded) return;
       }
@@ -676,7 +869,8 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       await _player.stop();
     } catch (_) {}
     _queue = const [];
-    _catalog = const [];
+    _queueRows = const [];
+    _catalog = <MezmurTrack>[];
     _index = null;
     _viewIndex = 0;
     _playing = false;

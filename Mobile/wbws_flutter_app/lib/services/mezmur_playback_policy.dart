@@ -199,6 +199,15 @@ abstract final class MezmurPlaybackPolicy {
   ///
   /// Returns the target *visible* row, or -1 to stop. [audioFlags] length is
   /// the catalog length.
+  /// NOTE (P36): not used in production. Completion handling advances via
+  /// [nextRow], which works in CATALOG-ROW space; this helper works in
+  /// audio-ordinal space, which stopped being well defined once the
+  /// engine queue became a sliding window over the catalog (only part of
+  /// the catalog is resolved at any moment, so "the Nth playable item"
+  /// no longer maps to a stable row). Kept because it is the clearest
+  /// statement of the loop semantics and is fully tested; do not treat
+  /// its passing tests as evidence that production auto-advance is
+  /// covered — [nextRow]'s tests cover that.
   static int autoAdvanceRowAfter(
     List<bool> audioFlags,
     int completedAudioOrdinal, {
