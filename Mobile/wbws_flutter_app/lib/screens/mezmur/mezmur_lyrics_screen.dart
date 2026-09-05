@@ -6,7 +6,9 @@ import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
 import '../../services/mezmur_audio_player.dart';
+import '../../services/hymn_store.dart';
 import '../../services/mezmur_synced_lyrics.dart';
+import 'mezmur_lyrics_sync_screen.dart';
 import 'parchment_style.dart';
 
 /// Lyrics that live INSIDE the parchment ornamental box.
@@ -197,20 +199,58 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18),
-        child: Text(
-          _hadNetworkError
-              ? 'Synced lyrics could not be downloaded — check your connection and try again.'
-              : 'የጊዜ ግጥም ገና አልተጨመሩም።\nNo timed lyrics have been added for this hymn yet.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-              color: Parchment.inkFaint, fontSize: 13, height: 1.6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _hadNetworkError
+                  ? 'Synced lyrics could not be downloaded — check your connection and try again.'
+                  : 'የጊዜ ግጥም ገና አልተጨመሩም።\nNo timed lyrics have been added for this hymn yet.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: Parchment.inkFaint, fontSize: 13, height: 1.6),
+            ),
+            // P48: curators can author the timings right here. Gated on
+            // canEdit, which mirrors the server's role check — the UI
+            // hides it, and the API still refuses it, so hiding is a
+            // convenience and never the security boundary.
+            if (HymnStore().canEdit && _hasStaticLyrics) ...[
+              const SizedBox(height: 14),
+              TextButton.icon(
+                onPressed: _openSyncEditor,
+                icon: const Icon(Icons.timer_outlined, size: 18),
+                label: const Text('Sync lyrics to audio'),
+              ),
+            ],
+          ],
         ),
       ),
     );
   }
 
+  bool get _hasStaticLyrics =>
+      (_staticLyrics).trim().isNotEmpty ||
+      (widget.track.lyrics ?? '').trim().isNotEmpty;
+
+  /// P48: open the tap-to-sync editor, then reload so the new timings
+  /// are picked up immediately without leaving the player.
+  Future<void> _openSyncEditor() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => MezmurLyricsSyncScreen(track: widget.track),
+      ),
+    );
+    if (saved == true && mounted) {
+      _userHold = false;
+      await _load();
+    }
+  }
+
   Widget _buildSynced() {
     final lines = _doc!.lines;
+    // Long-press anywhere on the timed lyrics to re-open the editor.
+    // Deliberately not a visible button: the reading view stays clean
+    // for the 99% of users who never edit.
     return LayoutBuilder(builder: (context, box) {
       final pad = box.maxHeight * 0.42;
       return ParchmentFade(

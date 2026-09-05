@@ -351,7 +351,15 @@ final class MezmurHymnService
             } catch (\Throwable $e) { $has = false; }
             self::$hasSyncedCache = $has;
         }
-        return self::$hasSyncedCache ? 'lyrics_synced' : "'' AS lyrics_synced";
+        // P48: when the column is ABSENT the server must say "unknown",
+        // not "empty". Emitting '' made a schema-less deployment look
+        // like every hymn had its timings deliberately cleared, and the
+        // device dutifully wiped good local LRC on every delta pull.
+        // NULL is the honest signal, and the client treats NULL-from-
+        // absent-column as "no information" rather than "cleared".
+        return self::$hasSyncedCache
+            ? 'lyrics_synced'
+            : 'NULL AS lyrics_synced';
     }
 
     /** SELECT fragment for the synced-lyrics edit time (probe-guarded). */
@@ -360,7 +368,7 @@ final class MezmurHymnService
         self::syncedColExpr($conn); // warms the shared column-probe cache
         return self::$hasSyncedCache
             ? "COALESCE(DATE_FORMAT(lyrics_synced_at, '%Y-%m-%dT%H:%i:%sZ'), '') AS lyrics_synced_at"
-            : "'' AS lyrics_synced_at";
+            : 'NULL AS lyrics_synced_at';
     }
 
     /** Merge the media payload (audio_url from key) into a hymn row. */

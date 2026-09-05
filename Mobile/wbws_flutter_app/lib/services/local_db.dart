@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'amharic_text.dart' as amharic;
 import 'search_index_policy.dart';
 import 'search_matching.dart';
+import 'synced_lyrics_merge.dart';
 import 'package:path/path.dart';
 
 import 'taxonomy_reconcile.dart';
@@ -2238,9 +2239,31 @@ class LocalDb {
             'audio_size': intPreserve('audio_size'),
             'audio_duration_s': intPreserve('audio_duration_s'),
             'audio_updated_at': textPreserve('audio_updated_at'),
-            'lyrics_synced': h.containsKey('lyrics_synced')
-                ? (h['lyrics_synced'] as String?)
-                : (old['lyrics_synced'] as String?),
+            // P48: DEFENSIVE MERGE for timed lyrics.
+            //
+            // An EMPTY STRING from the server is ambiguous: it means
+            // either "this hymn genuinely has no timings" or "my schema
+            // lacks the column so I cannot tell you". Older deployments
+            // emit '' AS lyrics_synced for the second case, and the old
+            // rule below dutifully wiped perfectly good local LRC on
+            // EVERY delta pull — which is why karaoke highlighting,
+            // animation and auto-scroll silently stopped working on the
+            // phone while the web player was fine.
+            //
+            // Rule now:
+            //   key absent      -> keep local (nothing was said)
+            //   value null      -> keep local (column unknown/absent)
+            //   value ''        -> keep local (cannot distinguish -> do
+            //                      not destroy user work)
+            //   non-empty value -> take it (the only authoritative case)
+            //
+            // Clearing timings is therefore driven by the explicit
+            // lyrics_synced op, not by an ambiguous sync payload. Losing
+            // a curator's work is far worse than a stale clear that the
+            // next real edit fixes.
+            'lyrics_synced': _mergeSyncedLyrics(
+                h.containsKey('lyrics_synced') ? h['lyrics_synced'] : null,
+                old['lyrics_synced'] as String?),
             'lyrics_synced_at': textPreserve('lyrics_synced_at'),
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
@@ -2298,6 +2321,12 @@ class LocalDb {
   }
 
   /// Fill lyrics into an already-cached row (lazy blob download).
+  /// P48: delegate to the shared, unit-tested policy so the DB layer and
+  /// any future caller can never disagree about when a sync payload may
+  /// overwrite a curator's timings.
+  static String? _mergeSyncedLyrics(Object? incoming, String? local) =>
+      SyncedLyricsMerge.merge(incoming: incoming, local: local);
+
   /// P46: write timed (LRC) lyrics locally.
   ///
   /// Optimistic: the karaoke view reflects an edit before the upload
