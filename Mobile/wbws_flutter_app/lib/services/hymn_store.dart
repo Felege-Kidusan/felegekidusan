@@ -1022,6 +1022,10 @@ class HymnStore extends ChangeNotifier {
     return (categories: cats, zemarians: zems);
   }
 
+  /// P38: verify/repair the search index. Safe to call often.
+  Future<void> ensureSearchIndexFresh({bool userIsSearching = false}) =>
+      _db.ensureSearchIndexFresh(userIsSearching: userIsSearching);
+
   Future<void> pullChanges({int lyricsBatch = 15}) async {
     if (!_api.isLoggedIn || _pulling) return;
     _pulling = true;
@@ -1087,6 +1091,12 @@ class HymnStore extends ChangeNotifier {
       // Offline or flaky link: the delta simply waits for next cycle.
     } finally {
       _pulling = false;
+      // P38: hymns change daily, so verify the index after EVERY sync
+      // rather than trusting a one-time migration. This repairs dirty
+      // rows and rebuilds outright if the analyzer version moved.
+      try {
+        await _db.ensureSearchIndexFresh();
+      } catch (_) {}
     }
   }
 

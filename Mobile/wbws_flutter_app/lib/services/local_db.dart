@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 
 import 'amharic_text.dart' as amharic;
+import 'search_index_policy.dart';
 import 'package:path/path.dart';
 
 import 'taxonomy_reconcile.dart';
@@ -43,7 +44,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 22,
+      version: 23,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -343,6 +344,13 @@ class LocalDb {
         if (oldVersion < 21) {
           // P33: Spotify-style offline downloads for mezmur audio.
           await _createDownloadTables(db);
+        }
+        if (oldVersion < 23) {
+          // P38: self-healing index. No rebuild is scheduled here on
+          // purpose — the analyzer stamp is left NULL so the check that
+          // runs on EVERY open notices and repairs, which also covers
+          // interrupted rebuilds and future normaliser changes.
+          await _createSearchMetaTables(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -763,6 +771,28 @@ class LocalDb {
         where: "audio_status = 'ready' AND status <> 'archived'");
   }
 
+  /// P38: index metadata (analyzer stamp + rebuild flag) and the dirty
+  /// queue that drives incremental repair.
+  Future<void> _createSearchMetaTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hymn_search_meta (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        analyzer_version INTEGER,
+        rebuild_in_progress INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute(
+        'INSERT OR IGNORE INTO hymn_search_meta (id, analyzer_version, '
+        'rebuild_in_progress) VALUES (1, NULL, 0)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS hymn_search_dirty (
+        hymn_id INTEGER PRIMARY KEY,
+        queued_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createHymnSearchIndex(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS hymn_search_words (
@@ -775,6 +805,130 @@ class LocalDb {
         'CREATE INDEX IF NOT EXISTS idx_hymn_search_words_word ON hymn_search_words (word)');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_hymn_search_words_hymn ON hymn_search_words (hymn_id)');
+    await _createSearchMetaTables(db);
+  }
+
+  // ---------------------------------------------------------------
+  // P38: self-healing search index.
+  // ---------------------------------------------------------------
+
+  /// Reads the current index state (analyzer stamp, rebuild flag,
+  /// dirty backlog).
+  Future<IndexState> searchIndexState() async {
+    final db = await database;
+    try {
+      final rows = await db.query('hymn_search_meta',
+          where: 'id = 1', limit: 1);
+      final dirty = _asIntLocal((await db.rawQuery(
+              'SELECT COUNT(*) c FROM hymn_search_dirty'))
+          .first['c']);
+      if (rows.isEmpty) return IndexState(dirtyCount: dirty);
+      final r = rows.first;
+      final v = r['analyzer_version'];
+      return IndexState(
+        stampedVersion: v == null ? null : _asIntLocal(v),
+        rebuildInProgress: _asIntLocal(r['rebuild_in_progress']) == 1,
+        dirtyCount: dirty,
+      );
+    } catch (_) {
+      // Metadata unreadable => treat as never stamped, which forces a
+      // rebuild rather than trusting an unknown index.
+      return const IndexState();
+    }
+  }
+
+  /// Marks hymns as needing reindexing. Cheap and idempotent, so callers
+  /// can be liberal.
+  Future<void> markHymnsDirty(Iterable<int> ids) async {
+    final list = ids.where((i) => i > 0).toList();
+    if (list.isEmpty) return;
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    final batch = db.batch();
+    for (final id in list) {
+      batch.insert(
+        'hymn_search_dirty',
+        {'hymn_id': id, 'queued_at': now},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Reindexes queued rows in bounded batches.
+  ///
+  /// A row is cleared from the queue only after its words are written,
+  /// so an interruption leaves it queued and it is retried next time —
+  /// never silently skipped.
+  ///
+  /// Returns how many hymns were reindexed.
+  Future<int> processDirtySearchRows({int max = 200}) async {
+    final db = await database;
+    final queued = await db.query('hymn_search_dirty',
+        columns: ['hymn_id'], orderBy: 'queued_at ASC', limit: max);
+    if (queued.isEmpty) return 0;
+    final ids =
+        queued.map((r) => _asIntLocal(r['hymn_id'])).where((i) => i > 0).toList();
+    var done = 0;
+    for (final chunk in SearchIndexPolicy.batches(ids)) {
+      for (final id in chunk) {
+        final rows = await db.query('cached_hymns',
+            columns: ['id', 'title', 'lyrics'],
+            where: 'id = ?',
+            whereArgs: [id],
+            limit: 1);
+        if (rows.isEmpty) {
+          // The hymn was deleted; drop its index rows too so it cannot
+          // linger as a phantom result.
+          await db.delete('hymn_search_words',
+              where: 'hymn_id = ?', whereArgs: [id]);
+        } else {
+          await _reindexHymnSearchIndex(db, rows.first);
+        }
+        await db.delete('hymn_search_dirty',
+            where: 'hymn_id = ?', whereArgs: [id]);
+        done++;
+      }
+    }
+    return done;
+  }
+
+  /// The self-heal entry point: call on open and after each sync.
+  ///
+  /// Decides between a full rebuild (analyzer changed / interrupted /
+  /// unstamped) and incremental repair of dirty rows. The stamp is
+  /// written ONLY after a rebuild finishes, so a crash mid-rebuild is
+  /// retried instead of being mistaken for success.
+  Future<void> ensureSearchIndexFresh({bool userIsSearching = false}) async {
+    final db = await database;
+    final state = await searchIndexState();
+    final action = SearchIndexPolicy.decide(state);
+
+    if (action == IndexAction.fullRebuild) {
+      if (!SearchIndexPolicy.mayRebuildNow(
+        appIsForeground: true,
+        userIsSearching: userIsSearching,
+      )) {
+        // Defer the full pass, but still repair what we can so the rows
+        // the user is touching stay correct.
+        await processDirtySearchRows();
+        return;
+      }
+      await db.update('hymn_search_meta', {'rebuild_in_progress': 1},
+          where: 'id = 1');
+      await _rebuildHymnSearchIndex(db);
+      await db.delete('hymn_search_dirty');
+      await db.update(
+          'hymn_search_meta',
+          {
+            'analyzer_version': kAnalyzerVersion,
+            'rebuild_in_progress': 0,
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'id = 1');
+      return;
+    }
+    await processDirtySearchRows();
   }
 
   Future<void> _rebuildHymnSearchIndex(Database db) async {
@@ -1977,6 +2131,10 @@ class LocalDb {
     final now = DateTime.now().toIso8601String();
     final protected = protectIds ?? const <int>{};
     final indexedRows = <Map<String, dynamic>>[];
+    // P38: searchable text BEFORE the write, so we can reindex only the
+    // rows whose title/lyrics actually changed. A play-count or cover
+    // update must not cost an index rewrite.
+    final priorText = <int, (String, String)>{};
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final h in rows.whereType<Map>()) {
@@ -1985,6 +2143,7 @@ class LocalDb {
         if (protected.contains(id)) continue;
         final existing = await txn.query('cached_hymns',
             columns: [
+              'title',
               'lyrics',
               'lyrics_synced',
               'audio_status',
@@ -1997,6 +2156,9 @@ class LocalDb {
             where: 'id = ?',
             whereArgs: [id],
             limit: 1);
+        priorText[id] = (
+          '${existing.isNotEmpty ? existing.first['title'] ?? '' : ''}',
+          '${existing.isNotEmpty ? existing.first['lyrics'] ?? '' : ''}');
         final stored = Map<String, dynamic>.from(h);
         if (!h.containsKey('lyrics') && existing.isNotEmpty) {
           stored['lyrics'] = existing.first['lyrics'];
@@ -2070,9 +2232,27 @@ class LocalDb {
       }
       await batch.commit(noResult: true);
     });
+    // P38: reindex only rows whose SEARCHABLE text actually changed, and
+    // do it through the dirty queue so a sync that touches hundreds of
+    // hymns cannot stall on index writes, and an interruption leaves the
+    // work queued rather than silently lost.
+    final dirty = <int>[];
     for (final hymn in indexedRows) {
-      await _reindexHymnSearchIndex(db, hymn);
+      final id = _asIntLocal(hymn['id']);
+      if (id <= 0) continue;
+      final before = priorText[id];
+      if (before == null ||
+          SearchIndexPolicy.needsReindex(
+            oldTitle: before.$1,
+            oldLyrics: before.$2,
+            newTitle: '${hymn['title'] ?? ''}',
+            newLyrics: '${hymn['lyrics'] ?? ''}',
+          )) {
+        dirty.add(id);
+      }
     }
+    await markHymnsDirty(dirty);
+    await processDirtySearchRows();
   }
 
   /// Fill lyrics into an already-cached row (lazy blob download).
@@ -2081,8 +2261,11 @@ class LocalDb {
     await db.rawUpdate(
         'UPDATE cached_hymns SET lyrics = ?, revision = MAX(revision, ?), fetched_at = ? WHERE id = ?',
         [lyrics, revision, DateTime.now().toIso8601String(), id]);
-    final rows = await db.query('cached_hymns', where: 'id = ?', whereArgs: [id]);
-    if (rows.isNotEmpty) await _reindexHymnSearchIndex(db, rows.first);
+    // P38: lyrics blobs stream in long after the row was cached, and
+    // this is the ONLY moment a hymn becomes searchable by its body.
+    // Route it through the dirty queue like every other write.
+    await markHymnsDirty([id]);
+    await processDirtySearchRows();
   }
 
   /// Indexed local search. The query returns only word-index candidates, so

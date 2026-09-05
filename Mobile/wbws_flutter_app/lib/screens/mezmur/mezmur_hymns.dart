@@ -86,6 +86,13 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   bool _bootstrapping = true; // skeleton only on the very first open
   int _pending = 0;
   Timer? _searchDebounce;
+
+  /// P38: monotonic search generation. The old guard compared the query
+  /// TEXT, which silently fails whenever the text returns to a previous
+  /// value (type "sela", backspace to "sel", retype "sela") — two loads
+  /// are then in flight for the same string and the slower one wins.
+  /// A counter cannot collide.
+  int _searchGeneration = 0;
   StreamSubscription<SyncStatus>? _syncSub;
 
   /// Keystroke rule (parity with the server + store):
@@ -106,6 +113,11 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
         if (!_tabCtrl.indexIsChanging) setState(() {}); // hint/flags update
       });
     _store.addListener(_reload);
+    // P38: verify the search index whenever this screen opens. Cheap
+    // when clean (one metadata read); repairs dirty rows or rebuilds
+    // outright when the analyzer version moved. Unawaited so it never
+    // delays first paint.
+    unawaited(_store.ensureSearchIndexFresh().catchError((_) {}));
     _syncSub = _sync.syncStream.listen((_) => _refreshPending());
     _open();
   }
@@ -138,6 +150,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   }
 
   Future<void> _reload() async {
+    final generation = ++_searchGeneration;
     final query = _searchCtrl.text;
     final searching = query.trim().length >= 2;
     // P27: while searching, the store merges the on-device index with
@@ -173,10 +186,10 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
       zemResults = await _store.searchZemarians(query);
     }
     if (!mounted) return;
-    // Stale guard (P27): the unified search round-trips the server; if
-    // the query moved on while we were awaiting, the newer load is on
-    // its way — never let the slower response clobber it.
-    if (searching && _searchCtrl.text.trim() != query.trim()) return;
+    // Stale guard (P27, hardened P38): the unified search round-trips
+    // the server; if a newer load started while we were awaiting, the
+    // slower response must never clobber it.
+    if (generation != _searchGeneration) return;
     setState(() {
       _items = items;
       _categories = cats;
@@ -215,7 +228,10 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   void _onSearchChanged(String _) {
     setState(() {}); // hint / result-mode update, zero latency
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 150), _reload);
+    // 180ms: long enough to coalesce a typing burst, short enough that
+    // the field never feels unresponsive (research consensus is
+    // 150-250ms for search-as-you-type).
+    _searchDebounce = Timer(const Duration(milliseconds: 180), _reload);
   }
 
   Future<void> _refresh() async {
