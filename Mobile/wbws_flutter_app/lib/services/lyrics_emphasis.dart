@@ -53,7 +53,9 @@ class LyricEmphasis {
   static LyricEmphasis forIndex({required int index, required int active}) {
     if (index < 0) index = 0;
     final d = (index - active).abs();
-    if (d == 0 && active >= 0) return active;
+    // NOTE: `active` here is the int parameter, which shadows the static
+    // `LyricEmphasis.active` constant — always qualify the constant.
+    if (d == 0 && active >= 0) return LyricEmphasis.active;
     final scale = (1.0 - d * _scaleStep).clamp(0.80, 0.95).toDouble();
     final opacity = (1.0 - d * _opacityStep).clamp(0.30, 0.90).toDouble();
     return LyricEmphasis(
