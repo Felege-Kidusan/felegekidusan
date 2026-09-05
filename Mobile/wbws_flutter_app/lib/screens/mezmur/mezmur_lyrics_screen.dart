@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
@@ -8,6 +11,7 @@ import '../../services/local_db.dart';
 import '../../services/mezmur_audio_player.dart';
 import '../../services/hymn_store.dart';
 import '../../services/mezmur_synced_lyrics.dart';
+import '../../services/lyrics_emphasis.dart';
 import 'mezmur_lyrics_sync_screen.dart';
 import 'parchment_style.dart';
 
@@ -22,6 +26,20 @@ import 'parchment_style.dart';
 /// Loading model: timed text lives on the hymn row (lyrics_synced) and
 /// is read locally first (offline-friendly), then refreshed from the
 /// single-hymn endpoint while online.
+///
+/// Rendering model (P51) — Apple-Music / Spotech "float on the surface, loom
+/// in deep water":
+///   * The active line sits at natural size and full ink, on a soft gold
+///     glow pill; every other line is progressively smaller and fainter the
+///     further it is from the sung line. It is a pure distance formula
+///     (LyricEmphasis), never a font-size/weight change, so a long Amharic
+///     line can never re-wrap and push its words onto a second row.
+///   * Auto-scroll is NOT a per-line `ensureVisible` (which restarted and
+///     stuttered). A single Ticker eases the scroll offset toward the
+///     centred target with an exponential glide, so transitions are smooth
+///     and kinetic; the renderer stops ticking when nothing is playing.
+///   * Emphasis animation is isolated per line behind a RepaintBoundary and
+///     driven by implicit animations (no per-frame setState on the list).
 class MezmurLyricsScreen extends StatefulWidget {
   final MezmurTrack track;
   const MezmurLyricsScreen({super.key, required this.track});
@@ -30,14 +48,36 @@ class MezmurLyricsScreen extends StatefulWidget {
   State<MezmurLyricsScreen> createState() => _MezmurLyricsScreenState();
 }
 
+/// Soft gold "surface" glow behind the active line (tuned from the parchment
+/// ornament palette; alpha values are deliberate, not arbitrary).
+const LinearGradient _kActiveGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [
+    Color(0x1FD4AF37), // gold @ 12%
+    Color(0x148A5A1B), // bronze @ 8%
+    Color(0x00FFFFFF), // transparent — fades into the parchment
+  ],
+);
+
+const List<BoxShadow> _kActiveGlow = [
+  BoxShadow(color: Color(0x2ED4AF37), blurRadius: 24, spreadRadius: 2),
+];
+
 enum _LyricsMode { synced, staticOnly, none }
 
-class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
+class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
+    with SingleTickerProviderStateMixin {
   final MezmurAudioPlayerController _c =
       MezmurAudioPlayerController.instance;
   final ScrollController _scroll = ScrollController();
 
-  Timer? _ticker;
+  Timer? _positionTicker; // samples the audio position → active line
+  late final Ticker _smoothTicker; // eases the scroll offset (60 fps)
+  bool _wasPlaying = false;
+  Duration _lastTick = Duration.zero;
+  double _targetOffset = 0;
+
   Timer? _resumeHold;
   SyncedLyrics? _doc;
   String? _staticLyrics;
@@ -50,6 +90,9 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
 
   bool get _syncedAvailable =>
       _doc != null && !_doc!.isEmpty && _mode == _LyricsMode.synced;
+
+  static const Duration _anim = Duration(milliseconds: 280);
+  static const Curve _curve = Curves.easeOutCubic;
 
   void _paintFrom(String synced, String staticText) {
     final parsed = SyncedLyrics.tryParse(synced.trim());
@@ -81,9 +124,13 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     // first frame is never a spinner waiting on audio or the network.
     _paintFrom(widget.track.lyricsSynced ?? '', widget.track.lyrics ?? '');
     _load();
-    _ticker = Timer.periodic(const Duration(milliseconds: 220), (_) {
-      _syncActive();
-    });
+    _positionTicker = Timer.periodic(
+        const Duration(milliseconds: 120), (_) => _onPositionTick());
+    // The scroll Ticker is created but not started here. The play/pause watch
+    // (below) starts it when audio plays and stops it when idle, so the
+    // renderer is never ticking while silently parked. The initial centre is
+    // reached by _recenter(instant: true) on load, which needs no Ticker.
+    _smoothTicker = createTicker(_onSmoothTick);
   }
 
   @override
@@ -99,7 +146,8 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
 
   @override
   void dispose() {
-    _ticker?.cancel();
+    _positionTicker?.cancel();
+    _smoothTicker.dispose();
     _resumeHold?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -148,29 +196,86 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     });
   }
 
+  /// Samples the audio position and updates the active line; also watches
+  /// play/pause so the scroll ticker stops when nothing is playing (near-zero
+  /// idle cost, like a production player — rendering stops when silent).
+  void _onPositionTick() {
+    if (!mounted) return;
+    final playing = _c.playing;
+    if (playing != _wasPlaying) {
+      _wasPlaying = playing;
+      if (playing) {
+        _lastTick = Duration.zero;
+        // Guard: Ticker.start() throws "started twice" if already active, so
+        // only start when it was actually stopped.
+        if (!_smoothTicker.isActive) _smoothTicker.start();
+      } else {
+        _smoothTicker.stop();
+      }
+    }
+    _syncActive();
+  }
+
+  /// Updates [active] to the line currently under the playhead. Every change
+  /// recomputes a fresh [scrollTargetOffset] (post-frame, so the item is laid
+  /// out) and lets the Ticker glide to it — never a re-entrant ensureVisible.
   void _syncActive({bool force = false}) {
     if (!_syncedAvailable) return;
     final i = _doc!.indexFor(_c.position);
     if (i == _active && !force) return;
     _active = i;
     if (mounted) setState(() {});
-    if (!_userHold) _centerOn(i);
+    if (_userHold) return;
+    final act = i;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _active == act) _recenter(instant: force);
+    });
   }
 
-  void _centerOn(int i) {
+  /// Computes the scroll offset that centres line [active] and either springs
+  /// to it or (default) hands it to the Ticker to glide toward. Uses the
+  /// render-viewport reveal API (the same one `ensureVisible` uses) so it is
+  /// exact even for variable-height (wrapped) Amharic lines.
+  void _recenter({bool instant = false}) {
+    if (!_scroll.hasClients) return;
+    final i = _active;
     if (i < 0 || i >= _keys.length) return;
-    final ctx = _keys[i].currentContext;
-    if (ctx == null) return;
-    final reduce = MediaQuery.of(this.context).disableAnimations;
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: 0.5,
-      alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
-      duration: reduce
-          ? Duration.zero
-          : const Duration(milliseconds: 420),
-      curve: Curves.easeInOutCubic,
-    );
+    final ro = _keys[i].currentContext?.findRenderObject();
+    if (ro == null || ro is! RenderBox) return;
+    final vp = RenderAbstractViewport.maybeOf(ro);
+    if (vp == null) return;
+    try {
+      final reveal = vp.getOffsetToReveal(ro, 0.5);
+      final max = _scroll.position.maxScrollExtent;
+      final off = reveal.offset.clamp(0.0, max);
+      _targetOffset = off;
+      if (instant) _scroll.jumpTo(off);
+    } catch (_) {
+      // A frame where the item is mid-layout: leave the last target; the
+      // Ticker simply glides there.
+    }
+  }
+
+  /// Continual glide toward [targetOffset]. Exponential (frame-rate
+  /// independent) easing gives smooth inertia and a natural settle — this is
+  /// what replaces the stuttery per-line animations.
+  void _onSmoothTick(Duration elapsed) {
+    if (!mounted || !_scroll.hasClients) return;
+    final dt = (elapsed - _lastTick).inMicroseconds / 1e6;
+    _lastTick = elapsed;
+    if (dt <= 0) return;
+    final current = _scroll.offset;
+    if (_userHold) return; // never fight the user's finger
+    final max = _scroll.position.maxScrollExtent;
+    var target = _targetOffset;
+    if (target < 0) target = 0;
+    if (target > max) target = max;
+    const stiffness = 6.0; // higher = snappier, lower = lazier glide
+    final k = 1 - math.exp(-stiffness * dt);
+    final next = current + (target - current) * k;
+    if ((next - current).abs() > 0.02) {
+      _scroll.jumpTo(next);
+    }
   }
 
   void _tapLine(int i, SyncedLyricLine line) {
@@ -179,7 +284,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
     _active = i;
     _userHold = false;
     if (mounted) setState(() {});
-    _centerOn(i);
+    final act = i;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _active == act) _recenter(instant: true);
+    });
   }
 
   void _onUserScroll(ScrollNotification n) {
@@ -191,7 +299,11 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
       _resumeHold = Timer(const Duration(milliseconds: 2200), () {
         if (!mounted) return;
         _userHold = false;
-        _centerOn(_active);
+        // If we are playing the Ticker is live and will glide; if paused it
+        // is stopped, so snap back to the sung line instead of doing nothing.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _recenter(instant: !_c.playing);
+        });
       });
     }
   }
@@ -257,9 +369,8 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
 
   Widget _buildSynced() {
     final lines = _doc!.lines;
-    // Long-press anywhere on the timed lyrics to re-open the editor.
-    // Deliberately not a visible button: the reading view stays clean
-    // for the 99% of users who never edit.
+    final reduce = MediaQuery.of(context).disableAnimations;
+    final anim = reduce ? Duration.zero : _anim;
     return LayoutBuilder(builder: (context, box) {
       final pad = box.maxHeight * 0.42;
       return ParchmentFade(
@@ -271,57 +382,94 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen> {
           child: ListView.builder(
             controller: _scroll,
             cacheExtent: 4000,
-            padding: EdgeInsets.fromLTRB(6, pad, 6, pad),
+            padding: EdgeInsets.fromLTRB(10, pad, 10, pad),
             itemCount: lines.length,
             itemBuilder: (context, i) {
               final line = lines[i];
-              final isActive = i == _active;
-              final isPast = i < _active;
               final isEmpty = line.isEmpty;
+              // Pure distance rule (no reflow) drives scale/opacity/active.
+              final e = LyricEmphasis.forIndex(index: i, active: _active);
               return KeyedSubtree(
                 key: _keys[i],
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: isEmpty ? null : () => _tapLine(i, line),
-                  child: AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOut,
-                    style: TextStyle(
-                      color: isActive
-                          ? Parchment.inkStrong
-                          : isPast
-                              ? Parchment.inkFaint
-                              : Parchment.ink,
-                      fontSize: isActive ? 18.5 : 15.5,
-                      fontWeight:
-                          isActive ? FontWeight.w800 : FontWeight.w500,
-                      height: 1.55,
-                      fontFamily: 'NotoSansEthiopic',
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 8, horizontal: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
-                            width: 3,
-                            height: isActive ? 22 : 0,
-                            margin: const EdgeInsets.only(top: 4, right: 8),
-                            decoration: BoxDecoration(
-                              color: Parchment.bronze,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
+                  // RepaintBoundary isolates each line so animating one can
+                  // never repaint the whole list (performance guidance for
+                  // long lyric bodies on low-end hardware).
+                  child: RepaintBoundary(
+                    child: AnimatedScale(
+                      scale: e.scale,
+                      duration: anim,
+                      curve: _curve,
+                      alignment: Alignment.center,
+                      child: AnimatedOpacity(
+                        opacity: e.isActive ? 1.0 : e.opacity,
+                        duration: anim,
+                        curve: _curve,
+                        child: AnimatedContainer(
+                          duration: anim,
+                          curve: _curve,
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 13),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            gradient: e.isActive ? _kActiveGradient : null,
+                            boxShadow: e.isActive ? _kActiveGlow : null,
                           ),
-                          Expanded(
-                            child: Text(
-                              isEmpty ? '· · ·' : line.text,
-                              textAlign: TextAlign.center,
-                            ),
+                          // Stack centres the text; the accent bar is
+                          // absolutely placed on the left so it uses the side
+                          // space and never shifts the words into the middle.
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16),
+                                child: Text(
+                                  isEmpty ? '· · ·' : line.text,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: e.isActive
+                                        ? Parchment.inkStrong
+                                        : Parchment.ink,
+                                    fontSize: 16,
+                                    height: 1.5,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'NotoSansEthiopic',
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 4,
+                                top: 0,
+                                bottom: 0,
+                                child: Center(
+                                  child: AnimatedContainer(
+                                    duration: anim,
+                                    curve: _curve,
+                                    width: 3,
+                                    height: e.isActive ? 26 : 0,
+                                    decoration: BoxDecoration(
+                                      color: Parchment.bronze,
+                                      borderRadius: BorderRadius.circular(3),
+                                      boxShadow: e.isActive
+                                          ? const [
+                                              BoxShadow(
+                                                  color: Color(0x66D4AF37),
+                                                  blurRadius: 8,
+                                                  spreadRadius: 1)
+                                            ]
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 11),
-                        ],
+                        ),
                       ),
                     ),
                   ),
