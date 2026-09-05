@@ -133,8 +133,21 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   /// so it is in lockstep with the size and fade.
   double _activityForDistance(double d) => (1.0 - d * 0.25).clamp(0.0, 1.0);
 
-  FontWeight _weightForActivity(double a) =>
-      FontWeight.fromWeight((500 + 300 * a).round());
+  /// Maps a 0..1 activity value to one of the predefined `FontWeight`
+  /// constants (w500 receding … w800 sung). `FontWeight` has no
+  /// `fromWeight` factory, so we pick the nearest predefined weight; it still
+  /// changes in lockstep with the size/fade because it comes from the same
+  /// tweened value.
+  FontWeight _weightForActivity(double a) {
+    const weights = [
+      FontWeight.w500,
+      FontWeight.w600,
+      FontWeight.w700,
+      FontWeight.w800,
+    ];
+    final idx = (a * (weights.length - 1)).round().clamp(0, weights.length - 1);
+    return weights[idx];
+  }
 
   void _onReaderChanged() {
     if (!mounted) return;
