@@ -697,6 +697,66 @@ ob_start();
     </div>
 </div>
 
+<!-- ═══ MODAL: LYRIC TIMING EDITOR (P44) ═══════════════════
+     Authoring UI for synced ("karaoke") lyrics.
+
+     The backend, both players and the LRC validator were already
+     complete — but nothing could WRITE a timestamp, so the feature was
+     dormant. This is the tap-to-sync editor that fills that gap.
+
+     Method (the standard used by every LRC tool): play the audio, press
+     Space at the moment each line begins, and the current playback time
+     is stamped onto that line. Typing timestamps by hand is not viable —
+     a 70-line hymn would take an hour and still be wrong. -->
+<div class="school-modal" id="mzSyncModal" role="dialog" aria-modal="true" aria-labelledby="mzSyncTitle">
+    <div class="school-modal-content mw-760">
+        <div class="page-head">
+            <div>
+                <h3 id="mzSyncTitle"><i class="fa-solid fa-wand-magic-sparkles"></i> Sync lyrics to audio</h3>
+                <div class="page-head-sub" id="mzSyncHymnName"></div>
+            </div>
+            <button class="btn-secondary btn-sm" onclick="Mezmur.syncClose()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <input type="hidden" id="mzSyncHymnId" value="0">
+        <audio id="mzSyncAudio" preload="auto" playsinline class="is-hidden"></audio>
+
+        <p class="text-dim mz-sync-help">
+            Press <kbd>Space</kbd> to stamp the highlighted line and move to the next.
+            <kbd>←</kbd> / <kbd>→</kbd> nudge the audio by 2s, <kbd>Backspace</kbd> steps back a line.
+        </p>
+
+        <div class="mz-sync-transport">
+            <button type="button" class="btn-primary btn-sm" id="mzSyncPlay" onclick="Mezmur.syncPlayPause()">
+                <i class="fa-solid fa-play"></i> <span id="mzSyncPlayLabel">Play</span>
+            </button>
+            <span class="mz-sync-clock" id="mzSyncClock">0:00.0</span>
+            <input type="range" id="mzSyncSeek" min="0" max="1000" value="0" aria-label="Seek audio">
+            <button type="button" class="btn-secondary btn-sm" onclick="Mezmur.syncStamp()">
+                <i class="fa-solid fa-stopwatch"></i> Stamp line
+            </button>
+        </div>
+
+        <div class="school-error-msg is-hidden" id="mzSyncError" role="alert"></div>
+        <div id="mzSyncStatus" class="sr-only" role="status" aria-live="polite"></div>
+
+        <!-- One row per lyric line; the pending line is highlighted. -->
+        <div class="mz-sync-lines" id="mzSyncLines" tabindex="0" aria-label="Lyric lines to time"></div>
+
+        <div class="toolbar toolbar-between mz-sync-actions">
+            <button type="button" class="btn-secondary btn-sm" onclick="Mezmur.syncReset()">
+                <i class="fa-solid fa-rotate-left"></i> Clear all timings
+            </button>
+            <div>
+                <button type="button" class="btn-secondary btn-sm" onclick="Mezmur.syncClose()">Cancel</button>
+                <button type="button" class="btn-primary btn-sm" id="mzSyncSave" onclick="Mezmur.syncSave()">
+                    <i class="fa-solid fa-floppy-disk"></i> Save timings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ═══ MODAL: AUDIO (attach / play / remove hymn audio) ═══
      P0 audio upgrade: the file is uploaded DIRECTLY to Cloudflare R2
      (browser PUT to a short-lived presigned URL), never through PHP.
@@ -730,6 +790,9 @@ ob_start();
         <div class="toolbar toolbar-between mz-audio-actions">
             <button class="btn-primary btn-sm" id="mzAudioPickBtn" onclick="Mezmur.audioPick()">
                 <i class="fa-solid fa-upload"></i> <span id="mzAudioPickLabel">Choose audio file…</span>
+            </button>
+            <button class="btn-secondary btn-sm is-hidden" id="mzAudioSyncBtn" onclick="Mezmur.syncOpen()">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Sync lyrics
             </button>
             <button class="btn-secondary btn-sm is-hidden" id="mzAudioRemoveBtn" onclick="Mezmur.audioRemove()">
                 <i class="fa-solid fa-trash-can"></i> Remove

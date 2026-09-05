@@ -95,7 +95,7 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-$__postActions = ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove', 'audio_presign', 'audio_confirm', 'audio_remove', 'audio_set_duration'];
+$__postActions = ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove', 'audio_presign', 'audio_confirm', 'audio_remove', 'audio_set_duration', 'lyrics_synced_save'];
 if (in_array($action, $__postActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
@@ -793,6 +793,33 @@ try {
         // R2 API host; the public CDN hostname is a separate custom
         // domain that is often not public yet. The console player
         // must use the same signed host confirm already proved.
+        // ── SYNCED LYRICS (P44) ───────────────────────────────
+        // The timing editor writes here. MezmurMediaService already had
+        // saveSyncedLyrics()/removeSyncedLyrics() with full LRC
+        // validation, but NOTHING in the web console called them — the
+        // karaoke feature was fully built at both ends and simply had no
+        // way to author the data. This is that missing link.
+        //
+        // An empty `lrc` clears the timings and falls back to static
+        // lyrics, which is how the editor implements "Remove timings".
+        case 'lyrics_synced_save': {
+            $hymnId = (int)($_POST['id'] ?? 0);
+            if ($hymnId <= 0) {
+                mezmur_respond(['status' => 'error', 'message' => 'Missing hymn id.']);
+            }
+            $lrc = trim((string)($_POST['lrc'] ?? ''));
+            $result = $lrc === ''
+                ? MezmurMediaService::removeSyncedLyrics($conn, $hymnId, (int)$adminId)
+                : MezmurMediaService::saveSyncedLyrics($conn, $hymnId, $lrc, (int)$adminId);
+            if (empty($result['ok'])) {
+                mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            }
+            mezmur_respond([
+                'status'  => 'success',
+                'message' => $result['message'],
+            ]);
+        }
+
         case 'audio_stream': {
             $result = MezmurMediaService::playUrl(
                 $conn,

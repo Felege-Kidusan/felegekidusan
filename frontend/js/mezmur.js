@@ -356,6 +356,269 @@
     });
 
     // ══════════════════════════════════════════════════════════
+    // LYRIC TIMING EDITOR (P44) — tap-to-sync karaoke authoring
+    //
+    // The database columns, the LRC validator/canonicaliser, and the
+    // karaoke renderers in BOTH players already existed. What did not
+    // exist was any way to produce a timestamp, so lyrics_synced was
+    // always NULL and the feature never ran. This is the authoring half.
+    //
+    // Interaction model is the industry standard (MiniLyrics, Musixmatch
+    // and every LRC tool): play the audio and stamp each line as it is
+    // sung. Hand-typing timestamps is not a real option.
+    // ══════════════════════════════════════════════════════════
+    var sync = { id: 0, lines: [], idx: 0, audio: null, dur: 0, raf: 0 };
+
+    /** mm:ss.mmm — the canonical LRC stamp the server expects. */
+    function lrcStamp(sec) {
+        if (!isFinite(sec) || sec < 0) sec = 0;
+        var ms = Math.round(sec * 1000);
+        var m = Math.floor(ms / 60000);
+        var ss = Math.floor((ms % 60000) / 1000);
+        var mmm = ms % 1000;
+        return '[' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0') +
+               '.' + String(mmm).padStart(3, '0') + ']';
+    }
+    function clockText(sec) {
+        if (!isFinite(sec) || sec < 0) sec = 0;
+        var m = Math.floor(sec / 60);
+        var r = sec - m * 60;
+        return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1);
+    }
+
+    /** Parse existing LRC back into rows so re-editing keeps prior work. */
+    function parseExistingLrc(src) {
+        var out = [];
+        String(src || '').split(/\r?\n/).forEach(function (raw) {
+            var m = raw.match(/^\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.*)$/);
+            if (!m) return;
+            var t = (+m[1]) * 60 + (+m[2]) + parseInt(String(m[3] || '0').padEnd(3, '0'), 10) / 1000;
+            out.push({ text: m[4], t: t });
+        });
+        return out;
+    }
+
+    /** Static lyrics -> timeable rows. Blank lines and [Section] markers
+     *  are dropped: the server rejects non-timestamp lines, and timing a
+     *  blank line would be meaningless. */
+    function lyricRows(text) {
+        return String(text || '').split(/\r?\n/)
+            .map(function (l) { return l.trim(); })
+            .filter(function (l) { return l !== '' && !/^\[.+\]$/.test(l); })
+            .map(function (l) { return { text: l, t: null }; });
+    }
+
+    function syncOpen() {
+        var id = parseInt(($('mzAudioHymnId') || {}).value, 10) || 0;
+        if (!id) { window.toast('Open a hymn first.', 'e'); return; }
+        sync.id = id;
+        sync.idx = 0;
+        syncErr('');
+        $('mzSyncHymnId').value = id;
+
+        apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
+            if (!d || d.status !== 'success' || !d.item) {
+                window.toast((d && d.message) || 'Could not load the hymn.', 'e');
+                return;
+            }
+            var h = d.item;
+            $('mzSyncHymnName').textContent = h.title || '';
+            var existing = parseExistingLrc(h.lyrics_synced);
+            var rows = lyricRows(h.lyrics);
+            if (!rows.length) {
+                window.toast('This hymn has no lyrics to time yet. Add lyrics first.', 'e');
+                return;
+            }
+            // Re-open with previous timings applied where the text still
+            // matches, so editing is incremental rather than all-or-nothing.
+            if (existing.length) {
+                rows.forEach(function (r, i) {
+                    if (existing[i] && existing[i].text === r.text) r.t = existing[i].t;
+                });
+            }
+            sync.lines = rows;
+            sync.idx = 0;
+            renderSyncLines();
+            openModalF('mzSyncModal', '#mzSyncPlay');
+            syncLoadAudio(id);
+        }).catch(function (err) {
+            window.toast((err && err.message) || 'Could not load the hymn.', 'e');
+        });
+    }
+
+    function syncLoadAudio(id) {
+        var a = $('mzSyncAudio');
+        if (!a) return;
+        sync.audio = a;
+        apiGet('action=audio_stream&id=' + encodeURIComponent(id)).then(function (s2) {
+            if (!s2 || s2.status !== 'success' || !s2.url) {
+                syncErr('No audio is attached yet. Upload audio first — timings are meaningless without it.');
+                return;
+            }
+            a.src = s2.url;
+            a.load();
+        }).catch(function () {
+            syncErr('Could not load the audio for this hymn.');
+        });
+    }
+
+    function syncErr(msg) {
+        var el = $('mzSyncError');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('is-hidden', !msg);
+    }
+
+    function renderSyncLines() {
+        var box = $('mzSyncLines');
+        if (!box) return;
+        box.innerHTML = sync.lines.map(function (l, i) {
+            var stamped = l.t != null;
+            return '<div class="mz-sync-line' + (i === sync.idx ? ' is-current' : '') +
+                   (stamped ? ' is-stamped' : '') + '" data-i="' + i + '">' +
+                   '<button type="button" class="mz-sync-time" onclick="Mezmur.syncSeekTo(' + i + ')" ' +
+                   'title="Jump to this time">' + (stamped ? clockText(l.t) : '—') + '</button>' +
+                   '<span class="mz-sync-text amharic">' + esc(l.text) + '</span>' +
+                   '<span class="mz-sync-nudge">' +
+                   '<button type="button" onclick="Mezmur.syncNudge(' + i + ',-0.2)" aria-label="Earlier by 0.2 seconds"' +
+                   (stamped ? '' : ' disabled') + '>−</button>' +
+                   '<button type="button" onclick="Mezmur.syncNudge(' + i + ',0.2)" aria-label="Later by 0.2 seconds"' +
+                   (stamped ? '' : ' disabled') + '>+</button>' +
+                   '</span></div>';
+        }).join('');
+        var cur = box.querySelector('.mz-sync-line.is-current');
+        if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'center' });
+        var done = sync.lines.filter(function (l) { return l.t != null; }).length;
+        var st = $('mzSyncStatus');
+        if (st) st.textContent = done + ' of ' + sync.lines.length + ' lines timed.';
+    }
+
+    function syncPlayPause() {
+        var a = sync.audio;
+        if (!a || !a.src) { syncErr('No audio loaded.'); return; }
+        if (a.paused) { a.play().catch(function () { syncErr('Playback was blocked by the browser.'); }); }
+        else { a.pause(); }
+    }
+
+    /** Stamp the current line at the current playback position. */
+    function syncStamp() {
+        var a = sync.audio;
+        if (!a || !a.src) { syncErr('Load audio before stamping.'); return; }
+        if (sync.idx >= sync.lines.length) return;
+        sync.lines[sync.idx].t = a.currentTime;
+        sync.idx = Math.min(sync.idx + 1, sync.lines.length);
+        renderSyncLines();
+    }
+
+    function syncBack() {
+        if (sync.idx <= 0) return;
+        sync.idx--;
+        sync.lines[sync.idx].t = null; // re-timing this line
+        renderSyncLines();
+    }
+
+    function syncNudge(i, delta) {
+        if (!sync.lines[i] || sync.lines[i].t == null) return;
+        sync.lines[i].t = Math.max(0, sync.lines[i].t + delta);
+        renderSyncLines();
+    }
+
+    function syncSeekTo(i) {
+        var a = sync.audio;
+        if (!a || sync.lines[i] == null || sync.lines[i].t == null) return;
+        a.currentTime = sync.lines[i].t;
+        sync.idx = i;
+        renderSyncLines();
+    }
+
+    function syncReset() {
+        if (!window.confirm('Clear every timing for this hymn?')) return;
+        sync.lines.forEach(function (l) { l.t = null; });
+        sync.idx = 0;
+        renderSyncLines();
+    }
+
+    function syncSave() {
+        var timed = sync.lines.filter(function (l) { return l.t != null; });
+        if (!timed.length) {
+            // Saving with nothing timed means "remove timings" — make that
+            // explicit rather than silently wiping.
+            if (!window.confirm('No lines are timed. Remove synced lyrics and fall back to static lyrics?')) return;
+        }
+        var lrc = timed
+            .slice()
+            .sort(function (a, b) { return a.t - b.t; })
+            .map(function (l) { return lrcStamp(l.t) + ' ' + l.text; })
+            .join('\n');
+
+        var btn = $('mzSyncSave');
+        var restore = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…'; }
+        apiPost({ action: 'lyrics_synced_save', id: sync.id, lrc: lrc }).then(function (d) {
+            if (!d || d.status !== 'success') {
+                window.toast((d && d.message) || 'Could not save timings.', 'e');
+                return;
+            }
+            window.toast(d.message || 'Synced lyrics saved.', 's');
+            syncClose();
+        }).catch(function (err) {
+            window.toast((err && err.message) || 'Network error — timings were not saved.', 'e');
+        }).then(function () {
+            if (btn) { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.innerHTML = restore; }
+        });
+    }
+
+    function syncClose() {
+        var a = sync.audio;
+        if (a) { try { a.pause(); } catch (e) {} a.removeAttribute('src'); a.load(); }
+        if (sync.raf) { cancelAnimationFrame(sync.raf); sync.raf = 0; }
+        closeModalF('mzSyncModal');
+    }
+
+    /** Keyboard: Space stamps, arrows nudge the audio, Backspace steps
+     *  back. Only while the editor is open, and never while typing. */
+    document.addEventListener('keydown', function (e) {
+        var modalEl = $('mzSyncModal');
+        if (!modalEl || !modalEl.classList.contains('show')) return;
+        var t = e.target;
+        var tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
+        var a = sync.audio;
+        if (e.key === ' ') { e.preventDefault(); syncStamp(); }
+        else if (e.key === 'Backspace') { e.preventDefault(); syncBack(); }
+        else if (e.key === 'ArrowLeft' && a) { e.preventDefault(); a.currentTime = Math.max(0, a.currentTime - 2); }
+        else if (e.key === 'ArrowRight' && a) { e.preventDefault(); a.currentTime = a.currentTime + 2; }
+        else if (e.key === 'Enter') { e.preventDefault(); syncPlayPause(); }
+    });
+
+    // Clock + seek bar, driven by the audio element itself.
+    document.addEventListener('DOMContentLoaded', function () {
+        var a = $('mzSyncAudio');
+        if (!a) return;
+        a.addEventListener('timeupdate', function () {
+            var c = $('mzSyncClock');
+            if (c) c.textContent = clockText(a.currentTime);
+            var sk = $('mzSyncSeek');
+            if (sk && isFinite(a.duration) && a.duration > 0 && document.activeElement !== sk) {
+                sk.value = String(Math.round((a.currentTime / a.duration) * 1000));
+            }
+        });
+        a.addEventListener('play', function () {
+            var l = $('mzSyncPlayLabel'); if (l) l.textContent = 'Pause';
+        });
+        a.addEventListener('pause', function () {
+            var l = $('mzSyncPlayLabel'); if (l) l.textContent = 'Play';
+        });
+        var sk = $('mzSyncSeek');
+        if (sk) {
+            sk.addEventListener('input', function () {
+                if (!isFinite(a.duration) || a.duration <= 0) return;
+                a.currentTime = (Number(sk.value) / 1000) * a.duration;
+            });
+        }
+    });
+
+    // ══════════════════════════════════════════════════════════
     // LAZY TAB LOADING — data fetches on first tab activation
     // ══════════════════════════════════════════════════════════
     var tabLoaded = { overview: false, library: false, attendance: false, analytics: false, takers: false };
@@ -2483,16 +2746,20 @@
                     (h.audio_duration_s ? ' · ' + fmtDur(h.audio_duration_s) : '') +
                     ' — listen in the Mezmur player (lyrics, queue, next/previous).';
                 $('mzAudioRemoveBtn').classList.remove('is-hidden');
+                // P44: timings are only meaningful against real audio.
+                var sb = $('mzAudioSyncBtn'); if (sb) sb.classList.remove('is-hidden');
             } else if (status === 'pending') {
                 pWrap.classList.add('is-hidden');
                 $('mzAudioPickLabel').textContent = 'Upload audio (choose the file)';
                 $('mzAudioState').textContent = 'A previous upload was started but never finished, so it was discarded — choosing the file starts a fresh upload (there is no resume).';
                 $('mzAudioRemoveBtn').classList.remove('is-hidden');
+                var sb2 = $('mzAudioSyncBtn'); if (sb2) sb2.classList.add('is-hidden');
             } else {
                 pWrap.classList.add('is-hidden');
                 $('mzAudioPickLabel').textContent = 'Choose audio file…';
                 $('mzAudioState').textContent = 'No audio yet. Pick an mp3 / m4a / ogg / wav (up to 15 MB) — it is uploaded straight to the media CDN.';
                 $('mzAudioRemoveBtn').classList.add('is-hidden');
+                var sb3 = $('mzAudioSyncBtn'); if (sb3) sb3.classList.add('is-hidden');
             }
             openModalF('mzAudioModal');
         }).catch(function (err) { window.toast((err && err.message) || 'Connection error.', 'e'); });
@@ -2771,6 +3038,10 @@
         mgrToggleOpen: mgrToggleOpen, mgrRemoveZemImage: mgrRemoveZemImage,
         mgrColors: mgrColors, closeColorDialog: function () { closeModalF('mzColorDialog'); }, closeImageDialog: function () { URL.revokeObjectURL(imgPick.url); imgPick = { id: 0, file: null, url: '' }; closeModalF('mzImageDialog'); },
         closeModal: function () { closeModalF('mzHymnModal'); },
+        // P44 lyric timing editor
+        syncOpen: syncOpen, syncClose: syncClose, syncSave: syncSave,
+        syncStamp: syncStamp, syncPlayPause: syncPlayPause,
+        syncNudge: syncNudge, syncSeekTo: syncSeekTo, syncReset: syncReset,
         closeView: function () { closeModalF('mzViewModal'); },
         libPage: function (p) { if (p >= 1 && p <= lib.totalPages) { lib.page = p; loadList(); } },
         // attendance

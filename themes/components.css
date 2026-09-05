@@ -17,6 +17,68 @@
     clip: rect(0 0 0 0); clip-path: inset(50%);
 }
 
+
+/* ═══ LYRIC TIMING EDITOR (P44) ═══════════════════════════════
+   Authoring UI for synced ("karaoke") lyrics. Token-driven so it
+   inherits dark/light automatically. */
+.mw-760 { max-width: 760px; }
+.mz-sync-help { font-size: .8rem; margin: .25rem 0 .6rem; }
+.mz-sync-help kbd {
+    display: inline-block; padding: .05rem .35rem; margin: 0 .1rem;
+    border: 1px solid var(--school-border); border-radius: 4px;
+    background: var(--school-bg-alt); font-size: .75rem; font-family: inherit;
+}
+.mz-sync-transport {
+    display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+    padding: .6rem .7rem; margin-bottom: .6rem;
+    background: var(--school-bg-alt); border: 1px solid var(--school-border);
+    border-radius: 8px;
+}
+.mz-sync-transport input[type="range"] { flex: 1; min-width: 140px; }
+.mz-sync-clock {
+    font-variant-numeric: tabular-nums; /* digits stop jittering */
+    min-width: 62px; font-weight: 700; color: var(--school-text-bright);
+}
+.mz-sync-lines {
+    max-height: 46vh; overflow-y: auto;
+    border: 1px solid var(--school-border); border-radius: 8px;
+}
+.mz-sync-lines:focus-visible { outline: 2px solid var(--school-accent); outline-offset: 2px; }
+.mz-sync-line {
+    display: grid; grid-template-columns: 74px 1fr auto;
+    align-items: center; gap: .5rem;
+    padding: .4rem .6rem;
+    border-bottom: 1px solid var(--school-border);
+}
+.mz-sync-line:last-child { border-bottom: 0; }
+.mz-sync-line.is-stamped .mz-sync-time { color: var(--school-success); font-weight: 700; }
+/* The pending line is marked with colour AND a left bar, so it is not
+   colour-alone (WCAG 1.4.1). */
+.mz-sync-line.is-current {
+    background: var(--school-success-bg);
+    box-shadow: inset 3px 0 0 var(--school-accent);
+}
+.mz-sync-time {
+    font-variant-numeric: tabular-nums; font-size: .8rem;
+    background: none; border: 0; cursor: pointer;
+    color: var(--school-text-dim); text-align: left; padding: 0;
+}
+.mz-sync-time:hover { text-decoration: underline; }
+.mz-sync-text { min-width: 0; overflow-wrap: anywhere; }
+.mz-sync-nudge { display: flex; gap: .2rem; }
+.mz-sync-nudge button {
+    width: 26px; height: 26px; line-height: 1;
+    border: 1px solid var(--school-border); border-radius: 6px;
+    background: var(--school-surface); color: var(--school-text);
+    cursor: pointer;
+}
+.mz-sync-nudge button:disabled { opacity: .35; cursor: default; }
+.mz-sync-actions { margin-top: .7rem; }
+@media (max-width: 640px) {
+    .mz-sync-line { grid-template-columns: 62px 1fr; }
+    .mz-sync-nudge { grid-column: 1 / -1; justify-content: flex-end; }
+}
+
 /* P42: one source of truth for the player dock height — the dock, the
  * content padding and the toast offset all derive from it. */
 :root { --mz-dock-h: 82px; }
