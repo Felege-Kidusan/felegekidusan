@@ -1,4 +1,56 @@
-# Mezmur search — deep audit and root cause (P40)
+# Mezmur search — deep audit and root cause (P40 / P41)
+
+> **P41 supersedes the P40 conclusion below.** The device log revealed a
+> crash that made search fail before any of the P40 analysis mattered.
+> Read this section first; the P40 material remains valid as a
+> secondary defect that was also fixed.
+>
+> ## P41 — the actual cause: read-only rows
+>
+> ```
+> Unhandled Exception: Unsupported operation: read-only
+>   QueryRow.[]= (sqflite_common/src/collection_utils.dart:152)
+>   HymnStore.hymns (hymn_store.dart:148)
+> ```
+>
+> sqflite returns `QueryRow`, a **read-only** map. `hymn_store` wrote
+> match metadata directly onto rows returned by a query
+> (`row['similarity'] = ...`), so the **first result of the first
+> search threw**. `_reload` never reached `setState`, so the UI kept
+> the previous list — identical rows for every query, no highlighting,
+> apparently dead search.
+>
+> **The ranking engine was correct the whole time.** It never got to
+> publish its output.
+>
+> ### The detail that proves it
+>
+> The query `አምገሊሊ` DID show a correct "No hymns match" empty state.
+> No matches → the decorate loop never ran → nothing threw → the real
+> (empty) result was published. **Only non-empty results crashed.**
+> That asymmetry is the signature of this bug, and it rules out the
+> P40 theory that the server was injecting unfiltered rows.
+>
+> ### Fix
+>
+> `HymnStore._decorate(row, hit)` returns a **writable copy**
+> (`{...row, ...}`). All three decorate sites route through it:
+> `hymns()`, `_verifyServerRow()`, and the server-merge snippet branch
+> (which mutated `localRow` — the same hazard one level down).
+>
+> Audited the rest of `lib/` for the pattern: `hr_attendance`,
+> `mezmur_attendance` and `roster.dart` all copy with `Map.from()`
+> first. `hymn_store` was the only offender.
+>
+> ### Lesson
+>
+> Three rounds were spent theorising about matching semantics without a
+> device log. **The stack trace named the file, line and operation in
+> one line.** Ask for runtime logs before deep-diving static analysis.
+
+---
+
+## P40 (secondary defect, also fixed)
 
 ## Evidence
 
