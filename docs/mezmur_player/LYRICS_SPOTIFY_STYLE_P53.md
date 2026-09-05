@@ -56,10 +56,16 @@ row. The emphasis is animated with implicit `AnimatedOpacity` + `AnimatedScale`
 behind a `RepaintBoundary`, and `MediaQuery.disableAnimations` is honoured.
 
 > Tuning (P54): the first pass was too subtle (scale step 2.5%, uniform dark
-> ink, identical weight). The active line is now unmistakable — **biggest, bold,
-> darkest** — while the rest recede to bronze and shrink to ~82% and fade to
-> ~42%. The leading padding was also reduced `0.42 → 0.30` so a short hymn no
-> longer floats with a big empty strip at the top.
+> ink, identical weight). The active line is now unmistakable — **bold,
+> darkest** — while the rest recede to bronze and fade to ~42%.
+>
+> Smoothness tuning (P55–P58): the size emphasis is a **paint-only
+> `AnimatedScale` wrapper** around the `FittedBox` — it never changes
+> `fontSize`, so the Amharic glyphs never re-shape/re-layout and the size
+> change scales the already-composited line on the GPU (perfectly smooth, zero
+> reflow). The falloff is gentle (nearest line 0.92, settling 0.86), the
+> transition uses a 360 ms `easeInOutCubic`, and the centering scroll glide
+> uses stiffness 4.5 so the exiting line drifts away in step with its fade.
 
 ---
 
