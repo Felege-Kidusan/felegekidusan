@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../services/app_navigator.dart';
 import '../../services/mezmur_audio_player.dart';
 import '../../services/mezmur_download_manager.dart';
+import '../../services/lyrics_reader_settings.dart';
 import 'mezmur_lyrics_screen.dart';
 import 'parchment_style.dart';
 
@@ -255,6 +256,145 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     );
   }
 
+  /// "Aa" — accessibility / reading preferences for the lyrics. Backed by the
+  /// LyricsReaderSettings singleton so every hymn updates live and the choice
+  /// persists across restarts (elderly users are never asked twice). Always
+  /// reachable, even for a hymn with no audio, because reading the words is the
+  /// point for many members.
+  void _showTextSettings() {
+    final rs = LyricsReaderSettings.instance;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFFF3E4C4),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return ListenableBuilder(
+          listenable: rs,
+          builder: (ctx, _) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Text & reading',
+                      style: TextStyle(
+                        fontFamily: 'NotoSansEthiopic',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: Parchment.inkStrong,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Make the lyrics easy to read. Your choice applies to '
+                      'every hymn and is remembered.',
+                      style: TextStyle(
+                        color: Parchment.inkFaint,
+                        fontSize: 12.5,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: rs.textScale > LyricsReaderSettings.defaultTextScale,
+                      activeColor: Parchment.bronze,
+                      title: const Text(
+                        'Large text',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Parchment.inkStrong,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Bigger words for everyone to read.',
+                        style: TextStyle(color: Parchment.inkFaint, fontSize: 12),
+                      ),
+                      onChanged: (big) => rs.setTextScale(
+                          big ? 1.35 : LyricsReaderSettings.defaultTextScale),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: rs.readingMode,
+                      activeColor: Parchment.bronze,
+                      title: const Text(
+                        'Reading mode',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Parchment.inkStrong,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Lyrics only — steady, full-size text with less motion.',
+                        style: TextStyle(color: Parchment.inkFaint, fontSize: 12),
+                      ),
+                      onChanged: (v) => rs.setReadingMode(v),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: rs.highContrast,
+                      activeColor: Parchment.bronze,
+                      title: const Text(
+                        'High contrast',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Parchment.inkStrong,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Darker text for maximum legibility.',
+                        style: TextStyle(color: Parchment.inkFaint, fontSize: 12),
+                      ),
+                      onChanged: (v) => rs.setHighContrast(v),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text(
+                          'A',
+                          style: TextStyle(
+                            fontSize:
+                                13 * LyricsReaderSettings.minTextScale,
+                            color: Parchment.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Expanded(
+                          child: Slider(
+                            min: LyricsReaderSettings.minTextScale,
+                            max: LyricsReaderSettings.maxTextScale,
+                            value: rs.textScale,
+                            activeColor: Parchment.bronze,
+                            inactiveColor:
+                                Parchment.bronzeSoft.withOpacity(0.28),
+                            onChanged: (v) => rs.setTextScale(v),
+                          ),
+                        ),
+                        Text(
+                          'A',
+                          style: TextStyle(
+                            fontSize: 13 * LyricsReaderSettings.maxTextScale,
+                            color: Parchment.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showQueue() {
     final q = _catalog;
     if (q.isEmpty) return;
@@ -370,6 +510,12 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
         // P33: keep the hymn you are listening to. The parchment chip
         // reflects live download state, same vocabulary as the list.
         _DownloadChip(hymnId: _view.hymnId, ready: _c.viewHasAudio),
+        const SizedBox(width: 8),
+        _ChipIcon(
+          icon: Icons.text_increase_rounded,
+          tooltip: 'Text & reading',
+          onTap: _showTextSettings,
+        ),
         const SizedBox(width: 8),
         _ChipIcon(
           icon: Icons.tune_rounded,

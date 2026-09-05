@@ -16,6 +16,7 @@ import 'services/app_update_service.dart';
 import 'services/warm_store.dart';
 import 'services/app_navigator.dart';
 import 'services/mezmur_download_manager.dart';
+import 'services/lyrics_reader_settings.dart';
 import 'utils/scrolling.dart';
 import 'utils/theme.dart';
 import 'screens/auth/login_screen.dart';
@@ -82,6 +83,9 @@ Future<void> runBootstrap() async {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     // OS radio only — no HTTP ping. Warm and sync wait so Home can use 4G first.
     ConnectivityService().startMonitoring();
+    // Device-local, no network: restore the lyric text-size / reading-mode
+    // preference so it is ready before the player ever opens.
+    LyricsReaderSettings.instance.boot();
     if (ApiService().isLoggedIn) {
       Future<void>.delayed(const Duration(seconds: 2), () {
         WarmStore().afterLogin();

@@ -12,6 +12,7 @@ import '../../services/mezmur_audio_player.dart';
 import '../../services/hymn_store.dart';
 import '../../services/mezmur_synced_lyrics.dart';
 import '../../services/lyrics_emphasis.dart';
+import '../../services/lyrics_reader_settings.dart';
 import 'mezmur_lyrics_sync_screen.dart';
 import 'parchment_style.dart';
 
@@ -91,6 +92,39 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   bool get _syncedAvailable =>
       _doc != null && !_doc!.isEmpty && _mode == _LyricsMode.synced;
 
+  // P52 — accessibility / readability. A single app-wide model (see
+  // LyricsReaderSettings) drives size, reading mode and contrast so the same
+  // choice applies to every hymn and survives restart. These getters are read
+  // on every build; the listener below triggers a rebuild + re-centre when the
+  // user changes them in the player's "Aa" sheet.
+  LyricsReaderSettings get _reader => LyricsReaderSettings.instance;
+
+  /// Base lyric font size. Multiplied by the user's text scale (and, on top of
+  /// that, by the OS accessibility font size) to give a comfortably large line.
+  static const double _baseLyricSize = 17;
+
+  /// Line height: gives generous vertical rhythm, a little more in reading
+  /// mode and a touch more for large text so it never looks cramped.
+  double get _lyricLineHeight {
+    final rs = _reader;
+    var h = 1.5;
+    if (rs.readingMode) h = 1.62;
+    h += (rs.textScale - 1.0) * 0.12;
+    return h;
+  }
+
+  Color get _lyricInk =>
+      _reader.highContrast ? Parchment.inkStrong : Parchment.ink;
+
+  void _onReaderChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // The active line must stay centred under the new text size.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _recenter(instant: true);
+    });
+  }
+
   static const Duration _anim = Duration(milliseconds: 280);
   static const Curve _curve = Curves.easeOutCubic;
 
@@ -131,6 +165,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     // renderer is never ticking while silently parked. The initial centre is
     // reached by _recenter(instant: true) on load, which needs no Ticker.
     _smoothTicker = createTicker(_onSmoothTick);
+    _reader.addListener(_onReaderChanged);
   }
 
   @override
@@ -149,6 +184,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     _positionTicker?.cancel();
     _smoothTicker.dispose();
     _resumeHold?.cancel();
+    _reader.removeListener(_onReaderChanged);
     _scroll.dispose();
     super.dispose();
   }
@@ -371,6 +407,13 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     final lines = _doc!.lines;
     final reduce = MediaQuery.of(context).disableAnimations;
     final anim = reduce ? Duration.zero : _anim;
+    // P52 — read the ambient accessibility model once per build.
+    final rs = _reader;
+    final reading = rs.readingMode;
+    final size = _baseLyricSize * rs.textScale;
+    final lineHeight = _lyricLineHeight;
+    final profile =
+        reading ? LyricEmphasisProfile.reading : LyricEmphasisProfile.karaoke;
     return LayoutBuilder(builder: (context, box) {
       final pad = box.maxHeight * 0.42;
       return ParchmentFade(
@@ -388,7 +431,9 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
               final line = lines[i];
               final isEmpty = line.isEmpty;
               // Pure distance rule (no reflow) drives scale/opacity/active.
-              final e = LyricEmphasis.forIndex(index: i, active: _active);
+              // Reading mode uses the flat profile so nothing shrinks.
+              final e = LyricEmphasis.forIndex(
+                  index: i, active: _active, profile: profile);
               return KeyedSubtree(
                 key: _keys[i],
                 child: GestureDetector(
@@ -412,12 +457,17 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                           curve: _curve,
                           margin: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 6),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 13),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: reading ? 15 : 13),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(18),
                             gradient: e.isActive ? _kActiveGradient : null,
-                            boxShadow: e.isActive ? _kActiveGlow : null,
+                            // Reading mode reads like a clean lyric sheet, so
+                            // the heavy gold blur halo is dropped; karaoke mode
+                            // keeps the soft gold "surface" glow.
+                            boxShadow:
+                                e.isActive && !reading ? _kActiveGlow : null,
                           ),
                           // Stack centres the text; the accent bar is
                           // absolutely placed on the left so it uses the side
@@ -434,9 +484,9 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                                   style: TextStyle(
                                     color: e.isActive
                                         ? Parchment.inkStrong
-                                        : Parchment.ink,
-                                    fontSize: 16,
-                                    height: 1.5,
+                                        : _lyricInk,
+                                    fontSize: size,
+                                    height: lineHeight,
                                     fontWeight: FontWeight.w600,
                                     fontFamily: 'NotoSansEthiopic',
                                   ),
@@ -451,7 +501,9 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                                     duration: anim,
                                     curve: _curve,
                                     width: 3,
-                                    height: e.isActive ? 26 : 0,
+                                    height: e.isActive
+                                        ? (26 * rs.textScale).clamp(20.0, 46.0)
+                                        : 0,
                                     decoration: BoxDecoration(
                                       color: Parchment.bronze,
                                       borderRadius: BorderRadius.circular(3),
@@ -483,6 +535,11 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   }
 
   Widget _buildStatic() {
+    // Static lyrics have no active line, but the reader's size, line-height and
+    // contrast still apply so a plain-text hymn is just as readable.
+    final size = _baseLyricSize * _reader.textScale;
+    final height = _lyricLineHeight + 0.25;
+    final ink = _lyricInk;
     return LayoutBuilder(builder: (context, box) {
       final pad = box.maxHeight * 0.18;
       return ParchmentFade(
@@ -497,10 +554,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                   child: Text(
                     para.trim(),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: Parchment.ink,
-                        fontSize: 16,
-                        height: 1.85,
+                    style: TextStyle(
+                        color: ink,
+                        fontSize: size,
+                        height: height,
                         fontWeight: FontWeight.w600,
                         fontFamily: 'NotoSansEthiopic'),
                   ),

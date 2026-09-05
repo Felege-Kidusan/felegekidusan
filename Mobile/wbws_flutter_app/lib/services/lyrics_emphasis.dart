@@ -16,7 +16,47 @@
 /// `scale`, `opacity` and a flag, never with font size or weight. Changing
 /// those would re-wrap a long Amharic line and push its words onto a second
 /// row (the exact bug this replaces).
+///
+/// A [LyricEmphasisProfile] picks the character of the falloff:
+///   * [LyricEmphasisProfile.karaoke] — the default "deep water" reveal:
+///     each further line is larger-scale stepped down (~5.5%) and fainter
+///     (~15%). Dramatic and immersive, for sing-a-long listening.
+///   * [LyricEmphasisProfile.reading] — "lyrics only": every line keeps full
+///     size (no shrink), and off lines fade only slightly. Used when a user
+///     just wants to READ the words at a comfortable size, or needs larger
+///     text for accessibility. Nothing reflows, and no line becomes hard to
+///     read.
 library;
+
+class LyricEmphasisProfile {
+  final double scaleStep; // per-line scale reduction
+  final double opacityStep; // per-line opacity reduction
+  final double minScale; // furthest readable line's scale floor
+  final double minOpacity; // furthest readable line's opacity floor
+
+  const LyricEmphasisProfile({
+    required this.scaleStep,
+    required this.opacityStep,
+    required this.minScale,
+    required this.minOpacity,
+  });
+
+  /// Default sing-along "deep water" reveal.
+  static const LyricEmphasisProfile karaoke = LyricEmphasisProfile(
+    scaleStep: 0.055,
+    opacityStep: 0.15,
+    minScale: 0.80,
+    minOpacity: 0.30,
+  );
+
+  /// "Lyrics only" reading mode — full size, gentle fade, no shrink.
+  static const LyricEmphasisProfile reading = LyricEmphasisProfile(
+    scaleStep: 0.0,
+    opacityStep: 0.05,
+    minScale: 1.0,
+    minOpacity: 0.86,
+  );
+}
 
 class LyricEmphasis {
   final bool isActive;
@@ -31,11 +71,6 @@ class LyricEmphasis {
     required this.distance,
   });
 
-  // Falloff constants (tuned, not magic): ~5.5% smaller and ~15% fainter per
-  // line of distance, clamped so the furthest readable line never vanishes.
-  static const double _scaleStep = 0.055;
-  static const double _opacityStep = 0.15;
-
   static const LyricEmphasis active = LyricEmphasis(
     isActive: true,
     scale: 1.0,
@@ -45,19 +80,28 @@ class LyricEmphasis {
 
   /// Emphasis for the line at [index] relative to the line at [active].
   ///
+  /// [profile] selects the character of the falloff (see [LyricEmphasisProfile]).
   /// Out-of-range indexes are clamped so a seek cannot produce a negative
   /// distance or a crash. When [active] is -1 (nothing has been sung yet —
   /// playback precedes the first timestamp) there is deliberately no "active"
   /// line: line 0 sits at distance 1, giving a natural leading fade rather
   /// than prematurely spotlighting a line that has not started.
-  static LyricEmphasis forIndex({required int index, required int active}) {
+  static LyricEmphasis forIndex({
+    required int index,
+    required int active,
+    LyricEmphasisProfile profile = LyricEmphasisProfile.karaoke,
+  }) {
     if (index < 0) index = 0;
     final d = (index - active).abs();
     // NOTE: `active` here is the int parameter, which shadows the static
     // `LyricEmphasis.active` constant — always qualify the constant.
     if (d == 0 && active >= 0) return LyricEmphasis.active;
-    final scale = (1.0 - d * _scaleStep).clamp(0.80, 0.95).toDouble();
-    final opacity = (1.0 - d * _opacityStep).clamp(0.30, 0.90).toDouble();
+    // Upper bound is always 1.0 (>= the profile floor) so `clamp` can never be
+    // called with lower > upper — which would throw. Only the active line has
+    // scale/opacity 1.0; off lines are always smaller/fainter by some step, so
+    // a 1.0 cap never accidentally promotes an off line (see the profile).
+    final scale = (1.0 - d * profile.scaleStep).clamp(profile.minScale, 1.0).toDouble();
+    final opacity = (1.0 - d * profile.opacityStep).clamp(profile.minOpacity, 1.0).toDouble();
     return LyricEmphasis(
       isActive: false,
       scale: scale,

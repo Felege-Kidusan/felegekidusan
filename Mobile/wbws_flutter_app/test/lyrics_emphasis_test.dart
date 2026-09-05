@@ -65,4 +65,49 @@ void main() {
       expect(e.isActive, isFalse);
     });
   });
+
+  group('LyricEmphasis — reading profile ("lyrics only")', () {
+    test('off lines keep FULL size — nothing reflows or shrinks', () {
+      // The point of reading mode: big, steady, fully legible text.
+      for (var d = 1; d <= 12; d++) {
+        final e = LyricEmphasis.forIndex(
+          index: 5 + d,
+          active: 5,
+          profile: LyricEmphasisProfile.reading,
+        );
+        expect(e.scale, 1.0, reason: 'scale must never drop below 1.0');
+        expect(e.distance, d);
+      }
+    });
+
+    test('off lines fade only slightly — far lines stay clearly readable', () {
+      for (var d = 1; d <= 12; d++) {
+        final e = LyricEmphasis.forIndex(
+          index: 5 + d,
+          active: 5,
+          profile: LyricEmphasisProfile.reading,
+        );
+        expect(e.opacity, greaterThanOrEqualTo(0.86));
+      }
+    });
+
+    test('active line is still the active line', () {
+      final e = LyricEmphasis.forIndex(
+        index: 5,
+        active: 5,
+        profile: LyricEmphasisProfile.reading,
+      );
+      expect(e.isActive, isTrue);
+      expect(e.scale, 1.0);
+      expect(e.opacity, 1.0);
+    });
+
+    test('reading fade is strictly gentler than the karaoke fade', () {
+      final karaoke = LyricEmphasis.forIndex(index: 5, active: 0);
+      final reading = LyricEmphasis.forIndex(
+        index: 5, active: 0, profile: LyricEmphasisProfile.reading);
+      expect(reading.scale, greaterThan(karaoke.scale));
+      expect(reading.opacity, greaterThan(karaoke.opacity));
+    });
+  });
 }
