@@ -30,7 +30,6 @@ import '../members/member_list_screen.dart';
 import '../mezmur/mezmur_home.dart';
 import '../mezmur/mezmur_attendance.dart';
 import '../mezmur/mezmur_hymns.dart';
-import '../mezmur/mezmur_mini_player.dart';
 import '../mezmur/mezmur_analytics.dart';
 import '../profile/profile_screen.dart';
 
@@ -399,26 +398,19 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
     return Scaffold(
       backgroundColor: AppTheme.bgLight,
-      body: Stack(
+      // P34: the now-playing bar now lives above the Navigator
+      // (MezmurMiniPlayerHost in main.dart), so the shell no longer
+      // needs a Stack to overlay it.
+      body: Column(
         children: [
-          Column(
-            children: [
-              // Global offline banner — appears at top when offline
-              const OfflineBanner(),
-              // Main content
-              Expanded(
-                child: IndexedStack(
-                  index: _currentIndex,
-                  children: List.generate(_tabs.length, _tabChild),
-                ),
-              ),
-            ],
-          ),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: hideMainNav ? 72 : 8,
-            child: const MezmurMiniPlayer(),
+          // Global offline banner — appears at top when offline
+          const OfflineBanner(),
+          // Main content
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: List.generate(_tabs.length, _tabChild),
+            ),
           ),
         ],
       ),

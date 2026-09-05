@@ -494,7 +494,25 @@ class HymnStore extends ChangeNotifier {
     return null;
   }
 
-  Future<String?> saveCategory(Map<String, dynamic> category) async {
+  /// P34: serialises taxonomy writes. `saveCategory` reads the existing
+  /// rows to enforce name-uniqueness and only then writes, so two
+  /// concurrent calls (a double-tapped SAVE) both pass the check and both
+  /// mint their own local id — creating duplicate rows AND duplicate
+  /// outbox ops. Chaining every call makes the check-then-write atomic,
+  /// so the second caller sees the first one's row and is rejected as a
+  /// duplicate. This is the authoritative guard; the dialog's disabled
+  /// button is the cosmetic one.
+  Future<void> _taxonomyChain = Future<void>.value();
+
+  Future<String?> saveCategory(Map<String, dynamic> category) {
+    final result = _taxonomyChain
+        .then((_) => _saveCategoryLocked(category))
+        .catchError((_) => 'Could not save the category. Please try again.');
+    _taxonomyChain = result.then((_) {}).catchError((_) {});
+    return result;
+  }
+
+  Future<String?> _saveCategoryLocked(Map<String, dynamic> category) async {
     final name = '${category['name'] ?? ''}'.trim();
     if (name.isEmpty) return 'Category name is required.';
     if (name.length > 50) return 'Category name is too long.';

@@ -66,8 +66,13 @@ class MezmurMiniPlayer extends StatelessWidget {
                     icon: const Icon(Icons.close_rounded,
                         color: Parchment.inkFaint, size: 20),
                     onPressed: () {
-                      c.pause();
-                      c.dismissMiniPlayer();
+                      // P34: closing the bar ENDS the session, matching
+                      // YouTube Music's "dismiss queue" and YouTube's
+                      // miniplayer-close semantics — audio stops, the
+                      // queue is released, the bar goes away. Hiding a
+                      // bar while audio keeps playing leaves the user
+                      // with no way to stop it.
+                      c.stopAndClear();
                     },
                   ),
                 ],

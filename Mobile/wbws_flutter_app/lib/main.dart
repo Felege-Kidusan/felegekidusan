@@ -20,6 +20,7 @@ import 'utils/theme.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/shell/app_shell.dart';
 import 'screens/update/update_screen.dart';
+import 'screens/mezmur/mezmur_mini_player_host.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -236,6 +237,11 @@ class _FKSSAppState extends State<FKSSApp> {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.light,
       scrollBehavior: const SmoothScrollBehavior(),
+      // P34: the now-playing bar is mounted ABOVE the Navigator so it
+      // follows the user across every pushed route and consumes real
+      // layout height (never covers FABs or save bars).
+      builder: (context, navigator) =>
+          MezmurMiniPlayerHost(child: navigator ?? const SizedBox.shrink()),
       home: home,
     );
   }

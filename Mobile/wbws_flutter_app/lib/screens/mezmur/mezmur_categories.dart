@@ -10,11 +10,27 @@ import '../../widgets/empty_state.dart';
 
 /// Category management — two-level, offline-first like the rest of the
 /// library: creates/renames land in the local list instantly and sync
-/// through the hymn outbox with idempotency keys. Mains carry their
-/// subs indented beneath them; every row supports rename, hide/show,
-/// a cover image (upload needs connectivity), and shows its hymn count.
+/// through the hymn outbox with idempotency keys. Every row supports
+/// rename, hide/show, a cover image (upload needs connectivity), and
+/// shows its hymn count.
+///
+/// P34 — drill-down, not one long tree.
+///
+/// This screen used to render every main AND every sub in a single flat
+/// list, which grew unbounded and buried the row you wanted. Mobile
+/// convention for hierarchical data is a drill-down: show one level,
+/// tap to descend (Material has no tree-view pattern, and nested
+/// navigation is discouraged on small screens).
+///
+/// So the same widget serves both levels: with [parent] null it lists
+/// main categories; tapping one pushes the same screen with that main as
+/// [parent], where it lists and manages only that main's sub-categories.
+/// One code path, two levels, no duplicated CRUD.
 class MezmurCategoriesScreen extends StatefulWidget {
-  const MezmurCategoriesScreen({super.key});
+  const MezmurCategoriesScreen({super.key, this.parent});
+
+  /// When set, this screen manages the sub-categories of that main.
+  final Map<String, dynamic>? parent;
 
   @override
   State<MezmurCategoriesScreen> createState() => _MezmurCategoriesState();
@@ -60,6 +76,20 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     super.dispose();
   }
 
+  /// The main this screen is scoped to, or null at the top level.
+  int? get _parentId {
+    final p = widget.parent;
+    if (p == null) return null;
+    final id = _asInt(p['id']);
+    return id == 0 ? null : id;
+  }
+
+  bool get _isDetail => _parentId != null;
+
+  /// Rows shown at this level: mains at the top, that main's subs below.
+  List<Map<String, dynamic>> get _visible =>
+      _isDetail ? _subsOf(_parentId!) : _mains;
+
   Future<void> _reload() async {
     final cats = await _store.categories(activeOnly: false);
     final counts = await _store.categoryHymnCounts();
@@ -86,6 +116,12 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     final ctrl =
         TextEditingController(text: isEdit ? '${category!['name']}' : '');
     String? fieldError;
+    // P34: guards the double-add. An async onPressed with no in-flight
+    // flag lets a double tap (or an impatient second tap during the
+    // await) enter saveCategory twice, and each create mints its own
+    // local id — two rows, two outbox ops. The button is also visually
+    // disabled while saving so the UI states the guard.
+    bool saving = false;
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -130,7 +166,13 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                 child: const Text('CANCEL')),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-              onPressed: () async {
+              onPressed: saving
+                  ? null
+                  : () async {
+                setDialogState(() {
+                  saving = true;
+                  fieldError = null;
+                });
                 final err = await _store.saveCategory({
                   if (isEdit) 'id': category!['id'],
                   'name': ctrl.text,
@@ -143,13 +185,23 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                           : _mains.length + 1),
                 });
                 if (err != null) {
-                  setDialogState(() => fieldError = err);
+                  setDialogState(() {
+                    fieldError = err;
+                    saving = false;
+                  });
                   return;
                 }
+                if (!ctx.mounted) return;
                 Navigator.of(ctx).pop();
                 await _reload();
               },
-              child: const Text('SAVE'),
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('SAVE'),
             ),
           ],
         ),
@@ -531,46 +583,52 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final parent = widget.parent;
+    final rows = _visible;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hymn Categories'),
+        title: Text(_isDetail ? '${parent!['name']}' : 'Hymn Categories'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
-        onPressed: () => _nameDialog(),
+        onPressed: () => _nameDialog(parentId: _parentId),
         icon: const Icon(Icons.add, size: 20),
-        label: const Text('Add Main'),
+        label: Text(_isDetail ? 'Add Sub' : 'Add Main'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _categories.isEmpty
-              ? ListView(children: const [
-                  SizedBox(height: 80),
+          : rows.isEmpty
+              ? ListView(children: [
+                  const SizedBox(height: 80),
                   EmptyState(
                     icon: Icons.category_outlined,
-                    title: 'No categories yet',
-                    subtitle:
-                        'Add the first category — it syncs automatically.',
+                    title: _isDetail
+                        ? 'No sub-categories yet'
+                        : 'No categories yet',
+                    subtitle: _isDetail
+                        ? 'Add the first sub-category under "${parent!['name']}".'
+                        : 'Add the first category — it syncs automatically.',
                   ),
                 ])
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                  itemCount: _mains.length,
-                  itemBuilder: (context, i) {
-                    final m = _mains[i];
-                    final subs = _subsOf(_asInt(m['id']));
-                    return Column(
-                      children: [
-                        _row(m, isSub: false),
-                        for (final s in subs) _row(s, isSub: true),
-                      ],
-                    );
-                  },
+                  itemCount: rows.length,
+                  itemBuilder: (context, i) =>
+                      _row(rows[i], isSub: _isDetail),
                 ),
     );
+  }
+
+  /// Descends into a main category's own sub-category screen.
+  void _openSubs(Map<String, dynamic> main) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+          builder: (_) => MezmurCategoriesScreen(parent: main),
+        ))
+        .then((_) => _reload());
   }
 
   Widget _row(Map<String, dynamic> c, {required bool isSub}) {
@@ -579,10 +637,12 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
     final count = _counts[_asInt(c['id'])] ?? 0;
     final img = '${c['image_url'] ?? ''}';
     final uploading = _uploadingId == _asInt(c['id']);
+    final subCount = isSub ? 0 : _subsOf(_asInt(c['id'])).length;
     return Card(
-      margin: EdgeInsets.only(
-          left: isSub ? 24 : 0, right: 0, bottom: 8, top: isSub ? 0 : 4),
+      margin: const EdgeInsets.only(bottom: 8, top: 4),
       child: ListTile(
+        // A main row is a doorway into its own sub-category screen.
+        onTap: isSub ? null : () => _openSubs(c),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         leading: uploading
@@ -610,12 +670,6 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
               ),
         title: Row(
           children: [
-            if (isSub)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Icon(Icons.subdirectory_arrow_right,
-                    size: 14, color: AppTheme.textSecondary),
-              ),
             Expanded(
               child: Text(name,
                   maxLines: 1,
@@ -633,9 +687,13 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
           ],
         ),
         subtitle: Text(
-            active
-                ? (isSub ? 'Sub-category' : 'Main category')
-                : 'Hidden from pickers',
+            !active
+                ? 'Hidden from pickers'
+                : isSub
+                    ? 'Sub-category'
+                    : subCount == 0
+                        ? 'No sub-categories'
+                        : '$subCount sub-categor${subCount == 1 ? 'y' : 'ies'}',
             style: TextStyle(fontSize: 10.5, color: AppTheme.textSecondary)),
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert, size: 19),
@@ -661,7 +719,10 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                 _removeImage(c);
                 break;
               case 'addsub':
-                _nameDialog(parentId: _asInt(c['id']));
+                // Descend first: sub-categories are created and managed
+                // in that main's own screen, so the user always sees the
+                // context their new row lands in.
+                _openSubs(c);
                 break;
               case 'toggle':
                 _toggleActive(c);
@@ -674,9 +735,10 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
                 value: 'addsub',
                 height: 40,
                 child: Row(children: [
-                  Icon(Icons.add, size: 16),
+                  Icon(Icons.list_alt_rounded, size: 16),
                   SizedBox(width: 8),
-                  Text('Add sub-category', style: TextStyle(fontSize: 12.5)),
+                  Text('Manage sub-categories',
+                      style: TextStyle(fontSize: 12.5)),
                 ]),
               ),
             const PopupMenuItem(

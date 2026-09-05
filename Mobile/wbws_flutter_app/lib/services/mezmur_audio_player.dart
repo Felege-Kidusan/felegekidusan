@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'api_service.dart';
 import 'mezmur_download_manager.dart';
 import 'mezmur_playback_policy.dart';
+import 'mezmur_transport_gate.dart';
 
 /// P0 mezmur — a single mezmur hymn that can be played.
 class MezmurTrack {
@@ -168,10 +169,30 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   bool _buffering = false;
   bool _completed = false;
   bool _sourceLoaded = false;
-  bool _controlInFlight = false;
-  bool _pauseRequested = false;
-  bool _pausePending = false;
+  // ── transport serialisation ────────────────────────────────
+  //
+  // P34 — the play/pause-once bug.
+  //
+  // just_audio's `play()` Future does NOT complete when playback starts;
+  // per the plugin contract it "completes when the playback completes or
+  // is paused or stopped". Any `await _player.play()` inside a
+  // try/finally therefore holds that frame open for the whole track.
+  // The previous implementation guarded transport with a
+  // `_controlInFlight` boolean cleared in a `finally`, so after the first
+  // play the flag stayed latched for minutes and every later play(),
+  // pause() and toggle() hit a silent early-return — the visible "works
+  // once, then dead" symptom, and the reason the mini-player's close
+  // button could not stop audio.
+  //
+  // Fix, matching the just_audio example app and the guidance in
+  // just_audio#265 / AudioKit#2646: never await play(); treat the engine
+  // as the single source of truth for `playing` (via playerStateStream)
+  // and serialise only the async *setup* work through one queue. Intent
+  // is a monotonic generation counter so a stale load can never override
+  // a newer user gesture.
+  Future<void> _commandChain = Future<void>.value();
   int _commandVersion = 0;
+  bool _wantPlaying = false;
   String? _playbackError;
   bool _configured = false;
   int _posMs = 0;
@@ -234,15 +255,14 @@ class MezmurAudioPlayerController extends ChangeNotifier {
 
   /// Mini bar: session exists, full player is not on screen, and either
   /// audio is playing or the current hymn can still be resumed.
-  bool get showMiniPlayer =>
-      !_playerVisible &&
-      !_miniDismissed &&
-      _catalog.isNotEmpty &&
-      // A "live session" is any context that still has playable audio
-      // loaded (or is currently playing). Keeping the bar visible even
-      // when the user has browsed on to a lyrics-only hymn means the
-      // session can always be returned to — it never silently vanishes.
-      (_playing || _queue.isNotEmpty || viewHasAudio);
+  bool get showMiniPlayer => MezmurTransportGate.showMiniPlayer(
+        playerVisible: _playerVisible,
+        dismissed: _miniDismissed,
+        hasCatalog: _catalog.isNotEmpty,
+        playing: _playing,
+        hasQueue: _queue.isNotEmpty,
+        viewHasAudio: viewHasAudio,
+      );
 
   MezmurTrack? get currentTrack {
     final i = _index;
@@ -413,7 +433,10 @@ class MezmurAudioPlayerController extends ChangeNotifier {
       try {
         await _player.seek(Duration.zero, index: si);
         _index = si;
-        if (autoPlay) await _player.play();
+        if (autoPlay) {
+          _wantPlaying = true;
+          unawaited(_player.play().catchError((_) {}));
+        }
         notifyListeners();
         return true;
       } catch (_) {}
@@ -430,7 +453,7 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   }) async {
     if (tracks.isEmpty) return false;
     final loadCommand = ++_commandVersion;
-    _pauseRequested = !autoPlay;
+    _wantPlaying = autoPlay;
     final selectedIndex = startIndex.clamp(0, tracks.length - 1);
     final selected = tracks[selectedIndex];
     var selectedTrack = selected;
@@ -501,10 +524,9 @@ class MezmurAudioPlayerController extends ChangeNotifier {
           await _player.setSpeed(_rate);
         } catch (_) {}
       }
-      if (autoPlay &&
-          !_pauseRequested &&
-          loadCommand == _commandVersion) {
-        await _player.play();
+      if (autoPlay && _wantPlaying && loadCommand == _commandVersion) {
+        // Not awaited — see the transport note at _commandChain.
+        unawaited(_player.play().catchError((_) {}));
       }
       notifyListeners();
       return true;
@@ -519,46 +541,61 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> play() async {
-    if (_controlInFlight) return;
-    _pauseRequested = false;
-    _commandVersion++;
-    _controlInFlight = true;
+  /// Serialises transport setup so two fast taps can never interleave
+  /// their async work. Never holds the lock across `_player.play()`.
+  Future<void> _enqueue(Future<void> Function() action) {
+    final next = _commandChain.then((_) => action()).catchError((_) {});
+    _commandChain = next;
+    return next;
+  }
+
+  Future<void> play() => _enqueue(_play);
+
+  Future<void> _play() async {
+    final gen = ++_commandVersion;
+    _wantPlaying = true;
     try {
       if (!canPlay && (viewTrack?.audioUrl.trim().isNotEmpty ?? false)) {
         final loaded = await _syncAudio(autoPlay: false);
         if (!loaded) return;
       }
-      if (!canPlay) return;
+      // A newer gesture (e.g. the user hit pause while the source was
+      // loading) supersedes this one.
+      if (!MezmurTransportGate.mayStart(
+        gen: gen,
+        commandVersion: _commandVersion,
+        wantPlaying: _wantPlaying,
+        canPlay: canPlay,
+      )) {
+        return;
+      }
       _playbackError = null;
       if (_completed) {
         await _player.seek(Duration.zero, index: _index);
       }
-      await _player.play();
-    } catch (_) {
-      _playbackError = 'Audio could not be played. Check your connection and try again.';
-      notifyListeners();
-    } finally {
-      _controlInFlight = false;
-      if (_pausePending) {
-        _pausePending = false;
-        try {
-          await _player.pause();
-          _playing = false;
-          notifyListeners();
-        } catch (_) {}
+      if (!MezmurTransportGate.mayStart(
+        gen: gen,
+        commandVersion: _commandVersion,
+        wantPlaying: _wantPlaying,
+        canPlay: canPlay,
+      )) {
+        return;
       }
+      // NOT awaited: this Future only completes when the track ends.
+      // playerStateStream drives `_playing`, so the UI still updates.
+      unawaited(_player.play().catchError((_) {}));
+    } catch (_) {
+      _playbackError =
+          'Audio could not be played. Check your connection and try again.';
+      notifyListeners();
     }
   }
 
-  Future<void> pause() async {
-    _pauseRequested = true;
+  Future<void> pause() => _enqueue(_pause);
+
+  Future<void> _pause() async {
     _commandVersion++;
-    if (_controlInFlight) {
-      _pausePending = true;
-      return;
-    }
-    _controlInFlight = true;
+    _wantPlaying = false;
     try {
       await _player.pause();
       _playing = false;
@@ -566,34 +603,19 @@ class MezmurAudioPlayerController extends ChangeNotifier {
     } catch (_) {
       _playbackError = 'Audio control failed. Please try again.';
       notifyListeners();
-    } finally {
-      _controlInFlight = false;
     }
   }
 
-  Future<void> toggle() async {
-    if (_controlInFlight) {
-      _pauseRequested = true;
-      _commandVersion++;
-      _pausePending = true;
-      return;
-    }
-    _controlInFlight = true;
-    try {
-      final shouldPause = _player.playing || _playing;
-      _controlInFlight = false;
-      if (shouldPause) {
-        await pause();
-      } else {
-        await play();
-      }
-    } catch (_) {
-      _playbackError = 'Audio control failed. Please try again.';
-      notifyListeners();
-    } finally {
-      _controlInFlight = false;
-    }
-  }
+  /// Single source of truth for the intent is the engine's own state,
+  /// never a hand-maintained boolean pair (the AudioKit#2646 defect).
+  Future<void> toggle() => _enqueue(() async {
+        if (MezmurTransportGate.toggleShouldPause(
+            enginePlaying: _player.playing)) {
+          await _pause();
+        } else {
+          await _play();
+        }
+      });
 
   Future<void> seek(Duration to) async {
     try {
@@ -644,8 +666,12 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   /// otherwise go to the previous catalog row (audio optional).
   Future<void> previous() => skipView(-1);
 
-  /// Stops streaming + drops the queue (used when leaving for good).
+  /// Ends the listening session outright: stops audio, releases the
+  /// queue and removes the mini bar. Invalidates any in-flight transport
+  /// command so a slow load cannot resurrect playback afterwards.
   Future<void> stopAndClear() async {
+    _commandVersion++;
+    _wantPlaying = false;
     try {
       await _player.stop();
     } catch (_) {}
