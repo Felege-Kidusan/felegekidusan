@@ -8,15 +8,44 @@
 /// tolerant than the validator so older / hand-made documents never crash
 /// the UI: it simply skips malformed lines and clamps to a sensible
 /// monotonic order.
+///
+/// Enhanced-LRC word tags (`[00:10.000] ሃሌ <00:10.500>ሉያ`, the A2
+/// extension) are supported read-only: the tags are parsed into
+/// [SyncedLyricLine.words] and stripped from the displayed text (before
+/// this, they rendered as literal `<00:10.500>` on screen). The mobile
+/// editor remains a line-level tool and strips them on edit.
 library;
 
 /// One timed lyric line.
+///
+/// [text] is the clean, markup-free text. [words] carries enhanced-LRC
+/// word-level timing (`[00:10.000] ሃሌ <00:10.500>ሉያ` → two chunks) and is
+/// empty for plain line-level documents; the renderer falls back to
+/// line highlighting in that case.
 class SyncedLyricLine {
   final Duration time;
   final String text;
-  const SyncedLyricLine({required this.time, required this.text});
+
+  /// Timed chunks for word-level highlighting, in order. A chunk may span
+  /// several words (whatever the document grouped between two tags); the
+  /// first chunk starts at the line's own timestamp when the document puts
+  /// no tag before it.
+  final List<SyncedLyricWord> words;
+
+  const SyncedLyricLine(
+      {required this.time, required this.text, this.words = const []});
 
   bool get isEmpty => text.isEmpty;
+}
+
+/// One timed chunk inside a line (usually one word).
+class SyncedLyricWord {
+  final String text;
+
+  /// When this chunk begins to be sung (document time — the doc-level
+  /// `[offset:]` is applied by the lookup helpers, exactly as for lines).
+  final Duration start;
+  const SyncedLyricWord({required this.text, required this.start});
 }
 
 /// A parsed synced-lyrics document: ordered timed lines + optional
@@ -46,6 +75,25 @@ class SyncedLyrics {
   Duration seekTargetFor(SyncedLyricLine line) =>
       line.time + Duration(milliseconds: offsetMs);
 
+  /// How many leading chunks of [line] are already sung at playback
+  /// [position], with the document's `[offset:]` applied exactly like
+  /// [indexFor] (a chunk at raw time T is sung when `position >= T +
+  /// offset`). Lines without word timings report 0. Chunks are clamped
+  /// non-decreasing at parse time, so the count is a simple leading run.
+  int sungWordCount(SyncedLyricLine line, Duration position) {
+    if (line.words.isEmpty) return 0;
+    final ms = position.inMilliseconds - offsetMs;
+    var n = 0;
+    for (final w in line.words) {
+      if (w.start.inMilliseconds <= ms) {
+        n++;
+      } else {
+        break;
+      }
+    }
+    return n;
+  }
+
   /// Index of the line active at [time], or -1 when the doc is empty or
   /// playback precedes the first timestamp.
   int indexFor(Duration time) {
@@ -62,6 +110,59 @@ class SyncedLyrics {
       }
     }
     return ans;
+  }
+
+  /// Splits enhanced-LRC word tags out of a line's raw text.
+  ///
+  /// `[00:10.000] ሃሌ <00:10.500>ሉያ` → plain text `ሃሌ ሉያ` plus segments
+  /// `("ሃሌ ", null)` (null = starts at the line's own stamp) and
+  /// `("ሉያ", 10.5s)`. The segments join to EXACTLY the plain text, so the
+  /// word-swept rendering and the plain rendering always size identically.
+  /// Lines with no (well-formed) tags return an empty segment list and the
+  /// text untouched — malformed tags like `<1:2>` stay literal (tolerance,
+  /// not guessing).
+  static (String, List<(String, Duration?)>) _splitWordTags(String raw) {
+    final tagRe = RegExp(r'<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>');
+    if (!tagRe.hasMatch(raw)) return (raw, const []);
+    final segments = <(String, Duration?)>[];
+    final buf = StringBuffer();
+    var idx = 0;
+    Duration? pendingStart; // null → the segment starts at the line stamp
+    for (final m in tagRe.allMatches(raw)) {
+      buf.write(raw.substring(idx, m.start));
+      if (buf.isNotEmpty) {
+        segments.add((buf.toString(), pendingStart));
+        buf.clear();
+      }
+      final min = int.tryParse(m.group(1) ?? '0') ?? 0;
+      final sec = int.tryParse(m.group(2) ?? '0') ?? 0;
+      final frac = (m.group(3) ?? '').padRight(3, '0');
+      pendingStart = Duration(
+          milliseconds:
+              min * 60000 + sec * 1000 + int.parse(frac.substring(0, 3)));
+      idx = m.end;
+    }
+    buf.write(raw.substring(idx));
+    if (buf.isNotEmpty) segments.add((buf.toString(), pendingStart));
+    // Trim only the OUTER edges (leading space of the first chunk, trailing
+    // space of the last) so the join still equals the plain text exactly.
+    if (segments.isEmpty) return ('', const <(String, Duration?)>[]);
+    if (segments.length == 1) {
+      final t = segments.single.$1.trim();
+      return (t, <(String, Duration?)>[(t, segments.single.$2)]);
+    }
+    segments[0] = (segments[0].$1.trimLeft(), segments[0].$2);
+    final lastIdx = segments.length - 1;
+    segments[lastIdx] =
+        (segments[lastIdx].$1.trimRight(), segments[lastIdx].$2);
+    // Edge chunks that trimmed to pure padding are dropped; each surviving
+    // chunk keeps its own tag time.
+    if (segments.first.$1.isEmpty) segments.removeAt(0);
+    if (segments.length > 1 && segments.last.$1.isEmpty) {
+      segments.removeLast();
+    }
+    if (segments.isEmpty) return ('', const <(String, Duration?)>[]);
+    return (segments.map((s) => s.$1).join(), segments);
   }
 
   static SyncedLyrics? tryParse(String? src) {
@@ -106,7 +207,11 @@ class SyncedLyrics {
 
       final m = stampRe.firstMatch(line);
       if (m == null) continue; // non-timed text line — ignore.
-      final text = (m.group(2) ?? '').trim();
+      // P63 — enhanced-LRC word tags (<mm:ss.xx>) are split out of the raw
+      // text: lines without tags keep the plain line-level model, lines
+      // with tags get clean text (previously the tags rendered as literal
+      // text on screen) plus per-chunk start times for the word sweep.
+      final (plain, segments) = _splitWordTags((m.group(2) ?? '').trim());
 
       for (final s in oneStamp.allMatches(m.group(1)!)) {
         final min = int.tryParse(s.group(1) ?? '0') ?? 0;
@@ -118,7 +223,23 @@ class SyncedLyrics {
           frac = frac.padRight(3, '0');
           ms += int.parse(frac.substring(0, 3));
         }
-        out.add(SyncedLyricLine(time: Duration(milliseconds: ms), text: text));
+        // Word chunks: never before the line, never out of order — the
+        // same tolerance the line-level clamp below applies to lines.
+        final words = <SyncedLyricWord>[];
+        var prevMs = ms;
+        for (final (text, tagAt) in segments) {
+          var start = tagAt ?? Duration(milliseconds: ms);
+          if (start.inMilliseconds < ms) {
+            start = Duration(milliseconds: ms);
+          }
+          if (start.inMilliseconds < prevMs) {
+            start = Duration(milliseconds: prevMs);
+          }
+          prevMs = start.inMilliseconds;
+          words.add(SyncedLyricWord(text: text, start: start));
+        }
+        out.add(SyncedLyricLine(
+            time: Duration(milliseconds: ms), text: plain, words: words));
       }
     }
 
@@ -129,7 +250,7 @@ class SyncedLyrics {
     for (final l in out) {
       if (l.time.inMilliseconds < guard) {
         finalLines.add(SyncedLyricLine(
-            time: Duration(milliseconds: guard), text: l.text));
+            time: Duration(milliseconds: guard), text: l.text, words: l.words));
       } else {
         guard = l.time.inMilliseconds;
         finalLines.add(l);

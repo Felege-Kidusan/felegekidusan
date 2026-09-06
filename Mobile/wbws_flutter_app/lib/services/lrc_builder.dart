@@ -87,10 +87,17 @@ class LrcBuilder {
       // words stay clean (the run's later timings are still dropped — this
       // parser is canonical-only by contract, see the doc above; the display
       // parser SyncedLyrics.tryParse is the one that expands runs).
-      final text = (m.group(4) ?? '')
+      // P63: enhanced-LRC word tags (<mm:ss.xx>) are likewise not this
+      // editor's model — strip them (see hasWordTimings) so the text
+      // matches the static lyrics for applyExisting.
+      var text = (m.group(4) ?? '')
           .trim()
           .replaceFirst(
               RegExp(r'^(?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])+\s*'), '')
+          .trim();
+      text = text
+          .replaceAll(RegExp(r'<\d{1,2}:\d{2}(?:\.\d{1,3})?>'), '')
+          .replaceAll(RegExp(r'\s{2,}'), ' ')
           .trim();
       out.add(LrcLine(text: text, at: Duration(milliseconds: ms)));
     }
@@ -115,6 +122,18 @@ class LrcBuilder {
     }
     return 0;
   }
+
+  /// Whether the document carries enhanced-LRC word timings
+  /// (`<mm:ss.xx>` tags inside line text).
+  ///
+  /// The mobile editor is a LINE-level tool: `parse` strips the tags so
+  /// the words stay clean and matchable, which means editing (and
+  /// re-saving) a word-timed document keeps the line timings but drops
+  /// the word-level detail. The editor checks this and warns BEFORE the
+  /// curator invests work. The player, by contrast, renders word timings
+  /// (see `SyncedLyrics.tryParse`).
+  static bool hasWordTimings(String lrc) =>
+      RegExp(r'<\d{1,2}:\d{2}(?:\.\d{1,3})?>').hasMatch(lrc);
 
   /// Shift every STAMPED line by [delta] (unstamped lines are untouched).
   ///

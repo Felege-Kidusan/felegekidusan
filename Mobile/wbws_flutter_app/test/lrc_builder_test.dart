@@ -291,6 +291,36 @@ void main() {
       expect(lines[0].at, const Duration(milliseconds: 10500));
     });
   });
+
+  group('P63 — word-timing awareness (line-level editor)', () {
+    test('hasWordTimings detects enhanced-LRC tags', () {
+      expect(LrcBuilder.hasWordTimings('[00:10.000] a <00:10.5>b'), isTrue);
+      expect(LrcBuilder.hasWordTimings('[00:10.000] a <00:10.500>b'), isTrue);
+      expect(LrcBuilder.hasWordTimings('[00:10.000] ab'), isFalse);
+      expect(LrcBuilder.hasWordTimings(''), isFalse);
+      // Malformed tags are not word timings.
+      expect(LrcBuilder.hasWordTimings('[00:10.000] a <1:2>'), isFalse);
+    });
+
+    test('parse strips word tags and collapses the leftover whitespace', () {
+      final l = LrcBuilder.parse('[00:10.000] ሃሌ <00:10.5>ሉያ <00:11.0> አቡ');
+      expect(l.single.text, 'ሃሌ ሉያ አቡ');
+      expect(l.single.at, const Duration(seconds: 10));
+    });
+
+    test('an edit session on a word-timed doc keeps LINE timings', () {
+      // The editor loads line stamps (word detail stripped), so a re-stamp
+      // and save produce a valid line-level document — the warned-about
+      // data loss is only the word detail.
+      var lines = LrcBuilder.linesFrom('ሃሌ ሉያ አቡ');
+      lines = LrcBuilder.applyExisting(
+          lines, LrcBuilder.parse('[00:10.000] ሃሌ <00:10.5>ሉያ <00:11.0> አቡ'));
+      expect(LrcBuilder.stampedCount(lines), 1);
+      expect(lines[0].at, const Duration(seconds: 10));
+      expect(LrcBuilder.build(lines), '[00:10.000] ሃሌ ሉያ አቡ');
+    });
+  });
 }
+
 
 

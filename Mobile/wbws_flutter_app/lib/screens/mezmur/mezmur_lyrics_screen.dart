@@ -60,6 +60,11 @@ import 'parchment_style.dart';
 ///   * The active line is driven by the audio engine's position stream
 ///     (event-driven, no polling timer): a line lights up the frame the
 ///     playhead crosses it, and the UI does nothing while paused.
+///   * Word-level karaoke (P63): when a line carries enhanced-LRC word
+///     timings, its chunks light as they are sung — a colour-only sweep
+///     (per-chunk colour, never size or weight) that cannot re-shape the
+///     line. Lines without word timings fall back to line highlighting;
+///     reading mode keeps steady single-colour text.
 class MezmurLyricsScreen extends StatefulWidget {
   final MezmurTrack track;
   const MezmurLyricsScreen({super.key, required this.track});
@@ -90,6 +95,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   bool _hadNetworkError = false;
   bool _userHold = false;
   int _active = -1;
+
+  /// P63 — how many leading chunks of the active line are sung (word-level
+  /// sweep). Only meaningful while [_active] >= 0 and that line has words.
+  int _activeSung = 0;
   List<GlobalKey> _keys = const [];
 
   /// P61 — async-load generation. `_load()` awaits disk + network; a second
@@ -143,6 +152,13 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   /// (in high-contrast mode they fall back to the darkest ink for legibility).
   Color get _restInk =>
       _reader.highContrast ? Parchment.inkStrong : Parchment.bronze;
+
+  /// P63 — not-yet-sung chunks inside the ACTIVE line: one step lighter than
+  /// the sung ink but clearly present (they are about to be sung), distinct
+  /// from the receded bronze of the surrounding lines. High-contrast keeps a
+  /// visible step while staying dark enough to read.
+  Color get _sweepPendingInk =>
+      _reader.highContrast ? Parchment.ink : Parchment.bronzeSoft;
 
   Color get _lyricInk =>
       _reader.highContrast ? Parchment.inkStrong : Parchment.ink;
@@ -312,12 +328,21 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   /// out) and lets the Ticker glide to it — never a re-entrant ensureVisible.
   /// No-ops while the app is backgrounded (no frames are rendered; the
   /// lifecycle observer force-re-syncs on resume).
+  ///
+  /// P63: also tracks how many leading chunks of the active line are sung
+  /// ([_activeSung]) for the word-level sweep — a word-count change alone
+  /// repaints the line's colours without touching scroll or emphasis.
   void _syncActive({bool force = false}) {
     if (!_syncedAvailable || !_foreground) return;
     final i = _doc!.indexFor(_c.position);
-    if (i == _active && !force) return;
+    final sung =
+        i >= 0 ? _doc!.sungWordCount(_doc!.lines[i], _c.position) : 0;
+    final lineChanged = i != _active;
+    if (!lineChanged && sung == _activeSung && !force) return;
     _active = i;
+    _activeSung = sung;
     if (mounted) setState(() {});
+    if (!lineChanged && !force) return; // word sweep only — no re-centering
     if (_userHold) return;
     final act = i;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -570,34 +595,70 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
                             // 1.0 while sung → 0 by one line away; colour and
                             // weight ride the same value as size and fade.
                             final activity = (1.0 - d).clamp(0.0, 1.0);
-                            final text = Text(
-                              isEmpty ? '· · ·' : line.text,
-                              // Reading mode wraps at full width (large
-                              // accessibility text must not be shrunk by a
-                              // FittedBox); karaoke mode keeps the one-row
-                              // guarantee via softWrap:false + FittedBox.
-                              softWrap: reading,
-                              maxLines: reading ? null : 1,
-                              overflow: reading
-                                  ? TextOverflow.clip
-                                  : TextOverflow.visible,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                // Sung line = darkest, boldest ink; the rest
-                                // recede to a warm bronze so the hierarchy is
-                                // obvious. Colour and weight ride the same
-                                // tween as scale/opacity — one motion.
-                                color:
-                                    Color.lerp(_restInk, _activeInk, activity)!,
-                                fontWeight:
-                                    FontWeight.lerp(FontWeight.w500,
-                                            FontWeight.w800, activity) ??
-                                        FontWeight.w500,
-                                fontSize: size,
-                                height: lineHeight,
-                                fontFamily: 'NotoSansEthiopic',
-                              ),
+                            final base = TextStyle(
+                              // Sung line = darkest, boldest ink; the rest
+                              // recede to a warm bronze so the hierarchy is
+                              // obvious. Colour and weight ride the same
+                              // tween as scale/opacity — one motion.
+                              color:
+                                  Color.lerp(_restInk, _activeInk, activity)!,
+                              fontWeight:
+                                  FontWeight.lerp(FontWeight.w500,
+                                          FontWeight.w800, activity) ??
+                                      FontWeight.w500,
+                              fontSize: size,
+                              height: lineHeight,
+                              fontFamily: 'NotoSansEthiopic',
                             );
+                            // P63 — word-level sweep: chunks of the sung
+                            // line light up as they are sung. COLOUR-only
+                            // per chunk (never size or weight), so the
+                            // sweep cannot re-shape the line and the
+                            // one-row FittedBox guarantee is untouched.
+                            // Reading mode keeps steady single-colour text
+                            // (its whole promise is less motion).
+                            final Widget text;
+                            if (!reading &&
+                                !isEmpty &&
+                                i == _active &&
+                                _active >= 0 &&
+                                line.words.isNotEmpty) {
+                              text = Text.rich(
+                                TextSpan(
+                                  style: base,
+                                  children: [
+                                    for (var c = 0; c < line.words.length; c++)
+                                      TextSpan(
+                                        text: line.words[c].text,
+                                        style: TextStyle(
+                                          color: c < _activeSung
+                                              ? _activeInk
+                                              : _sweepPendingInk,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                softWrap: false,
+                                maxLines: 1,
+                                overflow: TextOverflow.visible,
+                                textAlign: TextAlign.center,
+                              );
+                            } else {
+                              text = Text(
+                                isEmpty ? '· · ·' : line.text,
+                                // Reading mode wraps at full width (large
+                                // accessibility text must not be shrunk by a
+                                // FittedBox); karaoke mode keeps the one-row
+                                // guarantee via softWrap:false + FittedBox.
+                                softWrap: reading,
+                                maxLines: reading ? null : 1,
+                                overflow: reading
+                                    ? TextOverflow.clip
+                                    : TextOverflow.visible,
+                                textAlign: TextAlign.center,
+                                style: base,
+                              );
+                            }
                             if (reading) {
                               return Opacity(opacity: opacity, child: text);
                             }

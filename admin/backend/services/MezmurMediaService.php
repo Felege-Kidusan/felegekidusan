@@ -708,6 +708,19 @@ final class MezmurMediaService
      * What cannot be repaired is rejected loudly ([Section] markup,
      * hour-format stamps) — silent loss is the bug this fixes.
      *
+     * Client-interpretation notes (documented here so the next surface
+     * does not have to rediscover them):
+     *   - [offset:±ms] headers are PRESERVED but interpreted by the
+     *     client. The Flutter app reads +N as "the line activates N ms
+     *     later in playback" (SyncedLyrics::indexFor) and bakes/unbakes
+     *     it around mobile edits. There is no other interpreter today;
+     *     if external LRC interop ever matters, align on ONE convention
+     *     first — the wider LRC ecosystem commonly reads +N as "earlier".
+     *   - Enhanced-LRC word tags (<mm:ss.xx> inside line text) pass
+     *     through untouched: the Flutter player renders them as a
+     *     word-level sweep; the mobile line-level editor strips them on
+     *     edit (with a warning) because it cannot author them.
+     *
      * @return array{ok:bool,message?:string,doc?:string,timed?:int}
      */
     public static function canonicalizeLrc(string $lrc): array

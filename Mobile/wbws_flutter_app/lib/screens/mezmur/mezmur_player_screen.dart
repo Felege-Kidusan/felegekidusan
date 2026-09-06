@@ -121,9 +121,39 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     super.dispose();
   }
 
+  /// P63 — signature of every controller-derived value this screen paints
+  /// (the header, title, lyrics pager and console chrome). The console's
+  /// live position readout is deliberately NOT part of it: the console
+  /// listens to the controller itself, so the rest of the screen — the
+  /// lyrics PageView included — no longer rebuilds on every throttled
+  /// position tick (~2×/s) while audio plays.
+  int _uiSignature() => Object.hashAll([
+        _c.playing,
+        _c.buffering,
+        _c.viewIndex,
+        _c.hasCatalog,
+        _c.catalog.length,
+        _c.duration?.inMilliseconds,
+        _c.playbackError,
+        _c.loopMode,
+        _c.shuffle,
+        _c.rate,
+        _c.canPlayControl,
+        _c.canPlayCurrentView,
+        _c.viewHasAudio,
+        _opening,
+        _failed,
+      ]);
+
+  int? _lastUiSig;
+
   void _onController() {
     if (!mounted) return;
-    setState(() {});
+    final sig = _uiSignature();
+    if (sig != _lastUiSig) {
+      _lastUiSig = sig;
+      setState(() {});
+    }
     if (_paging) return;
     if (!_pages.hasClients) return;
     final i = _c.viewIndex;
@@ -596,6 +626,19 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
   }
 
   Widget _buildConsole(BuildContext context) {
+    // P63 — the console is the only position-dependent part of this screen
+    // (clock, scrubber, play glyph). It listens to the controller itself so
+    // position ticks repaint ONLY this panel; the screen-level signature
+    // gate keeps the lyrics pager and header still while audio plays.
+    // Screen-level setStates (drag, page change) still reach it through the
+    // normal rebuild path.
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) => _buildConsoleBody(context),
+    );
+  }
+
+  Widget _buildConsoleBody(BuildContext context) {
     if (!_hasAudio || (_c.playbackError != null && !_c.canPlayCurrentView)) {
       return _GlassPanel(
         child: Padding(

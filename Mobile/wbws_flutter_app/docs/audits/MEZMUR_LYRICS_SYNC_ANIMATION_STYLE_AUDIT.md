@@ -265,21 +265,37 @@ guarantee is untouched.
   losing its console budget, and bands landing off-screen in landscape.
   Horizontal insets stay screen-relative by design (a fixed screen inset
   is always conservative under side-crop; see the `mapX` doc).
-- **D3 — Offset sign convention.** The app treats `[offset:+500]` as
-  "activates 500 ms later"; the wider LRC ecosystem commonly reads "+ as
-  earlier". Self-consistent (mobile is the only consumer — the web console
-  stores but never interprets headers), so NOT flipped: flipping would
-  silently reinterpret any offsets already authored. If interop with
-  external LRC files ever matters, decide the convention once, document it
-  in `canonicalizeLrc`, and migrate.
+- **D3 — Offset sign convention — DOCUMENTED in P63.** The app treats
+  `[offset:+500]` as "activates 500 ms later"; the wider LRC ecosystem
+  commonly reads "+ as earlier". Not flipped (self-consistent, mobile is
+  the only consumer), but the convention — and the word-tag pass-through
+  behaviour — is now written into `MezmurMediaService::canonicalizeLrc`'s
+  docblock so the next surface does not have to rediscover it. If external
+  LRC interop ever matters, align on one convention and migrate.
 - **D4 — Asymmetric past/future falloff** (Spotify dims sung lines more
   than upcoming). Current symmetric falloff is a legitimate Apple-Music-style
   choice; revisit only as a design decision, not a bug.
 - **D5 — Press-and-hold repeat on nudge buttons — FIXED in P62.** Tap =
   immediate step; hold = 380 ms pause then ~11 Hz repeat, haptic on the
   first step. Nudging a stamp by a second used to mean five separate taps.
-- **D6 — Word-level karaoke** (enhanced LRC `<mm:ss.xx>` inside lines).
-  Larger feature; the line-level engine is the right foundation for it.
+- **D6 — Word-level karaoke — IMPLEMENTED in P63 (playback side).**
+  Enhanced-LRC word tags (`[00:10.000] ሃሌ <00:10.500>ሉያ`) now parse into
+  timed chunks and render as a **colour-only sweep** inside the sung line:
+  sung chunks take the active ink, not-yet-sung chunks a lighter bronze —
+  colour alone, never size or weight, so the sweep cannot re-shape the
+  line and the one-row FittedBox guarantee is untouched (the same reason
+  the P58 paint-only-scale decision holds). This also fixes a latent
+  display bug: word tags used to render as literal `<00:10.500>` text.
+  Fallbacks are graceful by construction: lines without tags keep line
+  highlighting; reading mode keeps steady single-colour text; stale tags
+  on repeated lines clamp to whole-line highlighting. The sweep is driven
+  by the same event-driven position samples as the line highlight — a
+  word-count change repaints colours without touching scroll or emphasis.
+  The mobile editor stays a line-level tool by design: it strips the tags
+  on edit and WARNS before the curator invests work (line timings are
+  kept, word-level detail is dropped); authoring word timings belongs to
+  import/web tooling. The server canonicalizer passes the tags through
+  untouched (verified; now documented in its docblock).
 - **D7 — Editor `LrcBuilder.parse` assumes canonical single-stamp
   lines — HARDENED in P62.** A raw (non-canonical) run like
   `[00:01.00][00:09.00]text` used to leave the second stamp inside the
@@ -313,8 +329,11 @@ not the State's).
 ```
 P61: flutter analyze → target files: 1 info (D8, deliberate); no warnings/errors
 P62: flutter analyze → same (withOpacity infos in the player family cleared)
+P63: flutter analyze → same (only pre-existing/D8 infos remain in touched files)
 P61: flutter test    → 288 passed   (baseline 272)
-P62: flutter test    → 301 passed   (+13: parchment geometry, parse hardening)
+P62: flutter test    → 301 passed
+P63: flutter test    → 315 passed   (+14: word-tag parsing, sweep counting,
+                                      editor word-awareness)
 ```
 
 New pins:
@@ -338,3 +357,9 @@ New pins:
   pin** that `stageY` returns the exact legacy placements on phones;
   landscape clamping; and a full aspect sweep proving the clamps never
   invert the layout.
+- `test/synced_lyrics_words_test.dart` (P63) — word-tag parsing (chunks,
+  leading-chunk-at-line-time, multi-word chunks, malformed-tag tolerance,
+  fraction formats, clamping, multi-stamp duplicates); the **sizing
+  contract** (chunks join to exactly the plain text); sweep counting with
+  offset; and THE INVARIANT that the sweep advances exactly at chunk
+  boundaries, across offsets 0/+500/−1500.

@@ -76,6 +76,9 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
   /// save. See the class doc.
   int _offsetMs = 0;
 
+  /// P63 — the word-timing warning shows once per session, not per reload.
+  bool _warnedWordTimings = false;
+
   @override
   void initState() {
     super.initState();
@@ -100,6 +103,14 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
 
     var lines = LrcBuilder.linesFrom(staticText);
     if (existing.trim().isNotEmpty) {
+      // P63 — say it BEFORE the curator invests work: this editor is a
+      // line-level tool, and saving a word-timed document drops the
+      // word-level detail (line timings are kept).
+      if (mounted && !_warnedWordTimings &&
+          LrcBuilder.hasWordTimings(existing)) {
+        _warnedWordTimings = true;
+        _warnWordTimings();
+      }
       // Bake the offset into playback time so pre-existing stamps line up
       // with what the curator hears (and with the highlighting engine).
       _offsetMs = LrcBuilder.offsetOf(existing);
@@ -115,6 +126,26 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
       _cursor = LrcBuilder.nextIndex(lines);
       _loading = false;
     });
+  }
+
+  /// P63 — informational, non-blocking: the list keeps loading while the
+  /// curator reads it. Line timings load and save normally; only the
+  /// word-level detail is out of this editor's scope.
+  void _warnWordTimings() {
+    showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Word-level timings found'),
+        content: const Text(
+            'These lyrics carry word-by-word timings, which this editor '
+            'does not support. The line timings are loaded and can be '
+            'edited, but saving will remove the word-level detail.'),
+        actions: [
+          FilledButton(
+              onPressed: () => Navigator.pop(c), child: const Text('Got it')),
+        ],
+      ),
+    );
   }
 
   void _stampHere() {
