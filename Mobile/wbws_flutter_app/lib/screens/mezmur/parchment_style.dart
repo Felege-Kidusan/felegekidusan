@@ -10,6 +10,8 @@
 ///     in the band between that box and the bottom cylinder.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../services/mezmur_audio_player.dart';
@@ -50,8 +52,24 @@ class Parchment {
 }
 
 /// Fractional layout of the 1440×2560 blank scroll, so overlays stay
-/// inside the painted regions when the image is `BoxFit.cover` on a
-/// 9:16 phone (the same aspect as the art).
+/// inside the painted regions when the image is `BoxFit.cover` on any
+/// screen aspect.
+///
+/// The fractions below are measured in ART SPACE (they were derived from
+/// a pixel-level study of the artwork: the bright lyrics panel spans
+/// rows 0.198–0.800 of the art, the title strip 0.151–0.192, the
+/// transport band begins ~0.808). Mapping them onto a screen is done by
+/// [fittedRect]/[mapY]/[stageY] — NOT by multiplying the screen's own
+/// dimensions, which silently assumed the screen shares the art's 9:16
+/// aspect.
+///
+/// Why this is safe: `BoxFit.cover` on any PORTRAIT phone (taller than
+/// 9:16) is height-driven — the art fills the height exactly, so art-Y
+/// fractions equal screen-Y fractions and every mapped value is
+/// bit-identical to the legacy `h * fraction` arithmetic. The mapping
+/// only changes WIDTH-driven screens (tablets, landscape, desktop
+/// windows) — precisely the class of devices where the old screen-space
+/// fractions drifted off the painted regions.
 class ParchmentArt {
   static const double titleTop = 0.118;
   static const double boxTop = 0.210;
@@ -62,6 +80,85 @@ class ParchmentArt {
   static const double boxInsetX = 0.11;
   static const double boxInsetInner = 0.022;
   static const double playerTop = 0.808;
+
+  /// The source artwork's pixel size (a 9:16 blank scroll).
+  static const Size artSize = Size(1440, 2560);
+
+  /// The rect the artwork occupies on [screen] under `BoxFit.cover` —
+  /// the same fit [ParchmentScaffold] paints the backdrop with. Pure
+  /// geometry, unit-tested.
+  static Rect fittedRect(Size screen) {
+    final scale = math.max(
+        screen.width / artSize.width, screen.height / artSize.height);
+    final w = artSize.width * scale;
+    final h = artSize.height * scale;
+    return Rect.fromLTWH(
+        (screen.width - w) / 2, (screen.height - h) / 2, w, h);
+  }
+
+  /// Maps an art-space vertical fraction to screen pixels.
+  ///
+  /// On height-driven screens (portrait phones) this is exactly
+  /// `fraction * screen.height`; on width-driven screens (tablets,
+  /// landscape) it correctly follows the cover crop instead of assuming
+  /// the art fills the height.
+  static double mapY(Size screen, double fraction) =>
+      fittedRect(screen).top + fraction * fittedRect(screen).height;
+
+  /// Maps an art-space horizontal fraction to screen pixels.
+  ///
+  /// Width-driven screens are horizontal-identity; taller-than-art
+  /// screens crop the art's outer columns, which this accounts for.
+  /// (The player keeps its horizontal INSETS screen-relative today —
+  /// see stageY — because a fixed screen inset is always conservative
+  /// there: the painted frame only ever moves inward under crop.)
+  static double mapX(Size screen, double fraction) =>
+      fittedRect(screen).left + fraction * fittedRect(screen).width;
+
+  /// Vertical placements for the player's fixed bands (title, lyrics
+  /// stage, transport), mapped from art space and clamped so extreme
+  /// aspects keep a usable stage.
+  ///
+  /// [headerBottom] is where the floating header chips end (the title
+  /// must never start above them once a clamp fires).
+  /// [consoleReserve] is the vertical budget the transport panel needs
+  /// (its content is a fixed 360-wide design, so a constant — not a
+  /// screen fraction — is the honest reserve).
+  ///
+  /// On portrait phones every clamp is inert and the returned values are
+  /// exactly the legacy `h * fraction` placements (pinned by test); the
+  /// clamps only bite on width-driven aspects, where the mapped bands
+  /// would otherwise sit off-screen or overlap.
+  static ({double titleTop, double lyricsTop, double lyricsBottom, double playerTop})
+      stageY(
+    Size screen, {
+    required double headerBottom,
+    double consoleReserve = 118,
+  }) {
+    var title = mapY(screen, titleTop);
+    var lyricsTop = mapY(screen, boxTop + boxInsetInner);
+    var lyricsBottom = mapY(screen, boxBottom - boxInsetInner);
+    var player = mapY(screen, playerTop);
+
+    // Clamps — width-driven aspects only (see class doc). Each is written
+    // so it can never fire on a portrait phone.
+    if (title < 0) title = headerBottom;
+    if (lyricsTop < headerBottom + 8) lyricsTop = headerBottom + 8;
+    final maxPlayer = screen.height - consoleReserve;
+    if (player > maxPlayer) player = maxPlayer;
+    if (lyricsBottom > player - 10) lyricsBottom = player - 10;
+    // Degenerate tiny windows: keep a minimum stage rather than a
+    // negative-height box.
+    if (lyricsBottom < lyricsTop + 60) {
+      lyricsBottom = math.min(lyricsTop + 60, screen.height - consoleReserve - 10);
+    }
+    return (
+      titleTop: title,
+      lyricsTop: lyricsTop,
+      lyricsBottom: lyricsBottom,
+      playerTop: player,
+    );
+  }
 }
 
 /// Full-bleed parchment backdrop. Child content is laid on top; the top and

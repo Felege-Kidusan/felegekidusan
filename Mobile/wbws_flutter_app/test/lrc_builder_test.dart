@@ -203,4 +203,94 @@ void main() {
       expect(LrcBuilder.stampedCount(LrcBuilder.clearAll(r)), 0);
     });
   });
+
+  group('P61 — [offset:] round-trip (editor playback-time bake)', () {
+    // The server PRESERVES [offset:] headers; the editor must honour them:
+    // load shifts existing stamps +offset into playback time (what the
+    // curator hears), save shifts them back. A lost offset used to drag
+    // every timing by that amount on a single re-save.
+    test('offsetOf extracts positive, negative and absent offsets', () {
+      expect(LrcBuilder.offsetOf('[offset:+500]\n[00:10.000] one'), 500);
+      expect(LrcBuilder.offsetOf('[offset:-1500]\n[00:10.000] one'), -1500);
+      expect(LrcBuilder.offsetOf('[00:10.000] one'), 0);
+      expect(LrcBuilder.offsetOf('[offset:garbage]'), 0);
+      expect(LrcBuilder.offsetOf(''), 0);
+    });
+
+    test('offsetOf only honours a whole-line header', () {
+      // A header glued to other text is not a header.
+      expect(LrcBuilder.offsetOf('x [offset:+400] y'), 0);
+    });
+
+    test('shiftAll shifts stamped lines only, leaving gaps intact', () {
+      var lines = LrcBuilder.linesFrom('one\ntwo\nthree');
+      lines = LrcBuilder.stamp(lines, 0, const Duration(seconds: 10));
+      lines = LrcBuilder.stamp(lines, 1, const Duration(seconds: 14));
+      final shifted =
+          LrcBuilder.shiftAll(lines, const Duration(milliseconds: 500));
+      expect(shifted[0].at, const Duration(milliseconds: 10500));
+      expect(shifted[1].at, const Duration(milliseconds: 14500));
+      expect(shifted[2].isStamped, isFalse); // unstamped stays unstamped
+      expect(shifted[1].at! - shifted[0].at!, const Duration(seconds: 4));
+    });
+
+    test('shiftAll clamps at zero and never inverts order', () {
+      var lines = LrcBuilder.linesFrom('a\nb');
+      lines = LrcBuilder.stamp(lines, 0, const Duration(milliseconds: 200));
+      lines = LrcBuilder.stamp(lines, 1, const Duration(milliseconds: 900));
+      final shifted =
+          LrcBuilder.shiftAll(lines, const Duration(milliseconds: -500));
+      expect(shifted[0].at, Duration.zero);
+      expect(shifted[1].at, const Duration(milliseconds: 400));
+      expect(shifted[1].at! > shifted[0].at!, isTrue);
+    });
+
+    test('a full edit round-trip preserves the HEARD timings', () {
+      const doc = '[offset:+500]\n[00:10.000] one\n[00:20.000] two';
+      // Load: bake into playback time.
+      final lines = LrcBuilder.shiftAll(
+          LrcBuilder.parse(doc), const Duration(milliseconds: 500));
+      expect(lines[0].at, const Duration(milliseconds: 10500));
+      // Save: unbake. Stamps are byte-identical to the original document's;
+      // the offset is no longer needed because it lives in the stamps.
+      final out = LrcBuilder.build(LrcBuilder.shiftAll(
+          lines, const Duration(milliseconds: -500)));
+      expect(out, '[00:10.000] one\n[00:20.000] two');
+    });
+
+    test('a NEW stamp made against playback time saves at the heard moment', () {
+      // Document says +500. The curator hears the second line start at
+      // 12.0 s and taps exactly then. The saved stamp must be 11.5 s so
+      // the highlighting (which applies +offset) fires at 12.0 s.
+      // (Mirrors the editor's real load flow: applyExisting over baked
+      // stamps, then stamp the next line at the live position.)
+      var lines = LrcBuilder.applyExisting(
+          LrcBuilder.linesFrom('one\ntwo'),
+          LrcBuilder.shiftAll(LrcBuilder.parse('[offset:+500]\n[00:10.000] one'),
+              const Duration(milliseconds: 500)));
+      lines = LrcBuilder.stamp(lines, 1, const Duration(seconds: 12));
+      final out = LrcBuilder.build(LrcBuilder.shiftAll(
+          lines, const Duration(milliseconds: -500)));
+      expect(out, '[00:10.000] one\n[00:11.500] two');
+    });
+  });
+
+  group('P62 — parse hardening against non-canonical stamp runs', () {
+    test('a run line parses to clean text at the FIRST stamp', () {
+      // Canonical docs never carry runs (the server expands them), but a
+      // raw hand-made file must not corrupt the words either.
+      final lines = LrcBuilder.parse('[00:01.00][00:09.00] ሃሌ ሉያ');
+      expect(lines.length, 1);
+      expect(lines[0].text, 'ሃሌ ሉያ'); // not '[00:09.00] ሃሌ ሉያ'
+      expect(lines[0].at, const Duration(seconds: 1));
+    });
+
+    test('canonical lines are untouched by the hardening', () {
+      final lines = LrcBuilder.parse('[00:10.500] one\n[00:20.000] two');
+      expect(lines.map((l) => l.text), ['one', 'two']);
+      expect(lines[0].at, const Duration(milliseconds: 10500));
+    });
+  });
 }
+
+

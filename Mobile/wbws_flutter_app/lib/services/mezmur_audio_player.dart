@@ -304,6 +304,15 @@ class MezmurAudioPlayerController extends ChangeNotifier {
   Duration? get duration =>
       _durMs > 0 ? Duration(milliseconds: _durMs) : null;
 
+  /// Fine-grained position samples straight from the engine (adaptive
+  /// interval, roughly frame-rate while audio advances, silent while
+  /// paused). For consumers that need to react the moment the playhead
+  /// crosses a boundary — karaoke lyric highlighting — this replaces
+  /// timer polling with events: zero latency, zero idle wake-ups, and no
+  /// dependence on the 500 ms notifyListeners throttle above (which is
+  /// deliberately coarse for transport UI).
+  Stream<Duration> get positionStream => _player.positionStream;
+
   /// Whether each catalog row HAS audio, from `audio_status` (P36) —
   /// never from `audioUrl`, which is empty for any hymn whose signed URL
   /// has not been minted yet.

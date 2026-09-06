@@ -20,24 +20,31 @@ class SyncedLyricLine {
 }
 
 /// A parsed synced-lyrics document: ordered timed lines + optional
-/// metadata. Tracks the [duration] hint from a [length:…] header so the
-/// empty tail of an audio file can still scroll correctly.
+/// metadata.
 class SyncedLyrics {
   final String? title;
   final String? artist;
   final int offsetMs;
   final List<SyncedLyricLine> lines;
-  final int? lengthMs;
 
   const SyncedLyrics({
     this.title,
     this.artist,
     this.offsetMs = 0,
     required this.lines,
-    this.lengthMs,
   });
 
   bool get isEmpty => lines.isEmpty;
+
+  /// The PLAYBACK time at which [line] becomes active, i.e. the moment a
+  /// listener hears it begin. [indexFor] applies the document's `[offset:]`
+  /// header (`active ⇔ position ≥ line.time + offset`), so a tap-to-seek
+  /// that wants to land exactly on a line must seek HERE — not to the raw
+  /// stamp. Seeking to `line.time` would disagree with the highlight by
+  /// exactly the offset, which is invisible with offset 0 and very visible
+  /// the moment a curator adds one.
+  Duration seekTargetFor(SyncedLyricLine line) =>
+      line.time + Duration(milliseconds: offsetMs);
 
   /// Index of the line active at [time], or -1 when the doc is empty or
   /// playback precedes the first timestamp.
@@ -57,30 +64,21 @@ class SyncedLyrics {
     return ans;
   }
 
-  /// Convenience for the synced-lyrics screen: active line or an empty
-  /// placeholder so the renderer keeps one layout shape.
-  SyncedLyricLine lineAt(Duration time) {
-    final i = indexFor(time);
-    if (i < 0) {
-      // Before the first timed line → show the first lyric muted anyway.
-      return lines.isEmpty
-          ? const SyncedLyricLine(time: Duration.zero, text: '')
-          : lines.first;
-    }
-    return lines[i];
-  }
-
   static SyncedLyrics? tryParse(String? src) {
     if (src == null || src.trim().isEmpty) return null;
     String? title, artist;
     var offsetMs = 0;
-    var lengthMs = 0;
     final out = <SyncedLyricLine>[];
 
     // One (or more) leading [mm:ss(.fraction)] stamps per line, then text.
     // Bracket runs like [00:01.00][00:09.00]… are expanded to two entries.
-    final stampRe =
-        RegExp(r'^(\[[0-9]{1,2}:[0-9]{2}(?:\.[0-9]{1,3})?\])+\s*(.*)$');
+    // NOTE: the run must be a NON-CAPTURING group inside group 1 — a
+    // capturing group under `+` keeps only its LAST iteration, which is
+    // exactly the bug this regex fixed: every stamp but the last of a run
+    // was silently dropped while the doc comment promised expansion.
+    // (Caught by test/synced_lyrics_seek_test.dart, P61.)
+    final stampRe = RegExp(
+        r'^((?:\[[0-9]{1,2}:[0-9]{2}(?:\.[0-9]{1,3})?\])+)\s*(.*)$');
     final oneStamp = RegExp(r'\[([0-9]{1,2}):([0-9]{2})(?:\.([0-9]{1,3}))?\]');
 
     for (final raw in src.split('\n')) {
@@ -99,17 +97,10 @@ class SyncedLyrics {
           artist = val;
         } else if (key == 'offset') {
           offsetMs = int.tryParse(val.replaceAll(RegExp(r'[^0-9+\-]'), '')) ?? 0;
-        } else if (key == 'length') {
-          // [length:03:42] or [length:03:42.50]
-          final parts = RegExp(r'(\d+):(\d+)(?::([0-9.]+))?').firstMatch(val);
-          if (parts != null) {
-            var ms = int.tryParse(parts.group(1) ?? '0')! * 60000;
-            ms += (int.tryParse(parts.group(2) ?? '0') ?? 0) * 1000;
-            final sec = double.tryParse(parts.group(3) ?? '');
-            if (sec != null) ms += (sec * 1000).round();
-            lengthMs = ms;
-          }
         }
+        // Other headers ([al:]/[by:]/[length:]/[re:]/[ve:]) are accepted and
+        // ignored: nothing downstream consumes them, and keeping them out of
+        // the model means no dead fields pretending to be a contract.
         continue;
       }
 
@@ -150,7 +141,6 @@ class SyncedLyrics {
       artist: artist,
       offsetMs: offsetMs,
       lines: finalLines,
-      lengthMs: lengthMs > 0 ? lengthMs : null,
     );
   }
 }

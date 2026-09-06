@@ -7,9 +7,10 @@ import '../../services/hymn_store.dart';
 import '../../services/lrc_builder.dart';
 import '../../services/local_db.dart';
 import '../../services/mezmur_audio_player.dart';
-import '../../utils/theme.dart';
+import 'parchment_style.dart';
 
 /// P48 — mobile lyric timing editor (tap-to-sync).
+/// P61 — parchment restyle, scrubber, offset-aware round-trip.
 ///
 /// ## Separation of concerns
 ///
@@ -24,13 +25,31 @@ import '../../utils/theme.dart';
 /// The industry-standard model used by every LRC tool (and by the web
 /// console in this project): play the audio and tap once as each line
 /// begins. Typing timestamps by hand is not viable — a 70-line hymn
-/// takes an hour and still drifts.
+/// takes an hour and still drifts. A scrubber and ±0.2 s nudges cover
+/// the fine work; tapping a stamped time auditions that exact moment.
+///
+/// ## Offset round-trip (P61)
+///
+/// A stored document may carry an `[offset:±ms]` header (the server
+/// preserves it). Its meaning, shared with `SyncedLyrics.indexFor`, is
+/// "the line at raw time T is HEARD at T + offset". This editor works in
+/// playback time — what the curator hears and stamps against — so on
+/// load every existing stamp is shifted by +offset, and on save shifted
+/// back. Without this, one re-save silently dragged every timing by the
+/// offset and dropped the header.
 ///
 /// ## Offline
 ///
 /// Saving goes through [HymnStore.saveSyncedLyrics], which writes the
 /// local row first and queues the upload in `pending_hymn_ops`. Work is
 /// durable the moment Save is pressed, even with no connection.
+///
+/// ## Style
+///
+/// Parchment family (P61): the editor used to be a stock Material screen
+/// in the app's maroon — a visual system shock when pushed from inside
+/// the parchment player. It now speaks the same cream / ink / bronze /
+/// gold vocabulary as the player, mini-player and bottom sheets.
 class MezmurLyricsSyncScreen extends StatefulWidget {
   final MezmurTrack track;
   const MezmurLyricsSyncScreen({super.key, required this.track});
@@ -51,22 +70,23 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
   bool _loading = true;
   bool _saving = false;
   bool _dirty = false;
-  Timer? _ticker;
+
+  /// The document's `[offset:]` header at load; existing stamps are baked
+  /// into playback time (+offset) for editing and unbaked (−offset) on
+  /// save. See the class doc.
+  int _offsetMs = 0;
 
   @override
   void initState() {
     super.initState();
     _load();
-    // 200ms is enough for a readable clock without waking the UI thread
-    // more often than a human can perceive.
-    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (mounted) setState(() {});
-    });
+    // No wall-clock ticker here (P61): the screen rebuilds only on real
+    // interactions; the transport is a self-updating island (see
+    // _Transport) so the clock and scrubber never re-run this build.
   }
 
   @override
   void dispose() {
-    _ticker?.cancel();
     _scroll.dispose();
     super.dispose();
   }
@@ -74,14 +94,19 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
   Future<void> _load() async {
     final db = LocalDb();
     final row = await db.getLocalHymn(widget.track.hymnId);
-    final staticText =
-        (row?['lyrics'] as String?) ?? widget.track.lyrics ?? '';
+    final staticText = (row?['lyrics'] as String?) ?? widget.track.lyrics ?? '';
     final existing =
         (row?['lyrics_synced'] as String?) ?? widget.track.lyricsSynced ?? '';
 
     var lines = LrcBuilder.linesFrom(staticText);
     if (existing.trim().isNotEmpty) {
-      lines = LrcBuilder.applyExisting(lines, LrcBuilder.parse(existing));
+      // Bake the offset into playback time so pre-existing stamps line up
+      // with what the curator hears (and with the highlighting engine).
+      _offsetMs = LrcBuilder.offsetOf(existing);
+      lines = LrcBuilder.applyExisting(
+          lines,
+          LrcBuilder.shiftAll(LrcBuilder.parse(existing),
+              Duration(milliseconds: _offsetMs)));
     }
     if (!mounted) return;
     setState(() {
@@ -160,13 +185,16 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
   Future<void> _save() async {
     if (_saving) return;
     setState(() => _saving = true);
-    final lrc = LrcBuilder.build(_lines);
+    // Un-bake playback time back to document (raw stamp) time.
+    final lrc = LrcBuilder.build(LrcBuilder.shiftAll(
+        _lines, Duration(milliseconds: -_offsetMs)));
     try {
       // Local-first: durable before the network is even attempted.
       await _store.saveSyncedLyrics(widget.track.hymnId, lrc);
       if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       final n = LrcBuilder.stampedCount(_lines);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      messenger.showSnackBar(SnackBar(
         content: Text(n == 0
             ? 'Timings cleared. Saved on this device — uploading when online.'
             : 'Saved $n timed line${n == 1 ? '' : 's'} on this device — '
@@ -176,8 +204,8 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not save: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -203,13 +231,6 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
     return ok == true;
   }
 
-  static String _clock(Duration d) {
-    final m = d.inMinutes;
-    final s = d.inSeconds % 60;
-    final t = (d.inMilliseconds % 1000) ~/ 100;
-    return '$m:${s.toString().padLeft(2, '0')}.$t';
-  }
-
   @override
   Widget build(BuildContext context) {
     final done = LrcBuilder.stampedCount(_lines);
@@ -219,17 +240,40 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        if (await _confirmDiscard() && mounted) Navigator.of(context).pop();
+        final discard = await _confirmDiscard();
+        if (!discard) return;
+        if (!context.mounted) return;
+        Navigator.of(context).pop();
       },
       child: Scaffold(
+        // Parchment family (P61): the same cream the player's sheets and
+        // the mini player use — this screen is pushed from inside the
+        // parchment player and must not feel like a different app.
+        backgroundColor: const Color(0xFFF3E4C4),
         appBar: AppBar(
-          title: const Text('Sync lyrics'),
+          backgroundColor: const Color(0xFFF3E4C4),
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          title: const Text(
+            'Sync lyrics',
+            style: TextStyle(
+              fontFamily: 'NotoSansEthiopic',
+              fontWeight: FontWeight.w800,
+              color: Parchment.inkStrong,
+            ),
+          ),
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(22),
             child: Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: Text('$done of $total lines timed',
-                  style: Theme.of(context).textTheme.bodySmall),
+              child: Text(
+                '$done of $total lines timed',
+                style: const TextStyle(
+                  color: Parchment.inkFaint,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
             ),
           ),
           actions: [
@@ -240,24 +284,25 @@ class _MezmurLyricsSyncScreenState extends State<MezmurLyricsSyncScreen> {
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Save'),
+                  : const Text('Save',
+                      style: TextStyle(
+                        color: Parchment.bronze,
+                        fontWeight: FontWeight.w800,
+                      )),
             ),
           ],
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: CircularProgressIndicator(color: Parchment.bronze))
             : _lines.isEmpty
                 ? const _EmptyLyrics()
                 : Column(
                     children: [
                       _Transport(
-                        clock: _clock(_c.position),
-                        playing: _c.playing,
-                        onPlayPause: () => setState(() =>
-                            _c.playing ? _c.pause() : _c.play()),
-                        onBack5: () =>
-                            _c.seekBy(const Duration(seconds: -5)),
-                        onFwd5: () => _c.seekBy(const Duration(seconds: 5)),
+                        controller: _c,
+                        fallbackDurationSeconds:
+                            widget.track.durationSeconds,
                       ),
                       Expanded(
                         child: ListView.builder(
@@ -305,53 +350,178 @@ class _EmptyLyrics extends StatelessWidget {
             'This hymn has no lyrics to time yet.\n\n'
             'Add the lyrics first, then come back to time them.',
             textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Parchment.ink,
+              height: 1.6,
+              fontFamily: 'NotoSansEthiopic',
+            ),
           ),
         ),
       );
 }
 
-class _Transport extends StatelessWidget {
-  final String clock;
-  final bool playing;
-  final VoidCallback onPlayPause;
-  final VoidCallback onBack5;
-  final VoidCallback onFwd5;
+/// Play/pause, ±5 s, a scrubber and a tenth-second clock.
+///
+/// P61: self-updating island. The screen no longer rebuilds on a wall-clock
+/// timer (it used to setState the WHOLE screen every 200 ms, list included,
+/// even while paused). The transport now ticks itself at 100 ms — enough for
+/// a truthful tenths digit — and skips the frame entirely when nothing
+/// visible has changed (i.e. whenever audio is paused).
+class _Transport extends StatefulWidget {
+  final MezmurAudioPlayerController controller;
+  final int? fallbackDurationSeconds;
   const _Transport({
-    required this.clock,
-    required this.playing,
-    required this.onPlayPause,
-    required this.onBack5,
-    required this.onFwd5,
+    required this.controller,
+    this.fallbackDurationSeconds,
   });
 
   @override
+  State<_Transport> createState() => _TransportState();
+}
+
+class _TransportState extends State<_Transport> {
+  MezmurAudioPlayerController get _c => widget.controller;
+  Timer? _tick;
+  double? _dragMs;
+
+  // Last-rendered values — the tick compares against these so a paused
+  // player schedules zero frames.
+  String _lastClock = '';
+  bool _lastPlaying = false;
+  double _lastPosMs = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted) return;
+      // Rebuild only when something the user can see actually moved: the
+      // clock's tenth digit, the scrubber thumb, or the play glyph.
+      // Paused ⇒ nothing changes ⇒ no frame is ever scheduled.
+      final clock = _clock(_c.position);
+      final pos = _dragMs ?? _posMs;
+      final playing = _c.playing;
+      if (clock == _lastClock &&
+          playing == _lastPlaying &&
+          (pos - _lastPosMs).abs() < 1.0) {
+        return;
+      }
+      _lastClock = clock;
+      _lastPlaying = playing;
+      _lastPosMs = pos;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  int get _totalMs {
+    final d = _c.duration;
+    if (d != null && d.inMilliseconds > 0) return d.inMilliseconds;
+    return (widget.fallbackDurationSeconds ?? 0) * 1000;
+  }
+
+  double get _posMs {
+    final total = _totalMs;
+    var p = _c.position.inMilliseconds.toDouble();
+    if (p < 0) p = 0;
+    if (total > 0 && p > total) p = total.toDouble();
+    return p;
+  }
+
+  static String _clock(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    final t = (d.inMilliseconds % 1000) ~/ 100;
+    return '$m:${s.toString().padLeft(2, '0')}.$t';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final totalMs = _totalMs;
+    final posMs = _dragMs ?? _posMs;
+    final playing = _c.playing;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(8, 6, 12, 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFFEAD8B2),
+        border: Border(
+          bottom: BorderSide(color: Parchment.bronzeSoft, width: 0.5),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            onPressed: onBack5,
-            icon: const Icon(Icons.replay_5),
-            tooltip: 'Back 5 seconds',
+          Row(
+            children: [
+              IconButton(
+                onPressed: () =>
+                    _c.seekBy(const Duration(seconds: -5)),
+                icon: const Icon(Icons.replay_5, color: Parchment.ink),
+                tooltip: 'Back 5 seconds',
+              ),
+              IconButton.filled(
+                onPressed: () => _c.playing ? _c.pause() : _c.play(),
+                icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                style: const ButtonStyle(
+                  backgroundColor:
+                      WidgetStatePropertyAll(Parchment.bronze),
+                  foregroundColor:
+                      WidgetStatePropertyAll(Color(0xFFF8EBCB)),
+                ),
+                tooltip: playing ? 'Pause' : 'Play',
+              ),
+              IconButton(
+                onPressed: () => _c.seekBy(const Duration(seconds: 5)),
+                icon: const Icon(Icons.forward_5, color: Parchment.ink),
+                tooltip: 'Forward 5 seconds',
+              ),
+              const Spacer(),
+              Text(
+                _clock(_c.position),
+                style: const TextStyle(
+                  color: Parchment.inkStrong,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
           ),
-          IconButton.filled(
-            onPressed: onPlayPause,
-            icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-            tooltip: playing ? 'Pause' : 'Play',
-          ),
-          IconButton(
-            onPressed: onFwd5,
-            icon: const Icon(Icons.forward_5),
-            tooltip: 'Forward 5 seconds',
-          ),
-          const Spacer(),
-          Text(clock,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
-              )),
+          // Scrubber (P61): timing work needs positional context — where
+          // the intro ends, how far to the bridge, how long is left. The
+          // editor previously had play/±5 only; locating a moment meant
+          // tapping stamped chips one by one.
+          if (totalMs > 0)
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                activeTrackColor: Parchment.bronze,
+                inactiveTrackColor: Parchment.bronzeSoft.withValues(alpha: 0.3),
+                thumbColor: Parchment.inkStrong,
+                overlayColor: Parchment.gold.withValues(alpha: 0.16),
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape:
+                    const RoundSliderOverlayShape(overlayRadius: 12),
+              ),
+              child: Slider(
+                min: 0,
+                max: totalMs.toDouble(),
+                value: posMs.clamp(0, totalMs.toDouble()),
+                onChangeStart: (_) =>
+                    setState(() => _dragMs = _posMs),
+                onChanged: (v) => setState(() => _dragMs = v),
+                onChangeEnd: (v) {
+                  _c.seek(Duration(milliseconds: v.round()));
+                  setState(() => _dragMs = null);
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -373,46 +543,74 @@ class _LineRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: isCursor ? cs.primaryContainer.withValues(alpha: 0.35) : null,
+        color: isCursor
+            ? Parchment.honey.withValues(alpha: 0.35)
+            : null,
         // Colour is never the only signal (WCAG 1.4.1): the pending line
         // also carries a leading bar.
         border: Border(
           left: BorderSide(
             width: 4,
-            color: isCursor ? cs.primary : Colors.transparent,
+            color: isCursor ? Parchment.bronze : Colors.transparent,
           ),
-          bottom: BorderSide(color: cs.outlineVariant, width: 0.5),
+          bottom: BorderSide(
+              color: Parchment.bronzeSoft.withValues(alpha: 0.3),
+              width: 0.5),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // 48 dp tall (P61): the tappable timestamp used to be a bare
+          // text glyph — visually 20 dp tall, far under the Material
+          // minimum touch target.
           SizedBox(
-            width: 62,
-            child: GestureDetector(
-              onTap: onTapTime,
-              child: Text(
-                line.isStamped ? _fmt(line.at!) : '—',
-                style: TextStyle(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                  fontWeight:
-                      line.isStamped ? FontWeight.w700 : FontWeight.w400,
-                  color: line.isStamped ? cs.primary : cs.outline,
-                  decoration:
-                      onTapTime != null ? TextDecoration.underline : null,
+            width: 68,
+            height: 48,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                onTap: onTapTime,
+                child: Semantics(
+                  button: true,
+                  label: line.isStamped
+                      ? 'Audition from ${_fmt(line.at!)}'
+                      : 'Not timed yet',
+                  child: Text(
+                    line.isStamped ? _fmt(line.at!) : '—',
+                    style: TextStyle(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontWeight:
+                          line.isStamped ? FontWeight.w700 : FontWeight.w400,
+                      color: line.isStamped
+                          ? Parchment.bronze
+                          : Parchment.inkFaint,
+                      decoration:
+                          onTapTime != null ? TextDecoration.underline : null,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-          Expanded(child: Text(line.text)),
+          Expanded(
+            child: Text(
+              line.text,
+              style: TextStyle(
+                color: isCursor ? Parchment.inkStrong : Parchment.ink,
+                fontWeight: isCursor ? FontWeight.w800 : FontWeight.w600,
+                fontFamily: 'NotoSansEthiopic',
+                height: 1.4,
+              ),
+            ),
+          ),
           if (onNudge != null) ...[
-            _NudgeBtn(label: '−', onTap: () => onNudge!(-200)),
+            _NudgeBtn(label: '−', onStep: () => onNudge!(-200)),
             const SizedBox(width: 4),
-            _NudgeBtn(label: '+', onTap: () => onNudge!(200)),
+            _NudgeBtn(label: '+', onStep: () => onNudge!(200)),
           ],
         ],
       ),
@@ -427,22 +625,61 @@ class _LineRow extends StatelessWidget {
   }
 }
 
-class _NudgeBtn extends StatelessWidget {
+class _NudgeBtn extends StatefulWidget {
   final String label;
-  final VoidCallback onTap;
-  const _NudgeBtn({required this.label, required this.onTap});
+  final VoidCallback onStep;
+  const _NudgeBtn({required this.label, required this.onStep});
+
+  @override
+  State<_NudgeBtn> createState() => _NudgeBtnState();
+}
+
+class _NudgeBtnState extends State<_NudgeBtn> {
+  Timer? _repeat;
+
+  void _press() {
+    widget.onStep(); // the first step lands immediately
+    HapticFeedback.selectionClick();
+    _repeat?.cancel();
+    // P62 — press-and-hold: a short pause, then a steady rhythm. Nudging
+    // a stamp by a second used to mean five separate taps; holding the
+    // button now walks it in 200 ms steps at ~11 Hz.
+    _repeat = Timer(const Duration(milliseconds: 380), () {
+      _repeat = Timer.periodic(
+          const Duration(milliseconds: 90), (_) => widget.onStep());
+    });
+  }
+
+  void _release() {
+    _repeat?.cancel();
+    _repeat = null;
+  }
+
+  @override
+  void dispose() {
+    _repeat?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 40dp keeps the target at the Material minimum for touch.
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+    // 48×48 dp (P61): Material's actual minimum touch target — the old
+    // 40×40 claimed to be the minimum in a comment; it is not (M3 says
+    // 48, iOS HIG 44). These are tapped dozens of times per hymn.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _press(),
+      onTapUp: (_) => _release(),
+      onTapCancel: _release,
       child: SizedBox(
-        width: 40,
-        height: 40,
+        width: 48,
+        height: 48,
         child: Center(
-          child: Text(label, style: const TextStyle(fontSize: 18)),
+          child: Text(widget.label,
+              style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Parchment.bronze)),
         ),
       ),
     );
@@ -470,12 +707,12 @@ class _StampBar extends StatelessWidget {
           children: [
             IconButton(
               onPressed: onBack,
-              icon: const Icon(Icons.undo),
+              icon: const Icon(Icons.undo, color: Parchment.ink),
               tooltip: 'Step back a line',
             ),
             IconButton(
               onPressed: onClear,
-              icon: const Icon(Icons.restart_alt),
+              icon: const Icon(Icons.restart_alt, color: Parchment.ink),
               tooltip: 'Clear all timings',
             ),
             const SizedBox(width: 8),
@@ -487,7 +724,14 @@ class _StampBar extends StatelessWidget {
                   icon: const Icon(Icons.touch_app),
                   label: Text(enabled ? 'Tap on the line' : 'All lines timed'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
+                    // Gold + dark ink: the player's play-button vocabulary,
+                    // not the app-wide maroon (P61 style unification).
+                    backgroundColor: Parchment.gold,
+                    foregroundColor: const Color(0xFF4A2C0C),
+                    disabledBackgroundColor:
+                        Parchment.bronzeSoft.withValues(alpha: 0.35),
+                    disabledForegroundColor:
+                        Parchment.inkFaint.withValues(alpha: 0.6),
                   ),
                 ),
               ),

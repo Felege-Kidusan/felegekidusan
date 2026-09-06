@@ -371,7 +371,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                             value: rs.textScale,
                             activeColor: Parchment.bronze,
                             inactiveColor:
-                                Parchment.bronzeSoft.withOpacity(0.28),
+                                Parchment.bronzeSoft.withValues(alpha: 0.28),
                             onChanged: (v) => rs.setTextScale(v),
                           ),
                         ),
@@ -460,6 +460,15 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
           final h = box.maxHeight;
           final w = box.maxWidth;
           final pad = MediaQuery.paddingOf(context);
+          // P62: the fixed bands are placed through ParchmentArt.stageY,
+          // which maps the artwork's own regions through the cover fit —
+          // bit-identical to the old screen fractions on portrait phones,
+          // and correctly on the painted regions on tablets / landscape
+          // (where the art is width-driven and the old fractions drifted).
+          final stage = ParchmentArt.stageY(
+            Size(w, h),
+            headerBottom: pad.top + h * 0.012 + 48,
+          );
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -470,22 +479,23 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                 child: _buildHeader(context),
               ),
               Positioned(
-                top: h * ParchmentArt.titleTop,
+                top: stage.titleTop,
                 left: w * 0.14,
                 right: w * 0.14,
                 height: h * 0.086,
                 child: _buildTitle(),
               ),
               Positioned(
-                top: h * (ParchmentArt.boxTop + ParchmentArt.boxInsetInner),
-                bottom: h * (1.0 - ParchmentArt.boxBottom +
-                    ParchmentArt.boxInsetInner),
+                top: stage.lyricsTop,
+                // Positioned's `bottom` is measured from the screen's
+                // bottom edge; lyricsBottom is measured from the top.
+                bottom: h - stage.lyricsBottom,
                 left: w * ParchmentArt.boxInsetX,
                 right: w * ParchmentArt.boxInsetX,
                 child: _buildLyricsBox(),
               ),
               Positioned(
-                top: h * ParchmentArt.playerTop,
+                top: stage.playerTop,
                 left: w * 0.05,
                 right: w * 0.05,
                 bottom: pad.bottom + h * 0.012,
@@ -667,9 +677,9 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
                           trackHeight: 3,
                           activeTrackColor: Parchment.bronze,
                           inactiveTrackColor:
-                              Parchment.bronzeSoft.withOpacity(0.28),
+                              Parchment.bronzeSoft.withValues(alpha: 0.28),
                           thumbColor: Parchment.inkStrong,
-                          overlayColor: Parchment.gold.withOpacity(0.16),
+                          overlayColor: Parchment.gold.withValues(alpha: 0.16),
                           thumbShape: const RoundSliderThumbShape(
                               enabledThumbRadius: 6),
                           overlayShape: const RoundSliderOverlayShape(
@@ -778,7 +788,7 @@ class _GlassPanel extends StatelessWidget {
             color: const Color(0x99F6E7C8),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
-              color: Parchment.bronze.withOpacity(0.34),
+              color: Parchment.bronze.withValues(alpha: 0.34),
               width: 1,
             ),
           ),
@@ -835,7 +845,7 @@ class _CtrlIcon extends StatelessWidget {
       tooltip: tooltip,
       iconSize: size,
       color: active ? Parchment.bronze : Parchment.ink,
-      disabledColor: Parchment.inkFaint.withOpacity(0.35),
+      disabledColor: Parchment.inkFaint.withValues(alpha: 0.35),
       icon: Icon(icon),
       onPressed: onTap,
     );

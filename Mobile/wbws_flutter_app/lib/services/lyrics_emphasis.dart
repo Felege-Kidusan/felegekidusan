@@ -41,6 +41,17 @@ class LyricEmphasisProfile {
     required this.minOpacity,
   });
 
+  /// Scale for a line at (possibly fractional) distance [d] from the active
+  /// line. This is THE single implementation of the falloff: `forIndex` uses
+  /// it for resting endpoints, and the lyrics screen's one-tween emphasis
+  /// driver uses it for every intermediate frame — so an animated line can
+  /// never visit a value the resting state wouldn't land on.
+  double scaleFor(double d) => (1.0 - d * scaleStep).clamp(minScale, 1.0);
+
+  /// Opacity for a line at (possibly fractional) distance [d]. See
+  /// [scaleFor]: one implementation, two consumers.
+  double opacityFor(double d) => (1.0 - d * opacityStep).clamp(minOpacity, 1.0);
+
   /// Default sing-along emphasis (Spotify-like): the current line is bold,
   /// bright and full-size; the rest recede with distance. The size change is a
   /// gentle, clearly-smooth scale-down (nearest neighbour ~8% smaller, settling
@@ -101,12 +112,12 @@ class LyricEmphasis {
     // NOTE: `active` here is the int parameter, which shadows the static
     // `LyricEmphasis.active` constant — always qualify the constant.
     if (d == 0 && active >= 0) return LyricEmphasis.active;
-    // Upper bound is always 1.0 (>= the profile floor) so `clamp` can never be
-    // called with lower > upper — which would throw. Only the active line has
-    // scale/opacity 1.0; off lines are always smaller/fainter by some step, so
-    // a 1.0 cap never accidentally promotes an off line (see the profile).
-    final scale = (1.0 - d * profile.scaleStep).clamp(profile.minScale, 1.0).toDouble();
-    final opacity = (1.0 - d * profile.opacityStep).clamp(profile.minOpacity, 1.0).toDouble();
+    // The profile owns the falloff math (scaleFor/opacityFor) so the resting
+    // endpoints here are bit-identical to the values the animation tween
+    // derives mid-flight. Upper bound is always 1.0 (>= the profile floor)
+    // so `clamp` can never be called with lower > upper — which would throw.
+    final scale = profile.scaleFor(d.toDouble());
+    final opacity = profile.opacityFor(d.toDouble());
     return LyricEmphasis(
       isActive: false,
       scale: scale,

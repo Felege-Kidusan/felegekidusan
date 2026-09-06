@@ -65,6 +65,13 @@ class LrcBuilder {
   }
 
   /// Parse an LRC document back into authorable lines (for re-editing).
+  ///
+  /// Assumes the document is in the server's canonical dialect (ONE stamp
+  /// per line, sorted) — which every stored `lyrics_synced` is, because
+  /// `MezmurMediaService::canonicalizeLrc` normalizes on write. Raw
+  /// hand-made files should go through the server first. `[offset:]` and
+  /// other headers are not lines; use [offsetOf] to carry an offset through
+  /// an edit session.
   static List<LrcLine> parse(String lrc) {
     final re = RegExp(r'^\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.*)$');
     final out = <LrcLine>[];
@@ -74,10 +81,57 @@ class LrcBuilder {
       final ms = int.parse(m.group(1)!) * 60000 +
           int.parse(m.group(2)!) * 1000 +
           int.parse((m.group(3) ?? '0').padRight(3, '0'));
-      out.add(LrcLine(
-          text: m.group(4)!.trim(), at: Duration(milliseconds: ms)));
+      // P62 hardening: canonical documents carry ONE stamp per line, but a
+      // raw run like [00:01.00][00:09.00]text would leave the SECOND stamp
+      // inside the parsed text. Strip any residual leading stamp run so the
+      // words stay clean (the run's later timings are still dropped — this
+      // parser is canonical-only by contract, see the doc above; the display
+      // parser SyncedLyrics.tryParse is the one that expands runs).
+      final text = (m.group(4) ?? '')
+          .trim()
+          .replaceFirst(
+              RegExp(r'^(?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])+\s*'), '')
+          .trim();
+      out.add(LrcLine(text: text, at: Duration(milliseconds: ms)));
     }
     return out;
+  }
+
+  /// The `[offset:±ms]` header of a stored LRC document, 0 when absent or
+  /// malformed.
+  ///
+  /// The server PRESERVES offset headers through canonicalization, so a
+  /// stored document may carry one. Its meaning (shared with
+  /// `SyncedLyrics.indexFor`): the line at raw time T is heard at
+  /// T + offset. An edit session must therefore SHIFT existing stamps by
+  /// +offset on load (into playback time, which is what the curator hears
+  /// and stamps against) and by −offset on save, or a single re-save
+  /// silently drags every timing by the offset.
+  static int offsetOf(String lrc) {
+    for (final raw in lrc.split(RegExp(r'\r?\n'))) {
+      final m =
+          RegExp(r'^\[offset:\s*([+-]?\d+)\s*\]$').firstMatch(raw.trim());
+      if (m != null) return int.tryParse(m.group(1)!) ?? 0;
+    }
+    return 0;
+  }
+
+  /// Shift every STAMPED line by [delta] (unstamped lines are untouched).
+  ///
+  /// A uniform shift preserves order and gaps, so it can never violate the
+  /// monotonicity rules [stamp] enforces. Values below zero clamp to zero —
+  /// matching [stamp]'s floor.
+  static List<LrcLine> shiftAll(List<LrcLine> lines, Duration delta) {
+    if (delta == Duration.zero) return lines;
+    return [
+      for (final l in lines)
+        l.isStamped
+            ? l.copyWith(
+                at: l.at! + delta < Duration.zero
+                    ? Duration.zero
+                    : l.at! + delta)
+            : l
+    ];
   }
 
   /// Stamp [index] at [at], returning a NEW list (never mutates input).

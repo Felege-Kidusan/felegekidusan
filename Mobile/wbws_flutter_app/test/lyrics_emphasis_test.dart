@@ -110,4 +110,59 @@ void main() {
       expect(reading.opacity, greaterThan(karaoke.opacity));
     });
   });
+  group('P61 — profile scaleFor/opacityFor (the one-tween contract)', () {
+    // The lyrics screen drives its emphasis from ONE tweened value (the
+    // line's distance, animated through fractional values) and derives
+    // scale/opacity from the profile's continuous functions. forIndex uses
+    // the SAME functions for resting endpoints. These tests pin that
+    // equality so a future refactor can never reintroduce two formulas
+    // that drift apart mid-animation.
+    test('continuous derivation lands exactly on the resting endpoints', () {
+      for (final p in [
+        LyricEmphasisProfile.karaoke,
+        LyricEmphasisProfile.reading,
+      ]) {
+        for (var d = 0; d <= 10; d++) {
+          final e = LyricEmphasis.forIndex(index: 5, active: 5 - d, profile: p);
+          expect(p.scaleFor(d.toDouble()), e.scale,
+              reason: '${p == LyricEmphasisProfile.reading ? "reading" : "karaoke"} scale at d=$d');
+          expect(p.opacityFor(d.toDouble()), e.opacity,
+              reason: '${p == LyricEmphasisProfile.reading ? "reading" : "karaoke"} opacity at d=$d');
+        }
+      }
+    });
+
+    test('karaoke falloff is pinned (the exact published curve)', () {
+      const p = LyricEmphasisProfile.karaoke;
+      expect(p.scaleFor(0), 1.0);
+      expect(p.opacityFor(0), 1.0);
+      expect(p.scaleFor(1), closeTo(0.92, 1e-9));
+      expect(p.opacityFor(1), closeTo(0.85, 1e-9));
+      expect(p.scaleFor(4), closeTo(0.86, 1e-9)); // scale floor
+      expect(p.opacityFor(4), closeTo(0.42, 1e-9)); // opacity floor
+      expect(p.scaleFor(50), p.minScale); // and it stays there
+      expect(p.opacityFor(50), p.minOpacity);
+    });
+
+    test('reading profile never scales below 1.0 (no shrink, ever)', () {
+      const p = LyricEmphasisProfile.reading;
+      for (var d = 0.0; d <= 20; d += 0.25) {
+        expect(p.scaleFor(d), 1.0);
+      }
+    });
+
+    test('fractional distances are monotonic — the tween never wobbles', () {
+      const p = LyricEmphasisProfile.karaoke;
+      var prevScale = p.scaleFor(0);
+      var prevOpacity = p.opacityFor(0);
+      for (var d = 0.25; d <= 8; d += 0.25) {
+        final s = p.scaleFor(d);
+        final o = p.opacityFor(d);
+        expect(s, lessThanOrEqualTo(prevScale));
+        expect(o, lessThanOrEqualTo(prevOpacity));
+        prevScale = s;
+        prevOpacity = o;
+      }
+    });
+  });
 }

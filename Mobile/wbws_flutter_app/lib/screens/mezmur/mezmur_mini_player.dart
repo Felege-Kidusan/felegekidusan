@@ -36,10 +36,10 @@ class MezmurMiniPlayer extends StatelessWidget {
             // light parchment fill made the bar look DISABLED when the
             // pointer rested on it. Tint the overlays with the bronze
             // accent instead so pointer input reads as interactive.
-            hoverColor: Parchment.bronze.withOpacity(0.07),
-            focusColor: Parchment.bronze.withOpacity(0.10),
-            highlightColor: Parchment.bronze.withOpacity(0.10),
-            splashColor: Parchment.bronze.withOpacity(0.16),
+            hoverColor: Parchment.bronze.withValues(alpha: 0.07),
+            focusColor: Parchment.bronze.withValues(alpha: 0.10),
+            highlightColor: Parchment.bronze.withValues(alpha: 0.10),
+            splashColor: Parchment.bronze.withValues(alpha: 0.16),
             onTap: () => MezmurPlayerScreen.openSession(context),
             child: SizedBox(
               height: 56,

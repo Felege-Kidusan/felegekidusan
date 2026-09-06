@@ -28,22 +28,38 @@ import 'parchment_style.dart';
 /// is read locally first (offline-friendly), then refreshed from the
 /// single-hymn endpoint while online.
 ///
-/// Rendering model (P51/P53) — Spotify-style lyric emphasis on parchment:
+/// Rendering model (P51/P53, emphasis reworked in P61) — Spotify-style lyric
+/// emphasis on parchment:
 ///   * NO bubble / background per line. The sung line is simply bold + bright
 ///     + full size (and very slightly larger via a pure scale transform);
 ///     every other line recedes with distance (smaller and fainter) through
 ///     the pure distance formula (LyricEmphasis). This is never a font-size
-///     or weight change that alters layout, so a long Amharic line can never
-///     re-wrap and push its words onto a second row.
+///     change that alters layout, so a long Amharic line can never re-wrap
+///     and push its words onto a second row.
 ///   * Every lyric is rendered as exactly ONE row: it is laid out with
 ///     `softWrap:false` inside a `FittedBox(scaleDown)`, so if a line is too
-///     wide it scales down to fit the width rather than wrapping.
+///     wide it scales down to fit the width rather than wrapping. EXCEPTION:
+///     reading mode (and only reading mode) wraps — there is no scale
+///     animation there to jank, and allowing wrap means very large
+///     accessibility text keeps full width instead of being shrunk by the
+///     FittedBox.
 ///   * Auto-scroll is NOT a per-line `ensureVisible` (which restarted and
 ///     stuttered). A single Ticker eases the scroll offset toward the
 ///     centred target with an exponential glide, so transitions are smooth
 ///     and kinetic; the renderer stops ticking when nothing is playing.
-///   * Emphasis animation is isolated per line behind a RepaintBoundary and
-///     driven by implicit animations (no per-frame setState on the list).
+///   * Emphasis (P61) is driven by ONE tween per line — the line's distance
+///     from the active line — and scale, opacity, colour and weight are all
+///     derived from that single value. The previous three parallel implicit
+///     animations (Opacity + Scale + DefaultTextStyle) held the same duration
+///     and curve but were three controllers, and the weight/colour text
+///     relayout made the size read as lagging the fade. One value cannot
+///     desynchronise from itself. Scale stays a paint transform; weight is
+///     lerped from the same distance so the whole line rises as one motion.
+///     Each line sits behind its own RepaintBoundary, so animating one can
+///     never repaint the whole list (long bodies on low-end).
+///   * The active line is driven by the audio engine's position stream
+///     (event-driven, no polling timer): a line lights up the frame the
+///     playhead crosses it, and the UI does nothing while paused.
 class MezmurLyricsScreen extends StatefulWidget {
   final MezmurTrack track;
   const MezmurLyricsScreen({super.key, required this.track});
@@ -55,12 +71,12 @@ class MezmurLyricsScreen extends StatefulWidget {
 enum _LyricsMode { synced, staticOnly, none }
 
 class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final MezmurAudioPlayerController _c =
       MezmurAudioPlayerController.instance;
   final ScrollController _scroll = ScrollController();
 
-  Timer? _positionTicker; // samples the audio position → active line
+  StreamSubscription<Duration>? _posSub; // engine position samples → active line
   late final Ticker _smoothTicker; // eases the scroll offset (60 fps)
   bool _wasPlaying = false;
   Duration _lastTick = Duration.zero;
@@ -75,6 +91,23 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   bool _userHold = false;
   int _active = -1;
   List<GlobalKey> _keys = const [];
+
+  /// P61 — async-load generation. `_load()` awaits disk + network; a second
+  /// `_load()` can start (track change / page churn) before the first
+  /// finishes, and the stale response used to paint the PREVIOUS hymn's
+  /// lyrics into the current one. Every load takes a ticket; a response
+  /// whose ticket is no longer current is dropped.
+  int _loadGen = 0;
+
+  /// P61 — suspend active-line work while the app is backgrounded. Audio
+  /// keeps playing (just_audio_background), but no frame is rendered, so
+  /// setState traffic while invisible is pure waste. On resume the active
+  /// line is force-re-synced.
+  bool _foreground = true;
+
+  /// Cached once: the sync-editor affordance is role-gated and the role
+  /// cannot change while this route is alive.
+  late final bool _canEdit = HymnStore().canEdit;
 
   bool get _syncedAvailable =>
       _doc != null && !_doc!.isEmpty && _mode == _LyricsMode.synced;
@@ -161,8 +194,14 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     // first frame is never a spinner waiting on audio or the network.
     _paintFrom(widget.track.lyricsSynced ?? '', widget.track.lyrics ?? '');
     _load();
-    _positionTicker = Timer.periodic(
-        const Duration(milliseconds: 120), (_) => _onPositionTick());
+    // P61 — event-driven position sampling. The engine's position stream
+    // pushes a sample every frame-ish interval while audio advances; we do
+    // nothing while paused and never wake the framework on a timer. The
+    // controller's ChangeNotifier covers the edges the stream cannot see
+    // (play/pause, seek, track change).
+    _posSub = _c.positionStream.listen((_) => _syncActive());
+    _c.addListener(_onControllerChanged);
+    WidgetsBinding.instance.addObserver(this);
     // The scroll Ticker is created but not started here. The play/pause watch
     // (below) starts it when audio plays and stops it when idle, so the
     // renderer is never ticking while silently parked. The initial centre is
@@ -184,7 +223,9 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
 
   @override
   void dispose() {
-    _positionTicker?.cancel();
+    _posSub?.cancel();
+    _c.removeListener(_onControllerChanged);
+    WidgetsBinding.instance.removeObserver(this);
     _smoothTicker.dispose();
     _resumeHold?.cancel();
     _reader.removeListener(_onReaderChanged);
@@ -192,7 +233,19 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    _foreground = s == AppLifecycleState.resumed;
+    if (_foreground && mounted) {
+      // Anything may have happened while invisible; re-light the right line.
+      _syncActive(force: true);
+    }
+  }
+
   Future<void> _load() async {
+    // P61: every load takes a generation ticket; a later load invalidates
+    // this one, and its late response is dropped instead of painted.
+    final gen = ++_loadGen;
     // Never blank lyrics that are already on screen. The player must
     // show text while audio is still opening.
     if (_mode == _LyricsMode.none && mounted) {
@@ -227,7 +280,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
         _hadNetworkError = true;
       }
     }
-    if (!mounted) return;
+    if (!mounted || gen != _loadGen) return;
     setState(() {
       _loading = false;
       _paintFrom(synced, staticText);
@@ -235,10 +288,9 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     });
   }
 
-  /// Samples the audio position and updates the active line; also watches
-  /// play/pause so the scroll ticker stops when nothing is playing (near-zero
-  /// idle cost, like a production player — rendering stops when silent).
-  void _onPositionTick() {
+  /// Controller edges the position stream cannot see: play/pause (start/stop
+  /// the scroll ticker), seek and track change (re-light the line instantly).
+  void _onControllerChanged() {
     if (!mounted) return;
     final playing = _c.playing;
     if (playing != _wasPlaying) {
@@ -258,8 +310,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   /// Updates [active] to the line currently under the playhead. Every change
   /// recomputes a fresh [scrollTargetOffset] (post-frame, so the item is laid
   /// out) and lets the Ticker glide to it — never a re-entrant ensureVisible.
+  /// No-ops while the app is backgrounded (no frames are rendered; the
+  /// lifecycle observer force-re-syncs on resume).
   void _syncActive({bool force = false}) {
-    if (!_syncedAvailable) return;
+    if (!_syncedAvailable || !_foreground) return;
     final i = _doc!.indexFor(_c.position);
     if (i == _active && !force) return;
     _active = i;
@@ -277,6 +331,12 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
   /// exact even for variable-height (wrapped) Amharic lines.
   void _recenter({bool instant = false}) {
     if (!_scroll.hasClients) return;
+    // Reduce-motion users get no glide either — the same preference that
+    // shortens the emphasis animation to zero applies to the scroll.
+    if (!instant &&
+        (MediaQuery.maybeOf(context)?.disableAnimations ?? false)) {
+      instant = true;
+    }
     final i = _active;
     if (i < 0 || i >= _keys.length) return;
     final ro = _keys[i].currentContext?.findRenderObject();
@@ -322,7 +382,10 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
 
   void _tapLine(int i, SyncedLyricLine line) {
     if (line.isEmpty) return;
-    _c.seek(line.time);
+    // P61: seek to the OFFSET-CORRECTED moment — the same arithmetic
+    // indexFor uses to decide which line is active. Seeking to the raw
+    // stamp would disagree with the highlight by exactly [offset:].
+    _c.seek(_doc!.seekTargetFor(line));
     _active = i;
     _userHold = false;
     if (mounted) setState(() {});
@@ -420,6 +483,7 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
     final lineHeight = _lyricLineHeight;
     final profile =
         reading ? LyricEmphasisProfile.reading : LyricEmphasisProfile.karaoke;
+    final editEntry = _canEdit; // trailing "edit timings" affordance
     return LayoutBuilder(builder: (context, box) {
       // P54: the padding lets the first/last lines scroll to the centre. 0.30
       // (was 0.42) keeps that centring while removing the big "loose" empty
@@ -437,72 +501,123 @@ class _MezmurLyricsScreenState extends State<MezmurLyricsScreen>
             // P53: keep side padding tiny so every line has the widest run of
             // text possible (FittedBox guarantees one row either way).
             padding: EdgeInsets.fromLTRB(6, pad, 6, pad),
-            itemCount: lines.length,
+            itemCount: lines.length + (editEntry ? 1 : 0),
             itemBuilder: (context, i) {
+              // Trailing affordance: a curator who can already see timings
+              // can now fix them without leaving the hymn (P61 — the editor
+              // used to be reachable ONLY when no timings existed, so a bad
+              // timing was unfixable from the app).
+              if (i == lines.length) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 18, bottom: 6),
+                  child: Center(
+                    child: TextButton.icon(
+                      onPressed: _openSyncEditor,
+                      icon: const Icon(Icons.timer_outlined,
+                          size: 18, color: Parchment.bronze),
+                      label: const Text('Edit timings',
+                          style: TextStyle(
+                              color: Parchment.bronze,
+                              fontWeight: FontWeight.w700)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Parchment.bronze,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ),
+                );
+              }
               final line = lines[i];
               final isEmpty = line.isEmpty;
-              // Pure distance rule (never changing font size/weight in layout)
+              // Pure distance rule (never changing font size in layout)
               // drives scale/opacity/active. Reading mode uses the flat
               // profile so nothing shrinks and all lines stay fully readable.
               final e = LyricEmphasis.forIndex(
                   index: i, active: _active, profile: profile);
               return KeyedSubtree(
                 key: _keys[i],
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
+                child: Semantics(
+                  // The seek gesture must exist for assistive tech, not just
+                  // for a finger.
+                  button: true,
                   onTap: isEmpty ? null : () => _tapLine(i, line),
-                  // RepaintBoundary isolates each line so animating one can
-                  // never repaint the whole list (long bodies on low-end).
-                  child: RepaintBoundary(
-                    child: Padding(
-                      padding:
-                          EdgeInsets.symmetric(vertical: reading ? 13 : 10),
-                      child: AnimatedOpacity(
-                        opacity: e.isActive ? 1.0 : e.opacity,
-                        duration: anim,
-                        curve: _curve,
-                        // Size emphasis is a PAINT transform, never a font-size
-                        // change. Animating fontSize forces the Amharic glyphs
-                        // to re-shape and re-layout every frame (and the
-                        // FittedBox to re-fit), which is what made the exiting
-                        // line visibly drop / jank. AnimatedScale just scales
-                        // the already-laid-out line on the GPU — perfectly
-                        // smooth, zero reflow — and it scales the WHOLE fitted
-                        // line so it can never re-wrap. Since the underlying
-                        // fontSize never changes, the FittedBox keeps every
-                        // line on exactly one row.
-                        child: AnimatedScale(
-                          scale: e.scale,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: isEmpty ? null : () => _tapLine(i, line),
+                    // RepaintBoundary isolates each line so animating one can
+                    // never repaint the whole list (long bodies on low-end).
+                    child: RepaintBoundary(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                            vertical: reading ? 13 : 10),
+                        // P61 — ONE tween per line (its distance from the
+                        // active line) drives scale, opacity, colour AND
+                        // weight. Three parallel implicit animations with the
+                        // same duration still read as three motions when one
+                        // of them (weight) relayouts text mid-flight; a single
+                        // value cannot desynchronise from itself. Endpoints
+                        // are exactly LyricEmphasis's, because the profile's
+                        // scaleFor/opacityFor are the same functions forIndex
+                        // evaluated.
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween<double>(end: e.distance.toDouble()),
                           duration: anim,
                           curve: _curve,
-                          alignment: Alignment.center,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.center,
-                            child: AnimatedDefaultTextStyle(
-                              duration: anim,
-                              curve: _curve,
+                          builder: (context, d, _) {
+                            final scale = profile.scaleFor(d);
+                            final opacity = profile.opacityFor(d);
+                            // 1.0 while sung → 0 by one line away; colour and
+                            // weight ride the same value as size and fade.
+                            final activity = (1.0 - d).clamp(0.0, 1.0);
+                            final text = Text(
+                              isEmpty ? '· · ·' : line.text,
+                              // Reading mode wraps at full width (large
+                              // accessibility text must not be shrunk by a
+                              // FittedBox); karaoke mode keeps the one-row
+                              // guarantee via softWrap:false + FittedBox.
+                              softWrap: reading,
+                              maxLines: reading ? null : 1,
+                              overflow: reading
+                                  ? TextOverflow.clip
+                                  : TextOverflow.visible,
+                              textAlign: TextAlign.center,
                               style: TextStyle(
                                 // Sung line = darkest, boldest ink; the rest
                                 // recede to a warm bronze so the hierarchy is
-                                // obvious (a real color change, animated).
-                                color: e.isActive ? _activeInk : _restInk,
+                                // obvious. Colour and weight ride the same
+                                // tween as scale/opacity — one motion.
+                                color:
+                                    Color.lerp(_restInk, _activeInk, activity)!,
+                                fontWeight:
+                                    FontWeight.lerp(FontWeight.w500,
+                                            FontWeight.w800, activity) ??
+                                        FontWeight.w500,
                                 fontSize: size,
                                 height: lineHeight,
-                                fontWeight: e.isActive
-                                    ? FontWeight.w800
-                                    : FontWeight.w500,
                                 fontFamily: 'NotoSansEthiopic',
                               ),
-                              child: Text(
-                                isEmpty ? '· · ·' : line.text,
-                                softWrap: false,
-                                maxLines: 1,
-                                overflow: TextOverflow.visible,
-                                textAlign: TextAlign.center,
+                            );
+                            if (reading) {
+                              return Opacity(opacity: opacity, child: text);
+                            }
+                            // Scale is a PAINT transform, never a font-size
+                            // change: the Amharic glyphs never re-shape for
+                            // size, the FittedBox keeps every line on exactly
+                            // one row, and the whole fitted line scales as
+                            // one unit on the GPU.
+                            return Opacity(
+                              opacity: opacity,
+                              child: Transform.scale(
+                                scale: scale,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.center,
+                                  child: text,
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ),
