@@ -126,6 +126,11 @@ class AppUpdateService {
 
   AppRemoteConfig? config;
   UpdateDecision decision = const UpdateDecision(force: false, optional: false);
+  /// Bumped after every completed server check. Lets small widgets (the
+  /// optional-update banner) rebuild on fresh results the moment a check
+  /// lands — without the whole shell rebuilding (that visibly hitched
+  /// the kept-alive tabs).
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
   Map<String, bool> _cachedFeatures = const {};
   Map<String, List<String>> _cachedTiles = const {};
   Future<void>? _cacheFuture;
@@ -152,6 +157,7 @@ class AppUpdateService {
         minBuild: config!.minBuild,
         forceFlag: config!.forceFlag,
       );
+      revision.value++;
     } catch (_) {
       // Stay on the current app if the check fails — do not lock teachers out.
     }

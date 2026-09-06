@@ -45,10 +45,31 @@ The APK lives on the web server, never in git. Paths refer to
 'apk_arm32_path' => '/home/<user>/fkss_releases/fkss-arm32.apk', // optional
 ```
 
-Then bump `latest_version` / `latest_build` to match `pubspec.yaml`
-(`version: 1.1.17+19` → version `1.1.17`, build `19`). Raise `min_build` only
-when old phones **must** update (security fix) — that is the force-update lever.
-`force_update: true` forces everyone on the current version.
+Then bump `latest_version` / `latest_build` to match what the app itself
+reports in **Profile → App → Version** (see the golden rule below). Raise
+`min_build` only when old phones **must** update (security fix) — that is
+the force-update lever. `force_update: true` forces everyone on the
+current version.
+
+> **⚠ The golden rule: the numbers must match the APK.** The app compares
+> its own self-reported version (`lib/utils/config.dart`) against
+> `latest_build` on the server. If you advertise `latest_build: 20` while
+> hosting an APK that reports itself as 19, every phone — including ones
+> that just updated — keeps seeing "update available" forever. The
+> version-sync test (`test/version_sync_test.dart`) keeps `pubspec.yaml`
+> and `lib/utils/config.dart` locked together, and the build script runs
+> it before every release; the only remaining rule for you is: **upload
+> the APK that matches the numbers you set.**
+
+**Migrating old phones that don't show the update banner.** App versions
+before the optional-update banner only react to *forced* updates. To pull
+the whole fleet forward once: publish the new APK, then set `min_build` to
+one more than the old installed build (e.g. old phones run 17 →
+`'min_build' => 18`). They get the blocking update screen, install the new
+APK (which reports its true, higher build), and are free — then set
+`min_build` back to `1`. This is safe **only** because the hosted APK
+self-reports its real build (see the golden rule); a mismatched APK would
+loop.
 
 **Why per-ABI?** The universal APK carries both architectures (~68MB). A
 per-ABI build is roughly half the size — meaningful on 8GB-storage, 1GB-RAM
@@ -128,7 +149,8 @@ and still need the one-time `adb logcat` capture on the device.
 
 ## 6. Pre-publish checklist
 
-- [ ] `pubspec.yaml` version bumped (`+build` up by at least 1)
+- [ ] Version bumped in **both** `pubspec.yaml` and `lib/utils/config.dart`
+      (they must match — `test/version_sync_test.dart` fails the build otherwise)
 - [ ] Built via `scripts\build-release.ps1` (tests green)
 - [ ] Universal APK uploaded and `latest_version`/`latest_build` updated
 - [ ] `release-manifest.json` archived with the release notes

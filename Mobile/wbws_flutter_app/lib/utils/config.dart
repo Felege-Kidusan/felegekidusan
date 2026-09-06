@@ -5,8 +5,13 @@ class AppConfig {
   static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
   static const String appName = 'FKSS';
   static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
-  static const String appVersion = '1.1.15';
-  static const int appBuild = 17;
+  // ⚠ SINGLE SOURCE OF TRUTH for the update system: the app compares
+  // THESE values against the server's .fkss_app_release.php — pubspec.yaml's
+  // version only feeds the Android package version. They MUST stay in sync
+  // (test/version_sync_test.dart fails the release build if they drift —
+  // drifting is what hid updates from phones before P65).
+  static const String appVersion = '1.1.16';
+  static const int appBuild = 19;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';
