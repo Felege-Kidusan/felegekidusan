@@ -48,11 +48,40 @@ android {
         versionName = flutter.versionName
     }
 
+    // ── Release signing (P65) ─────────────────────────────────────────
+    // Industry-standard key.properties flow: create the file ONLY when a
+    // real keystore exists (see docs/RELEASE.md §Signing). Until then the
+    // app keeps building with the debug keys the installed fleet already
+    // trusts, so in-app updates keep working.
+    //
+    // ⚠ MIGRATION WARNING: switching to a new keystore changes the APK
+    // signature — Android REFUSES to update an app whose signature
+    // changed, so every phone needs a one-time uninstall + reinstall
+    // (which deletes the offline database on that phone). Only flip to a
+    // real keystore as a planned, communicated milestone.
+    def keystorePropertiesFile = rootProject.file("key.properties")
+    def keystoreProperties = new Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+    }
+
+    if (keystorePropertiesFile.exists()) {
+        signingConfigs {
+            release {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            // Debug keys while no key.properties exists (fleet-compatible);
+            // the guarded release config above takes over the moment the
+            // admin completes the keystore migration in docs/RELEASE.md.
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

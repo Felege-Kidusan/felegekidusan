@@ -224,6 +224,21 @@ Whichever signature appears on which phone decides the fix order below.
 
 ## 6 · Action plan (prioritized)
 
+> **IMPLEMENTATION STATUS — P65 fix package landed (see `docs/RELEASE.md`).**
+> Phase 1 ✅ (`scripts/build-release.ps1` + release guide + ABI-aware
+> `/app/download?abi=` with per-ABI artifacts, hash sidecar cache, universal
+> fallback). Phase 4 ✅ (`FkssApplication.kt` native crash trap → shared log +
+> `CrashLogService` + Profile → App → Diagnostics with copy-report; no new
+> dependencies). Phase 5 ✅ (34 unused font TTFs deleted: 13.3MB → 724KB of
+> bundled fonts). Phase 3 ✅ (`DeviceTierService` — RAM-class tiering + image
+> cache budgets 32/64MB on LOW/MID). Signing scaffolding ✅
+> (`key.properties`-guarded, debug keys until the admin deliberately migrates
+> — warning in RELEASE.md §3). Tests ✅ (`test/update_artifact_test.dart`,
+> `test/crash_log_parse_test.dart`, `test/device_tier_test.dart`). Phase 0
+> (field logcat) and Phase 2 (Impeller opt-out flag) remain **pending field
+> test** — the flag is pre-decided in RELEASE.md §4 and lands only if a
+> renderer crash is confirmed on a real phone.
+
 **Phase 0 — measure (§5).** One logcat capture from one phone. Everything
 after this is otherwise educated guesswork.
 

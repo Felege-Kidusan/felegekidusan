@@ -13,6 +13,7 @@ import 'services/sync_service.dart';
 import 'screens/lock/lock_screen.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
+import 'services/device_tier_service.dart';
 import 'services/warm_store.dart';
 import 'services/app_navigator.dart';
 import 'services/mezmur_download_manager.dart';
@@ -86,6 +87,11 @@ Future<void> runBootstrap() async {
     // Device-local, no network: restore the lyric text-size / reading-mode
     // preference so it is ready before the player ever opens.
     LyricsReaderSettings.instance.boot();
+    // P65: classify the hardware (RAM class / ABI) and scale the image
+    // cache to it — 1–2GB phones get a 32MB budget instead of Flutter's
+    // 100MB default. Also feeds the ABI-aware update download and the
+    // Profile → Diagnostics report. No-op on web.
+    DeviceTierService.instance.boot();
     if (ApiService().isLoggedIn) {
       Future<void>.delayed(const Duration(seconds: 2), () {
         WarmStore().afterLogin();

@@ -1,6 +1,9 @@
 package com.arkeonethiopia.fkss
 
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.view.WindowManager
 import androidx.core.content.FileProvider
 // FlutterFragmentActivity (not FlutterActivity): required by
@@ -16,9 +19,43 @@ import java.io.File
 class MainActivity : AudioServiceFragmentActivity() {
     private val channelName = "fkss.app/updater"
     private val lockChannelName = "fkss.app/app_lock"
+    private val deviceChannelName = "fkss.app/device"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // P65 — device capability snapshot (ABI, RAM class, OS): drives
+        // the low-end device tier (image-cache budgets) and the ABI-aware
+        // update download, and surfaces in Profile → Diagnostics. Read
+        // only; nothing here is sensitive.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "info" -> {
+                        try {
+                            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                            val mi = ActivityManager.MemoryInfo()
+                            am.getMemoryInfo(mi)
+                            result.success(
+                                mapOf(
+                                    "abi" to (Build.SUPPORTED_ABIS.firstOrNull() ?: ""),
+                                    "abis" to Build.SUPPORTED_ABIS.toList(),
+                                    "totalRamMb" to (mi.totalMem / (1024L * 1024L)).toInt(),
+                                    "isLowRam" to am.isLowRamDevice,
+                                    "sdkInt" to Build.VERSION.SDK_INT,
+                                    "release" to (Build.VERSION.RELEASE ?: ""),
+                                    "model" to (Build.MODEL ?: ""),
+                                    "manufacturer" to (Build.MANUFACTURER ?: ""),
+                                )
+                            )
+                        } catch (e: Exception) {
+                            result.error("device_info_failed", e.message, null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         // Telegram-style privacy: while a passcode is configured the app
         // content must not appear in the OS recent-apps preview.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, lockChannelName)

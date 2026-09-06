@@ -21,7 +21,7 @@
 
     <application
         android:label="FKSS"
-        android:name="${applicationName}"
+        android:name=".FkssApplication"
         android:icon="@mipmap/launcher_icon"
         android:allowBackup="false"
         android:fullBackupContent="false"

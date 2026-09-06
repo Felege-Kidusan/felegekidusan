@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/app_lock_service.dart';
+import '../../services/crash_log_service.dart';
+import '../../services/device_tier_service.dart';
 import '../../services/session_service.dart';
 import '../../services/sync_service.dart';
 import '../../utils/config.dart';
@@ -362,6 +365,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _buildSection('App', [
             _infoTile(Icons.info_outline, 'Version', '${AppConfig.appVersion} (${AppConfig.appBuild})'),
             _infoTile(Icons.cloud_outlined, 'Server', AppConfig.apiBaseUrl),
+            // P65: field diagnostics — device tier + the shared crash log
+            // the native trap and Dart bootstrap both write to. Lets a
+            // non-technical user hand the admin a full report in one tap,
+            // replacing "it opens and closes" dead-end reports.
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: const Icon(Icons.bug_report_outlined,
+                  size: 18, color: AppTheme.textSecondary),
+              title: const Text('Diagnostics'),
+              subtitle: const Text(
+                  'Device info & crash report for the administrator',
+                  style: TextStyle(fontSize: 12)),
+              trailing: const Icon(Icons.chevron_right, size: 18),
+              onTap: _showDiagnostics,
+            ),
           ]),
           const SizedBox(height: 20),
 
@@ -633,6 +652,110 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     fontFamily: 'NotoSansEthiopic')),
           ],
         ),
+      ),
+    );
+  }
+
+  // ── Diagnostics (P65: field crash reports without adb) ────────
+
+  Future<void> _showDiagnostics() async {
+    final tiers = DeviceTierService.instance;
+    if (tiers.info == null) {
+      await tiers.boot();
+    }
+    final crash = CrashLogService.instance;
+    final raw = await crash.readRaw();
+    final hasLog = raw.trim().isNotEmpty;
+    // Keep the dialog readable: show only the tail of the log.
+    final tail =
+        raw.length > 4096 ? '…${raw.substring(raw.length - 4096)}' : raw;
+    final recentCrash = await crash.lastNativeCrash();
+    final report = CrashLogService.buildReport(
+      appVersion: AppConfig.appVersion,
+      appBuild: AppConfig.appBuild,
+      server: AppConfig.apiBaseUrl,
+      device: tiers.info,
+      crashLogTail: tail,
+    );
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Diagnostics'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Device tier: ${tiers.tier.name.toUpperCase()}'
+                '${tiers.info != null ? ' · ${tiers.info!.primaryAbi}' : ''}',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              if (recentCrash != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '⚠ The app closed itself unexpectedly recently '
+                  '(${recentCrash.at != null ? recentCrash.at!.toLocal().toString().substring(0, 16) : 'unknown time'}).',
+                  style: TextStyle(fontSize: 12, color: AppTheme.danger),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxHeight: 260),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.textSecondary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SingleChildScrollView(
+                  child: Text(
+                    tail.trim().isEmpty ? 'No recorded errors.' : tail.trim(),
+                    style: const TextStyle(
+                        fontFamily: 'monospace', fontSize: 11, height: 1.35),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Copy the report and send it to the administrator when '
+                'asked. It contains device info and error traces only — no '
+                'personal data.',
+                style: TextStyle(fontSize: 11, color: Colors.black54),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          if (hasLog)
+            TextButton(
+              onPressed: () async {
+                await crash.clear();
+                if (ctx.mounted) Navigator.of(ctx).pop();
+              },
+              child: const Text('Clear log'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: report));
+              if (ctx.mounted) Navigator.of(ctx).pop();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Diagnostic report copied to clipboard')),
+                );
+              }
+            },
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text('Copy report'),
+          ),
+        ],
       ),
     );
   }

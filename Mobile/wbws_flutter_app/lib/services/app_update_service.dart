@@ -1,14 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../utils/config.dart';
 import '../utils/version.dart';
 import 'api_service.dart';
+import 'device_tier_service.dart';
+
+/// P65 — metadata of one downloadable APK artifact
+/// (universal, arm64-v8a or armeabi-v7a).
+class ApkArtifact {
+  final int sizeBytes;
+  final String sha256;
+
+  const ApkArtifact({required this.sizeBytes, required this.sha256});
+}
 
 class AppRemoteConfig {
   final String latestVersion;
@@ -20,6 +32,12 @@ class AppRemoteConfig {
   final bool downloadAvailable;
   final int apkSizeBytes;
   final String apkSha256;
+
+  /// P65: per-ABI artifacts advertised by the server. Keys: `universal`,
+  /// `arm64-v8a`, `armeabi-v7a`. Empty on servers that only publish the
+  /// universal build — the legacy [apkSha256] / [apkSizeBytes] fields
+  /// then remain the source of truth.
+  final Map<String, ApkArtifact> apkArtifacts;
   final String? bannerText;
   final String? bannerKind;
   final Map<String, bool> features;
@@ -35,6 +53,7 @@ class AppRemoteConfig {
     required this.downloadAvailable,
     required this.apkSizeBytes,
     required this.apkSha256,
+    this.apkArtifacts = const {},
     this.bannerText,
     this.bannerKind,
     this.features = const {},
@@ -59,6 +78,22 @@ class AppRemoteConfig {
         }
       });
     }
+    // P65: optional per-ABI artifact map from the server
+    // {"apk_artifacts": {"arm64-v8a": {"size_bytes": n, "sha256": s}}}.
+    // Unknown/absent → empty map; the legacy fields stay authoritative.
+    final artifactsRaw = json['apk_artifacts'];
+    final artifacts = <String, ApkArtifact>{};
+    if (artifactsRaw is Map) {
+      artifactsRaw.forEach((k, v) {
+        if (v is Map) {
+          final sha = '${v['sha256'] ?? ''}'.toLowerCase();
+          final size = int.tryParse('${v['size_bytes'] ?? 0}') ?? 0;
+          if (sha.isNotEmpty) {
+            artifacts[k.toString()] = ApkArtifact(sizeBytes: size, sha256: sha);
+          }
+        }
+      });
+    }
     return AppRemoteConfig(
       latestVersion: '${json['latest_version'] ?? ''}',
       latestBuild: int.tryParse('${json['latest_build'] ?? 0}') ?? 0,
@@ -69,6 +104,7 @@ class AppRemoteConfig {
       downloadAvailable: json['download_available'] == true,
       apkSizeBytes: int.tryParse('${json['apk_size_bytes'] ?? 0}') ?? 0,
       apkSha256: '${json['apk_sha256'] ?? ''}'.toLowerCase(),
+      apkArtifacts: artifacts,
       bannerText: banner is Map ? '${banner['text'] ?? ''}' : null,
       bannerKind: banner is Map ? '${banner['kind'] ?? 'info'}' : null,
       features: features,
@@ -184,6 +220,29 @@ class AppUpdateService {
   bool get canDownload =>
       !kIsWeb && Platform.isAndroid && (config?.downloadAvailable ?? false);
 
+  /// P65 — which artifact the config promises for [abi]:
+  /// the per-ABI entry when published, else `universal`, else the legacy
+  /// single-file fields. Pure; pinned by test.
+  static ApkArtifact? artifactFor(AppRemoteConfig? config, String? abi) {
+    if (config == null) return null;
+    if (abi != null && abi.isNotEmpty) {
+      final hit = config.apkArtifacts[abi];
+      if (hit != null) return hit;
+    }
+    final universal = config.apkArtifacts['universal'];
+    if (universal != null) return universal;
+    if (config.apkSha256.isNotEmpty) {
+      return ApkArtifact(
+        sizeBytes: config.apkSizeBytes,
+        sha256: config.apkSha256,
+      );
+    }
+    return null;
+  }
+
+  static bool _isSha256(String s) =>
+      s.length == 64 && RegExp(r'^[0-9a-f]{64}$').hasMatch(s);
+
   Future<String> downloadApk({void Function(double p)? onProgress}) async {
     if (!canDownload) {
       throw Exception('Download is only available on Android.');
@@ -197,17 +256,36 @@ class AppUpdateService {
       await file.delete();
     }
 
-    final uri = Uri.parse('${AppConfig.apiBaseUrl}/app/download');
+    // P65: ask for this device's architecture. Old servers ignore the
+    // extra query parameter (same universal file); new servers stream a
+    // ~2x smaller per-ABI build when one is published.
+    final abi = DeviceTierService.instance.info?.primaryAbi;
+    final artifact = artifactFor(config, abi);
+    var uri = Uri.parse('${AppConfig.apiBaseUrl}/app/download');
+    if (abi != null && abi.isNotEmpty) {
+      uri = uri.replace(queryParameters: {'abi': abi});
+    }
     final client = http.Client();
+    String headerSha = '';
     try {
       final request = http.Request('GET', uri);
-      final response = await client.send(request).timeout(
-            const Duration(minutes: 10),
-          );
+      final response = await client
+          .send(request)
+          .timeout(const Duration(minutes: 10));
       if (response.statusCode != 200) {
         throw Exception('Download failed (${response.statusCode}).');
       }
-      final total = response.contentLength ?? config?.apkSizeBytes ?? 0;
+      // The server states the SHA-256 of the file it ACTUALLY served —
+      // authoritative even when it falls back to universal for us.
+      final rawHeader = '${response.headers['x-app-sha256'] ?? ''}'
+          .trim()
+          .toLowerCase();
+      if (_isSha256(rawHeader)) headerSha = rawHeader;
+      final total =
+          response.contentLength ??
+          artifact?.sizeBytes ??
+          config?.apkSizeBytes ??
+          0;
       var received = 0;
       final sink = file.openWrite();
       await for (final chunk in response.stream) {
@@ -222,7 +300,11 @@ class AppUpdateService {
       client.close();
     }
 
-    final expected = config?.apkSha256 ?? '';
+    // Validation order: served-file header → per-ABI/universal artifact
+    // from config → legacy field. Never skip the check.
+    final expected = headerSha.isNotEmpty
+        ? headerSha
+        : (artifact?.sha256 ?? config?.apkSha256 ?? '');
     if (expected.isNotEmpty) {
       final bytes = await file.readAsBytes();
       final got = sha256.convert(bytes).toString();

@@ -4,19 +4,39 @@
  *
  * Edit /home/USER/.fkss_app_release.php on the server (see
  * api/v1/app_release.example.php). Never put the APK in git.
+ *
+ * P65: optional per-ABI artifacts. The universal APK ('apk_path') is
+ * ALWAYS the baseline and must always be published; 'apk_arm64_path' /
+ * 'apk_arm32_path' let the phone download a ~2x smaller per-device build
+ * (the app sends ?abi=arm64-v8a|armeabi-v7a). Old app versions ignore
+ * the extra fields and keep receiving the universal file.
  */
 
-function fkssCompareVersion(string $a, string $b): int
+/**
+ * Size + SHA-256 of an APK, with a sidecar cache so an ~80MB file is not
+ * re-hashed on every /app/config poll (the config endpoint is hit by
+ * every app at every launch — at fleet scale that is real CPU).
+ * Sidecar: "<file>.meta" holding "<sha256> <size>"; re-computed when the
+ * APK's size changes (i.e. after the admin uploads a new build). Best
+ * effort: if the sidecar cannot be written we simply hash every time.
+ */
+function fkssApkMeta(string $file): array
 {
-    $pa = array_map('intval', explode('.', preg_replace('/[^0-9.]/', '', $a) . ''));
-    $pb = array_map('intval', explode('.', preg_replace('/[^0-9.]/', '', $b) . ''));
-    for ($i = 0; $i < 3; $i++) {
-        $x = $pa[$i] ?? 0;
-        $y = $pb[$i] ?? 0;
-        if ($x < $y) return -1;
-        if ($x > $y) return 1;
+    $size = (int)filesize($file);
+    $sidecar = $file . '.meta';
+    if (is_file($sidecar)) {
+        $parts = preg_split('/\s+/', trim((string)@file_get_contents($sidecar)));
+        if (
+            is_array($parts) && count($parts) === 2
+            && strlen((string)$parts[0]) === 64 && ctype_xdigit((string)$parts[0])
+            && (int)$parts[1] === $size
+        ) {
+            return ['size' => $size, 'sha256' => strtolower((string)$parts[0])];
+        }
     }
-    return 0;
+    $sha = hash_file('sha256', $file);
+    @file_put_contents($sidecar, $sha . ' ' . $size, LOCK_EX);
+    return ['size' => $size, 'sha256' => $sha];
 }
 
 function fkssLoadAppRelease(): array
@@ -31,6 +51,8 @@ function fkssLoadAppRelease(): array
         'banner_text'    => '',
         'banner_kind'    => 'info',
         'apk_path'       => '',
+        'apk_arm64_path' => '',
+        'apk_arm32_path' => '',
         'tiles'          => [
             'education' => ['classes', 'teachers', 'subjects', 'enrollment', 'grades', 'attendance'],
         ],
@@ -70,15 +92,47 @@ function fkssLoadAppRelease(): array
     $out['banner_text'] = trim((string)$out['banner_text']);
     $out['banner_kind'] = in_array($out['banner_kind'] ?? '', ['info', 'warn'], true) ? $out['banner_kind'] : 'info';
     $out['apk_path'] = trim((string)$out['apk_path']);
+    $out['apk_arm64_path'] = trim((string)($out['apk_arm64_path'] ?? ''));
+    $out['apk_arm32_path'] = trim((string)($out['apk_arm32_path'] ?? ''));
     if (!is_array($out['tiles'])) {
         $out['tiles'] = $defaults['tiles'];
     }
 
+    // Universal artifact — the baseline every client can fall back to.
     $resolved = fkssResolveApkPath($out['apk_path']);
     $out['_apk_file'] = $resolved;
     $out['download_available'] = $resolved !== null;
-    $out['apk_size_bytes'] = $resolved ? (int)filesize($resolved) : 0;
-    $out['apk_sha256'] = $resolved ? hash_file('sha256', $resolved) : '';
+
+    $artifacts = [];
+    $files = [];
+    if ($resolved !== null) {
+        $meta = fkssApkMeta($resolved);
+        $out['apk_size_bytes'] = $meta['size'];
+        $out['apk_sha256'] = $meta['sha256'];
+        $artifacts['universal'] = ['size_bytes' => $meta['size'], 'sha256' => $meta['sha256']];
+    } else {
+        $out['apk_size_bytes'] = 0;
+        $out['apk_sha256'] = '';
+    }
+
+    // Optional per-ABI artifacts (P65). Both resolve through the SAME
+    // allowlisted roots; a missing or invalid file is simply not offered.
+    $abiKeys = ['arm64-v8a' => 'apk_arm64_path', 'armeabi-v7a' => 'apk_arm32_path'];
+    foreach ($abiKeys as $abi => $key) {
+        if ($out[$key] === '') {
+            continue;
+        }
+        $abiFile = fkssResolveApkPath($out[$key]);
+        if ($abiFile === null) {
+            continue;
+        }
+        $meta = fkssApkMeta($abiFile);
+        $files[$abi] = $abiFile;
+        $artifacts[$abi] = ['size_bytes' => $meta['size'], 'sha256' => $meta['sha256']];
+    }
+
+    $out['_apk_files'] = $files;
+    $out['apk_artifacts'] = $artifacts;
 
     return $out;
 }
