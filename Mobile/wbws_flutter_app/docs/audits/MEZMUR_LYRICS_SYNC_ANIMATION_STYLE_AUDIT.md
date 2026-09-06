@@ -337,6 +337,15 @@ guarantee is untouched.
   require Flutter 3.31–3.41+, but `pubspec.yaml` pins `flutter: '>=3.27.0'`.
   Deliberately NOT "fixed" — chasing 3.47 lints would break the project's
   own minimum SDK. Revisit when the floor moves.
+- **D11 — `TextPainter.getBoxesForRange` removed in current Flutter
+  (2026).** First surfaced on the user's machine (release build on a
+  current stable): the method no longer exists on `TextPainter`, and the
+  framework's own docs list only `getBoxesForSelection`. The karaoke
+  word-box query now uses `getBoxesForSelection(TextSelection(...))`,
+  which returns the identical `List<TextBox>` and exists back to old
+  Flutter — portable across the repo floor AND current stable. Lesson
+  for this codebase: before reaching for a long-stable framework API in
+  new code, check the live API docs, not memory.
 - **D9 — `withOpacity` deprecations fleet-wide (126 infos) are cosmetic.**
   The files this audit touched use `withValues(alpha:)` (3.27-safe), and
   P62 converted the remaining 9 in the player screen and mini player; the

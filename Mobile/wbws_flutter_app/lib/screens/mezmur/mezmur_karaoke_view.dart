@@ -5,6 +5,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart' show TextSelection;
 
 import '../../services/karaoke_engine.dart';
 import '../../services/karaoke_style.dart';
@@ -558,8 +559,15 @@ class _KaraokeLineState extends State<_KaraokeLine> {
   /// The horizontal extent of characters [start, end) — the region a
   /// word's fill clips to. Null when the range paints nothing (pure
   /// whitespace).
+  ///
+  /// Uses `getBoxesForSelection` (portable across the repo's SDK floor
+  /// AND current Flutter): `TextPainter.getBoxesForRange` was removed
+  /// from recent Flutter; the selection variant returns the identical
+  /// `List<TextBox>` for a plain range.
   Rect? _unionBox(TextPainter tp, int start, int end) {
-    final boxes = tp.getBoxesForRange(start, end);
+    final boxes = tp.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: end),
+    );
     if (boxes.isEmpty) return null;
     var left = boxes.first.left;
     var right = boxes.last.right;
