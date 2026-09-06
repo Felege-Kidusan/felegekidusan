@@ -274,7 +274,24 @@ guarantee is untouched.
   LRC interop ever matters, align on one convention and migrate.
 - **D4 — Asymmetric past/future falloff** (Spotify dims sung lines more
   than upcoming). Current symmetric falloff is a legitimate Apple-Music-style
-  choice; revisit only as a design decision, not a bug.
+  choice; revisit only as a design decision, not a bug. (Prototyped in the
+  P64 karaoke-v2 branch of history — see D10 — and rolled back with it.)
+- **D10 — Karaoke V2 — attempted (P64), ROLLED BACK by user decision.**
+  A complete Spotify-grade redesign (progressive word/line fill,
+  asymmetric falloff + distance blur, 34% anchor with predictive glide,
+  resume pill, scroll-to-read, paint-only fills; pure `KaraokeEngine` +
+  `KaraokeProfile` modules) was implemented, verified
+  (4701-check standalone harness + shipped tests) and reverted after
+  on-device testing: the previous P63 style is preferred. Nothing is
+  lost — the full implementation lives in history at `b500760` (+ the
+  `getBoxesForSelection` fixup `b9a25ce`, needed on current Flutter
+  where `TextPainter.getBoxesForRange` no longer exists), with the
+  pre-redesign state marked by the `pre-karaoke-v2` tag. To re-land:
+  `git revert c6de225` (or cherry-pick both commits onto a branch and
+  tune). Notable reusable takeaways regardless: the engine math (word
+  windows with 4 s caps, whole-line interpolation with 6 s cap,
+  offset-discipline invariants) and the API lesson (check live API
+  docs before using long-stable framework APIs on new Flutter).
 - **D5 — Press-and-hold repeat on nudge buttons — FIXED in P62.** Tap =
   immediate step; hold = 380 ms pause then ~11 Hz repeat, haptic on the
   first step. Nudging a stamp by a second used to mean five separate taps.
