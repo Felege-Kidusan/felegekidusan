@@ -272,9 +272,37 @@ guarantee is untouched.
   behaviour — is now written into `MezmurMediaService::canonicalizeLrc`'s
   docblock so the next surface does not have to rediscover it. If external
   LRC interop ever matters, align on one convention and migrate.
-- **D4 — Asymmetric past/future falloff** (Spotify dims sung lines more
-  than upcoming). Current symmetric falloff is a legitimate Apple-Music-style
-  choice; revisit only as a design decision, not a bug.
+- **D4 — Asymmetric past/future falloff — IMPLEMENTED in P64.** Spotify
+  dims sung lines more than upcoming ones; the karaoke V2 profile now
+  does exactly that (past −0.15/line floor .44, future −0.10/line floor
+  .62), continuous at distance 0 so the past/future flag can flip
+  mid-tween without a pop. See D10.
+- **D10 — Karaoke V2 — the ground-up renderer redesign, IMPLEMENTED in
+  P64.** The synced-lyrics playback experience was rebuilt from scratch
+  to Spotify-grade behaviour per `docs/mezmur_player/KARAOKE_V2_SPEC.md`
+  (the authoritative design): a pure `KaraokeEngine` (all timing rules:
+  active line, per-word fills for enhanced-LRC, interpolated whole-line
+  fills so EVERY existing hymn gets progressive karaoke with zero
+  re-authoring, caps so instrumental gaps don't crawl, offset discipline
+  identical to `indexFor`), a pure `KaraokeProfile` (the falloff model:
+  asymmetric opacity, subtle scale, distance blur starting one line away,
+  reading/high-contrast profiles), and a new `MezmurKaraokeView` (34%
+  anchor, predictive glide starting min(650 ms, 45% of the line gap)
+  before the next line, paint-only fills via `ValueNotifier` +
+  two-TextPainter clipRect — no saveLayer/ShaderMask, no setState per
+  fill tick, quantised blur behind RepaintBoundary, scroll-to-read that
+  lifts blur and floors opacity at 0.85 while the user browses, a resume
+  pill with 3.5 s auto-resume while playing, tap-to-seek semantics per
+  line, and the curator's "Edit timings" tail). `mezmur_lyrics_screen`
+  is now a thin shell (loading/gen-guard, static mode, empty state);
+  `lyrics_emphasis.dart` is deleted (superseded by `karaoke_style.dart`).
+  Parser, editor and static mode are untouched. Verification: the two
+  pure modules pass a 4701-check standalone Dart harness (every flutter
+  test assertion mirrored plus property sweeps: fill monotonicity within
+  a line, exact boundary flips at every stamp, range sanity for all
+  profiles) and ship with `test/karaoke_engine_test.dart` +
+  `test/karaoke_style_test.dart`; full `flutter test` runs on the user's
+  machine (no Flutter SDK in this workspace, by mandate).
 - **D5 — Press-and-hold repeat on nudge buttons — FIXED in P62.** Tap =
   immediate step; hold = 380 ms pause then ~11 Hz repeat, haptic on the
   first step. Nudging a stamp by a second used to mean five separate taps.
@@ -330,10 +358,17 @@ not the State's).
 P61: flutter analyze → target files: 1 info (D8, deliberate); no warnings/errors
 P62: flutter analyze → same (withOpacity infos in the player family cleared)
 P63: flutter analyze → same (only pre-existing/D8 infos remain in touched files)
+P64: standalone Dart harness (pure modules) → 4701/4701 checks pass;
+     flutter tests for the new modules shipped; full flutter test/analyze
+     runs on the user's machine (no Flutter SDK in the workspace, by
+     mandate)
 P61: flutter test    → 288 passed   (baseline 272)
 P62: flutter test    → 301 passed
 P63: flutter test    → 315 passed   (+14: word-tag parsing, sweep counting,
                                       editor word-awareness)
+P64: flutter test    → expected 315 − 14 (lyrics_emphasis_test deleted)
+                            + 35 (karaoke_engine 18 + karaoke_style 17)
+                            = 336 (to be confirmed on the user's machine)
 ```
 
 New pins:
@@ -346,11 +381,24 @@ New pins:
   INVARIANT (seek ⇒ that line lights) across offsets, offset-vs-baked-twin
   behavioural equivalence, parser tolerance incl. the multi-stamp run
   regression (F3) and monotonic clamp.
-- `test/lyrics_emphasis_test.dart` — "the one-tween contract": continuous
-  `scaleFor/opacityFor` hit the exact resting endpoints at every integer
-  distance; the published curve is pinned numerically; reading profile
-  never scales below 1.0; fractional monotonicity (the tween never
-  wobbles).
+- `test/lyrics_emphasis_test.dart` — **deleted in P64** (module superseded
+  by `karaoke_style.dart`); its one-tween/monotonicity contract lives on
+  in `test/karaoke_style_test.dart`.
+- `test/karaoke_engine_test.dart` (P64) — the timing truth: empty/pre-first
+  frames, whole-line interpolation (exact 0/1 boundaries, 4.5 s last-line
+  window, 6 s gap cap, instrumental lines), word fills (exact boundaries,
+  4 s word cap, last-word stretch to line end), real enhanced-LRC parse
+  integration, offset discipline (identical to `indexFor`;
+  `nextLineStartAt` in playback time), frame value-equality (the
+  paint-only notifier depends on it), and the **sizing contract** for
+  `wordCharSpans` (spans tile the joined text exactly — Ethiopic counted
+  in UTF-16 units, caught by the standalone harness before shipping).
+- `test/karaoke_style_test.dart` (P64) — the falloff model: the exact
+  Spotify table (past/future/scale/sigma at every integer distance and
+  the floors/cap), asymmetry, monotonicity, continuity at distance 0
+  (the flag-flip-no-pop guarantee), fractional tweening, negative
+  clamping, and the reading/high-contrast contracts (never blur, floors
+  0.86 / 0.85–0.75).
 - `test/parchment_art_test.dart` (P62) — the cover-fit rect on exact-9:16,
   tall-phone and tablet aspects; `mapY` vertical-identity on phones (the
   no-regression guarantee); crop-following on tablets; the **regression
