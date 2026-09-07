@@ -4,6 +4,8 @@
 
 # Prevent directory browsing everywhere
 Options -Indexes
+# Prefer the live CMS page over the obsolete static index.html.
+DirectoryIndex index.php index.html
 
 # ------------------------------------------------------------
 # 1. Block sensitive file TYPES (config, secrets, dumps, logs, docs)
@@ -47,6 +49,15 @@ Options -Indexes
 # ------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Development/test files are not public applications. In particular the
+    # E2E seeder resets accounts and academic data; never expose it to HTTP.
+    # Block repository history, source-only tooling, and bundled dependency
+    # samples as well. APK releases are served separately, not from Mobile/.
+    RewriteRule ^(?:\.git|\.github|tests|tools|docs|vendor|Mobile)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:composer\.(?:json|lock)|\.editorconfig|\.gitignore)$ - [F,L,NC]
+    # Bundled PHP libraries/tools are included by PHP, never public endpoints.
+    RewriteRule ^(?:admin|backend)/(?:id_cards/libs|(?:backend/)?pdf/tcpdf)/.*\.php$ - [F,L,NC]
 
     # Database backups (contain student PII + password hashes)
     RewriteRule ^admin/uploads/backups/ - [F,L]

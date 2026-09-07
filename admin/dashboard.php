@@ -40,7 +40,7 @@ if ($isImpersonating) {
         <script>
         async function restoreToAdmin(){
             try{
-                const fd=new FormData();fd.append("action","restore");
+                const fd=new FormData();fd.append("action","restore");fd.append("csrf_token",' . json_encode(generateCsrfToken()) . ');
                 const r=await fetch("/admin/api_impersonate.php",{method:"POST",body:fd,credentials:"same-origin"});
                 const d=await r.json();
                 if(d.status==="success")window.location.href="/admin/dashboard.php";

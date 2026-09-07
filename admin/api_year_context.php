@@ -22,12 +22,14 @@ if (empty($_SESSION['admin_id'])) {
     exit;
 }
 
-$action = $_REQUEST['action'] ?? 'status';
+$action = is_string($_REQUEST['action'] ?? 'status') ? ($_REQUEST['action'] ?? 'status') : '';
+requirePostActions($action, ['set', 'clear']);
 
 // State-changing actions need CSRF.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($action, ['set', 'clear'], true)) {
     $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($token)) {
+        http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh.']);
         exit;
     }

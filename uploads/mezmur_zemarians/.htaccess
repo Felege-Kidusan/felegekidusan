@@ -1,0 +1,11 @@
+# Images only - never execute anything from here
+Options -ExecCGI -Indexes
+<FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh|htaccess)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order Allow,Deny
+    Deny from all
+  </IfModule>
+</FilesMatch>

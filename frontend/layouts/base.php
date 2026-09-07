@@ -82,6 +82,7 @@ $_themeCssPath = ROOT_PATH . $_themeBase . '/theme.css';
 if (!file_exists($_themeCssPath)) {
     $_activeTheme = 'wbss';
     $_themeBase = '/themes/wbss';
+    $_themeCssPath = ROOT_PATH . $_themeBase . '/theme.css';
 }
 
 // Page defaults
@@ -138,51 +139,45 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     
     <!-- window.APP — the ONLY PHP-to-JS bridge. Everything the frontend needs. -->
     <script>
-    window.APP = {
-        csrf: '<?= $_csrfToken ?>',
-        role: '<?= e($_userRole) ?>',
-        user: {
-            id: <?= $_userId ?>,
-            name: '<?= addslashes($_userName) ?>',
-            username: '<?= addslashes($_userUsername) ?>',
-            initials: '<?= strtoupper(mb_substr($_userName, 0, 1, 'UTF-8')) ?>'
-        },
-        school: {
-            name: '<?= addslashes(defined('SCHOOL_NAME') ? SCHOOL_NAME : '') ?>',
-            nameShort: '<?= addslashes(defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : '') ?>',
-            nameAm: '<?= addslashes(defined('SCHOOL_NAME_AMHARIC') ? SCHOOL_NAME_AMHARIC : '') ?>',
-            nameShortAm: '<?= addslashes(defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : '') ?>',
-            tagline: '<?= addslashes(defined('SCHOOL_TAGLINE') ? SCHOOL_TAGLINE : '') ?>',
-            memberPrefix: '<?= defined('MEMBER_CODE_PREFIX') ? MEMBER_CODE_PREFIX : 'WB' ?>',
-            adminTitle: '<?= addslashes(defined('ADMIN_PANEL_TITLE') ? ADMIN_PANEL_TITLE : '') ?>',
-            icon: '<?= defined('ADMIN_LOGO_ICON') ? ADMIN_LOGO_ICON : '⛪' ?>',
-            logo: '<?= $_themeBase ?>/assets/logos/school_logo.png',
-            seal: '<?= $_themeBase ?>/assets/seals/school_seal.png',
-            features: {
-                ai: <?= feature_enabled('ai') ? 'true' : 'false' ?>,
-                finance: <?= feature_enabled('finance') ? 'true' : 'false' ?>,
-                material: <?= feature_enabled('material') ? 'true' : 'false' ?>,
-                groups: <?= feature_enabled('groups') ? 'true' : 'false' ?>,
-                idcards: <?= feature_enabled('id_cards') ? 'true' : 'false' ?>,
-                attendance: <?= feature_enabled('attendance') ? 'true' : 'false' ?>,
-                grades: <?= feature_enabled('grades') ? 'true' : 'false' ?>,
-                reports: <?= feature_enabled('reports') ? 'true' : 'false' ?>,
-                pdf: <?= feature_enabled('export_pdf') ? 'true' : 'false' ?>
-            },
-            depts: {
-                info:     { am: '<?= addslashes(defined('DEPT_INFO_NAME') ? DEPT_INFO_NAME : '') ?>', en: '<?= addslashes(defined('DEPT_INFO_NAME_EN') ? DEPT_INFO_NAME_EN : '') ?>' },
-                edu:      { am: '<?= addslashes(defined('DEPT_EDU_NAME') ? DEPT_EDU_NAME : '') ?>', en: '<?= addslashes(defined('DEPT_EDU_NAME_EN') ? DEPT_EDU_NAME_EN : '') ?>' },
-                finance:  { am: '<?= addslashes(defined('DEPT_FINANCE_NAME') ? DEPT_FINANCE_NAME : '') ?>', en: '<?= addslashes(defined('DEPT_FINANCE_NAME_EN') ? DEPT_FINANCE_NAME_EN : '') ?>' },
-                material: { am: '<?= addslashes(defined('DEPT_MATERIAL_NAME') ? DEPT_MATERIAL_NAME : '') ?>', en: '<?= addslashes(defined('DEPT_MATERIAL_NAME_EN') ? DEPT_MATERIAL_NAME_EN : '') ?>' }
-            }
-        },
-        theme: '<?= $_activeTheme ?>',
-        themeBase: '<?= $_themeBase ?>',
-        today: '<?= addslashes($_todayFormatted) ?>',
-        impersonating: <?= $_isImpersonating ? 'true' : 'false' ?>,
-        api: '/backend/api/',
-        apiLegacy: '/admin/'
-    };
+    window.APP = <?= json_encode([
+        'csrf' => $_csrfToken,
+        'role' => $_userRole,
+        'user' => [
+            'id' => $_userId,
+            'name' => $_userName,
+            'username' => $_userUsername,
+            'initials' => mb_strtoupper(mb_substr($_userName, 0, 1, 'UTF-8'), 'UTF-8'),
+        ],
+        'school' => [
+            'name' => defined('SCHOOL_NAME') ? SCHOOL_NAME : '',
+            'nameShort' => defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : '',
+            'nameAm' => defined('SCHOOL_NAME_AMHARIC') ? SCHOOL_NAME_AMHARIC : '',
+            'nameShortAm' => defined('SCHOOL_NAME_SHORT_AM') ? SCHOOL_NAME_SHORT_AM : '',
+            'tagline' => defined('SCHOOL_TAGLINE') ? SCHOOL_TAGLINE : '',
+            'memberPrefix' => defined('MEMBER_CODE_PREFIX') ? MEMBER_CODE_PREFIX : 'WB',
+            'adminTitle' => defined('ADMIN_PANEL_TITLE') ? ADMIN_PANEL_TITLE : '',
+            'icon' => defined('ADMIN_LOGO_ICON') ? ADMIN_LOGO_ICON : '⛪',
+            'logo' => $_themeBase . '/assets/logos/school_logo.png',
+            'seal' => $_themeBase . '/assets/seals/school_seal.png',
+            'features' => [
+                'ai' => feature_enabled('ai'), 'finance' => feature_enabled('finance'),
+                'mezmur' => feature_enabled('mezmur'), 'material' => feature_enabled('material'),
+                'groups' => feature_enabled('groups'), 'idcards' => feature_enabled('id_cards'),
+                'attendance' => feature_enabled('attendance'), 'grades' => feature_enabled('grades'),
+                'reports' => feature_enabled('reports'), 'pdf' => feature_enabled('export_pdf'),
+            ],
+            'depts' => [
+                'info' => ['am' => DEPT_INFO_NAME, 'en' => DEPT_INFO_NAME_EN],
+                'edu' => ['am' => DEPT_EDU_NAME, 'en' => DEPT_EDU_NAME_EN],
+                'finance' => ['am' => DEPT_FINANCE_NAME, 'en' => DEPT_FINANCE_NAME_EN],
+                'material' => ['am' => DEPT_MATERIAL_NAME, 'en' => DEPT_MATERIAL_NAME_EN],
+            ],
+        ],
+        'theme' => $_activeTheme, 'themeBase' => $_themeBase,
+        'today' => $_todayFormatted, 'impersonating' => $_isImpersonating,
+        'api' => ssms_app_url('backend/api/'), 'apiLegacy' => ssms_app_url('admin/'),
+        'loginUrl' => ssms_app_url('admin/index.php'),
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
     </script>
     
     <?= $extraHead ?>
@@ -198,7 +193,7 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     <?= $bodyContent ?>
     
     <!-- Core JS — shared utilities for ALL dashboards -->
-    <script src="/frontend/js/core.js"></script>
+    <script src="/frontend/js/core.js?v=<?= filemtime(ROOT_PATH . '/frontend/js/core.js') ?>"></script>
     
     <?php
     if (!empty($pageScripts) && is_array($pageScripts)) {

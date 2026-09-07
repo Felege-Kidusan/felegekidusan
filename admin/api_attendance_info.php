@@ -17,7 +17,8 @@ if (empty($_SESSION['admin_logged_in'])) {
     exit;
 }
 
-$action = $_REQUEST['action'] ?? '';
+$action = is_string($_REQUEST['action'] ?? '') ? ($_REQUEST['action'] ?? '') : '';
+requirePostActions($action, ['update_status', 'bulk_status']);
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // CSRF protection for all POST requests

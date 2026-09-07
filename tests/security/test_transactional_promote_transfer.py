@@ -57,7 +57,9 @@ class TransactionalPromoteTransferTests(unittest.TestCase):
         self.assertIn("Target class does not exist.", self.transfer)
 
     def test_enrollment_service_participates_in_transactions(self):
-        self.assertIn("in_transaction()", self.enrollment)
+        self.assertNotIn("$conn->in_transaction()", self.enrollment)
+        self.assertIn("$withinTransaction", self.enrollment)
+        self.assertIn("ROLLBACK TO SAVEPOINT", self.enrollment)
         self.assertIn("$ownsTransaction", self.enrollment)
         # Owned transactions are committed on success and rolled back on
         # failure; foreign ones are left to the caller.

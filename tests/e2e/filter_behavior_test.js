@@ -33,7 +33,7 @@ function makeEl(id) {
         },
         querySelectorAll() { return []; },
         appendChild() {}, remove() {}, focus() {}, select() {}, click() {},
-        setAttribute() {}, getAttribute() { return null; },
+        setAttribute() {}, removeAttribute() {}, getAttribute() { return null; },
         closest() { return null; },
     };
     return el;
@@ -65,6 +65,8 @@ global.document = {
     addEventListener(t, fn) { if (t === 'DOMContentLoaded') global.__domReady = fn; },
 };
 global.window = {
+    addEventListener() {},
+    removeEventListener() {},
     toast(msg, type) { LOG.push('TOAST[' + (type || 's') + ']: ' + msg); },
     api: {
         get(url) {
@@ -130,14 +132,14 @@ function flush() { return new Promise(r => setTimeout(r, 30)); }
     // admin); the next catalog refresh re-runs populate
     zemariansPayload = [{ id: 12, name: 'SingerHidden', is_active: 0, hymn_count: 0 }];
     const before2 = listCalls().length;
-    const toastsBefore = LOG.filter(l => l.startsWith('TOAST')).length;
+    const toastsBefore = LOG.filter(l => l.startsWith('TOAST[i]: Filter cleared')).length;
     // a real manager mutation (rename) re-fetches the catalog
     global.window.Mezmur.mgrEdit(11);
     $('mzMgrEditName').value = 'SingerX Renamed';
     global.window.Mezmur.mgrSave(11);
     await flush();
     const autoLoads = listCalls().length - before2;
-    const toastsAfter = LOG.filter(l => l.startsWith('TOAST')).length;
+    const toastsAfter = LOG.filter(l => l.startsWith('TOAST[i]: Filter cleared')).length;
     LOG.push('--- S4 stale filter reconciled: EXTRA list calls=' + autoLoads +
         ' toasts=' + (toastsAfter - toastsBefore) +
         ' select now="' + $('mzZemarianFilter').value + '"');

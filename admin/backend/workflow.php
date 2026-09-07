@@ -184,10 +184,19 @@ function getUnreadNotificationCount($conn) {
  */
 function markNotificationRead($conn, $notificationId) {
     try {
-        $stmt = $conn->prepare("UPDATE notifications SET is_read = 1, read_at = NOW() WHERE id = ?");
-        if (!$stmt) return false;
-        $stmt->bind_param("i", $notificationId);
-        return $stmt->execute();
+        $role = (string)($_SESSION['admin_role'] ?? '');
+        $userId = (int)($_SESSION['admin_id'] ?? 0);
+        if ($userId <= 0) return false;
+        $allowed = "(FIND_IN_SET(?, target_roles) > 0 OR target_user_id = ?
+            OR (target_roles IS NULL AND target_user_id IS NULL))";
+        $find = $conn->prepare("SELECT id FROM notifications WHERE id=? AND $allowed");
+        $find->bind_param('isi', $notificationId, $role, $userId); $find->execute();
+        if (!$find->get_result()->fetch_assoc()) { $find->close(); return false; }
+        $find->close();
+        $stmt = $conn->prepare("UPDATE notifications SET is_read=1, read_at=NOW() WHERE id=? AND $allowed");
+        $stmt->bind_param('isi', $notificationId, $role, $userId);
+        $ok = $stmt->execute(); $stmt->close();
+        return $ok;
     } catch (Exception $e) { return false; }
 }
 
@@ -205,6 +214,7 @@ function markAllNotificationsRead($conn) {
             AND (
                 FIND_IN_SET(?, target_roles) > 0 
                 OR target_user_id = ?
+                OR (target_roles IS NULL AND target_user_id IS NULL)
             )
         ");
         
@@ -438,6 +448,13 @@ function getPendingTasks($conn, $limit = 20) {
  */
 function updateTaskStatus($conn, $taskId, $status, $notes = null) {
     try {
+        $userId = (int)($_SESSION['admin_id'] ?? 0);
+        $role = (string)($_SESSION['admin_role'] ?? '');
+        if ($userId <= 0 || !in_array($status, ['pending','in_progress','completed','cancelled'], true)) return false;
+        $find = $conn->prepare('SELECT id FROM department_tasks WHERE id=? AND (to_dept=? OR to_user_id=?)');
+        $find->bind_param('isi', $taskId, $role, $userId); $find->execute();
+        if (!$find->get_result()->fetch_assoc()) { $find->close(); return false; }
+        $find->close();
         $completedAt = in_array($status, ['completed', 'cancelled']) ? date('Y-m-d H:i:s') : null;
         $completedBy = in_array($status, ['completed', 'cancelled']) ? ($_SESSION['admin_id'] ?? null) : null;
         
@@ -445,14 +462,14 @@ function updateTaskStatus($conn, $taskId, $status, $notes = null) {
             UPDATE department_tasks 
             SET status = ?, notes = CONCAT(IFNULL(notes, ''), ?), 
                 completed_at = ?, completed_by = ?
-            WHERE id = ?
+            WHERE id = ? AND (to_dept = ? OR to_user_id = ?)
         ");
         
         if (!$stmt) return false;
         
         $noteText = $notes ? "\n[" . date('Y-m-d H:i') . "] " . ($_SESSION['admin_full_name'] ?? 'System') . ": $notes" : '';
         
-        $stmt->bind_param("sssii", $status, $noteText, $completedAt, $completedBy, $taskId);
+        $stmt->bind_param("sssiisi", $status, $noteText, $completedAt, $completedBy, $taskId, $role, $userId);
         return $stmt->execute();
     } catch (Exception $e) { return false; }
 }

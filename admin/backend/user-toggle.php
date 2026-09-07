@@ -14,7 +14,7 @@
  *    account through this endpoint.
  */
 
-if (session_status() === PHP_SESSION_NONE) session_start();
+require_once __DIR__ . '/config.php';
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -27,7 +27,7 @@ if (empty($_SESSION['admin_logged_in'])) {
     exit;
 }
 
-require __DIR__ . '/config.php';
+
 
 // CSRF protection for this state-changing action.
 requireCsrf();
@@ -50,7 +50,7 @@ $currentRole = $_SESSION['admin_role'] ?? '';
 
 // Check permissions - who can toggle which users
 $allowedToToggle = [
-    'super_admin' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept', 'finance_dept', 'material_dept', 'mezmur_dept', 'teacher', 'attendance_taker'],
+    'super_admin' => ['super_admin', 'school_admin', 'info_dept', 'hr_dept', 'edu_dept', 'finance_dept', 'material_dept', 'mezmur_dept', 'teacher', 'attendance_taker', 'content_editor', 'mezmur_attendance_taker', 'hr_attendance_taker'],
     'school_admin' => ['info_dept', 'hr_dept', 'edu_dept', 'finance_dept', 'material_dept', 'mezmur_dept', 'teacher', 'attendance_taker'],
     'info_dept' => ['attendance_taker'],
     'edu_dept' => ['teacher'],

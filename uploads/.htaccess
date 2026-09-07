@@ -24,3 +24,16 @@
 </FilesMatch>
 
 Options -Indexes
+
+# Final denial wins over any earlier image allow rule. cPanel also executes
+# .php8 / .phtml, and a file.php.jpg can retain a PHP handler on Apache.
+Options -ExecCGI
+<FilesMatch "(?i)\.(?:php[0-9]*|phtml|pht|phar|phps|cgi|pl|py|sh|shtml)(?:\.|$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

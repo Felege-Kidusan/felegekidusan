@@ -106,15 +106,9 @@ if ($code !== '') {
 $exists = ($member && $member['status'] !== 'archived');
 $expired = $exists ? isExpired($member['id_card_generated_at']) : false;
 
-// Calculate Age
-$currentYearEth = (int)date('Y') - 8;
-if ($exists && !empty($member['dob_ec_year'])) {
-    $age = $currentYearEth - $member['dob_ec_year'];
-} elseif ($exists && !empty($member['date_of_birth'])) {
-    $age = date('Y') - date('Y', strtotime($member['date_of_birth']));
-} else {
-    $age = '--';
-}
+// Birthday-aware, with the real Ethiopian new-year boundary.
+require_once __DIR__ . '/admin/backend/services/MemberAge.php';
+$age = $exists ? (\App\Services\MemberAge::years($member) ?? '--') : '--';
 
 // Calculate Dates
 $issueDateEth = $exists ? toEthiopianDate($member['id_card_generated_at']) : '-';

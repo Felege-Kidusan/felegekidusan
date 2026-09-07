@@ -5,24 +5,33 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/LedgerValidation.php';
+use App\Services\LedgerValidation as Input;
+use App\Services\LedgerInputException;
 
 if (empty($_SESSION['admin_logged_in'])) {
     http_response_code(401);
     echo json_encode(['status'=>'error','message'=>'Unauthorized']); exit;
 }
 
-$action = $_REQUEST['action'] ?? '';
+$action = is_string($_REQUEST['action'] ?? '') ? ($_REQUEST['action'] ?? '') : '';
+requirePostActions($action, ['save_item', 'delete_item', 'add_transaction', 'save_category', 'save_request', 'update_request']);
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // CSRF protection for all POST requests
 requireCsrfForPost();
 
+if (!($conn instanceof mysqli)) {
+    jsonResponse(['status'=>'error','message'=>'Materials is temporarily unavailable.'], 503);
+}
 try { $conn->query("SELECT 1 FROM material_items LIMIT 0"); }
 catch (Exception $e) {
-    echo json_encode(['status'=>'error','message'=>'Material tables not found. Run migration 004.']);
+    http_response_code(503);
+    echo json_encode(['status'=>'error','message'=>'Materials is not available. Ask an administrator to check the database migrations.']);
     exit;
 }
 
+$materialTransactionOpen = false;
 try {
 switch ($action) {
 
@@ -64,80 +73,96 @@ case 'items':
     break;
 
 case 'save_item':
-    $id = (int)($_POST['id'] ?? 0);
-    $name = trim($_POST['name'] ?? '');
-    $catId = (int)($_POST['category_id'] ?? 0);
-    $desc = trim($_POST['description'] ?? '');
-    $qty = (int)($_POST['quantity'] ?? 0);
-    $minQty = (int)($_POST['min_quantity'] ?? 0);
-    $unit = trim($_POST['unit'] ?? 'piece');
-    $loc = trim($_POST['location'] ?? '');
-    $cond = $_POST['condition_status'] ?? 'good';
-    $price = !empty($_POST['purchase_price']) ? (float)$_POST['purchase_price'] : null;
-    $pDate = !empty($_POST['purchase_date']) ? $_POST['purchase_date'] : null;
+$id = Input::optionalId($_POST['id'] ?? null, 'Item ID');
+    $name = Input::text($_POST['name'] ?? '', 'Name', 150, true);
+    $catId = Input::optionalId($_POST['category_id'] ?? null, 'Category');
+    $desc = Input::text($_POST['description'] ?? '', 'Description', 500);
+    $qty = Input::integer($_POST['quantity'] ?? 0, 'Quantity');
+    $minQty = Input::integer($_POST['min_quantity'] ?? 0, 'Minimum quantity');
+    $unit = Input::text($_POST['unit'] ?? 'piece', 'Unit', 30, true);
+    $loc = Input::text($_POST['location'] ?? '', 'Location', 100);
+    $cond = Input::choice($_POST['condition_status'] ?? 'good', ['good','fair','poor','damaged','disposed'], 'Condition');
+    $price = ($_POST['purchase_price'] ?? '') !== '' ? Input::money($_POST['purchase_price'], 'Purchase price', true) : null;
+    $pDate = Input::date($_POST['purchase_date'] ?? null, 'Purchase date');
     $status = $qty <= 0 ? 'out_of_stock' : ($qty <= $minQty ? 'low_stock' : 'in_stock');
-
-    if (!$name) { echo json_encode(['status'=>'error','message'=>'Name required']); break; }
-
-    if ($id > 0) {
-        $stmt = $conn->prepare("UPDATE material_items SET name=?,category_id=?,description=?,quantity=?,min_quantity=?,unit=?,location=?,condition_status=?,purchase_price=?,purchase_date=?,status=? WHERE id=?");
-        $stmt->bind_param('sisssissdssi', $name, $catId, $desc, $qty, $minQty, $unit, $loc, $cond, $price, $pDate, $status, $id);
+    if ($catId !== null) {
+        $find = $conn->prepare('SELECT id FROM material_categories WHERE id=?');
+        $find->bind_param('i', $catId); $find->execute();
+        if (!$find->get_result()->fetch_assoc()) throw new LedgerInputException('Category not found.');
+        $find->close();
+    }
+    if ($id !== null) {
+        $find = $conn->prepare('SELECT id FROM material_items WHERE id=?');
+        $find->bind_param('i', $id); $find->execute();
+        if (!$find->get_result()->fetch_assoc()) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Item not found.']); break; }
+        $find->close();
+        $stmt = $conn->prepare('UPDATE material_items SET name=?,category_id=?,description=?,quantity=?,min_quantity=?,unit=?,location=?,condition_status=?,purchase_price=?,purchase_date=?,status=? WHERE id=?');
+        $stmt->bind_param('sisiisssdssi', $name, $catId, $desc, $qty, $minQty, $unit, $loc, $cond, $price, $pDate, $status, $id);
     } else {
-        $stmt = $conn->prepare("INSERT INTO material_items (name,category_id,description,quantity,min_quantity,unit,location,condition_status,purchase_price,purchase_date,status,added_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
-        $stmt->bind_param('sisssissdssi', $name, $catId, $desc, $qty, $minQty, $unit, $loc, $cond, $price, $pDate, $status, $adminId);
+        $stmt = $conn->prepare('INSERT INTO material_items (name,category_id,description,quantity,min_quantity,unit,location,condition_status,purchase_price,purchase_date,status,added_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+        $stmt->bind_param('sisiisssdssi', $name, $catId, $desc, $qty, $minQty, $unit, $loc, $cond, $price, $pDate, $status, $adminId);
     }
     $stmt->execute();
-    echo json_encode(['status'=>'success','id'=>$id?:$conn->insert_id]);
+    echo json_encode(['status'=>'success','id'=>$id ?: $conn->insert_id]);
     break;
 
 case 'delete_item':
-    $id = (int)($_POST['id'] ?? 0);
-    if (!$id) { echo json_encode(['status'=>'error','message'=>'Missing ID']); break; }
-    $stmt = $conn->prepare("DELETE FROM material_items WHERE id=?");
-    $stmt->bind_param('i', $id);
-    $stmt->execute();
+$id = Input::integer($_POST['id'] ?? 0, 'Item ID', 1);
+    $conn->begin_transaction(); $materialTransactionOpen = true;
+    $find = $conn->prepare('SELECT id FROM material_items WHERE id=? FOR UPDATE');
+    $find->bind_param('i', $id); $find->execute();
+    if (!$find->get_result()->fetch_assoc()) {
+        $conn->rollback(); $materialTransactionOpen = false;
+        http_response_code(404); echo json_encode(['status'=>'error','message'=>'Item not found.']); break;
+    }
+    // Keep inventory history intelligible; do not leave orphan movements.
+    $used = $conn->prepare('SELECT id FROM material_transactions WHERE item_id=? LIMIT 1');
+    $used->bind_param('i', $id); $used->execute();
+    if ($used->get_result()->fetch_assoc()) throw new LedgerInputException('An item with movement history cannot be deleted.', 409);
+    $used->close();
+    $used = $conn->prepare('SELECT id FROM material_requests WHERE item_id=? LIMIT 1');
+    $used->bind_param('i', $id); $used->execute();
+    if ($used->get_result()->fetch_assoc()) throw new LedgerInputException('An item linked to a request cannot be deleted.', 409);
+    $used->close();
+    $stmt = $conn->prepare('DELETE FROM material_items WHERE id=?');
+    $stmt->bind_param('i', $id); $stmt->execute();
+    $conn->commit(); $materialTransactionOpen = false;
     echo json_encode(['status'=>'success']);
     break;
 
 case 'add_transaction':
-    $itemId = (int)($_POST['item_id'] ?? 0);
-    $type = $_POST['type'] ?? '';
-    $qty = (int)($_POST['quantity'] ?? 0);
-    $reason = trim($_POST['reason'] ?? '');
-    $handler = trim($_POST['handled_by'] ?? '');
-    $date = $_POST['transaction_date'] ?? date('Y-m-d');
-
-    if (!$itemId || !in_array($type,['incoming','outgoing','adjustment','disposal']) || $qty <= 0) {
-        echo json_encode(['status'=>'error','message'=>'Invalid data']); break;
+$itemId = Input::integer($_POST['item_id'] ?? 0, 'Item', 1);
+    $type = Input::choice($_POST['type'] ?? '', ['incoming','outgoing','adjustment','disposal'], 'Movement type');
+    // Adjustment records the counted balance (including zero), not a delta.
+    $qty = Input::integer($_POST['quantity'] ?? 0, 'Quantity', $type === 'adjustment' ? 0 : 1);
+    $reason = Input::text($_POST['reason'] ?? '', 'Reason', 255);
+    $handler = Input::text($_POST['handled_by'] ?? '', 'Handled by', 100);
+    $date = Input::date($_POST['transaction_date'] ?? '', 'Transaction date', date('Y-m-d'));
+    $conn->begin_transaction(); $materialTransactionOpen = true;
+    // Lock before checking availability, so two staff cannot spend the same stock.
+    $find = $conn->prepare('SELECT quantity, min_quantity, status FROM material_items WHERE id=? FOR UPDATE');
+    $find->bind_param('i', $itemId); $find->execute();
+    $item = $find->get_result()->fetch_assoc(); $find->close();
+    if (!$item) {
+        $conn->rollback(); $materialTransactionOpen = false;
+        http_response_code(404); echo json_encode(['status'=>'error','message'=>'Item not found.']); break;
     }
-    $stmt = $conn->prepare("INSERT INTO material_transactions (item_id,type,quantity,reason,handled_by,recorded_by,transaction_date) VALUES (?,?,?,?,?,?,?)");
+    $balance = (int)$item['quantity'];
+    if (($type === 'outgoing' || $type === 'disposal') && $qty > $balance) {
+        throw new LedgerInputException('Insufficient stock. Available quantity: ' . $balance . '.', 409);
+    }
+    $newQty = $type === 'adjustment' ? $qty : ($type === 'incoming' ? $balance + $qty : $balance - $qty);
+    if ($newQty > 2147483647 || $newQty < 0) throw new LedgerInputException('Resulting stock quantity is outside the allowed range.');
+    $st = $item['status'] === 'maintenance' ? 'maintenance'
+        : ($newQty === 0 ? 'out_of_stock' : ($newQty <= (int)$item['min_quantity'] ? 'low_stock' : 'in_stock'));
+    $stmt = $conn->prepare('INSERT INTO material_transactions (item_id,type,quantity,reason,handled_by,recorded_by,transaction_date) VALUES (?,?,?,?,?,?,?)');
     $stmt->bind_param('isissis', $itemId, $type, $qty, $reason, $handler, $adminId, $date);
     $stmt->execute();
-
-    // Update item quantity using prepared statements
-    if ($type === 'incoming') {
-        $stmt2 = $conn->prepare("UPDATE material_items SET quantity=quantity+? WHERE id=?");
-        $stmt2->bind_param('ii', $qty, $itemId);
-        $stmt2->execute();
-    } elseif ($type === 'outgoing' || $type === 'disposal') {
-        $stmt2 = $conn->prepare("UPDATE material_items SET quantity=GREATEST(quantity-?,0) WHERE id=?");
-        $stmt2->bind_param('ii', $qty, $itemId);
-        $stmt2->execute();
-    }
-
-    // Update status
-    $stmt3 = $conn->prepare("SELECT quantity, min_quantity FROM material_items WHERE id=?");
-    $stmt3->bind_param('i', $itemId);
-    $stmt3->execute();
-    $r = $stmt3->get_result();
-    if ($r && $row = $r->fetch_assoc()) {
-        $q=(int)$row['quantity']; $mq=(int)$row['min_quantity'];
-        $st = $q<=0?'out_of_stock':($q<=$mq?'low_stock':'in_stock');
-        $stmt4 = $conn->prepare("UPDATE material_items SET status=? WHERE id=?");
-        $stmt4->bind_param('si', $st, $itemId);
-        $stmt4->execute();
-    }
-    echo json_encode(['status'=>'success','message'=>'Transaction recorded']);
+    $movementId = $conn->insert_id;
+    $stmt2 = $conn->prepare('UPDATE material_items SET quantity=?, status=? WHERE id=?');
+    $stmt2->bind_param('isi', $newQty, $st, $itemId); $stmt2->execute();
+    $conn->commit(); $materialTransactionOpen = false;
+    echo json_encode(['status'=>'success','id'=>$movementId,'quantity'=>$newQty,'message'=>'Transaction recorded']);
     break;
 
 case 'categories':
@@ -148,14 +173,22 @@ case 'categories':
     break;
 
 case 'save_category':
-    $id = (int)($_POST['id'] ?? 0);
-    $name = trim($_POST['name'] ?? '');
-    $desc = trim($_POST['description'] ?? '');
-    if (!$name) { echo json_encode(['status'=>'error','message'=>'Name required']); break; }
-    if ($id > 0) { $stmt=$conn->prepare("UPDATE material_categories SET name=?,description=? WHERE id=?");$stmt->bind_param('ssi',$name,$desc,$id); }
-    else { $stmt=$conn->prepare("INSERT INTO material_categories (name,description) VALUES (?,?)");$stmt->bind_param('ss',$name,$desc); }
+$id = Input::optionalId($_POST['id'] ?? null, 'Category ID');
+    $name = Input::text($_POST['name'] ?? '', 'Name', 100, true);
+    $desc = Input::text($_POST['description'] ?? '', 'Description', 255);
+    if ($id !== null) {
+        $find = $conn->prepare('SELECT id FROM material_categories WHERE id=?');
+        $find->bind_param('i', $id); $find->execute();
+        if (!$find->get_result()->fetch_assoc()) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Category not found.']); break; }
+        $find->close();
+        $stmt = $conn->prepare('UPDATE material_categories SET name=?,description=? WHERE id=?');
+        $stmt->bind_param('ssi', $name, $desc, $id);
+    } else {
+        $stmt = $conn->prepare('INSERT INTO material_categories (name,description) VALUES (?,?)');
+        $stmt->bind_param('ss', $name, $desc);
+    }
     $stmt->execute();
-    echo json_encode(['status'=>'success','id'=>$id?:$conn->insert_id]);
+    echo json_encode(['status'=>'success','id'=>$id ?: $conn->insert_id]);
     break;
 
 case 'requests':
@@ -175,33 +208,47 @@ case 'requests':
     break;
 
 case 'save_request':
-    $itemId = !empty($_POST['item_id']) ? (int)$_POST['item_id'] : null;
-    $itemName = trim($_POST['item_name'] ?? '');
-    $qty = (int)($_POST['quantity'] ?? 1);
-    $by = trim($_POST['requested_by'] ?? '');
-    $dept = trim($_POST['department'] ?? '');
-    $reason = trim($_POST['reason'] ?? '');
-    if (!$by) { echo json_encode(['status'=>'error','message'=>'Requested by required']); break; }
-    $stmt = $conn->prepare("INSERT INTO material_requests (item_id,item_name,quantity,requested_by,department,reason) VALUES (?,?,?,?,?,?)");
+$itemId = Input::optionalId($_POST['item_id'] ?? null, 'Item');
+    $itemName = Input::text($_POST['item_name'] ?? '', 'Item name', 150, $itemId === null);
+    $qty = Input::integer($_POST['quantity'] ?? 1, 'Quantity', 1);
+    $by = Input::text($_POST['requested_by'] ?? '', 'Requested by', 100, true);
+    $dept = Input::text($_POST['department'] ?? '', 'Department', 100);
+    $reason = Input::text($_POST['reason'] ?? '', 'Reason', 500);
+    if ($itemId !== null) {
+        $find = $conn->prepare('SELECT id FROM material_items WHERE id=?');
+        $find->bind_param('i', $itemId); $find->execute();
+        if (!$find->get_result()->fetch_assoc()) throw new LedgerInputException('Item not found.');
+        $find->close();
+    }
+    $stmt = $conn->prepare('INSERT INTO material_requests (item_id,item_name,quantity,requested_by,department,reason) VALUES (?,?,?,?,?,?)');
     $stmt->bind_param('isisss', $itemId, $itemName, $qty, $by, $dept, $reason);
     $stmt->execute();
-    echo json_encode(['status'=>'success']);
+    echo json_encode(['status'=>'success','id'=>$conn->insert_id]);
     break;
 
 case 'update_request':
-    $id = (int)($_POST['id'] ?? 0);
-    $status = $_POST['status'] ?? '';
-    if (!$id || !in_array($status,['approved','denied','fulfilled'])) { echo json_encode(['status'=>'error','message'=>'Invalid']); break; }
-    $stmt = $conn->prepare("UPDATE material_requests SET status=?, approved_by=? WHERE id=?");
-    $stmt->bind_param('sii', $status, $adminId, $id);
-    $stmt->execute();
+$id = Input::integer($_POST['id'] ?? 0, 'Request ID', 1);
+    $status = Input::choice($_POST['status'] ?? '', ['approved','denied','fulfilled'], 'Request status');
+    $find = $conn->prepare('SELECT id FROM material_requests WHERE id=?');
+    $find->bind_param('i', $id); $find->execute();
+    if (!$find->get_result()->fetch_assoc()) { http_response_code(404); echo json_encode(['status'=>'error','message'=>'Request not found.']); break; }
+    $find->close();
+    $stmt = $conn->prepare('UPDATE material_requests SET status=?, approved_by=? WHERE id=?');
+    $stmt->bind_param('sii', $status, $adminId, $id); $stmt->execute();
     echo json_encode(['status'=>'success']);
     break;
 
 default:
+    http_response_code(400);
     echo json_encode(['status'=>'error','message'=>'Unknown action']);
 }
-} catch (Exception $e) {
+} catch (LedgerInputException $e) {
+    if ($materialTransactionOpen) $conn->rollback();
+    http_response_code($e->httpStatus);
+    echo json_encode(['status'=>'error','message'=>$e->publicMessage]);
+} catch (Throwable $e) {
+    if ($materialTransactionOpen) $conn->rollback();
+    http_response_code(500);
     reportInternalError('Material API request failed', $e);
     echo json_encode(['status'=>'error','message'=>'Unable to complete the material request.']);
 }

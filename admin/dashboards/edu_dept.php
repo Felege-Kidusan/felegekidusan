@@ -652,7 +652,7 @@ document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click'
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
 
 // ═══ HELPERS ═══
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');}
 // ── Field-level validation helpers (patch 8) ─────────────────────────────
 // Reusable everywhere: live counters, inline errors, error-ref display.
 function bindCharCounter(inputId,max){

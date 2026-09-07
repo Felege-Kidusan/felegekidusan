@@ -244,6 +244,13 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
         // 7. Enforce the role list where one is defined for this page.
         if (isset($ROLE_MAP[$base])) {
             $role = $_SESSION['admin_role'] ?? '';
+            // The assumed department must not strand an impersonating admin.
+            // Only the switch/restore endpoint may authorize by the original
+            // role; every other page keeps the restricted, assumed role.
+            if (in_array($base, ['api_impersonate.php', 'impersonate.php'], true)
+                && in_array($_SESSION['original_admin_role'] ?? '', ['super_admin', 'school_admin'], true)) {
+                $role = $_SESSION['original_admin_role'];
+            }
             if (!in_array($role, $ROLE_MAP[$base], true)) {
                 _ac_deny(403, 'You do not have permission to use this page.');
             }
@@ -281,7 +288,7 @@ function _ac_deny($code, $msg) {
         ]);
     } else {
         if (!headers_sent()) {
-            $adminBase = defined('ADMIN_URL') ? ADMIN_URL : '/admin';
+            $adminBase = ssms_app_url('admin');
             $suffix = ($code === 401) ? '?timeout=1' : '?error=access_denied';
             header('Location: ' . $adminBase . '/index.php' . $suffix);
         }

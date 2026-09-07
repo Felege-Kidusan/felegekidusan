@@ -200,7 +200,7 @@
         if (text === null || text === undefined) return '';
         var d = document.createElement('div');
         d.textContent = String(text);
-        return d.innerHTML;
+        return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     };
 
     /** Format date string to human-readable */

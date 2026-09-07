@@ -206,7 +206,7 @@ $csrfToken = generateCsrfToken();
                     
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         <?php foreach ($allClasses as $c): ?>
-                        <div class="class-card card p-4 text-center" onclick="selectClassForAttendance(<?= $c['id'] ?>, '<?= e(addslashes($c['class_name'])) ?>')">
+                        <div class="class-card card p-4 text-center" onclick="selectClassForAttendance(<?= $c['id'] ?>, <?= e(json_encode($c['class_name'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE)) ?>)">
                             <div class="w-14 h-14 bg-orange-100 rounded-xl flex items-center justify-center mx-auto mb-3">
                                 <i class="fa-solid fa-users text-orange-600 text-xl"></i>
                             </div>

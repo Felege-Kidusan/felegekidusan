@@ -26,37 +26,39 @@
  * ============================================================
  */
 
-if (session_status() === PHP_SESSION_NONE) session_start();
+require_once __DIR__ . '/config.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: ../users.php');
+    header('Location: ' . ssms_app_url('admin/users.php') . '');
     exit;
 }
 
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    header('Location: ../index.php');
+    header('Location: ' . ssms_app_url('admin/index.php'));
     exit;
 }
 
 if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
-    header('Location: ../users.php?error=' . urlencode('Access denied.'));
+    header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('Access denied.'));
     exit;
 }
 
-require __DIR__ . '/config.php';
+
+
+requireCsrf();
 
 $deleteUserId       = isset($_POST['delete_user_id']) ? (int)$_POST['delete_user_id'] : 0;
 $superadminPassword = isset($_POST['superadmin_password']) ? $_POST['superadmin_password'] : '';
 
 if ($deleteUserId <= 0 || $superadminPassword === '') {
-    header('Location: ../users.php?error=' . urlencode('Invalid delete request.'));
+    header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('Invalid delete request.'));
     exit;
 }
 
 // Don't allow deleting your own account
 $currentAdminId = (int)($_SESSION['admin_id'] ?? 0);
 if ($deleteUserId === $currentAdminId) {
-    header('Location: ../users.php?error=' . urlencode('You cannot delete your own account.'));
+    header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('You cannot delete your own account.'));
     exit;
 }
 
@@ -85,7 +87,7 @@ try {
     $admin = $stmt->fetch();
 
     if (!$admin || !password_verify($superadminPassword, $admin['password_hash'])) {
-        header('Location: ../users.php?error=' . urlencode('Incorrect password. User not deleted.') . '&delete_id=' . $deleteUserId);
+        header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('Incorrect password. User not deleted.') . '&delete_id=' . $deleteUserId);
         exit;
     }
 
@@ -93,7 +95,7 @@ try {
     $chk = $pdo->prepare("SELECT id FROM users WHERE id = :id LIMIT 1");
     $chk->execute([':id' => $deleteUserId]);
     if (!$chk->fetch()) {
-        header('Location: ../users.php?error=' . urlencode('That user no longer exists.'));
+        header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('That user no longer exists.'));
         exit;
     }
 
@@ -117,6 +119,10 @@ try {
 
     // 3. Detach notifications and tasks tied to this user.
     _cleanupExec($pdo, "UPDATE notifications SET source_user_id = NULL WHERE source_user_id = :uid", $deleteUserId);
+    // A private notification with both targets NULL becomes a public
+    // broadcast. Remove single-recipient messages rather than publishing
+    // them accidentally when their recipient account is deleted.
+    _cleanupExec($pdo, "DELETE FROM notifications WHERE target_user_id = :uid AND (target_roles IS NULL OR target_roles = '')", $deleteUserId);
     _cleanupExec($pdo, "UPDATE notifications SET target_user_id = NULL WHERE target_user_id = :uid", $deleteUserId);
     _cleanupExec($pdo, "UPDATE department_tasks SET from_user_id = NULL WHERE from_user_id = :uid", $deleteUserId);
     _cleanupExec($pdo, "UPDATE department_tasks SET to_user_id   = NULL WHERE to_user_id   = :uid", $deleteUserId);
@@ -128,7 +134,7 @@ try {
 
     $pdo->commit();
 
-    header('Location: ../users.php?success=' . urlencode('User deleted and all their links cleaned up.'));
+    header('Location: ' . ssms_app_url('admin/users.php') . '?success=' . urlencode('User deleted and all their links cleaned up.'));
     exit;
 
 } catch (Exception $e) {
@@ -136,6 +142,6 @@ try {
         $pdo->rollBack();
     }
     error_log("User delete failed for id {$deleteUserId}: " . $e->getMessage());
-    header('Location: ../users.php?error=' . urlencode('Error deleting user. No changes were made. Please try again.') . '&delete_id=' . $deleteUserId);
+    header('Location: ' . ssms_app_url('admin/users.php') . '?error=' . urlencode('Error deleting user. No changes were made. Please try again.') . '&delete_id=' . $deleteUserId);
     exit;
 }

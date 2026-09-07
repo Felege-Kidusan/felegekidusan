@@ -4,6 +4,8 @@
  */
 (function(global) {
 'use strict';
+// Some legacy dashboard shells include this library twice. Bind only once.
+if (global.WBWSCalendar) return;
 
 const MODE = (typeof WBWS_CALENDAR_MODE !== 'undefined') ? WBWS_CALENDAR_MODE : 'ethiopian';
 
@@ -107,12 +109,34 @@ function convertPicker(input){
     ico.innerHTML='<i class="fa-solid fa-calendar-days"></i>';
     ico.style.cssText='position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#7c3aed;pointer-events:none;font-size:.8rem';
     wrap.appendChild(ico);
-    if(input.value){const p=input.value.split('-');if(p.length===3){const ec=toEthiopian(new Date(+p[0],+p[1]-1,+p[2]));if(ec.year)disp.value=EC_MONTHS_AM[ec.month]+' '+ec.day+', '+ec.year;}}
-    disp.addEventListener('click',e=>{e.stopPropagation();openCal(disp,input);});
-    new MutationObserver(()=>{
-        if(input.value){const p=input.value.split('-');if(p.length===3){const ec=toEthiopian(new Date(+p[0],+p[1]-1,+p[2]));if(ec.year)disp.value=EC_MONTHS_AM[ec.month]+' '+ec.day+', '+ec.year;}}
-        else disp.value='';
-    }).observe(input,{attributes:true,attributeFilter:['value']});
+    function syncDisplay(){
+        disp.disabled=input.disabled;
+        if(input.value){
+            const p=input.value.split('-');
+            if(p.length===3){
+                const ec=toEthiopian(new Date(+p[0],+p[1]-1,+p[2]));
+                disp.value=ec.year ? EC_MONTHS_AM[ec.month]+' '+ec.day+', '+ec.year : '';
+            } else disp.value='';
+        } else disp.value='';
+    }
+    // A MutationObserver sees setAttribute('value'), NOT input.value=... .
+    // Modal defaults and saved filters use the property setter; keep their
+    // displayed Ethiopian date in sync with the Gregorian submitted value.
+    const valueProperty=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+    if(valueProperty&&valueProperty.get&&valueProperty.set){
+        Object.defineProperty(input,'value',{
+            configurable:true,
+            get(){return valueProperty.get.call(this);},
+            set(value){valueProperty.set.call(this,value);syncDisplay();}
+        });
+    }
+    syncDisplay();
+    disp.addEventListener('click',e=>{if(input.disabled)return;e.stopPropagation();openCal(disp,input);});
+    input.addEventListener('change',syncDisplay);
+    input.addEventListener('input',syncDisplay);
+    if(input.form)input.form.addEventListener('reset',()=>setTimeout(syncDisplay,0));
+    new MutationObserver(syncDisplay).observe(input,{attributes:true,attributeFilter:['value','disabled']});
+
 }
 
 function openCal(display,hidden){
@@ -376,16 +400,24 @@ global.WBWSCalendar={
     days:{am:EC_DAYS_AM},
     daysInMonth:daysInMonth,
     initPickers:initDatePickers,convertInput:convertPicker,
-    refreshPickers:function(){document.querySelectorAll('input[type="date"]:not([data-ec-init])').forEach(inp=>convertPicker(inp));}
+    refreshPickers:initDatePickers
 };
 
 // ═══ AUTO-INIT ═══
-injectStyles();
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initDatePickers);
-else initDatePickers();
-
-new MutationObserver(function(muts){
-    for(const m of muts)if(m.type==='childList'&&m.addedNodes.length){setTimeout(()=>WBWSCalendar.refreshPickers(),100);break;}
-}).observe(document.body,{childList:true,subtree:true});
+function bootCalendar(){
+    injectStyles();
+    initDatePickers();
+    // This script is normally in <head>; document.body does not exist until
+    // DOMContentLoaded. Observing it sooner threw on every dashboard load.
+    if(!document.body||typeof MutationObserver==='undefined')return;
+    let refreshTimer=null;
+    new MutationObserver(function(muts){
+        if(!muts.some(m=>m.type==='childList'&&m.addedNodes.length))return;
+        clearTimeout(refreshTimer);
+        refreshTimer=setTimeout(initDatePickers,100);
+    }).observe(document.body,{childList:true,subtree:true});
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bootCalendar,{once:true});
+else bootCalendar();
 
 })(window);

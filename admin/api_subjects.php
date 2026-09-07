@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
+requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'save_grades']);
 $__gradeActions = [
     'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment',
     'get_students_for_grading', 'save_grades', 'get_grade_summary',

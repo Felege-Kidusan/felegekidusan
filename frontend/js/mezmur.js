@@ -66,7 +66,7 @@
     var sysDialogCb = null;
     function sysConfirm(body, onYes) {
         var el = $('mzSysDialog');
-        if (!el) { if (onYes) onYes(); return; }
+        if (!el) { window.toast('Confirmation is unavailable. Please refresh the page.', 'e'); return; }
         $('mzSysDialogBody').textContent = body;
         sysDialogCb = onYes || null;
         openModalF('mzSysDialog');
@@ -695,19 +695,26 @@
     }
 
     function syncReset() {
-        if (!window.confirm('Clear every timing for this hymn?')) return;
-        sync.lines.forEach(function (l) { l.t = null; });
-        sync.idx = 0;
-        draftSave();
-        renderSyncLines();
+        var hymnId = sync.id;
+        sysConfirm('Clear every timing for this hymn?', function () {
+            if (sync.id !== hymnId) return;
+            sync.lines.forEach(function (l) { l.t = null; });
+            sync.idx = 0;
+            draftSave();
+            renderSyncLines();
+        });
     }
 
-    function syncSave() {
+    function syncSave(confirmed) {
         var timed = sync.lines.filter(function (l) { return l.t != null; });
-        if (!timed.length) {
+        if (!timed.length && confirmed !== true) {
             // Saving with nothing timed means "remove timings" — make that
             // explicit rather than silently wiping.
-            if (!window.confirm('No lines are timed. Remove synced lyrics and fall back to static lyrics?')) return;
+            var hymnId = sync.id;
+            sysConfirm('No lines are timed. Remove synced lyrics and fall back to static lyrics?', function () {
+                if (sync.id === hymnId) syncSave(true);
+            });
+            return;
         }
         var lrc = timed
             .slice()

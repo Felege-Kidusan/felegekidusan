@@ -164,7 +164,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 
 @media(max-width:600px){
   .field-row{grid-template-columns:1fr}
-  .topbar-sub{display:none}
+  .topbar-sub,.user-chip span{display:none}
+  .topbar{gap:0.5rem;padding:0.75rem}
+  .topbar-right{gap:0.4rem}
+  .btn-exit{padding:0.4rem 0.5rem;font-size:0.72rem}
 }
 </style>
 <?= function_exists('wbws_calendar_scripts') ? wbws_calendar_scripts($conn ?? null) : '' ?>
@@ -186,7 +189,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
       <span><?= e($fullName) ?></span>
     </div>
     <a href="<?= SITE_URL ?>" target="_blank" class="btn-exit"><i class="fa-solid fa-globe"></i> View Site</a>
+    <?php if ($role !== 'content_editor'): ?>
     <a href="/admin/dashboard.php" class="btn-exit"><i class="fa-solid fa-arrow-left"></i> Dashboard</a>
+    <?php endif; ?>
+    <a href="/admin/logout.php" class="btn-exit"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
   </div>
 </div>
 

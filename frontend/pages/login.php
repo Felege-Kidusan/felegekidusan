@@ -34,21 +34,21 @@ $theme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
             
             <div id="loginError" class="school-error-msg" style="display:none"></div>
             
-            <div id="loginForm">
-                <input type="hidden" id="csrf" value="<?= $csrfToken ?>">
+            <form id="loginForm" method="post" action="<?= e(ssms_app_url('backend/auth/login.php')) ?>">
+                <input type="hidden" id="csrf" name="csrf_token" value="<?= $csrfToken ?>">
                 <div class="school-form-group">
-                    <input type="text" id="username" class="school-input" placeholder="Username" required autofocus>
+                    <input type="text" id="username" name="username" autocomplete="username" class="school-input" placeholder="Username" required autofocus>
                 </div>
                 <div class="school-form-group" style="position:relative">
-                    <input type="password" id="password" class="school-input" placeholder="Password" required style="padding-right:2.5rem">
+                    <input type="password" id="password" name="password" autocomplete="current-password" class="school-input" placeholder="Password" required style="padding-right:2.5rem">
                     <button type="button" id="togglePw" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--school-text-dim);cursor:pointer">
                         <i class="fa-solid fa-eye"></i>
                     </button>
                 </div>
-                <button type="button" id="loginBtn" class="btn-primary school-login-btn">
+                <button type="submit" id="loginBtn" class="btn-primary school-login-btn">
                     <i class="fa-solid fa-right-to-bracket"></i> Login
                 </button>
-            </div>
+            </form>
             
             <p style="font-size:0.65rem;color:rgba(255,255,255,0.3);margin-top:1.5rem"><?= e(defined('ADMIN_FOOTER_TEXT') ? ADMIN_FOOTER_TEXT : '') ?></p>
         </div>
@@ -73,11 +73,11 @@ $theme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
             fd.append('password', pw);
             fd.append('csrf_token', document.getElementById('csrf').value);
             
-            fetch('/backend/auth/login.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+            fetch(document.getElementById('loginForm').action, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     if (d.status === 'success' || d.success) {
-                        window.location.href = '/frontend/pages/dashboard.php';
+                        window.location.href = d.redirect || '/admin/dashboard.php';
                     } else {
                         showErr(d.message || 'Invalid credentials');
                         btn.disabled = false;
@@ -93,9 +93,10 @@ $theme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
         
         function showErr(msg) { err.textContent = msg; err.style.display = 'block'; }
         
-        btn.addEventListener('click', doLogin);
-        document.getElementById('password').addEventListener('keypress', function(e) { if (e.key === 'Enter') doLogin(); });
-        document.getElementById('username').addEventListener('keypress', function(e) { if (e.key === 'Enter') document.getElementById('password').focus(); });
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (!btn.disabled) doLogin();
+        });
         
         document.getElementById('togglePw').addEventListener('click', function() {
             var inp = document.getElementById('password');

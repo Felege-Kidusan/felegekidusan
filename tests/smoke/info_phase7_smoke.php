@@ -1,4 +1,10 @@
 <?php
+// Test/deployment tooling is CLI-only; deny before loading credentials or data.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
  * Functional smoke test for the Information analytics hub (Phase C).
  * Runs against a live DB. Applies REAL migration 027 twice (idempotent),

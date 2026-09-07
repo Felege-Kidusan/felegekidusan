@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# These scripts mutate/reset data. Never run against production.
+if [ "${SSMS_AUDIT_TESTING:-}" != "1" ]; then
+  echo "Refusing: set SSMS_AUDIT_TESTING=1 only for a disposable local test database." >&2
+  exit 2
+fi
 # ============================================================
 # SSMS regression smoke — run after EVERY patch.
 # Covers: login (all roles), page render integrity, encoding,
@@ -259,6 +264,7 @@ P16R2=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$
 P16HTML=$(curl -s -c "$JAR" "$BASE/admin/index.php")
 P16TOK=$(printf '%s' "$P16HTML" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"$//')
 curl -s -b "$JAR" -c "$JAR" -o /dev/null -d "csrf_token=$P16TOK" -d "username=audit_super" -d "password=$PASS" "$BASE/admin/backend/login.php"
+P16TOK=$(ssms_csrf)
 P16W=$(curl -s -b "$JAR" -d "csrf_token=$P16TOK" -d "action=set_status" -d "id=$P16H" -d "status=active" "$BASE/admin/api_mezmur.php")
 P16R3=$(sudo -n mariadb ssms -N -e "SELECT revision FROM mezmur_hymns WHERE id=$P16H")
 echo "$P16W" | grep -q '"success"' && [ "$P16R3" -gt "$P16R2" ] && ok "web restore bumps revision via single writer (MZ-2)" || fail "web set_status: $P16W rev $P16R2->$P16R3"
@@ -345,6 +351,7 @@ sudo -n mariadb ssms -e "INSERT INTO users (username,email,full_name,role,passwo
 P20M=$(curl -s -c /tmp/p20jar "$BASE/admin/index.php")
 P20MT=$(printf '%s' "$P20M" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"$//')
 curl -s -b /tmp/p20jar -c /tmp/p20jar -o /dev/null -d "csrf_token=$P20MT" -d "username=p20_mez" -d "password=P20Smoke#2026" "$BASE/admin/backend/login.php"
+P20MT=$(JAR=/tmp/p20jar ssms_csrf)
 P20R=$(curl -s -b /tmp/p20jar -d "csrf_token=$P20MT" -d "action=migrate" "$BASE/admin/api_mezmur.php")
 echo "$P20R" | grep -q "Only administrators" && ok "schema reconcile restricted to admins (MZ-13)" || fail "migrate gate: $P20R"
 sudo -n mariadb ssms -e "DELETE FROM users WHERE username='p20_mez'; DELETE FROM mezmur_hymns WHERE title LIKE 'P20 Smoke%'; DELETE FROM mezmur_categories WHERE name LIKE 'P20 Smoke%'; DELETE FROM activity_logs WHERE entity_type='mezmur_hymn' AND details LIKE '%P20 Smoke%'" >/dev/null 2>&1

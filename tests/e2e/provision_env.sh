@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# These scripts mutate/reset data. Never run against production.
+if [ "${SSMS_AUDIT_TESTING:-}" != "1" ]; then
+  echo "Refusing: set SSMS_AUDIT_TESTING=1 only for a disposable local test database." >&2
+  exit 2
+fi
 # ════════════════════════════════════════════════════════════════
 # provision_env.sh — rebuild the SSMS test stack after a sandbox wipe
 # ════════════════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * ============================================================
  * School Advanced Reports & Analytics Center

@@ -1,4 +1,15 @@
 <?php
+// Test/deployment tooling is CLI-only; deny before loading credentials or data.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+if (getenv('SSMS_AUDIT_TESTING') !== '1') {
+    fwrite(STDERR, "Refusing to seed: set SSMS_AUDIT_TESTING=1 only on an isolated synthetic database.\n");
+    exit(2);
+}
+
 /**
  * Edu-audit end-to-end test seeder (STAGING/TEST ONLY).
  *

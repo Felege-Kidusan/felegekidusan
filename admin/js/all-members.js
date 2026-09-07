@@ -18,7 +18,7 @@
     };
 
     function text(v) { return v == null ? '' : String(v); }
-    function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
     function sectionLabel(group) {
         var map = { '7_13': 'ህጻናት (A)', '14_17': 'ማዕከላዊያን (B)', '18_plus': 'ወጣቶች (C)' };

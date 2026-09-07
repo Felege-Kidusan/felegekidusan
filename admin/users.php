@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/config.php';
 
 // Only logged-in super admin is allowed here
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
@@ -15,7 +15,7 @@ if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'Super Admin';
 $username = $_SESSION['admin_username'] ?? '';
 
-require __DIR__ . '/backend/config.php';
+
 
 // messages
 $successMessage = isset($_GET['success']) ? $_GET['success'] : '';

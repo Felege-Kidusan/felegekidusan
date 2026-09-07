@@ -45,7 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$action = $_REQUEST['action'] ?? '';
+$action = is_string($_REQUEST['action'] ?? '') ? ($_REQUEST['action'] ?? '') : '';
+requirePostActions($action, ['create_teacher', 'update_teacher', 'toggle_status', 'delete_teacher', 'add_assignment', 'remove_assignment', 'save_teacher_bundle']);
 
 // Migration-backed compatibility helper; avoids per-request schema inspection.
 function _teacherSafeColExists($conn, $table, $col) {

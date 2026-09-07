@@ -18,6 +18,16 @@ var Finance = (function() {
     var cats = [];
     var members = [];
     var txns = { income: [], expense: [] };
+    var saving = {};
+    function setSaving(name, pending) {
+        saving[name] = pending;
+        var button = document.querySelector('[onclick="Finance.' + name + '()"]');
+        if (button) button.disabled = pending;
+    }
+    function localToday() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    }
 
     // API endpoint (uses shim: /backend/api/finance.php → /admin/api_finance.php)
     var API = '/backend/api/finance.php';
@@ -211,7 +221,7 @@ var Finance = (function() {
     function openAddTxn(type) {
         document.getElementById('txnType').value = type;
         document.getElementById('txnTitle').textContent = 'Add ' + (type === 'income' ? 'Income' : 'Expense');
-        document.getElementById('txnDate').value = new Date().toISOString().slice(0, 10);
+        document.getElementById('txnDate').value = localToday();
         document.getElementById('txnMemberWrap').style.display = type === 'income' ? 'block' : 'none';
         populateTxnCats(type);
         modal('txnModal', true);
@@ -226,11 +236,13 @@ var Finance = (function() {
     }
 
     function saveTxn() {
+        if (saving.saveTxn) return;
         var type = document.getElementById('txnType').value;
         var amt = document.getElementById('txnAmt').value;
         if (!amt || parseFloat(amt) <= 0) return toast('Enter amount', 'e');
 
-        window.api.post('finance.php', {
+        setSaving('saveTxn', true);
+        return window.api.post('finance.php', {
             action: 'add_transaction',
             type: type,
             category_id: document.getElementById('txnCat').value,
@@ -254,7 +266,8 @@ var Finance = (function() {
                 toast(d.message || 'Error', 'e');
             }
         })
-        .catch(function() { toast('Network error', 'e'); });
+        .catch(function() { toast('Network error', 'e')
+        .finally(function() { setSaving('saveTxn', false); }); });
     }
 
     function deleteTxn(id, type) {
@@ -306,10 +319,12 @@ var Finance = (function() {
     function openCatModal() { modal('catModal', true); }
 
     function saveCat() {
+        if (saving.saveCat) return;
         var nm = document.getElementById('catName').value.trim();
         if (!nm) return toast('Name required', 'e');
 
-        window.api.post('finance.php', {
+        setSaving('saveCat', true);
+        return window.api.post('finance.php', {
             action: 'save_category',
             name: nm,
             type: document.getElementById('catType').value,
@@ -326,7 +341,8 @@ var Finance = (function() {
                 toast(d.message || 'Error', 'e');
             }
         })
-        .catch(function() { toast('Error', 'e'); });
+        .catch(function() { toast('Error', 'e')
+        .finally(function() { setSaving('saveCat', false); }); });
     }
 
     // ══════════════════════════════════════════════════════════
@@ -375,12 +391,14 @@ var Finance = (function() {
     }
 
     function saveFee() {
+        if (saving.saveFee) return;
         var member = document.getElementById('feeMember').value;
         var amt = document.getElementById('feeAmt').value;
         if (!member || !amt) return toast('Member and amount required', 'e');
 
         var status = document.getElementById('feePayStatus').value;
-        window.api.post('finance.php', {
+        setSaving('saveFee', true);
+        return window.api.post('finance.php', {
             action: 'save_fee',
             member_id: member,
             amount: amt,
@@ -388,18 +406,21 @@ var Finance = (function() {
             ec_month: document.getElementById('feeMonth').value,
             ec_year: document.getElementById('feeEcYear').value,
             status: status,
-            paid_date: status === 'paid' ? new Date().toISOString().slice(0, 10) : ''
+            paid_date: status === 'paid' ? localToday() : ''
         })
         .then(function(d) {
             if (d.status === 'success') {
                 toast('Fee recorded!', 's');
                 modal('feeModal', false);
                 loadFees();
+                loadDashboard();
+                loadTxns('income');
             } else {
                 toast(d.message || 'Error', 'e');
             }
         })
-        .catch(function() { toast('Error', 'e'); });
+        .catch(function() { toast('Error', 'e')
+        .finally(function() { setSaving('saveFee', false); }); });
     }
 
     // ══════════════════════════════════════════════════════════
@@ -474,7 +495,7 @@ var Finance = (function() {
         var rows = data.map(function(t) {
             return [fDate(t.transaction_date), t.category_name || '', t.description || '', t.amount, t.payment_method || '', t.receipt_number || '', t.status];
         });
-        exportXlsx(h, rows, APP.school.memberPrefix + '_' + type + '_' + new Date().toISOString().slice(0, 10));
+        exportXlsx(h, rows, APP.school.memberPrefix + '_' + type + '_' + localToday());
     }
 
     function exportReport() {

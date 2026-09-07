@@ -1,4 +1,10 @@
 <?php
+// Test/deployment tooling is CLI-only; deny before loading credentials or data.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 /**
  * Functional smoke test for Phase E scale hardening (live DB).
  * Proves:

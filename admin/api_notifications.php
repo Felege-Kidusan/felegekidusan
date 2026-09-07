@@ -17,15 +17,22 @@ if (empty($_SESSION['admin_id'])) {
     exit;
 }
 
-$action = $_REQUEST['action'] ?? 'list';
+$action = is_string($_REQUEST['action'] ?? 'list') ? ($_REQUEST['action'] ?? 'list') : '';
+requirePostActions($action, ['mark_read', 'mark_all_read', 'task_update', 'sync_change']);
 
 // CSRF validation for POST requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($csrfToken)) {
+        http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh.']);
         exit;
     }
+}
+
+if (in_array($action, ['changes', 'sync_change'], true)
+    && !in_array($_SESSION['admin_role'] ?? '', ['super_admin','school_admin','info_dept','hr_dept'], true)) {
+    jsonResponse(['status'=>'error','message'=>'Member change history is restricted to member-management staff.'], 403);
 }
 
 switch ($action) {

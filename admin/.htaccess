@@ -1,6 +1,13 @@
 # Pass Authorization header to PHP (Apache strips it by default)
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # This directory has its own rewrite rules. Repeat the relevant denials
+    # here: parent per-directory rewrite rules are NOT automatically inherited.
+    RewriteRule ^migrations(?:/|$) - [F,L,NC]
+    # backup.php/download_backup.php are active, authenticated UI workflows.
+    RewriteRule ^tools/(?:migrate_identity_codes|repair_user_role)\.php$ - [F,L,NC]
+    RewriteRule ^(?:id_cards/libs|backend/pdf/tcpdf)/.*\.php$ - [F,L,NC]
+    RewriteRule ^(?:backend/generate_hash|get_schema|id_cards/qr_diagnostic|leak_detector)\.php$ - [F,L,NC]
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 </IfModule>

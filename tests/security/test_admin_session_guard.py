@@ -10,6 +10,7 @@ class AdminSessionGuardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.config = (ROOT / "config.php").read_text(encoding="utf-8")
+        cls.browser = (ROOT / "backend/core/browser.php").read_text(encoding="utf-8")
         cls.guard = (
             ROOT / "admin/backend/services/AdminSessionGuard.php"
         ).read_text(encoding="utf-8")
@@ -17,10 +18,11 @@ class AdminSessionGuardTests(unittest.TestCase):
         cls.settings = (ROOT / "admin/api_settings.php").read_text(encoding="utf-8")
 
     def test_session_cookie_transport_uses_strict_php_mode(self):
-        self.assertIn("session.use_strict_mode", self.config)
-        self.assertIn("session.use_only_cookies", self.config)
-        self.assertIn("session.cookie_httponly", self.config)
-        self.assertIn("session.cookie_samesite", self.config)
+        self.assertIn("session.use_strict_mode", self.browser)
+        self.assertIn("session.use_only_cookies", self.browser)
+        self.assertIn("session.cookie_httponly", self.browser)
+        self.assertIn("session.cookie_samesite", self.browser)
+        self.assertIn("ssms_start_browser_session()", self.config)
 
     def test_active_role_and_password_are_periodically_revalidated(self):
         self.assertIn("REVALIDATE_INTERVAL_SECONDS = 300", self.guard)

@@ -34,6 +34,12 @@ if (!empty($_GET['_route'])) {
 } elseif (!empty($_SERVER['PATH_INFO'])) {
     $__fkssRoute = $_SERVER['PATH_INFO'];
 }
+if (!is_string($__fkssRoute)) {
+    http_response_code(400);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['status'=>'error','message'=>'Invalid API route.']);
+    exit;
+}
 $__fkssRoute = trim($__fkssRoute, '/');
 if ($__fkssRoute === 'ping') {
     if (!headers_sent()) {
@@ -82,15 +88,7 @@ handleCors();
 // 1. .htaccess rewrite: /api/v1/members → index.php?_route=members
 // 2. Query param: /api/v1/index.php?path=members
 // 3. PATH_INFO: /api/v1/index.php/members
-$route = '';
-if (!empty($_GET['_route'])) {
-    $route = $_GET['_route'];
-} elseif (!empty($_GET['path'])) {
-    $route = $_GET['path'];
-} elseif (!empty($_SERVER['PATH_INFO'])) {
-    $route = $_SERVER['PATH_INFO'];
-}
-$route = trim($route, '/');
+$route = $__fkssRoute;
 $parts = explode('/', $route);
 $resource = $parts[0] ?? '';
 $resourceId = $parts[1] ?? null;

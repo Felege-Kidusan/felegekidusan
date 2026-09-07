@@ -235,7 +235,7 @@ function exportReport(){const rows=[];document.querySelectorAll('#rptBody tr').f
 function expXls(h,r,fn){const ws=XLSX.utils.aoa_to_sheet([h,...r]);ws['!cols']=h.map(()=>({wch:16}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Data');XLSX.writeFile(wb,fn+'.xlsx');}
 
 function closeModal(id){document.getElementById(id).classList.remove('show');}
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');}
 function toast(m,t){const el=document.getElementById('toast');el.className='toast '+(t==='s'?'t-ok':'t-err')+' show';el.innerHTML=`<i class="fa-solid fa-${t==='s'?'check-circle':'exclamation-circle'}"></i> ${m}`;setTimeout(()=>el.classList.remove('show'),3000);}
 function num(n){return parseFloat(n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fDate(d){if(!d)return'—';if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(d,'medium');try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}

@@ -13,6 +13,83 @@ require_once __DIR__ . '/IdentityCodeService.php';
 
 class EnrollmentService
 {
+
+    /**
+     * mysqli has no in_transaction() method. Callers owning an outer
+     * transaction opt in explicitly; a savepoint isolates this operation
+     * without committing or rolling back their unrelated work.
+     */
+    private static function transactionScope(\mysqli $conn, bool $withinTransaction, callable $work): array
+    {
+        $ownsTransaction = !$withinTransaction;
+        $savepoint = 'ssms_enrollment_' . bin2hex(random_bytes(6));
+        $started = false;
+        try {
+            if ($ownsTransaction) $conn->begin_transaction();
+            else $conn->query('SAVEPOINT ' . $savepoint);
+            $started = true;
+            $result = $work();
+            if (($result['status'] ?? '') !== 'success') {
+                if ($ownsTransaction) $conn->rollback();
+                else {
+                    $conn->query('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                    $conn->query('RELEASE SAVEPOINT ' . $savepoint);
+                }
+                return $result;
+            }
+            if ($ownsTransaction) $conn->commit();
+            else $conn->query('RELEASE SAVEPOINT ' . $savepoint);
+            return $result;
+        } catch (\Throwable $error) {
+            if ($started) {
+                try {
+                    if ($ownsTransaction) $conn->rollback();
+                    else {
+                        $conn->query('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                        $conn->query('RELEASE SAVEPOINT ' . $savepoint);
+                    }
+                } catch (\Throwable $ignored) { /* connection may already be lost */ }
+            }
+            if ($error instanceof \DomainException) {
+                return ['status'=>'error', 'message'=>$error->getMessage()];
+            }
+            if (function_exists('reportInternalError')) reportInternalError('Enrollment transaction failed', $error);
+            else error_log('Enrollment transaction failed: ' . $error->getMessage());
+            return ['status'=>'error', 'message'=>'Enrollment failed. No changes were made.'];
+        }
+    }
+
+    private static function lockMember(\mysqli $conn, int $memberId): void
+    {
+        // A per-member lock serializes new enrollments as well as transfers;
+        // locking only existing enrollments cannot protect a first enrollment.
+        $stmt = $conn->prepare('SELECT id, status FROM members WHERE id=? FOR UPDATE');
+        $stmt->bind_param('i', $memberId); $stmt->execute();
+        $member = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$member || $member['status'] === 'archived') throw new \DomainException('Member not found or archived.');
+    }
+
+    public static function enroll(\mysqli $conn, int $memberId, int $classId, ?int $yearId = null, ?int $enrolledBy = null, bool $withinTransaction = false): array
+    {
+        if ($memberId <= 0 || $classId <= 0) return ['status'=>'error','message'=>'Member and class are required.'];
+        return self::transactionScope($conn, $withinTransaction, static function () use ($conn, $memberId, $classId, $yearId, $enrolledBy): array {
+            self::lockMember($conn, $memberId);
+            return self::enrollInScope($conn, $memberId, $classId, $yearId, $enrolledBy);
+        });
+    }
+
+    public static function transferByEnrollment(\mysqli $conn, int $enrollmentId, int $toClassId, int $yearId, int $enrolledBy, string $reason = '', bool $withinTransaction = false): array
+    {
+        return self::transactionScope($conn, $withinTransaction, static function () use ($conn, $enrollmentId, $toClassId, $yearId, $enrolledBy, $reason): array {
+            $find = $conn->prepare('SELECT member_id FROM class_enrollments WHERE id=?');
+            $find->bind_param('i', $enrollmentId); $find->execute();
+            $source = $find->get_result()->fetch_assoc(); $find->close();
+            if (!$source) return ['status'=>'error','message'=>'Enrollment not found.'];
+            self::lockMember($conn, (int)$source['member_id']);
+            return self::transferInScope($conn, $enrollmentId, $toClassId, $yearId, $enrolledBy, $reason);
+        });
+    }
+
     public static function activeYear(\mysqli $conn): ?array
     {
         if (function_exists('ay_resolve')) {
@@ -78,13 +155,13 @@ class EnrollmentService
     /**
      * Enroll using a dropdown name, class_code, or numeric class id.
      */
-    public static function enrollByLabel(\mysqli $conn, int $memberId, string $label, ?int $yearId = null, ?int $enrolledBy = null): array
+    public static function enrollByLabel(\mysqli $conn, int $memberId, string $label, ?int $yearId = null, ?int $enrolledBy = null, bool $withinTransaction = false): array
     {
         $class = self::resolveClass($conn, $label);
         if (!$class) {
             return ['status' => 'error', 'message' => 'Unknown class: ' . $label];
         }
-        return self::enroll($conn, $memberId, (int)$class['id'], $yearId, $enrolledBy);
+        return self::enroll($conn, $memberId, (int)$class['id'], $yearId, $enrolledBy, $withinTransaction);
     }
 
     /**
@@ -92,7 +169,7 @@ class EnrollmentService
      *
      * @return array{status:string,message:string,enrollment_id?:int,skipped?:bool,transferred?:bool}
      */
-    public static function enroll(\mysqli $conn, int $memberId, int $classId, ?int $yearId = null, ?int $enrolledBy = null): array
+    private static function enrollInScope(\mysqli $conn, int $memberId, int $classId, ?int $yearId = null, ?int $enrolledBy = null): array
     {
         if ($memberId <= 0 || $classId <= 0) {
             return ['status' => 'error', 'message' => 'Member and class are required.'];
@@ -113,6 +190,7 @@ class EnrollmentService
                 $stmt->close();
             }
         }
+        if ($yearId && !$year) return ['status'=>'error','message'=>'Academic year not found.'];
         if (!$year) {
             $year = self::activeYear($conn);
         }
@@ -133,7 +211,7 @@ class EnrollmentService
                     'skipped' => true,
                 ];
             }
-            $xfer = self::transferByEnrollment($conn, (int)$existing['id'], (int)$class['id'], $yearId, $enrolledBy, 'Assigned from HR / Excel');
+            $xfer = self::transferByEnrollment($conn, (int)$existing['id'], (int)$class['id'], $yearId, $enrolledBy, 'Assigned from HR / Excel', true);
             if (($xfer['status'] ?? '') === 'success') {
                 $xfer['transferred'] = true;
             }
@@ -144,7 +222,7 @@ class EnrollmentService
             "INSERT INTO class_enrollments
                 (member_id, class_id, academic_year_id, enrolled_at, status, enrolled_by)
              VALUES (?, ?, ?, ?, 'active', ?)
-             ON DUPLICATE KEY UPDATE status='active', enrolled_by=VALUES(enrolled_by), enrolled_at=VALUES(enrolled_at)"
+             ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), status='active', enrolled_by=VALUES(enrolled_by), enrolled_at=VALUES(enrolled_at)"
         );
         if (!$stmt) {
             return ['status' => 'error', 'message' => 'Could not prepare enrollment.'];
@@ -162,7 +240,7 @@ class EnrollmentService
         $stmt->close();
 
         if (function_exists('autoUpdateMemberClass')) {
-            autoUpdateMemberClass($conn, $memberId, (int)$class['id'], $yearId);
+            if (!autoUpdateMemberClass($conn, $memberId, (int)$class['id'], $yearId)) throw new \RuntimeException('Could not update member class.');
         }
 
         return [
@@ -172,23 +250,23 @@ class EnrollmentService
         ];
     }
 
-    public static function enrollByCode(\mysqli $conn, int $memberId, string $classCode, ?int $yearId = null, ?int $enrolledBy = null): array
+    public static function enrollByCode(\mysqli $conn, int $memberId, string $classCode, ?int $yearId = null, ?int $enrolledBy = null, bool $withinTransaction = false): array
     {
         $class = self::resolveClass($conn, $classCode);
         if (!$class) {
             return ['status' => 'error', 'message' => 'Unknown class code: ' . $classCode];
         }
-        return self::enroll($conn, $memberId, (int)$class['id'], $yearId, $enrolledBy);
+        return self::enroll($conn, $memberId, (int)$class['id'], $yearId, $enrolledBy, $withinTransaction);
     }
 
-    public static function transferByEnrollment(\mysqli $conn, int $enrollmentId, int $toClassId, int $yearId, int $enrolledBy, string $reason = ''): array
+    private static function transferInScope(\mysqli $conn, int $enrollmentId, int $toClassId, int $yearId, int $enrolledBy, string $reason = ''): array
     {
         $toClass = self::resolveClass($conn, $toClassId);
         if (!$toClass) {
             return ['status' => 'error', 'message' => 'Target class not found or inactive.'];
         }
 
-        $stmt = $conn->prepare("SELECT * FROM class_enrollments WHERE id = ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT * FROM class_enrollments WHERE id = ? LIMIT 1 FOR UPDATE");
         if (!$stmt) {
             return ['status' => 'error', 'message' => 'Enrollment not found.'];
         }
@@ -200,6 +278,9 @@ class EnrollmentService
             return ['status' => 'error', 'message' => 'Enrollment not found.'];
         }
 
+        if ((int)$enr['academic_year_id'] !== $yearId || $enr['status'] !== 'active') {
+            return ['status'=>'error','message'=>'The source enrollment is not active in this academic year.'];
+        }
         $memberId = (int)$enr['member_id'];
         $fromClass = (int)$enr['class_id'];
         if ($fromClass === (int)$toClass['id']) {
@@ -209,55 +290,35 @@ class EnrollmentService
         $note = $reason !== '' ? $reason : 'Transferred';
         $today = date('Y-m-d');
 
-        // TRANSACTION PARTICIPATION: close-and-recreate must be atomic. If
-        // the caller already opened a transaction we participate in it;
-        // otherwise we open (and close) our own so a mid-sequence failure
-        // can never strand a member without an active enrollment.
-        $ownsTransaction = false;
-        if (!$conn->in_transaction()) {
-            $conn->begin_transaction();
-            $ownsTransaction = true;
+        $up = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''), ' [', ?, ']') WHERE id = ?");
+        if ($up) {
+            $up->bind_param('si', $note, $enrollmentId);
+            $up->execute();
+            $up->close();
         }
 
-        try {
-            $up = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''), ' [', ?, ']') WHERE id = ?");
-            if ($up) {
-                $up->bind_param('si', $note, $enrollmentId);
-                $up->execute();
-                $up->close();
-            }
-
-            $ins = $conn->prepare(
-                "INSERT INTO class_enrollments
-                    (member_id, class_id, academic_year_id, enrolled_at, status, notes, promoted_from, enrolled_by)
-                 VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE status='active', notes=VALUES(notes), enrolled_by=VALUES(enrolled_by)"
-            );
-            if (!$ins) {
-                throw new \RuntimeException('Could not create transfer enrollment.');
-            }
-            $ins->bind_param('iiissii', $memberId, $toClass['id'], $yearId, $today, $note, $fromClass, $enrolledBy);
-            if (!$ins->execute()) {
-                $err = $ins->error;
-                $ins->close();
-                throw new \RuntimeException('Transfer failed: ' . $err);
-            }
-            $newId = (int)$ins->insert_id;
+        $ins = $conn->prepare(
+            "INSERT INTO class_enrollments
+                (member_id, class_id, academic_year_id, enrolled_at, status, notes, promoted_from, enrolled_by)
+             VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+             ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id), status='active', notes=VALUES(notes), enrolled_by=VALUES(enrolled_by)"
+        );
+        if (!$ins) {
+            throw new \RuntimeException('Could not create transfer enrollment.');
+        }
+        $ins->bind_param('iiissii', $memberId, $toClass['id'], $yearId, $today, $note, $fromClass, $enrolledBy);
+        if (!$ins->execute()) {
+            $err = $ins->error;
             $ins->close();
-
-            if (function_exists('autoUpdateMemberClass')) {
-                autoUpdateMemberClass($conn, $memberId, (int)$toClass['id'], $yearId);
-            }
-
-            if ($ownsTransaction) {
-                $conn->commit();
-            }
-        } catch (\Throwable $error) {
-            if ($ownsTransaction && $conn->in_transaction()) {
-                $conn->rollback();
-            }
-            return ['status' => 'error', 'message' => $error->getMessage() . ' No changes were made.'];
+            throw new \RuntimeException('Transfer failed: ' . $err);
         }
+        $newId = (int)$ins->insert_id;
+        $ins->close();
+
+        if (function_exists('autoUpdateMemberClass')) {
+            if (!autoUpdateMemberClass($conn, $memberId, (int)$toClass['id'], $yearId)) throw new \RuntimeException('Could not update member class.');
+        }
+
 
         return [
             'status' => 'success',

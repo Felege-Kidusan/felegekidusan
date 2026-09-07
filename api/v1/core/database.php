@@ -6,7 +6,9 @@
  */
 
 // Prevent config.php from starting output buffering or session redirects
-define('WBWS_API_REQUEST', true);
+if (!defined('WBWS_API_REQUEST')) {
+    define('WBWS_API_REQUEST', true);
+}
 $_SERVER['SCRIPT_NAME'] = $_SERVER['SCRIPT_NAME'] ?? '/api/v1/index.php';
 
 // Load main config (2 levels up from /api/v1/core/)

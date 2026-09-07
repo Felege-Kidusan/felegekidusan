@@ -34,21 +34,21 @@ void main() {
         'min_version': '1.0.0',
         'min_build': 1,
         'download_available': true,
-        'apk_size_bytes': 68_000_000,
+        'apk_size_bytes': 68000000,
         'apk_sha256': 'A' * 64,
         'apk_artifacts': {
-          'universal': {'size_bytes': 68_000_000, 'sha256': 'U' * 64},
-          'arm64-v8a': {'size_bytes': 38_000_000, 'sha256': '6' * 64},
-          'armeabi-v7a': {'size_bytes': 34_000_000, 'sha256': '3' * 64},
+          'universal': {'size_bytes': 68000000, 'sha256': 'U' * 64},
+          'arm64-v8a': {'size_bytes': 38000000, 'sha256': '6' * 64},
+          'armeabi-v7a': {'size_bytes': 34000000, 'sha256': '3' * 64},
         },
       });
       expect(c.apkArtifacts['universal']!.sha256, 'u' * 64);
-      expect(c.apkArtifacts['universal']!.sizeBytes, 68_000_000);
-      expect(c.apkArtifacts['arm64-v8a']!.sizeBytes, 38_000_000);
+      expect(c.apkArtifacts['universal']!.sizeBytes, 68000000);
+      expect(c.apkArtifacts['arm64-v8a']!.sizeBytes, 38000000);
       expect(c.apkArtifacts['armeabi-v7a']!.sha256, '3' * 64);
       // Legacy fields untouched.
       expect(c.apkSha256, 'a' * 64);
-      expect(c.apkSizeBytes, 68_000_000);
+      expect(c.apkSizeBytes, 68000000);
     });
 
     test('absent map → empty (old server), junk → ignored', () {
@@ -77,8 +77,8 @@ void main() {
     test('exact ABI hit wins', () {
       final c = configWith(
         artifacts: {
-          'universal': const ApkArtifact(sizeBytes: 68, sha256: 'u' * 64),
-          'arm64-v8a': const ApkArtifact(sizeBytes: 38, sha256: '6' * 64),
+          'universal': ApkArtifact(sizeBytes: 68, sha256: 'u' * 64),
+          'arm64-v8a': ApkArtifact(sizeBytes: 38, sha256: '6' * 64),
         },
       );
       expect(AppUpdateService.artifactFor(c, 'arm64-v8a')!.sha256, '6' * 64);
@@ -88,7 +88,7 @@ void main() {
     test('unknown ABI falls back to universal entry, then legacy fields', () {
       final withUniversal = configWith(
         artifacts: {
-          'universal': const ApkArtifact(sizeBytes: 68, sha256: 'u' * 64),
+          'universal': ApkArtifact(sizeBytes: 68, sha256: 'u' * 64),
         },
         sha: 'a' * 64,
         size: 60,

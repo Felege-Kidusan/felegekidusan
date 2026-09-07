@@ -127,9 +127,13 @@ function wbws_format_gregorian($dt, $format) {
  * Include this in the <head> of every dashboard
  */
 function wbws_calendar_scripts($conn = null) {
-    $mode = wbws_get_calendar_mode($conn);
-    return "<script>const WBWS_CALENDAR_MODE='" . htmlspecialchars($mode, ENT_QUOTES) . "';</script>\n" .
-           "<script src=\"/admin/js/wbws-calendar.js\"></script>\n";
+    static $rendered = false;
+    if ($rendered) return '';
+    $rendered = true;
+    $mode = wbws_get_calendar_mode($conn) === 'gregorian' ? 'gregorian' : 'ethiopian';
+    $version = (string)filemtime(__DIR__ . '/../js/wbws-calendar.js');
+    return '<script>window.WBWS_CALENDAR_MODE=' . json_encode($mode) . ';</script>' . "\n" .
+           '<script src="/admin/js/wbws-calendar.js?v=' . $version . '"></script>' . "\n";
 }
 
 /**

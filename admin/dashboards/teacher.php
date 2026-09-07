@@ -1031,12 +1031,14 @@ $csrfToken = generateCsrfToken();
         }
         
         function loadMySubmissions() {
+            // No-assignment teachers see an empty-state card, not this list.
+            const area = document.getElementById('mySubmissionsList');
+            if (!area) return;
             fetch('/admin/api_communication.php?action=get_submissions')
                 .then(r => r.json())
                 .then(d => {
                     if (d.status === 'success') {
                         const subs = d.submissions || [];
-                        const area = document.getElementById('mySubmissionsList');
                         if (!subs.length) { area.innerHTML = '<p class="text-center text-slate-400 py-4">No submissions yet</p>'; return; }
                         area.innerHTML = `<div class="space-y-2">${subs.map(s => {
                             const statusColors = {draft:'bg-gray-100 text-gray-700',submitted:'bg-amber-100 text-amber-800',approved:'bg-emerald-100 text-emerald-800',rejected:'bg-red-100 text-red-800',revision_needed:'bg-orange-100 text-orange-800'};

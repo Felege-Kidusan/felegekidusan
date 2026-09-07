@@ -224,7 +224,7 @@ async function updateReq(id,st){const fd=new FormData();fd.append('action','upda
 function exportItems(){if(!items.length)return toast('No data','e');const h=['Name','Category','Qty','Min','Unit','Location','Condition','Status'];const rows=items.map(i=>[i.name,i.category_name||'',i.quantity,i.min_quantity,i.unit||'',i.location||'',i.condition_status||'',i.status]);const ws=XLSX.utils.aoa_to_sheet([h,...rows]);ws['!cols']=h.map(()=>({wch:16}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Inventory');XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_Inventory_'+new Date().toISOString().slice(0,10)+'.xlsx');}
 
 function closeModal(id){document.getElementById(id).classList.remove('show');}
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');}
 function toast(m,t){const el=document.getElementById('toast');el.className='toast '+(t==='s'?'t-ok':'t-err')+' show';el.innerHTML=`<i class="fa-solid fa-${t==='s'?'check-circle':'exclamation-circle'}"></i> ${m}`;setTimeout(()=>el.classList.remove('show'),3000);}
 function fDate(d){if(!d)return'—';if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(d,'medium');try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
 function stBg(s){const m={in_stock:'bg-ok',low_stock:'bg-w',out_of_stock:'bg-bd',maintenance:'bg-in'};return`<span class="bg ${m[s]||'bg-in'}">${(s||'').replace(/_/g,' ')}</span>`;}

@@ -218,7 +218,7 @@ try {
                     $stmt = $conn->prepare(
                         'UPDATE staff_positions SET department_id=?, role_code=?, title_am=?, title_en=?, legacy_flag=?, is_active=? WHERE id=?'
                     );
-                    $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive, $id);
+                    $stmt->bind_param('issssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive, $id);
                 } else {
                     $stmt = $conn->prepare(
                         'UPDATE staff_positions SET department_id=?, role_code=?, title_am=?, title_en=?, is_active=? WHERE id=?'
@@ -230,7 +230,7 @@ try {
                     $stmt = $conn->prepare(
                         'INSERT INTO staff_positions (department_id, role_code, title_am, title_en, legacy_flag, is_active) VALUES (?, ?, ?, ?, ?, ?)'
                     );
-                    $stmt->bind_param('isssii', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive);
+                    $stmt->bind_param('issssi', $deptId, $roleCode, $titleAm, $titleEn, $legacyFlag, $isActive);
                 } else {
                     $stmt = $conn->prepare(
                         'INSERT INTO staff_positions (department_id, role_code, title_am, title_en, is_active) VALUES (?, ?, ?, ?, ?)'

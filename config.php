@@ -110,26 +110,9 @@ if (!defined('JWT_SECRET')) {
 // ============================================================
 // SESSION CONFIGURATION
 // ============================================================
-if (session_status() === PHP_SESSION_NONE) {
-    // Security settings for sessions
-    ini_set('session.cookie_httponly', 1);
-    ini_set('session.use_only_cookies', 1);
-    ini_set('session.use_strict_mode', 1);
-    ini_set('session.use_trans_sid', 0);
-    ini_set('session.sid_length', 48);
-    ini_set('session.sid_bits_per_character', 6);
-    // Auto-detect HTTPS - ONLY enable cookie_secure when HTTPS is available
-    // Setting cookie_secure=1 on HTTP hosting KILLS sessions completely!
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') 
-               || (!empty($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443)
-               || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-    if ($isHttps) {
-        ini_set('session.cookie_secure', 1);
-    }
-    ini_set('session.cookie_lifetime', 0); // Expire on browser close
-    ini_set('session.cookie_samesite', 'Lax'); // Lax is safer than Strict for form submissions
-    session_start();
-}
+require_once __DIR__ . '/backend/core/browser.php';
+$isHttps = ssms_request_is_https();
+ssms_start_browser_session();
 
 // Session Timeout (30 minutes = 1800 seconds)
 define('SESSION_TIMEOUT', 1800);
@@ -146,7 +129,9 @@ function _isAjaxRequest() {
     if (!empty($_SERVER['CONTENT_TYPE']) && 
         strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) return true;
     if (!empty($_SERVER['HTTP_X_CSRF_TOKEN'])) return true;
-    $script = basename($_SERVER['PHP_SELF'] ?? '');
+    $scriptPath = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? ''));
+    if (strpos($scriptPath, '/backend/api/') !== false || strpos($scriptPath, '/api/v1/') !== false) return true;
+    $script = basename($scriptPath);
     if (strpos($script, 'api_') === 0 || strpos($script, 'info_register') === 0 ||
         strpos($script, 'info_manage') === 0 || strpos($script, 'info_archive') === 0 ||
         strpos($script, 'info_restore') === 0 || strpos($script, 'info_get_') === 0 ||
@@ -159,14 +144,13 @@ function _isAjaxRequest() {
 if (isset($_SESSION['LAST_ACTIVITY']) && isset($_SESSION['admin_logged_in']) && !defined('WBWS_API_REQUEST')) {
     if ((time() - $_SESSION['LAST_ACTIVITY']) > SESSION_TIMEOUT) {
         // Session expired
-        session_unset();
-        session_destroy();
+        _invalidateAdminSession();
         
         // Only redirect if not on login-related pages
         $currentPage = basename($_SERVER['PHP_SELF']);
         $loginPages = ['index.php', 'login.php']; // Pages that don't need redirect
         
-        if (!in_array($currentPage, $loginPages)) {
+        if (!in_array($currentPage, $loginPages, true) && _isPrivilegedBrowserArea()) {
             // CRITICAL FIX: Return JSON for AJAX requests instead of redirecting
             if (_isAjaxRequest()) {
                 if (!headers_sent()) {
@@ -182,17 +166,10 @@ if (isset($_SESSION['LAST_ACTIVITY']) && isset($_SESSION['admin_logged_in']) && 
             }
             
             // Normal page request → redirect to login
-            $adminBase = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
-            // Walk up to find /admin/ level
-            while ($adminBase !== '' && basename($adminBase) !== 'admin') {
-                $adminBase = dirname($adminBase);
-            }
-            if ($adminBase === '' || $adminBase === '/' || $adminBase === '.') {
-                $adminBase = '/admin';
-            }
-            header("Location: {$adminBase}/index.php?timeout=1");
+            header('Location: ' . ssms_app_url('admin/index.php') . '?timeout=1');
             exit();
         }
+        ssms_start_browser_session();
     }
 }
 
@@ -286,28 +263,14 @@ try {
 
 /** End a privileged browser session and expire its cookie. */
 function _invalidateAdminSession() {
-    $_SESSION = [];
-    if (ini_get('session.use_cookies') && !headers_sent()) {
-        $params = session_get_cookie_params();
-        setcookie(session_name(), '', [
-            'expires' => time() - 42000,
-            'path' => $params['path'],
-            'domain' => $params['domain'],
-            'secure' => (bool)$params['secure'],
-            'httponly' => (bool)$params['httponly'],
-            'samesite' => $params['samesite'] ?: 'Lax',
-        ]);
-    }
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_destroy();
-        session_id('');
-    }
+    ssms_destroy_browser_session();
 }
 
 /** True for routes that must stop after an invalid admin session is cleared. */
 function _isPrivilegedBrowserArea() {
     $script = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? ''));
-    return strpos($script, '/admin/') !== false || strpos($script, '/monitor/') !== false;
+    return strpos($script, '/admin/') !== false || strpos($script, '/monitor/') !== false
+        || strpos($script, '/backend/') !== false || strpos($script, '/frontend/') !== false;
 }
 
 // Reconcile privileged session claims with the current database account at a
@@ -346,7 +309,7 @@ if (!defined('WBWS_API_REQUEST') && !empty($_SESSION['admin_logged_in'])) {
                 ]);
                 exit;
             }
-            header('Location: ' . ADMIN_URL . '/index.php?error=' . rawurlencode(
+            header('Location: ' . ssms_app_url('admin/index.php') . '?error=' . rawurlencode(
                 $unavailable
                     ? 'Authentication verification is temporarily unavailable.'
                     : 'Your session changed or expired. Please sign in again.'
@@ -430,7 +393,7 @@ function validateCsrf($token = null) {
     if ($token === null) {
         $token = $_POST['csrf_token'] ?? '';
     }
-    if (empty($token) || empty($_SESSION['csrf_token'])) {
+    if (!is_string($token) || $token === '' || !is_string($_SESSION['csrf_token'] ?? null) || $_SESSION['csrf_token'] === '') {
         return false;
     }
     return hash_equals($_SESSION['csrf_token'], $token);
@@ -570,6 +533,14 @@ function safeInt($input, $default = 0) {
  * Call at the top of any API file that handles POST data
  * Checks both form field and X-CSRF-TOKEN header
  */
+/** Enforce the HTTP method independently of CSRF for state-changing actions. */
+function requirePostActions(string $action, array $writeActions): void {
+    if (in_array($action, $writeActions, true) && ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        header('Allow: POST');
+        jsonResponse(['status' => 'error', 'message' => 'This action requires POST.'], 405);
+    }
+}
+
 function requireCsrfForPost() {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') return;
     $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
@@ -680,7 +651,7 @@ function requireAuth() {
             echo json_encode(['status' => 'session_expired', 'message' => 'Not authenticated.', 'action' => 'reload']);
             exit;
         }
-        header('Location: ' . ADMIN_URL . '/index.php');
+        header('Location: ' . ssms_app_url('admin/index.php'));
         exit;
     }
 }
@@ -691,7 +662,7 @@ function requireAuth() {
 function requireRole($allowedRoles) {
     requireAuth();
     if (!hasRole($allowedRoles)) {
-        header('Location: ' . ADMIN_URL . '/index.php?error=access_denied');
+        header('Location: ' . ssms_app_url('admin/index.php') . '?error=access_denied');
         exit;
     }
 }

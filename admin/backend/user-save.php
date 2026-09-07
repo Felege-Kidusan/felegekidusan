@@ -1,5 +1,5 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) session_start();
+require_once __DIR__ . '/config.php';
 
 // Detect if this is an AJAX request or a regular form submission
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
@@ -30,21 +30,20 @@ function respond($status, $message, $extra = []) {
     
     // Form submission — redirect back with message in query string
     // super-admin.php and users.php both read $_GET['success'] and $_GET['error']
-    $referer = $_SERVER['HTTP_REFERER'] ?? '/admin/dashboards/super-admin.php?section=users';
-    
-    // Strip any existing success/error params from referer
-    $referer = preg_replace('/[&?](success|error)=[^&]*/', '', $referer);
-    
-    // Add the appropriate param
-    $separator = (strpos($referer, '?') !== false) ? '&' : '?';
-    $param = ($status === 'success') ? 'success' : 'error';
-    $redirect = $referer . $separator . $param . '=' . urlencode($message);
-    
-    // Force users section to be visible
-    if (strpos($redirect, 'section=') === false) {
-        $redirect .= '&section=users';
+    $referer = (string)($_SERVER['HTTP_REFERER'] ?? '');
+    $path = parse_url($referer, PHP_URL_PATH);
+    $allowed = [ssms_app_url('admin/users.php'), ssms_app_url('admin/dashboard.php'),
+        ssms_app_url('admin/dashboards/super-admin.php')];
+    if (!is_string($path) || !in_array($path, $allowed, true)) {
+        $path = ssms_app_url('admin/dashboards/super-admin.php');
     }
-    
+    $query = [];
+    parse_str((string)(parse_url($referer, PHP_URL_QUERY) ?? ''), $query);
+    unset($query['success'], $query['error']);
+    $query[$status === 'success' ? 'success' : 'error'] = $message;
+    $query['section'] = 'users';
+    $redirect = $path . '?' . http_build_query($query);
+
     header('Location: ' . $redirect);
     exit;
 }
@@ -60,12 +59,16 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
 
 $currentRole = $_SESSION['admin_role'] ?? '';
 
-require __DIR__ . '/config.php';
+
 
 // CSRF protection — validate token from form or AJAX
 $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
 if (!validateCsrf($csrfToken)) {
     respond('error', 'Security token expired. Please refresh the page and try again.');
+}
+
+foreach (['full_name','username','email','role','password','confirm_password','user_id','is_active','member_id'] as $field) {
+    if (isset($_POST[$field]) && !is_string($_POST[$field])) respond('error', 'Invalid user data.');
 }
 
 // Collect inputs
@@ -125,6 +128,16 @@ if ($fullName === '' || $username === '' || $role === '') {
     respond('error', 'Full name, username and role are required.');
 }
 
+if (mb_strlen($fullName, 'UTF-8') > 100 || strlen($email) > 100
+    || ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL))
+    || !in_array($isActive, [0, 1], true)) {
+    respond('error', 'Check the name, email address and account status.');
+}
+if ($userId === (int)($_SESSION['admin_id'] ?? 0)
+    && ($role !== $currentRole || $isActive !== 1)) {
+    respond('error', 'You cannot disable your own account or change your own role.');
+}
+
 // Username format validation
 $usernameError = validateUsername($username);
 if ($usernameError) {
@@ -156,9 +169,6 @@ if ($password !== '' && $confirmPassword !== '' && $password !== $confirmPasswor
     respond('error', 'Passwords do not match.');
 }
 
-if ($password !== '' && $confirmPassword !== '' && $password !== $confirmPassword) {
-    
-}
 
 // Email: empty -> NULL
 $emailDb = $email !== '' ? $email : null;
@@ -222,7 +232,8 @@ try {
         // super admin must get the same behaviour here as the teacher screens.
         $prev = $pdo->prepare("SELECT role, is_active FROM users WHERE id = :id LIMIT 1");
         $prev->execute([':id' => $userId]);
-        $prevRow = $prev->fetch() ?: [];
+        $prevRow = $prev->fetch();
+        if (!$prevRow) respond('error', 'User not found.');
 
         $fieldsSql = "
             full_name = :full_name,

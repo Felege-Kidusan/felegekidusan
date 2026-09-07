@@ -26,10 +26,15 @@ ssms_login() {
     "$BASE/admin/backend/login.php"
 }
 
-ssms_csrf() {  # prints current CSRF token from the role's dashboard page
+ssms_csrf() {  # authenticated token; login rotates the anonymous token
   curl -s -L -b "$JAR" -c "$JAR" "$BASE/admin/dashboard.php" \
-    | grep -oE "CSRF_TOKEN *= *'[a-f0-9]*'" | head -1 \
-    | python3 -c 'import sys; s=sys.stdin.read().strip(); print(s[s.find("\x27")+1:s.rfind("\x27")] if "\x27" in s else "")'
+    | python3 -c 'import re,sys
+s=sys.stdin.read()
+patterns=[r"name=\"csrf-token\"\s+content=\"([a-f0-9]+)\"",r"name=\"csrf_token\"\s+value=\"([a-f0-9]+)\"",r"(?:CSRF_TOKEN|csrf_token|csrfToken|csrf)[\x27\"]?\s*[:=]\s*[\x27\"]([a-f0-9]{64})"]
+for p in patterns:
+ m=re.search(p,s)
+ if m: print(m[1]);break
+else: sys.exit("No authenticated dashboard CSRF token found")'
 }
 
 ssms_get() { curl -s -b "$JAR" -c "$JAR" "$BASE$1"; }
@@ -38,7 +43,7 @@ ssms_post() {
   local path="$1"; shift
   local token; token=$(ssms_csrf)
   local args=()
-  while [ $# -gt 0 ]; do args+=(-d "$1"); shift; done
+  while [ $# -gt 0 ]; do args+=(--data-urlencode "$1"); shift; done
   curl -s -b "$JAR" -c "$JAR" "${args[@]}" -d "csrf_token=$token" "$BASE$path"
 }
 

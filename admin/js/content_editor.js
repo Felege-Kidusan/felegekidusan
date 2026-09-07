@@ -4,7 +4,7 @@ const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
 const API = '/admin/api_cms.php';
 
 /* ─── helpers ─── */
-function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');}
 function escAttr(s){return esc(s).replace(/\"/g,'&quot;').replace(/'/g,'&#39;');}
 function toast(msg,isError){const t=document.getElementById('toast');const icon=document.createElement('i');icon.className=isError?'fa-solid fa-circle-exclamation':'fa-solid fa-circle-check';t.replaceChildren(icon,document.createTextNode(' '+String(msg??'')));t.className='toast show'+(isError?' error':'');setTimeout(()=>t.className='toast',3000);}
 function bindImageFallbacks(container){
