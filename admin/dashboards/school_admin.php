@@ -81,7 +81,7 @@ $mStroke=round($mPct*3.14);$fStroke=round($fPct*3.14);
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <title>School Admin — <?= SCHOOL_NAME_SHORT ?></title>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
@@ -237,7 +237,7 @@ select.inp{cursor:pointer}
 .tl-time{font-size:.58rem;color:var(--dim)}
 
 /* MODAL, TOAST, BOTTOM NAV */
-.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:100;align-items:center;justify-content:center;padding:1rem}
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:var(--z-overlay);align-items:center;justify-content:center;padding:1rem}
 .mo.show{display:flex}
 .md{background:var(--sb);border:1px solid var(--cb);border-radius:18px;padding:1.25rem;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.4)}
 .md h3{font-size:1rem;font-weight:700;color:var(--bright);margin-bottom:.85rem}
@@ -536,23 +536,26 @@ select.inp{cursor:pointer}
 
 
 <!-- BOTTOM NAV -->
-<nav class="wbws-bnav" id="wbwsBottomNav">
-<div class="wbws-bnav-scroll-hint-left" id="bnScrollL"></div>
-<div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
-<div class="wbws-bnav-inner" id="bnScroll">
-<button class="wbws-bnav-btn active" data-section="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-<button class="wbws-bnav-btn" data-section="members"><i class="fa-solid fa-users"></i><span>Members</span></button>
-<button class="wbws-bnav-btn" data-section="classes"><i class="fa-solid fa-school"></i><span>Classes</span></button>
-<button class="wbws-bnav-btn" data-section="attendance"><i class="fa-solid fa-clipboard-check"></i><span>Attend</span></button>
-<div class="wbws-bnav-divider"></div>
-<button class="wbws-bnav-btn" data-section="departments"><i class="fa-solid fa-building"></i><span>Depts</span></button>
-<button class="wbws-bnav-btn" data-section="staff"><i class="fa-solid fa-user-tie"></i><span>Staff</span></button>
-<button class="wbws-bnav-btn" data-section="reports"><i class="fa-solid fa-chart-line"></i><span>Reports</span></button>
-<button class="wbws-bnav-btn" data-section="system"><i class="fa-solid fa-gear"></i><span>System</span></button>
-<div class="wbws-bnav-divider"></div>
-<a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-right-from-bracket"></i><span>Exit</span></a>
-</div>
-</nav>
+<?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-gauge-high', 'label' => 'Home', 'attrs' => 'data-section="dashboard"', 'active' => true],
+        ['icon' => 'fa-solid fa-users', 'label' => 'Members', 'attrs' => 'data-section="members"'],
+        ['icon' => 'fa-solid fa-school', 'label' => 'Classes', 'attrs' => 'data-section="classes"'],
+        ['icon' => 'fa-solid fa-clipboard-check', 'label' => 'Attend', 'attrs' => 'data-section="attendance"'],
+    ],
+    [
+        ['icon' => 'fa-solid fa-building', 'label' => 'Depts', 'attrs' => 'data-section="departments"'],
+        ['icon' => 'fa-solid fa-user-tie', 'label' => 'Staff', 'attrs' => 'data-section="staff"'],
+        ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => 'data-section="reports"'],
+        ['icon' => 'fa-solid fa-gear', 'label' => 'System', 'attrs' => 'data-section="system"'],
+    ],
+    [
+        ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
 <script>
 (function(){
     const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');

@@ -343,7 +343,7 @@ function ay_context_bar_html($conn) {
     }
 
     // The modal (hidden until the sidebar button opens it).
-    $modal = '<div id="ayYearModal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);'
+    $modal = '<div id="ayYearModal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.55);'
         . 'backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:1rem;font-family:system-ui,Segoe UI,sans-serif" '
         . 'onclick="if(event.target===this)ayCloseYearModal()">'
         . '<div style="background:#0f172a;color:#e2e8f0;max-width:460px;width:100%;border:1px solid #334155;border-radius:14px;'

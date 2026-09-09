@@ -4039,7 +4039,7 @@ function showAttTab(btn, id) {
 
 function attToast(msg, ok) {
     const t = document.createElement('div');
-    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:200;background:' + (ok !== false ? '#ea580c' : '#dc2626');
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:var(--z-toast);background:' + (ok !== false ? '#ea580c' : '#dc2626');
     t.innerHTML = msg;
     document.body.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
@@ -4240,7 +4240,7 @@ function showSettingsTab(btn, id) {
 
 function settingsToast(msg, ok) {
     const t = document.createElement('div');
-    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:200;background:' + (ok !== false ? '#16a34a' : '#dc2626');
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:var(--z-toast);background:' + (ok !== false ? '#16a34a' : '#dc2626');
     t.innerHTML = '<i class="fa-solid fa-' + (ok !== false ? 'check-circle' : 'exclamation-circle') + ' mr-2"></i>' + msg;
     document.body.appendChild(t);
     setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);

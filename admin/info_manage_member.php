@@ -452,7 +452,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
 /* Save Footer */
 .mm-footer { 
     position: fixed; bottom: 0; left: 0; right: 0; padding: 16px; 
-    background: #fff; border-top: 1px solid #e2e8f0; box-shadow: 0 -4px 12px rgba(0,0,0,.05); z-index: 30; 
+    background: #fff; border-top: 1px solid #e2e8f0; box-shadow: 0 -4px 12px rgba(0,0,0,.05); z-index: var(--z-dock); 
 }
 .mm-save { 
     width: 100%; padding: 16px; background: linear-gradient(135deg, #059669, #10b981); 

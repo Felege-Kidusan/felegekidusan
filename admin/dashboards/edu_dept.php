@@ -58,7 +58,7 @@ $csrfToken = generateCsrfToken();
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>Education Department — <?= SCHOOL_NAME_SHORT ?></title>
 <script>const CSRF_TOKEN='<?= $csrfToken ?>';</script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -93,7 +93,7 @@ body{font-family:'Poppins',sans-serif;background:#f8fafc;margin:0}
 .ch{display:inline-flex;padding:.2rem .6rem;border-radius:99px;font-size:.65rem;font-weight:600}
 .ch-ok{background:#d1fae5;color:#065f46}.ch-w{background:#fef3c7;color:#92400e}.ch-i{background:#dbeafe;color:#1e40af}.ch-p{background:#ede9fe;color:#5b21b6}.ch-d{background:#fee2e2;color:#991b1b}
 .tw{overflow-x:auto}.dt{width:100%;font-size:.8rem;border-collapse:collapse}.dt th{background:#f8fafc;padding:.7rem .85rem;text-align:left;font-weight:600;color:#64748b;font-size:.65rem;text-transform:uppercase}.dt td{padding:.65rem .85rem;border-bottom:1px solid #f1f5f9}.dt tr:hover td{background:#faf5ff}
-.mo{display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);backdrop-filter:blur(4px);z-index:100;align-items:center;justify-content:center;padding:1rem}.mo.show{display:flex}
+.mo{display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);backdrop-filter:blur(4px);z-index:var(--z-overlay);align-items:center;justify-content:center;padding:1rem}.mo.show{display:flex}
 .mc{background:#fff;border-radius:20px;max-width:640px;width:100%;max-height:90vh;overflow-y:auto}
 .sec{display:none}.sec.act{display:block}
 .ab{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer;font-size:.75rem}
@@ -594,23 +594,27 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div></div></div>
 
 <!-- BOTTOM NAV -->
-<nav class="wbws-bnav" id="wbwsBottomNav">
-<div class="wbws-bnav-scroll-hint-left" id="bnScrollL"></div>
-<div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
-<div class="wbws-bnav-inner" id="bnScroll">
-<button class="wbws-bnav-btn active" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-<button class="wbws-bnav-btn" data-sec="teachers"><i class="fa-solid fa-chalkboard-teacher"></i><span>Teachers</span></button>
-<button class="wbws-bnav-btn" data-sec="classes"><i class="fa-solid fa-school"></i><span>Classes</span></button>
-<button class="wbws-bnav-btn" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i><span>Enroll</span></button>
-<div class="wbws-bnav-divider"></div>
-<button class="wbws-bnav-btn" data-sec="subjects"><i class="fa-solid fa-book"></i><span>Subjects</span></button>
-<button class="wbws-bnav-btn" data-sec="grades"><i class="fa-solid fa-star"></i><span>Grades</span></button>
-<button class="wbws-bnav-btn" data-sec="assessments"><i class="fa-solid fa-clipboard-list"></i><span>Assess</span></button>
-<button class="wbws-bnav-btn" data-sec="reportcards"><i class="fa-solid fa-file-lines"></i><span>Reports</span></button>
-<div class="wbws-bnav-divider"></div>
-<button class="wbws-bnav-btn" data-sec="settings"><i class="fa-solid fa-gear"></i><span>Settings</span></button>
-<a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a>
-</div></nav>
+<?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-gauge-high', 'label' => 'Home', 'attrs' => 'data-sec="dashboard"', 'active' => true],
+        ['icon' => 'fa-solid fa-chalkboard-teacher', 'label' => 'Teachers', 'attrs' => 'data-sec="teachers"'],
+        ['icon' => 'fa-solid fa-school', 'label' => 'Classes', 'attrs' => 'data-sec="classes"'],
+        ['icon' => 'fa-solid fa-user-graduate', 'label' => 'Enroll', 'attrs' => 'data-sec="enrollment"'],
+    ],
+    [
+        ['icon' => 'fa-solid fa-book', 'label' => 'Subjects', 'attrs' => 'data-sec="subjects"'],
+        ['icon' => 'fa-solid fa-star', 'label' => 'Grades', 'attrs' => 'data-sec="grades"'],
+        ['icon' => 'fa-solid fa-clipboard-list', 'label' => 'Assess', 'attrs' => 'data-sec="assessments"'],
+        ['icon' => 'fa-solid fa-file-lines', 'label' => 'Reports', 'attrs' => 'data-sec="reportcards"'],
+    ],
+    [
+        ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],
+        ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div>

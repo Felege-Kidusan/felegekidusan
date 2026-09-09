@@ -91,7 +91,7 @@ if (isset($conn)) {
         .btn-outline:hover{background:#f8fafc}
         .btn-danger{background:#ef4444;color:#fff}
         
-        .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:1rem}
+        .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:var(--z-overlay);padding:1rem}
         .modal.open{display:flex}
         .modal-content{background:#fff;border-radius:1rem;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;animation:slideUp .3s ease}
         @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}

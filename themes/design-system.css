@@ -1,0 +1,68 @@
+/* ============================================================================
+ * SSMS — Centralized Responsive Design System (SINGLE SOURCE OF TRUTH)
+ * ----------------------------------------------------------------------------
+ * Loaded by every web surface (admin dashboards, frontend, themed pages) via
+ * `@import` from mobile.css / components.css / themes/*/theme.css.
+ *
+ * Why this exists (mandatory rule: "make UI/UX updates easy to maintain"):
+ *   Before, bottom-nav height, safe-area insets and z-index values were
+ *   hard-coded and duplicated across ~20 files, which is exactly why a fixed
+ *   bottom nav began overlaying action buttons, toasts, modals and the
+ *   now-playing dock. Every future layout/theme change now touches ONE file.
+ *
+ * Conventions (Google Material + Microsoft Fluent "elevation" model):
+ *   - All spatial values derive from tokens, never magic numbers.
+ *   - Fixed UI uses ONE elevation scale; chrome is always below overlays.
+ *   - Safe-area insets are applied through tokens so notched / gesture-bar
+ *     devices (iOS Safari, Android edge-to-edge) never clip interactive content.
+ *
+ * NOTE: safe-area tokens only resolve to non-zero values when the document is
+ * rendered with `viewport-fit=cover` (see frontend/layouts/base.php and each
+ * dashboard's <meta viewport>). On devices without insets they fall back to 0.
+ * ==========================================================================*/
+
+:root {
+    /* ── Bottom navigation (shared by .wbws-bnav and .school-bottom-nav) ── */
+    --nav-h: 64px;                                       /* visual tab-bar height */
+    --nav-safe-bottom: env(safe-area-inset-bottom, 0px); /* home indicator / gesture bar */
+    --nav-total: calc(var(--nav-h) + var(--nav-safe-bottom));
+
+    /* ── Safe-area insets (fixed headers / docks / sheets) ── */
+    --safe-top:    env(safe-area-inset-top, 0px);
+    --safe-left:   env(safe-area-inset-left, 0px);
+    --safe-right:  env(safe-area-inset-right, 0px);
+
+    /* ── ELEVATION / z-index SCALE (single source of truth) ──
+       Order (low → high): content < sticky < header < nav < dock < fab
+                            < toast < overlay < impersonate < tooltip
+       The bottom navigation is deliberately BELOW overlays so modals, toasts,
+       drawers, the AI window and the now-playing dock always sit on top of it
+       (this is the bug that caused buttons to be hidden behind the nav).      */
+    --z-content:      1;
+    --z-sticky:      100;
+    --z-header:      200;
+    --z-nav:         900;   /* bottom navigation chrome */
+    --z-dock:        950;   /* now-playing / mini-player: floats ABOVE the tab bar */
+    --z-fab:         1000;  /* floating action buttons */
+    --z-toast:       1100;
+    --z-overlay:     1200;  /* modals, drawers, bottom-sheets, AI chat window */
+    --z-impersonate: 1300;  /* always-on-top admin affordance */
+    --z-tooltip:     1400;
+
+    /* ── Shared rhythm (kept here so spacing stays consistent everywhere) ── */
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+}
+
+/* Progressive-enhancement guard: if a browser somehow lacks env() support the
+   tokens above already fall back to 0px, so nothing breaks. This block simply
+   re-asserts the insets for any rule that prefers the long-hand form. */
+@supports (padding: env(safe-area-inset-bottom)) {
+    :root {
+        --nav-safe-bottom: env(safe-area-inset-bottom, 0px);
+        --safe-top:    env(safe-area-inset-top, 0px);
+        --safe-left:   env(safe-area-inset-left, 0px);
+        --safe-right:  env(safe-area-inset-right, 0px);
+    }
+}

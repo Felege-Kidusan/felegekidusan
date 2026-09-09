@@ -1,3 +1,4 @@
+@import url("../../themes/design-system.css");
 /**
  * ============================================================
  * School Native Mobile Experience — Complete Responsive CSS
@@ -19,8 +20,11 @@
         -webkit-text-size-adjust: 100% !important;
     }
 
-    body {
-        padding-bottom: 74px !important;
+    /* Reserve scroll space ONLY when a bottom nav is present. Derived from the
+       shared --nav-total token (nav height + device safe-area) so the last row
+       of action buttons can never sit behind the fixed nav. */
+    body:has(.wbws-bnav) {
+        padding-bottom: calc(var(--nav-total) + 12px) !important;
     }
 
     /* ── HIDE SIDEBARS ── */
@@ -218,7 +222,7 @@
     .mo,
     .modal-overlay,
     [class*="modal-bg"] {
-        padding: 0 !important;
+        padding: 0 0 max(0.5rem, var(--nav-safe-bottom)) 0 !important;
         align-items: flex-end !important;
     }
 
@@ -299,7 +303,8 @@
 
     /* ── AI CHATBOT WIDGET ── */
     #ai-fab {
-        bottom: 82px !important;
+        bottom: calc(var(--nav-total) + 14px) !important;
+        z-index: var(--z-fab) !important;
     }
 
     #ai-panel {
@@ -425,11 +430,8 @@
    ════════════════════════════════════════════ */
 @supports (padding-top: env(safe-area-inset-top)) {
     body {
-        padding-left: env(safe-area-inset-left);
-        padding-right: env(safe-area-inset-right);
-    }
-    .wbws-bnav {
-        padding-bottom: env(safe-area-inset-bottom) !important;
+        padding-left: var(--safe-left);
+        padding-right: var(--safe-right);
     }
 }
 
@@ -445,14 +447,14 @@
         display: flex !important;
         align-items: center;
         gap: 10px;
-        padding: 10px 12px;
+        padding: calc(10px + var(--safe-top)) 12px 10px;
         background: linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(30, 41, 59, 0.97));
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         position: sticky;
         top: 0;
-        z-index: 100;
+        z-index: var(--z-header);
         margin: -0.75rem -0.75rem 0.75rem;
         width: calc(100% + 1.5rem);
     }
@@ -528,7 +530,8 @@
         bottom: 0;
         left: 0;
         right: 0;
-        z-index: 9998;
+        z-index: var(--z-nav);
+        min-height: var(--nav-h);
         background: linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(2, 6, 23, 0.99) 100%);
         backdrop-filter: blur(24px) saturate(180%);
         -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -687,4 +690,21 @@
         font-size: 8.5px;
     }
     .wbws-bnav-btn i { font-size: 15px; }
+}
+
+/* Sticky save/action bars float ABOVE the tab bar, never behind it */
+body:has(.wbws-bnav) .mm-footer,
+body:has(.school-bottom-nav) .mm-footer { bottom: var(--nav-total); }
+/* ═══════════════════════════════════════════════════════════════
+   SAFE-AREA — TOP (notch / status bar)
+   Required because viewport-fit=cover lets content run to the screen edge.
+   Applied to the common top-bar classes so headers are never clipped.
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    .topbar, .header-bar, .school-topbar, .school-header {
+        padding-top: calc(0.6rem + var(--safe-top));
+    }
+    .topbar, .header-bar, .school-topbar {
+        top: var(--safe-top);
+    }
 }

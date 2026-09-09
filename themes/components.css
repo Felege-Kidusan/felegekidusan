@@ -1,3 +1,4 @@
+@import url("design-system.css");
 /* ═══════════════════════════════════════════════════════════════
    SHARED DASHBOARD COMPONENTS — token-driven, theme-agnostic
    ═══════════════════════════════════════════════════════════════
@@ -698,7 +699,7 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
 
 /* ── Mezmur now-playing bar + lyrics stage ─────────────────── */
 .mz-player {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-dock);
     display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr) minmax(180px, 1fr);
     gap: .75rem; align-items: center;
     height: var(--mz-dock-h); padding: .55rem 1rem;
@@ -780,17 +781,17 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
  * the end of a scroll. A single custom property now drives the dock
  * height, the content padding and the toast offset together, so they
  * can never drift apart again. */
-body.mz-playing .school-content { padding-bottom: calc(var(--mz-dock-h) + 2rem); }
-body.mz-playing .school-toast { bottom: calc(var(--mz-dock-h) + 1rem); }
+body.mz-playing .school-content { padding-bottom: calc(var(--mz-dock-h) + var(--nav-total) + 2rem); }
+body.mz-playing .school-toast { bottom: calc(var(--mz-dock-h) + var(--nav-total) + 1rem); }
 /* Anchor links and keyboard focus must not land under the dock either. */
 body.mz-playing .school-content :target,
 body.mz-playing .school-content tr:focus-within {
-    scroll-margin-bottom: calc(var(--mz-dock-h) + 1rem);
+    scroll-margin-bottom: calc(var(--mz-dock-h) + var(--nav-total) + 1rem);
 }
 
 .mz-np {
-    position: fixed; top: 0; right: 0; bottom: 82px; width: min(420px, 100%);
-    z-index: 46; display: flex; flex-direction: column;
+    position: fixed; top: 0; right: 0; bottom: var(--nav-total); width: min(420px, 100%);
+    z-index: var(--z-overlay); display: flex; flex-direction: column;
     background: var(--school-bg-alt); border-left: 1px solid var(--school-border);
     box-shadow: var(--school-shadow-lg); padding: 1rem 1.1rem .75rem;
 }
@@ -867,3 +868,6 @@ tr.mz-archived { opacity: .55; }
 @media print {
     .mz-player, .mz-np { display: none !important; }
 }
+
+/* Now-playing dock floats ABOVE the mobile tab bar (never behind it) */
+body:has(.school-bottom-nav) .mz-player { bottom: var(--nav-total); }

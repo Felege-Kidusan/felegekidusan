@@ -32,7 +32,7 @@ if ($isImpersonating) {
     // Register shutdown function to inject the button HTML at the end of the page
     register_shutdown_function(function() {
         echo '
-        <div id="impersonateBar" style="position:fixed;bottom:16px;right:16px;z-index:9999;display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:8px 16px;border-radius:12px;box-shadow:0 8px 24px rgba(245,158,11,0.4);font-family:Segoe UI,Arial,sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;border:2px solid rgba(255,255,255,0.3)" onclick="restoreToAdmin()">
+        <div id="impersonateBar" style="position:fixed;bottom:16px;right:16px;z-index:var(--z-impersonate);display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:8px 16px;border-radius:12px;box-shadow:0 8px 24px rgba(245,158,11,0.4);font-family:Segoe UI,Arial,sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;border:2px solid rgba(255,255,255,0.3)" onclick="restoreToAdmin()">
             <span style="font-size:16px">🔙</span>
             <span>Back to School Admin</span>
             <span style="font-size:10px;opacity:0.7;margin-left:4px">(Viewing as ' . htmlspecialchars(str_replace("_", " ", $_SESSION["admin_role"] ?? "")) . ')</span>

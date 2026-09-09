@@ -92,7 +92,7 @@ $csrfToken = generateCsrfToken();
     <meta charset="UTF-8">
     <title>Teacher Dashboard - <?= SCHOOL_NAME_SHORT_AM ?></title>
     <?= wbws_calendar_scripts($conn) ?>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <script>const CSRF_TOKEN = '<?= $csrfToken ?>';</script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -129,7 +129,7 @@ $csrfToken = generateCsrfToken();
         .data-table tr:hover td { background: #f0f9ff; }
         .section { display: none; }
         .section.active { display: block; }
-        .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 20px; border-radius: 12px; color: white; z-index: 200; animation: slideIn 0.3s; }
+        .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 20px; border-radius: 12px; color: white; z-index: var(--z-toast); animation: slideIn 0.3s; }
         .toast-success { background: #059669; }
         .toast-error { background: #dc2626; }
         @keyframes slideIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
@@ -1255,20 +1255,24 @@ $csrfToken = generateCsrfToken();
         }
     </script>
 <!-- ADVANCED MOBILE BOTTOM NAV -->
-<nav class="wbws-bnav" id="wbwsBottomNav">
-<div class="wbws-bnav-scroll-hint-left" id="bnScrollL"></div>
-<div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
-<div class="wbws-bnav-inner" id="bnScroll">
-<button class="wbws-bnav-btn active" onclick="showSection('dashboard')" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-<button class="wbws-bnav-btn" onclick="showSection('grades')" data-sec="grades"><i class="fa-solid fa-star"></i><span>Grades</span></button>
-<button class="wbws-bnav-btn" onclick="showSection('attendance')" data-sec="attendance"><i class="fa-solid fa-clipboard-check"></i><span>Attend</span></button>
-<div class="wbws-bnav-divider"></div>
-<button class="wbws-bnav-btn" onclick="showSection('submissions')" data-sec="submissions"><i class="fa-solid fa-paper-plane"></i><span>Submit</span></button>
-<button class="wbws-bnav-btn" onclick="showSection('reports')" data-sec="reports"><i class="fa-solid fa-chart-line"></i><span>Reports</span></button>
-<button class="wbws-bnav-btn" onclick="showSection('students')" data-sec="students"><i class="fa-solid fa-users"></i><span>Students</span></button>
-<div class="wbws-bnav-divider"></div>
-<a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-right-from-bracket"></i><span>Exit</span></a>
-</div></nav>
+<?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-gauge-high', 'label' => 'Home', 'attrs' => "data-sec=\"dashboard\" onclick=\"showSection('dashboard')\"", 'active' => true],
+        ['icon' => 'fa-solid fa-star', 'label' => 'Grades', 'attrs' => "data-sec=\"grades\" onclick=\"showSection('grades')\""],
+        ['icon' => 'fa-solid fa-clipboard-check', 'label' => 'Attend', 'attrs' => "data-sec=\"attendance\" onclick=\"showSection('attendance')\""],
+    ],
+    [
+        ['icon' => 'fa-solid fa-paper-plane', 'label' => 'Submit', 'attrs' => "data-sec=\"submissions\" onclick=\"showSection('submissions')\""],
+        ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => "data-sec=\"reports\" onclick=\"showSection('reports')\""],
+        ['icon' => 'fa-solid fa-users', 'label' => 'Students', 'attrs' => "data-sec=\"students\" onclick=\"showSection('students')\""],
+    ],
+    [
+        ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 </body>
 </html>

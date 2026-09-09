@@ -597,7 +597,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Super Admin - <?= SCHOOL_NAME_SHORT ?></title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -1412,26 +1412,30 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     </main>
 
     <!-- ADVANCED MOBILE BOTTOM NAV — All Sections -->
-    <nav class="wbws-bnav" id="wbwsBottomNav">
-        <div class="wbws-bnav-scroll-hint-left" id="bnScrollL"></div>
-        <div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
-        <div class="wbws-bnav-inner" id="bnScroll">
-            <button class="wbws-bnav-btn <?= $activeSection === 'overview' ? 'active' : '' ?>" data-section="overview"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-            <button class="wbws-bnav-btn <?= $activeSection === 'users' ? 'active' : '' ?>" data-section="users"><i class="fa-solid fa-users"></i><span>Users</span></button>
-            <button class="wbws-bnav-btn <?= $activeSection === 'departments' ? 'active' : '' ?>" data-section="departments"><i class="fa-solid fa-building"></i><span>Depts</span></button>
-            <div class="wbws-bnav-divider"></div>
-            <button class="wbws-bnav-btn <?= $activeSection === 'health' ? 'active' : '' ?>" data-section="health"><i class="fa-solid fa-heart-pulse"></i><span>Health</span></button>
-            <button class="wbws-bnav-btn <?= $activeSection === 'settings' ? 'active' : '' ?>" data-section="settings"><i class="fa-solid fa-gear"></i><span>Settings</span></button>
-            <button class="wbws-bnav-btn <?= $activeSection === 'branding' ? 'active' : '' ?>" data-section="branding"><i class="fa-solid fa-palette"></i><span>Brand</span></button>
-            <div class="wbws-bnav-divider"></div>
-            <button class="wbws-bnav-btn <?= $activeSection === 'logs' ? 'active' : '' ?>" data-section="logs"><i class="fa-solid fa-clock-rotate-left"></i><span>Logs</span></button>
-            <button class="wbws-bnav-btn <?= $activeSection === 'backup' ? 'active' : '' ?>" data-section="backup"><i class="fa-solid fa-database"></i><span>Backup</span></button>
-            <button class="wbws-bnav-btn <?= $activeSection === 'syshealth' ? 'active' : '' ?>" data-section="syshealth"><i class="fa-solid fa-stethoscope"></i><span>System</span></button>
-            <div class="wbws-bnav-divider"></div>
-            <a href="/admin/dashboards/ai_assistant.php" class="wbws-bnav-btn"><i class="fa-solid fa-robot"></i><span>AI</span></a>
-            <a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-power-off"></i><span>Exit</span></a>
-        </div>
-    </nav>
+    <?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-gauge-high', 'label' => 'Home', 'attrs' => 'data-section="overview"', 'active' => (($activeSection ?? '') === 'overview')],
+        ['icon' => 'fa-solid fa-users', 'label' => 'Users', 'attrs' => 'data-section="users"', 'active' => (($activeSection ?? '') === 'users')],
+        ['icon' => 'fa-solid fa-building', 'label' => 'Depts', 'attrs' => 'data-section="departments"', 'active' => (($activeSection ?? '') === 'departments')],
+    ],
+    [
+        ['icon' => 'fa-solid fa-heart-pulse', 'label' => 'Health', 'attrs' => 'data-section="health"', 'active' => (($activeSection ?? '') === 'health')],
+        ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-section="settings"', 'active' => (($activeSection ?? '') === 'settings')],
+        ['icon' => 'fa-solid fa-palette', 'label' => 'Brand', 'attrs' => 'data-section="branding"', 'active' => (($activeSection ?? '') === 'branding')],
+    ],
+    [
+        ['icon' => 'fa-solid fa-clock-rotate-left', 'label' => 'Logs', 'attrs' => 'data-section="logs"', 'active' => (($activeSection ?? '') === 'logs')],
+        ['icon' => 'fa-solid fa-database', 'label' => 'Backup', 'attrs' => 'data-section="backup"', 'active' => (($activeSection ?? '') === 'backup')],
+        ['icon' => 'fa-solid fa-stethoscope', 'label' => 'System', 'attrs' => 'data-section="syshealth"', 'active' => (($activeSection ?? '') === 'syshealth')],
+    ],
+    [
+        ['icon' => 'fa-solid fa-robot', 'label' => 'AI', 'href' => '/admin/dashboards/ai_assistant.php'],
+        ['icon' => 'fa-solid fa-power-off', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
     <script>
     // Scroll hint indicators for bottom nav
     (function(){

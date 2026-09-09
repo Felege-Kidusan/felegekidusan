@@ -31,7 +31,7 @@ if (isset($conn)) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <title>Material — <?= SCHOOL_NAME_SHORT ?></title>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
@@ -57,7 +57,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 .inp{background:rgba(255,255,255,0.06);border:1px solid var(--cb);border-radius:10px;padding:.55rem .85rem;color:#f1f5f9;font-size:.8rem;outline:none}.inp:focus{border-color:var(--ac)}
 .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1rem;border-radius:10px;font-size:.8rem;font-weight:600;cursor:pointer;border:none;transition:all .2s}.bp{background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff}.bo{background:transparent;border:1px solid var(--cb);color:var(--tx)}.bo:hover{border-color:var(--ac);color:var(--ac)}.bs{padding:.35rem .75rem;font-size:.72rem}
 .bg{display:inline-flex;padding:.2rem .55rem;border-radius:99px;font-size:.65rem;font-weight:600}.bg-ok{background:rgba(34,197,94,.15);color:#22c55e}.bg-w{background:rgba(251,191,36,.15);color:#fbbf24}.bg-bd{background:rgba(239,68,68,.15);color:#ef4444}.bg-in{background:rgba(14,165,233,.15);color:#0ea5e9}.bg-p{background:rgba(168,85,247,.15);color:#a855f7}
-.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:100;align-items:center;justify-content:center;padding:1rem}.mo.show{display:flex}.md{background:#1e293b;border:1px solid var(--cb);border-radius:20px;padding:1.5rem;max-width:560px;width:100%;max-height:90vh;overflow-y:auto}.md h3{font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:1rem}
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:var(--z-overlay);align-items:center;justify-content:center;padding:1rem}.mo.show{display:flex}.md{background:#1e293b;border:1px solid var(--cb);border-radius:20px;padding:1.5rem;max-width:560px;width:100%;max-height:90vh;overflow-y:auto}.md h3{font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:1rem}
 .toast{position:fixed;top:1.5rem;right:1.5rem;padding:.75rem 1.25rem;border-radius:12px;color:#fff;font-size:.8rem;font-weight:600;z-index:200;transform:translateX(120%);transition:transform .3s;display:flex;align-items:center;gap:.5rem}.toast.show{transform:translateX(0)}.t-ok{background:#16a34a}.t-err{background:#dc2626}
 .bn{display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(15,23,42,0.95);backdrop-filter:blur(10px);border-top:1px solid var(--cb);padding:.4rem 0;z-index:50}.bni{display:flex;justify-content:space-around;max-width:500px;margin:0 auto}.bn button,.bn a{display:flex;flex-direction:column;align-items:center;gap:.15rem;background:none;border:none;color:var(--dm);font-size:.6rem;padding:.25rem .5rem;cursor:pointer;text-decoration:none}.bn button.active{color:var(--ac)}.bn i{font-size:1.1rem}
 @media(max-width:768px){aside{display:none}main{max-width:100%;padding:1rem 1rem 5rem}.bn{display:block}.sg{grid-template-columns:repeat(2,1fr)}.sc .val{font-size:1.2rem}}
@@ -175,20 +175,24 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="btn bp" onclick="saveMatCat()"><i class="fa-solid fa-save"></i> Save</button>
 </div></div></div>
 <!-- BOTTOM NAV -->
-<nav class="wbws-bnav" id="wbwsBottomNav">
-<div class="wbws-bnav-scroll-hint-left" id="bnScrollL"></div>
-<div class="wbws-bnav-scroll-hint-right visible" id="bnScrollR"></div>
-<div class="wbws-bnav-inner" id="bnScroll">
-<button class="wbws-bnav-btn active" data-section="dashboard"><i class="fa-solid fa-gauge-high"></i><span>Home</span></button>
-<button class="wbws-bnav-btn" data-section="inventory"><i class="fa-solid fa-boxes-stacked"></i><span>Items</span></button>
-<button class="wbws-bnav-btn" data-section="incoming"><i class="fa-solid fa-truck-ramp-box"></i><span>In</span></button>
-<button class="wbws-bnav-btn" data-section="outgoing"><i class="fa-solid fa-dolly"></i><span>Out</span></button>
-<div class="wbws-bnav-divider"></div>
-<button class="wbws-bnav-btn" data-section="requests"><i class="fa-solid fa-clipboard-list"></i><span>Requests</span></button>
-<button class="wbws-bnav-btn" data-section="categories"><i class="fa-solid fa-tags"></i><span>Categories</span></button>
-<div class="wbws-bnav-divider"></div>
-<a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a>
-</div></nav>
+<?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-gauge-high', 'label' => 'Home', 'attrs' => 'data-section="dashboard"', 'active' => true],
+        ['icon' => 'fa-solid fa-boxes-stacked', 'label' => 'Items', 'attrs' => 'data-section="inventory"'],
+        ['icon' => 'fa-solid fa-truck-ramp-box', 'label' => 'In', 'attrs' => 'data-section="incoming"'],
+        ['icon' => 'fa-solid fa-dolly', 'label' => 'Out', 'attrs' => 'data-section="outgoing"'],
+    ],
+    [
+        ['icon' => 'fa-solid fa-clipboard-list', 'label' => 'Requests', 'attrs' => 'data-section="requests"'],
+        ['icon' => 'fa-solid fa-tags', 'label' => 'Categories', 'attrs' => 'data-section="categories"'],
+    ],
+    [
+        ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-section]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.section;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 <div class="toast" id="toast"></div>
 <script>

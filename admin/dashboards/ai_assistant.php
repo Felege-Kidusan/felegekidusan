@@ -15,7 +15,7 @@ $csrfToken = generateCsrfToken();
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>AI Assistant — <?= SCHOOL_NAME_SHORT ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
@@ -557,11 +557,15 @@ function exportChat() {
 }
 </script>
 <!-- MOBILE BOTTOM NAV -->
-<nav class="wbws-bnav" id="wbwsBottomNav">
-<div class="wbws-bnav-inner">
-<a href="/admin/dashboard.php" class="wbws-bnav-btn"><i class="fa-solid fa-arrow-left"></i><span>Back</span></a>
-<button class="wbws-bnav-btn active"><i class="fa-solid fa-robot"></i><span>AI Chat</span></button>
-<a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-power-off"></i><span>Exit</span></a>
-</div></nav>
+<?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-arrow-left', 'label' => 'Back', 'href' => '/admin/dashboard.php'],
+        ['icon' => 'fa-solid fa-robot', 'label' => 'AI Chat', 'active' => true],
+        ['icon' => 'fa-solid fa-power-off', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
 </body>
 </html>

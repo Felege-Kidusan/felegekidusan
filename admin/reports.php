@@ -62,7 +62,7 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
         @keyframes spn{to{transform:rotate(360deg)}}
         .fi{animation:fi .3s ease-out}@keyframes fi{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         .pb{height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden}.pf{height:100%;border-radius:3px;transition:width .5s ease}
-        .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:200;animation:su .3s}
+        .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;color:#fff;font-size:13px;z-index:var(--z-toast);animation:su .3s}
         @keyframes su{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
         .exp-card{padding:12px 16px;border-radius:12px;background:#f8fafc;cursor:pointer;transition:.15s;display:flex;align-items:center;justify-content:space-between}
         .exp-card:hover{background:#f0fdf4;box-shadow:0 2px 8px rgba(0,0,0,.04)}

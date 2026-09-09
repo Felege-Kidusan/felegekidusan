@@ -48,7 +48,7 @@ $csrfToken = generateCsrfToken();
     <meta charset="UTF-8">
     <title>Attendance Taker - <?= SCHOOL_NAME_SHORT_AM ?></title>
     <?= wbws_calendar_scripts($conn) ?>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <script>const CSRF_TOKEN = '<?= $csrfToken ?>';</script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
@@ -85,7 +85,7 @@ $csrfToken = generateCsrfToken();
         .data-table tr:hover td { background: #fff7ed; }
         .section { display: none; }
         .section.active { display: block; }
-        .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 20px; border-radius: 12px; color: white; z-index: 200; animation: slideIn 0.3s; }
+        .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 20px; border-radius: 12px; color: white; z-index: var(--z-toast); animation: slideIn 0.3s; }
         .toast-success { background: #059669; }
         .toast-error { background: #dc2626; }
         @keyframes slideIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
@@ -657,11 +657,15 @@ $csrfToken = generateCsrfToken();
         document.head.appendChild(style);
     </script>
 <!-- MOBILE BOTTOM NAV -->
-<nav class="wbws-bnav" id="wbwsBottomNav">
-<div class="wbws-bnav-inner">
-<a href="/admin/dashboard.php" class="wbws-bnav-btn"><i class="fa-solid fa-arrow-left"></i><span>Back</span></a>
-<button class="wbws-bnav-btn active"><i class="fa-solid fa-clipboard-check"></i><span>Attendance</span></button>
-<a href="/admin/logout.php" class="wbws-bnav-btn bnav-exit"><i class="fa-solid fa-power-off"></i><span>Exit</span></a>
-</div></nav>
+<?php
+$navItems = [
+    [
+        ['icon' => 'fa-solid fa-arrow-left', 'label' => 'Back', 'href' => '/admin/dashboard.php'],
+        ['icon' => 'fa-solid fa-clipboard-check', 'label' => 'Attendance', 'active' => true],
+        ['icon' => 'fa-solid fa-power-off', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
+    ],
+];
+require __DIR__ . '/../components/bottom_nav.php';
+?>
 </body>
 </html>

@@ -20,14 +20,14 @@ $_aiCsrf = generateCsrfToken();
 ?>
 <!-- AI Chatbot Widget -->
 <style>
-#ai-fab{position:fixed;bottom:24px;right:24px;z-index:9990;width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#10b981,#3b82f6);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.35rem;box-shadow:0 6px 24px rgba(16,185,129,.4);transition:transform .2s,box-shadow .2s}
+#ai-fab{position:fixed;bottom:24px;right:24px;z-index:var(--z-fab);width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#10b981,#3b82f6);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.35rem;box-shadow:0 6px 24px rgba(16,185,129,.4);transition:transform .2s,box-shadow .2s}
 #ai-fab:hover{transform:scale(1.08);box-shadow:0 10px 34px rgba(16,185,129,.5)}
 #ai-fab .fab-badge{position:absolute;top:-2px;right:-2px;width:13px;height:13px;border-radius:50%;background:#22c55e;border:2px solid #0f1629;display:none}
 #ai-fab.has-key .fab-badge{display:block}
 #ai-fab.hidden{display:none}
 
 /* Floating window (NON-modal — no overlay) */
-#ai-win{position:fixed;z-index:9995;width:390px;height:70vh;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);min-width:300px;min-height:360px;
+#ai-win{position:fixed;z-index:var(--z-overlay);width:390px;height:70vh;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);min-width:300px;min-height:360px;
   background:#0f1629;border:1px solid #263248;border-radius:16px;display:none;flex-direction:column;overflow:hidden;
   box-shadow:0 24px 70px rgba(0,0,0,.55);font-family:'Segoe UI',system-ui,sans-serif;resize:both}
 #ai-win.open{display:flex}
