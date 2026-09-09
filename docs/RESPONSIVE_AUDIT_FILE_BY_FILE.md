@@ -42,10 +42,13 @@ from a token (`--nav-total`) and add a contextual FAB above the nav (the Google/
 ### `themes/components.css`
 - `.mz-player` (mezmur dock) — `bottom: var(--nav-total)` + `z-index:var(--z-dock)` **only when** `body:has(.school-bottom-nav)` (so it floats above the tab bar on mobile, sits at screen bottom on desktop). `body.mz-playing .school-content` padding accounts for dock **+** nav.
 
-### `themes/fkss/theme.css` / `themes/wbss/theme.css`
-- `.school-bottom-nav` — `z-index:var(--z-nav)`, `padding-bottom:var(--nav-safe-bottom)`, `min-height:var(--nav-h)`.
-- `.school-content` mobile padding → `calc(var(--nav-total) + 16px)`.
-- `.school-topbar` gets `padding-top: calc(.85rem + var(--safe-top))`.
+### `themes/fkss/theme.css` / `themes/wbss/theme.css` (themed frontend)
+- `.school-bottom-nav` was `position: fixed` (overlay) — **fixed the same way as the admin
+  nav**: on mobile it is now an in-flow flex item (`position: relative; flex: 0 0 auto`) and
+  `.school-content` is the scroll area (`flex:1; min-height:0; overflow-y:auto`) inside a
+  `body` flex column at `100dvh`. So the frontend tab bar can no longer overlap content.
+- `.school-topbar` is `position: sticky; top: 0`.
+- `.school-layout` base `min-height` upgraded `100vh` → `100dvh`.
 
 ### `admin/components/bottom_nav.php` *(reusable nav)*
 - Renders nav from `$navItems`; HTML-escapes `href`/`icon`/`label`; auto-inserts scroll hints when >4 items; auto-inserts dividers between groups. One place to restyle all departments.
@@ -130,6 +133,9 @@ used by Material 3 / Fluent / iOS:
 - The bottom nav (`.wbws-bnav`) is a **normal in-flow flex item** (`position: relative;
   flex: 0 0 auto`), so it is *structurally incapable* of overlapping content. No magic
   padding, no z-index wars, no floating buttons required.
+- The same in-flow app-shell was applied to the **themed frontend** (`.school-bottom-nav` /
+  `.school-content` in `fkss`/`wbss` theme.css), so member/finance/mezmur pages get the
+  identical correct behaviour.
 - The mobile top bar is `position: sticky; top: 0` so it stays put while `<main>` scrolls.
 - `env(safe-area-inset-*)` is honoured so notched / gesture-bar devices are never clipped.
 

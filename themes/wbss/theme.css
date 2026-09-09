@@ -141,7 +141,7 @@ body {
 /* ═══════════════════════════════════════════════════════════════
    LAYOUT
    ═══════════════════════════════════════════════════════════════ */
-.school-layout { display: flex; min-height: 100vh; }
+.school-layout { display: flex; min-height: 100dvh; }
 .school-main { flex: 1; display: flex; flex-direction: column; min-height: 100vh; min-width: 0; }
 .school-content { flex: 1; padding: 1.5rem 2rem; overflow-y: auto; }
 
@@ -505,10 +505,42 @@ body.light-mode .school-bottom-nav { background: #fff; box-shadow: 0 -2px 8px rg
    ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
     .school-sidebar { display: none; }
-    .school-bottom-nav { display: flex !important; }
-    .school-topbar { padding: calc(0.85rem + var(--safe-top)) 1rem; }
-    .school-content { padding: 1rem; padding-bottom: calc(var(--nav-total, 100px) + 16px); }
-    .school-layout { flex-direction: column; }
+    .school-bottom-nav {
+        display: flex !important;
+        position: relative !important;   /* in normal flow, not a fixed overlay */
+        bottom: auto !important;
+        flex: 0 0 auto !important;
+        z-index: var(--z-nav);
+    }
+    .school-topbar {
+        padding: calc(0.85rem + var(--safe-top)) 1rem;
+        position: sticky; top: 0;
+        flex: 0 0 auto;
+        z-index: var(--z-header);
+    }
+    .school-content {
+        padding: 1rem;
+        padding-bottom: var(--space-4) !important;
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    .school-layout {
+        flex-direction: column;
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+    body {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100dvh !important;
+        height: 100svh !important;
+        height: 100vh !important;
+        overflow: hidden !important;
+        margin: 0 !important;
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════
