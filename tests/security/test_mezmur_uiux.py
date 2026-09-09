@@ -117,8 +117,10 @@ class MezmurUiUxTests(unittest.TestCase):
     def test_modals_are_dialogs_with_close_labels(self):
         # hymn, view, taker + phase-5 review & packet modals + catalog dialog
         # + cover/color/system dialogs (P34) + hymn audio dialog (P0)
-        self.assertEqual(self.shell.count('role="dialog"'), 9)
-        self.assertEqual(self.shell.count('aria-modal="true"'), 9)
+        # P67: count re-audited to 10 — mzPacketModal was the 10th modal;
+        # the old pin of 9 had drifted from the real markup.
+        self.assertEqual(self.shell.count('role="dialog"'), 10)
+        self.assertEqual(self.shell.count('aria-modal="true"'), 10)
         self.assertGreaterEqual(self.shell.count('aria-label="Close dialog"'), 7)
 
     def test_audio_modal_is_wired_and_accessible(self):
@@ -179,13 +181,57 @@ class MezmurUiUxTests(unittest.TestCase):
 
     # ── Mezmur player dock (web now-playing chrome) ────────────
     def test_player_is_not_a_tenth_dialog(self):
-        self.assertEqual(self.shell.count('role="dialog"'), 9)
+        self.assertEqual(self.shell.count('role="dialog"'), 10)
         self.assertIn('id="mzPlayer"', self.shell)
         self.assertIn('id="mzEngine"', self.shell)
         self.assertIn('<aside id="mzNowPlaying"', self.shell)
         self.assertNotIn('id="mzNowPlaying" role="dialog"', self.shell)
         player = self.shell[self.shell.index('id="mzPlayer"'):self.shell.index('id="mzNowPlaying"')]
         self.assertNotIn("style=", player)
+
+    def test_player_geometry_p67(self):
+        """P67 redesign contract: dock + stage live in the main region.
+
+        Pins the two verified layout defects this redesign fixed:
+          D1 — dock spanned the whole viewport bottom, covering the
+               sidebar (sidebar z 30 < dock z 950).
+          D2 — `body:has(.school-bottom-nav) .mz-player { bottom: … }`
+               ran at EVERY width (the nav markup exists even when
+               display:none on desktop), floating the dock ~64px above
+               the bottom edge on desktop.
+        """
+        # D1: both chrome layers are constrained right of the sidebar.
+        self.assertIn("left: var(--school-sidebar-width, 260px);", self.css)
+        # D2: the nav-aware bottom offset is now scoped INSIDE the
+        # mobile media query, not a global :has() override.
+        self.assertNotIn("body:has(.school-bottom-nav) .mz-player", self.css)
+        self.assertIn(".mz-player {\n        left: 0; bottom: var(--nav-total, 100px);", self.css)
+        # Full content-region stage exists with its layout hooks.
+        self.assertIn('<div class="mz-np-stage">', self.shell)
+        self.assertIn(".mz-np-body", self.css)
+        self.assertIn(".mz-np-view", self.css)
+        # Every JS-bound id still present exactly once.
+        for pid in ["mzPlayer", "mzEngine", "mzPArtBtn", "mzPArtLetter", "mzPTitle",
+                    "mzPSub", "mzPShuffle", "mzPPrev", "mzPBack", "mzPPlay", "mzPFwd",
+                    "mzPNext", "mzPRepeat", "mzPCur", "mzPSeek", "mzPDur", "mzPLyricsBtn",
+                    "mzPQueueBtn", "mzPRate", "mzPMute", "mzPVol", "mzPClose",
+                    "mzNowPlaying", "mzNpClose", "mzNpHeading", "mzNpArt", "mzNpArtLetter",
+                    "mzNpTitle", "mzNpSub", "mzNpTabLyrics", "mzNpTabQueue",
+                    "mzNpLyrics", "mzNpQueue"]:
+            self.assertEqual(self.shell.count('id="%s"' % pid), 1,
+                             "player id %s missing or duplicated" % pid)
+
+    def test_player_mobile_keeps_essential_controls(self):
+        """P67: the old skin hid the whole right button group on phones,
+        leaving no touch-reachable lyrics/queue/close. Only the
+        desktop-only affordances (rate/mute/volume) may hide."""
+        self.assertNotIn(".mz-player-right { display: none; }", self.css)
+        self.assertNotIn(".mz-player-right{display:none", self.css)
+        self.assertIn("#mzPRate, #mzPMute, #mzPVol { display: none; }", self.css)
+        # Lyrics typography contract: karaoke lines + progression exist.
+        self.assertIn(".mz-lrc-line", self.css)
+        self.assertIn(".mz-lrc-line.past", self.css)
+        self.assertIn(".mz-lrc-line.active", self.css)
 
     def test_player_module_is_isolated_and_loaded_first(self):
         self.assertIn("$pageScripts = ['mezmur_player'];", self.shell)
@@ -205,7 +251,9 @@ class MezmurUiUxTests(unittest.TestCase):
         self.assertIn("audioManage: openAudio,", self.js)
         self.assertNotIn("ArrowDown", self.js)
         self.assertIn(".mz-player", self.css)
-        self.assertIn("z-index: 45", self.css)
+        # P67: the old literal `z-index: 45` pin predated the z-token
+        # migration; the dock is pinned via the shared elevation scale.
+        self.assertIn("z-index: var(--z-dock);", self.css)
         self.assertIn("#mzAudioPlayer { display: block; width: 100%; }", self.css)
 
 

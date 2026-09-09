@@ -926,19 +926,33 @@ ob_start();
 </div>
 
 <aside id="mzNowPlaying" class="mz-np is-hidden" hidden aria-hidden="true" aria-labelledby="mzNpHeading">
-    <div class="mz-np-head">
-        <h2 id="mzNpHeading">Now playing</h2>
-        <button type="button" id="mzNpClose" aria-label="Close now playing"><i class="fa-solid fa-xmark"></i></button>
+    <!-- P67: full content-region stage. Wrappers (.mz-np-stage/-body/
+         -now/-meta/-view) are CSS layout hooks only — every id and
+         JS-generated class inside is unchanged, so mezmur_player.js
+         binds exactly as before. -->
+    <div class="mz-np-stage">
+        <div class="mz-np-head">
+            <h2 id="mzNpHeading">Now playing</h2>
+            <button type="button" id="mzNpClose" class="mz-np-close" aria-label="Close now playing"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="mz-np-body">
+            <div class="mz-np-now">
+                <div class="mz-np-artwrap"><div id="mzNpArt" class="mz-np-art"><span id="mzNpArtLetter" class="mz-np-art-letter">♪</span></div></div>
+                <div class="mz-np-meta">
+                    <div id="mzNpTitle" class="mz-np-title amharic"></div>
+                    <div id="mzNpSub" class="mz-np-sub"></div>
+                </div>
+                <div class="mz-np-tabs" role="tablist" aria-label="Now playing views">
+                    <button type="button" id="mzNpTabLyrics" class="mz-np-tab active" role="tab" aria-selected="true">Lyrics</button>
+                    <button type="button" id="mzNpTabQueue" class="mz-np-tab" role="tab" aria-selected="false">Queue</button>
+                </div>
+            </div>
+            <div class="mz-np-view">
+                <div id="mzNpLyrics" class="mz-np-lyrics amharic" role="tabpanel" aria-labelledby="mzNpTabLyrics"></div>
+                <div id="mzNpQueue" class="mz-np-queue is-hidden" role="tabpanel" aria-labelledby="mzNpTabQueue"></div>
+            </div>
+        </div>
     </div>
-    <div class="mz-np-artwrap"><div id="mzNpArt" class="mz-np-art"><span id="mzNpArtLetter">♪</span></div></div>
-    <div id="mzNpTitle" class="mz-np-title amharic"></div>
-    <div id="mzNpSub" class="mz-np-sub"></div>
-    <div class="mz-np-tabs" role="tablist" aria-label="Now playing views">
-        <button type="button" id="mzNpTabLyrics" class="mz-np-tab active" role="tab" aria-selected="true">Lyrics</button>
-        <button type="button" id="mzNpTabQueue" class="mz-np-tab" role="tab" aria-selected="false">Queue</button>
-    </div>
-    <div id="mzNpLyrics" class="mz-np-lyrics amharic" role="tabpanel"></div>
-    <div id="mzNpQueue" class="mz-np-queue is-hidden" role="tabpanel"></div>
 </aside>
 
 <!-- ═══ MOBILE BOTTOM NAV ═══ -->
