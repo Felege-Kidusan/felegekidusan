@@ -507,7 +507,7 @@ body.light-mode .school-bottom-nav { background: #fff; box-shadow: 0 -2px 8px rg
     .school-sidebar { display: none; }
     .school-bottom-nav { display: flex !important; }
     .school-topbar { padding: calc(0.85rem + var(--safe-top)) 1rem; }
-    .school-content { padding: 1rem; padding-bottom: calc(var(--nav-total) + 16px); }
+    .school-content { padding: 1rem; padding-bottom: calc(var(--nav-total, 100px) + 16px); }
     .school-layout { flex-direction: column; }
 }
 

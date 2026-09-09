@@ -781,16 +781,16 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
  * the end of a scroll. A single custom property now drives the dock
  * height, the content padding and the toast offset together, so they
  * can never drift apart again. */
-body.mz-playing .school-content { padding-bottom: calc(var(--mz-dock-h) + var(--nav-total) + 2rem); }
-body.mz-playing .school-toast { bottom: calc(var(--mz-dock-h) + var(--nav-total) + 1rem); }
+body.mz-playing .school-content { padding-bottom: calc(var(--mz-dock-h) + var(--nav-total, 100px) + 2rem); }
+body.mz-playing .school-toast { bottom: calc(var(--mz-dock-h) + var(--nav-total, 100px) + 1rem); }
 /* Anchor links and keyboard focus must not land under the dock either. */
 body.mz-playing .school-content :target,
 body.mz-playing .school-content tr:focus-within {
-    scroll-margin-bottom: calc(var(--mz-dock-h) + var(--nav-total) + 1rem);
+    scroll-margin-bottom: calc(var(--mz-dock-h) + var(--nav-total, 100px) + 1rem);
 }
 
 .mz-np {
-    position: fixed; top: 0; right: 0; bottom: var(--nav-total); width: min(420px, 100%);
+    position: fixed; top: 0; right: 0; bottom: var(--nav-total, 100px); width: min(420px, 100%);
     z-index: var(--z-overlay); display: flex; flex-direction: column;
     background: var(--school-bg-alt); border-left: 1px solid var(--school-border);
     box-shadow: var(--school-shadow-lg); padding: 1rem 1.1rem .75rem;
@@ -870,4 +870,4 @@ tr.mz-archived { opacity: .55; }
 }
 
 /* Now-playing dock floats ABOVE the mobile tab bar (never behind it) */
-body:has(.school-bottom-nav) .mz-player { bottom: var(--nav-total); }
+body:has(.school-bottom-nav) .mz-player { bottom: var(--nav-total, 100px); }
