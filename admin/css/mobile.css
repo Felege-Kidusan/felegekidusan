@@ -46,7 +46,7 @@
         margin-left: 0 !important;
         max-width: 100vw !important;
         width: 100% !important;
-        padding: 0.75rem 0.75rem 5rem !important;
+        padding: 0.75rem 0.75rem calc(var(--nav-total) + 1rem) !important;
     }
 
     /* ── ALL MULTI-COLUMN GRIDS → STACK ── 
@@ -707,4 +707,36 @@ body:has(.school-bottom-nav) .mm-footer { bottom: var(--nav-total); }
     .topbar, .header-bar, .school-topbar {
         top: var(--safe-top);
     }
+}
+/* ═══════════════════════════════════════════════════
+   PRIMARY ACTION FAB  (Google Material 3 / Meta pattern)
+   A contextual "Add" affordance that floats ABOVE the bottom
+   navigation bar (higher elevation), so the most common create
+   action is ALWAYS tappable and can never be hidden by the nav.
+   Hidden on desktop (sidebar/inline controls are used there).
+   ═══════════════════════════════════════════════════ */
+.app-fab { display: none; }
+@media (max-width: 768px) {
+    .app-fab {
+        display: inline-flex;
+        position: fixed;
+        right: 1rem;
+        bottom: calc(var(--nav-total) + 1rem);
+        z-index: var(--z-fab);
+        align-items: center;
+        gap: .5rem;
+        height: 56px;
+        padding: 0 1.25rem;
+        border: none;
+        border-radius: 28px;
+        background: linear-gradient(135deg, #7c3aed, #6366f1);
+        color: #fff;
+        font-size: .9rem;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 8px 24px rgba(124, 58, 237, .45);
+        transition: transform .15s, box-shadow .15s;
+    }
+    .app-fab:active { transform: scale(.96); }
+    .app-fab i { font-size: 1.1rem; }
 }

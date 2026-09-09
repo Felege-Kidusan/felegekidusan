@@ -615,6 +615,46 @@ $navItems = [
 ];
 require __DIR__ . '/../components/bottom_nav.php';
 ?>
+<button id="primaryFab" class="app-fab" type="button" aria-label="Add"><i class="fa-solid fa-plus"></i><span id="primaryFabLabel">Add</span></button>
+<script>
+/* Contextual primary-action FAB (Google Material 3 / Meta pattern): floats ABOVE
+   the bottom nav so the most common "Add" action is always tappable. */
+(function () {
+  var map = {
+    teachers:   { label: 'Add Teacher', icon: 'fa-user-plus',    fn: function () { if (window.openCreateTeacher) openCreateTeacher(); } },
+    classes:    { label: 'Add Class',   icon: 'fa-school',        fn: function () { if (window.openClassModal)   openClassModal(); } },
+    subjects:   { label: 'Add Subject', icon: 'fa-book',          fn: function () { if (window.openSubjectModal) openSubjectModal(); } },
+    enrollment: { label: 'Enroll',      icon: 'fa-user-graduate', fn: function () { if (window.nav) nav('enrollment'); } }
+  };
+  window.refreshPrimaryFab = function () {
+    var act = document.querySelector('.sec.act') || document.getElementById('sec-dashboard');
+    var id  = act ? (act.id || '').replace('sec-', '') : 'dashboard';
+    var fab = document.getElementById('primaryFab');
+    var lbl = document.getElementById('primaryFabLabel');
+    if (!fab) return;
+    var m = map[id];
+    if (m) {
+      lbl.textContent = m.label;
+      fab.querySelector('i').className = 'fa-solid ' + m.icon;
+      fab.onclick = m.fn;
+      fab.style.display = '';
+    } else {
+      fab.style.display = 'none';
+    }
+  };
+  function observeSecs() {
+    var secs = document.querySelectorAll('.sec');
+    if (!secs.length) { setTimeout(observeSecs, 200); return; }
+    var obs = new MutationObserver(function () { window.refreshPrimaryFab(); });
+    secs.forEach(function (s) { obs.observe(s, { attributes: true, attributeFilter: ['class'] }); });
+    window.refreshPrimaryFab();
+  }
+  if (document.readyState !== 'loading') observeSecs();
+  else document.addEventListener('DOMContentLoaded', observeSecs);
+})();
+</script>
+
+?>
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div>
