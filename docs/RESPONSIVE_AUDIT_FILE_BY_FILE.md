@@ -163,6 +163,11 @@ in-flow `.wbws-bnav`) and link `mobile.css`. No overlay, padding hack, or JS is 
 - **Modal safe-area**: `.mo` padding now uses `env(safe-area-inset-*)` so modal
   content is never hidden behind the notch / home indicator.
 - **Impersonate bar**: repositioned above the in-flow nav on both shells.
+- **Zoom unlocked**: removed `maximum-scale=1, user-scalable=no` from all 8 layout
+  viewports (admin dashboards + frontend base). Blocking pinch-zoom is a WCAG 2.5.1
+  violation and hurts users (e.g. older members) who need to zoom. Viewport now keeps
+  `width=device-width, initial-scale=1.0, viewport-fit=cover` so zoom works while the
+  safe-area is still honoured.
 
 ### Safety note (regression guard)
 The app-shell is deliberately gated with `body:has(.wbws-bnav)` / `body:has(.school-bottom-nav)` so it only applies on pages that actually have a bottom nav. An earlier pass forced `body` into a non-scrolling flex column on *every* mobile page, which would have made standalone pages (login, print, profile) unscrollable. The `:has()` gate prevents that — modern browsers (iOS 16.4+, Chrome 105+) get the proper shell; older browsers gracefully fall back to normal scrolling.

@@ -261,7 +261,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     <meta charset="UTF-8">
     <title>HR Department - <?= SCHOOL_NAME_SHORT_AM ?></title>
     <?= wbws_calendar_scripts($conn) ?>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <!-- CSRF Token for AJAX requests -->
     <meta name="csrf-token" content="<?= generateCsrfToken() ?>">

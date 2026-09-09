@@ -119,7 +119,7 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
 <html lang="<?= defined('SITE_LANG') ? SITE_LANG : 'en' ?>">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="csrf-token" content="<?= $_csrfToken ?>">
     <title><?= e($pageTitle) ?> — <?= e(defined('SCHOOL_NAME_SHORT') ? SCHOOL_NAME_SHORT : 'School') ?></title>
     
