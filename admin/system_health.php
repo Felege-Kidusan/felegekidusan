@@ -273,7 +273,7 @@ $healthLabel = $healthScore >= 80 ? 'Healthy' : ($healthScore >= 60 ? 'Warning' 
         .nav-back:hover { color: #e2e8f0; }
         @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr !important; } }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 </head>
 <body>
     <div style="max-width: 1200px; margin: 0 auto; padding: 24px;">

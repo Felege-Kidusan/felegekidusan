@@ -104,7 +104,7 @@ th{background:#f8fafc;color:#64748b;font-weight:600;font-size:.75rem;text-transf
 .section-page{display:none}.section-page.active{display:block}
 .checkbox-wrapper{display:flex;align-items:center;gap:.5rem}.checkbox-wrapper input[type="checkbox"]{width:18px;height:18px;accent-color:#059669}
 </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 </head>
 <body>
 <div class="sidebar-overlay" onclick="toggleSidebar()"></div>

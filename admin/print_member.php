@@ -512,7 +512,7 @@ $fullAddress = !empty($addressParts) ? implode('፣ ', $addressParts) : '—';
             }
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 </head>
 <body>
     <!-- Print Controls -->

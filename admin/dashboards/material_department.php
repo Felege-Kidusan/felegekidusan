@@ -63,7 +63,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 @media(max-width:768px){aside{display:none}main{max-width:100%;padding:1rem 1rem 5rem}.bn{display:block}.sg{grid-template-columns:repeat(2,1fr)}.sc .val{font-size:1.2rem}}
 @media print{aside,.bn,.no-print{display:none!important}main{max-width:100%;padding:0}body{background:#fff;color:#000}}
 </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>

@@ -68,7 +68,7 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
         .exp-card:hover{background:#f0fdf4;box-shadow:0 2px 8px rgba(0,0,0,.04)}
         @media(max-width:768px){.cw,.cw-s{height:200px}}
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 </head>
 <body>
     <!-- Header -->

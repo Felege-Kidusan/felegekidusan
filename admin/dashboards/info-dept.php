@@ -458,7 +458,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
             font-weight: 700;
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="bg-slate-100">

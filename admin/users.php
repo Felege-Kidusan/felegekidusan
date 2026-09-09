@@ -404,7 +404,7 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
             border:1px solid #fecaca;
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 </head>
 <body>
     <aside class="sidebar">

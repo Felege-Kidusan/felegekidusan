@@ -86,7 +86,7 @@ Each dashboard's **scroll area** is the element that must reserve `--nav-total` 
 
 1. `mobile.css` forced `main/.content` to `padding-bottom:5rem` (80px) — a magic number.
 2. On a notched iPhone/Android the bottom nav is `64px + safe-area(~34px) ≈ 98px`.
-3. The last inline "Add" button (e.g. *Add Class*) sat ~18px **behind** the fixed nav → un-tappable.
+3. The bottom nav was `position: fixed` — an overlay painted on top of the document — so the last inline "Add" button (e.g. *Add Class*) landed **behind** it and was un-tappable.
 4. The nav itself was `z-index:9998`, above modals/toasts/the AI panel, so it also overlaid those.
 
 **Fix applied:** clearance is now `calc(var(--nav-total) + 1rem)` (token = nav height + real safe area), and a contextual **FAB floats above the nav** for the primary Add action.
@@ -116,34 +116,31 @@ Each dashboard's **scroll area** is the element that must reserve `--nav-total` 
 
 ---
 
-## 5. The solution implemented here
+## 5. The solution implemented here (correct architecture)
 
-1. **Token-driven clearance** (`--nav-total`) replaces the `5rem` magic number in `mobile.css` → every department's scroll area now clears the nav on **all** devices, notched or not. *(Fixes the screenshot bug for every dashboard, not just Education.)*
-2. **Contextual FAB above the nav** (`.app-fab`, Material 3 pattern) added to the Education dashboard: it reads the active section and becomes *Add Teacher / Add Class / Add Subject*, always tappable above the nav. Implemented with a `MutationObserver` on `.sec` so it tracks section switches without coupling to the switcher's internals.
-3. **Continuity with prior work:** nav elevation is `--z-nav` (below `--z-overlay` modals/toasts/FAB), safe-area tokens applied end-to-end, single reusable nav component.
+The defect was never "not enough bottom padding" — it was that the bottom nav was
+`position: fixed`, i.e. an **overlay painted on top of the document**, so it covered
+whatever content scrolled underneath it. The fix is the standard **app-shell layout**
+used by Material 3 / Fluent / iOS:
 
----
+- `body` becomes a **flex column bounded to the dynamic viewport** (`height: 100dvh`,
+  with `100svh` / `100vh` fallbacks) and `overflow: hidden`.
+- The scrollable `<main>` is `flex: 1; min-height: 0; overflow-y: auto` — it is the
+  only thing that scrolls.
+- The bottom nav (`.wbws-bnav`) is a **normal in-flow flex item** (`position: relative;
+  flex: 0 0 auto`), so it is *structurally incapable* of overlapping content. No magic
+  padding, no z-index wars, no floating buttons required.
+- The mobile top bar is `position: sticky; top: 0` so it stays put while `<main>` scrolls.
+- `env(safe-area-inset-*)` is honoured so notched / gesture-bar devices are never clipped.
 
-## 6. How to extend to other departments (maintainability)
-To give any dashboard the same "always-tappable Add" affordance:
-```php
-<!-- at end of <body>, after the nav include -->
-<button id="primaryFab" class="app-fab" type="button"><i class="fa-solid fa-plus"></i><span id="primaryFabLabel">Add</span></button>
-<script>
-  var map = { 'sectionKey': { label:'Add X', icon:'fa-icon', fn:()=>openXModal() } /* … */ };
-  window.refreshPrimaryFab = function(){
-    var id=(document.querySelector('.sec.act')?.id||'sec-dashboard').replace('sec-','');
-    var m=map[id]; var f=document.getElementById('primaryFab');
-    if(m){ primaryFabLabel.textContent=m.label; f.querySelector('i').className='fa-solid '+m.icon; f.onclick=m.fn; f.style.display=''; }
-    else f.style.display='none';
-  };
-  new MutationObserver(window.refreshPrimaryFab).observe(/* watch the active-section element's class */);
-  window.refreshPrimaryFab();
-</script>
-```
-The CSS (`.app-fab`) is already global, so only the per-department map + observer is needed.
+Implemented centrally in `admin/css/mobile.css` (no per-dashboard duplication); drives
+every department that links `mobile.css`.
 
----
+## 6. How to extend / maintain
+All responsive behaviour lives in two files: `themes/design-system.css` (tokens + z-scale)
+and `admin/css/mobile.css` (app-shell + safe-area). To add a department, give its page
+the same structure (`<body>` flex column → sticky header → `<main>` scroll area →
+in-flow `.wbws-bnav`) and link `mobile.css`. No overlay, padding hack, or JS is needed.
 
 ## 7. Verification status
 - PHP runtime unavailable in this environment → not executed live.

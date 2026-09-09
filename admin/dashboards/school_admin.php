@@ -258,7 +258,7 @@ select.inp{cursor:pointer}
 @media(max-width:768px){aside{display:none}main{max-width:100%;padding:1rem .85rem 5rem}.bn{display:block}.sg{grid-template-columns:repeat(2,1fr);gap:.5rem}.sc .val{font-size:1.1rem}.two-col{grid-template-columns:1fr!important}.three-col{grid-template-columns:1fr!important}.search-box{width:100%}.topbar{flex-direction:column;align-items:stretch}.topbar-right{justify-content:flex-end}.dept-grid{grid-template-columns:1fr 1fr}}
 @media print{aside,.bn,.no-print,.topbar-right{display:none!important}main{max-width:100%;padding:0}body{background:#fff;color:#000}body::before{display:none}.sc,.cd{border:1px solid #ddd;background:#fff;color:#000}.sc .val,.ct{color:#000}}
 </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
@@ -825,7 +825,7 @@ function exportMemberPDF(m){
     table.f{width:100%;border-collapse:collapse}table.f td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:10pt}
     .lbl{color:#6b7280;font-size:8pt;text-transform:uppercase;letter-spacing:0.5px;display:block}.val{color:#111827;font-weight:500}
     .footer{margin-top:16px;padding-top:6px;border-top:2px solid #16a34a;color:#94a3b8;font-size:8pt;text-align:center}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css">
 </head><body>
     <div class="toolbar no-print"><button class="btn-g" onclick="window.print()">🖨️ Print / Save as PDF</button><button class="btn-o" onclick="window.close()">← Close</button><span style="color:#64748b;font-size:11px;margin-left:8px">Tip: Select "Save as PDF" in print dialog</span></div>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Profile</h1><p>Official Member Record • Generated: ${genStamp()}</p></div>
@@ -859,7 +859,7 @@ function exportMemberWord(m){
     table.fields{width:100%;border-collapse:collapse;font-size:10pt}table.fields td{padding:5px 8px;border-bottom:1px solid #f3f4f6}
     .label{color:#6b7280;font-size:8pt;text-transform:uppercase;letter-spacing:0.5px}.value{color:#111827;font-weight:500;font-size:10pt}
     .footer{margin-top:16px;padding-top:8px;border-top:2px solid #16a34a;color:#9ca3af;font-size:8pt;text-align:center}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css">
 </head><body>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> Member Profile</h1><p><?= SCHOOL_TAGLINE ?> — Official Record</p></div>
     <div class="profile-card"><div class="avatar">${(m.student_name||'?')[0].toUpperCase()}</div><div>
@@ -973,7 +973,7 @@ function exportPDFPro(data){
     .status{padding:2px 6px;border-radius:8px;font-size:7pt;font-weight:600}
     .s-active{background:#d1fae5;color:#065f46}.s-warning{background:#fef3c7;color:#92400e}.s-inactive{background:#fee2e2;color:#991b1b}
     .footer{text-align:center;padding:8px;font-size:7pt;color:#94a3b8;border-top:2px solid #16a34a;margin-top:10px}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css">
 </head><body>
     <div class="toolbar no-print"><button class="btn-g" onclick="window.print()">🖨️ Print / Save as PDF</button><button class="btn-o" onclick="window.close()">← Close</button><span style="color:#64748b;font-size:11px;margin-left:8px">Tip: In print dialog, select "Save as PDF"</span></div>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Report</h1>
@@ -1029,7 +1029,7 @@ function exportWordPro(data){
     .badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:6.5pt;font-weight:600}
     .bg-active{background:#d1fae5;color:#065f46}.bg-warning{background:#fef3c7;color:#92400e}.bg-inactive{background:#fee2e2;color:#991b1b}
     .footer{margin-top:20px;padding-top:6px;border-top:2px solid #16a34a;color:#9ca3af;font-size:7pt;text-align:center}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css">
 </head><body>
     <div class="header"><h1>⛪ <?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Report</h1>
     <p>${isFiltered?'Filtered Report: '+data.length+' of '+allMembers.length+' members':'Complete Report: '+data.length+' members'}</p>
@@ -1117,7 +1117,7 @@ function genCustomReport(){
         table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#06b6d4;color:white;padding:6px 10px;text-align:left;font-size:8pt}
         td{padding:5px 10px;border-bottom:1px solid #e5e7eb;font-size:9pt}tr:nth-child(even){background:#f8fafc}
         .footer{margin-top:15px;padding-top:5px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:7pt;text-align:center}
-        </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+        </style><link rel="stylesheet" href="/admin/css/mobile.css">
 </head><body><div class="header"><h1>⛪ ${title}</h1><p>${allMembers.length} members analyzed • ${genDate()}</p></div>
         <table><tr>${h.slice(0,3).map(x=>'<th>'+x+'</th>').join('')}</tr>
         ${r.map((x,i)=>'<tr'+(i%2?' style="background:#f8fafc"':'')+'>'+x.slice(0,3).map(c=>'<td>'+esc(c+'')+'</td>').join('')+'</tr>').join('')}</table>

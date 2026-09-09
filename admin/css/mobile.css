@@ -20,12 +20,6 @@
         -webkit-text-size-adjust: 100% !important;
     }
 
-    /* Reserve scroll space ONLY when a bottom nav is present. Derived from the
-       shared --nav-total token (nav height + device safe-area) so the last row
-       of action buttons can never sit behind the fixed nav. */
-    body:has(.wbws-bnav) {
-        padding-bottom: calc(var(--nav-total, 100px) + 12px) !important;
-    }
 
     /* ── HIDE SIDEBARS ── */
     aside,
@@ -46,7 +40,7 @@
         margin-left: 0 !important;
         max-width: 100vw !important;
         width: 100% !important;
-        padding: 0.75rem 0.75rem calc(var(--nav-total, 100px) + 1rem) !important;
+        padding: 0.75rem 0.75rem var(--space-4) !important;
     }
 
     /* ── ALL MULTI-COLUMN GRIDS → STACK ── 
@@ -526,8 +520,8 @@
 @media (max-width: 768px) {
     .wbws-bnav {
         display: block;
-        position: fixed;
-        bottom: 0;
+        position: relative;
+        bottom: auto;
         left: 0;
         right: 0;
         z-index: var(--z-nav);
@@ -709,34 +703,51 @@ body:has(.school-bottom-nav) .mm-footer { bottom: var(--nav-total, 100px); }
     }
 }
 /* ═══════════════════════════════════════════════════
-   PRIMARY ACTION FAB  (Google Material 3 / Meta pattern)
-   A contextual "Add" affordance that floats ABOVE the bottom
-   navigation bar (higher elevation), so the most common create
-   action is ALWAYS tappable and can never be hidden by the nav.
-   Hidden on desktop (sidebar/inline controls are used there).
+   MOBILE APP-SHELL  (correct layout — bottom nav is IN FLOW, never an overlay)
+   - body is a flex column bounded to the dynamic viewport (100dvh)
+   - the scrollable <main> lives between a sticky top bar and the bottom nav
+   - the nav is a normal flex item, so it CANNOT overlap content
+     (no magic padding, no z-index battles, no JS overlays)
+   - honours safe-area insets for notched / gesture-bar devices
    ═══════════════════════════════════════════════════ */
-.app-fab { display: none; }
 @media (max-width: 768px) {
-    .app-fab {
-        display: inline-flex;
-        position: fixed;
-        right: 1rem;
-        bottom: calc(var(--nav-total, 100px) + 1rem);
-        z-index: var(--z-fab);
-        align-items: center;
-        gap: .5rem;
-        height: 56px;
-        padding: 0 1.25rem;
-        border: none;
-        border-radius: 28px;
-        background: linear-gradient(135deg, #7c3aed, #6366f1);
-        color: #fff;
-        font-size: .9rem;
-        font-weight: 600;
-        cursor: pointer;
-        box-shadow: 0 8px 24px rgba(124, 58, 237, .45);
-        transition: transform .15s, box-shadow .15s;
+    html { height: 100%; }
+    body {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100dvh !important;
+        height: 100svh !important;
+        height: 100vh !important;
+        overflow: hidden !important;
+        margin: 0 !important;
     }
-    .app-fab:active { transform: scale(.96); }
-    .app-fab i { font-size: 1.1rem; }
+    /* The page wrapper (sidebar + main) becomes the middle scroll-host region */
+    div[style*="min-height:100vh"],
+    div[style*="min-height: 100vh"],
+    [class*="h-screen"] {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        display: flex !important;
+        overflow: hidden !important;
+    }
+    .wbws-mob-header {
+        position: sticky;
+        top: 0;
+        flex: 0 0 auto;
+        z-index: var(--z-header);
+    }
+    main, .main, .content, .app-main {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+        padding: 0.75rem 0.75rem var(--space-4) !important;
+    }
+    .wbws-bnav {
+        position: relative !important;   /* in normal flow, not fixed/overlay */
+        bottom: auto !important;
+        flex: 0 0 auto !important;
+        z-index: var(--z-nav);
+    }
+    aside, .sidebar, .sb { display: none !important; }
 }

@@ -148,7 +148,7 @@ $csrfToken = generateCsrfToken();
         .assignment-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 <link rel="stylesheet" href="/admin/css/report_card.css?v=20260819c">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>

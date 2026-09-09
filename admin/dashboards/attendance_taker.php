@@ -101,7 +101,7 @@ $csrfToken = generateCsrfToken();
         .class-card { transition: all 0.2s; cursor: pointer; }
         .class-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
+<link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
