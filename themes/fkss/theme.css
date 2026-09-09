@@ -510,20 +510,20 @@ body.light-mode .school-bottom-nav { background: #fff; box-shadow: 0 -2px 8px rg
    ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
     .school-sidebar { display: none; }
-    .school-bottom-nav {
+    body:has(.school-bottom-nav) .school-bottom-nav {
         display: flex !important;
-        position: relative !important;   /* in normal flow, not a fixed overlay */
+        position: relative !important;
         bottom: auto !important;
         flex: 0 0 auto !important;
         z-index: var(--z-nav);
     }
-    .school-topbar {
+    body:has(.school-bottom-nav) .school-topbar {
         padding: calc(0.85rem + var(--safe-top)) 1rem;
         position: sticky; top: 0;
         flex: 0 0 auto;
         z-index: var(--z-header);
     }
-    .school-content {
+    body:has(.school-bottom-nav) .school-content {
         padding: 1rem;
         padding-bottom: var(--space-4) !important;
         flex: 1 1 auto !important;
@@ -531,13 +531,13 @@ body.light-mode .school-bottom-nav { background: #fff; box-shadow: 0 -2px 8px rg
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch;
     }
-    .school-layout {
+    body:has(.school-bottom-nav) .school-layout {
         flex-direction: column;
         flex: 1 1 auto !important;
         min-height: 0 !important;
         overflow: hidden !important;
     }
-    body {
+    body:has(.school-bottom-nav) {
         display: flex !important;
         flex-direction: column !important;
         height: 100dvh !important;

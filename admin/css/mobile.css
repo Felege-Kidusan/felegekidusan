@@ -287,7 +287,7 @@
     [id*="notifPanel"] {
         position: fixed !important;
         top: auto !important;
-        bottom: 74px !important;
+        bottom: calc(var(--nav-total, 90px) + 8px) !important;
         left: 8px !important;
         right: 8px !important;
         width: auto !important;
@@ -703,16 +703,20 @@ body:has(.school-bottom-nav) .mm-footer { bottom: var(--nav-total, 100px); }
     }
 }
 /* ═══════════════════════════════════════════════════
+   /* ═══════════════════════════════════════════════════
    MOBILE APP-SHELL  (correct layout — bottom nav is IN FLOW, never an overlay)
    - body is a flex column bounded to the dynamic viewport (100dvh)
    - the scrollable <main> lives between a sticky top bar and the bottom nav
    - the nav is a normal flex item, so it CANNOT overlap content
      (no magic padding, no z-index battles, no JS overlays)
    - honours safe-area insets for notched / gesture-bar devices
+   - GATED to pages that actually have a bottom nav (body:has(.wbws-bnav)) so
+     standalone pages (login, print, profile) keep normal document scrolling.
    ═══════════════════════════════════════════════════ */
 @media (max-width: 768px) {
     html { height: 100%; }
-    body {
+
+    body:has(.wbws-bnav) {
         display: flex !important;
         flex-direction: column !important;
         height: 100dvh !important;
@@ -721,33 +725,37 @@ body:has(.school-bottom-nav) .mm-footer { bottom: var(--nav-total, 100px); }
         overflow: hidden !important;
         margin: 0 !important;
     }
-    /* The page wrapper (sidebar + main) becomes the middle scroll-host region */
-    div[style*="min-height:100vh"],
-    div[style*="min-height: 100vh"],
-    [class*="h-screen"] {
+    body:has(.wbws-bnav) div[style*="min-height:100vh"],
+    body:has(.wbws-bnav) div[style*="min-height: 100vh"],
+    body:has(.wbws-bnav) [class*="h-screen"] {
         flex: 1 1 auto !important;
         min-height: 0 !important;
         display: flex !important;
         overflow: hidden !important;
     }
-    .wbws-mob-header {
+    body:has(.wbws-bnav) .wbws-mob-header {
         position: sticky;
         top: 0;
         flex: 0 0 auto;
         z-index: var(--z-header);
     }
-    main, .main, .content, .app-main {
+    body:has(.wbws-bnav) main,
+    body:has(.wbws-bnav) .main,
+    body:has(.wbws-bnav) .content,
+    body:has(.wbws-bnav) .app-main {
         flex: 1 1 auto !important;
         min-height: 0 !important;
         overflow-y: auto !important;
         -webkit-overflow-scrolling: touch;
         padding: 0.75rem 0.75rem var(--space-4) !important;
     }
-    .wbws-bnav {
-        position: relative !important;   /* in normal flow, not fixed/overlay */
+    body:has(.wbws-bnav) .wbws-bnav {
+        position: relative !important;
         bottom: auto !important;
         flex: 0 0 auto !important;
         z-index: var(--z-nav);
     }
-    aside, .sidebar, .sb { display: none !important; }
+    body:has(.wbws-bnav) aside,
+    body:has(.wbws-bnav) .sidebar,
+    body:has(.wbws-bnav) .sb { display: none !important; }
 }

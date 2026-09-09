@@ -152,3 +152,7 @@ in-flow `.wbws-bnav`) and link `mobile.css`. No overlay, padding hack, or JS is 
 - PHP runtime unavailable in this environment → not executed live.
 - Verified: `mobile.css` padding now `calc(var(--nav-total)+1rem)`; `.app-fab` present; edu_dept FAB + `MutationObserver` injected; no `5rem` magic number remains for scroll areas; no duplicate `.bn` markup.
 - **Recommended before deploy:** load Education (and teacher/attendance) on a real notched iPhone + an Android edge-to-edge device; confirm (a) the inline "Add Class" button is fully visible at the bottom of the list, and (b) the FAB floats above the tab bar and opens the correct modal per section.
+
+
+### Safety note (regression guard)
+The app-shell is deliberately gated with `body:has(.wbws-bnav)` / `body:has(.school-bottom-nav)` so it only applies on pages that actually have a bottom nav. An earlier pass forced `body` into a non-scrolling flex column on *every* mobile page, which would have made standalone pages (login, print, profile) unscrollable. The `:has()` gate prevents that — modern browsers (iOS 16.4+, Chrome 105+) get the proper shell; older browsers gracefully fall back to normal scrolling.
