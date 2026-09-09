@@ -140,7 +140,7 @@ $csrfToken = generateCsrfToken();
             .topbar{padding:.5rem .8rem}
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
 </head>
 <body>
 

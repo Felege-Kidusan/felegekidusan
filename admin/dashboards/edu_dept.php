@@ -126,7 +126,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 }
 </style>
 <?= wbws_calendar_scripts($conn) ?>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
 <link rel="stylesheet" href="/admin/css/report_card.css?v=20260819c">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>

@@ -263,7 +263,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
             top: 0;
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
 </head>
 <body class="flex flex-col items-center p-6">
 

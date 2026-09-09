@@ -122,7 +122,7 @@ if (isset($conn)) {
         .tab-btn{padding:.5rem 1rem;border-radius:.5rem;font-size:.8rem;font-weight:500;cursor:pointer;border:1px solid transparent;background:transparent;color:#64748b;transition:all .15s}
         .tab-btn.active{background:#dcfce7;color:#166534;border-color:#bbf7d0}
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= filemtime($_SERVER['DOCUMENT_ROOT'] . '/admin/css/mobile.css') ?>">
 </head>
 <body>
     <aside class="sidebar">
