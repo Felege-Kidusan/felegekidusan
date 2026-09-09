@@ -759,3 +759,31 @@ body:has(.school-bottom-nav) .mm-footer { bottom: var(--nav-total, 100px); }
     body:has(.wbws-bnav) .sidebar,
     body:has(.wbws-bnav) .sb { display: none !important; }
 }
+/* Modals must honour notched / gesture-bar safe areas on mobile.
+   Overrides the per-dashboard inline `padding:1rem` (env() resolves to 0 on
+   desktop, so this is a no-op there). */
+.mo {
+    padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+             max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)) !important;
+}
+
+/* ═══════════════════════════════════════════════════
+   MOBILE UX HARDENING  (genuine defects, not cosmetics)
+   ═══════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    /* iOS zooms the whole page when an input/select < 16px is focused.
+       Force the safe size so tapping a field never triggers page zoom. */
+    input, select, textarea { font-size: 16px !important; }
+
+    /* Wide data tables scroll horizontally inside their container instead of
+       blowing out the page width (which would create a horizontal page scroll
+       and cut content off behind the edge). */
+    table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table td, table th { white-space: nowrap; }
+
+    /* Impersonate bar must clear the in-flow bottom nav on both shells. */
+    body:has(.wbws-bnav) #impersonateBar,
+    body:has(.school-bottom-nav) #impersonateBar {
+        bottom: calc(var(--nav-total, 90px) + 8px) !important;
+    }
+}
