@@ -11,6 +11,7 @@ import 'api_service.dart';
 import 'connectivity_service.dart';
 import 'local_db.dart';
 import 'mezmur_download_policy.dart';
+import '../utils/config.dart';
 
 /// ══════════════════════════════════════════════════════════════
 /// P33 — Mezmur offline downloads (the Spotify model)
@@ -80,6 +81,12 @@ class MezmurDownloadManager extends ChangeNotifier {
   int _bytesOnDisk = 0;
   int _doneCount = 0;
 
+  /// P66 hymn art: hymn id → pinned small-rendition file on disk, so
+  /// covers survive offline exactly like the audio does. Filled at
+  /// boot by scanning the audio dir and kept current by
+  /// [_pinArtwork]/[remove].
+  final Map<int, String> _artFiles = {};
+
   // ── public state (widgets just addListener on this) ─────────
 
   bool get wifiOnly => _wifiOnly;
@@ -92,6 +99,12 @@ class MezmurDownloadManager extends ChangeNotifier {
 
   /// 'none' | 'queued' | 'downloading' | 'done' | 'failed' | 'paused'
   String stateOf(int hymnId) => _states[hymnId] ?? 'none';
+
+  /// P66: the pinned artwork file for a hymn, if one is on disk. Sync
+  /// on purpose — list/mini-player art widgets consult it at BUILD time
+  /// and prefer it over the network URL, which is what keeps covers
+  /// visible with zero network.
+  String? artPathFor(int hymnId) => _artFiles[hymnId];
   bool isDownloaded(int hymnId) => stateOf(hymnId) == 'done';
   double progressOf(int hymnId) => _progress[hymnId] ?? 0;
 
@@ -121,6 +134,16 @@ class MezmurDownloadManager extends ChangeNotifier {
     _wifiOnly = prefs.getBool(_prefWifiOnly) ?? true;
     _capMb = prefs.getInt(_prefCapMb) ?? 2048;
     _states.addAll(await _db.downloadStates());
+    // P66: recover the pinned artwork index (files live next to the
+    // audio; the scan is one directory listing at boot).
+    try {
+      final dir = await _audioDir();
+      await for (final e in dir.list()) {
+        final m =
+            RegExp(r'^mz_(\d+)_art\.jpg$').firstMatch(p.basename(e.path));
+        if (m != null) _artFiles[int.parse(m.group(1)!)] = e.path;
+      }
+    } catch (_) {}
     // Anything caught mid-flight by an app kill is re-queued, not lost.
     for (final e in _states.entries.toList()) {
       if (e.value == 'downloading') {
@@ -206,6 +229,10 @@ class MezmurDownloadManager extends ChangeNotifier {
       await _deleteQuietly(File(path));
       await _deleteQuietly(File('$path.part'));
     }
+    // P66: the pinned cover goes with the audio it belongs to.
+    _artFiles.remove(hymnId);
+    await _deleteQuietly(
+        File(p.join((await _audioDir()).path, 'mz_${hymnId}_art.jpg')));
     await _db.deleteDownloadRow(hymnId);
     _states.remove(hymnId);
     _progress.remove(hymnId);
@@ -340,6 +367,42 @@ class MezmurDownloadManager extends ChangeNotifier {
     return path;
   }
 
+  /// P66: fetch the hymn's SMALL artwork rendition (a public immutable
+  /// URL — no presign needed) and store it beside the audio as
+  /// `mz_<id>_art.jpg`, so a downloaded hymn shows its cover with zero
+  /// network. Deliberately best-effort: any failure is swallowed and
+  /// the gradient fallback covers it until the next download of that
+  /// hymn retries the pin.
+  Future<void> _pinArtwork(int hymnId) async {
+    HttpClient? client;
+    try {
+      final row = await _db.getLocalHymn(hymnId);
+      final rel = '${row?['art_url_small'] ?? ''}';
+      if ('${row?['art_status'] ?? ''}' != 'ready' || rel.isEmpty) return;
+      final dest =
+          File(p.join((await _audioDir()).path, 'mz_${hymnId}_art.jpg'));
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
+      final req =
+          await client.getUrl(Uri.parse('${AppConfig.siteOrigin}$rel'));
+      final resp = await req.close();
+      if (resp.statusCode != 200) return;
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in resp) {
+        builder.add(chunk);
+      }
+      final bytes = builder.takeBytes();
+      // Sanity: a 160px JPEG is ~10–40 KB. Refuse the absurd (empty or
+      // huge) rather than pin garbage next to verified audio.
+      if (bytes.length < 256 || bytes.length > 1024 * 1024) return;
+      await dest.writeAsBytes(bytes, flush: true);
+      _artFiles[hymnId] = dest.path;
+    } catch (_) {
+      // Offline cover stays a gradient until the next download.
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
   // ── the queue engine ────────────────────────────────────────
 
   Future<void> _pump() async {
@@ -469,6 +532,9 @@ class MezmurDownloadManager extends ChangeNotifier {
           bytesDone: written,
           bytesTotal: written,
           sha256: digest);
+      // P66: pin the cover art next to the audio (best effort — never
+      // fails or retries the download; the gradient covers a miss).
+      unawaited(_pinArtwork(hymnId));
       await _refreshTotals();
       notifyListeners();
       await _enforceCap();

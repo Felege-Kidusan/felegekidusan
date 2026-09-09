@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 24,
+      version: 25,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -353,6 +353,25 @@ class LocalDb {
           // both indexes together.
           await _createHymnTrigramIndex(db);
         }
+        if (oldVersion < 25) {
+          // P66 hymn art: per-hymn cover images (Spotify-style). The
+          // server stores square 160/320/640 JPEG renditions and a
+          // dominant color; the URLs are immutable per artwork
+          // (?v=<updated_at>), so the cache is safe to keep forever.
+          final colDefs = {
+            "art_status": "TEXT NOT NULL DEFAULT 'none'",
+            'art_color': 'TEXT NULL',
+            'art_url': 'TEXT NULL',
+            'art_url_medium': 'TEXT NULL',
+            'art_url_small': 'TEXT NULL',
+          };
+          for (final e in colDefs.entries) {
+            try {
+              await db.execute(
+                  'ALTER TABLE cached_hymns ADD COLUMN ${e.key} ${e.value}');
+            } catch (_) {}
+          }
+        }
         if (oldVersion < 23) {
           // P38: self-healing index. No rebuild is scheduled here on
           // purpose — the analyzer stamp is left NULL so the check that
@@ -421,7 +440,12 @@ class LocalDb {
         audio_duration_s INTEGER,
         audio_updated_at TEXT,
         lyrics_synced TEXT,
-        lyrics_synced_at TEXT
+        lyrics_synced_at TEXT,
+        art_status TEXT NOT NULL DEFAULT 'none',
+        art_color TEXT,
+        art_url TEXT,
+        art_url_medium TEXT,
+        art_url_small TEXT
       )
     ''');
     await db.execute(
@@ -2194,7 +2218,12 @@ class LocalDb {
               'audio_format',
               'audio_size',
               'audio_duration_s',
-              'audio_updated_at'
+              'audio_updated_at',
+              'art_status',
+              'art_color',
+              'art_url',
+              'art_url_medium',
+              'art_url_small'
             ],
             where: 'id = ?',
             whereArgs: [id],
@@ -2265,6 +2294,17 @@ class LocalDb {
                 h.containsKey('lyrics_synced') ? h['lyrics_synced'] : null,
                 old['lyrics_synced'] as String?),
             'lyrics_synced_at': textPreserve('lyrics_synced_at'),
+            // P66 hymn art: server-authoritative like audio_status —
+            // the fields ride every delta (a probe-guarded server
+            // reports status 'none'), so apply them whenever present;
+            // an ABSENT key (pre-art payload, e.g. an old save echo)
+            // keeps the cached copy. UI renders nothing unless
+            // art_status == 'ready', so a stale URL can never show.
+            'art_status': textPreserve('art_status', 'none') ?? 'none',
+            'art_color': textPreserve('art_color'),
+            'art_url': textPreserve('art_url') ?? '',
+            'art_url_medium': textPreserve('art_url_medium') ?? '',
+            'art_url_small': textPreserve('art_url_small') ?? '',
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );

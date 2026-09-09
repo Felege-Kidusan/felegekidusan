@@ -1134,6 +1134,28 @@
         return h.category ? '<span class="badge badge-info">' + esc(h.category) + '</span>' : '—';
     }
 
+    /** P66 hymn art: the fallback gradient for a hymn without a cover
+     *  image. Same chain as the Flutter app (art image → name-hash
+     *  gradient) so the web console and the member app always agree
+     *  on what a hymn "looks like". */
+    function hymnCoverGradient(h) {
+        return PICK_GRADIENTS[hashCode(String(h.title || h.id || '')) % PICK_GRADIENTS.length];
+    }
+
+    /** P66: list thumbnail — 44px button (click = set/replace art).
+     *  Renders the server's 160px rendition; without art, the
+     *  name-hash gradient + first letter keeps every row scannable. */
+    function hymnArtCell(h) {
+        var ready = h.art_status === 'ready' && h.art_url_small;
+        var style = ready
+            ? ' style="background-image:url(\'' + h.art_url_small + '\')"'
+            : ' style="background:linear-gradient(135deg,' + hymnCoverGradient(h).join(',') + ')"';
+        var label = ready ? '' : esc(String(h.title || '?').trim().charAt(0));
+        return '<button class="mz-art-btn" title="' + (ready ? 'Replace cover art' : 'Set cover art') + '"' +
+            ' aria-label="Cover art for ' + esc(h.title) + '"' + style +
+            ' onclick="Mezmur.mgrArt(' + Number(h.id) + ')">' + label + '</button>';
+    }
+
     /** MZ-12: reset every library filter and reload (empty-state recovery). */
     function clearFilters() {
         lib.search = ''; lib.category = ''; lib.length = ''; lib.language = '';
@@ -1151,7 +1173,7 @@
             // (Carbon/NNG empty-state pattern: reflect what was applied and
             // offer a recovery action). Every active filter counts.
             var filtered = !!(lib.search || lib.category || lib.length || lib.language || lib.categoryId || lib.zemarianId || lib.status === 'archived');
-            tb.innerHTML = '<tr><td colspan="6">' + (filtered
+            tb.innerHTML = '<tr><td colspan="7">' + (filtered
                 ? emptyState('fa-magnifying-glass', 'No matches', 'No hymns match your current search or filters.',
                     '<button class="btn-secondary btn-sm" onclick="Mezmur.clearFilters()"><i class="fa-solid fa-filter-circle-xmark"></i> Clear filters</button>')
                 : emptyState('fa-music', 'No hymns yet', 'Start the library by adding the first hymn.',
@@ -1162,6 +1184,7 @@
             var archived = h.status === 'archived';
             var playing = window.MezmurPlayer && window.MezmurPlayer.currentId && Number(window.MezmurPlayer.currentId()) === Number(h.id);
             return '<tr data-hymn="' + h.id + '" class="' + (archived ? 'mz-archived' : '') + (playing ? ' mz-is-playing' : '') + '">' +
+                '<td style="padding:.65rem .75rem">' + hymnArtCell(h) + '</td>' +
                 '<td style="padding:.65rem .75rem;font-weight:600;color:var(--school-text-bright)">' + hi(h.title) +
                 (h.snippet ? '<div class="text-dim" style="font-size:.72rem;font-weight:400;margin-top:2px">' + hi(h.snippet) + '</div>' : '') + '</td>' +
                 '<td style="padding:.65rem .75rem">' + catBadges(h) + '</td>' +
@@ -1740,6 +1763,35 @@
     }
     var imgPick = { id: 0, file: null, url: '', kind: 'cat' };
 
+    // ── P66 hymn art (per-hymn cover image, Spotify-style) ──────
+    // Set/replace + remove reuse the SAME hardened image dialog the
+    // category/singer covers use (preview → POST); only the action
+    // name and the post-refresh differ.
+    function mgrArt(id) {
+        mgrImage(id, false, true);
+    }
+
+    function mgrArtRemove(id) {
+        sysConfirm('Remove this hymn\'s cover art?', function () {
+            apiPost({ action: 'art_remove', id: id }).then(function (d) {
+                if (d.status !== 'success') { window.toast(d.message || 'Failed.', 'e'); return; }
+                window.toast(d.message || 'Cover art removed.', 's');
+                refreshAfterArtChange(id);
+            }).catch(function () { window.toast('Connection error.', 'e'); });
+        });
+    }
+
+    /** One refresh point after any art mutation: reload the hymn
+     *  table, and if the view modal is open for THIS hymn, re-render
+     *  its hero so the change is visible immediately. */
+    function refreshAfterArtChange(id) {
+        loadList();
+        var modalEl = $('mzViewModal');
+        if (modalEl && modalEl.classList.contains('show') && Number(viewArtId) === Number(id)) {
+            viewHymn(id);
+        }
+    }
+
     function mgrRemoveZemImage(id) {
         sysConfirm('Remove the singer\'s cover image?', function () {
             apiPost({ action: 'zemarian_image_remove', id: id }).then(function (d) {
@@ -1750,19 +1802,23 @@
         });
     }
 
-    function mgrImage(id, zem) {
+    function mgrImage(id, zem, art) {
         var input = $('mzMgrFile');
         if (!input) return;
         input.value = '';
         input.onchange = function () {
             var file = input.files && input.files[0];
             if (!file) return;
-            if (file.size > 2 * 1024 * 1024) {
-                window.toast('Image is larger than 2 MB.', 'e');
+            // P66: hymn art accepts up to 4 MB (the server re-encodes it
+            // to three square JPEG renditions anyway); category/singer
+            // covers keep their 2 MB budget.
+            var capMb = art ? 4 : 2;
+            if (file.size > capMb * 1024 * 1024) {
+                window.toast('Image is larger than ' + capMb + ' MB.', 'e');
                 return;
             }
             // P32: a real preview BEFORE the upload leaves the device.
-            imgPick = { id: id, file: file, url: URL.createObjectURL(file), kind: zem ? 'zem' : 'cat' };
+            imgPick = { id: id, file: file, url: URL.createObjectURL(file), kind: art ? 'art' : (zem ? 'zem' : 'cat') };
             $('mzImgPreviewImg').src = imgPick.url;
             $('mzImgMeta').textContent = file.name + ' · ' +
                 (file.size / 1024).toFixed(0) + ' KB · ' + (file.type || 'image');
@@ -1778,13 +1834,28 @@
             var file = imgPick.file;
             if (!file) { closeModalF('mzImageDialog'); return; }
             var id = imgPick.id;
+            var kind = imgPick.kind; // captured BEFORE the reset below
             closeModalF('mzImageDialog');
             URL.revokeObjectURL(imgPick.url);
             imgPick = { id: 0, file: null, url: '', kind: 'cat' };
+            if (kind === 'art') {
+                // P66 hymn art: no catalog row to gray out — the hymn
+                // table refreshes when the POST settles.
+                var fda = new FormData();
+                fda.append('action', 'art_upload');
+                fda.append('id', id);
+                fda.append('image', file);
+                apiPost(fda).then(function (d) {
+                    if (d.status !== 'success') { window.toast(d.message || 'Upload failed.', 'e'); return; }
+                    window.toast(d.message || 'Cover art updated.', 's');
+                    refreshAfterArtChange(id);
+                }).catch(function () { window.toast('Upload failed — connection error.', 'e'); });
+                return;
+            }
             mgr.uploading = id;
             renderCatalogManager();
             var fd = new FormData();
-            fd.append('action', imgPick.kind === 'zem' ? 'zemarian_image' : 'category_image');
+            fd.append('action', kind === 'zem' ? 'zemarian_image' : 'category_image');
             fd.append('id', id);
             fd.append('image', file);
             apiPost(fd).then(function (d) {
@@ -2169,6 +2240,40 @@
         return out.join('');
     }
 
+    // P66: the hymn the view modal is currently showing (art actions
+    // in the hero need to know it without inline id injection).
+    var viewArtId = 0;
+
+    /** P66: hero banner for the view modal — the hymn's 640px art
+     *  rendition (or its fallback gradient) with the title overlaid,
+     *  plus Set/Remove art buttons (edit parity with the mobile app;
+     *  the server enforces roles either way). */
+    function renderViewArt(h) {
+        viewArtId = Number(h.id) || 0;
+        var el = $('mzViewArt');
+        if (!el) return;
+        var bg;
+        if (h.art_status === 'ready' && h.art_url) {
+            bg = 'background-image:url(\'' + h.art_url + '\')';
+        } else {
+            var g = hymnCoverGradient(h);
+            bg = 'background:linear-gradient(135deg,' + g[0] + ',' + g[1] + ')';
+        }
+        el.setAttribute('style', bg);
+        el.innerHTML =
+            '<div class="mz-view-art-title amharic">' + esc(h.title) + '</div>' +
+            '<div class="mz-view-art-actions">' +
+            '<button class="btn-secondary btn-sm" onclick="Mezmur.viewArtSet()"><i class="fa-solid fa-image"></i> ' +
+            (h.art_status === 'ready' ? 'Replace art' : 'Set art') + '</button>' +
+            (h.art_status === 'ready'
+                ? '<button class="btn-secondary btn-sm" onclick="Mezmur.viewArtRemove()"><i class="fa-solid fa-trash-can"></i> Remove</button>'
+                : '') +
+            '</div>';
+    }
+
+    function viewArtSet() { if (viewArtId) mgrArt(viewArtId); }
+    function viewArtRemove() { if (viewArtId) mgrArtRemove(viewArtId); }
+
     function viewHymn(id) {
         apiGet('action=get&id=' + encodeURIComponent(id)).then(function (d) {
             if (d.status !== 'success' || !d.item) { window.toast(d.message || 'Unable to load this hymn.', 'e'); return; }
@@ -2176,6 +2281,7 @@
             if (h.category) meta += '<span class="badge badge-active">' + esc(h.category) + '</span>';
             if (h.status === 'archived') meta += '<span class="badge badge-inactive">Archived</span>';
             $('mzViewTitle').textContent = h.title;
+            renderViewArt(h);
             $('mzViewMeta').innerHTML = meta;
             $('mzViewLyrics').innerHTML = renderLyrics(h.lyrics);
             openModalF('mzViewModal', null);
@@ -3205,6 +3311,8 @@
         mgrTab: mgrTab, mgrAddMain: mgrAddMain, mgrAddSubOpen: mgrAddSubOpen, mgrAddSub: mgrAddSub, mgrAddZem: mgrAddZem,
         mgrEdit: mgrEdit, mgrSave: mgrSave, mgrCancel: mgrCancel, mgrToggle: mgrToggle, mgrSort: mgrSort, mgrImage: mgrImage,
         mgrToggleOpen: mgrToggleOpen, mgrRemoveZemImage: mgrRemoveZemImage,
+        // P66 hymn art
+        mgrArt: mgrArt, mgrArtRemove: mgrArtRemove, viewArtSet: viewArtSet, viewArtRemove: viewArtRemove,
         mgrColors: mgrColors, closeColorDialog: function () { closeModalF('mzColorDialog'); }, closeImageDialog: function () { URL.revokeObjectURL(imgPick.url); imgPick = { id: 0, file: null, url: '' }; closeModalF('mzImageDialog'); },
         closeModal: function () { closeModalF('mzHymnModal'); },
         // P44 lyric timing editor

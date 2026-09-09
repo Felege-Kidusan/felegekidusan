@@ -680,6 +680,41 @@ select.school-input::placeholder { color: var(--school-text-dim); opacity: 0.9; 
 .mw-420 { max-width: 420px; }
 .mw-520 { max-width: 520px; }
 
+/* ── P66 hymn art: 44px list thumb + view-modal hero banner ──
+   Every hymn can carry its own cover (Spotify-style). The thumb is a
+   BUTTON (click = set/replace art); without art it falls back to the
+   name-hash gradient + initial, so rows stay scannable. The hero uses
+   the 640px rendition with a bottom scrim so the overlaid title is
+   readable over ANY photo (same guarantee as the category covers). */
+.mz-art-btn {
+    width: 44px; height: 44px; border-radius: 10px; border: none; padding: 0; cursor: pointer;
+    overflow: hidden; display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 1.05rem; font-weight: 800;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+    background-size: cover; background-position: center;
+    box-shadow: 0 0 0 1px var(--school-border, #e5e7eb);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.mz-art-btn:hover { transform: scale(1.06); box-shadow: 0 0 0 2px var(--school-accent, #4f46e5); }
+.mz-art-btn:focus-visible { outline: 2px solid var(--school-accent, #4f46e5); outline-offset: 2px; }
+.mz-view-art {
+    position: relative; border-radius: 12px; overflow: hidden; margin: 0 0 .8rem;
+    height: 148px; background-size: cover; background-position: center;
+    display: flex; align-items: flex-end; gap: .4rem;
+}
+.mz-view-art::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, .55));
+}
+.mz-view-art-title {
+    position: relative; flex: 1; min-width: 0; color: #fff; font-weight: 800; font-size: 1.05rem;
+    padding: .6rem .8rem; text-shadow: 0 1px 4px rgba(0, 0, 0, .55);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mz-view-art-actions { position: relative; padding: .55rem .7rem; display: flex; gap: .4rem; flex: 0 0 auto; }
+.mz-view-art-actions .btn-secondary { background: rgba(255, 255, 255, .92); }
+@media (prefers-reduced-motion: reduce) { .mz-art-btn { transition: none; } .mz-art-btn:hover { transform: none; } }
+
 /* ── P0 audio manager (mezmur hymn audio dialog) ───────────── */
 .mz-audio-hymn { font-size: 1rem; font-weight: 800; margin-bottom: .15rem; }
 .mz-audio-sub { font-size: .75rem; margin-bottom: .6rem; }

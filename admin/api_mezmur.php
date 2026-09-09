@@ -61,8 +61,8 @@ set_exception_handler(static function (\Throwable $e): void {
  * error when the deployment is stale (missing migrations / old code).
  * Bump when the mezmur API contract changes.
  */
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy02');
-define('MEZMUR_SCHEMA_MIN', 38); // highest migration the mezmur module relies on (038 = audio media)
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase7-art01');
+define('MEZMUR_SCHEMA_MIN', 40); // highest migration the mezmur module relies on (040 = hymn art)
 
 function mezmur_respond(array $payload, int $code = 200): void
 {
@@ -95,7 +95,7 @@ $action  = $_REQUEST['action'] ?? '';
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 
 // State-changing actions must arrive via POST (CSRF-protected above).
-$__postActions = ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove', 'audio_presign', 'audio_confirm', 'audio_remove', 'audio_set_duration', 'lyrics_synced_save'];
+$__postActions = ['save', 'set_status', 'save_sheet', 'day_create', 'submission_review', 'migrate', 'save_category', 'category_status', 'category_image', 'category_image_remove', 'save_zemarian', 'zemarian_status', 'zemarian_image', 'zemarian_image_remove', 'art_upload', 'art_remove', 'audio_presign', 'audio_confirm', 'audio_remove', 'audio_set_duration', 'lyrics_synced_save'];
 if (in_array($action, $__postActions, true) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     mezmur_respond(['status' => 'error', 'message' => 'Use POST for this action.']);
 }
@@ -111,11 +111,16 @@ require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 require_once __DIR__ . '/backend/services/MezmurHymnService.php';
 require_once __DIR__ . '/backend/services/MezmurMediaService.php';
+// P66 hymn art — the local-disk art plane (uploads/mezmur_art/…).
+// The web controller declares this dependency explicitly (defense in
+// depth): art_upload/art_remove below call it directly.
+require_once __DIR__ . '/backend/services/MezmurArtService.php';
 
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
 use App\Services\MezmurHymnService;
 use App\Services\MezmurMediaService;
+use App\Services\MezmurArtService;
 
 // ── 5. Rate limiting (per user; DB-backed with file fallback) ─
 $__rl = new \App\Services\SecurityRateLimiter(
@@ -202,6 +207,8 @@ try {
                     'lyrics_synced'     => 'sql/038_mezmur_audio_media.sql',
                     'lyrics_synced_at'  => 'sql/038_mezmur_audio_media.sql',
                     'lyrics_synced_by'  => 'sql/038_mezmur_audio_media.sql',
+                    'art_key'           => 'sql/040_mezmur_hymn_art.sql',
+                    'art_status'        => 'sql/040_mezmur_hymn_art.sql',
                     'revision'          => 'sql/025_mezmur_hymn_offline.sql',
                     'updated_by'        => 'sql/021_mezmur_department.sql',
                 ],
@@ -657,6 +664,36 @@ try {
 
         case 'zemarian_image_remove': {
             $result = MezmurHymnService::removeZemarianImage(
+                $conn,
+                (int)($_POST['id'] ?? 0),
+                $adminId
+            );
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond(['status' => 'success', 'message' => $result['message']]);
+        }
+
+        // ── HYMN ART (P66 "Spotify-style" per-hymn covers) ───
+        // Local-disk renditions + server-extracted dominant color; the
+        // mobile mirror of these actions lives in api/v1/routes/mezmur.php
+        // under /mezmur/art and /mezmur/art-remove. Same MezmurArtService,
+        // same validator, same audit trail on both doors.
+        case 'art_upload': {
+            $result = MezmurArtService::uploadArt(
+                $conn,
+                (int)($_POST['id'] ?? 0),
+                $_FILES['image'] ?? [],
+                $adminId
+            );
+            if (!$result['ok']) mezmur_respond(['status' => 'error', 'message' => $result['message']]);
+            mezmur_respond([
+                'status' => 'success',
+                'message' => $result['message'],
+                'art' => $result['art'] ?? null,
+            ]);
+        }
+
+        case 'art_remove': {
+            $result = MezmurArtService::removeArt(
                 $conn,
                 (int)($_POST['id'] ?? 0),
                 $adminId

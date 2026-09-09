@@ -9,10 +9,10 @@
  *   - code updates arrive (cron git reset) while SQL migrations lag.
  *
  * This service knows the exact column contract every mezmur query
- * relies on — through migration 038 inclusive (audio media + synced
- * lyrics). report() lists the drift; apply() closes it with guarded,
- * idempotent ALTER/CREATE statements (safe to run any number of times).
- * Exposed via action=schema (GET, report) and action=migrate
+ * relies on — through migration 040 inclusive (audio media + synced
+ * lyrics + hymn art). report() lists the drift; apply() closes it with
+ * guarded, idempotent ALTER/CREATE statements (safe to run any number
+ * of times). Exposed via action=schema (GET, report) and action=migrate
  * (POST + CSRF, apply) in admin/api_mezmur.php, and via ?diag=2.
  */
 
@@ -46,6 +46,17 @@ final class MezmurSchemaReconciler
             'lyrics_synced'     => "LONGTEXT DEFAULT NULL",
             'lyrics_synced_at'  => "DATETIME DEFAULT NULL",
             'lyrics_synced_by'  => "INT UNSIGNED DEFAULT NULL",
+            // 040 (P66): hymn art — per-hymn cover image plane on LOCAL
+            // disk (uploads/mezmur_art/…), NOT on R2. art_key is the
+            // relative path PREFIX of the three renditions; URLs are
+            // rebuilt from it at read time and version-tagged with
+            // art_updated_at. art_color is the server-extracted
+            // dominant color (#rrggbb) for UI theming.
+            'art_key'         => "VARCHAR(255) DEFAULT NULL",
+            'art_status'      => "ENUM('none','pending','ready','rejected') NOT NULL DEFAULT 'none'",
+            'art_color'       => "CHAR(7) DEFAULT NULL",
+            'art_uploaded_by' => "INT UNSIGNED DEFAULT NULL",
+            'art_updated_at'  => "DATETIME DEFAULT NULL",
         ],
         'mezmur_categories' => [
             'name'       => "VARCHAR(50) NOT NULL",

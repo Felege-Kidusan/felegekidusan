@@ -170,17 +170,25 @@ class ParchmentScaffold extends StatelessWidget {
   final Widget? topWash;
   final Widget? bottomWash;
 
+  /// P66 hymn art: optional artwork backdrop painted OVER the parchment
+  /// scroll. It must be transparent while loading and on error (see the
+  /// player's _ArtBackdrop) so the painted artwork always shows through
+  /// whenever a hymn has no art of its own.
+  final Widget? artBackdrop;
+
   const ParchmentScaffold({
     super.key,
     required this.child,
     this.topWash,
     this.bottomWash,
+    this.artBackdrop,
   });
 
   @override
   Widget build(BuildContext context) {
     final t = topWash;
     final b = bottomWash;
+    final art = artBackdrop;
     return Scaffold(
       backgroundColor: Parchment.ink,
       body: Stack(
@@ -191,6 +199,10 @@ class ParchmentScaffold extends StatelessWidget {
             fit: BoxFit.cover,
             gaplessPlayback: true,
           ),
+          // P66: the hymn's own art (blurred + scrimmed by the caller)
+          // floods the screen Spotify-style; the parchment stays under
+          // it as the guaranteed-readable base layer.
+          if (art != null) Positioned.fill(child: art),
           // Restrained washes at the extreme edges only — never over the
           // bright writing panel in the middle.
           if (t != null)

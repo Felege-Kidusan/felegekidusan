@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -407,6 +408,73 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
       context,
       rows: _items,
       hymnId: _asInt(h['id']),
+    );
+  }
+
+  /// P66: the hymn's own cover art (Spotify-style), shown as a rounded
+  /// square in the library list. Decode at display size (cacheWidth ≈
+  /// 3× the 44px tile) — never the full 640px rendition — and fall
+  /// back to the SAME name-hash gradient the web console shows, so a
+  /// hymn looks identical on every screen before art is uploaded.
+  ///
+  /// A downloaded hymn prefers its PINNED local file (see the download
+  /// manager) so the cover survives zero-network use; a corrupt pin
+  /// falls through to the network rendition, not a blank square.
+  Widget _hymnArtLeading(Map<String, dynamic> h) {
+    final archived = '${h['status']}' == 'archived';
+    final art = '${h['art_url_small'] ?? ''}';
+    final ready = '${h['art_status'] ?? 'none'}' == 'ready' && art.isNotEmpty;
+    final colors = hymnCoverColors(h, '${h['title']}');
+    Widget fallback() => DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: colors,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: archived
+                ? const Icon(Icons.archive_outlined,
+                    size: 18, color: Colors.white)
+                : Text(
+                    ('${h['title'] ?? ''}').trim().isNotEmpty
+                        ? ('${h['title']}').trim().substring(0, 1)
+                        : '?',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16),
+                  ),
+          ),
+        );
+    Widget network() => Image.network(
+          '${AppConfig.siteOrigin}$art',
+          fit: BoxFit.cover,
+          cacheWidth: 132,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => fallback(),
+        );
+    final pinned = MezmurDownloadManager.instance
+        .artPathFor(_asInt(h['id']));
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: !ready
+            ? fallback()
+            : (pinned != null
+                ? Image.file(
+                    File(pinned),
+                    fit: BoxFit.cover,
+                    cacheWidth: 132,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, __, ___) => network(),
+                  )
+                : network()),
+      ),
     );
   }
 
@@ -960,13 +1028,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
                 onTap: () => _openPlayer(h),
-                leading: CircleAvatar(
-                  backgroundColor: AppTheme.primary.withOpacity(0.1),
-                  child: Icon(
-                      archived ? Icons.archive_outlined : Icons.music_note,
-                      size: 18,
-                      color: AppTheme.primary),
-                ),
+                leading: _hymnArtLeading(h),
                 // P37: highlight the matched part of the title too —
                 // Telegram emphasises the hit wherever it occurs, which
                 // is what makes a long result list scannable.

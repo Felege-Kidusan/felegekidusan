@@ -7,6 +7,7 @@ import '../../services/app_navigator.dart';
 import '../../services/mezmur_audio_player.dart';
 import '../../services/mezmur_download_manager.dart';
 import '../../services/lyrics_reader_settings.dart';
+import '../../utils/config.dart';
 import 'mezmur_lyrics_screen.dart';
 import 'parchment_style.dart';
 
@@ -486,6 +487,13 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlay,
       child: ParchmentScaffold(
+        // P66 hymn art: when the hymn being viewed carries its own
+        // artwork, a blurred, cream-scrimmed rendition floods the player
+        // (Spotify's "color as emotional infrastructure" — the hymn's
+        // own colors set the mood). The painted parchment stays painted
+        // underneath and shows whenever art is absent, still loading or
+        // failed, so the design never breaks.
+        artBackdrop: _artBackdrop(),
         child: LayoutBuilder(builder: (context, box) {
           final h = box.maxHeight;
           final w = box.maxWidth;
@@ -535,6 +543,17 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
           );
         }),
       ),
+    );
+  }
+
+  /// P66: the art backdrop for the CURRENT hymn (null when it has no
+  /// artwork — the painted parchment scroll then shows, as before).
+  Widget? _artBackdrop() {
+    final t = _view;
+    if (!t.hasArt) return null;
+    return _ArtBackdrop(
+      url: '${AppConfig.siteOrigin}${t.artUrl}',
+      colorString: t.artColor,
     );
   }
 
@@ -810,6 +829,69 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// P66: full-screen hymn-art backdrop — the 640px rendition, blurred
+/// heavily and veiled by a translucent CREAM scrim (the same tone the
+/// glass transport panel uses), so the sepia ink and bronze controls
+/// keep their designed contrast over ANY photograph. A light tint of
+/// the server-extracted dominant color lets the hymn's own mood color
+/// the screen without ever fighting the text.
+///
+/// MUST stay transparent while the image loads and on error (the
+/// painted parchment underneath is the guaranteed-readable base).
+class _ArtBackdrop extends StatelessWidget {
+  final String url;
+
+  /// '#rrggbb' dominant color from the server, or null.
+  final String? colorString;
+
+  const _ArtBackdrop({required this.url, this.colorString});
+
+  static Color? _hex(dynamic v) {
+    final m = RegExp(r'^#([0-9a-fA-F]{6})$').firstMatch('${v ?? ''}');
+    if (m == null) return null;
+    return Color(int.parse(m.group(1)!, radix: 16) | 0xFF000000);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = _hex(colorString);
+    return RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            url,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            // Transparent until decoded — never a grey box over the
+            // parchment (progress == null once the image is ready).
+            loadingBuilder: (context, child, progress) =>
+                progress == null ? child : const SizedBox.shrink(),
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  // Same cream the _GlassPanel floats on (60% over
+                  // arbitrary content) — the readability guarantee.
+                  color: const Color(0x99F6E7C8),
+                ),
+              ),
+            ),
+          ),
+          if (tint != null)
+            Positioned.fill(
+              child: ColoredBox(
+                  color: tint.withValues(alpha: 0.16)),
+            ),
+        ],
       ),
     );
   }

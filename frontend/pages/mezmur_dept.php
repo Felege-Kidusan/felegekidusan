@@ -277,6 +277,7 @@ ob_start();
                         <table>
                             <thead>
                                 <tr>
+                                    <th class="th-cover" aria-label="Cover art">Art</th>
                                     <th>Title</th>
                                     <th>Category</th>
                                     <th>Updated</th>
@@ -284,7 +285,7 @@ ob_start();
                                 </tr>
                             </thead>
                             <tbody id="mzTbody">
-                                <tr><td colspan="6"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
+                                <tr><td colspan="7"><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div><div class="skeleton-row"><div class="skeleton"></div><div class="skeleton"></div></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -692,6 +693,10 @@ ob_start();
             <h3 id="mzViewTitle"><i class="fa-solid fa-book-open"></i> Hymn</h3>
             <button class="btn-secondary btn-sm" onclick="Mezmur.closeView()" aria-label="Close dialog"><i class="fa-solid fa-xmark"></i></button>
         </div>
+        <!-- P66: hymn art hero — mezmur.js fills the background (art
+             rendition or fallback gradient), title overlay and the
+             Set/Replace/Remove art buttons. -->
+        <div id="mzViewArt" class="mz-view-art" aria-hidden="true"></div>
         <div id="mzViewMeta" class="toolbar"></div>
         <pre class="amharic lyrics-view" id="mzViewLyrics"></pre>
     </div>

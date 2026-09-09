@@ -112,6 +112,15 @@ chmod 755 admin/uploads admin/uploads/members admin/uploads/members/photos \
           'idx_members_archive_type_id','ft_members_directory');
          SHOW INDEX FROM class_enrollments
          WHERE Key_name = 'idx_ce_member_year_status_id';
+[ ] 4.6  (P66 hymn art — release phase7-art01) Run
+         sql/040_mezmur_hymn_art.sql (guarded and idempotent — safe on a
+         live database, old or new code keeps working either way because
+         every reader is probe-guarded). It adds the five art_* columns to
+         mezmur_hymns plus idx_mz40_art_status. The Mezmur console's
+         "Sync DB schema" button applies the same columns. Verify with
+         admin/api_mezmur.php?action=ping — it must report
+         code_version phase7-art01 with no missing_columns. Full design:
+         docs/mezmur_player/HYMN_ART_P66.md.
 ```
 
 ---

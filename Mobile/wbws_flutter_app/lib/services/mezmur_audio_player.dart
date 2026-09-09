@@ -11,6 +11,7 @@ import 'mezmur_download_manager.dart';
 import 'mezmur_playback_policy.dart';
 import 'mezmur_queue_window.dart';
 import 'mezmur_transport_gate.dart';
+import '../utils/config.dart';
 
 /// P0 mezmur — a single mezmur hymn that can be played.
 class MezmurTrack {
@@ -23,6 +24,15 @@ class MezmurTrack {
   final String? lyrics;
   final String? lyricsSynced;
 
+  // P66 hymn art — per-hymn cover (Spotify-style). Relative URLs as the
+  // server sends them (immutable per artwork, ?v= version tag); build
+  // absolute ones with AppConfig.siteOrigin where a widget needs them.
+  final String artStatus;
+  final String? artColor;
+  final String artUrl;
+  final String artUrlMedium;
+  final String artUrlSmall;
+
   const MezmurTrack({
     required this.hymnId,
     required this.title,
@@ -32,7 +42,17 @@ class MezmurTrack {
     this.durationSeconds,
     this.lyrics,
     this.lyricsSynced,
+    this.artStatus = 'none',
+    this.artColor,
+    this.artUrl = '',
+    this.artUrlMedium = '',
+    this.artUrlSmall = '',
   });
+
+  /// P66: whether this hymn HAS cover art. Mirrors hasAudio's rule —
+  /// trust the authoritative status field, not URL presence.
+  bool get hasArt =>
+      artStatus.trim().toLowerCase() == 'ready' && artUrlSmall.isNotEmpty;
 
   /// P36: whether this hymn HAS audio — the honest playability signal.
   ///
@@ -68,10 +88,23 @@ class MezmurTrack {
       lyrics: row['lyrics'] is String ? row['lyrics'] as String : null,
       lyricsSynced:
           row['lyrics_synced'] is String ? row['lyrics_synced'] as String : null,
+      // P66: absent keys (pre-art caches/echoes) degrade to 'none'/''.
+      artStatus: '${row['art_status'] ?? 'none'}',
+      artColor: row['art_color'] is String ? row['art_color'] as String : null,
+      artUrl: '${row['art_url'] ?? ''}',
+      artUrlMedium: '${row['art_url_medium'] ?? ''}',
+      artUrlSmall: '${row['art_url_small'] ?? ''}',
     );
   }
 
-  MezmurTrack copyWith({String? audioUrl}) => MezmurTrack(
+  MezmurTrack copyWith(
+          {String? audioUrl,
+          String? artStatus,
+          String? artColor,
+          String? artUrl,
+          String? artUrlMedium,
+          String? artUrlSmall}) =>
+      MezmurTrack(
         hymnId: hymnId,
         title: title,
         audioUrl: audioUrl ?? this.audioUrl,
@@ -80,6 +113,11 @@ class MezmurTrack {
         durationSeconds: durationSeconds,
         lyrics: lyrics,
         lyricsSynced: lyricsSynced,
+        artStatus: artStatus ?? this.artStatus,
+        artColor: artColor ?? this.artColor,
+        artUrl: artUrl ?? this.artUrl,
+        artUrlMedium: artUrlMedium ?? this.artUrlMedium,
+        artUrlSmall: artUrlSmall ?? this.artUrlSmall,
       );
 
   /// True when a hymn row is verified-ready AND has a public URL — the two
@@ -90,6 +128,11 @@ class MezmurTrack {
 
   /// Media metadata shown in the lock screen / notification.
   MediaItem toMediaItem() {
+    // P66: lock-screen/notification art — the system cache fetches the
+    // 320px rendition once (immutable URL, ?v= version tag).
+    final art = artUrlMedium.isNotEmpty
+        ? Uri.tryParse('${AppConfig.siteOrigin}$artUrlMedium')
+        : null;
     return MediaItem(
       id: 'mz-$hymnId',
       title: title.isEmpty ? 'መዝሙር $hymnId' : title,
@@ -98,6 +141,7 @@ class MezmurTrack {
       duration: durationSeconds == null
           ? null
           : Duration(seconds: durationSeconds!),
+      artUri: (artStatus.trim().toLowerCase() == 'ready') ? art : null,
     );
   }
 }

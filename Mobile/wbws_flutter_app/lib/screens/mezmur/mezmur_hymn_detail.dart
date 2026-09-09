@@ -1,10 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/hymn_store.dart';
 import '../../services/local_db.dart';
 import '../../services/mezmur_audio_player.dart';
+import '../../services/mezmur_download_manager.dart';
+import '../../utils/config.dart';
+import '../../utils/cover_palette.dart';
 import '../../utils/theme.dart';
 import '../../widgets/loading_skeleton.dart';
 import 'mezmur_hymn_editor.dart';
@@ -25,9 +31,11 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
   final _store = HymnStore();
   final _api = ApiService();
   final _db = LocalDb();
+  final _picker = ImagePicker();
 
   Map<String, dynamic>? _hymn;
   bool _fetchingLyrics = false;
+  bool _uploadingArt = false;
   List<Map<String, dynamic>> _cats = [];
   List<Map<String, dynamic>> _zems = [];
 
@@ -99,6 +107,170 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
 
   int _asInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
 
+  // ── P66 hymn art: hero cover + edit parity with the web console ──
+
+  /// Full-width hero: the hymn's own 640px art rendition (pinned local
+  /// copy first when downloaded), the name-hash gradient before art
+  /// exists. Curators get Set/Replace + Remove right on the cover.
+  Widget _buildArtHero(Map<String, dynamic> h) {
+    final art = '${h['art_url'] ?? ''}';
+    final hasArt = '${h['art_status'] ?? 'none'}' == 'ready' && art.isNotEmpty;
+    final colors = hymnCoverColors(h, '${h['title'] ?? ''}');
+    Widget gradient() => DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: colors,
+            ),
+          ),
+          child: const SizedBox.expand(),
+        );
+    Widget image() => Image.network(
+          '${AppConfig.siteOrigin}$art',
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => gradient(),
+        );
+    final pinned = MezmurDownloadManager.instance
+        .artPathFor(_asInt(h['id']));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        height: 184,
+        width: double.infinity,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (!hasArt)
+              gradient()
+            else if (pinned != null)
+              Image.file(File(pinned),
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, __, ___) => image())
+            else
+              image(),
+            // Bottom scrim so the action chips read over any photo.
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Color(0x66000000)],
+                  stops: [0.55, 1],
+                ),
+              ),
+            ),
+            if (_uploadingArt)
+              const Center(
+                child: SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.4, color: Colors.white)),
+              ),
+            if (_store.canEdit && !_uploadingArt)
+              Positioned(
+                bottom: 8,
+                right: 8,
+                child: Row(children: [
+                  Material(
+                    color: Colors.black45,
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      tooltip: hasArt ? 'Replace cover art' : 'Set cover art',
+                      icon: const Icon(Icons.photo_camera_outlined,
+                          size: 18, color: Colors.white),
+                      onPressed: _pickArt,
+                    ),
+                  ),
+                  if (hasArt) ...[
+                    const SizedBox(width: 6),
+                    Material(
+                      color: Colors.black45,
+                      shape: const CircleBorder(),
+                      child: IconButton(
+                        tooltip: 'Remove cover art',
+                        icon: const Icon(Icons.delete_outline,
+                            size: 18, color: Colors.white),
+                        onPressed: _confirmRemoveArt,
+                      ),
+                    ),
+                  ],
+                ]),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickArt() async {
+    final h = _hymn;
+    if (h == null) return;
+    final id = _asInt(h['id']);
+    if (id <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'This hymn is still syncing — go online once, then add the cover art.'),
+        duration: Duration(seconds: 3),
+      ));
+      return;
+    }
+    if (!ConnectivityService().hasLink) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Go online once to upload the cover art.'),
+        duration: Duration(seconds: 2),
+      ));
+      return;
+    }
+    final picked = await _picker.pickImage(
+        source: ImageSource.gallery, maxWidth: 1600, maxHeight: 1600);
+    if (picked == null) return;
+    // P36: the gallery backgrounds the app and Android may recreate the
+    // activity, so this screen can be gone by the time the picker returns.
+    if (!mounted) return;
+    setState(() => _uploadingArt = true);
+    final err = await _store.setHymnArt(id, picked.path);
+    if (!mounted) return;
+    setState(() => _uploadingArt = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? 'Cover art updated.'),
+      duration: Duration(seconds: err == null ? 2 : 3),
+    ));
+  }
+
+  Future<void> _confirmRemoveArt() async {
+    final h = _hymn;
+    if (h == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove cover art?'),
+        content: const Text(
+            'The hymn will fall back to its automatic gradient color.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _uploadingArt = true);
+    final err = await _store.removeHymnArt(_asInt(h['id']));
+    if (!mounted) return;
+    setState(() => _uploadingArt = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? 'Cover art removed.'),
+      duration: Duration(seconds: err == null ? 2 : 3),
+    ));
+  }
+
   Future<void> _edit() async {
     final h = _hymn;
     if (h == null) return;
@@ -157,7 +329,10 @@ class _MezmurHymnDetailState extends State<MezmurHymnDetailScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const SizedBox(height: 8),
+                // P66: the hymn's own cover hero (gradient until art
+                // is uploaded; curators can set it right here).
+                _buildArtHero(h),
+                const SizedBox(height: 14),
                 // P0 audio: a ready hymn opens the parchment player.
                 if (MezmurTrack.audioReady(h)) ...[
                   _PlayTile(

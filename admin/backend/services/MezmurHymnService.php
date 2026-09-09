@@ -24,6 +24,9 @@ namespace App\Services;
 // writer, not a courtesy of the caller.
 require_once __DIR__ . '/SecurityAuditService.php';
 require_once __DIR__ . '/MezmurMediaService.php';
+// P66 hymn art: local-disk art plane; readers below merge its payload
+// through the same decoration point as audio metadata.
+require_once __DIR__ . '/MezmurArtService.php';
 
 final class MezmurHymnService
 {
@@ -112,7 +115,8 @@ final class MezmurHymnService
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
         $media = self::mediaColsExpr($conn);
-        $selectBase = "SELECT id, title, category, status, $rev, $tax, $media, updated_at FROM mezmur_hymns WHERE ";      
+        $art = \App\Services\MezmurArtService::artColsExpr($conn);
+        $selectBase = "SELECT id, title, category, status, $rev, $tax, $media, $art, updated_at FROM mezmur_hymns WHERE ";
 
         $items = [];
         if ($search !== '') {
@@ -263,8 +267,9 @@ final class MezmurHymnService
         $rev = self::revisionExpr($conn);
         $tax = self::taxonomyCols($conn);
         $media = self::mediaColsExpr($conn);
+        $art = \App\Services\MezmurArtService::artColsExpr($conn);
         $synced = self::syncedColExpr($conn);
-        $stmt = $conn->prepare("SELECT id, title, category, lyrics, $synced, status, $rev, $tax, $media, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
+        $stmt = $conn->prepare("SELECT id, title, category, lyrics, $synced, status, $rev, $tax, $media, $art, created_at, updated_at FROM mezmur_hymns WHERE id = ?");
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $item = $stmt->get_result()->fetch_assoc();
@@ -374,7 +379,11 @@ final class MezmurHymnService
     /** Merge the media payload (audio_url from key) into a hymn row. */
     private static function applyMedia(array $item): array
     {
-        return \App\Services\MezmurMediaService::decorateRow($item);
+        $item = \App\Services\MezmurMediaService::decorateRow($item);
+        // P66: art is decorated at the SAME single point, so list, get
+        // and the delta cursor all expose it identically; art_key is
+        // stripped inside the art decorator (never leaves the server).
+        return \App\Services\MezmurArtService::decorateRow($item);
     }
 
     /**
@@ -1488,6 +1497,10 @@ final class MezmurHymnService
         $lyricsCol = $includeLyrics ? 'lyrics' : "'' AS lyrics";
         $taxCols = self::taxonomyCols($conn);
         $mediaCols = self::mediaColsExpr($conn);
+        // P66 hymn art: art fields ride the SAME delta cursor (art
+        // changes bump updated_at + revision like every other edit),
+        // so devices converge new artwork with zero extra machinery.
+        $artCols = \App\Services\MezmurArtService::artColsExpr($conn);
         // F5 convergence: timed lyrics ride the SAME delta cursor, so a
         // server-side LRC edit reaches every cached device (the Flutter
         // local_db upsert already applies these keys when present).
@@ -1503,7 +1516,7 @@ final class MezmurHymnService
 
         if ($cursorTs !== null) {
             $sql = "SELECT id, title, category, status, $rev, $taxCols,
-                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols, $syncedCols
+                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols, $artCols, $syncedCols
                     FROM mezmur_hymns
                     WHERE updated_at > ? OR (updated_at = ? AND id > ?)
                     ORDER BY updated_at ASC, id ASC
@@ -1512,7 +1525,7 @@ final class MezmurHymnService
             $stmt->bind_param('ssii', $cursorTs, $cursorTs, $cursorId, $limit);
         } else {
             $sql = "SELECT id, title, category, status, $rev, $taxCols,
-                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols, $syncedCols
+                           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at, $lyricsCol, $mediaCols, $artCols, $syncedCols
                     FROM mezmur_hymns
                     ORDER BY updated_at ASC, id ASC
                     LIMIT ?";

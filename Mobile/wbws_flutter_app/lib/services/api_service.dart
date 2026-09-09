@@ -837,6 +837,18 @@ class ApiService {
     return post('/mezmur/category-image-remove', body: {'id': id});
   }
 
+  /// P66 hymn art: per-hymn cover upload (multipart; the same hardened
+  /// server chain as taxonomy covers — magic bytes, re-encode, square
+  /// renditions, dominant color). Binary body — never queued; callers
+  /// gate it on connectivity.
+  Future<ApiResponse> uploadMezmurHymnArt(int id, String filePath) =>
+      _uploadTaxonomyImage('/mezmur/art', id, filePath);
+
+  /// P66 hymn art: drop a hymn's cover (the name-hash gradient shows).
+  Future<ApiResponse> removeMezmurHymnArt(int id) {
+    return post('/mezmur/art-remove', body: {'id': id});
+  }
+
   Future<ApiResponse> setMezmurCategoryStatus(int id, bool active,
       {String? clientOpId}) {
     return post('/mezmur/category-status',

@@ -3,6 +3,14 @@ import 'package:flutter/material.dart';
 /// FKSS App — Configuration Constants
 class AppConfig {
   static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
+
+  /// Site root (apiBaseUrl without the /api/v1 suffix) — the origin that
+  /// serves RELATIVE upload URLs (category/singer covers, hymn art
+  /// renditions). One definition so every screen resolves them the same
+  /// way (previously the replaceFirst pattern was copy-pasted per file).
+  static String get siteOrigin =>
+      apiBaseUrl.replaceFirst(RegExp(r'/api/v1$'), '');
+
   static const String appName = 'FKSS';
   static const String appNameAmharic = 'ፈለገ ቅዱሳን ሰንበት ት/ቤት';
   // ⚠ SINGLE SOURCE OF TRUTH for the update system: the app compares
@@ -10,8 +18,8 @@ class AppConfig {
   // version only feeds the Android package version. They MUST stay in sync
   // (test/version_sync_test.dart fails the release build if they drift —
   // drifting is what hid updates from phones before P65).
-  static const String appVersion = '1.1.16';
-  static const int appBuild = 19;
+  static const String appVersion = '1.1.17';
+  static const int appBuild = 20;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';

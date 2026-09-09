@@ -957,7 +957,12 @@ class CoverColorAndUxStateTests(unittest.TestCase):
         self.assertIn("revokeObjectURL", self.js)
         # the browser upload actually reaches the action (latent P30
         # bug: the FormData carried no action)
-        self.assertIn("imgPick.kind === 'zem' ? 'zemarian_image' : 'category_image'", self.js)
+        # P66: the kind is captured BEFORE the imgPick reset (the old
+        # imgPick.kind read raced the reset below it); art has its own
+        # FormData branch, zem/cat keeps the ternary fallback.
+        self.assertIn("var kind = imgPick.kind;", self.js)
+        self.assertIn("fda.append('action', 'art_upload');", self.js)
+        self.assertIn("fd.append('action', kind === 'zem' ? 'zemarian_image' : 'category_image');", self.js)
 
     # ── gradient picker ────────────────────────────────────────
     def test_color_dialog_markup(self):
@@ -1506,7 +1511,8 @@ class ZemarianImagesAndCatalogCollapseTests(unittest.TestCase):
         # multipart guard: a real uploaded file is required
         self.assertIn("is_uploaded_file($zfile['tmp_name'] ?? '')", self.route)
         # role + rate-limit gates on both new routes
-        self.assertEqual(self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 14)
+        # (P66 added /mezmur/art + /mezmur/art-remove: 14 -> 16)
+        self.assertEqual(self.route.count("apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)"), 16)
 
     # ── singer images: mobile ───────────────────────────────────
     def test_mobile_local_schema_v19(self):
@@ -2258,6 +2264,8 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         "category-image-remove", "zemarian", "zemarian-status", "zemarian-image",
         "zemarian-image-remove",
         "audio-presign", "audio-confirm", "audio-remove", "lyrics-synced",
+        # P66 hymn art (own rate bucket mezmur_art_write)
+        "art", "art-remove",
     )
 
     def _action_block(self, action, span=900):
@@ -2803,8 +2811,10 @@ class MezmurSyncedLyricsContractTests(unittest.TestCase):
     def test_delta_pull_carries_synced_lyrics(self):
         delta = self.hymn.split("public static function listChangedSince")[1].split("public static function attachTaxonomyBulk")[0]
         self.assertIn("$syncedCols = self::syncedColExpr($conn) . ', ' . self::syncedAtColExpr($conn);", delta)
-        self.assertEqual(delta.count("$mediaCols, $syncedCols"), 2,
-                         "both delta SELECT branches (cursor + bootstrap) must carry the synced columns")
+        # P66: art columns ride the same delta cursor between media and
+        # synced lyrics — a cover change converges like every other edit.
+        self.assertEqual(delta.count("$mediaCols, $artCols, $syncedCols"), 2,
+                         "both delta SELECT branches (cursor + bootstrap) must carry the media + art + synced columns")
 
     def test_flutter_delta_upsert_still_applies_synced_keys(self):
         # the client side of the convergence contract (regression guard)

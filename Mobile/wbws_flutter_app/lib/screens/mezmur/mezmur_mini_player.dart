@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../services/mezmur_audio_player.dart';
+import '../../services/mezmur_download_manager.dart';
+import '../../utils/config.dart';
 import 'mezmur_player_screen.dart';
 import 'parchment_style.dart';
 
@@ -45,9 +49,12 @@ class MezmurMiniPlayer extends StatelessWidget {
               height: 56,
               child: Row(
                 children: [
-                  const SizedBox(width: 12),
-                  const Icon(Icons.music_note_rounded,
-                      color: Parchment.bronze, size: 22),
+                  const SizedBox(width: 10),
+                  // P66: the hymn's own cover (160px rendition, decoded
+                  // at display size) replaces the generic note glyph —
+                  // the mini bar now identifies the hymn at a glance,
+                  // like every streaming app. No art → the bronze note.
+                  _MiniArt(track: track),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -92,6 +99,50 @@ class MezmurMiniPlayer extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// P66: 40px rounded cover for the mini bar. Solid, no blur — the bar
+/// is explicitly BackdropFilter-free for low-end phones. A downloaded
+/// hymn prefers its pinned local file so the cover survives offline.
+class _MiniArt extends StatelessWidget {
+  final MezmurTrack track;
+  const _MiniArt({required this.track});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!track.hasArt) {
+      return const Icon(Icons.music_note_rounded,
+          color: Parchment.bronze, size: 22);
+    }
+    const glyph = Icon(Icons.music_note_rounded,
+        color: Parchment.bronze, size: 22);
+    Widget network() => Image.network(
+          '${AppConfig.siteOrigin}${track.artUrlSmall}',
+          fit: BoxFit.cover,
+          cacheWidth: 80,
+          gaplessPlayback: true,
+          // A broken load must never blank the bar — back to the glyph.
+          errorBuilder: (_, __, ___) => glyph,
+        );
+    final pinned =
+        MezmurDownloadManager.instance.artPathFor(track.hymnId);
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: pinned != null
+            ? Image.file(
+                File(pinned),
+                fit: BoxFit.cover,
+                cacheWidth: 80,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => network(),
+              )
+            : network(),
+      ),
     );
   }
 }

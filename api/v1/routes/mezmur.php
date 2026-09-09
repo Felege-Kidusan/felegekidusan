@@ -8,6 +8,8 @@
  *   GET  /mezmur/sheet?date=…        — roster sheet grouped by section
  *   POST /mezmur/sheet               — complete-sheet save (validated)
  *   GET  /mezmur/analytics           — member aggregates (mezmur_dept+)
+ *   POST /mezmur/art                 — hymn cover art upload (P66, multipart)
+ *   POST /mezmur/art-remove          — drop a hymn's cover art (P66)
  *
  * All domain logic lives in MezmurAttendanceService (single writer,
  * same one the web dashboard uses). Security lives in core/acl.php:
@@ -20,7 +22,7 @@ $auth = apiRequireAuth();
 // Analytics & day labelling (decision data): mezmur staff + admins only.
 // Version handshake: every /mezmur/* response carries this marker so
 // clients can distinguish a current server from a stale deployment.
-if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase6-taxonomy02');
+if (!defined('MEZMUR_API_VERSION')) define('MEZMUR_API_VERSION', 'phase7-art01');
 
 // mezmur_attendance_taker = department-owned taker (created by the
 // mezmur console). 'attendance_taker' stays for legacy accounts during
@@ -39,6 +41,9 @@ require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService
 require_once __DIR__ . '/../../../admin/backend/services/MezmurSubmissionService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurHymnService.php';
 require_once __DIR__ . '/../../../admin/backend/services/MezmurMediaService.php';
+// P66 hymn art: per-hymn cover images (local-disk renditions). Same
+// service the web console uses — one validator, one audit trail.
+require_once __DIR__ . '/../../../admin/backend/services/MezmurArtService.php';
 // MZ-1: every mezmur write below audits through SecurityAuditService.
 // The services also self-load it now, but the route declares the
 // dependency explicitly like grades.php does (defense in depth).
@@ -48,6 +53,7 @@ use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
 use App\Services\MezmurHymnService;
 use App\Services\MezmurMediaService;
+use App\Services\MezmurArtService;
 
 $action = $ROUTE['id'] ?? '';
 $method = $ROUTE['method'] ?? 'GET';
@@ -409,6 +415,44 @@ try {
         $input = getBody();
         $result = MezmurHymnService::removeCategoryImage($conn, (int)($input['id'] ?? 0), (int)$auth['uid']);
         if (empty($result['ok'])) err($result['message'], 422);
+        ok(['saved' => true]);
+    }
+
+    // ── POST /mezmur/art — hymn cover art upload (multipart) ────
+    // P66: every hymn can carry its own cover image (Spotify-style).
+    // Mirrors category-image: multipart ($_POST + $_FILES), the SAME
+    // hardened validator + rendition pipeline as the web action, and
+    // its OWN rate bucket so an art spree cannot starve hymn edits.
+    // Renditions are square 160/320/640 JPEGs on local disk; the
+    // response carries the full art payload for immediate render.
+    if ($method === 'POST' && $action === 'art') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage hymn art.', 403);
+        }
+        if (isApiRateLimited('mezmur_art_write', 30)) {
+            err('Too many uploads. Please wait a moment.', 429);
+        }
+        $artId = (int)($_POST['id'] ?? 0);
+        $artFile = $_FILES['image'] ?? null;
+        if ($artId <= 0 || !is_array($artFile) || !is_uploaded_file($artFile['tmp_name'] ?? '')) {
+            err('Choose an image to upload.', 422);
+        }
+        $artResult = MezmurArtService::uploadArt($conn, $artId, $artFile, (int)$auth['uid']);
+        if (empty($artResult['ok'])) err($artResult['message'], 422);
+        ok(['saved' => true, 'art' => $artResult['art'] ?? null]);
+    }
+
+    // ── POST /mezmur/art-remove — drop a hymn's cover art ───────
+    if ($method === 'POST' && $action === 'art-remove') {
+        if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
+            err('Only Mezmur staff and admins can manage hymn art.', 403);
+        }
+        if (isApiRateLimited('mezmur_art_write', 30)) {
+            err('Too many changes. Please wait a moment.', 429);
+        }
+        $artIn = getBody();
+        $artRr = MezmurArtService::removeArt($conn, (int)($artIn['id'] ?? 0), (int)$auth['uid']);
+        if (empty($artRr['ok'])) err($artRr['message'], 422);
         ok(['saved' => true]);
     }
 

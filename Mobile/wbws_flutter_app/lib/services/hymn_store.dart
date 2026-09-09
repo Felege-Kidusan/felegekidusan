@@ -565,6 +565,50 @@ class HymnStore extends ChangeNotifier {
     return null;
   }
 
+  /// P66 hymn art: upload (or replace) a hymn's cover image. Binary
+  /// upload — never queued; the server-confirmed art payload is applied
+  /// to the cached row IMMEDIATELY (same offline-first shape as the
+  /// taxonomy covers) so list/player UI updates without waiting for the
+  /// next pull, which then reconciles everything else.
+  Future<String?> setHymnArt(int id, String filePath) async {
+    if (!ConnectivityService().hasLink) {
+      return 'Go online once to upload the cover art.';
+    }
+    final res = await _api.uploadMezmurHymnArt(id, filePath);
+    if (!res.success) return res.message ?? 'Upload failed.';
+    final art = res.data is Map ? (res.data as Map)['art'] : null;
+    if (art is Map) {
+      await _db.upsertHymns([
+        {'id': id, ...Map<String, dynamic>.from(art)}
+      ]);
+    }
+    notifyListeners();
+    unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
+    return null;
+  }
+
+  /// P66 hymn art: drop a hymn's cover (the name-hash gradient returns).
+  Future<String?> removeHymnArt(int id) async {
+    if (!ConnectivityService().hasLink) {
+      return 'Go online once to remove the cover art.';
+    }
+    final res = await _api.removeMezmurHymnArt(id);
+    if (!res.success) return res.message ?? 'Could not remove the art.';
+    await _db.upsertHymns([
+      {
+        'id': id,
+        'art_status': 'none',
+        'art_color': null,
+        'art_url': '',
+        'art_url_medium': '',
+        'art_url_small': '',
+      }
+    ]);
+    notifyListeners();
+    unawaited(pullChanges(lyricsBatch: 0).catchError((_) {}));
+    return null;
+  }
+
   /// P34: serialises taxonomy writes. `saveCategory` reads the existing
   /// rows to enforce name-uniqueness and only then writes, so two
   /// concurrent calls (a double-tapped SAVE) both pass the check and both
