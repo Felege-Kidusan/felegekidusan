@@ -129,8 +129,339 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <link rel="stylesheet" href="/admin/css/mobile.css">
 <link rel="stylesheet" href="/admin/css/report_card.css?v=20260819c">
 <?php include __DIR__ . "/../theme.php"; ?>
+<style id="p70-edu-mobile">
+/* ═══════════════════════════════════════════════════════════════════
+   P70 — EDUCATION DASHBOARD NATIVE MOBILE/TABLET PASS
+   Scoped to body.page-edu (this page only — no shared file is modified).
+   Placed AFTER mobile.css + theme.php so the cascade wins without
+   !important escalation wherever possible.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. TOKEN BRIDGE ─────────────────────────────────────────────
+   admin/css/mobile.css, the shared bottom-nav component, this page's own
+   .mo modal rule and the impersonate bar are all token-driven, but the
+   tokens live in themes/design-system.css — which this standalone page
+   never loads. Without them every var() below resolved to nothing, which
+   is why the bottom nav painted ABOVE the modals (z auto vs z auto → DOM
+   order) and the nav/app-shell lost their height + safe-area handling.
+   Values mirror themes/design-system.css verbatim (single source of truth). */
+:root {
+    --nav-h: 64px;
+    --nav-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --nav-total: calc(var(--nav-h) + var(--nav-safe-bottom));
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --z-content: 1;
+    --z-sticky: 100;
+    --z-header: 200;
+    --z-nav: 900;
+    --z-dock: 950;
+    --z-fab: 1000;
+    --z-toast: 1100;
+    --z-overlay: 1200;
+    --z-impersonate: 1300;
+    --z-tooltip: 1400;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+}
+
+/* Section switch gets a subtle native fade (guarded for reduced motion). */
+@keyframes eduSecIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes eduSheetUp { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+    body.page-edu .sec.act { animation: none !important; }
+    body.page-edu .mo .mc { animation: none !important; }
+}
+
+/* ═══ PHONE (≤768px) ═════════════════════════════════════════════
+   screen-guarded: the report-cards print path uses @media print and must
+   keep the desktop table/sheetless layout. */
+@media screen and (max-width: 768px) {
+
+    /* ── 2. MODALS → iOS-STYLE BOTTOM SHEETS (above the nav, always) ──
+       Same pattern approved for the mezmur department in P68. */
+    body.page-edu .mo { align-items: flex-end; padding: 0 !important; }
+    body.page-edu .mo .mc {
+        position: relative;
+        width: 100%;
+        max-width: 100% !important; /* beats the inline max-width:720px etc. */
+        border-radius: 22px 22px 0 0;
+        max-height: min(88dvh, 88vh);
+        padding-bottom: var(--nav-safe-bottom);
+        animation: eduSheetUp .3s cubic-bezier(.32, .72, .24, 1);
+    }
+    /* Grabber pill sits on the gradient header — pure CSS, no markup change. */
+    body.page-edu .mo .mc::before {
+        content: '';
+        position: absolute;
+        top: 7px; left: 50%;
+        transform: translateX(-50%);
+        width: 42px; height: 4px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, .45);
+        z-index: 1;
+    }
+    /* Report-card preview keeps its transparent wrapper; the inner document
+       becomes the sheet surface with its own scroll. */
+    body.page-edu #rcModal .mc { background: transparent; box-shadow: none; max-height: min(92dvh, 92vh); }
+    body.page-edu #rcModalBody {
+        border-radius: 22px 22px 0 0 !important;
+        max-height: min(92dvh, 92vh);
+        overflow-y: auto;
+    }
+
+    /* ── 3. TOAST clears the in-flow nav ── */
+    body.page-edu .toast { bottom: calc(var(--nav-total) + .75rem) !important; }
+
+    /* ── 4. DATA TABLES → STACKED CARDS ─────────────────────────────
+       CSS-only: the DOM is untouched, so every JS selector
+       (#enrollArea .dt tbody tr, .roster-cb:checked, .grade-input …)
+       keeps working. Column labels are defined per table below and pinned
+       by tests/security/test_edu_uiux.py. */
+    body.page-edu .tw { overflow-x: visible; }
+    body.page-edu .tw .dt { display: block; width: 100%; overflow: visible; }
+    body.page-edu .tw .dt thead { display: none; }
+    body.page-edu .tw .dt tbody { display: flex; flex-direction: column; gap: .55rem; }
+    body.page-edu .tw .dt tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .3rem .8rem;
+        align-items: start;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: .8rem .9rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+    body.page-edu .tw .dt td {
+        display: block;
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        font-size: .82rem;
+        white-space: normal; /* overrides mobile.css nowrap */
+        overflow-wrap: anywhere;
+    }
+    body.page-edu .tw .dt td .inp { width: 100% !important; } /* grade score/remark inputs */
+    /* Cell label (hidden on title/action cells below and on tables marked
+       label-free in the per-table block). */
+    body.page-edu .tw .dt td::before {
+        content: '';
+        display: block;
+        font-size: .58rem;
+        font-weight: 600;
+        letter-spacing: .07em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-bottom: .12rem;
+    }
+    /* Title cell (first td) spans the card; action cell (last td) gets its
+       own divider row. */
+    body.page-edu .tw .dt td:first-child { grid-column: 1 / -1; }
+    body.page-edu .tw .dt td:first-child::before { display: none; }
+    body.page-edu .tw .dt td:last-child {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: .4rem;
+        justify-content: flex-end;
+        align-items: center;
+        margin-top: .35rem;
+        padding-top: .55rem;
+        border-top: 1px dashed #e2e8f0;
+    }
+    body.page-edu .tw .dt td:last-child::before { display: none; }
+    /* Empty / loading rows (single colspan cell) stay simple blocks. */
+    body.page-edu .tw .dt td[colspan] {
+        display: block;
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 1.4rem .5rem;
+        background: #fff;
+    }
+
+    /* ── 4b. PER-TABLE CARD LABELS (mirror of each <thead>) ──────── */
+    /* Teachers (7 cols) */
+    body.page-edu #teacherBody td:nth-child(2)::before { content: 'Username'; }
+    body.page-edu #teacherBody td:nth-child(3)::before { content: 'Email'; }
+    body.page-edu #teacherBody td:nth-child(4)::before { content: 'Member Link'; }
+    body.page-edu #teacherBody td:nth-child(5)::before { content: 'Assignments'; }
+    body.page-edu #teacherBody td:nth-child(6)::before { content: 'Status'; }
+    /* Classes (9 cols) — Order is a corner chip, Amharic name is the title */
+    body.page-edu #classBody td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; }
+    body.page-edu #classBody td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
+    body.page-edu #classBody td:nth-child(2)::before { display: none; }
+    body.page-edu #classBody td:nth-child(3)::before { content: 'Name (English)'; }
+    body.page-edu #classBody td:nth-child(4)::before { content: 'Code'; }
+    body.page-edu #classBody td:nth-child(5)::before { content: 'Section'; }
+    body.page-edu #classBody td:nth-child(6)::before { content: 'Age Group'; }
+    body.page-edu #classBody td:nth-child(7)::before { content: 'Students'; }
+    body.page-edu #classBody td:nth-child(8)::before { content: 'Status'; }
+    /* Subjects (5 cols, PHP-rendered) */
+    body.page-edu #sec-subjects .dt td:nth-child(2)::before { content: 'Subject (English)'; }
+    body.page-edu #sec-subjects .dt td:nth-child(3)::before { content: 'Code'; }
+    body.page-edu #sec-subjects .dt td:nth-child(4)::before { content: 'Classes'; }
+    /* Academic years (8 cols) */
+    body.page-edu #yearBody td:nth-child(2)::before { content: 'EC Year'; }
+    body.page-edu #yearBody td:nth-child(3)::before { content: 'GC Year'; }
+    body.page-edu #yearBody td:nth-child(4)::before { content: 'Start'; }
+    body.page-edu #yearBody td:nth-child(5)::before { content: 'End'; }
+    body.page-edu #yearBody td:nth-child(6)::before { content: 'Semesters'; }
+    body.page-edu #yearBody td:nth-child(7)::before { content: 'Current'; }
+    /* Report-cards table (8 cols) — Rank corner, Student title */
+    body.page-edu #rcTableBody td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; }
+    body.page-edu #rcTableBody td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
+    body.page-edu #rcTableBody td:nth-child(2)::before { display: none; }
+    body.page-edu #rcTableBody td:nth-child(3)::before { content: 'Code'; }
+    body.page-edu #rcTableBody td:nth-child(4)::before { content: 'Obtained'; }
+    body.page-edu #rcTableBody td:nth-child(5)::before { content: 'Average'; }
+    body.page-edu #rcTableBody td:nth-child(6)::before { content: 'Grade'; }
+    body.page-edu #rcTableBody td:nth-child(7)::before { content: 'Attendance'; }
+    /* Enrollment → by-class list (8 cols) — # corner, student title */
+    body.page-edu #enrollArea .dt td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; color: #94a3b8; }
+    body.page-edu #enrollArea .dt td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
+    body.page-edu #enrollArea .dt td:nth-child(2)::before { display: none; }
+    body.page-edu #enrollArea .dt td:nth-child(3)::before { content: 'Code'; }
+    body.page-edu #enrollArea .dt td:nth-child(4)::before { content: 'Type'; }
+    body.page-edu #enrollArea .dt td:nth-child(5)::before { content: 'Gender'; }
+    body.page-edu #enrollArea .dt td:nth-child(6)::before { content: 'Age'; }
+    body.page-edu #enrollArea .dt td:nth-child(7)::before { content: 'Enrolled'; }
+    /* Roster (7 cols, leading checkbox) — checkbox rides beside the title */
+    body.page-edu #rosterArea .dt td:nth-child(1) {
+        grid-column: auto;
+        grid-row: 1;
+        align-self: center;
+        justify-self: start;
+        margin-right: -.35rem;
+    }
+    body.page-edu #rosterArea .dt td:nth-child(2) { grid-column: 2 / -1; }
+    body.page-edu #rosterArea .dt td:nth-child(3)::before { content: 'Code'; }
+    body.page-edu #rosterArea .dt td:nth-child(4)::before { content: 'Class'; }
+    body.page-edu #rosterArea .dt td:nth-child(5)::before { content: 'Type'; }
+    body.page-edu #rosterArea .dt td:nth-child(6)::before { content: 'Gender'; }
+    body.page-edu #rosterArea .dt td:nth-child(7)::before { content: 'Age'; }
+    /* Age is data, not an action row: neutralise the generic last-child styling. */
+    body.page-edu #rosterArea .dt td:last-child { display: block; margin-top: 0; padding-top: 0; border-top: 0; }
+    /* Unassigned members (7 cols, leading checkbox) — Phone is data, not an
+       action row: neutralise the generic last-child styling. */
+    body.page-edu #unassignedArea .dt td:nth-child(1) {
+        grid-column: auto;
+        grid-row: 1;
+        align-self: center;
+        justify-self: start;
+        margin-right: -.35rem;
+    }
+    body.page-edu #unassignedArea .dt td:nth-child(2) { grid-column: 2 / -1; }
+    body.page-edu #unassignedArea .dt td:nth-child(3)::before { content: 'Code'; }
+    body.page-edu #unassignedArea .dt td:nth-child(4)::before { content: 'Type'; }
+    body.page-edu #unassignedArea .dt td:nth-child(5)::before { content: 'Gender'; }
+    body.page-edu #unassignedArea .dt td:nth-child(6)::before { content: 'Age Group'; }
+    body.page-edu #unassignedArea .dt td:nth-child(7)::before { content: 'Phone'; }
+    body.page-edu #unassignedArea .dt td:last-child { display: block; margin-top: 0; padding-top: 0; border-top: 0; }
+    /* Grade entry (5 cols) — # corner, student title, remark input full row */
+    body.page-edu #gradeArea .dt td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; color: #94a3b8; }
+    body.page-edu #gradeArea .dt td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
+    body.page-edu #gradeArea .dt td:nth-child(2)::before { display: none; }
+    body.page-edu #gradeArea .dt td:nth-child(3)::before { content: 'Code'; }
+    body.page-edu #gradeArea .dt td:nth-child(4)::before { content: 'Score'; }
+    body.page-edu #gradeArea .dt td:nth-child(5)::before { content: 'Remark'; }
+    body.page-edu #gradeArea .dt td:last-child { display: block; margin-top: 0; padding-top: 0; border-top: 0; }
+    /* Assessments (4 cols) */
+    body.page-edu #assessmentList .dt td:nth-child(2)::before { content: 'Max Score'; }
+    body.page-edu #assessmentList .dt td:nth-child(3)::before { content: 'Weight'; }
+    /* Submissions list (9 cols) — type chip corner, teacher title */
+    body.page-edu #submissionsList .dt td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; }
+    body.page-edu #submissionsList .dt td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
+    body.page-edu #submissionsList .dt td:nth-child(2)::before { display: none; }
+    body.page-edu #submissionsList .dt td:nth-child(3)::before { content: 'Class'; }
+    body.page-edu #submissionsList .dt td:nth-child(4)::before { content: 'What'; }
+    body.page-edu #submissionsList .dt td:nth-child(5)::before { content: 'Students'; }
+    body.page-edu #submissionsList .dt td:nth-child(6)::before { content: 'Result'; }
+    body.page-edu #submissionsList .dt td:nth-child(7)::before { content: 'Status'; }
+    body.page-edu #submissionsList .dt td:nth-child(8)::before { content: 'Updated'; }
+    /* Submissions insights (6 cols) — Rate is data, not an action row */
+    body.page-edu #subInsights .dt td:nth-child(2)::before { content: 'Marked'; }
+    body.page-edu #subInsights .dt td:nth-child(3)::before { content: 'Present'; }
+    body.page-edu #subInsights .dt td:nth-child(4)::before { content: 'Absent'; }
+    body.page-edu #subInsights .dt td:nth-child(5)::before { content: 'Late'; }
+    body.page-edu #subInsights .dt td:nth-child(6)::before { content: 'Rate'; }
+    body.page-edu #subInsights .dt td:last-child { grid-column: auto; display: block; margin-top: 0; padding-top: 0; border-top: 0; }
+    /* Review modal tables (2 short variants) — compact, label-free cards:
+       # corner, student name title, trailing note/value on its own row. */
+    body.page-edu #reviewModalContent .dt td::before { display: none; }
+    body.page-edu #reviewModalContent .dt td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; color: #94a3b8; }
+    body.page-edu #reviewModalContent .dt td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
+    body.page-edu #reviewModalContent .dt td:last-child { display: block; margin-top: 0; padding-top: 0; border-top: 0; }
+
+    /* ── 5. FORMS & LAYOUT POLISH ── */
+    /* No iOS focus zoom on inputs/selects (re-asserts the shared rule). */
+    body.page-edu .inp, body.page-edu select.inp, body.page-edu textarea.inp { font-size: 16px; }
+    /* Inline 2-col grids (modal forms, dashboard card rows) stack to 1 col. */
+    body.page-edu main [style*="grid-template-columns:1fr 1fr"],
+    body.page-edu main [style*="grid-template-columns: 1fr 1fr"],
+    body.page-edu main [style*="grid-template-columns:1fr 1fr auto"],
+    body.page-edu main [style*="grid-template-columns: 1fr 1fr auto"],
+    body.page-edu .mo [style*="grid-template-columns:1fr 1fr"],
+    body.page-edu .mo [style*="grid-template-columns: 1fr 1fr"],
+    body.page-edu .mo [style*="grid-template-columns:2fr 1fr"],
+    body.page-edu .mo [style*="grid-template-columns: 2fr 1fr"] { grid-template-columns: 1fr !important; }
+    /* Teacher-assignment rows in the teacher sheet: two selects per row,
+       remove control wraps to its own end-aligned row. */
+    body.page-edu .asg-row { grid-template-columns: 1fr 1fr; }
+    body.page-edu .asg-row > :nth-child(3) { grid-column: 1 / -1; justify-self: end; }
+    /* Filter toolbars already flex-wrap; give selects breathing room. */
+    body.page-edu .crd select.inp[style*="max-width"] { max-width: 100% !important; }
+    /* Dashboard stat grid → compact 2-col; cards tighten. */
+    body.page-edu #sec-dashboard [style*="minmax(180px,1fr)"],
+    body.page-edu #sec-dashboard [style*="minmax(180px, 1fr)"] { grid-template-columns: repeat(2, 1fr) !important; gap: .6rem !important; }
+    body.page-edu #sec-dashboard .sc { padding: .9rem 1rem; }
+    /* Enrolment/overview auto-fit stat chips → 2-col too. */
+    body.page-edu #enrollOverviewStats, body.page-edu #subStatsRow { grid-template-columns: repeat(2, 1fr) !important; gap: .6rem !important; }
+    /* Sub-tab rows become native scrollable tab scrollers. */
+    body.page-edu div[style*="border-bottom:2px solid #e2e8f0"],
+    body.page-edu div[style*="border-bottom: 2px solid #e2e8f0"] {
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+    body.page-edu div[style*="border-bottom:2px solid #e2e8f0"]::-webkit-scrollbar,
+    body.page-edu div[style*="border-bottom: 2px solid #e2e8f0"]::-webkit-scrollbar { display: none; }
+    body.page-edu .tbn { flex: 0 0 auto; white-space: nowrap; }
+    /* Touch targets. */
+    body.page-edu .ab { width: 40px; height: 40px; font-size: .85rem; }
+    body.page-edu .btn { min-height: 42px; }
+    body.page-edu .btn-xs { min-height: 36px; padding: .35rem .6rem; }
+    body.page-edu .hr-chip { min-height: 38px; }
+    /* Section fade on switch. */
+    body.page-edu .sec.act { animation: eduSecIn .18s ease; }
+    /* Member-search hit lists fill the card. */
+    body.page-edu .t-hits { max-height: 240px; }
+}
+
+@media screen and (max-width: 380px) {
+    /* Very small phones: tighter cards and stats. */
+    body.page-edu #sec-dashboard .sc { padding: .75rem .8rem; }
+    body.page-edu #sec-dashboard .sc [style*="font-size:1.75rem"] { font-size: 1.35rem !important; }
+    body.page-edu .tw .dt td { font-size: .78rem; }
+    body.page-edu .tw .dt tr { padding: .7rem .75rem; }
+}
+
+/* ═══ TABLET (769–1024px) ═══════════════════════════════════════
+   Sidebar stays (iPad pattern). Shared mobile.css already narrows it to
+   200px and the coarse-pointer guard lifts touch targets. Only the
+   elevation fix (tokens, above) and sheet-less centred modals change —
+   modals stay centred dialogs on tablet where width allows comfortable
+   two-column forms. */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+    body.page-edu main { padding: 1.25rem 1.5rem 4rem !important; }
+    body.page-edu .mc { max-height: min(92dvh, 92vh); }
+}
+</style>
 </head>
-<body>
+<body class="page-edu">
 <?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 <div style="display:flex;min-height:100vh">
 <!-- SIDEBAR -->
@@ -643,6 +974,8 @@ function nav(n){
         document.querySelectorAll('[data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
         document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('act'));
         document.querySelectorAll('.bn [data-sec="'+n+'"]').forEach(b=>b.classList.add('act'));
+        // P70: native feel — a newly opened screen starts at its top.
+        const _main=document.querySelector('main'); if(_main)_main.scrollTop=0;
         try{ if(n==='teachers')loadTeachers(); }catch(e){console.error(e);}
         try{ if(n==='classes')loadClasses(); }catch(e){console.error(e);}
         try{ if(n==='settings')loadYears(); }catch(e){console.error(e);}
