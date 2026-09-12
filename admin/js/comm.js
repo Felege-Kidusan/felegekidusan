@@ -433,6 +433,51 @@
        SECTION (Phase 2)
        ════════════════════════════════════════════════════════════════ */
     var sec = null;
+
+    /* Section controller functions — MUST live at IIFE top level (strict
+       mode block-scopes function declarations; the Phase-2.2 incident had
+       them inside the if/else blocks, so every bell click died with
+       "closeSection is not defined"). Pages without a section no-op. */
+    function setView(view) {
+        if (!sec) { return; }
+        sec.state.view = view;
+        sec.el.querySelectorAll('.nc-sec-tab').forEach(function (t) {
+            var on = t.dataset.ncView === view;
+            t.classList.toggle('is-active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        sec.el.querySelectorAll('[data-nc-viewpane]').forEach(function (p) {
+            p.hidden = p.dataset.ncViewpane !== view;
+        });
+        if (view === 'inbox' && !sec.state.inboxInit) { sec.state.inboxInit = true; sec.inbox.prime(); }
+        if (view === 'messages') {
+            if (!sec.state.msgsInit) { sec.state.msgsInit = true; initMessages(); }
+            pollStart('msgs', pollMsgs, POLL_MS);
+        } else {
+            pollStop('msgs');
+        }
+    }
+    function openSection(view) {
+        if (!sec) { return; }
+        if (sec.pageMode) { if (view) { setView(view); } return; }
+        clearTimeout(sec.state.closeTimer);
+        closeBellPanel();
+        sec.state.open = true;
+        sec.el.hidden = false;
+        void sec.el.offsetWidth;                         // start the slide transition
+        sec.el.classList.add('is-open');
+        setView(view || sec.state.view);
+        sec.el.focus();
+        try { history.replaceState(null, '', '#' + (view || sec.state.view)); } catch (e) {}
+    }
+    function closeSection() {
+        if (!sec || sec.pageMode || !sec.state.open) { return; }
+        sec.state.open = false;
+        sec.el.classList.remove('is-open');
+        pollStop('msgs');
+        sec.state.closeTimer = setTimeout(function () { sec.el.hidden = true; }, 260);
+    }
+
     if (section) {
         var pageMode = section.classList.contains('nc-sec--page');
         if (!document.getElementById('wbwsBottomNav')) { section.classList.add('nc-sec--nonav'); }
@@ -457,44 +502,6 @@
         var announceBtn = section.querySelector('[data-nc-announce]');
         var newThreadBtn = section.querySelector('[data-nc-newthread]');
 
-        function setView(view) {
-            secState.view = view;
-            section.querySelectorAll('.nc-sec-tab').forEach(function (t) {
-                var on = t.dataset.ncView === view;
-                t.classList.toggle('is-active', on);
-                t.setAttribute('aria-selected', on ? 'true' : 'false');
-            });
-            section.querySelectorAll('[data-nc-viewpane]').forEach(function (p) {
-                p.hidden = p.dataset.ncViewpane !== view;
-            });
-            if (view === 'inbox' && !secState.inboxInit) { secState.inboxInit = true; sec.inbox.prime(); }
-            if (view === 'messages') {
-                if (!secState.msgsInit) { secState.msgsInit = true; initMessages(); }
-                pollStart('msgs', pollMsgs, POLL_MS);
-            } else {
-                pollStop('msgs');
-            }
-        }
-
-        function openSection(view) {
-            if (pageMode) { if (view) { setView(view); } return; }
-            clearTimeout(secState.closeTimer);
-            closeBellPanel();
-            secState.open = true;
-            section.hidden = false;
-            void section.offsetWidth;                    // start the slide transition
-            section.classList.add('is-open');
-            setView(view || secState.view);
-            section.focus();
-            try { history.replaceState(null, '', '#' + (view || secState.view)); } catch (e) {}
-        }
-        function closeSection() {
-            if (!sec || pageMode || !secState.open) { return; }
-            secState.open = false;
-            section.classList.remove('is-open');
-            pollStop('msgs');
-            secState.closeTimer = setTimeout(function () { section.hidden = true; }, 260);
-        }
         sec.close = closeSection;
         sec.open = openSection;
 
@@ -511,9 +518,6 @@
         if (newThreadBtn) {
             newThreadBtn.addEventListener('click', function () { openSheet('[data-nc-newsheet]'); });
         }
-    } else {
-        function closeSection() {}                       // no section on this page
-        function openSection() {}
     }
 
     /* ── openers: anything with data-comm-open (sidebar, bottom nav,
