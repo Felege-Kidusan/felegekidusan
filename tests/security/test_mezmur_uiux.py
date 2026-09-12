@@ -233,6 +233,44 @@ class MezmurUiUxTests(unittest.TestCase):
         self.assertIn(".mz-lrc-line.past", self.css)
         self.assertIn(".mz-lrc-line.active", self.css)
 
+    def test_responsive_contract_p68(self):
+        """P68: phone/tablet native responsiveness — pinned contract."""
+        # 16px inputs kill the iOS/Android focus auto-zoom (tablets too).
+        self.assertIn("font-size: 16px;", self.css)
+        # Dialogs: above the player dock at every width…
+        self.assertIn("body.page-mezmur .school-modal { z-index: var(--z-overlay); }", self.css)
+        # …and iOS bottom sheets on phones.
+        self.assertIn("@keyframes mz-sheet-up", self.css)
+        self.assertIn("border-radius: 20px 20px 0 0;", self.css)
+        # Card-row transforms exist for every transformed list.
+        self.assertIn("body.page-mezmur #mzTbody tr[data-hymn]", self.css)
+        for tbody in ["#mzSubTbody", "#mzAnTbody", "#mzTakerTbody", "#mzOvQueue"]:
+            self.assertIn("body.page-mezmur %s tr {" % tbody, self.css)
+        # catalog tables share one grouped rule
+        self.assertIn("body.page-mezmur #mzMgrCatRows tr,", self.css)
+        self.assertIn("body.page-mezmur #mzMgrZemRows tr {", self.css)
+        # Skeleton/empty/error rows (td[colspan]) always span the card.
+        self.assertIn("body.page-mezmur td[colspan] { grid-column: 1 / -1 !important; }", self.css)
+        # Touch de-hover guard + reduced-motion cover the new animation.
+        self.assertIn("@media (hover: none)", self.css)
+        self.assertIn("animation: none;", self.css)
+        # Toast never sits on the bottom nav, nor under the dock while playing.
+        self.assertIn("body.page-mezmur.mz-playing .school-toast", self.css)
+
+    def test_p68_rules_are_mezmur_scoped(self):
+        """CONSTRAINT: finance/login share components.css — every P68
+        selector must be gated by body.page-mezmur (or .mz-*), so the
+        finance dashboard and login page are provably untouched."""
+        import re
+        start = self.css.index("P68 — MEZMUR DASHBOARD NATIVE RESPONSIVENESS")
+        section = self.css[start:]
+        section = re.sub(r"/\*.*?\*/", "", section, flags=re.S)  # strip comments
+        selectors = [s.strip() for s in re.findall(r"([^{}]+)\{", section)]
+        bad = [s for s in selectors
+               if s and not s.startswith(("@", "from", "to"))
+               and "page-mezmur" not in s and ".mz-" not in s]
+        self.assertEqual(bad, [], "unscoped P68 selectors found: %r" % bad)
+
     def test_player_module_is_isolated_and_loaded_first(self):
         self.assertIn("$pageScripts = ['mezmur_player'];", self.shell)
         self.assertIn("$pageScript = 'mezmur';", self.shell)

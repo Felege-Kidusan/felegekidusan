@@ -1053,3 +1053,302 @@ tr.mz-archived { opacity: .55; }
 @media print {
     .mz-player, .mz-np { display: none !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   P68 — MEZMUR DASHBOARD NATIVE RESPONSIVENESS (phone + tablet)
+   ═══════════════════════════════════════════════════════════════
+   Scope contract (CONSTRAINT: no other department may change):
+   components.css is shared with the finance dashboard, so EVERY rule
+   in this section is prefixed body.page-mezmur (the shell sets that
+   class) or uses mezmur-only .mz-* selectors. theme.css is untouched.
+   Locked by test_p68_rules_are_mezmur_scoped.
+
+   Breakpoints (match the app-shell in theme.css):
+   • ≤768px  phone  — app shell (topbar / scroll / bottom tab bar);
+     tables become native card rows; dialogs become bottom sheets.
+   • 769–1200px tablet — iPad pattern: sidebar KEPT (user decision),
+     touch comfort only (16px inputs, ≥40px targets).
+   • ≥1201px desktop — unchanged. */
+
+/* ── All widths: layering fix ────────────────────────────────────
+ * .school-modal was z-index:100 (theme.css) — BELOW the player dock
+ * (950) and the P67 stage (1200), so e.g. the Audio dialog opened
+ * underneath the dock while music played. Scoped: finance has no
+ * dock, so the fix is only needed (and only applied) here. */
+body.page-mezmur .school-modal { z-index: var(--z-overlay); }
+
+/* Native feel: no grey iOS tap flash — we draw our own :active. */
+body.page-mezmur { -webkit-tap-highlight-color: transparent; }
+body.page-mezmur button:active { opacity: .82; }
+
+/* ═══ TABLET (≤1200px) — touch comfort, layout unchanged ═══════ */
+@media (max-width: 1200px) {
+    /* 16px inputs: below that iOS Safari (iPhone AND iPad) and many
+     * Android WebViews auto-zoom the page on focus — the "everything
+     * suddenly becomes huge" bug. This is the single highest-impact
+     * touch fix. */
+    body.page-mezmur .school-input,
+    body.page-mezmur .mz-ed-toolbar input {
+        font-size: 16px;
+    }
+    body.page-mezmur .school-input { min-height: 44px; }
+    body.page-mezmur .btn-sm { min-height: 40px; }
+    /* Denser table cells so wide lists still fit beside the sidebar. */
+    body.page-mezmur .table-shell th,
+    body.page-mezmur .table-shell td { padding: .5rem .45rem; }
+}
+
+/* Twin cards (overview) stop being readable as two ~200px columns a
+ * little earlier than the generic 640px grid rule. */
+@media (max-width: 1000px) {
+    body.page-mezmur .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* ═══ PHONE (≤768px) — native app ═══════════════════════════════ */
+@media (max-width: 768px) {
+
+    /* ── Content rhythm ─────────────────────────────────────────── */
+    body.page-mezmur .school-content { padding: 1rem .9rem; }
+    body.page-mezmur .page-head { margin-bottom: 1rem; }
+    body.page-mezmur .page-head h1 { font-size: 1.25rem; }
+    body.page-mezmur .page-head h2 { font-size: 1.1rem; }
+
+    /* Action rows become the Android-settings 2-column button grid. */
+    body.page-mezmur .page-head-actions {
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .5rem; width: 100%;
+    }
+    body.page-mezmur .page-head-actions > * { min-height: 44px; }
+
+    /* Filter toolbars: search owns the first row, everything else
+     * pairs into a 2-column grid beneath it. */
+    body.page-mezmur .toolbar { gap: .5rem; }
+    body.page-mezmur .toolbar .search-wrap { flex: 1 1 100%; min-width: 0; }
+    body.page-mezmur .toolbar > select,
+    body.page-mezmur .toolbar > input {
+        flex: 1 1 calc(50% - .5rem); min-width: 0;
+    }
+    body.page-mezmur .toolbar > .btn-primary { flex: 1 1 100%; }
+    body.page-mezmur .toolbar > button:not(.btn-primary) {
+        flex: 1 1 calc(50% - .5rem);
+    }
+
+    /* KPI strips: predictable 2-up, not auto-fit roulette. */
+    body.page-mezmur .stat-grid,
+    body.page-mezmur .quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+    body.page-mezmur .school-stat-value { font-size: 1.35rem; }
+    body.page-mezmur .sub-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    /* ── Tables → native card rows ────────────────────────────────
+     * Rows are JS-generated (innerHTML) so data-label card markup is
+     * impossible without touching frozen JS. Instead each list gets
+     * a column-priority grid: kept cells are re-flowed with order /
+     * grid-column, low-value cells are hidden (their data is one tap
+     * away in the row's dialog). See DASHBOARD_RESPONSIVE_P68.md §3.
+     * Only the SEVEN transformed lists are blockified — the narrow
+     * 3-column overview tables stay real tables. */
+    body.page-mezmur td[colspan] { grid-column: 1 / -1 !important; }
+
+    body.page-mezmur table:has(> #mzTbody),
+    body.page-mezmur table:has(> #mzSubTbody),
+    body.page-mezmur table:has(> #mzAnTbody),
+    body.page-mezmur table:has(> #mzTakerTbody),
+    body.page-mezmur table:has(> #mzMgrCatRows),
+    body.page-mezmur table:has(> #mzMgrZemRows),
+    body.page-mezmur table:has(> #mzOvQueue),
+    body.page-mezmur #mzTbody, body.page-mezmur #mzSubTbody,
+    body.page-mezmur #mzAnTbody, body.page-mezmur #mzTakerTbody,
+    body.page-mezmur #mzMgrCatRows, body.page-mezmur #mzMgrZemRows,
+    body.page-mezmur #mzOvQueue { display: block; width: 100%; }
+
+    body.page-mezmur table:has(> #mzTbody) thead,
+    body.page-mezmur table:has(> #mzSubTbody) thead,
+    body.page-mezmur table:has(> #mzAnTbody) thead,
+    body.page-mezmur table:has(> #mzTakerTbody) thead,
+    body.page-mezmur table:has(> #mzMgrCatRows) thead,
+    body.page-mezmur table:has(> #mzMgrZemRows) thead,
+    body.page-mezmur table:has(> #mzOvQueue) thead { display: none; }
+
+    /* card rows carry the divider themselves */
+    body.page-mezmur #mzTbody tr[data-hymn],
+    body.page-mezmur #mzSubTbody tr,
+    body.page-mezmur #mzAnTbody tr,
+    body.page-mezmur #mzTakerTbody tr,
+    body.page-mezmur #mzMgrCatRows tr,
+    body.page-mezmur #mzMgrZemRows tr,
+    body.page-mezmur #mzOvQueue tr { border-bottom: 1px solid var(--school-border); }
+    body.page-mezmur #mzSubTbody td,
+    body.page-mezmur #mzAnTbody td,
+    body.page-mezmur #mzTakerTbody td,
+    body.page-mezmur #mzMgrCatRows td,
+    body.page-mezmur #mzMgrZemRows td,
+    body.page-mezmur #mzOvQueue td { border-bottom: 0; }
+
+    /* — Library: [art | title+snippet] / [actions] — */
+    body.page-mezmur #mzTbody tr[data-hymn] {
+        display: grid; grid-template-columns: 52px minmax(0, 1fr);
+        gap: .35rem .8rem; align-items: center; padding: .6rem 0;
+    }
+    body.page-mezmur #mzTbody tr[data-hymn] > td { padding: 0; min-width: 0; border-bottom: 0; }
+    body.page-mezmur #mzTbody tr[data-hymn] > td:first-child { grid-row: 1 / span 2; }
+    body.page-mezmur #mzTbody tr[data-hymn] > td:nth-child(2) { grid-column: 2; overflow-wrap: anywhere; }
+    body.page-mezmur #mzTbody tr[data-hymn] > td:nth-child(3),
+    body.page-mezmur #mzTbody tr[data-hymn] > td:nth-child(4) { display: none; }
+    body.page-mezmur #mzTbody tr[data-hymn] > td:nth-child(5) {
+        grid-column: 2; text-align: left; white-space: normal;
+        display: flex; flex-wrap: wrap; gap: .4rem;
+    }
+    body.page-mezmur #mzTbody tr[data-hymn] > td:nth-child(5) .btn-secondary { min-width: 42px; }
+    body.page-mezmur #mzTbody tr.mz-is-playing { background: var(--school-success-bg); border-radius: 10px; }
+    body.page-mezmur #mzTbody tr[data-hymn]:active { background: var(--school-surface-hover); border-radius: 10px; }
+
+    /* — Submissions: [section | status] / [date | result] / [actions] — */
+    body.page-mezmur #mzSubTbody tr {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto;
+        gap: .25rem .6rem; align-items: center; padding: .6rem 0;
+    }
+    body.page-mezmur #mzSubTbody td { padding: 0; min-width: 0; }
+    body.page-mezmur #mzSubTbody td:nth-child(2) { order: -4; font-weight: 700; color: var(--school-text-bright); }
+    body.page-mezmur #mzSubTbody td:nth-child(6) { order: -3; }
+    body.page-mezmur #mzSubTbody td:nth-child(1) { order: -2; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzSubTbody td:nth-child(5) { order: -2; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzSubTbody td:nth-child(3),
+    body.page-mezmur #mzSubTbody td:nth-child(4),
+    body.page-mezmur #mzSubTbody td:nth-child(7) { display: none; }
+    body.page-mezmur #mzSubTbody td:nth-child(8) { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .4rem; }
+    body.page-mezmur #mzSubTbody td:nth-child(8) .btn-secondary { min-width: 42px; }
+
+    /* — Analytics ranking: [member | rate] / [rank · attended] —
+     * thead hidden → column sorting is unavailable on phone (filters
+     * + pagination remain). Documented trade-off. */
+    body.page-mezmur #mzAnTbody tr {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto;
+        gap: .25rem .7rem; align-items: center; padding: .6rem 0;
+    }
+    body.page-mezmur #mzAnTbody td { padding: 0; min-width: 0; }
+    body.page-mezmur #mzAnTbody td:nth-child(2) { order: -4; font-weight: 600; overflow-wrap: anywhere; }
+    body.page-mezmur #mzAnTbody td:nth-child(5) { order: -3; }
+    body.page-mezmur #mzAnTbody td:nth-child(5) .rate-bar { min-width: 96px; }
+    body.page-mezmur #mzAnTbody td:nth-child(1) { order: -2; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzAnTbody td:nth-child(4) { order: -2; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzAnTbody td:nth-child(3),
+    body.page-mezmur #mzAnTbody td:nth-child(6),
+    body.page-mezmur #mzAnTbody td:nth-child(7) { display: none; }
+
+    /* — Takers: [name | status] / [username | actions] — */
+    body.page-mezmur #mzTakerTbody tr {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto;
+        gap: .25rem .6rem; align-items: center; padding: .6rem 0;
+    }
+    body.page-mezmur #mzTakerTbody td { padding: 0; min-width: 0; }
+    body.page-mezmur #mzTakerTbody td:nth-child(1) { order: -4; }
+    body.page-mezmur #mzTakerTbody td:nth-child(5) { order: -3; }
+    body.page-mezmur #mzTakerTbody td:nth-child(2) { order: -2; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzTakerTbody td:nth-child(3),
+    body.page-mezmur #mzTakerTbody td:nth-child(4) { display: none; }
+
+    /* — Catalog: [thumb | name | actions] / [hymns | sort] — */
+    body.page-mezmur #mzMgrCatRows tr,
+    body.page-mezmur #mzMgrZemRows tr {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) auto;
+        gap: .3rem .7rem; align-items: center; padding: .55rem 0;
+    }
+    body.page-mezmur #mzMgrCatRows td,
+    body.page-mezmur #mzMgrZemRows td { padding: 0; min-width: 0; }
+    body.page-mezmur #mzMgrCatRows td:first-child,
+    body.page-mezmur #mzMgrZemRows td:first-child { grid-row: 1 / span 2; }
+    body.page-mezmur #mzMgrCatRows td:nth-child(2),
+    body.page-mezmur #mzMgrZemRows td:nth-child(2) { grid-column: 2; grid-row: 1; overflow-wrap: anywhere; }
+    body.page-mezmur #mzMgrCatRows td:nth-child(5) { grid-column: 3; grid-row: 1; }
+    body.page-mezmur #mzMgrZemRows td:nth-child(4) { grid-column: 3; grid-row: 1; }
+    body.page-mezmur #mzMgrCatRows td:nth-child(3),
+    body.page-mezmur #mzMgrZemRows td:nth-child(3) { grid-column: 2; grid-row: 2; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzMgrCatRows td:nth-child(4) { grid-column: 3; grid-row: 2; }
+
+    /* — Overview queue: [section | status] / [date | marked] — */
+    body.page-mezmur #mzOvQueue tr {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto;
+        gap: .25rem .6rem; align-items: center; padding: .55rem 0;
+    }
+    body.page-mezmur #mzOvQueue td { padding: 0; min-width: 0; }
+    body.page-mezmur #mzOvQueue td:nth-child(2) { order: -3; font-weight: 600; }
+    body.page-mezmur #mzOvQueue td:nth-child(4) { order: -2; }
+    body.page-mezmur #mzOvQueue td:nth-child(1) { order: -1; font-size: .74rem; color: var(--school-text-dim); }
+    body.page-mezmur #mzOvQueue td:nth-child(5) { display: none; }
+
+    /* ── Dialogs → iOS bottom sheets ────────────────────────────── */
+    body.page-mezmur .school-modal {
+        align-items: flex-end; padding: 0;
+    }
+    body.page-mezmur .school-modal-content {
+        max-width: 100%; width: 100%;
+        border-radius: 20px 20px 0 0;
+        max-height: 86vh;                 /* pre-min() fallback */
+        max-height: min(86dvh, 86vh);     /* dvh: no sheet taller than the URL-bar-less viewport */
+        padding: 1.15rem 1.1rem calc(1rem + var(--nav-safe-bottom));
+        animation: mz-sheet-up .28s cubic-bezier(.2, .8, .2, 1);
+    }
+    /* grabber */
+    body.page-mezmur .school-modal-content::before {
+        content: ''; display: block; width: 38px; height: 4px;
+        border-radius: 2px; background: var(--school-border-hover);
+        margin: -.5rem auto .85rem;
+    }
+    /* hymn form: the category cascade stacks under the sheet width */
+    body.page-mezmur .mz-cascade > div { flex-basis: 100%; }
+
+    /* ── Segmented sub-tabs (matches the P67 stage tabs) ────────── */
+    body.page-mezmur .sub-tabs {
+        border-bottom: 0; background: var(--school-surface);
+        border: 1px solid var(--school-border); border-radius: 999px;
+        padding: 3px; gap: .25rem;
+    }
+    body.page-mezmur .sub-tab {
+        flex: 1; justify-content: center; border-bottom: 0; margin-bottom: 0;
+        border-radius: 999px; padding: .5rem .4rem; font-size: .74rem;
+        min-height: 44px;
+    }
+    body.page-mezmur .sub-tab.active {
+        background: var(--school-surface-hover); color: var(--school-text-bright);
+        border-bottom-color: transparent; box-shadow: var(--school-shadow-sm);
+    }
+
+    /* ── Pager / toast / player polish ──────────────────────────── */
+    body.page-mezmur .pager { justify-content: center; }
+    body.page-mezmur .pager .btn-secondary { min-width: 44px; min-height: 44px; }
+    body.page-mezmur .school-toast {
+        left: 1rem; right: 1rem; bottom: calc(var(--nav-total, 100px) + .75rem);
+    }
+    /* …and stays above the dock while music plays (P67 layering). */
+    body.page-mezmur.mz-playing .school-toast {
+        bottom: calc(var(--mz-dock-h) + var(--nav-total, 100px) + .75rem);
+    }
+    body.page-mezmur .mz-player {
+        -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    }
+}
+
+/* Sheet entrance (kept subtle; disabled under reduced-motion below). */
+@keyframes mz-sheet-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+}
+
+/* ── Touch devices: no sticky hover states ──────────────────────
+ * On touch, :hover sticks after the tap (grey rows / lifted cards
+ * following your finger down the list). Neutralized for mezmur only. */
+@media (hover: none) {
+    body.page-mezmur tr:hover td { background: transparent; }
+    body.page-mezmur tr.mz-is-playing td { background: transparent; }
+    body.page-mezmur #mzTbody tr.mz-is-playing { background: var(--school-success-bg); }
+    body.page-mezmur .school-stat-card:hover,
+    body.page-mezmur .quick-tile:hover,
+    body.page-mezmur .school-card:hover {
+        transform: none; box-shadow: none; border-color: var(--school-border);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.page-mezmur .school-modal-content { animation: none; }
+}
