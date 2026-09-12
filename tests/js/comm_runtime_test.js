@@ -45,9 +45,10 @@ function parseHtml(html) {
             continue;
         }
         const attrs = {};
-        const are = /([a-zA-Z-]+)="([^"]*)"/g;
+        // capture key="value" AND bare attributes (hidden, data-msg-menu, …)
+        const are = /([a-zA-Z-]+)(?:="([^"]*)")?/g;
         let a;
-        while ((a = are.exec(attrStr))) { attrs[a[1]] = a[2]; }
+        while ((a = are.exec(attrStr))) { if (!(a[1] in attrs)) { attrs[a[1]] = a[2] === undefined ? '' : a[2]; } }
         const el = makeEl(tag, attrs);
         stack[stack.length - 1].appendChild(el);
         if (!m[0].endsWith('/>')) { stack.push(el); }
@@ -327,7 +328,12 @@ const form = makeEl('form', { class: 'nc-im-form', 'data-nc-form': '', hidden: '
 const reply = makeEl('textarea', { 'data-nc-reply': '' });
 const send = makeEl('button', { class: 'nc-im-send', type: 'submit', 'data-nc-send': '' });
 form.appendChild(reply); form.appendChild(send);
-conv.appendChild(convEmpty); conv.appendChild(convHead); conv.appendChild(msgs); conv.appendChild(form);
+const editingBanner = makeEl('div', { class: 'nc-editing', 'data-nc-editing': '', hidden: '' });
+editingBanner.appendChild(makeEl('i'));
+const editCancelBtn = makeEl('button', { class: 'nc-x', type: 'button', 'data-nc-editcancel': '' });
+editingBanner.appendChild(editCancelBtn);
+conv.appendChild(convEmpty); conv.appendChild(convHead); conv.appendChild(msgs);
+conv.appendChild(editingBanner); conv.appendChild(form);
 im.appendChild(conv);
 msgsPane.appendChild(im);
 secBody.appendChild(msgsPane);
@@ -466,6 +472,10 @@ function apiReply(action) {
             messages: [
                 { id: '9', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
                   body: 'my own message', created_at: '2026-09-12 10:00:00', mine: 1 },
+                { id: '8', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
+                  body: 'earlier own message', created_at: '2026-09-12 09:30:00', mine: 1, edited: 1 },
+                { id: '7', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
+                  body: '', created_at: '2026-09-12 09:10:00', mine: 0, deleted: 1 },
                 { id: '4', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
                   body: 'hello there', created_at: '2026-09-12 09:00:00', mine: 0 }
             ],
@@ -659,8 +669,8 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
         qs(convHead, '[data-nc-convtitle]').textContent === 'Budget question' && form.hidden === false);
     check('RECEIPTS: my message ≤ watermark renders ✓✓ Seen',
         msgs._innerHTML.includes('fa-check-double') && msgs._innerHTML.includes('Seen'));
-    check('RECEIPTS: exactly one mine bubble, no “Sent” fallback rendered',
-        qsa(msgs, '.nc-msg').length === 2 && qsa(msgs, '.nc-msg.mine').length === 1
+    check('RECEIPTS: two mine bubbles, no “Sent” fallback rendered',
+        qsa(msgs, '.nc-msg').length === 4 && qsa(msgs, '.nc-msg.mine').length === 2
         && !msgs._innerHTML.includes('fa-check"></i> Sent'));
     reply.value = 'growing the composer';
     fire(reply, 'input');
@@ -844,6 +854,50 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
     failNextCompose = false;
     fire(cmpCancel, 'click');
     check('CMP: cancel closes the failed composer', composer.hidden === true);
+
+    // 6j. P73 edit/delete — Telegram-grade message management
+    check('MGMT: deleted message renders a tombstone, never its body',
+        qsa(msgs, '.nc-msg--deleted').length === 1
+        && qs(msgs, '.nc-bubble--gone').textContent.trim() === 'This message was deleted');
+    check('MGMT: edited marker present on the edited own message', qsa(msgs, '.nc-edited').length === 1);
+    const mineMsg = qsa(msgs, '.nc-msg.mine').filter((n) => !n.classList.contains('nc-msg--deleted'))[0];
+    const others = qsa(msgs, '.nc-msg').filter((n) => !n.classList.contains('mine'));
+    check('MGMT: own live messages carry the ⋯ menu, others never do',
+        !!mineMsg && !!qs(mineMsg, '[data-msg-menu]') && !!qs(mineMsg, '[data-msg-edit]') && !!qs(mineMsg, '[data-msg-del]')
+        && others.every((n) => qs(n, '[data-msg-menu]') === null));
+    fire(qs(mineMsg, '[data-msg-menu]'), 'click');
+    check('MGMT: ⋯ opens the popover menu', mineMsg.classList.contains('is-open'));
+    fire(qs(mineMsg, '[data-msg-edit]'), 'click');
+    check('MGMT: Edit loads composer edit mode (banner + body)',
+        editingBanner.hidden === false && reply.value === 'my own message');
+    reply.value = 'my own message (now edited)';
+    fire(reply, 'keydown', { key: 'Enter' });
+    const editPost = fetchLog.filter((e) => e.includes('action=message_edit')).pop();
+    check('MGMT: Enter saves the edit optimistically (payload + bubble + marker + banner cleared)',
+        !!editPost && editPost.includes('message_id=9') && editPost.includes('now+edited')
+        && qs(mineMsg, '.nc-bubble').textContent === 'my own message (now edited)'
+        && !!qs(mineMsg, '.nc-edited')
+        && editingBanner.hidden === true && reply.value === '');
+    await sleep(20);
+    const mine2 = qs(msgs, '.nc-msg.mine[data-mid="8"]');
+    fire(qs(mine2, '[data-msg-menu]'), 'click');
+    fire(qs(mine2, '[data-msg-edit]'), 'click');
+    check('MGMT: second message enters edit mode', editingBanner.hidden === false && reply.value === 'earlier own message');
+    fire(editCancelBtn, 'click');
+    check('MGMT: ✕ cancels edit mode cleanly',
+        editingBanner.hidden === true && reply.value === '' && qs(mine2, '.nc-bubble').textContent === 'earlier own message');
+    const delMsg = qs(msgs, '.nc-msg.mine[data-mid="9"]');
+    fire(qs(delMsg, '[data-msg-menu]'), 'click');
+    fire(qs(delMsg, '[data-msg-del]'), 'click');
+    check('MGMT: Delete asks for inline confirmation first', qs(delMsg, '[data-msg-del-yes]').hidden === false);
+    fire(qs(delMsg, '[data-msg-del-yes]'), 'click');
+    const delPost = fetchLog.filter((e) => e.includes('action=message_delete')).pop();
+    check('MGMT: confirmed delete posts + tombstones optimistically',
+        !!delPost && delPost.includes('message_id=9')
+        && delMsg.classList.contains('nc-msg--deleted') && !!qs(delMsg, '.nc-bubble--gone'));
+    await sleep(20);
+    check('MGMT: delete success refreshes the thread list',
+        fetchLog.some((e) => e.includes('action=threads')));
 
     // 7. bell again AFTER section interactions (regression for the scoping bug)
     fire(qs(documentShim, '.nc-bell'), 'click');

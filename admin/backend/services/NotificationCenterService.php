@@ -607,12 +607,72 @@ final class NotificationCenterService
             if (!$chk->get_result()->fetch_assoc()) { $chk->close(); return ['ok' => false, 'error' => 'Not your conversation.']; }
             $chk->close();
 
+            // Telegram-grade management (P73): edited marker + soft-delete
+            // tombstone. A deleted message NEVER ships its body.
+            // HARDENING (P73 incident 2026-09-12): edited_at/deleted_at come
+            // from sql/044 and PHP 8.1+ mysqli THROWS on unknown columns
+            // (older stacks return a false prepare instead), so the fetch
+            // gets its OWN guard and an automatic fallback without the
+            // management columns — a missing migration degrades to "no
+            // markers", NEVER to a broken conversation. Mirrors the
+            // read-receipt guard further down.
+            $rows = self::fetchThreadRows($conn, $userId, $threadId, $limit, true);
+            if ($rows === null) {
+                $rows = self::fetchThreadRows($conn, $userId, $threadId, $limit, false);
+            }
+            if ($rows === null) {
+                return ['ok' => false, 'error' => 'Could not load the conversation.'];
+            }
+
+            // Read receipts (P73 Phase 3): the highest message id that every
+            // OTHER participant has read. My message shows ✓✓ once its id is
+            // <= this watermark. NULL watermarks count as 0 (never opened).
+            // HARDENING (P73 incident 2026-09-12): this column comes from
+            // sql/043 and PHP 8.1+ mysqli THROWS on unknown columns, so the
+            // whole receipt lookup gets its OWN try/catch — a missing
+            // migration degrades to "no receipts", NEVER to a broken
+            // conversation.
+            $wm = 0;
+            try {
+                $wstmt = $conn->prepare(
+                    "SELECT MAX(last_read_message_id) AS wm
+                     FROM message_thread_participants
+                     WHERE thread_id = ? AND user_id <> ?"
+                );
+                if ($wstmt) {
+                    $wstmt->bind_param('ii', $threadId, $userId);
+                    $wstmt->execute();
+                    $wrow = $wstmt->get_result()->fetch_assoc();
+                    $wstmt->close();
+                    $wm = (int)($wrow['wm'] ?? 0);
+                }
+            } catch (\Exception $wmEx) {
+                $wm = 0;   // sql/043 not applied yet — receipts unavailable
+            }
+            return ['ok' => true, 'messages' => $rows, 'read_watermark' => $wm];
+        } catch (\Exception $e) {
+            return ['ok' => false, 'error' => 'Could not load the conversation.'];
+        }
+    }
+
+    /** Fetch a thread's message rows. $withMeta = include the sql/044
+     *  edited_at/deleted_at columns; without them edited/deleted degrade
+     *  to 0. Returns null when the query cannot run (missing migration
+     *  columns, false prepare in non-throw mysqli mode, or DB error). */
+    private static function fetchThreadRows(\mysqli $conn, int $userId, int $threadId, int $limit, bool $withMeta): ?array
+    {
+        try {
+            $meta = $withMeta
+                ? 'm.edited_at, m.deleted_at,'
+                : 'NULL AS edited_at, NULL AS deleted_at,';
             $stmt = $conn->prepare(
-                "SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name, u.role AS sender_role
+                "SELECT m.id, m.sender_id, m.body, m.created_at, $meta
+                        u.full_name AS sender_name, u.role AS sender_role
                  FROM messages m JOIN users u ON u.id = m.sender_id
                  WHERE m.thread_id = ?
                  ORDER BY m.created_at ASC LIMIT ?"
             );
+            if (!$stmt) { return null; }   // non-throw mysqli error mode
             $stmt->bind_param('ii', $threadId, $limit);
             $stmt->execute();
             $rows = [];
@@ -620,29 +680,16 @@ final class NotificationCenterService
             while ($row = $res->fetch_assoc()) {
                 $row['sender_label'] = self::ROLE_LABELS[$row['sender_role']] ?? $row['sender_role'];
                 $row['mine'] = ((int)$row['sender_id'] === $userId) ? 1 : 0;
+                $row['edited'] = ($row['edited_at'] !== null && $row['deleted_at'] === null) ? 1 : 0;
+                $row['deleted'] = ($row['deleted_at'] !== null) ? 1 : 0;
+                if ($row['deleted'] === 1) { $row['body'] = ''; }
+                unset($row['edited_at'], $row['deleted_at']);
                 $rows[] = $row;
             }
             $stmt->close();
-
-            // Read receipts (P73 Phase 3): the highest message id that every
-            // OTHER participant has read. My message shows ✓✓ once its id is
-            // <= this watermark. NULL watermarks count as 0 (never opened).
-            $wm = 0;
-            $wstmt = $conn->prepare(
-                "SELECT MAX(last_read_message_id) AS wm
-                 FROM message_thread_participants
-                 WHERE thread_id = ? AND user_id <> ?"
-            );
-            if ($wstmt) {
-                $wstmt->bind_param('ii', $threadId, $userId);
-                $wstmt->execute();
-                $wrow = $wstmt->get_result()->fetch_assoc();
-                $wstmt->close();
-                $wm = (int)($wrow['wm'] ?? 0);
-            }
-            return ['ok' => true, 'messages' => $rows, 'read_watermark' => $wm];
+            return $rows;
         } catch (\Exception $e) {
-            return ['ok' => false, 'error' => 'Could not load the conversation.'];
+            return null;   // throw mode — e.g. sql/044 columns not applied yet
         }
     }
 
@@ -691,20 +738,26 @@ final class NotificationCenterService
             );
             $stmt->bind_param('ii', $userId, $threadId);
             // Read receipts (P73 Phase 3): advance my per-participant watermark
-            // to the newest message so the SENDER sees ✓✓. The column is added
-            // by sql/043; if that migration has not run yet this update simply
-            // matches zero rows / fails closed into the existing behaviour.
-            $wmStmt = $conn->prepare(
-                "UPDATE message_thread_participants p
-                 SET p.last_read_message_id = (
-                     SELECT MAX(m.id) FROM messages m WHERE m.thread_id = p.thread_id
-                 )
-                 WHERE p.thread_id = ? AND p.user_id = ?"
-            );
-            if ($wmStmt) {
-                $wmStmt->bind_param('ii', $threadId, $userId);
-                $wmStmt->execute();
-                $wmStmt->close();
+            // to the newest message so the SENDER sees ✓✓. HARDENING (P73
+            // incident 2026-09-12): PHP 8.1+ mysqli throws on the unknown
+            // column pre-043 — the update gets its OWN try/catch so the
+            // read-state INSERT below always runs (unread badges keep
+            // clearing even without receipts).
+            try {
+                $wmStmt = $conn->prepare(
+                    "UPDATE message_thread_participants p
+                     SET p.last_read_message_id = (
+                         SELECT MAX(m.id) FROM messages m WHERE m.thread_id = p.thread_id
+                     )
+                     WHERE p.thread_id = ? AND p.user_id = ?"
+                );
+                if ($wmStmt) {
+                    $wmStmt->bind_param('ii', $threadId, $userId);
+                    $wmStmt->execute();
+                    $wmStmt->close();
+                }
+            } catch (\Exception $wmEx) {
+                // sql/043 not applied yet — receipts unavailable, read state below still persists
             }
             $ok = $stmt->execute();
             $stmt->close();
@@ -718,6 +771,62 @@ final class NotificationCenterService
      * Users I may start a conversation with (picker source).
      * @return array<int,array{id:int,name:string,role:string,label:string}>
      */
+    /** Edit one of MY messages (Telegram-grade management, P73).
+     *  Ownership is enforced in SQL (sender_id = ?) AND the message must
+     *  belong to a thread I participate in. Deleted messages are frozen. */
+    public static function editMessage(\mysqli $conn, int $userId, int $messageId, string $body): array
+    {
+        $body = trim($body);
+        if ($body === '') {
+            return ['ok' => false, 'error' => 'Message cannot be empty.'];
+        }
+        if (mb_strlen($body) > 5000) {
+            return ['ok' => false, 'error' => 'Message is too long (max 5000 characters).'];
+        }
+        try {
+            $stmt = $conn->prepare(
+                "UPDATE messages m
+                 JOIN message_thread_participants p ON p.thread_id = m.thread_id AND p.user_id = ?
+                 SET m.body = ?, m.edited_at = NOW()
+                 WHERE m.id = ? AND m.sender_id = ? AND m.deleted_at IS NULL"
+            );
+            $stmt->bind_param('isii', $userId, $body, $messageId, $userId);
+            $stmt->execute();
+            $changed = $stmt->affected_rows;
+            $stmt->close();
+            if ($changed === 0) {
+                return ['ok' => false, 'error' => 'You can only edit your own messages.'];
+            }
+            return ['ok' => true];
+        } catch (\Exception $e) {
+            return ['ok' => false, 'error' => 'Could not edit the message.'];
+        }
+    }
+
+    /** Soft-delete one of MY messages — participants see a tombstone
+     *  ("This message was deleted"), the body is never returned again. */
+    public static function deleteMessage(\mysqli $conn, int $userId, int $messageId): array
+    {
+        try {
+            $stmt = $conn->prepare(
+                "UPDATE messages m
+                 JOIN message_thread_participants p ON p.thread_id = m.thread_id AND p.user_id = ?
+                 SET m.deleted_at = NOW()
+                 WHERE m.id = ? AND m.sender_id = ? AND m.deleted_at IS NULL"
+            );
+            $stmt->bind_param('iii', $userId, $messageId, $userId);
+            $stmt->execute();
+            $changed = $stmt->affected_rows;
+            $stmt->close();
+            if ($changed === 0) {
+                return ['ok' => false, 'error' => 'You can only delete your own messages.'];
+            }
+            return ['ok' => true];
+        } catch (\Exception $e) {
+            return ['ok' => false, 'error' => 'Could not delete the message.'];
+        }
+    }
+
     public static function messagePartners(\mysqli $conn, string $role, int $userId): array
     {
         $allowed = self::MESSAGE_PARTNERS[$role] ?? [];

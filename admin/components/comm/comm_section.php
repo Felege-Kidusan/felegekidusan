@@ -100,6 +100,10 @@ if (!defined('NC_COMM_SECTION_LOADED')) {
                             </div>
                         </div>
                         <div class="nc-im-msgs" data-nc-msgs></div>
+                        <div class="nc-editing" data-nc-editing hidden>
+                            <i class="fa-solid fa-pen" aria-hidden="true"></i> Editing message
+                            <button type="button" class="nc-x" data-nc-editcancel aria-label="Cancel edit">&times;</button>
+                        </div>
                         <form class="nc-im-form" data-nc-form hidden>
                             <textarea data-nc-reply placeholder="Write a reply…" maxlength="5000" aria-label="Reply"></textarea>
                             <button type="submit" class="nc-im-send" data-nc-send aria-label="Send"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>

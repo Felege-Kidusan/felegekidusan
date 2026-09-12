@@ -22,7 +22,8 @@ if (empty($_SESSION['admin_id'])) {
 
 $action = is_string($_REQUEST['action'] ?? 'list') ? ($_REQUEST['action'] ?? 'list') : '';
 requirePostActions($action, ['mark_read', 'mark_all_read', 'task_update', 'sync_change',
-    'compose', 'announcement_read', 'thread_start', 'send_message', 'thread_read']);
+    'compose', 'announcement_read', 'thread_start', 'send_message', 'thread_read',
+    'message_edit', 'message_delete']);
 
 // CSRF validation for POST requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -295,6 +296,27 @@ switch ($action) {
         } else {
             echo json_encode(['status' => 'error', 'message' => $result['error'] ?? 'Could not send.']);
         }
+        break;
+    }
+
+    case 'message_edit': {
+        // Telegram-grade management (P73): edit one of MY messages.
+        $messageId = (int)($_POST['message_id'] ?? 0);
+        $body = (string)($_POST['body'] ?? '');
+        $result = NotificationCenterService::editMessage($conn, (int)$_SESSION['admin_id'], $messageId, $body);
+        echo json_encode($result['ok']
+            ? ['status' => 'success']
+            : ['status' => 'error', 'message' => $result['error'] ?? 'Could not edit the message.']);
+        break;
+    }
+
+    case 'message_delete': {
+        // Telegram-grade management (P73): soft-delete one of MY messages.
+        $messageId = (int)($_POST['message_id'] ?? 0);
+        $result = NotificationCenterService::deleteMessage($conn, (int)$_SESSION['admin_id'], $messageId);
+        echo json_encode($result['ok']
+            ? ['status' => 'success']
+            : ['status' => 'error', 'message' => $result['error'] ?? 'Could not delete the message.']);
         break;
     }
 

@@ -809,9 +809,14 @@
             msgs: section.querySelector('[data-nc-msgs]'),
             form: section.querySelector('[data-nc-form]'),
             reply: section.querySelector('[data-nc-reply]'),
-            send: section.querySelector('[data-nc-send]')
+            send: section.querySelector('[data-nc-send]'),
+            editing: section.querySelector('[data-nc-editing]')
         };
         mEls.convBack.addEventListener('click', function () { closeConversation(); });
+        if (mEls.editing) {
+            mEls.editing.querySelector('[data-nc-editcancel]').addEventListener('click', function () { setEditing(null); });
+        }
+        wireMessageMenu();
         mEls.form.addEventListener('submit', function (e) { e.preventDefault(); sendReply(); });
         // Telegram-style composer: auto-grows, Enter sends, Shift+Enter = newline.
         mEls.reply.addEventListener('input', function () { autoGrow(mEls.reply); });
@@ -885,6 +890,13 @@
         msgs.forEach(function (m) {
             var day = dayLabel(m.created_at);
             if (day !== lastDay) { html += '<div class="nc-daysep">' + esc(day) + '</div>'; lastDay = day; }
+            // Deleted (P73 Telegram-grade management): tombstone, no body,
+            // no menu, no receipt — the content never comes back.
+            if (m.deleted) {
+                html += '<div class="nc-msg ' + (m.mine ? 'mine' : '') + ' nc-msg--deleted" data-mid="' + esc(m.id) + '">' +
+                    '<div class="nc-bubble nc-bubble--gone"><i class="fa-solid fa-ban" aria-hidden="true"></i> This message was deleted</div></div>';
+                return;
+            }
             // Read receipts (P73 Phase 3): my messages show ✓✓ once every
             // other participant's watermark has reached them.
             var receipt = '';
@@ -893,10 +905,22 @@
                     ? '<span class="nc-seen"><i class="fa-solid fa-check-double"></i> Seen</span>'
                     : '<i class="fa-solid fa-check"></i> Sent';
             }
-            html += '<div class="nc-msg ' + (m.mine ? 'mine' : '') + '">' +
+            var edited = m.edited ? ' <span class="nc-edited">edited</span>' : '';
+            // Own live messages carry a ⋯ menu (Edit / Delete), revealed on
+            // hover/tap — Telegram-style progressive disclosure.
+            var menu = m.mine
+                ? '<div class="nc-msg-menu" data-msgmenu>' +
+                  '<button type="button" class="nc-msg-menu-btn" data-msg-menu aria-label="Message options" tabindex="0"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></button>' +
+                  '<div class="nc-msg-menu-pop" role="menu">' +
+                  '<button type="button" class="nc-msg-menu-item" role="menuitem" data-msg-edit><i class="fa-solid fa-pen" aria-hidden="true"></i> Edit</button>' +
+                  '<button type="button" class="nc-msg-menu-item nc-msg-menu-item--danger" role="menuitem" data-msg-del><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete</button>' +
+                  '<button type="button" class="nc-msg-menu-item nc-msg-menu-item--confirm" role="menuitem" data-msg-del-yes hidden><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Delete for everyone?</button>' +
+                  '</div></div>'
+                : '';
+            html += '<div class="nc-msg ' + (m.mine ? 'mine' : '') + '" data-mid="' + esc(m.id) + '">' + menu +
                 (m.mine ? '' : '<div class="nc-meta" style="margin-bottom:2px"><b>' + esc(m.sender_name) + '</b> · ' + esc(m.sender_label) + '</div>') +
                 '<div class="nc-bubble">' + esc(m.body) + '</div>' +
-                '<div class="nc-meta">' + esc(timeHM(m.created_at)) + (m.mine ? ' · ' + receipt : '') + '</div></div>';
+                '<div class="nc-meta">' + esc(timeHM(m.created_at)) + edited + (m.mine ? ' · ' + receipt : '') + '</div></div>';
         });
         el.innerHTML = html || '<div class="nc-empty"><i class="fa-regular fa-comment"></i>No messages yet.</div>';
         el.scrollTop = el.scrollHeight;
@@ -907,6 +931,70 @@
             renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0);
         });
     }
+    /* ── message management: edit + delete OWN messages (P73,
+     *     Telegram-grade) — ⋯ menu on own bubbles, edit mode in the
+     *     composer, delete with an inline confirmation + tombstone. */
+    var editState = null;   // { id } while the composer is in edit mode
+
+    function setEditing(node) {
+        if (!mEls) { return; }
+        if (!node) {
+            editState = null;
+            if (mEls.editing) { mEls.editing.hidden = true; }
+            mEls.reply.placeholder = 'Write a reply…';
+            mEls.reply.value = '';          // cancel never leaves edit text to send by accident
+            mEls.reply.style.height = '';
+            return;
+        }
+        editState = { id: node.dataset.mid };
+        if (mEls.editing) { mEls.editing.hidden = false; }
+        mEls.reply.value = node.querySelector('.nc-bubble').textContent;
+        mEls.reply.placeholder = 'Editing message…';
+        autoGrow(mEls.reply);
+        mEls.reply.focus();
+    }
+
+    function tombstone(node) {
+        node.classList.add('nc-msg--deleted', 'nc-msg--gone');
+        node.innerHTML = '<div class="nc-bubble nc-bubble--gone"><i class="fa-solid fa-ban" aria-hidden="true"></i> This message was deleted</div>';
+    }
+
+    function wireMessageMenu() {
+        mEls.msgs.addEventListener('click', function (e) {
+            var t = e.target;
+            if (t.closest('[data-msg-menu]')) {
+                var msgNode = t.closest('.nc-msg');
+                var was = msgNode.classList.contains('is-open');
+                mEls.msgs.querySelectorAll('.nc-msg.is-open').forEach(function (n) { n.classList.remove('is-open'); });
+                msgNode.classList.toggle('is-open', !was);
+                return;
+            }
+            if (t.closest('[data-msg-edit]')) {
+                t.closest('.nc-msg').classList.remove('is-open');
+                setEditing(t.closest('.nc-msg'));
+                return;
+            }
+            if (t.closest('[data-msg-del]')) {
+                var yes = t.closest('.nc-msg').querySelector('[data-msg-del-yes]');
+                if (yes) { yes.hidden = false; }
+                return;
+            }
+            if (t.closest('[data-msg-del-yes]')) {
+                var node = t.closest('.nc-msg');
+                node.classList.remove('is-open');
+                var mid = node.dataset.mid;
+                tombstone(node);   // optimistic — reverted by refetch on failure
+                post('message_delete', { message_id: mid }).then(function (d) {
+                    if (d && d.status === 'success') { loadThreads(true); }
+                    else { refreshOpenThread(); toast((d && d.message) || 'Could not delete the message.', 'err'); }
+                }).catch(function () { refreshOpenThread(); toast('Network error — not deleted.', 'err'); });
+                return;
+            }
+            // any other click closes open menus
+            mEls.msgs.querySelectorAll('.nc-msg.is-open').forEach(function (n) { n.classList.remove('is-open'); });
+        });
+    }
+
     /* Optimistic send (P73 Phase 3, fixes D11): the bubble appears
      * instantly in a pending state, is confirmed by a background refresh,
      * and on failure turns into an inline Retry — the message is never
@@ -916,6 +1004,31 @@
         if (!mEls || !sec.state.activeThread) { return; }
         var body = mEls.reply.value.trim();
         if (!body) { return; }
+        // Edit mode (P73 Telegram-grade management): Enter saves the edit
+        // optimistically — the bubble updates in place with an "edited"
+        // marker; failures revert by refetching the authoritative thread.
+        if (editState) {
+            var eid = editState.id;
+            var enode = mEls.msgs.querySelector('.nc-msg[data-mid="' + eid + '"]');
+            if (enode) {
+                enode.querySelector('.nc-bubble').textContent = body;
+                var emeta = enode.querySelector('.nc-meta');
+                if (emeta && !emeta.querySelector('.nc-edited')) {
+                    var esp = document.createElement('span');
+                    esp.className = 'nc-edited';
+                    esp.textContent = 'edited';
+                    emeta.appendChild(esp);
+                }
+            }
+            mEls.reply.value = '';
+            mEls.reply.style.height = '';
+            setEditing(null);
+            post('message_edit', { message_id: eid, body: body }).then(function (d) {
+                if (d && d.status === 'success') { loadThreads(true); }
+                else { refreshOpenThread(); toast((d && d.message) || 'Could not edit the message.', 'err'); }
+            }).catch(function () { refreshOpenThread(); toast('Network error — not saved.', 'err'); });
+            return;
+        }
         var pid = 'nc-pending-' + (++pendingSeq);
         appendPendingMessage(pid, body);
         mEls.reply.value = '';

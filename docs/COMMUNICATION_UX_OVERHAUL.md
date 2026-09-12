@@ -1,6 +1,6 @@
 # Communication Center UX Overhaul — Master Plan (P73)
 
-**Status:** Phase 2 complete + Phase 2.1 isolation hotfix (shipped) — the Communication section lives on every dashboard + the two thin-shell pages, and the shared component is isolation-hardened (self-bootstrapping + error boundary). Phase 3 (Telegram-grade messaging redesign) is next. This document is the single source of truth for
+**Status:** Phases 2 → 4 shipped (isolation hotfix, dead-button fix, Telegram-grade messaging, inbox feed UX) + the 2026-09-12 outage round: the missing-043 incident is root-caused and hardened against (graceful degradation on every migration-dependent query), and Telegram-grade message management (edit / delete / ⋯ menu / animations) is live. **A new migration `sql/044` exists and MUST be applied manually** (see the incident-round section at the end). This document is the single source of truth for
 the overhaul: the request contract, the verified defect trace, research
 conclusions, the target architecture, and the phase plan. Each phase ships
 independently, keeps the full test matrix green, and confirms the five
@@ -379,3 +379,88 @@ for itself). Fixed to `p.dataset.ncCmppane`.
   untouched, so the prior render matrix carries over.
 - Full matrix: **byte-identical failing-ID diff** vs `0e3c0c0` — 40
   pre-existing environment failures, unchanged; zero regressions.
+
+
+## §9 Incident round (2026-09-12) — outage root cause + Telegram-grade message management — SHIPPED
+
+### ⚠️ ACTION REQUIRED: apply `sql/044_message_edit_delete.sql` manually
+
+**The server runs PHP 8.1+ (mysqli exception mode) and migrations are
+applied by hand.** `sql/044_message_edit_delete.sql` is new in this round.
+It is idempotent (information_schema-guarded like 040/043 — re-runs are
+no-ops) and adds `messages.edited_at` + `messages.deleted_at`. **Apply it
+with the next deploy.** Until it is applied the system stays fully
+usable (see the degradation guarantees below) — but edit/delete return
+clean errors and no markers are shown.
+
+### The outage, root-caused
+
+User report: every conversation failed with "Could not load the
+conversation." Root cause (reproduced end-to-end on PHP 8.3 + MariaDB
+before the fix): the thread-open query selected `last_read_message_id`
+(sql/043) unguarded; with sql/043 not applied and PHP 8.1+ mysqli in
+throw mode, the unknown column raised `mysqli_sql_exception`, the
+outer catch turned it into a generic failure, and every thread died.
+The same class of bug existed for every migration-dependent query.
+
+### Hardening: fail-closed degradation, proven on a real database
+
+Every migration-dependent query now degrades instead of breaking — and
+this is not a claim, it is pinned by a REAL end-to-end suite
+(`tests/e2e/comm_lifecycle.php` + `tests/security/test_comm_e2e.py`)
+that drives the REAL `api_notifications.php` + `NotificationCenterService`
+against a REAL MariaDB with REAL PHP 8.3 mysqli throw mode:
+
+- **pre043 scenario** (sql/043 missing): conversations OPEN, receipts
+  degrade to 0, unread badges still clear. The exact incident state —
+  now impossible to regress.
+- **mid043 scenario** (sql/044 missing — production's state the moment
+  this deploys): conversations OPEN, edited/deleted markers degrade to
+  0, `message_edit`/`message_delete` return clean errors, data stays
+  intact.
+- **full scenario** (042+043+044): receipts watermark + ✓✓, edit own +
+  "edited" marker visible to others, editing another user's message
+  denied, delete own → tombstone with the body NEVER shipped again
+  (soft delete: the row is kept server-side, audit-safe), editing a
+  deleted message denied, role permission matrix enforced, non-
+  participants get "Not your conversation."
+- **reset_full**: 043+044 re-run idempotently; **csrf_bad / unauth**:
+  fail-closed exits (wrong token → 403 envelope, no session →
+  Unauthorized).
+
+Mechanism (all in `NotificationCenterService`): the receipt lookup and
+the edit/delete-marker fetch each get their OWN try/catch (throw mode)
+plus a `false`-prepare guard (non-throw mode) and an automatic fallback
+query without the optional columns. A missing migration can only cost
+its own feature — never the conversation.
+
+### Telegram-grade message management
+
+- **Edit own message** — ⋯ menu → Edit, inline prefill, Enter/click to
+  save, Escape/cancel to abort; **cancelling now clears the composer**
+  (product fix: the pre-edit text can no longer be sent by accident).
+  Others see the new body + an "edited" marker.
+- **Delete own message** — ⋯ menu → Delete → confirm; everyone sees a
+  "This message was deleted" tombstone; the API never returns the body
+  again; the row survives server-side (soft delete).
+- **⋯ context menu** per message (own messages: Edit/Delete; others':
+  nothing destructive), Escape closes, disabled for tombstones.
+- **Little animations** — menu fade/scale, edit-mode highlight,
+  tombstone fade-in; all `prefers-reduced-motion`-safe.
+
+### Verification
+
+- Runtime JS gate: **87 checks green, zero handler errors** (76 prior +
+  11 new management checks; shim gained bare-attribute parsing and
+  array-filter selection).
+- E2E (real MariaDB + real PHP 8.3): **30 checks green** across
+  pre043 / mid043 / full / reset_full / csrf_bad / unauth.
+- pytest comm suites: **68 green** (61 structural + 1 runtime gate +
+  6 e2e wrapper; the wrapper skips cleanly when PHP/DB are absent).
+- Full matrix: failing-ID diff vs `61fa92a` — the 40 pre-existing
+  environment failures **byte-identical**; one delta only:
+  `test_normal_application_paths_do_not_execute_ddl` previously false-
+  flagged the new e2e runner's fixture DDL, fixed by scoping the scan
+  to application paths (tests/ excluded, like vendor/ and migrations/).
+  Zero regressions.
+- Asset version 73.5; `php -l` clean on all changed PHP files.

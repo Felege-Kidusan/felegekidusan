@@ -482,7 +482,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .nc-sec, .nc-im-conv, .nc-sheet, .nc-sheet-card, .nc-msg, .nc-dot { transition: none !important; animation: none !important; }
+    .nc-sec, .nc-im-conv, .nc-sheet, .nc-sheet-card, .nc-msg, .nc-dot,
+    .nc-msg-menu-pop, .nc-bubble--gone, .nc-editing { transition: none !important; animation: none !important; }
 }
 
 /* ============================================================================
@@ -615,3 +616,65 @@
     margin: 0; font-size: 13.5px; color: var(--nc-ink, #0f172a);
     white-space: pre-wrap; word-break: break-word; line-height: 1.5;
 }
+
+
+/* ============================================================================
+ * P73 — Telegram-grade message management: ⋯ menu (Edit/Delete), edit mode,
+ * deleted tombstones, edited markers. (edit/delete round, 2026-09-12)
+ * ========================================================================== */
+.nc-msg { position: relative; }
+.nc-msg .nc-msg-menu { position: absolute; top: 2px; right: 2px; z-index: var(--z-content, 5); }
+.nc-msg-menu-btn {
+    width: 26px; height: 26px; border: none; border-radius: 8px; background: transparent;
+    color: var(--nc-ink-soft, #64748b); cursor: pointer; font-size: 12px;
+    opacity: 0; transition: opacity .15s ease; min-height: 26px;
+}
+.nc-msg:hover .nc-msg-menu-btn, .nc-msg:focus-within .nc-msg-menu-btn,
+.nc-msg.is-open .nc-msg-menu-btn, .nc-msg-menu-btn:focus-visible { opacity: 1; }
+.nc-msg-menu-btn:focus-visible { outline: 2px solid var(--nc-ac, #0ea5e9); }
+/* touch devices have no hover — the dot stays tappable */
+@media (hover: none) { .nc-msg .nc-msg-menu-btn { opacity: .55; } }
+.nc-msg-menu-pop {
+    position: absolute; top: 28px; right: 0; min-width: 170px;
+    background: #fff; border: 1px solid var(--nc-line, #e2e8f0); border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, .16); padding: 4px;
+    display: none; flex-direction: column; gap: 2px;
+    transform-origin: top right; transform: scale(.92); opacity: 0;
+    transition: transform .14s ease, opacity .14s ease;
+}
+.nc-msg.is-open .nc-msg-menu-pop { display: flex; transform: scale(1); opacity: 1; }
+.nc-msg-menu-item {
+    display: flex; align-items: center; gap: 8px; text-align: left; width: 100%;
+    border: none; background: transparent; border-radius: 8px; padding: 8px 10px;
+    font-size: 12.5px; font-weight: 600; color: var(--nc-ink, #0f172a);
+    cursor: pointer; font-family: inherit; min-height: 36px;
+}
+.nc-msg-menu-item:hover { background: var(--nc-bg-soft, #f1f5f9); }
+.nc-msg-menu-item--danger { color: #b91c1c; }
+.nc-msg-menu-item--danger:hover { background: #fef2f2; }
+.nc-msg-menu-item--confirm { color: #b91c1c; background: #fef2f2; font-weight: 700; }
+.nc-msg-menu-item--confirm:hover { background: #fee2e2; }
+.nc-msg-menu-item:focus-visible { outline: 2px solid var(--nc-ac, #0ea5e9); }
+
+/* edited marker (Telegram shows a small "edited" beside the time) */
+.nc-edited { font-size: 10px; font-style: italic; color: var(--nc-faint, #94a3b8); }
+
+/* deleted tombstone: italic, faded — content never returns */
+.nc-msg--deleted { min-height: 0; }
+.nc-bubble--gone {
+    font-style: italic; font-size: 12.5px; color: var(--nc-faint, #94a3b8);
+    background: transparent !important; border: 1px dashed var(--nc-line, #e2e8f0) !important;
+    animation: nc-gone-in .25s ease-out;
+}
+@keyframes nc-gone-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.nc-msg.nc-msg--gone { animation: nc-gone-in .25s ease-out; }
+
+/* composer edit mode banner */
+.nc-editing {
+    display: flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 6px 0 0;
+    border-top: 1px dashed var(--nc-line, #e2e8f0);
+    font-size: 12px; font-weight: 700; color: var(--nc-ac-deep, #075985);
+    animation: nc-gone-in .2s ease-out;
+}
+.nc-editing .nc-x { margin-left: auto; border: none; background: transparent; font-size: 16px; cursor: pointer; color: var(--nc-ink-soft, #64748b); min-height: 30px; min-width: 30px; }
+.nc-editing .nc-x:focus-visible { outline: 2px solid var(--nc-ac, #0ea5e9); border-radius: 6px; }
