@@ -678,3 +678,22 @@
 }
 .nc-editing .nc-x { margin-left: auto; border: none; background: transparent; font-size: 16px; cursor: pointer; color: var(--nc-ink-soft, #64748b); min-height: 30px; min-width: 30px; }
 .nc-editing .nc-x:focus-visible { outline: 2px solid var(--nc-ac, #0ea5e9); border-radius: 6px; }
+
+/* ── Load older (P73 Phase 5 — cursor pagination) ─────────────────── */
+/* Full-width quiet control at the end of every cursor-paged list
+ * (alerts, announcements, conversation list, open conversation). */
+.nc-loadmore {
+    display: block; width: 100%; margin: 6px 0 2px;
+    padding: 9px 12px; min-height: 38px;
+    border: none; border-radius: 10px; cursor: pointer;
+    background: var(--nc-bg-soft, #f1f5f9);
+    color: var(--nc-dim, #64748b);
+    font: 700 12px/1.2 inherit; font-family: inherit;
+    text-align: center;
+    transition: background .15s ease, color .15s ease;
+}
+.nc-loadmore:hover { background: var(--nc-line, #e2e8f0); color: #334155; }
+.nc-loadmore:disabled { opacity: .55; cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+    .nc-loadmore { transition: none; }
+}

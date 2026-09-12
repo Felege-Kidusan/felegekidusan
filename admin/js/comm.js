@@ -95,12 +95,28 @@
     var CSRF = panel.dataset.csrf || '';
     var inflight = {};
 
-    function get(action, qs) {
+    /* P73 Phase 5 — conditional GETs: every poll revalidates with the
+     * server's ETag; an idle poll answers 304 Not Modified and changes
+     * NOTHING on screen. Any successful POST clears the store so the
+     * next poll is guaranteed fresh. */
+    var etags = {};
+    function clearEtags() { Object.keys(etags).forEach(function (k) { delete etags[k]; }); }
+    function get(action, qs, useEtag) {
         var key = 'GET ' + action + (qs || '');
         if (inflight[key]) { return inflight[key]; }
-        inflight[key] = fetch(API + '?action=' + encodeURIComponent(action) + (qs || ''),
-            { credentials: 'same-origin' })
-            .then(function (r) { return r.json(); })
+        var ek = action + (qs || '');
+        var opts = { credentials: 'same-origin' };
+        if (useEtag && etags[ek]) { opts.headers = { 'If-None-Match': etags[ek] }; }
+        inflight[key] = fetch(API + '?action=' + encodeURIComponent(action) + (qs || ''), opts)
+            .then(function (r) {
+                var et = (r && r.headers && r.headers.get) ? r.headers.get('ETag') : null;
+                if (r.status === 304) {
+                    if (et) { etags[ek] = et; }
+                    return { notModified: true };   // nothing changed — keep UI as is
+                }
+                if (et) { etags[ek] = et; } else { delete etags[ek]; }
+                return r.json();
+            })
             .finally(function () { delete inflight[key]; });
         return inflight[key];
     }
@@ -113,7 +129,17 @@
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString()
-        }).then(function (r) { return r.json(); });
+        }).then(function (r) {
+            return r.json().then(function (dd) {
+                // ANY completed POST clears the etag store: on success the
+                // server state changed; on failure the optimistic UI just
+                // reverted locally — in BOTH cases the next polls must
+                // fetch full responses, never trust a 304 over local
+                // optimistic state (caught by the runtime gate).
+                clearEtags();
+                return dd;
+            });
+        });
     }
 
     /* ── poller: visibility-paused, focus-refreshed, backoff-capped ── */
@@ -184,10 +210,42 @@
     }
 
     /* ── content renderers ─────────────────────────────────────────── */
-    function renderAlerts(el, d) {
+    /* P73 Phase 5 — "Load older" via server cursor (before_id): stable
+     * under inserts (the old OFFSET pages skipped rows whenever a new
+     * alert landed mid-browse). Top-level store (the renderers live
+     * above the section controller's `state`); `unread` records the
+     * active filter so the next page repeats it. */
+    var feedPages = {
+        alerts: { next: null, pin: null, unread: false },
+        announcements: { next: null, pin: null }
+    };
+    function loadMoreBtn(tab) {
+        return '<button type="button" class="nc-loadmore" data-loadmore="' + tab + '">Load older</button>';
+    }
+    function wireLoadMore(el, tab, render) {
+        var b = el.querySelector('[data-loadmore="' + tab + '"]');
+        if (!b) { return; }
+        b.addEventListener('click', function () {
+            var pg = feedPages[tab];
+            if (!pg || !pg.next) { b.remove(); return; }
+            b.disabled = true;
+            var qs = '&limit=25&before_id=' + encodeURIComponent(pg.next)
+                + (tab === 'announcements' ? '&before_pin=' + encodeURIComponent(pg.pin) : '')
+                + (tab === 'alerts' && pg.unread ? '&unread=1' : '');
+            get(tab === 'alerts' ? 'feed' : 'announcements', qs).then(function (d) {
+                render(el, d, true);
+            }).catch(function () {
+                b.disabled = false;
+                toast('Could not load older items.', 'err');
+            });
+        });
+    }
+    function renderAlerts(el, d, append) {
         var rows = (d && d.rows) || [];
-        if (!rows.length) { emptyState(el, 'fa-bell-slash', 'You are all caught up'); return; }
-        el.innerHTML = rows.map(function (n) {
+        if (!rows.length && !append) { emptyState(el, 'fa-bell-slash', 'You are all caught up'); return; }
+        var pg = feedPages.alerts;
+        pg.next = (d && d.next_before) || null;
+        var html = rows.map(function (n) {
             var prio = n.priority || 'normal';
             return '<div class="nc-item ' + (n.is_unread ? 'nc-unread ' : '') +
                 (prio === 'urgent' ? 'nc-urgent' : prio === 'high' ? 'nc-high' : '') +
@@ -202,11 +260,17 @@
                     (n.source_dept ? '<span>' + esc(n.source_dept) + '</span>' : '') + '</div>' : '') +
                 '</div></div>';
         }).join('');
+        if (pg.next) { html += loadMoreBtn('alerts'); }
+        if (append) { el.innerHTML += html; } else { el.innerHTML = html; }
+        wireLoadMore(el, 'alerts', renderAlerts);
     }
-    function renderAnn(el, d) {
+    function renderAnn(el, d, append) {
         var rows = (d && d.announcements) || [];
-        if (!rows.length) { emptyState(el, 'fa-bullhorn', 'No announcements yet'); return; }
-        el.innerHTML = rows.map(function (a) {
+        if (!rows.length && !append) { emptyState(el, 'fa-bullhorn', 'No announcements yet'); return; }
+        var pg = feedPages.announcements;
+        pg.next = (d && d.next_before) || null;
+        pg.pin = (d && d.next_pin !== undefined) ? d.next_pin : null;
+        var html = rows.map(function (a) {
             return '<div class="nc-item ' + (a.is_unread ? 'nc-unread ' : '') +
                 (a.priority === 'urgent' ? 'nc-urgent' : a.priority === 'high' ? 'nc-high' : '') +
                 '" data-ann="' + esc(a.id) + '" tabindex="0">' +
@@ -220,6 +284,9 @@
                 '<span>' + esc(a.author_label || a.source_dept) + (a.author_name ? ' · ' + esc(a.author_name) : '') + '</span></div>' +
                 '</div></div>';
         }).join('');
+        if (pg.next) { html += loadMoreBtn('announcements'); }
+        if (append) { el.innerHTML += html; } else { el.innerHTML = html; }
+        wireLoadMore(el, 'announcements', renderAnn);
     }
     function renderTasks(el, d) {
         var rows = (d && d.tasks) || [];
@@ -262,6 +329,7 @@
             if (state.loadedTabs[tab] && !force) { return; }
             skeleton(el);
             var run = function () {
+                if (tab === 'alerts') { feedPages.alerts.unread = state.unreadOnly; }
                 var p = tab === 'alerts' ? get('feed', '&limit=25' + (state.unreadOnly ? '&unread=1' : '')).then(function (d) { renderAlerts(el, d); })
                     : tab === 'announcements' ? get('announcements', '&limit=25').then(function (d) { renderAnn(el, d); })
                     : get('tasks', '&limit=25').then(function (d) { renderTasks(el, d); });
@@ -829,15 +897,33 @@
         loadThreads();
     }
 
+    /* P73 Phase 5 — conversation list cursor ((last_message_at, id)
+     * tuple from the server). `dirty` = the user paged older; background
+     * polls then leave the list alone instead of yanking them back to
+     * page 1. A fresh open() resets it. */
+    var threadsPage = { next: null, hasMore: false, dirty: false };
+    function bindThreadRows(el) {
+        el.querySelectorAll('[data-th]').forEach(function (n) {
+            if (n.dataset.bound === '1') { return; }
+            n.dataset.bound = '1';
+            n.addEventListener('click', function () {
+                openThread(n.dataset.th, n.querySelector('.nc-im-tt').textContent, n.querySelector('.nc-im-twho').textContent);
+            });
+        });
+    }
     function loadThreads(keepActive) {
         if (!mEls) { return; }
         var el = mEls.threads;
         get('threads').then(function (d) {
             var rows = (d && d.threads) || [];
-            if (!rows.length) {
+            if (!rows.length && !threadsPage.dirty) {
+                threadsPage.next = null; threadsPage.hasMore = false;
                 emptyState(el, 'fa-comment-dots', canMessage() ? 'No conversations yet — start one with “New”.' : 'No conversations yet.');
                 return;
             }
+            if (threadsPage.dirty) { return; }   // user is paged older — don't yank the list
+            threadsPage.next = (d && d.next) || null;
+            threadsPage.hasMore = !!(d && d.has_more);
             el.innerHTML = rows.map(function (t) {
                 return '<div class="nc-im-thread ' + (t.id == sec.state.activeThread ? 'is-on' : '') + '" data-th="' + esc(t.id) + '">' +
                     '<div class="nc-im-avatar">' + esc(initials(t.participants_label || '?')) + '</div>' +
@@ -846,12 +932,42 @@
                                         : '<span class="nc-im-ttp">' + esc(relTime(t.last_message_at || t.created_at)) + '</span>') + '</div>' +
                     '<div class="nc-im-twho">' + esc(t.participants_label || '') + '</div>' +
                     '<div class="nc-im-tlast">' + esc(t.last_body || '') + '</div></div></div>';
-            }).join('');
-            el.querySelectorAll('[data-th]').forEach(function (n) {
-                n.addEventListener('click', function () {
-                    openThread(n.dataset.th, n.querySelector('.nc-im-tt').textContent, n.querySelector('.nc-im-twho').textContent);
+            }).join('')
+                + (threadsPage.hasMore
+                    ? '<button type="button" class="nc-loadmore" data-loadmore="threads">Load older</button>'
+                    : '');
+            bindThreadRows(el);
+            var lm = el.querySelector('[data-loadmore="threads"]');
+            if (lm) {
+                lm.addEventListener('click', function () {
+                    if (!threadsPage.next) { lm.remove(); return; }
+                    lm.disabled = true;
+                    threadsPage.dirty = true;
+                    get('threads', '&before_lm=' + encodeURIComponent(threadsPage.next[0]) +
+                        '&before_id=' + encodeURIComponent(threadsPage.next[1])).then(function (d) {
+                        var more = (d && d.threads) || [];
+                        var frag = '';
+                        more.forEach(function (t) {
+                            frag += '<div class="nc-im-thread" data-th="' + esc(t.id) + '">' +
+                                '<div class="nc-im-avatar">' + esc(initials(t.participants_label || '?')) + '</div>' +
+                                '<div class="nc-im-tmain"><div class="nc-im-trow"><span class="nc-im-tt">' + esc(t.subject) + '</span>' +
+                                '<span class="nc-im-tttp">' + esc(relTime(t.last_message_at || t.created_at)) + '</span></div>' +
+                                '<div class="nc-im-twho">' + esc(t.participants_label || '') + '</div>' +
+                                '<div class="nc-im-tlast">' + esc(t.last_body || '') + '</div></div></div>';
+                        });
+                        threadsPage.next = (d && d.next) || null;
+                        threadsPage.hasMore = !!(d && d.has_more);
+                        // insert FIRST, then detach the button — inserting
+                        // into a detached node would drop the rows
+                        lm.insertAdjacentHTML('beforebegin', frag);
+                        if (!threadsPage.hasMore) { lm.remove(); } else { lm.disabled = false; }
+                        bindThreadRows(el);   // binds only rows not yet marked
+                    }).catch(function () {
+                        lm.disabled = false;
+                        toast('Could not load older conversations.', 'err');
+                    });
                 });
-            });
+            }
         }).catch(function () {
             errorState(el, 'Could not load conversations.', function () { loadThreads(keepActive); });
         });
@@ -868,8 +984,11 @@
         mEls.form.hidden = false;
         if (MOBILE.matches) { mEls.conv.classList.add('is-on'); }
         skeleton(mEls.msgs);
+        // fresh open: full response (no If-None-Match) — we need the body;
+        // the poller reuses the returned ETag afterwards.
         get('thread', '&id=' + encodeURIComponent(id)).then(function (d) {
-            renderMessages((d && d.messages) || [], (d && d.read_watermark) || 0);
+            renderMessages((d && d.messages) || [], (d && d.read_watermark) || 0,
+                { hasOlder: !!(d && d.has_older), oldestId: (d && d.oldest_id) || 0 });
             loadThreads(true);
         }).catch(function () {
             errorState(mEls.msgs, 'Could not load the conversation.', function () { openThread(id, subject, who); });
@@ -884,8 +1003,13 @@
         mEls.form.hidden = true;
         mEls.msgs.innerHTML = '';
     }
-    function renderMessages(msgs, watermark) {
-        var el = mEls.msgs;
+    /* P73 Phase 5 — the server ships the NEWEST window; "Load older"
+     * pages backwards by oldest_id (stable cursor, no offsets). Older
+     * pages are PREPENDED as real DOM nodes — the current messages,
+     * optimistic sends and retry bubbles keep their state — and the
+     * scroll position is anchored to the previously-oldest message. */
+    var msgPage = { hasOlder: false, oldestId: 0, watermark: 0 };
+    function renderMsgsHtml(msgs, watermark) {
         var html = '', lastDay = '';
         msgs.forEach(function (m) {
             var day = dayLabel(m.created_at);
@@ -922,13 +1046,70 @@
                 '<div class="nc-bubble">' + esc(m.body) + '</div>' +
                 '<div class="nc-meta">' + esc(timeHM(m.created_at)) + edited + (m.mine ? ' · ' + receipt : '') + '</div></div>';
         });
-        el.innerHTML = html || '<div class="nc-empty"><i class="fa-regular fa-comment"></i>No messages yet.</div>';
+        return html;
+    }
+    function msgsLoadMoreBtn() {
+        return '<button type="button" class="nc-loadmore" data-loadmore="msgs">Load older messages</button>';
+    }
+    function renderMessages(msgs, watermark, opts) {
+        var el = mEls.msgs;
+        msgPage.watermark = watermark || 0;
+        if (opts) {
+            msgPage.hasOlder = !!opts.hasOlder;
+            msgPage.oldestId = opts.oldestId || 0;
+        }
+        el.innerHTML = (msgPage.hasOlder && msgPage.oldestId > 0 ? msgsLoadMoreBtn() : '')
+            + renderMsgsHtml(msgs, watermark)
+            || '<div class="nc-empty"><i class="fa-regular fa-comment"></i>No messages yet.</div>';
+        var mb = el.querySelector('[data-loadmore="msgs"]');
+        if (mb) { mb.addEventListener('click', loadOlderMessages); }
         el.scrollTop = el.scrollHeight;
+    }
+    function loadOlderMessages() {
+        if (!mEls || !sec.state.activeThread || !msgPage.oldestId) { return; }
+        var el = mEls.msgs;
+        var btn = el.querySelector('[data-loadmore="msgs"]');
+        if (btn) { btn.disabled = true; }
+        // scroll anchor: the message currently at the top of the viewport
+        var anchor = null, anchorTop = 0;
+        el.querySelectorAll('.nc-msg').forEach(function (n) {
+            if (!anchor && n.offsetTop >= el.scrollTop) { anchor = n; }
+        });
+        if (anchor) { anchorTop = anchor.offsetTop; }
+        get('thread', '&id=' + encodeURIComponent(sec.state.activeThread) +
+            '&before_id=' + encodeURIComponent(msgPage.oldestId)).then(function (r) {
+            var older = (r && r.messages) || [];
+            msgPage.hasOlder = !!(r && r.has_older);
+            msgPage.oldestId = (r && r.oldest_id) || 0;
+            if (!older.length) {
+                if (btn) { btn.remove(); }
+                return;
+            }
+            var html = renderMsgsHtml(older, msgPage.watermark);
+            // junction: when the older page ends on the same day the
+            // current list opens with, that day's separator in the
+            // current list would sit mid-group — remove it
+            var junctionSep = el.querySelector('.nc-daysep');
+            var sameDay = junctionSep && older.length &&
+                dayLabel(older[older.length - 1].created_at) === junctionSep.textContent;
+            if (btn) { btn.remove(); }
+            var head = (msgPage.hasOlder && msgPage.oldestId > 0) ? msgsLoadMoreBtn() : '';
+            el.insertAdjacentHTML('afterbegin', head + html);
+            if (sameDay && junctionSep && junctionSep.parentNode) { junctionSep.remove(); }
+            var nb = el.querySelector('[data-loadmore="msgs"]');
+            if (nb) { nb.addEventListener('click', loadOlderMessages); }
+            // keep the viewport anchored where it was
+            el.scrollTop = anchor ? Math.max(0, anchor.offsetTop) : el.scrollTop;
+        }).catch(function () {
+            if (btn) { btn.disabled = false; }
+            toast('Could not load older messages.', 'err');
+        });
     }
     function refreshOpenThread() {
         if (!mEls || !sec.state.activeThread) { return; }
         get('thread', '&id=' + encodeURIComponent(sec.state.activeThread)).then(function (r) {
-            renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0);
+            renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0,
+                { hasOlder: !!(r && r.has_older), oldestId: (r && r.oldest_id) || 0 });
         });
     }
     /* ── message management: edit + delete OWN messages (P73,
@@ -1071,8 +1252,14 @@
         if (!mEls || !sec.state.open || sec.state.view !== 'messages') { return Promise.resolve(); }
         var p = loadThreads(true);
         if (sec.state.activeThread) {
-            p = get('thread', '&id=' + encodeURIComponent(sec.state.activeThread)).then(function (r) {
-                renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0);
+            // P73 Phase 5: conditional GET — an idle poll is answered 304
+            // by the server and re-renders NOTHING (zero bytes, zero DB
+            // writes). Any change (message/edit/delete/✓✓/watermark)
+            // produces a fresh ETag and a full window response.
+            p = get('thread', '&id=' + encodeURIComponent(sec.state.activeThread), true).then(function (r) {
+                if (r && r.notModified) { return; }
+                renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0,
+                    { hasOlder: !!(r && r.has_older), oldestId: (r && r.oldest_id) || 0 });
             });
         }
         return p;
@@ -1214,7 +1401,8 @@
         if (bell.msgLink && s.can_message === false) { bell.msgLink.hidden = true; }
     }
     function refreshSummary() {
-        return get('summary').then(function (d) {
+        return get('summary', '', true).then(function (d) {
+            if (d && d.notModified) { return; }   // idle poll — nothing changed
             if (d && d.status === 'success') { applySummary(d.summary); }
         });
     }

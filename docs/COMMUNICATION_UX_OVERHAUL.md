@@ -464,3 +464,94 @@ its own feature — never the conversation.
   to application paths (tests/ excluded, like vendor/ and migrations/).
   Zero regressions.
 - Asset version 73.5; `php -l` clean on all changed PHP files.
+
+## §9 Phase 5 — Performance & scale (conditional GETs, cursor pagination, EXPLAIN audit) — SHIPPED
+
+> ### ⚠️ ACTION REQUIRED — migration `sql/045_comm_poll_indexes.sql`
+> **You must apply this migration manually** (as with every SSMS migration).
+> It adds two indexes the poll/pagination paths rely on:
+> `messages.idx_thread_id` and `message_threads.idx_lm_id`.
+> It is idempotent (information_schema-guarded) — safe to re-run.
+> **Without it the new conversation-list and thread-window queries
+> degrade to scans on large tables.**
+
+### 1. Server-side ETag / 304 — the idle poll is now ~free
+
+- `summary` answers `ETag: "ncsum-<md5(seed)>"`; `thread` answers
+  `ETag: "ncthr-<md5(seed)|w<beforeId>>"`. `If-None-Match` match →
+  `304`, **empty body**, and — critically — the 304 exit happens
+  **before** `markThreadRead`, so an idle poll performs **zero DB writes**.
+- `Cache-Control: private, no-cache` on API responses (revalidate every
+  time; the ETag makes revalidation cheap).
+- Version seeds are participation-gated: `threadVersion()` returns `null`
+  for non-participants → no ETag → **no 304 oracle** for people not in
+  the conversation.
+- Client (`comm.js`) stores per-view etags, sends `If-None-Match`, treats
+  304 as a no-op, and **clears all etags whenever `post()` completes**
+  (success *or* failure — a failed optimistic send must not leave a stale
+  validator behind).
+
+### 2. `.htaccess` cache headers — verified, no change needed
+
+Root `.htaccess`: HTML/PHP `no-cache, must-revalidate`; CSS/JS
+`max-age=3600, must-revalidate`. Combined with the `?v=` asset bump
+(now **73.6**), deploys are picked up on next load while static
+requests stay cacheable. API caching is handled per-response in PHP.
+
+### 3. EXPLAIN audit at 100k+ scale — APPROVED
+
+Seeded **150,030 notifications / 120,272 messages / 2,013 threads**
+(migrations 042–045 applied) and explained every hot query:
+
+| Query | Plan (MariaDB) |
+|---|---|
+| threads initial + cursor pages | **range on new `idx_lm_id`, covering ("Using index")** + eq_ref `idx_user` |
+| thread window + `before_id` pages | **range on new `idx_thread_id`** + eq_ref PK |
+| feed cursor page | range on PK (backward scan, stops at limit) |
+| `summaryVersion` / `threadVersion` probes | "Select tables optimized away" / index ref — O(1) |
+| mark-read watermark UPDATE | PK range + index-ref subquery |
+| feed *count* (role match) | full scan — **the one documented trade-off**: `FIND_IN_SET` over `target_roles` CSV cannot use an index; it runs **only on a version miss** (something actually changed), never on idle polls |
+
+Wall-clock at that scale (best of 5): idle `summary` poll **0.83 ms → 304, 0-byte body**;
+idle open-thread poll **0.86 ms**; full summary (only when changed) 185 ms;
+feed cursor page 64 ms; threads page 5.3 ms; thread window 0.7 ms.
+The acceptance budget — *poll cost ~304 bytes when idle* — is met with
+room to spare: the idle response is header-only.
+
+### 4. Cursor pagination everywhere
+
+- **Feed**: `before_id` (id DESC, one ordering), `limit+1` probe rows for
+  `has_more`, exact `next_before`. Legacy offset path kept for
+  backwards compatibility.
+- **Thread window**: newest-200 by `id DESC`, reversed for display;
+  `has_older` + `oldest_id` cursor; `before_id` pages strictly older.
+- **Conversation list**: tuple cursor `(before_lm, before_id)` —
+  correct even when two threads share a `last_message_at`.
+- Client: "Load older" button (`.nc-loadmore`) on every cursor-paged
+  surface; inserts the older fragment **before** removing/re-hiding the
+  button (insert-after-detach silently dropped rows — caught by the gate).
+
+### Bugs caught by the gates this round (product bugs, not test bugs)
+
+1. `post()` cleared etags only on success — a failed send left stale
+   validators (next poll could 304 past the user's own retry).
+2. Threads load-more removed the button *before* inserting the fetched
+   fragment — the detached-node insert dropped the rows on the floor.
+3. Feed cursor pagination never applied the limit/offset bind types
+   (would fatal on PHP 8 the moment a cursor param arrived).
+
+### Verification
+
+- Runtime gate: **102/102 green, zero handler errors**
+  (`node tests/js/comm_runtime_test.js`).
+- E2E (real MariaDB + PHP 8.3): **52 checks green** across
+  pre043 / mid043 / full / reset_full / **etag304** (12) /
+  **pagination** (9) / csrf_bad / unauth. The new scenarios pin:
+  304 + empty body + zero writes on idle; mutation invalidates the
+  ETag; non-participant never gets a 304; feed/thread/threads pages
+  tile exactly (30 rows, 260-message thread, 13 conversations) with no
+  overlap or gap.
+- pytest comm suites: **80 green** (72 structural + 1 runtime gate + 7
+  e2e wrapper). Full matrix: failing-ID diff vs `ca587cf` — the 40
+  pre-existing environment failures **byte-identical**; zero regressions.
+- `php -l` clean; asset version **73.6**.

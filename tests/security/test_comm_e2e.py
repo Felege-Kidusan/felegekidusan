@@ -116,6 +116,16 @@ class CommEndToEndTests(unittest.TestCase):
         self.assertIn("E2E-PASS: full: 043+044 re-run idempotent", proc.stdout)
         self.assertIn("E2E-RESET: full", proc.stdout)
 
+    def test_conditional_gets_etag_304(self):
+        """Phase 5: idle polls answer 304 empty; mutations break the ETag;
+        304 polls write nothing; non-participants get no ETag oracle."""
+        self._assert_verdict_pass(self._run("etag304"), "etag304")
+
+    def test_cursor_pagination(self):
+        """Phase 5: cursor pages tile exactly (feed, thread window,
+        conversation list) with no overlaps or gaps."""
+        self._assert_verdict_pass(self._run("pagination"), "pagination")
+
     def test_csrf_bad_token_fails_closed(self):
         """Wrong CSRF token → the API's 403 envelope, process exits."""
         proc = self._run("csrf_bad")

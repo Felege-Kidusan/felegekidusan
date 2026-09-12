@@ -73,7 +73,7 @@ function makeEl(tag, attrs = {}) {
         value: attrs.value || '',
         _textContent: '',
         _innerHTML: '',
-        offsetWidth: 100, offsetHeight: 100,
+        offsetWidth: 100, offsetHeight: 100, offsetTop: 0,
         scrollTop: 0, scrollHeight: 500,
         // textContent mirrors into innerHTML because comm.js's esc() does
         // `d.textContent = s; return d.innerHTML;` (real-DOM escaping trick)
@@ -113,6 +113,22 @@ function makeEl(tag, attrs = {}) {
     e.setAttribute = (k, v) => { e.attrs[k] = v; if (k.startsWith('data-')) e.dataset[camel(k.slice(5))] = v; };
     e.getAttribute = (k) => (k in e.attrs ? e.attrs[k] : null);
     e.appendChild = (c) => { c.parentNode = e; e.children.push(c); return c; };
+    e.prepend = (c) => { c.parentNode = e; e.children.unshift(c); return c; };
+    // P73 Phase 5: load-older prepends DOM without rebuilding the list
+    e.insertAdjacentHTML = (pos, html) => {
+        const parsed = parseHtml(String(html));
+        const kids = [...parsed.children];
+        if (pos === 'afterbegin') {
+            kids.reverse().forEach((k) => e.prepend(k));
+            e._innerHTML = String(html) + e._innerHTML;
+        } else if (pos === 'beforebegin' && e.parentNode) {
+            const i = e.parentNode.children.indexOf(e);
+            kids.forEach((k, j) => { k.parentNode = e.parentNode; e.parentNode.children.splice(i + j, 0, k); });
+        } else {
+            kids.forEach((k) => e.appendChild(k));
+            e._innerHTML = e._innerHTML + String(html);
+        }
+    };
     e.contains = (t) => { let n = t; while (n) { if (n === e) { return true; } n = n.parentNode; } return false; };
     e.focus = () => {};
     e.getBoundingClientRect = () => ({ top: 10, bottom: 50, left: 10, right: 50, width: 40, height: 40 });
@@ -435,20 +451,33 @@ const mql = { matches: false, addEventListener: () => {}, removeEventListener: (
 let failNextSend = false;    // flipped by the optimistic-send failure test
 let failNextRead = false;    // flipped by the optimistic mark-read failure test
 let failNextCompose = false; // flipped by the composer publish-failure test
-function apiReply(action) {
+let summaryAlerts = 2;       // P73 Phase 5: mutated mid-test to prove full refetch after a POST
+function apiReply(action, qsParams) {
+    const qp = qsParams || {};
     switch (action) {
         case 'send_message': return failNextSend ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
         case 'mark_read': case 'announcement_read': return failNextRead ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
         case 'compose': return failNextCompose ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
-        case 'summary': return { status: 'success', summary: { alerts: 2, announcements: 1, tasks: 0, messages: 3, can_announce: true, can_message: true } };
-        case 'feed': return {
-            status: 'success',
-            rows: [
+        case 'summary': return { status: 'success', summary: { alerts: summaryAlerts, announcements: 1, tasks: 0, messages: 3, can_announce: true, can_message: true } };
+        case 'feed': {
+            const paged = parseInt(qp.before_id || '0', 10) > 0;
+            // a cursor page returns ONLY rows older than before_id
+            const rows = paged ? [
+                { id: '3', title: 'older unread', message: 'old', type: 'member', created_at: '2026-09-11 10:00:00', is_unread: 1, priority: 'low' },
+                { id: '2', title: 'oldest', message: 'older still', type: 'member', created_at: '2026-09-10 10:00:00', is_unread: 0, priority: 'normal' }
+            ] : [
                 { id: '5', title: 'unread one', message: 'm', type: 'member', created_at: '2026-09-12 10:00:00', is_unread: 1, priority: 'normal' },
                 { id: '6', title: 'read one', message: 'm2', type: 'member', created_at: '2026-09-12 09:00:00', is_unread: 0, priority: 'normal' }
-            ],
-            total: 2, unread: 1
-        };
+            ];
+            return {
+                status: 'success',
+                rows,
+                total: 2, unread: 1,
+                // P73 Phase 5 cursor metadata (page 2 exists, keyed on before_id)
+                next_before: paged ? null : 4,
+                has_more: !paged
+            };
+        }
         case 'tasks': return {
             status: 'success',
             tasks: [{ id: '11', title: 'Approve room booking', description: 'Room 2 on Friday', priority: 'high', from_user_name: 'Daniel T' }]
@@ -458,17 +487,36 @@ function apiReply(action) {
             roles: { teacher: 'Teachers' },
             users: [{ id: '2', label: 'Other Person — Teacher' }]
         };
-        case 'announcements': return { status: 'success', announcements: [] };
-        case 'threads': return {
-            status: 'success',
-            threads: [{
+        case 'announcements': return (parseInt(qp.before_id || '0', 10) > 0)
+            ? { status: 'success', announcements: [
+                { id: '20', title: 'older announcement', body: 'b', created_at: '2026-09-10 08:00:00', is_unread: 0, is_pinned: 0, priority: 'normal', author_label: 'Education' }
+            ], next_before: null, next_pin: null, has_more: false }
+            : { status: 'success', announcements: [
+                { id: '21', title: 'pinned announcement', body: 'b', created_at: '2026-09-12 08:00:00', is_unread: 1, is_pinned: 1, priority: 'high', author_label: 'Education' }
+            ], next_before: 20, next_pin: 1, has_more: true };
+        case 'threads': return (parseInt(qp.before_id || '0', 10) > 0)
+            ? { status: 'success', threads: [{
+                id: 3, subject: 'Older conversation', participants_label: 'Berea M',
+                last_body: 'older last', last_message_at: '2026-09-05 10:00:00',
+                created_at: '2026-09-01 09:00:00', unread_count: 0
+            }], next: null, has_more: false }
+            : { status: 'success', threads: [{
                 id: 7, subject: 'Budget question', participants_label: 'Berea M, Daniel T',
                 last_body: 'Can we review the budget?', last_message_at: '2026-09-12 10:00:00',
                 created_at: '2026-09-01 09:00:00', unread_count: 2
-            }]
-        };
-        case 'thread': return {
+            }], next: ['2026-09-05 10:00:00', 3], has_more: true };
+        case 'thread': return (parseInt(qp.before_id || '0', 10) > 0)
+            ? { status: 'success', messages: [
+                { id: '3', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
+                  body: 'ancient reply', created_at: '2026-09-11 08:00:00', mine: 0 },
+                { id: '2', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
+                  body: 'ancient own', created_at: '2026-09-11 07:00:00', mine: 1 },
+                { id: '1', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
+                  body: 'first ever', created_at: '2026-09-11 06:00:00', mine: 0 }
+            ], read_watermark: 0, has_older: false, oldest_id: 1 }
+            : {
             status: 'success',
+            has_older: true, oldest_id: 4,
             messages: [
                 { id: '9', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
                   body: 'my own message', created_at: '2026-09-12 10:00:00', mine: 1 },
@@ -496,9 +544,23 @@ function apiReply(action) {
 const windowShim = {
     CSS: { supports: () => false },   // no field-sizing → JS autoGrow path
     matchMedia: () => mql,
-    addEventListener: () => {},
+    listeners: {},                    // P73 Phase 5: focus events drive the pollers
+    addEventListener: (t, fn) => { (windowShim.listeners[t] = windowShim.listeners[t] || []).push(fn); },
+    removeEventListener: () => {},
     innerWidth: 1400, innerHeight: 900,
 };
+function fireWindow(type) {
+    for (const fn of (windowShim.listeners[type] || []).slice()) { fn({ type }); }
+}
+
+/* P73 Phase 5 — a tiny conditional-GET server: first GET answers 200 with
+ * a strong ETag; a revalidation that still matches answers 304; a
+ * successful POST invalidates every etag (mirrors the real backend). */
+let etagSeq = 0;
+const etagStore = {};     // key -> etag currently valid server-side
+let etagsDirty = false;   // set by POST success → next GET gets a new etag
+const inmSeen = [];       // requests that carried If-None-Match
+const not304 = [];        // GETs that were answered 304
 
 const sandbox = {
     document: documentShim,
@@ -506,10 +568,38 @@ const sandbox = {
     location: { hash: '' },
     history: { replaceState: () => {} },
     fetch: (url, opts) => {
-        fetchLog.push(String(url) + (opts && opts.body ? ' :: ' + String(opts.body) : ''));
-        // GETs carry action= in the URL; POSTs carry it in the form body
-        const m = (String(url) + ' ' + (opts && opts.body ? String(opts.body) : '')).match(/action=([a-z_]+)/);
-        return Promise.resolve({ json: () => Promise.resolve(apiReply(m ? m[1] : '')) });
+        const u = String(url);
+        const isGet = !opts || !opts.method || opts.method === 'GET';
+        fetchLog.push(u + (opts && opts.body ? ' :: ' + String(opts.body) : ''));
+        const m = (u + ' ' + (opts && opts.body ? String(opts.body) : '')).match(/action=([a-z_]+)/);
+        const action = m ? m[1] : '';
+        if (!isGet) {
+            // POST: on success the server-side state changes — every etag
+            // the client holds becomes stale (it must clear its store)
+            const reply = apiReply(action, {});
+            if (reply && reply.status === 'success') { etagsDirty = true; }
+            return Promise.resolve({
+                status: 200,
+                headers: { get: () => null },
+                json: () => Promise.resolve(reply),
+            });
+        }
+        const q = {};
+        u.replace(/[?&]([a-z_]+)=([^&]*)/g, (_, k, v) => { q[k] = decodeURIComponent(v); });
+        const key = action + '|' + (q.id || '') + '|' + (q.before_id || '') + '|' + (q.unread || '');
+        const inm = opts && opts.headers && opts.headers['If-None-Match'];
+        if (inm) { inmSeen.push({ key, inm }); }
+        if (inm && etagStore[key] === inm && !etagsDirty) {
+            not304.push(key);
+            fetchLog[fetchLog.length - 1] += ' [304]';
+            return Promise.resolve({ status: 304, headers: { get: (h) => (h === 'ETag' ? etagStore[key] : null) } });
+        }
+        if (etagsDirty || !etagStore[key]) { etagStore[key] = '"e' + (++etagSeq) + '"'; etagsDirty = false; }
+        return Promise.resolve({
+            status: 200,
+            headers: { get: (h) => (h === 'ETag' ? etagStore[key] : null) },
+            json: () => Promise.resolve(apiReply(action, q)),
+        });
     },
     URLSearchParams,
     Promise,
@@ -898,6 +988,90 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
     await sleep(20);
     check('MGMT: delete success refreshes the thread list',
         fetchLog.some((e) => e.includes('action=threads')));
+    // 6k. P73 Phase 5 — conditional GETs (ETag/304) + cursor pagination
+    // The inbox tests left the section on the alerts view — go back to
+    // messages and (re)open the conversation: the full fetches below
+    // prime the client's etag store for both poll endpoints.
+    fire(secTabMsgs, 'click');
+    await sleep(20);
+    fire(qs(threads, '[data-th="7"]'), 'click');
+    await sleep(30);
+    const inmOpen = inmSeen.length, msgsBefore = qsa(msgs, '.nc-msg').length;
+
+    // focus drives every poller: the open thread revalidates (INM → 304),
+    // the summary is fetched full (its store was cleared by 6j's POSTs)
+    fireWindow('focus');
+    await sleep(30);
+    check('P5: focus poll revalidates the open thread (If-None-Match → 304)',
+        inmSeen.length === inmOpen + 1 && not304.length >= 2);
+
+    // a fully idle cycle: BOTH polls answer 304 and nothing re-renders
+    const badge = qs(documentShim, '.nc-badge');
+    const badgeBefore = badge && badge.textContent;
+    fireWindow('focus');
+    await sleep(30);
+    check('P5: idle polls revalidate with If-None-Match (summary + thread)',
+        inmSeen.length === inmOpen + 3);
+    check('P5: idle polls are answered 304 and re-render NOTHING',
+        not304.length >= 4 && qsa(msgs, '.nc-msg').length === msgsBefore
+        && fetchLog.some((e) => e.endsWith(' [304]')));
+    check('P5: 304 leaves the badge untouched',
+        !badge || badge.textContent === badgeBefore);
+
+    // a completed POST invalidates: the poll inside the handler is a
+    // FULL fetch (no If-None-Match) and the badge picks up new data
+    summaryAlerts = 5;                          // server data changed
+    const inmAtPost = inmSeen.length;
+    fire(secMarkAll, 'click');                  // mark_all_read POST → success
+    await sleep(30);                            // revert/refetch cycle settles
+    check('P5: POST clears the etag store — the following poll is a full fetch',
+        inmSeen.length === inmAtPost && !!badge && badge.textContent === '9');
+
+    // cursor pagination — open conversation: window + Load older
+    const lmBtn = qs(msgs, '[data-loadmore="msgs"]');
+    check('P5: long conversations offer "Load older messages"', !!lmBtn);
+    fire(lmBtn, 'click');
+    await sleep(30);
+    const olderGet = fetchLog.filter((e) => /action=thread&.*before_id=4/.test(e)).pop();
+    const firstMid = qs(msgs, '.nc-msg') && qs(msgs, '.nc-msg').dataset.mid;
+    check('P5: Load older requests exactly the server cursor (before_id=4)',
+        !!olderGet && !olderGet.includes('[304]'));
+    check('P5: older page is PREPENDED (oldest first, newest kept)',
+        firstMid === '3' && qsa(msgs, '.nc-msg').length === msgsBefore + 3
+        && !!qs(msgs, '.nc-msg.mine[data-mid="9"]'));
+    check('P5: no more pages → the button disappears',
+        qs(msgs, '[data-loadmore="msgs"]') === null);
+
+    // cursor pagination — alerts feed
+    const alertsLoadMore = qs(alertsList, '[data-loadmore="alerts"]');
+    check('P5: alerts feed offers Load older (has_more)', !!alertsLoadMore);
+    fire(alertsLoadMore, 'click');
+    await sleep(30);
+    const feedOlder = fetchLog.filter((e) => /action=feed&.*before_id=4/.test(e)).pop();
+    check('P5: feed pages with the cursor and APPENDS (no wipe)',
+        !!feedOlder && qsa(alertsList, '.nc-item').length === 4
+        && qsa(alertsList, '.nc-item.nc-unread').length === 2);
+
+    // cursor pagination — announcements (pinned tuple cursor)
+    const annList = qs(inboxPane, '.nc-list[data-list="announcements"]');
+    const annLoadMore = qs(annList, '[data-loadmore="announcements"]');
+    check('P5: announcements offer Load older (pinned tuple cursor)', !!annLoadMore);
+    fire(annLoadMore, 'click');
+    await sleep(30);
+    const annOlder = fetchLog.filter((e) => /action=announcements&.*before_id=20&before_pin=1/.test(e)).pop();
+    check('P5: announcements page carries (before_pin, before_id) and appends',
+        !!annOlder && qsa(annList, '.nc-item').length === 2);
+
+    // cursor pagination — conversation list
+    const thLoadMore = qs(threads, '[data-loadmore="threads"]');
+    check('P5: conversation list offers Load older', !!thLoadMore);
+    fire(thLoadMore, 'click');
+    await sleep(30);
+    const thOlder = fetchLog.filter((e) => /action=threads&.*before_lm=/.test(e)).pop();
+    check('P5: threads page carries the (last_message_at, id) cursor and appends',
+        !!thOlder && thOlder.includes('before_id=3')
+        && qsa(threads, '[data-th]').length === 2);
+
 
     // 7. bell again AFTER section interactions (regression for the scoping bug)
     fire(qs(documentShim, '.nc-bell'), 'click');

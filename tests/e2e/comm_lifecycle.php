@@ -30,6 +30,16 @@
  *   csrf_bad     one POST with a WRONG csrf token (process exits via
  *                the API's 403 path — wrapper asserts on raw output)
  *   unauth       one call with NO session (API exits Unauthorized)
+ *   etag304      P73 Phase 5 — conditional GETs: summary + open thread
+ *                answer 304 with EMPTY bodies when nothing changed; any
+ *                mutation produces a fresh ETag + full body; a 304 poll
+ *                performs ZERO writes; non-participants never get an
+ *                ETag (no 304 oracle for other people's threads)
+ *   pagination   P73 Phase 5 — cursor pagination: feed pages by
+ *                before_id with no overlap/gap; thread ships the NEWEST
+ *                window + has_older/oldest_id, before_id pages older;
+ *                conversation list pages by the (last_message_at, id)
+ *                tuple cursor; page ends are exact
  *
  * Usage:   php tests/e2e/comm_lifecycle.php <scenario>
  * Needs:   .fkss_env.php in the repo root pointing at the prepared
@@ -40,6 +50,11 @@
 
 error_reporting(E_ALL & ~E_DEPRECATED);
 ini_set('display_errors', '0');
+// P73 Phase 5: buffer our own check output — printing to stdout between
+// API calls would mark headers as sent and block http_response_code(304)
+// in the CLI (in production each request is its own process). The buffer
+// flushes automatically at exit.
+ob_start();
 
 $ROOT = dirname(__DIR__, 2);
 require $ROOT . '/.fkss_env.php';
@@ -143,7 +158,7 @@ function resetSchema(array $migrations): void {
 }
 
 /** Act as a user and call the REAL api_notifications.php. Returns [decoded, raw]. */
-function api(string $userId, string $role, string $method, array $get, array $post, bool $badCsrf = false): array {
+function api(string $userId, string $role, string $method, array $get, array $post, bool $badCsrf = false, ?string $inm = null): array {
     $_SERVER['REQUEST_METHOD'] = $method;
     $_SERVER['REQUEST_URI'] = '/admin/api_notifications.php';
     $_SERVER['HTTP_HOST'] = 'e2e.local';
@@ -176,11 +191,17 @@ function api(string $userId, string $role, string $method, array $get, array $po
             $conn->set_charset('utf8mb4');
         }
     }
+    // P73 Phase 5: conditional-GET support — revalidate with If-None-Match
+    // and capture the response code (the 304 path exits before any echo,
+    // so http_response_code() is readable while the body sits in the OB).
+    if ($inm !== null) { $_SERVER['HTTP_IF_NONE_MATCH'] = $inm; }
+    else { unset($_SERVER['HTTP_IF_NONE_MATCH']); }
+    http_response_code(200);
     ob_start();
     include $GLOBALS['ROOT'] . '/admin/api_notifications.php';
     $raw = ob_get_clean();
     $decoded = json_decode($raw, true);
-    return [$decoded, $raw];
+    return [$decoded, $raw, http_response_code()];
 }
 
 $ROLE_ID = ['super_admin' => 1, 'teacher' => 2, 'edu_dept' => 3, 'finance_dept' => 4];
@@ -313,6 +334,116 @@ switch ($SCENARIO) {
         // non-participant cannot open the thread
         [$t] = api(4, 'finance_dept', 'POST', ['action' => 'thread', 'id' => $tid], []);
         ok(($t['status'] ?? '') === 'error', 'full: non-participant denied ("Not your conversation.")');
+        verdict();
+    }
+
+    case 'etag304': {
+        resetSchema(['043_message_read_receipts.sql', '044_message_edit_delete.sql']);
+        [$r] = api(1, 'super_admin', 'POST', [], ['action' => 'thread_start', 'to' => '2', 'subject' => 'E2E etag', 'body' => 'first']);
+        $tid = (int)($r['id'] ?? 0);
+        ok($tid > 0, 'etag304: thread seeded');
+
+        // ── summary: full response, then idle revalidation → 304 + empty body
+        [$s1, , $c1] = api(2, 'teacher', 'POST', [], ['action' => 'summary']);
+        ok($c1 === 200 && ($s1['status'] ?? '') === 'success', 'etag304: summary full response (200 + body)');
+        $etag = '"ncsum-' . md5(\App\Services\NotificationCenterService::summaryVersion(db(), 2, 'teacher')) . '"';
+        [$s2, $raw2, $c2] = api(2, 'teacher', 'POST', [], ['action' => 'summary'], false, $etag);
+        ok($c2 === 304 && $raw2 === '', 'etag304: idle summary poll → 304 with EMPTY body');
+        $etagBad = '"ncsum-' . md5('stale-version') . '"';
+        [, $rawB, $cB] = api(2, 'teacher', 'POST', [], ['action' => 'summary'], false, $etagBad);
+        ok($cB === 200 && $rawB !== '', 'etag304: wrong If-None-Match → full response');
+
+        // ── a mutation must change the summary ETag (badge updates live)
+        [$s3, , $c3] = api(1, 'super_admin', 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => 'changed!']);
+        ok($c3 === 200, 'etag304: mutation sent');
+        [$s4, $raw4, $c4] = api(2, 'teacher', 'POST', [], ['action' => 'summary'], false, $etag);
+        ok($c4 === 200 && ($s4['summary']['messages'] ?? -1) >= 1, 'etag304: after a mutation the old ETag no longer matches (fresh data)');
+
+        // ── open thread: etag captured implicitly via version; idle poll → 304
+        [$t1, , $tc1] = api(2, 'teacher', 'POST', ['action' => 'thread', 'id' => $tid], []);
+        ok($tc1 === 200 && count($t1['messages'] ?? []) === 2, 'etag304: thread opened (full window)');
+        $threadEtag = '"ncthr-' . md5(\App\Services\NotificationCenterService::threadVersion(db(), 2, $tid) . '|w0') . '"';
+        // zero-write probe: backdate my read state — a FULL response would
+        // run markThreadRead and stamp it back to NOW(); a 304 must leave
+        // the backdated value untouched
+        db()->query("UPDATE notification_reads SET read_at = '2020-01-01 00:00:00' WHERE user_id = 2 AND subject_type = 'message_thread'");
+        [$t2, $rawT2, $tc2] = api(2, 'teacher', 'POST', ['action' => 'thread', 'id' => $tid], [], false, $threadEtag);
+        ok($tc2 === 304 && $rawT2 === '', 'etag304: idle thread poll → 304 with EMPTY body');
+        $readAt = (string)(db()->query("SELECT read_at FROM notification_reads WHERE user_id = 2 AND subject_type = 'message_thread' LIMIT 1")->fetch_assoc()['read_at'] ?? '');
+        ok(strpos($readAt, '2020-01-01') === 0, 'etag304: a 304 poll performs ZERO writes (read state untouched)');
+
+        // ── new message → version moves → full window with the new message
+        api(1, 'super_admin', 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => 'new one']);
+        [$t3, $rawT3, $tc3] = api(2, 'teacher', 'POST', ['action' => 'thread', 'id' => $tid], [], false, $threadEtag);
+        ok($tc3 === 200 && count($t3['messages'] ?? []) === 3, 'etag304: new message breaks the ETag (full response)');
+
+        // ── non-participants NEVER receive an ETag (no 304 oracle)
+        [, $rawNP, ] = api(3, 'edu_dept', 'POST', ['action' => 'thread', 'id' => $tid], []);
+        ok(strpos($rawNP, 'Not your conversation.') !== false, 'etag304: non-participant gets the permission error');
+        [, , $cNP] = api(3, 'edu_dept', 'POST', ['action' => 'thread', 'id' => $tid], [], false, $threadEtag);
+        ok($cNP !== 304, 'etag304: non-participant cannot get a 304 (participation-gated version)');
+        verdict();
+    }
+
+    case 'pagination': {
+        resetSchema(['043_message_read_receipts.sql', '044_message_edit_delete.sql']);
+        // seed 30 notifications targeted at teacher
+        $ins = db()->prepare("INSERT INTO notifications (type, title, message, priority, target_roles, source_user_id) VALUES ('member', ?, ?, 'normal', 'teacher', 1)");
+        for ($i = 1; $i <= 30; $i++) { $t = "Alert no $i"; $m = "body $i"; $ins->bind_param('ss', $t, $m); $ins->execute(); }
+        $ins->close();
+
+        // feed: 3 exact pages of 10, strictly descending, no overlap, no gap
+        [$p1] = api(2, 'teacher', 'POST', ['action' => 'feed', 'limit' => '10'], []);
+        $ids1 = array_map(static fn($r) => (int)$r['id'], $p1['rows'] ?? []);
+        ok(count($ids1) === 10 && ($p1['has_more'] ?? false) === true && ($p1['next_before'] ?? 0) === min($ids1),
+            'pagination: feed page 1 = 10 rows + exact cursor');
+        [$p2] = api(2, 'teacher', 'POST', ['action' => 'feed', 'limit' => '10', 'before_id' => (string)$p1['next_before']], []);
+        $ids2 = array_map(static fn($r) => (int)$r['id'], $p2['rows'] ?? []);
+        ok(count($ids2) === 10 && max($ids2) < min($ids1), 'pagination: feed page 2 strictly older, no overlap');
+        [$p3] = api(2, 'teacher', 'POST', ['action' => 'feed', 'limit' => '10', 'before_id' => (string)$p2['next_before']], []);
+        $ids3 = array_map(static fn($r) => (int)$r['id'], $p3['rows'] ?? []);
+        $all = array_merge($ids1, $ids2, $ids3);
+        ok(count($ids3) === 10 && ($p3['has_more'] ?? true) === false && count($all) === 30 && count(array_unique($all)) === 30,
+            'pagination: feed pages tile exactly 30 rows (no gap, no duplicate, exact end)');
+
+        // thread with 260 messages: newest-200 window + older page
+        [$r] = api(1, 'super_admin', 'POST', [], ['action' => 'thread_start', 'to' => '2', 'subject' => 'E2E pages', 'body' => 'm0']);
+        $tid = (int)($r['id'] ?? 0);
+        ok($tid > 0, 'pagination: thread seeded');
+        $batch = '';
+        for ($i = 1; $i <= 259; $i++) { $batch .= "('{$tid}', 1, 'bulk {$i}'),"; }
+        db()->query('INSERT INTO messages (thread_id, sender_id, body) VALUES ' . rtrim($batch, ','));
+        [$t] = api(2, 'teacher', 'POST', ['action' => 'thread', 'id' => $tid], []);
+        $mids = array_map(static fn($m) => (int)$m['id'], $t['messages'] ?? []);
+        ok(count($mids) === 200 && max($mids) === 260 && min($mids) === 61,
+            'pagination: thread ships the NEWEST 200 (ids 61..260) — was the oldest-200 bug');
+        ok(($t['has_older'] ?? false) === true && (int)($t['oldest_id'] ?? 0) === 61, 'pagination: has_older + oldest_id cursor exact');
+        [$t2] = api(2, 'teacher', 'POST', ['action' => 'thread', 'id' => $tid, 'before_id' => '61'], []);
+        $mids2 = array_map(static fn($m) => (int)$m['id'], $t2['messages'] ?? []);
+        ok(count($mids2) === 60 && max($mids2) === 60 && min($mids2) === 1 && ($t2['has_older'] ?? true) === false,
+            'pagination: older page = exactly the remaining 60, ASC order, exact end');
+
+        // conversation list: tuple cursor over 13 threads (5+5+3)
+        for ($i = 1; $i <= 12; $i++) {
+            db()->query("INSERT INTO message_threads (subject, created_by, last_message_at) VALUES ('bulk thread $i', 1, DATE_SUB(NOW(), INTERVAL $i MINUTE))");
+            $ntid = (int)db()->insert_id;
+            db()->query("INSERT INTO message_thread_participants (thread_id, user_id) VALUES ($ntid, 1), ($ntid, 2)");
+            db()->query("INSERT INTO messages (thread_id, sender_id, body) VALUES ($ntid, 1, 'hello $i')");
+        }
+        [$th1] = api(2, 'teacher', 'POST', ['action' => 'threads', 'limit' => '5'], []);
+        $tids1 = array_map(static fn($x) => (int)$x['id'], $th1['threads'] ?? []);
+        $last1 = $th1['threads'][4] ?? null;
+        ok(count($tids1) === 5 && ($th1['has_more'] ?? false) === true && is_array($th1['next'] ?? null)
+            && $last1 !== null && (int)$th1['next'][1] === (int)$last1['id']
+            && $th1['next'][0] === $last1['last_message_at'],
+            'pagination: threads page 1 = 5 rows + exact last-row tuple cursor');
+        [$th2] = api(2, 'teacher', 'POST', ['action' => 'threads', 'limit' => '5', 'before_lm' => (string)$th1['next'][0], 'before_id' => (string)$th1['next'][1]], []);
+        $tids2 = array_map(static fn($x) => (int)$x['id'], $th2['threads'] ?? []);
+        [$th3] = api(2, 'teacher', 'POST', ['action' => 'threads', 'limit' => '5', 'before_lm' => (string)$th2['next'][0], 'before_id' => (string)$th2['next'][1]], []);
+        $tids3 = array_map(static fn($x) => (int)$x['id'], $th3['threads'] ?? []);
+        $allT = array_merge($tids1, $tids2, $tids3);
+        ok(count($tids3) === 3 && ($th3['has_more'] ?? true) === false && count($allT) === 13 && count(array_unique($allT)) === 13,
+            'pagination: threads pages tile exactly 13 (5+5+3, no dup, no gap)');
         verdict();
     }
 

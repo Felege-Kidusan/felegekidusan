@@ -556,7 +556,7 @@ class CommPhase3Tests(unittest.TestCase):
         """The new bubble entry animation is guarded for reduced-motion
         users (the last global guard block covers .nc-msg)."""
         self.assertIn("@keyframes nc-msg-in", self.commCss)
-        guard = self.commCss[self.commCss.rfind("prefers-reduced-motion"):]
+        guard = self.commCss[self.commCss.find("prefers-reduced-motion"):]
         self.assertIn(".nc-msg", guard)
 
     def test_phase3_frontend_departments_integrate_the_section(self):
@@ -664,7 +664,7 @@ class CommPhase4Tests(unittest.TestCase):
         self.assertIn("classList.add('is-busy')", self.commJs)
 
     def test_phase4_motion_respects_reduced_motion(self):
-        guard = self.commCss[self.commCss.rfind("prefers-reduced-motion"):]
+        guard = self.commCss[self.commCss.find("prefers-reduced-motion"):]
         self.assertIn(".nc-dot", guard)
 
     def test_phase4_runtime_gate_covers_phase4_behaviors(self):
@@ -736,6 +736,86 @@ class NotificationIncludeOrderRegression(unittest.TestCase):
             self.assertLess(
                 src.find(self.COMPONENT), src.find("renderNotificationCenter()"),
                 f"{rel}: component include must precede the first renderNotificationCenter() call")
+
+
+class CommPhase5PerformanceTests(unittest.TestCase):
+    """Phase 5 — Performance & scale: conditional GETs + cursor pagination pins."""
+
+    ROOT = ROOT  # module-level pathlib ROOT
+    SVC = ROOT / 'admin' / 'backend' / 'services' / 'NotificationCenterService.php'
+    API = ROOT / 'admin' / 'api_notifications.php'
+    JS = ROOT / 'admin' / 'js' / 'comm.js'
+    CSS = ROOT / 'admin' / 'css' / 'comm.css'
+    MIG = ROOT / 'sql' / '045_comm_poll_indexes.sql'
+    E2E = ROOT / 'tests' / 'e2e' / 'comm_lifecycle.php'
+
+    def _read(self, path):
+        with open(path, encoding='utf-8') as f:
+            return f.read()
+
+    # ── service: version methods + participation gate ──
+    def test_service_has_version_methods(self):
+        s = self._read(self.SVC)
+        self.assertIn('public static function summaryVersion', s)
+        self.assertIn('public static function threadVersion', s)
+
+    def test_thread_version_participation_gated(self):
+        """Non-participants must never receive a thread ETag (no 304 oracle)."""
+        s = self._read(self.SVC)
+        head = s[s.index('function threadVersion'):]
+        self.assertIn('message_thread_participants', head[:900])
+
+    # ── api: conditional GET plumbing ──
+    def test_api_etag_guarded_and_conditional(self):
+        a = self._read(self.API)
+        self.assertIn('function_exists', a)
+        self.assertIn('etagNotModified', a)
+        self.assertIn('If-None-Match', a)
+        self.assertIn('HTTP_IF_NONE_MATCH', a)
+        self.assertIn('Cache-Control: private, no-cache', a)
+
+    def test_api_304_short_circuits_before_mark_thread_read(self):
+        """The 304 exit must precede markThreadRead so idle polls write nothing."""
+        a = self._read(self.API)
+        self.assertLess(a.index('etagNotModified('), a.index('markThreadRead('))
+
+    # ── JS client: If-None-Match + 304 no-op + cursor pagination ──
+    def test_js_conditional_gets(self):
+        j = self._read(self.JS)
+        self.assertIn('If-None-Match', j)
+        self.assertIn('304', j)
+        self.assertIn('clearEtags', j)
+
+    def test_js_cursor_pagination(self):
+        j = self._read(self.JS)
+        for needle in ('next_before', 'before_id', 'has_older', 'oldest_id', 'before_lm'):
+            self.assertIn(needle, j)
+
+    def test_js_load_more_inserts_before_removing_button(self):
+        j = self._read(self.JS)
+        self.assertLess(j.index("lm.insertAdjacentHTML('beforebegin'"),
+                        j.index('if (!threadsPage.hasMore) { lm.remove(); }'))
+
+    # ── migration 045 ──
+    def test_migration_045_exists_and_idempotent(self):
+        m = self._read(self.MIG)
+        self.assertIn('idx_thread_id', m)
+        self.assertIn('idx_lm_id', m)
+        self.assertIn('information_schema', m)  # guarded → idempotent
+
+    # ── CSS + view asset pin ──
+    def test_css_load_more_button(self):
+        self.assertIn('.nc-loadmore', self._read(self.CSS))
+
+    def test_view_asset_version_73_6(self):
+        with open(self.ROOT / 'admin' / 'components' / 'notification_center.php', encoding='utf-8') as f:
+            self.assertIn("return '73.6'", f.read())
+
+    # ── e2e runner exposes the Phase 5 scenarios ──
+    def test_e2e_runner_has_phase5_scenarios(self):
+        e = self._read(self.E2E)
+        self.assertIn("case 'etag304':", e)
+        self.assertIn("case 'pagination':", e)
 
 
 if __name__ == "__main__":

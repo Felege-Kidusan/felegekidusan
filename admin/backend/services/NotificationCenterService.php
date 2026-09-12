@@ -130,9 +130,9 @@ final class NotificationCenterService
      * optional unread-only and type filters.
      * @return array{rows:array,total:int,unread:int}
      */
-    public static function feed(\mysqli $conn, int $userId, string $role, int $limit = 30, int $offset = 0, bool $unreadOnly = false, string $typeFilter = ''): array
+    public static function feed(\mysqli $conn, int $userId, string $role, int $limit = 30, int $offset = 0, bool $unreadOnly = false, string $typeFilter = '', ?int $beforeId = null): array
     {
-        $empty = ['rows' => [], 'total' => 0, 'unread' => 0];
+        $empty = ['rows' => [], 'total' => 0, 'unread' => 0, 'next_before' => null, 'has_more' => false];
         try {
             $typeOk = $typeFilter !== '' && preg_match('/^[a-z_]{1,50}$/', $typeFilter);
 
@@ -160,20 +160,28 @@ final class NotificationCenterService
             $agg = $stmt->get_result()->fetch_assoc();
             $stmt->close();
 
-            // page
+            // page (P73 Phase 5): cursor pagination. `before_id` pages by
+            // n.id DESC (stable, PK-backed — the old OFFSET path skips rows
+            // when anything is inserted/deleted mid-browse). The legacy
+            // limit/offset path is kept for older clients.
+            $cursor = ($beforeId !== null && $beforeId > 0);
+            $fetch = $limit + 1;   // +1 = cheap has_more probe on every page
             $sql = "SELECT n.*, nr.read_at AS my_read_at
                     FROM notifications n
                     LEFT JOIN notification_reads nr
                       ON nr.subject_type = 'notification' AND nr.subject_id = n.id AND nr.user_id = ?
                     WHERE {$where}"
                 . ($unreadOnly ? " AND nr.id IS NULL" : "")
-                . " ORDER BY n.created_at DESC
-                    LIMIT ? OFFSET ?";
-            $types = 'i' . 'si' . ($typeOk ? 's' : '') . 'ii';
+                . ($cursor ? " AND n.id < ?" : "")
+                // one ordering for both paths — id DESC (stable, PK-backed)
+                . " ORDER BY n.id DESC LIMIT ?"
+                . ($cursor ? "" : " OFFSET ?");
+            $types = 'i' . 'si' . ($typeOk ? 's' : '') . 'ii';   // + beforeId/limit (cursor) or limit/offset (legacy)
             $params = [$userId, $role, $userId];
             if ($typeOk) { $params[] = $typeFilter; }
-            $params[] = $limit;
-            $params[] = $offset;
+            if ($cursor) { $params[] = $beforeId; }
+            $params[] = $fetch;
+            if (!$cursor) { $params[] = $offset; }
             $stmt = $conn->prepare($sql);
             if (!$stmt) { return $empty; }
             $stmt->bind_param($types, ...$params);
@@ -186,10 +194,16 @@ final class NotificationCenterService
                 $rows[] = $row;
             }
             $stmt->close();
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) { array_pop($rows); }   // drop the probe row
             return [
                 'rows'   => $rows,
                 'total'  => (int)($agg['c'] ?? 0),
                 'unread' => (int)($agg['u'] ?? 0),
+                // cursor for the next older page (null = no more pages)
+                'next_before' => ($hasMore && isset($rows[$limit - 1]['id']))
+                    ? (int)$rows[$limit - 1]['id'] : null,
+                'has_more'    => $hasMore,
             ];
         } catch (\Exception $e) {
             return $empty;
@@ -360,10 +374,21 @@ final class NotificationCenterService
      * Announcements addressed to me, pinned first then newest, with
      * my read state. target_user_ids is a padded CSV (",7,9,").
      */
-    public static function listAnnouncements(\mysqli $conn, int $userId, string $role, int $limit = 30, int $offset = 0): array
+    /**
+     * Cursor paging by the exact sort key (is_pinned, id) DESC — stable,
+     * PK-backed, immune to the offset skip problem. The cursor is the
+     * LAST row's own (is_pinned, id) tuple: `$beforePin`+`$beforeId`.
+     * Legacy limit/offset path kept for older clients.
+     *
+     * @return array{rows:array, next_pin:int|null, next_before:int|null, has_more:bool}
+     */
+    public static function listAnnouncements(\mysqli $conn, int $userId, string $role, int $limit = 30, int $offset = 0, ?int $beforeId = null, ?int $beforePin = null): array
     {
+        $out = ['rows' => [], 'next_pin' => null, 'next_before' => null, 'has_more' => false];
         try {
-            $stmt = $conn->prepare(
+            $cursor = ($beforeId !== null && $beforeId > 0 && $beforePin !== null);
+            $fetch = $limit + 1;   // +1 = cheap has_more probe on every page
+            $sql =
                 "SELECT a.*, u.full_name AS author_name,
                         (nr.id IS NULL) AS is_unread
                  FROM announcements a
@@ -376,12 +401,19 @@ final class NotificationCenterService
                             AND (FIND_IN_SET(?, a.target_roles) > 0 OR a.target_roles IS NULL OR a.target_roles = ''))
                      OR (a.audience_type = 'users'
                             AND a.target_user_ids LIKE CONCAT('%,', ?, ',%'))
-                   )
-                 ORDER BY a.is_pinned DESC, a.created_at DESC
-                 LIMIT ? OFFSET ?"
-            );
-            if (!$stmt) { return []; }
-            $stmt->bind_param('issii', $userId, $role, $userId, $limit, $offset);
+                   )"
+                . ($cursor ? " AND (a.is_pinned, a.id) < (?, ?)" : "")
+                // one ordering for both paths — (is_pinned, id) DESC
+                . " ORDER BY a.is_pinned DESC, a.id DESC LIMIT ?"
+                . ($cursor ? "" : " OFFSET ?");
+            $types = 'iss' . ($cursor ? 'ii' : '') . 'i' . ($cursor ? '' : 'i');
+            $params = [$userId, $role, $userId];
+            if ($cursor) { $params[] = (int)$beforePin; $params[] = $beforeId; }   // last row's own tuple
+            $params[] = $fetch;
+            if (!$cursor) { $params[] = $offset; }
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) { return $out; }
+            $stmt->bind_param($types, ...$params);
             $stmt->execute();
             $rows = [];
             $res = $stmt->get_result();
@@ -391,9 +423,18 @@ final class NotificationCenterService
                 $rows[] = $row;
             }
             $stmt->close();
-            return $rows;
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) { array_pop($rows); }
+            $out['rows'] = $rows;
+            $out['has_more'] = $hasMore;
+            $last = $rows ? $rows[count($rows) - 1] : null;
+            if ($last && ($hasMore || count($rows) === $limit)) {
+                $out['next_pin'] = (int)($last['is_pinned'] ?? 0);
+                $out['next_before'] = (int)$last['id'];
+            }
+            return $out;
         } catch (\Exception $e) {
-            return [];
+            return $out;
         }
     }
 
@@ -557,14 +598,27 @@ final class NotificationCenterService
     }
 
     /** My threads: last message, unread count, participant labels. */
-    public static function threadsFor(\mysqli $conn, int $userId, int $limit = 50): array
+    /**
+     * Cursor paging by the exact sort key (last_message_at, id) DESC.
+     * `$before = [last_message_at, id]` = the last row's own tuple.
+     * Threads with NULL last_message_at (no messages yet — practically
+     * impossible since startThread always writes a first message) are
+     * excluded so the sort key is never NULL.
+     *
+     * @return array{threads:array, next:array|null, has_more:bool}
+     */
+    public static function threadsFor(\mysqli $conn, int $userId, int $limit = 50, ?array $before = null): array
     {
+        $out = ['threads' => [], 'next' => null, 'has_more' => false];
         try {
-            $stmt = $conn->prepare(
+            $cursor = (is_array($before) && count($before) === 2
+                && $before[0] !== null && (int)$before[1] > 0);
+            $fetch = $limit + 1;   // +1 = cheap has_more probe
+            $sql =
                 "SELECT t.id, t.subject, t.created_by, t.last_message_at, t.created_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.thread_id = t.id) AS message_count,
-                        (SELECT m2.body FROM messages m2 WHERE m2.thread_id = t.id ORDER BY m2.created_at DESC LIMIT 1) AS last_body,
-                        (SELECT m3.sender_id FROM messages m3 WHERE m3.thread_id = t.id ORDER BY m3.created_at DESC LIMIT 1) AS last_sender_id,
+                        (SELECT m2.body FROM messages m2 WHERE m2.thread_id = t.id ORDER BY m2.id DESC LIMIT 1) AS last_body,
+                        (SELECT m3.sender_id FROM messages m3 WHERE m3.thread_id = t.id ORDER BY m3.id DESC LIMIT 1) AS last_sender_id,
                         (nr.read_at IS NULL) AS has_unread,
                         (SELECT COUNT(*) FROM messages m4
                           WHERE m4.thread_id = t.id
@@ -577,11 +631,21 @@ final class NotificationCenterService
                  JOIN message_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
                  LEFT JOIN notification_reads nr
                    ON nr.subject_type = 'message_thread' AND nr.subject_id = t.id AND nr.user_id = ?
-                 ORDER BY t.last_message_at DESC
-                 LIMIT ?"
-            );
-            if (!$stmt) { return []; }
-            $stmt->bind_param('iiiii', $userId, $userId, $userId, $userId, $limit);
+                 WHERE t.last_message_at IS NOT NULL"
+                . ($cursor ? " AND (t.last_message_at, t.id) < (?, ?)" : "")
+                . " ORDER BY t.last_message_at DESC, t.id DESC
+                 LIMIT ?";
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) { return $out; }
+            if ($cursor) {
+                // bind_param takes args BY REFERENCE — inline expressions
+                // (casts) fatal; bind locals instead
+                $bLm = (string)$before[0];
+                $bId = (int)$before[1];
+                $stmt->bind_param('iiiisii', $userId, $userId, $userId, $userId, $bLm, $bId, $fetch);
+            } else {
+                $stmt->bind_param('iiiii', $userId, $userId, $userId, $userId, $fetch);
+            }
             $stmt->execute();
             $rows = [];
             $res = $stmt->get_result();
@@ -591,14 +655,22 @@ final class NotificationCenterService
                 $rows[] = $row;
             }
             $stmt->close();
-            return $rows;
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) { array_pop($rows); }
+            $out['threads'] = $rows;
+            $out['has_more'] = $hasMore;
+            $last = $rows ? $rows[count($rows) - 1] : null;
+            if ($last && ($hasMore || count($rows) === $limit) && $last['last_message_at'] !== null) {
+                $out['next'] = [$last['last_message_at'], (int)$last['id']];
+            }
+            return $out;
         } catch (\Exception $e) {
-            return [];
+            return $out;
         }
     }
 
     /** All messages of a thread I belong to. */
-    public static function threadMessages(\mysqli $conn, int $userId, int $threadId, int $limit = 200): array
+    public static function threadMessages(\mysqli $conn, int $userId, int $threadId, int $limit = 200, ?int $beforeId = null): array
     {
         try {
             $chk = $conn->prepare("SELECT 1 FROM message_thread_participants WHERE thread_id = ? AND user_id = ?");
@@ -616,13 +688,21 @@ final class NotificationCenterService
             // management columns — a missing migration degrades to "no
             // markers", NEVER to a broken conversation. Mirrors the
             // read-receipt guard further down.
-            $rows = self::fetchThreadRows($conn, $userId, $threadId, $limit, true);
-            if ($rows === null) {
-                $rows = self::fetchThreadRows($conn, $userId, $threadId, $limit, false);
+            // P73 Phase 5: window = the NEWEST $limit messages (id DESC,
+            // then reversed for delivery). `$beforeId` pages older — the
+            // old ASC+LIMIT returned the OLDEST messages of long threads,
+            // which was wrong for chat. The +1 probe reports has_older.
+            $page = self::fetchThreadRows($conn, $userId, $threadId, $limit, true, $beforeId);
+            if ($page === null) {
+                $page = self::fetchThreadRows($conn, $userId, $threadId, $limit, false, $beforeId);
             }
-            if ($rows === null) {
+            if ($page === null) {
                 return ['ok' => false, 'error' => 'Could not load the conversation.'];
             }
+            $hasOlder = count($page) > $limit;
+            if ($hasOlder) { array_pop($page); }
+            $rows = array_reverse($page);               // id DESC → ASC for render
+            $oldestId = $rows ? (int)$rows[0]['id'] : 0;
 
             // Read receipts (P73 Phase 3): the highest message id that every
             // OTHER participant has read. My message shows ✓✓ once its id is
@@ -649,31 +729,42 @@ final class NotificationCenterService
             } catch (\Exception $wmEx) {
                 $wm = 0;   // sql/043 not applied yet — receipts unavailable
             }
-            return ['ok' => true, 'messages' => $rows, 'read_watermark' => $wm];
+            return ['ok' => true, 'messages' => $rows, 'read_watermark' => $wm,
+                'has_older' => $hasOlder, 'oldest_id' => $oldestId];
         } catch (\Exception $e) {
             return ['ok' => false, 'error' => 'Could not load the conversation.'];
         }
     }
 
-    /** Fetch a thread's message rows. $withMeta = include the sql/044
-     *  edited_at/deleted_at columns; without them edited/deleted degrade
-     *  to 0. Returns null when the query cannot run (missing migration
-     *  columns, false prepare in non-throw mysqli mode, or DB error). */
-    private static function fetchThreadRows(\mysqli $conn, int $userId, int $threadId, int $limit, bool $withMeta): ?array
+    /** Fetch a thread's message rows, NEWEST FIRST (id DESC), limit+1 rows
+     *  (the extra row is the has_older probe). $withMeta = include the
+     *  sql/044 edited_at/deleted_at columns; without them edited/deleted
+     *  degrade to 0. $beforeId = page older than that message id (null =
+     *  newest window). Returns null when the query cannot run (missing
+     *  migration columns, false prepare in non-throw mysqli mode, or DB
+     *  error). */
+    private static function fetchThreadRows(\mysqli $conn, int $userId, int $threadId, int $limit, bool $withMeta, ?int $beforeId = null): ?array
     {
         try {
             $meta = $withMeta
                 ? 'm.edited_at, m.deleted_at,'
                 : 'NULL AS edited_at, NULL AS deleted_at,';
+            $cursor = ($beforeId !== null && $beforeId > 0);
             $stmt = $conn->prepare(
                 "SELECT m.id, m.sender_id, m.body, m.created_at, $meta
                         u.full_name AS sender_name, u.role AS sender_role
                  FROM messages m JOIN users u ON u.id = m.sender_id
-                 WHERE m.thread_id = ?
-                 ORDER BY m.created_at ASC LIMIT ?"
+                 WHERE m.thread_id = ?"
+                . ($cursor ? " AND m.id < ?" : "")
+                . " ORDER BY m.id DESC LIMIT ?"
             );
             if (!$stmt) { return null; }   // non-throw mysqli error mode
-            $stmt->bind_param('ii', $threadId, $limit);
+            $fetchN = $limit + 1;           // +1 probe row (locals: bind_param is by-ref)
+            if ($cursor) {
+                $stmt->bind_param('iii', $threadId, $beforeId, $fetchN);
+            } else {
+                $stmt->bind_param('ii', $threadId, $fetchN);
+            }
             $stmt->execute();
             $rows = [];
             $res = $stmt->get_result();
@@ -867,6 +958,125 @@ final class NotificationCenterService
      * Unread counts for the bell: alerts, announcements, message
      * threads with new messages, pending tasks, and the total.
      */
+    /**
+     * P73 Phase 5 — cheap version string for the summary poll (ETag seed).
+     * Every signal that can change ANY number in unreadSummary() is folded
+     * in, so a matching version guarantees an unchanged summary:
+     *   - MAX(notifications.id)        any new notification (any target)
+     *   - my MAX(notification_reads.read_at)  anything I read / marked
+     *   - MAX(announcements.id)        any new announcement
+     *   - MAX(messages.id)             any new message (any thread)
+     *   - task counts for my dept/user status transitions (department_tasks)
+     *   - a 60-second bucket           announcements EXPIRE with NOW()
+     * Returns null when any component cannot be read — the caller must
+     * then SKIP the 304 shortcut and answer with a full recomputed
+     * summary (never serve a possibly-stale 304).
+     */
+    public static function summaryVersion(\mysqli $conn, int $userId, string $role): ?string
+    {
+        if ($userId <= 0) { return null; }
+        $parts = [];
+        $q = function (string $sql, array $params, string $types) use ($conn): ?string {
+            try {
+                $stmt = $conn->prepare($sql);
+                if (!$stmt) { return null; }          // non-throw mysqli mode
+                if ($params) { $stmt->bind_param($types, ...$params); }   // no params → no bind (empty $types is a ValueError on PHP 8)
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                return ($row === null) ? null : implode('|', array_map(
+                    static function ($v) { return ($v === null || $v === '') ? '0' : (string)$v; },
+                    array_values($row)
+                ));
+            } catch (\Throwable $e) {                 // version failure must NEVER serve a stale 304
+                return null;
+            }
+        };
+        $parts[] = $q("SELECT COALESCE(MAX(id), 0) v FROM notifications", [], '');
+        $parts[] = $q("SELECT COALESCE(MAX(read_at), 0) v FROM notification_reads WHERE user_id = ?", [$userId], 'i');
+        $parts[] = $q("SELECT COALESCE(MAX(id), 0) v FROM announcements", [], '');
+        $parts[] = $q("SELECT COALESCE(MAX(id), 0) v FROM messages", [], '');
+        // task badge: count of open tasks + how far along they are — every
+        // status transition changes at least one of these numbers
+        $parts[] = $q(
+            "SELECT COUNT(*) c, SUM(status = 'pending') p, SUM(status = 'in_progress') i
+             FROM department_tasks
+             WHERE status IN ('pending','in_progress')
+               AND (to_dept = ? OR to_user_id = ?)",
+            [$role, $userId], 'si'
+        );
+        foreach ($parts as $p) { if ($p === null) { return null; } }
+        // expiry bucket: an announcement can expire without any row
+        // changing; the badge self-heals on the next full poll (≤ 60 s)
+        $parts[] = (string)intdiv(time(), 60);
+        return implode('~', $parts);
+    }
+
+    /**
+     * P73 Phase 5 — cheap version string for ONE thread (ETag seed for
+     * the open-conversation poll). Covers: new messages, edits, deletes,
+     * other participants' read watermarks (✓✓), and my own watermark.
+     * sql/043/044 columns are OPTIONAL (incident-round hardening): when
+     * absent the component is skipped, not fatal. Returns null when a
+     * REQUIRED component cannot be read → caller skips the 304 shortcut.
+     */
+    public static function threadVersion(\mysqli $conn, int $userId, int $threadId): ?string
+    {
+        if ($threadId <= 0) { return null; }
+        // Participation-gated: a non-participant must NEVER receive an
+        // ETag for someone else's thread (a replayable If-None-Match
+        // would become a 304 activity oracle). null = no conditional
+        // path → the caller answers with the normal permission error.
+        try {
+            $chk = $conn->prepare("SELECT 1 FROM message_thread_participants WHERE thread_id = ? AND user_id = ?");
+            if (!$chk) { return null; }
+            $chk->bind_param('ii', $threadId, $userId);
+            $chk->execute();
+            $isMember = (bool)$chk->get_result()->fetch_assoc();
+            $chk->close();
+            if (!$isMember) { return null; }
+        } catch (\Throwable $e) {
+            return null;
+        }
+        try {
+            $stmt = $conn->prepare("SELECT MAX(id) v FROM messages WHERE thread_id = ?");
+            if (!$stmt) { return null; }
+            $stmt->bind_param('i', $threadId);
+            $stmt->execute();
+            $maxId = $stmt->get_result()->fetch_assoc()['v'] ?? null;
+            $stmt->close();
+            if ($maxId === null) { $maxId = 0; }   // thread has no messages yet
+        } catch (\Throwable $e) {
+            return null;
+        }
+        $optional = [
+            // sql/044 — edits/deletes change content without new ids
+            "SELECT COALESCE(MAX(edited_at), '0') e, COALESCE(MAX(deleted_at), '0') d
+             FROM messages WHERE thread_id = ?",
+            // sql/043 — others' read watermarks drive the ✓✓ marks
+            "SELECT COALESCE(MAX(last_read_message_id), 0) w
+             FROM message_thread_participants WHERE thread_id = ? AND user_id <> ?",
+        ];
+        foreach ($optional as $i => $sql) {
+            try {
+                $stmt = $conn->prepare($sql);
+                if (!$stmt) { continue; }
+                if ($i === 0) { $stmt->bind_param('i', $threadId); }
+                else { $stmt->bind_param('ii', $threadId, $userId); }
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                $maxId .= '|' . implode('|', array_map(
+                    static function ($v) { return ($v === null || $v === '') ? '0' : (string)$v; },
+                    array_values($row ?: [])
+                ));
+            } catch (\Throwable $e) {
+                $maxId .= '|skip' . $i;   // migration not applied — degrade, never break
+            }
+        }
+        return (string)$maxId;
+    }
+
     public static function unreadSummary(\mysqli $conn, int $userId, string $role): array
     {
         $out = ['alerts' => 0, 'announcements' => 0, 'messages' => 0, 'tasks' => 0, 'total' => 0];

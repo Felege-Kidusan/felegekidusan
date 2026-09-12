@@ -14,6 +14,35 @@ require_once __DIR__ . '/backend/services/NotificationCenterService.php';
 
 use App\Services\NotificationCenterService;
 
+/**
+ * P73 Phase 5 — conditional GET for authenticated poll endpoints.
+ * Emits a strong ETag and answers 304 Not Modified when the client's
+ * If-None-Match matches (comma lists and weak validators tolerated).
+ * MUST only be used with a version that provably covers every byte of
+ * the response (see summaryVersion/threadVersion); returns false when
+ * the caller should build the full response.
+ */
+if (!function_exists('etagNotModified')) {   // guard: tolerate re-includes (test harness, embedders)
+function etagNotModified(string $version, string $prefix): bool
+{
+    $etag = '"' . $prefix . '-' . md5($version) . '"';
+    $inm = (string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? '');
+    $candidates = array_map('trim', explode(',', $inm));
+    foreach ($candidates as $c) {
+        if ($c === '' ) { continue; }
+        if (strcasecmp($c, $etag) === 0 || strcasecmp($c, 'W/' . $etag) === 0) {
+            http_response_code(304);
+            header('ETag: ' . $etag);
+            header('Cache-Control: private, no-cache');
+            return true;
+        }
+    }
+    header('ETag: ' . $etag);
+    header('Cache-Control: private, no-cache');
+    return false;
+}
+}
+
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
@@ -145,6 +174,14 @@ switch ($action) {
     // ══════════════════════════════════════════════════════════
 
     case 'summary': {
+        // P73 Phase 5: idle polls answer 304 with no body. The version
+        // covers every signal the summary depends on (see the service);
+        // when it cannot be read we skip the shortcut and fall through
+        // to a full recomputed response — never a possibly-stale 304.
+        $sv = NotificationCenterService::summaryVersion($conn, (int)$_SESSION['admin_id'], (string)($_SESSION['admin_role'] ?? ''));
+        if ($sv !== null && etagNotModified($sv, 'ncsum')) {
+            break;   // 304 sent — zero-byte poll
+        }
         // One poll = one query set: every unread count for the bell.
         $summary = NotificationCenterService::unreadSummary(
             $conn, (int)$_SESSION['admin_id'], (string)($_SESSION['admin_role'] ?? '')
@@ -161,20 +198,32 @@ switch ($action) {
         $offset = max(0, (int)($_GET['offset'] ?? 0));
         $unreadOnly = (($_GET['unread'] ?? '') === '1');
         $type   = is_string($_GET['type'] ?? '') ? (string)$_GET['type'] : '';
+        $beforeId = (int)($_GET['before_id'] ?? 0) ?: null;   // P73 Phase 5 cursor
         $feed = NotificationCenterService::feed(
             $conn, (int)$_SESSION['admin_id'], (string)($_SESSION['admin_role'] ?? ''),
-            $limit, $offset, $unreadOnly, $type
+            $limit, $offset, $unreadOnly, $type, $beforeId
         );
         echo json_encode(['status' => 'success'] + $feed);
         break;
     }
 
     case 'announcements': {
-        $rows = NotificationCenterService::listAnnouncements(
+        // P73 Phase 5: cursor paging (before_pin + before_id = the last
+        // row's own sort tuple). has_more/next_* tell the UI when a
+        // "Load older" control is available.
+        $ann = NotificationCenterService::listAnnouncements(
             $conn, (int)$_SESSION['admin_id'], (string)($_SESSION['admin_role'] ?? ''),
-            min(100, max(1, (int)($_GET['limit'] ?? 30))), max(0, (int)($_GET['offset'] ?? 0))
+            min(100, max(1, (int)($_GET['limit'] ?? 30))), max(0, (int)($_GET['offset'] ?? 0)),
+            (int)($_GET['before_id'] ?? 0) ?: null,
+            isset($_GET['before_pin']) ? (int)$_GET['before_pin'] : null
         );
-        echo json_encode(['status' => 'success', 'announcements' => $rows]);
+        echo json_encode([
+            'status' => 'success',
+            'announcements' => $ann['rows'],
+            'has_more' => $ann['has_more'],
+            'next_before' => $ann['next_before'],
+            'next_pin' => $ann['next_pin'],
+        ]);
         break;
     }
 
@@ -241,22 +290,52 @@ switch ($action) {
     }
 
     case 'threads': {
-        $threads = NotificationCenterService::threadsFor($conn, (int)$_SESSION['admin_id']);
-        echo json_encode(['status' => 'success', 'threads' => $threads]);
+        // P73 Phase 5: cursor paging by (last_message_at, id) DESC.
+        $before = null;
+        if ((int)($_GET['before_id'] ?? 0) > 0 && is_string($_GET['before_lm'] ?? '')) {
+            $before = [(string)$_GET['before_lm'], (int)$_GET['before_id']];
+        }
+        $t = NotificationCenterService::threadsFor(
+            $conn, (int)$_SESSION['admin_id'], min(100, max(1, (int)($_GET['limit'] ?? 50))), $before
+        );
+        echo json_encode([
+            'status' => 'success',
+            'threads' => $t['threads'],
+            'has_more' => $t['has_more'],
+            'next' => $t['next'],           // [last_message_at, id] or null
+        ]);
         break;
     }
 
     case 'thread': {
         $threadId = (int)($_GET['id'] ?? 0);
-        $result = NotificationCenterService::threadMessages($conn, (int)$_SESSION['admin_id'], $threadId);
+        // P73 Phase 5: the open-conversation poll gets a 304 when nothing
+        // in the thread changed (no new messages/edits/deletes, no ✓✓
+        // movement, no watermark change). The version cannot be read →
+        // skip the shortcut and answer fully — never a possibly-stale 304.
+        // markThreadRead runs ONLY on full responses, so an idle poll
+        // performs zero writes.
+        $beforeId = (int)($_GET['before_id'] ?? 0) ?: null;   // page older
+        $tv = NotificationCenterService::threadVersion($conn, (int)$_SESSION['admin_id'], $threadId);
+        // the window variant (newest vs before_id page) is part of the
+        // seed — a version match must never 304 a DIFFERENT window
+        if ($tv !== null && etagNotModified($tv . '|w' . (int)$beforeId, 'ncthr')) {
+            break;   // 304 sent — zero-byte, zero-write poll
+        }
+        $result = NotificationCenterService::threadMessages(
+            $conn, (int)$_SESSION['admin_id'], $threadId, 200, $beforeId
+        );
         if ($result['ok']) {
-            // opening the conversation marks it read
+            // opening the conversation marks it read (full responses only)
             NotificationCenterService::markThreadRead($conn, (int)$_SESSION['admin_id'], $threadId);
             echo json_encode([
                 'status' => 'success',
                 'messages' => $result['messages'],
                 // read receipts (P73 Phase 3): highest message id read by others
                 'read_watermark' => (int)($result['read_watermark'] ?? 0),
+                // P73 Phase 5: window metadata for "Load older"
+                'has_older' => (bool)($result['has_older'] ?? false),
+                'oldest_id' => (int)($result['oldest_id'] ?? 0),
             ]);
         } else {
             echo json_encode(['status' => 'error', 'message' => $result['error'] ?? 'Not found.']);
