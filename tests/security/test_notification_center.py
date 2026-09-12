@@ -587,6 +587,103 @@ class CommPhase3Tests(unittest.TestCase):
             self.assertIn(marker, proc.stdout, f"runtime gate lost its {marker} suite")
 
 
+class CommPhase4Tests(unittest.TestCase):
+    """P73 Phase 4 — Inbox feed UX pins: All/Unread filter chips,
+    optimistic mark-read (single + all) with revert-by-refetch, the
+    3-step announcement composer, and task action routing. Behaviour
+    is proven by the Node runtime gate (76 checks); these pins hold
+    the structural contract in place."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sectionSrc = (ROOT / "admin/components/comm/comm_section.php").read_text(encoding="utf-8")
+        cls.commJs = (ROOT / "admin/js/comm.js").read_text(encoding="utf-8")
+        cls.commCss = (ROOT / "admin/css/comm.css").read_text(encoding="utf-8")
+
+    def test_filter_chips_wire_the_server_backed_unread_param(self):
+        """All / Unread chips live in the section inbox bar (the bell
+        panel ships no filter row — it stays compact); Unread refetches
+        the feed with the server-side unread=1 param so the filter sees
+        the whole feed, not just the loaded page."""
+        self.assertIn('data-nc-filter', self.sectionSrc)
+        self.assertIn('data-filter="unread"', self.sectionSrc)
+        self.assertIn('aria-pressed', self.sectionSrc)      # toggle state is announced
+        self.assertIn("state.unreadOnly ? '&unread=1' : ''", self.commJs)
+        self.assertIn("syncFilter", self.commJs)
+        self.assertIn("els.filterWrap.hidden = state.tab !== 'alerts'", self.commJs)
+        self.assertIn(".nc-chipf", self.commCss)
+
+    def test_mark_read_is_optimistic_with_revert(self):
+        """Single-item read: the unread class + dot clear INSTANTLY and
+        the count decrements before the POST resolves; failures revert
+        by refetching the authoritative list (never a silent loss)."""
+        self.assertIn("wasUnread", self.commJs)                     # read items don't re-post
+        self.assertIn("state.summary[key] = Math.max(0, (state.summary[key] || 0) - 1)", self.commJs)
+        self.assertIn("loadTab(state.tab, true); refreshSummary(); toast('Could not mark as read.', 'err')", self.commJs)
+        self.assertIn(".nc-item .nc-dot { transition", self.commCss)  # dot fades, not vanishes
+
+    def test_mark_all_read_is_optimistic(self):
+        """Mark-all clears every dot + zeroes the count instantly, then
+        confirms in the background; failures revert by refetch."""
+        self.assertIn("list.querySelectorAll('.nc-item.nc-unread').forEach", self.commJs)
+        self.assertIn("state.summary[scope] = 0", self.commJs)
+        self.assertIn("post('mark_all_read', { scope: scope })", self.commJs)
+
+    def test_announcement_composer_is_a_3_step_form(self):
+        """Content → Audience → Review with a progress indicator,
+        Back/Next navigation, per-step inline validation, a review
+        summary before publishing, and reset-to-step-1 after success.
+        (Replaces the old single-shot form submit.)"""
+        self.assertIn('data-nc-cmpsteps', self.sectionSrc)
+        self.assertIn('data-nc-cmppane="1"', self.sectionSrc)
+        self.assertIn('data-nc-cmppane="2"', self.sectionSrc)
+        self.assertIn('data-nc-cmppane="3"', self.sectionSrc)
+        self.assertIn('data-nc-cmpreview', self.sectionSrc)
+        self.assertIn('data-nc-cmpnext', self.sectionSrc)
+        self.assertIn('data-nc-cmpback', self.sectionSrc)
+        self.assertIn("function cmpGo(sheet, n)", self.commJs)
+        self.assertIn("function cmpValidate(sheet, n)", self.commJs)
+        self.assertIn("function cmpReview(sheet)", self.commJs)
+        # the pane switch reads the camelCase dataset key of data-nc-cmppane
+        # (a wrong key shipped panes that never switched — runtime-caught)
+        self.assertIn("p.dataset.ncCmppane !== String(n)", self.commJs)
+        # publish re-validates everything (belt and braces) before posting
+        self.assertIn("if (!cmpValidate(sheet, 1) || !cmpValidate(sheet, 2)) { return; }", self.commJs)
+        # success resets to step 1 for the next announcement
+        self.assertIn("cmpGo(sheet, 1);   // next announcement starts clean at step 1", self.commJs)
+        self.assertIn(".nc-steps", self.commCss)
+        self.assertIn(".nc-review", self.commCss)
+
+    def test_task_buttons_route_with_feedback(self):
+        """Tasks render Done / In-progress actions; clicks post
+        task_update, show busy immediately, reload the list and sync the
+        summary (the D12 dead-end is gone)."""
+        self.assertIn('data-do="completed"', self.commJs)
+        self.assertIn('data-do="in_progress"', self.commJs)
+        self.assertIn("post('task_update', { task_id: taskItem.dataset.task, task_status: doBtn.dataset.do })", self.commJs)
+        self.assertIn("classList.add('is-busy')", self.commJs)
+
+    def test_phase4_motion_respects_reduced_motion(self):
+        guard = self.commCss[self.commCss.rfind("prefers-reduced-motion"):]
+        self.assertIn(".nc-dot", guard)
+
+    def test_phase4_runtime_gate_covers_phase4_behaviors(self):
+        """The Node gate must keep its Phase-4 suites (filter, optimistic
+        read/mark-all, task routing, composer steps)."""
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node runtime not available — JS runtime gate skipped")
+        proc = subprocess.run(
+            [node, str(ROOT / "tests/js/comm_runtime_test.js")],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for marker in ("FILTER:", "OPT:", "MARKALL:", "TASKS:", "CMP:"):
+            self.assertIn(marker, proc.stdout, f"runtime gate lost its {marker} suite")
+
+
 class NotificationIncludeOrderRegression(unittest.TestCase):
     """P0 hotfix regression (production login killer, monitor Ref #615).
 

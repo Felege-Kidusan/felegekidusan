@@ -251,9 +251,10 @@
             cAlerts: root.querySelector('.nc-count[data-count="alerts"]'),
             cAnn: root.querySelector('.nc-count[data-count="announcements"]'),
             cTasks: root.querySelector('.nc-count[data-count="tasks"]'),
-            markAll: root.querySelector('.nc-mark-all')
+            markAll: root.querySelector('.nc-mark-all'),
+            filterWrap: root.querySelector('[data-nc-filter]')
         };
-        var state = { tab: 'alerts', summary: {}, loadedTabs: {} };
+        var state = { tab: 'alerts', summary: {}, loadedTabs: {}, unreadOnly: false };
 
         function loadTab(tab, force) {
             var el = tab === 'alerts' ? els.alerts : tab === 'announcements' ? els.ann : els.tasks;
@@ -261,7 +262,7 @@
             if (state.loadedTabs[tab] && !force) { return; }
             skeleton(el);
             var run = function () {
-                var p = tab === 'alerts' ? get('feed', '&limit=25').then(function (d) { renderAlerts(el, d); })
+                var p = tab === 'alerts' ? get('feed', '&limit=25' + (state.unreadOnly ? '&unread=1' : '')).then(function (d) { renderAlerts(el, d); })
                     : tab === 'announcements' ? get('announcements', '&limit=25').then(function (d) { renderAnn(el, d); })
                     : get('tasks', '&limit=25').then(function (d) { renderTasks(el, d); });
                 p.catch(function () { errorState(el, 'Could not load this list.', function () { loadTab(tab, true); }); });
@@ -277,6 +278,30 @@
             els.markAll.hidden = !(n > 0);
         }
 
+        /* Filter chips (P73 Phase 4): All / Unread on the alerts feed.
+         * The filter is server-backed (feed?unread=1) so it sees the whole
+         * feed, not just the loaded page. Section surface only — the bell
+         * panel ships no [data-nc-filter] row, so these are no-ops there. */
+        function syncFilter() {
+            if (!els.filterWrap) { return; }
+            els.filterWrap.hidden = state.tab !== 'alerts';
+        }
+        if (els.filterWrap) {
+            els.filterWrap.querySelectorAll('[data-filter]').forEach(function (chip) {
+                chip.addEventListener('click', function () {
+                    var want = chip.dataset.filter === 'unread';
+                    if (want === state.unreadOnly) { return; }
+                    state.unreadOnly = want;
+                    els.filterWrap.querySelectorAll('[data-filter]').forEach(function (c) {
+                        var on = (c.dataset.filter === 'unread') === want;
+                        c.classList.toggle('is-on', on);
+                        c.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    });
+                    loadTab('alerts', true);
+                });
+            });
+        }
+
         function selectTab(tab, force) {
             state.tab = tab;
             root.querySelectorAll('.nc-tab').forEach(function (t) {
@@ -288,6 +313,7 @@
             if (els.ann) { els.ann.hidden = tab !== 'announcements'; }
             if (els.tasks) { els.tasks.hidden = tab !== 'tasks'; }
             syncMarkAll();
+            syncFilter();
             loadTab(tab, force);
         }
 
@@ -308,22 +334,25 @@
                 }
                 var item = e.target.closest('.nc-item');
                 if (!item) { return; }
-                if (kind === 'alerts' && item.dataset.id) {
-                    post('mark_read', { id: item.dataset.id }).then(function (d) {
-                        if (d && d.status === 'success') {
-                            item.classList.remove('nc-unread');
-                            var dot = item.querySelector('.nc-dot'); if (dot) { dot.remove(); }
-                            refreshSummary();
-                        }
-                    }).catch(function () { toast('Could not mark as read.', 'err'); });
-                } else if (kind === 'announcements' && item.dataset.ann) {
-                    post('announcement_read', { id: item.dataset.ann }).then(function (d) {
-                        if (d && d.status === 'success') {
-                            item.classList.remove('nc-unread');
-                            var dot2 = item.querySelector('.nc-dot'); if (dot2) { dot2.remove(); }
-                            refreshSummary();
-                        }
-                    }).catch(function () { toast('Could not mark as read.', 'err'); });
+                /* Optimistic read (P73 Phase 4, fixes D7): the unread state
+                 * clears INSTANTLY, the write confirms in the background,
+                 * and any failure reverts by refetching the authoritative
+                 * list — the read action can never feel dead. */
+                if ((kind === 'alerts' && item.dataset.id) || (kind === 'announcements' && item.dataset.ann)) {
+                    var wasUnread = item.classList.contains('nc-unread');
+                    if (!wasUnread) { return; }
+                    item.classList.remove('nc-unread');
+                    var dot = item.querySelector('.nc-dot'); if (dot) { dot.remove(); }
+                    var key = kind === 'announcements' ? 'announcements' : 'alerts';
+                    state.summary[key] = Math.max(0, (state.summary[key] || 0) - 1);
+                    setCount(kind === 'announcements' ? els.cAnn : els.cAlerts, state.summary[key]);
+                    syncMarkAll();
+                    var readAction = kind === 'announcements' ? 'announcement_read' : 'mark_read';
+                    var readId = kind === 'announcements' ? item.dataset.ann : item.dataset.id;
+                    post(readAction, { id: readId }).then(function (d) {
+                        if (d && d.status === 'success') { refreshSummary(); }
+                        else { loadTab(state.tab, true); refreshSummary(); toast('Could not mark as read.', 'err'); }
+                    }).catch(function () { loadTab(state.tab, true); refreshSummary(); toast('Could not mark as read.', 'err'); });
                 } else if (kind === 'tasks' && item.dataset.task) {
                     var btn = item.querySelector('[data-do="completed"]') || item.querySelector('.nc-btn');
                     if (btn) { btn.classList.add('is-busy'); }
@@ -349,14 +378,27 @@
         if (els.markAll) {
             els.markAll.addEventListener('click', function () {
                 var scope = state.tab === 'announcements' ? 'announcements' : 'alerts';
+                /* Optimistic (P73 Phase 4): every unread dot clears instantly
+                 * and the count zeroes; the write confirms in the background
+                 * and a failure reverts by refetching the list. */
+                var list = state.tab === 'announcements' ? els.ann : els.alerts;
+                if (list) {
+                    list.querySelectorAll('.nc-item.nc-unread').forEach(function (n) {
+                        n.classList.remove('nc-unread');
+                        var d = n.querySelector('.nc-dot'); if (d) { d.remove(); }
+                    });
+                }
+                state.summary[scope] = 0;
+                setCount(scope === 'announcements' ? els.cAnn : els.cAlerts, 0);
+                syncMarkAll();
                 els.markAll.classList.add('is-busy');
                 post('mark_all_read', { scope: scope })
                     .then(function (d) {
                         els.markAll.classList.remove('is-busy');
-                        if (d && d.status === 'success') { loadTab(state.tab, true); refreshSummary(); }
-                        else { toast((d && d.message) || 'Could not mark all as read.', 'err'); }
+                        if (d && d.status === 'success') { refreshSummary(); }
+                        else { loadTab(state.tab, true); refreshSummary(); toast((d && d.message) || 'Could not mark all as read.', 'err'); }
                     })
-                    .catch(function () { els.markAll.classList.remove('is-busy'); toast('Network error — try again.', 'err'); });
+                    .catch(function () { els.markAll.classList.remove('is-busy'); loadTab(state.tab, true); refreshSummary(); toast('Network error — try again.', 'err'); });
             });
         }
         handleList(els.alerts, 'alerts');
@@ -585,7 +627,7 @@
         openSheetEl = el;
         el.hidden = false;
         if (sheetScrim) { sheetScrim.hidden = false; }
-        if (el.hasAttribute('data-nc-composer')) { primeComposer(el); }
+        if (el.hasAttribute('data-nc-composer')) { primeComposer(el); cmpGo(el, 1); }
         if (el.hasAttribute('data-nc-newsheet')) { primePartners(el); }
     }
     function closeSheetIfOpen() {
@@ -634,20 +676,96 @@
             root.querySelector('[data-nc-userswrap]').hidden = p.dataset.a !== 'users';
         });
     });
+    /* ── announcement composer: 3-step form (P73 Phase 4) ───────────
+     * Content → Audience → Review. Per-step validation with inline
+     * errors, a progress indicator, Back/Next navigation, and a review
+     * step so publishing is never a blind submit. */
+    var cmpStepN = 1;
+    function cmpGo(sheet, n) {
+        cmpStepN = n;
+        sheet.querySelectorAll('[data-nc-cmppane]').forEach(function (p) {
+            p.hidden = p.dataset.ncCmppane !== String(n);
+        });
+        sheet.querySelectorAll('[data-nc-cmpsteps] li').forEach(function (s) {
+            var sn = parseInt(s.dataset.step, 10);
+            s.classList.toggle('is-on', sn === n);
+            s.classList.toggle('is-done', sn < n);
+        });
+        var back = sheet.querySelector('[data-nc-cmpback]');
+        var next = sheet.querySelector('[data-nc-cmpnext]');
+        var pub = sheet.querySelector('[data-nc-cmppublish]');
+        if (back) { back.hidden = n === 1; }
+        if (next) { next.hidden = n === 3; }
+        if (pub) { pub.hidden = n !== 3; }
+        if (n === 3) { cmpReview(sheet); }
+        var err = sheet.querySelector('[data-nc-cmperr]');
+        if (err) { err.textContent = ''; }
+    }
+    function cmpValidate(sheet, n) {
+        var err = sheet.querySelector('[data-nc-cmperr]');
+        if (n === 1) {
+            if (!sheet.querySelector('#ncCmpTitle').value.trim()) { err.textContent = 'Give the announcement a title.'; return false; }
+            if (!sheet.querySelector('#ncCmpBody').value.trim()) { err.textContent = 'Write the message first.'; return false; }
+        }
+        if (n === 2) {
+            var audience = sheet.querySelector('[data-nc-audience] .nc-pick-p.is-on');
+            audience = audience ? audience.dataset.a : 'roles';
+            if (audience === 'roles' && !sheet.querySelector('[data-nc-roles] .nc-pick-p.is-on')) {
+                err.textContent = 'Choose at least one group.'; return false;
+            }
+            if (audience === 'users' && !sheet.querySelector('[data-nc-targetusers] input:checked')) {
+                err.textContent = 'Choose at least one recipient.'; return false;
+            }
+        }
+        return true;
+    }
+    function cmpReview(sheet) {
+        var audience = sheet.querySelector('[data-nc-audience] .nc-pick-p.is-on');
+        audience = audience ? audience.dataset.a : 'roles';
+        var who;
+        if (audience === 'roles') {
+            var names = [];
+            sheet.querySelectorAll('[data-nc-roles] .nc-pick-p.is-on').forEach(function (p) { names.push(p.textContent); });
+            who = names.length === 1 ? names[0] : names.length + ' groups';
+        } else {
+            var c = sheet.querySelectorAll('[data-nc-targetusers] input:checked').length;
+            who = c + (c === 1 ? ' person' : ' people');
+        }
+        var review = sheet.querySelector('[data-nc-cmpreview]');
+        if (review) {
+            review.innerHTML =
+                '<div><dt>Title</dt><dd>' + esc(sheet.querySelector('#ncCmpTitle').value) + '</dd></div>' +
+                '<div><dt>Message</dt><dd>' + esc(sheet.querySelector('#ncCmpBody').value) + '</dd></div>' +
+                '<div><dt>Priority</dt><dd>' + esc(sheet.querySelector('#ncCmpPriority').value) + '</dd></div>' +
+                '<div><dt>Audience</dt><dd>' + esc(who) + '</dd></div>';
+        }
+    }
+    document.querySelectorAll('[data-nc-cmpnext]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var sheet = btn.closest('.nc-sheet');
+            if (cmpStepN < 3 && cmpValidate(sheet, cmpStepN)) { cmpGo(sheet, cmpStepN + 1); }
+        });
+    });
+    document.querySelectorAll('[data-nc-cmpback]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var sheet = btn.closest('.nc-sheet');
+            if (cmpStepN > 1) { cmpGo(sheet, cmpStepN - 1); }
+        });
+    });
+
     document.querySelectorAll('[data-nc-cmppublish]').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var sheet = btn.closest('.nc-sheet-card');
             var err = sheet.querySelector('[data-nc-cmperr]');
             err.textContent = '';
+            if (!cmpValidate(sheet, 1) || !cmpValidate(sheet, 2)) { return; }
             var audience = sheet.querySelector('[data-nc-audience] .nc-pick-p.is-on');
             audience = audience ? audience.dataset.a : 'roles';
             var roles = [], users = [];
             if (audience === 'roles') {
                 sheet.querySelectorAll('[data-nc-roles] .nc-pick-p.is-on').forEach(function (p) { roles.push(p.dataset.role); });
-                if (!roles.length) { err.textContent = 'Choose at least one group.'; return; }
             } else {
                 sheet.querySelectorAll('[data-nc-targetusers] input:checked').forEach(function (c) { users.push(c.value); });
-                if (!users.length) { err.textContent = 'Choose at least one recipient.'; return; }
             }
             btn.classList.add('is-busy');
             post('compose', {
@@ -663,6 +781,9 @@
                     closeSheetIfOpen();
                     sheet.querySelector('#ncCmpTitle').value = '';
                     sheet.querySelector('#ncCmpBody').value = '';
+                    sheet.querySelectorAll('[data-nc-roles] .nc-pick-p.is-on').forEach(function (p) { p.classList.remove('is-on'); });
+                    sheet.querySelectorAll('[data-nc-targetusers] input:checked').forEach(function (c) { c.checked = false; });
+                    cmpGo(sheet, 1);   // next announcement starts clean at step 1
                     toast('Announcement published ✓', 'ok');
                     if (sec) { sec.inbox.reloadCurrent(); }
                     refreshSummary();

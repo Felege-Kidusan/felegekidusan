@@ -53,7 +53,7 @@ if (!function_exists('renderNotificationCenter')) {
  *  heuristic caches drop the old copy (proper cache headers: Phase 5). */
 function ncAssetVersion(): string
 {
-    return '73.3';
+    return '73.4';
 }
 
 /** Self-contained HTML escaper — never call the host's helpers. */

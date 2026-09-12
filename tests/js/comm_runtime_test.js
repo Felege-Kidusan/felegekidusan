@@ -33,7 +33,9 @@ function parseHtml(html) {
     let m, last = 0;
     while ((m = re.exec(html))) {
         const text = html.slice(last, m.index);
-        if (text && text.trim()) { stack[stack.length - 1].textContent += text; }
+        if (text && text.trim()) {
+            for (let i = 0; i < stack.length; i++) { stack[i].textContent += text; }
+        }
         last = re.lastIndex;
         const closing = m[1] === '/', tag = m[2].toLowerCase(), attrStr = m[3] || '';
         if (closing) {
@@ -280,6 +282,11 @@ for (const t of ['alerts', 'announcements', 'tasks']) {
     inboxTabs.appendChild(tab);
 }
 secBar.appendChild(inboxTabs);
+const filterRow = makeEl('div', { class: 'nc-filter', 'data-nc-filter': '' });
+const chipAll = makeEl('button', { class: 'nc-chipf is-on', type: 'button', 'data-filter': 'all', 'aria-pressed': 'true' });
+const chipUnread = makeEl('button', { class: 'nc-chipf', type: 'button', 'data-filter': 'unread', 'aria-pressed': 'false' });
+filterRow.appendChild(chipAll); filterRow.appendChild(chipUnread);
+secBar.appendChild(filterRow);
 const barActions = makeEl('div', { class: 'nc-sec-bar-actions' });
 const announceBtn = makeEl('button', { class: 'nc-link nc-announce', type: 'button', 'data-nc-announce': '' }); announceBtn.hidden = true;
 const secMarkAll = makeEl('button', { class: 'nc-link nc-mark-all', type: 'button' }); secMarkAll.hidden = true;
@@ -358,28 +365,54 @@ bodyShim.appendChild(newsheet);
 const composer = makeEl('div', { class: 'nc-sheet', 'data-nc-composer': '', hidden: '' });
 const cmpCard = makeEl('div', { class: 'nc-sheet-card' });
 cmpCard.appendChild(makeEl('h2'));
-cmpCard.appendChild(makeEl('input', { class: 'nc-inp', id: 'ncCmpTitle' }));
-cmpCard.appendChild(makeEl('textarea', { class: 'nc-inp', id: 'ncCmpBody' }));
+// 3-step progress indicator (P73 Phase 4)
+const cmpSteps = makeEl('ol', { class: 'nc-steps', 'data-nc-cmpsteps': '' });
+const stepNames = { 1: 'Content', 2: 'Audience', 3: 'Review' };
+for (const n of [1, 2, 3]) {
+    const li = makeEl('li', { 'data-step': String(n) });
+    if (n === 1) { li.classList.add('is-on'); }
+    li.appendChild(makeEl('span'));
+    li.textContent += stepNames[n];
+    cmpSteps.appendChild(li);
+}
+cmpCard.appendChild(cmpSteps);
+// step 1 — content
+const cmpPane1 = makeEl('div', { 'data-nc-cmppane': '1' });
+cmpPane1.appendChild(makeEl('input', { class: 'nc-inp', id: 'ncCmpTitle' }));
+cmpPane1.appendChild(makeEl('textarea', { class: 'nc-inp', id: 'ncCmpBody' }));
 const cmpPriority = makeEl('select', { class: 'nc-inp', id: 'ncCmpPriority' });
-cmpCard.appendChild(cmpPriority);
+cmpPane1.appendChild(cmpPriority);
+cmpCard.appendChild(cmpPane1);
+// step 2 — audience
+const cmpPane2 = makeEl('div', { 'data-nc-cmppane': '2', hidden: '' });
 const audience = makeEl('div', { class: 'nc-pick', 'data-nc-audience': '' });
 const audRoles = makeEl('div', { class: 'nc-pick-p is-on', 'data-a': 'roles' });
 const audUsers = makeEl('div', { class: 'nc-pick-p', 'data-a': 'users' });
 audience.appendChild(audRoles); audience.appendChild(audUsers);
-cmpCard.appendChild(audience);
+cmpPane2.appendChild(audience);
 const rolesWrap = makeEl('div', { 'data-nc-roleswrap': '' });
 const rolesPick = makeEl('div', { class: 'nc-pick', 'data-nc-roles': '' });
 rolesWrap.appendChild(rolesPick);
+cmpPane2.appendChild(rolesWrap);
 const usersWrap = makeEl('div', { 'data-nc-userswrap': '', hidden: '' });
 const targetUsers = makeEl('div', { class: 'nc-picklist', 'data-nc-targetusers': '' });
 usersWrap.appendChild(targetUsers);
-cmpCard.appendChild(rolesWrap); cmpCard.appendChild(usersWrap);
+cmpPane2.appendChild(usersWrap);
+cmpCard.appendChild(cmpPane2);
+// step 3 — review
+const cmpPane3 = makeEl('div', { 'data-nc-cmppane': '3', hidden: '' });
+const cmpReview = makeEl('dl', { class: 'nc-review', 'data-nc-cmpreview': '' });
+cmpPane3.appendChild(cmpReview);
+cmpCard.appendChild(cmpPane3);
 const cmpErr = makeEl('div', { class: 'nc-err', 'data-nc-cmperr': '' });
 cmpCard.appendChild(cmpErr);
 const cmpActions = makeEl('div', { class: 'nc-sheet-actions' });
 const cmpCancel = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-cmpcancel': '' });
-const cmpPublish = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-cmppublish': '' });
-cmpActions.appendChild(cmpCancel); cmpActions.appendChild(cmpPublish);
+const cmpBack = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-cmpback': '', hidden: '' });
+const cmpNext = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-cmpnext': '' });
+const cmpPublish = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-cmppublish': '', hidden: '' });
+cmpActions.appendChild(cmpCancel); cmpActions.appendChild(cmpBack);
+cmpActions.appendChild(cmpNext); cmpActions.appendChild(cmpPublish);
 cmpCard.appendChild(cmpActions);
 composer.appendChild(cmpCard);
 bodyShim.appendChild(composer);
@@ -393,15 +426,33 @@ const fetchLog = [];
 const nativeSetTimeout = setTimeout;
 const mql = { matches: false, addEventListener: () => {}, removeEventListener: () => {} };
 
-let failNextSend = false;   // flipped by the optimistic-send failure test
+let failNextSend = false;    // flipped by the optimistic-send failure test
+let failNextRead = false;    // flipped by the optimistic mark-read failure test
+let failNextCompose = false; // flipped by the composer publish-failure test
 function apiReply(action) {
     switch (action) {
         case 'send_message': return failNextSend ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
+        case 'mark_read': case 'announcement_read': return failNextRead ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
+        case 'compose': return failNextCompose ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
         case 'summary': return { status: 'success', summary: { alerts: 2, announcements: 1, tasks: 0, messages: 3, can_announce: true, can_message: true } };
-        case 'feed': return { status: 'success', rows: [{ id: '5', title: 't', message: 'm', type: 'member', created_at: '2026-09-12 10:00:00', is_unread: 1, priority: 'normal' }], total: 1, unread: 1 };
+        case 'feed': return {
+            status: 'success',
+            rows: [
+                { id: '5', title: 'unread one', message: 'm', type: 'member', created_at: '2026-09-12 10:00:00', is_unread: 1, priority: 'normal' },
+                { id: '6', title: 'read one', message: 'm2', type: 'member', created_at: '2026-09-12 09:00:00', is_unread: 0, priority: 'normal' }
+            ],
+            total: 2, unread: 1
+        };
+        case 'tasks': return {
+            status: 'success',
+            tasks: [{ id: '11', title: 'Approve room booking', description: 'Room 2 on Friday', priority: 'high', from_user_name: 'Daniel T' }]
+        };
+        case 'targets': return {
+            status: 'success',
+            roles: { teacher: 'Teachers' },
+            users: [{ id: '2', label: 'Other Person — Teacher' }]
+        };
         case 'announcements': return { status: 'success', announcements: [] };
-        case 'tasks': return { status: 'success', tasks: [] };
-        case 'targets': return { status: 'success', roles: {}, users: [] };
         case 'threads': return {
             status: 'success',
             threads: [{
@@ -472,8 +523,14 @@ function fire(el, type, extra) {
         key: '',
         closest: (sel) => qsAncestor(el, sel),
     }, extra || {});
-    for (const fn of (el.listeners[type] || []).slice()) {
-        try { fn(ev); } catch (e) { errs.push(e); runtimeErrors.push(type + ' on ' + (el.className || el.tagName) + ': ' + e.message); }
+    // the event BUBBLES: every ancestor's delegated handler sees it
+    // (the list controller delegates clicks from the list container)
+    let node = el;
+    while (node) {
+        for (const fn of (node.listeners[type] || []).slice()) {
+            try { fn(ev); } catch (e) { errs.push(e); runtimeErrors.push(type + ' on ' + (node.className || node.tagName) + ': ' + e.message); }
+        }
+        node = node.parentNode;
     }
     // document-level handlers (delegation) get the event too
     for (const fn of (documentShim.listeners[type] || []).slice()) {
@@ -638,6 +695,155 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
     check('OPTIMISTIC: Retry refills, resends and clears on success',
         fetchLog.some((e) => e.includes('action=send_message') && e.includes('this+one+will+fail'))
         && !qs(msgs, '.nc-msg--failed') && !qs(msgs, '[data-pending]'));
+
+    // 6d. P73 Phase 4 — INBOX FILTER (All / Unread chips, server-backed)
+    fire(secTabInbox, 'click');
+    await sleep(20);
+    const alertsList = qs(inboxPane, '.nc-list[data-list="alerts"]');
+    const cAlerts = qs(section, '.nc-count[data-count="alerts"]');
+    check('FILTER: chips render on the alerts tab', !!filterRow && filterRow.hidden === false);
+    fire(chipUnread, 'click');
+    await sleep(20);
+    check('FILTER: Unread toggles state + refetches with the server param',
+        chipUnread.classList.contains('is-on') && chipUnread.getAttribute('aria-pressed') === 'true'
+        && fetchLog.some((e) => e.includes('action=feed&') && e.includes('unread=1')));
+    fire(qs(section, '.nc-tab[data-tab="announcements"]'), 'click');
+    check('FILTER: row hides off the alerts tab', filterRow.hidden === true);
+    fire(qs(section, '.nc-tab[data-tab="alerts"]'), 'click');
+    check('FILTER: row returns on the alerts tab', filterRow.hidden === false);
+    fire(chipAll, 'click');
+    await sleep(20);
+
+    // 6e. P73 Phase 4 — OPTIMISTIC mark-read (single item)
+    const unreadItem = qs(alertsList, '.nc-item.nc-unread');
+    check('OPT: unread alert present with dot', !!unreadItem && !!qs(unreadItem, '.nc-dot'));
+    fire(unreadItem, 'click');
+    check('OPT: read clears instantly (class, dot, count)',
+        !unreadItem.classList.contains('nc-unread') && !qs(unreadItem, '.nc-dot')
+        && cAlerts.textContent === '1');
+    await sleep(20);
+    check('OPT: read confirms via mark_read in the background',
+        fetchLog.some((e) => e.includes('action=mark_read')));
+    fire(chipUnread, 'click');   // force a refetch → the unread row returns
+    await sleep(20);
+    const unreadItem2 = qs(alertsList, '.nc-item.nc-unread');
+    check('OPT: refetch restored the unread row', !!unreadItem2);
+    failNextRead = true;
+    fire(unreadItem2, 'click');
+    check('OPT: failed read still clears instantly first', !unreadItem2.classList.contains('nc-unread'));
+    await sleep(20);
+    check('OPT: failed read reverts by refetch + count restored',
+        !!qs(alertsList, '.nc-item.nc-unread') && cAlerts.textContent === '2');
+    failNextRead = false;
+    fire(chipAll, 'click');
+    await sleep(20);
+
+    // 6f. P73 Phase 4 — OPTIMISTIC mark-all-read
+    check('MARKALL: button visible while unread exists', secMarkAll.hidden === false);
+    fire(secMarkAll, 'click');
+    check('MARKALL: clears every unread instantly (rows, dots, count, button)',
+        qsa(alertsList, '.nc-item.nc-unread').length === 0 && qs(alertsList, '.nc-dot') === null
+        && cAlerts.textContent === '0' && secMarkAll.hidden === true);
+    await sleep(20);
+    check('MARKALL: posts mark_all_read in the background',
+        fetchLog.some((e) => e.includes('action=mark_all_read')));
+
+    // 6g. P73 Phase 4 — TASK action routing (D12): buttons work with feedback
+    fire(qs(section, '.nc-tab[data-tab="tasks"]'), 'click');
+    await sleep(20);
+    const tasksList = qs(inboxPane, '.nc-list[data-list="tasks"]');
+    const taskItem = qs(tasksList, '.nc-item[data-task]');
+    check('TASKS: task renders with Done + In-progress buttons',
+        !!taskItem && !!qs(taskItem, '[data-do="completed"]') && !!qs(taskItem, '[data-do="in_progress"]'));
+    const doneBtn = qs(taskItem, '[data-do="completed"]');
+    fire(doneBtn, 'click');
+    check('TASKS: Done goes busy instantly', doneBtn.classList.contains('is-busy'));
+    await sleep(20);
+    check('TASKS: Done posts task_update and the list reloads',
+        fetchLog.some((e) => e.includes('action=task_update') && e.includes('task_status=completed'))
+        && !!qs(tasksList, '.nc-item[data-task]'));
+
+    // 6h. P73 Phase 4 — 3-STEP announcement composer (Content→Audience→Review)
+    fire(announceBtn, 'click');
+    await sleep(20);
+    const cmpPane = (n) => qs(cmpCard, '[data-nc-cmppane="' + n + '"]');
+    const cmpNextBtn = () => qs(cmpCard, '[data-nc-cmpnext]');
+    const cmpErrEl = () => qs(cmpCard, '[data-nc-cmperr]');
+    check('CMP: opens at step 1 (content pane, Next visible)',
+        cmpPane(1).hidden === false && cmpPane(2).hidden === true && cmpPane(3).hidden === true
+        && !cmpNextBtn().hidden && qs(cmpCard, '[data-nc-cmppublish]').hidden === true);
+    fire(cmpNextBtn(), 'click');
+    check('CMP: step 1 validation blocks an empty title',
+        cmpErrEl().textContent === 'Give the announcement a title.' && cmpPane(2).hidden === true);
+    qs(cmpCard, '#ncCmpTitle').value = 'Harness title';
+    fire(cmpNextBtn(), 'click');
+    check('CMP: missing body also blocked',
+        cmpErrEl().textContent === 'Write the message first.' && cmpPane(2).hidden === true);
+    qs(cmpCard, '#ncCmpBody').value = 'Body text';
+    fire(cmpNextBtn(), 'click');
+    check('CMP: valid content advances to step 2',
+        cmpPane(2).hidden === false && cmpPane(1).hidden === true
+        && qs(cmpCard, '[data-nc-cmpsteps] li[data-step="2"]').classList.contains('is-on')
+        && qs(cmpCard, '[data-nc-cmpsteps] li[data-step="1"]').classList.contains('is-done'));
+    fire(cmpNextBtn(), 'click');
+    check('CMP: step 2 validation blocks an empty audience',
+        cmpErrEl().textContent === 'Choose at least one group.' && cmpPane(3).hidden === true);
+    fire(qs(cmpCard, '[data-nc-roles] [data-role="teacher"]'), 'click');
+    fire(cmpNextBtn(), 'click');
+    check('CMP: selected audience advances to step 3 review',
+        cmpPane(3).hidden === false && qs(cmpCard, '[data-nc-cmppublish]').hidden === false
+        && qs(cmpCard, '[data-nc-cmpback]').hidden === false);
+    check('CMP: review renders title + audience summary',
+        cmpReview.textContent.includes('Harness title') && cmpReview.textContent.includes('Teachers'));
+    fire(qs(cmpCard, '[data-nc-cmpback]'), 'click');
+    check('CMP: Back returns to step 2', cmpPane(2).hidden === false && cmpPane(3).hidden === true);
+    fire(cmpNextBtn(), 'click');
+    fire(qs(cmpCard, '[data-nc-cmppublish]'), 'click');
+    await sleep(20);
+    const rolesPost = fetchLog.filter((e) => e.includes('action=compose')).pop();
+    check('CMP: publish posts the composed payload (roles path)',
+        !!rolesPost && rolesPost.includes('title=Harness+title') && rolesPost.includes('roles=teacher')
+        && rolesPost.includes('audience=roles'));
+    check('CMP: success closes the sheet + resets to step 1',
+        composer.hidden === true && cmpPane(1).hidden === false && qs(cmpCard, '#ncCmpTitle').value === '');
+
+    // 6i. P73 Phase 4 — composer: users audience path + publish failure
+    fire(announceBtn, 'click');
+    await sleep(20);
+    qs(cmpCard, '#ncCmpTitle').value = 'Direct note';
+    qs(cmpCard, '#ncCmpBody').value = 'Second body';
+    fire(cmpNextBtn(), 'click');
+    fire(qs(cmpCard, '[data-nc-audience] [data-a="users"]'), 'click');
+    check('CMP: users audience reveals the people picker',
+        usersWrap.hidden === false && rolesWrap.hidden === true);
+    fire(cmpNextBtn(), 'click');
+    check('CMP: users path validates a selection',
+        cmpErrEl().textContent === 'Choose at least one recipient.');
+    const ucb = qs(targetUsers, 'input');
+    ucb.checked = true;   // the user ticks the recipient
+    fire(cmpNextBtn(), 'click');
+    check('CMP: users selection advances to review', cmpPane(3).hidden === false);
+    fire(qs(cmpCard, '[data-nc-cmppublish]'), 'click');
+    await sleep(20);
+    const usersPost = fetchLog.filter((e) => e.includes('action=compose')).pop();
+    check('CMP: users publish posts user_ids + audience=users',
+        !!usersPost && usersPost.includes('user_ids=2') && usersPost.includes('audience=users'));
+    check('CMP: sheet closed + reset again', composer.hidden === true && cmpPane(1).hidden === false);
+    failNextCompose = true;
+    fire(announceBtn, 'click');
+    await sleep(20);
+    qs(cmpCard, '#ncCmpTitle').value = 'Will fail';
+    qs(cmpCard, '#ncCmpBody').value = 'Failure body';
+    fire(cmpNextBtn(), 'click');
+    fire(qs(cmpCard, '[data-nc-roles] [data-role="teacher"]'), 'click');
+    fire(cmpNextBtn(), 'click');
+    fire(qs(cmpCard, '[data-nc-cmppublish]'), 'click');
+    await sleep(20);
+    check('CMP: publish failure keeps the sheet open with the error',
+        composer.hidden === false && cmpErrEl().textContent !== '');
+    failNextCompose = false;
+    fire(cmpCancel, 'click');
+    check('CMP: cancel closes the failed composer', composer.hidden === true);
 
     // 7. bell again AFTER section interactions (regression for the scoping bug)
     fire(qs(documentShim, '.nc-bell'), 'click');

@@ -324,3 +324,58 @@ gate** — green exit + `PASS` line + zero handler errors.
   guard, and a pin that the runtime gate keeps its Phase-3 suites).
 - Full matrix: **byte-identical failing-ID diff** vs `9e0c1f9` — 40
   pre-existing environment failures, unchanged; zero regressions.
+
+
+## §9 Phase 4 — Inbox feed UX (filters, optimistic reads, 3-step composer) — SHIPPED
+
+**Scope delivered** (per §5 row 4; acceptance "every interaction has
+visible state; no dead controls"):
+
+- **Filter chips (All / Unread)** — section inbox bar, alerts tab.
+  Unread refetches via the already-existing server param
+  (`feed?unread=1`) so the filter sees the whole feed, not just the
+  loaded page; the row follows the active tab (hidden off alerts);
+  `aria-pressed` announces state. The bell panel ships no filter row —
+  it stays a compact recent-items surface.
+- **Optimistic mark-read (single)** — clicking an unread alert or
+  announcement clears the unread class + dot and decrements the count
+  INSTANTLY; the POST confirms in the background; failures revert by
+  refetching the authoritative list + toast. Read items never re-post.
+- **Optimistic mark-all** — every dot clears and the count zeroes
+  instantly, the button hides, the write confirms in the background;
+  failures revert by refetch + toast.
+- **3-step announcement composer** — Content → Audience → Review:
+  progress indicator, Back/Next navigation, per-step inline validation
+  (empty title/body, empty group/recipient), a review summary before
+  publishing, belt-and-braces re-validation at publish, and
+  reset-to-step-1 after success (fields + selection cleared). The old
+  single-shot submit is gone.
+- **Task action routing** — Done / In-progress buttons were already
+  live from Phase 1 (busy state, toast, reload, summary sync); Phase 4
+  adds runtime-gate coverage that was missing (D12 pinned end-to-end).
+
+**Incident caught by the runtime gate during this phase:** the first
+implementation of the step machine read `p.dataset.cmppane`, but the
+camelCase of `data-nc-cmppane` is `ncCmppane` — every pane stayed
+hidden and the wizard never advanced. `node --check` was green; the
+76-check runtime gate caught it immediately (the standing rule pays
+for itself). Fixed to `p.dataset.ncCmppane`.
+
+**Verification.**
+
+- Runtime gate extended 43 → **76 checks** (filter 4, optimistic read
+  6, mark-all 3, tasks 3, composer 17 — incl. the users-audience path
+  and publish-failure handling). The DOM shim gained real event
+  BUBBLING (the list controller delegates from the list container —
+  direct-dispatch fire() never reached those handlers) and faithful
+  ancestor `textContent`.
+- pytest: **62 green** in the comm suites (new `CommPhase4Tests`:
+  filter wiring, optimistic patterns with revert, 3-step structure,
+  the exact dataset key, task routing, reduced-motion, runtime-gate
+  suite markers).
+- PHP surface: this round's PHP changes are markup-only (verified via
+  diff — every changed line in `comm_section.php` is markup) plus the
+  asset version bump 73.3 → 73.4; `php -l` clean; include sites
+  untouched, so the prior render matrix carries over.
+- Full matrix: **byte-identical failing-ID diff** vs `0e3c0c0` — 40
+  pre-existing environment failures, unchanged; zero regressions.

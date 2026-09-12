@@ -62,6 +62,10 @@ if (!defined('NC_COMM_SECTION_LOADED')) {
                         <button type="button" class="nc-tab" data-tab="announcements" role="tab" aria-selected="false">Announcements <span class="nc-count" data-count="announcements" hidden>0</span></button>
                         <button type="button" class="nc-tab" data-tab="tasks" role="tab" aria-selected="false">Tasks <span class="nc-count" data-count="tasks" hidden>0</span></button>
                     </div>
+                    <div class="nc-filter" data-nc-filter role="group" aria-label="Filter alerts">
+                        <button type="button" class="nc-chipf is-on" data-filter="all" aria-pressed="true">All</button>
+                        <button type="button" class="nc-chipf" data-filter="unread" aria-pressed="false">Unread</button>
+                    </div>
                     <div class="nc-sec-bar-actions">
                         <button type="button" class="nc-link nc-announce" data-nc-announce hidden><i class="fa-solid fa-bullhorn" aria-hidden="true"></i> Announce</button>
                         <button type="button" class="nc-link nc-mark-all" hidden><i class="fa-solid fa-check-double" aria-hidden="true"></i> Mark all read</button>
@@ -131,43 +135,52 @@ if (!defined('NC_COMM_SECTION_LOADED')) {
         </div>
     </div>
 
-    <!-- ══════════ Announcement composer sheet ══════════ -->
+    <!-- ══════════ Announcement composer sheet — 3 steps (Phase 4) ══════════ -->
     <div class="nc-sheet" data-nc-composer hidden role="dialog" aria-modal="true" aria-label="New announcement">
         <div class="nc-sheet-card">
             <h2><i class="fa-solid fa-bullhorn" aria-hidden="true"></i> New announcement</h2>
-            <label class="nc-lbl" for="ncCmpTitle">Title</label>
-            <input class="nc-inp" id="ncCmpTitle" maxlength="200" placeholder="e.g. Schedule change this Friday">
-            <label class="nc-lbl" for="ncCmpBody">Message</label>
-            <textarea class="nc-inp nc-inp--area" id="ncCmpBody" maxlength="5000" placeholder="Write the announcement…"></textarea>
-            <div class="nc-row2">
-                <div>
-                    <label class="nc-lbl" for="ncCmpPriority">Priority</label>
-                    <select class="nc-inp" id="ncCmpPriority">
-                        <option value="normal">Normal</option>
-                        <option value="high">High — important</option>
-                        <option value="urgent">Urgent — needs attention now</option>
-                    </select>
+            <ol class="nc-steps" data-nc-cmpsteps aria-label="Announcement steps">
+                <li class="is-on" data-step="1"><span aria-hidden="true">1</span>Content</li>
+                <li data-step="2"><span aria-hidden="true">2</span>Audience</li>
+                <li data-step="3"><span aria-hidden="true">3</span>Review</li>
+            </ol>
+            <div data-nc-cmppane="1">
+                <label class="nc-lbl" for="ncCmpTitle">Title</label>
+                <input class="nc-inp" id="ncCmpTitle" maxlength="200" placeholder="e.g. Schedule change this Friday">
+                <label class="nc-lbl" for="ncCmpBody">Message</label>
+                <textarea class="nc-inp nc-inp--area" id="ncCmpBody" maxlength="5000" placeholder="Write the announcement…"></textarea>
+                <label class="nc-lbl" for="ncCmpPriority">Priority</label>
+                <select class="nc-inp" id="ncCmpPriority">
+                    <option value="normal">Normal</option>
+                    <option value="high">High — important</option>
+                    <option value="urgent">Urgent — needs attention now</option>
+                </select>
+            </div>
+            <div data-nc-cmppane="2" hidden>
+                <span class="nc-lbl">Audience</span>
+                <div class="nc-pick" data-nc-audience>
+                    <div class="nc-pick-p is-on" data-a="roles">Whole groups</div>
+                    <div class="nc-pick-p" data-a="users">Selected people</div>
                 </div>
-                <div>
-                    <span class="nc-lbl">Audience</span>
-                    <div class="nc-pick" data-nc-audience>
-                        <div class="nc-pick-p is-on" data-a="roles">Whole groups</div>
-                        <div class="nc-pick-p" data-a="users">Selected people</div>
-                    </div>
+                <div data-nc-roleswrap>
+                    <span class="nc-lbl">Groups</span>
+                    <div class="nc-pick" data-nc-roles></div>
+                </div>
+                <div data-nc-userswrap hidden>
+                    <span class="nc-lbl">People</span>
+                    <div class="nc-picklist" data-nc-targetusers><div class="nc-skeleton"><span></span><span></span><span></span></div></div>
                 </div>
             </div>
-            <div data-nc-roleswrap>
-                <span class="nc-lbl">Groups</span>
-                <div class="nc-pick" data-nc-roles></div>
-            </div>
-            <div data-nc-userswrap hidden>
-                <span class="nc-lbl">People</span>
-                <div class="nc-picklist" data-nc-targetusers><div class="nc-skeleton"><span></span><span></span><span></span></div></div>
+            <div data-nc-cmppane="3" hidden>
+                <span class="nc-lbl">Review</span>
+                <dl class="nc-review" data-nc-cmpreview></dl>
             </div>
             <div class="nc-err" data-nc-cmperr></div>
             <div class="nc-sheet-actions">
                 <button type="button" class="nc-btn nc-btn-prog" data-nc-cmpcancel>Cancel</button>
-                <button type="button" class="nc-btn nc-btn-done" data-nc-cmppublish><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Publish</button>
+                <button type="button" class="nc-btn nc-btn-prog" data-nc-cmpback hidden><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back</button>
+                <button type="button" class="nc-btn nc-btn-prog" data-nc-cmpnext>Next <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                <button type="button" class="nc-btn nc-btn-done" data-nc-cmppublish hidden><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Publish</button>
             </div>
         </div>
     </div>

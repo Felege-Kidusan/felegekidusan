@@ -482,7 +482,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .nc-sec, .nc-im-conv, .nc-sheet, .nc-sheet-card, .nc-msg { transition: none !important; animation: none !important; }
+    .nc-sec, .nc-im-conv, .nc-sheet, .nc-sheet-card, .nc-msg, .nc-dot { transition: none !important; animation: none !important; }
 }
 
 /* ============================================================================
@@ -568,3 +568,50 @@
 .nc-contact.is-on .nc-contact-tick { background: var(--nc-ac, #059669); border-color: var(--nc-ac, #059669); }
 .nc-contacts-empty { font-size: 12px; color: var(--nc-dim, #64748b); margin: 6px 2px; }
 .nc-contacts-count { font-weight: 600; color: #065f46; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+
+
+/* ============================================================================
+ * P73 Phase 4 — Inbox feed UX: filter chips, optimistic read states,
+ * 3-step announcement composer (Content → Audience → Review).
+ * ========================================================================== */
+
+/* ── Filter chips (All / Unread) — alerts feed, section surface only ─── */
+.nc-filter { display: inline-flex; gap: 4px; padding: 4px 0; flex-shrink: 0; }
+.nc-chipf {
+    border: 1px solid var(--nc-line, #e2e8f0); background: transparent; color: var(--nc-ink-soft, #64748b);
+    border-radius: 999px; padding: 3px 12px; font-size: 12px; font-weight: 600; min-height: 28px;
+    cursor: pointer; font-family: inherit; transition: background .15s ease, color .15s ease;
+}
+.nc-chipf:hover { color: var(--nc-ink, #0f172a); background: var(--nc-bg-soft, #f1f5f9); }
+.nc-chipf.is-on { background: var(--nc-ac-soft, #e0f2fe); color: var(--nc-ac-deep, #075985); border-color: var(--nc-ac, #0ea5e9); }
+.nc-chipf:focus-visible { outline: 2px solid var(--nc-ac, #0ea5e9); outline-offset: 1px; }
+
+/* ── Optimistic read: the unread dot fades instead of vanishing ──────── */
+.nc-item .nc-dot { transition: opacity .25s ease, transform .25s ease; }
+
+/* ── 3-step composer: progress indicator + review ────────────────────── */
+.nc-steps { display: flex; flex-wrap: wrap; gap: 4px 10px; list-style: none; margin: 0 0 14px; padding: 0; }
+.nc-steps li {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    color: var(--nc-ink-soft, #64748b); padding: 4px 0;
+}
+.nc-steps li span {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--nc-bg-soft, #f1f5f9); font-size: 11px;
+}
+.nc-steps li.is-on { color: var(--nc-ac-deep, #075985); }
+.nc-steps li.is-on span { background: var(--nc-ac, #0ea5e9); color: #fff; }
+.nc-steps li.is-done { color: var(--nc-ac-deep, #075985); }
+.nc-steps li.is-done span { background: var(--nc-ac-soft, #e0f2fe); color: var(--nc-ac-deep, #075985); }
+
+.nc-review { margin: 0; display: grid; gap: 12px; }
+.nc-review > div { display: grid; gap: 3px; }
+.nc-review dt {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--nc-ink-soft, #64748b);
+}
+.nc-review dd {
+    margin: 0; font-size: 13.5px; color: var(--nc-ink, #0f172a);
+    white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+}
