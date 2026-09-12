@@ -126,6 +126,11 @@ class CommEndToEndTests(unittest.TestCase):
         conversation list) with no overlaps or gaps."""
         self._assert_verdict_pass(self._run("pagination"), "pagination")
 
+    def test_rate_limiting_on_writes(self):
+        """Phase 6: write bursts are throttled per user (429 + friendly
+        message); reads stay free; the limit is per user, not per IP."""
+        self._assert_verdict_pass(self._run("ratelimit"), "ratelimit")
+
     def test_csrf_bad_token_fails_closed(self):
         """Wrong CSRF token → the API's 403 envelope, process exits."""
         proc = self._run("csrf_bad")

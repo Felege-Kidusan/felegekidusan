@@ -555,3 +555,93 @@ room to spare: the idle response is header-only.
   e2e wrapper). Full matrix: failing-ID diff vs `ca587cf` — the 40
   pre-existing environment failures **byte-identical**; zero regressions.
 - `php -l` clean; asset version **73.6**.
+
+## §9 Phase 6 — Security & final verification — SHIPPED
+
+> No new migration this round. **You still must apply `044` + `045`
+> manually if you have not yet.**
+
+### 1. Rate limiting on writes (the gap the audit found)
+
+`api_notifications.php` was the one messaging-capable admin AJAX surface
+without the shared rate limiter (mezmur, dept-takers, attendance, QR,
+reports all had it). Added the same guard, with two deliberate design
+decisions:
+
+- **Per-user key** (`user:{id}`), never per-IP — school offices share IPs;
+  a shared-office burst must not lock out colleagues.
+- **Writes only, after CSRF.** The 11 write actions
+  (`$commWriteActions`, the same array that feeds `requirePostActions`)
+  are capped at **60/min per user** — `429` + `Retry-After` +
+  `X-RateLimit-Limit` + the friendly message, DB-atomic with the
+  file fallback (fails closed). Reads stay unthrottled so the Phase 5
+  idle poll remains a **zero-write** request, and a CSRF-forged request
+  can never burn a real user's budget.
+
+### 2. AuthZ / CSRF audit — every action, signed off
+
+All 22 API actions verified (auth gate → method gate → CSRF → role/participation gate → service):
+
+| Surface | Enforcement |
+|---|---|
+| all actions | session auth (`admin_id`) required; 11 writes POST-only via `requirePostActions`; CSRF on every POST |
+| `changes`/`sync_change` | role-restricted to member-management staff (API level) + department-scoped writes |
+| `mark_read`/`mark_all_read`/`announcement_read` | self-scoped (session user only) |
+| `task_update` | `to_dept = role OR to_user_id = uid` in both SELECT and UPDATE |
+| `compose` | `canAnnounce(role)` + per-audience-role allowlist (`announceAudience`) in the service |
+| `thread_start` | `canMessage(role)` + recipients must be **active users** + `mayMessageRole` matrix per recipient |
+| `send_message`/`thread`/`thread_read` | participation check (`message_thread_participants`) — "Not your conversation." |
+| `message_edit`/`message_delete` | ownership atomic in SQL: `sender_id = ?` + participation join |
+| `thread` (P73 Phase 5) | 304 path sits AFTER auth/CSRF/participation; `threadVersion` participation-gated (no 304 oracle) |
+
+### 3. XSS audit — esc()-only rendering, proven behaviorally
+
+Read-audit of all 16 `innerHTML` render sites in `comm.js`: every
+dynamic value (titles, bodies, subjects, names, labels, ids, priorities,
+timestamps, error strings) passes through `esc()` — the
+`textContent → innerHTML` escaping trick. Then the runtime gate grew a
+**behavioral XSS suite**: a fresh page-mode boot with payload rows
+(`<img onerror>`, `<svg onload>`, `<script>`) on every server-data
+surface (alert title+body, announcement title+body+author, conversation
+subject+participants+last-body, message body+sender name, partner
+names). The shim's `parseHtml` materializes real elements from tags, so
+a forgotten `esc()` would produce queryable `img`/`svg`/`script` nodes —
+**mutation-verified**: unescaping one renderer trips all five checks.
+All payload surfaces render as text; zero injected elements.
+
+### 4. Full verification matrix
+
+| Gate | Result |
+|---|---|
+| Runtime gate (`node tests/js/comm_runtime_test.js`) | **108/108, zero handler errors** (+6 XSS checks) |
+| E2E real MariaDB + PHP 8.3 | **57 checks green** across pre043 / mid043 / full / reset_full / etag304 / pagination / **ratelimit (5)** / csrf_bad / unauth |
+| pytest full matrix | 774 passed / 38 skipped / 40 pre-existing env failures |
+| Failing-ID diff vs `7fba4ae` (stash-in-main-tree) | **40/40 byte-identical — zero regressions** |
+| `php -l` | clean on all changed PHP files |
+
+The e2e `ratelimit` scenario proves on the real stack: a 60-write burst
+is throttled with 429 + the friendly message (exactly at the limit:
+59 sends + 1 thread_start), the block persists within the window,
+**reads stay free while writes are blocked**, user 2 is unaffected
+(per-user), and a window reset restores writes.
+
+### 5. The five mandatory rules — signed off
+
+1. **Front/back separation** — pages/components hold zero logic; all
+   logic in `NotificationCenterService` + `comm.js`; pins enforce
+   (`assertNotIn('$conn->prepare'` in pages).
+2. **Scale to hundreds of thousands** — Phase 5 EXPLAIN audit at
+   150k/120k rows: all hot queries index-backed; idle poll 0.83 ms →
+   zero-write 304.
+3. **100% security** — this section: CSRF on every write, esc()-only
+   rendering (behaviorally proven), authZ via the service permission
+   matrix (audited table above), rate limiting via the existing
+   `SecurityRateLimiter` on all write actions.
+4. **No breakage** — failing-ID diff byte-identical (40/40) every
+   round; public PHP API (`renderNotificationCenter()`, `nc-root`
+   contract) unchanged; full matrix green before every ship.
+5. **Maintain/extend/integrate** — one CSS file, one JS runtime, one
+   partial per surface; adding a surface = include the partial + one
+   nav entry (12 dashboards prove it).
+
+**P73 is complete: all six phases shipped.**

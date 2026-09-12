@@ -108,17 +108,22 @@ class NotificationCenterTests(unittest.TestCase):
 
     # ── 3. the API contract ───────────────────────────────────
     def test_pinned_actions_untouched(self):
-        # the four pinned write actions stay POST-only
-        self.assertIn("requirePostActions($action, ['mark_read', 'mark_all_read', 'task_update', 'sync_change'",
-                      self.api)
+        # the four pinned write actions stay POST-only (P73 Phase 6 hoisted
+        # the list into $commWriteActions — single source, same contract)
+        self.assertIn("requirePostActions($action, $commWriteActions)", self.api)
+        for action in ["'mark_read'", "'mark_all_read'", "'task_update'", "'sync_change'"]:
+            self.assertIn(action, self.api)
         # CSRF still enforced for all POSTs
         self.assertIn("validateCsrf", self.api)
         # member-change history stays role-restricted
         self.assertIn("changes", self.api)
 
     def test_new_actions_and_post_only(self):
-        post_list = re.search(r"requirePostActions\(\$action, \[(.*?)\]\);", self.api, re.S).group(1)
-        for action in ["'compose'", "'announcement_read'", "'thread_start'", "'send_message'", "'thread_read'"]:
+        m = re.search(r"\$commWriteActions = \[(.*?)\];", self.api, re.S)
+        self.assertIsNotNone(m, "write-action list must stay a named array")
+        post_list = m.group(1)
+        for action in ["'compose'", "'announcement_read'", "'thread_start'", "'send_message'", "'thread_read'",
+                       "'message_edit'", "'message_delete'"]:
             self.assertIn(action, post_list, f"{action} must be POST-only")
         for action in ["summary", "feed", "announcements", "targets", "partners", "threads", "thread"]:
             self.assertIn(f"case '{action}'", self.api)
@@ -816,6 +821,77 @@ class CommPhase5PerformanceTests(unittest.TestCase):
         e = self._read(self.E2E)
         self.assertIn("case 'etag304':", e)
         self.assertIn("case 'pagination':", e)
+
+
+class CommPhase6SecurityTests(unittest.TestCase):
+    """Phase 6 — security audit pins: rate limiting, AuthZ, XSS."""
+
+    ROOT = ROOT
+    API = ROOT / 'admin' / 'api_notifications.php'
+    SVC = ROOT / 'admin' / 'backend' / 'services' / 'NotificationCenterService.php'
+    JS = ROOT / 'admin' / 'js' / 'comm.js'
+    E2E = ROOT / 'tests' / 'e2e' / 'comm_lifecycle.php'
+
+    def _read(self, path):
+        with open(path, encoding='utf-8') as f:
+            return f.read()
+
+    # ── rate limiting on writes ──
+    def test_write_actions_rate_limited_per_user(self):
+        a = self._read(self.API)
+        self.assertIn('SecurityRateLimiter', a)
+        self.assertIn("'comm_write'", a)
+        self.assertIn("'user:'", a)                       # per-user key, not per-IP
+        self.assertIn("http_response_code(429)", a)
+        self.assertIn("Retry-After", a)
+
+    def test_rate_limiter_sits_after_csrf_and_only_on_writes(self):
+        """CSRF-invalid requests must not burn a user's budget; reads must
+        stay unthrottled (idle ETag polls are zero-write by design)."""
+        a = self._read(self.API)
+        posCsrf = a.index('validateCsrf')
+        posRl = a.index('SecurityRateLimiter')
+        self.assertLess(posCsrf, posRl)
+        self.assertIn('in_array($action, $commWriteActions, true)', a)
+
+    def test_write_action_list_is_single_source(self):
+        """The POST-only list and the rate-limit list are the same array."""
+        a = self._read(self.API)
+        self.assertEqual(a.count('$commWriteActions'), 3)  # def + requirePost + gate
+
+    # ── AuthZ ──
+    def test_changes_action_role_gated(self):
+        a = self._read(self.API)
+        self.assertIn("['super_admin','school_admin','info_dept','hr_dept']", a)
+
+    def test_message_edit_delete_ownership_in_sql(self):
+        s = self._read(self.SVC)
+        self.assertIn('m.sender_id = ?', s)
+        self.assertIn('p.thread_id = m.thread_id AND p.user_id = ?', s)
+
+    def test_send_and_markread_participation_checked(self):
+        s = self._read(self.SVC)
+        for fn in ('sendMessage', 'markThreadRead'):
+            head = s[s.index('function ' + fn):]
+            self.assertIn('message_thread_participants', head[:800], fn)
+
+    def test_thread_start_uses_role_matrix(self):
+        s = self._read(self.SVC)
+        head = s[s.index('function startThread'):]
+        self.assertIn('mayMessageRole', head)
+        self.assertIn('is_active = 1', head)   # only active users addressable
+
+    # ── XSS ──
+    def test_esc_helper_is_the_textcontent_trick(self):
+        j = self._read(self.JS)
+        self.assertIn('function esc(s)', j)
+        self.assertIn('d.textContent =', j)
+        self.assertIn('return d.innerHTML', j)
+
+    # ── e2e exposes the Phase 6 scenario ──
+    def test_e2e_runner_has_ratelimit_scenario(self):
+        e = self._read(self.E2E)
+        self.assertIn("case 'ratelimit':", e)
 
 
 if __name__ == "__main__":

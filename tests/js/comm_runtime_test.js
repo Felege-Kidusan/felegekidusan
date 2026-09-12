@@ -452,6 +452,13 @@ let failNextSend = false;    // flipped by the optimistic-send failure test
 let failNextRead = false;    // flipped by the optimistic mark-read failure test
 let failNextCompose = false; // flipped by the composer publish-failure test
 let summaryAlerts = 2;       // P73 Phase 5: mutated mid-test to prove full refetch after a POST
+/* P73 Phase 6 — XSS fixtures: when xssMode is on, every server-data
+ * surface carries a payload row. The runtime must render it as TEXT
+ * (esc() everywhere); the shim's parseHtml WOULD materialize real
+ * <img>/<svg> elements if any renderer forgot to escape. */
+let xssMode = false;
+const XSS_PAYLOAD = '<img src=x onerror="__xssHit(1)"><svg onload="__xssHit(2)"><script>window.__xssHit(3)<\/script>';
+
 function apiReply(action, qsParams) {
     const qp = qsParams || {};
     switch (action) {
@@ -468,7 +475,7 @@ function apiReply(action, qsParams) {
             ] : [
                 { id: '5', title: 'unread one', message: 'm', type: 'member', created_at: '2026-09-12 10:00:00', is_unread: 1, priority: 'normal' },
                 { id: '6', title: 'read one', message: 'm2', type: 'member', created_at: '2026-09-12 09:00:00', is_unread: 0, priority: 'normal' }
-            ];
+            ].concat(xssMode ? [{ id: '99', title: XSS_PAYLOAD, message: XSS_PAYLOAD, type: 'member', created_at: '2026-09-12 08:00:00', is_unread: 1, priority: 'normal' }] : []);
             return {
                 status: 'success',
                 rows,
@@ -493,7 +500,7 @@ function apiReply(action, qsParams) {
             ], next_before: null, next_pin: null, has_more: false }
             : { status: 'success', announcements: [
                 { id: '21', title: 'pinned announcement', body: 'b', created_at: '2026-09-12 08:00:00', is_unread: 1, is_pinned: 1, priority: 'high', author_label: 'Education' }
-            ], next_before: 20, next_pin: 1, has_more: true };
+            ].concat(xssMode ? [{ id: '98', title: XSS_PAYLOAD, body: XSS_PAYLOAD, created_at: '2026-09-12 07:00:00', is_unread: 1, is_pinned: 0, priority: 'normal', author_label: 'Education' }] : []), next_before: 20, next_pin: 1, has_more: true };
         case 'threads': return (parseInt(qp.before_id || '0', 10) > 0)
             ? { status: 'success', threads: [{
                 id: 3, subject: 'Older conversation', participants_label: 'Berea M',
@@ -504,7 +511,11 @@ function apiReply(action, qsParams) {
                 id: 7, subject: 'Budget question', participants_label: 'Berea M, Daniel T',
                 last_body: 'Can we review the budget?', last_message_at: '2026-09-12 10:00:00',
                 created_at: '2026-09-01 09:00:00', unread_count: 2
-            }], next: ['2026-09-05 10:00:00', 3], has_more: true };
+            }].concat(xssMode ? [{
+                id: 77, subject: XSS_PAYLOAD, participants_label: XSS_PAYLOAD,
+                last_body: XSS_PAYLOAD, last_message_at: '2026-09-12 11:00:00',
+                created_at: '2026-09-02 09:00:00', unread_count: 1
+            }] : []), next: ['2026-09-05 10:00:00', 3], has_more: true };
         case 'thread': return (parseInt(qp.before_id || '0', 10) > 0)
             ? { status: 'success', messages: [
                 { id: '3', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
@@ -517,7 +528,10 @@ function apiReply(action, qsParams) {
             : {
             status: 'success',
             has_older: true, oldest_id: 4,
-            messages: [
+            messages: (xssMode ? [
+                { id: '96', sender_id: 2, sender_name: XSS_PAYLOAD, sender_label: XSS_PAYLOAD,
+                  body: XSS_PAYLOAD, created_at: '2026-09-12 10:30:00', mine: 0 }
+            ] : []).concat([
                 { id: '9', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
                   body: 'my own message', created_at: '2026-09-12 10:00:00', mine: 1 },
                 { id: '8', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
@@ -526,7 +540,7 @@ function apiReply(action, qsParams) {
                   body: '', created_at: '2026-09-12 09:10:00', mine: 0, deleted: 1 },
                 { id: '4', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
                   body: 'hello there', created_at: '2026-09-12 09:00:00', mine: 0 }
-            ],
+            ]),
             read_watermark: 20
         };
         case 'partners': return {
@@ -535,7 +549,7 @@ function apiReply(action, qsParams) {
                 { id: 1, full_name: 'Ababa User', role: 'teacher', label: 'Ababa User — Teacher' },
                 { id: 2, full_name: 'Other Person', role: 'teacher', label: 'Other Person — Teacher' },
                 { id: 3, full_name: 'Third Guy', role: 'hr_dept', label: 'Third Guy — HR Dept' }
-            ]
+            ].concat(xssMode ? [{ id: 4, full_name: XSS_PAYLOAD, role: 'teacher', label: XSS_PAYLOAD }] : [])
         };
         default: return { status: 'success' };
     }
@@ -1195,6 +1209,146 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
     check('PAGE MODE: announce button visible from server ctx', ann2.hidden === false || ann2.classList.contains('nc-announce'));
     const countIn2 = qs(doc2, '.nc-count[data-count="messages"]');
     check('PAGE MODE: no handler errors on boot', runtimeErrors.every((e) => !e.startsWith('page-mode')));
+
+    // ── P6: XSS — server data must render as TEXT on every surface ──
+    // Fresh page-mode boot with xssMode fixtures on: the shim's parseHtml
+    // materializes real elements from tags, so any renderer that forgot
+    // esc() would produce queryable img/svg/script nodes.
+    xssMode = true;
+    const doc3 = { readyState: 'complete', hidden: false, listeners: {} };
+    const body3 = makeEl('body'); doc3.body = body3;
+    doc3.addEventListener = (t, fn) => { (doc3.listeners[t] = doc3.listeners[t] || []).push(fn); };
+    doc3.createElement = (tag) => makeEl(tag);
+    doc3.getElementById = () => null;
+    doc3.querySelector = (s) => qs(doc3, s);
+    doc3.querySelectorAll = (s) => qsa(doc3, s);
+    documentShim2 = doc3; bodyShim2 = body3;   // reuse the swap-in slot
+
+    const panel3 = makeEl('div', { class: 'nc-panel', 'data-nc-panel': '', 'data-csrf': 'c', 'data-api': '/a.php', hidden: '' });
+    panel3.appendChild(makeEl('div', { class: 'nc-head' }));
+    const p3tabs = makeEl('div', { class: 'nc-tabs' });
+    for (const t of ['alerts', 'announcements', 'tasks']) { p3tabs.appendChild(makeEl('button', { class: 'nc-tab', type: 'button', 'data-tab': t })); }
+    panel3.appendChild(p3tabs);
+    const p3body = makeEl('div', { class: 'nc-body' });
+    for (const t of ['alerts', 'announcements', 'tasks']) { p3body.appendChild(makeEl('div', { class: 'nc-list', 'data-list': t })); }
+    panel3.appendChild(p3body);
+    body3.appendChild(panel3);
+
+    const section3 = makeEl('div', { class: 'nc-sec nc-sec--page', 'data-nc-section': '', 'data-initial': 'messages', 'data-can-announce': '1', 'data-can-message': '1' });
+    const sh3 = makeEl('header', { class: 'nc-sec-head' });
+    const st3 = makeEl('div', { class: 'nc-sec-tabs' });
+    const tabIn3 = makeEl('button', { class: 'nc-sec-tab', type: 'button', 'data-nc-view': 'inbox' });
+    const tabMs3 = makeEl('button', { class: 'nc-sec-tab is-active', type: 'button', 'data-nc-view': 'messages' });
+    st3.appendChild(tabIn3); st3.appendChild(tabMs3);
+    sh3.appendChild(st3); sh3.appendChild(makeEl('button', { class: 'nc-x', type: 'button', 'data-nc-close': '' }));
+    section3.appendChild(sh3);
+    const sb3 = makeEl('div', { class: 'nc-sec-body' });
+    const paneIn3 = makeEl('section', { class: 'nc-sec-view', 'data-nc-viewpane': 'inbox', hidden: '' });
+    const bar3 = makeEl('div', { class: 'nc-sec-bar' });
+    const itabs3 = makeEl('div', { class: 'nc-tabs' });
+    for (const t of ['alerts', 'announcements', 'tasks']) { itabs3.appendChild(makeEl('button', { class: 'nc-tab', type: 'button', 'data-tab': t })); }
+    bar3.appendChild(itabs3);
+    paneIn3.appendChild(bar3);
+    const scroll3 = makeEl('div', { class: 'nc-sec-scroll' });
+    for (const t of ['alerts', 'announcements', 'tasks']) {
+        const l = makeEl('div', { class: 'nc-list', 'data-list': t });
+        if (t !== 'alerts') { l.hidden = true; }
+        l.appendChild(makeEl('div', { class: 'nc-skeleton' }));
+        scroll3.appendChild(l);
+    }
+    paneIn3.appendChild(scroll3);
+    const paneMs3 = makeEl('section', { class: 'nc-sec-view', 'data-nc-viewpane': 'messages' });
+    const im3 = makeEl('div', { class: 'nc-im' });
+    const il3 = makeEl('div', { class: 'nc-im-list' });
+    const lh3 = makeEl('div', { class: 'nc-im-listhead' });
+    lh3.appendChild(makeEl('h3'));
+    const nt3 = makeEl('button', { class: 'nc-btn nc-btn-done', type: 'button', 'data-nc-newthread': '' }); nt3.hidden = true;
+    lh3.appendChild(nt3);
+    il3.appendChild(lh3);
+    const threads3 = makeEl('div', { class: 'nc-im-threads', 'data-nc-threads': '' });
+    threads3.appendChild(makeEl('div', { class: 'nc-skeleton' }));
+    il3.appendChild(threads3);
+    im3.appendChild(il3);
+    const conv3 = makeEl('div', { class: 'nc-im-conv', 'data-nc-conv': '' });
+    conv3.appendChild(makeEl('div', { class: 'nc-empty nc-im-empty', 'data-nc-convempty': '' }));
+    const ch3 = makeEl('div', { 'data-nc-convhead': '', hidden: '' });
+    ch3.appendChild(makeEl('button', { class: 'nc-x', type: 'button', 'data-nc-convback': '' }));
+    const ct3 = makeEl('div', {});
+    ct3.appendChild(makeEl('h3', { 'data-nc-convtitle': '' }));
+    ct3.appendChild(makeEl('div', { class: 'nc-im-who', 'data-nc-convwho': '' }));
+    ch3.appendChild(ct3);
+    conv3.appendChild(ch3);
+    const msgs3 = makeEl('div', { 'data-nc-msgs': '' });
+    conv3.appendChild(msgs3);
+    const form3 = makeEl('form', { class: 'nc-im-form', 'data-nc-form': '', hidden: '' });
+    form3.appendChild(makeEl('textarea', { 'data-nc-reply': '' }));
+    conv3.appendChild(form3);
+    im3.appendChild(conv3);
+    paneMs3.appendChild(im3);
+    sb3.appendChild(paneIn3); sb3.appendChild(paneMs3);
+    section3.appendChild(sb3);
+    body3.appendChild(section3);
+    const newsheet3 = makeEl('div', { class: 'nc-sheet', 'data-nc-newsheet': '', hidden: '' });
+    const ncard3 = makeEl('div', { class: 'nc-sheet-card' });
+    ncard3.appendChild(makeEl('h2'));
+    ncard3.appendChild(makeEl('span', { class: 'nc-contacts-count', 'data-nc-partnercount': '', hidden: '' }));
+    ncard3.appendChild(makeEl('input', { type: 'search', 'data-nc-partnersearch': '' }));
+    const partners3 = makeEl('div', { class: 'nc-contacts', 'data-nc-partners': '' });
+    partners3.appendChild(makeEl('div', { class: 'nc-skeleton' }));
+    ncard3.appendChild(partners3);
+    ncard3.appendChild(makeEl('input', { class: 'nc-inp', id: 'ncNewSubject' }));
+    ncard3.appendChild(makeEl('textarea', { class: 'nc-inp', id: 'ncNewBody' }));
+    ncard3.appendChild(makeEl('div', { class: 'nc-err', 'data-nc-newerr': '' }));
+    const na3 = makeEl('div', { class: 'nc-sheet-actions' });
+    const nc3 = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-newcancel': '' });
+    const ns3 = makeEl('button', { class: 'nc-btn', type: 'button', 'data-nc-newsend': '' });
+    na3.appendChild(nc3); na3.appendChild(ns3);
+    ncard3.appendChild(na3);
+    newsheet3.appendChild(ncard3);
+    body3.appendChild(newsheet3);
+
+    const sandbox3 = Object.assign({}, sandbox, { document: doc3, location: { hash: '' } });
+    sandbox3.globalThis = sandbox3;
+    try { vm.runInNewContext(commSrc, sandbox3, { filename: 'comm.js#xssmode' }); }
+    catch (e) { runtimeErrors.push('xss-mode load: ' + e.message); }
+    await sleep(30);
+
+    const inj3 = () => qsa(doc3, 'img').length + qsa(doc3, 'svg').length + qsa(doc3, 'script').length;
+
+    // conversation list: subject + participants label + last body
+    const xRow = qs(threads3, '[data-th="77"]');
+    check('P6 XSS: conversation-list payload renders as text',
+        inj3() === 0 && !!xRow && xRow.textContent.includes('lt;img src=x'));
+    // open conversation: message body + sender name + label (fresh thread → full 200)
+    fire(xRow, 'click');
+    await sleep(20);
+    check('P6 XSS: message bubbles + sender names render as text',
+        inj3() === 0 && msgs3.textContent.includes('lt;script'));
+    // partner picker: names
+    fire(nt3, 'click');
+    await sleep(20);
+    const xc3 = qs(partners3, '.nc-contact[data-pid="4"]');
+    check('P6 XSS: partner picker names render as text',
+        inj3() === 0 && !!xc3 && xc3.textContent.includes('lt;img src=x'));
+    fire(nc3, 'click');
+    await sleep(10);
+    // alerts feed: title + message body (fresh boot → prime fetches)
+    fire(tabIn3, 'click');
+    await sleep(20);
+    const xl3 = qs(paneIn3, '.nc-list[data-list="alerts"]');
+    check('P6 XSS: alert titles/bodies render as text',
+        inj3() === 0 && !!xl3 && xl3.textContent.includes('lt;img src=x'));
+    // announcements tab: title + body + author label (fresh loadedTabs)
+    fire(qs(paneIn3, '.nc-tab[data-tab="announcements"]'), 'click');
+    await sleep(20);
+    const xa3 = qs(paneIn3, '.nc-list[data-list="announcements"]');
+    check('P6 XSS: announcement payload renders as text',
+        inj3() === 0 && !!xa3 && xa3.textContent.includes('lt;svg onload'));
+    check('P6 XSS: fresh boot raised no handler errors',
+        runtimeErrors.every((e) => !e.startsWith('xss-mode')));
+
+    xssMode = false;
+    documentShim2 = doc2; bodyShim2 = body2;   // restore the page-mode slot
 
     // verdict
     const failed = results.filter(([, ok]) => !ok);

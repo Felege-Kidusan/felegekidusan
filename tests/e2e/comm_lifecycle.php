@@ -337,6 +337,87 @@ switch ($SCENARIO) {
         verdict();
     }
 
+    case 'ratelimit': {
+        // The 429 guard exit()s (correct for production), which would end
+        // this scenario process — so burst/block probes run as CHILD
+        // processes whose stdout/stderr we inspect. The shared limiter
+        // bucket (file backend, per user) makes the children's writes
+        // count exactly as in-process ones would.
+        resetSchema(['043_message_read_receipts.sql', '044_message_edit_delete.sql']);
+        // the child must run under the SAME interpreter as this runner
+        $php = getenv('SSMS_E2E_PHP') ?: PHP_BINARY;
+        $self = __FILE__;
+        $run = static function (array $env) use ($php, $self): array {
+            foreach ($env as $k => $v) { putenv("$k=$v"); }
+            $out = shell_exec(escapeshellcmd($php) . ' ' . escapeshellarg($self) . ' ratelimit_child 2>&1');
+            foreach (array_keys($env) as $k) { putenv("$k"); }
+            return [(string)$out];
+        };
+
+        // file-backend limiter state survives processes — start clean
+        require_once __DIR__ . '/../../admin/backend/services/SecurityRateLimiter.php';
+        $rl = new \App\Services\SecurityRateLimiter(null, sys_get_temp_dir() . '/ssms_ratelimit');
+        $rl->clear('comm_write', 'user:1');
+        $rl->clear('comm_write', 'user:2');
+
+        // burst: child seeds a thread then hammers sends until blocked
+        [$out] = $run(['RL_MODE' => 'hammer']);
+        preg_match_all('/SEND (\d+)/', $out, $m);
+        $blockedAt = (int)($m[1][count($m[1]) - 1] ?? 0);
+        ok($blockedAt >= 2 && $blockedAt <= 61 && strpos($out, 'Too many requests') !== false,
+            'ratelimit: write burst throttled (429) after ' . max($blockedAt - 1, 0) . ' successful sends — friendly message shown');
+
+        // a further single write as the SAME user stays blocked (window)
+        [$out2] = $run(['RL_MODE' => 'single', 'RL_UID' => '1']);
+        ok(strpos($out2, 'Too many requests') !== false, 'ratelimit: the block persists for the window');
+
+        // reads are NOT throttled — the Phase 5 zero-write poll stays free
+        [, $rawR, $codeR] = api(1, 'super_admin', 'POST', ['action' => 'threads'], []);
+        ok($codeR === 200 && $rawR !== '', 'ratelimit: reads unaffected while writes are blocked');
+
+        // per-user keying: user 2 keeps writing while user 1 is blocked
+        [$tidRow] = [db()->query('SELECT id FROM message_threads ORDER BY id DESC LIMIT 1')->fetch_assoc()];
+        $tid = (int)($tidRow['id'] ?? 0);
+        [, , $code2] = api(2, 'teacher', 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => 'still fine']);
+        ok($tid > 0 && $code2 === 200, 'ratelimit: limit is per user — user 2 unaffected');
+
+        // clear() = what the cooldown window amounts to
+        $rl->clear('comm_write', 'user:1');
+        [, , $code3] = api(1, 'super_admin', 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => 'after clear']);
+        ok($code3 === 200, 'ratelimit: window reset restores writes');
+        $rl->clear('comm_write', 'user:2');
+        verdict();
+    }
+
+    case 'ratelimit_child': {
+        // Helper for the ratelimit scenario. Env:
+        //   RL_MODE=hammer        seed a thread, send until blocked
+        //   RL_MODE=single        one send_message as RL_UID (default 1)
+        // A 429 exits mid-request (production behavior) and flushes the
+        // JSON error body to stdout; the parent detects it by content.
+        require_once __DIR__ . '/../../admin/backend/services/SecurityRateLimiter.php';
+        $rlc = new \App\Services\SecurityRateLimiter(null, sys_get_temp_dir() . '/ssms_ratelimit');
+        $mode = (string)getenv('RL_MODE');
+        $uid = (int)(getenv('RL_UID') ?: 1);
+        $role = $uid === 2 ? 'teacher' : 'super_admin';
+        if ($mode === 'single') {
+            $row = db()->query('SELECT id FROM message_threads ORDER BY id DESC LIMIT 1')->fetch_assoc();
+            api($uid, $role, 'POST', [], ['action' => 'send_message', 'thread_id' => (int)($row['id'] ?? 0), 'body' => 'probe']);
+            echo "CHILD-ALLOWED\n";
+            exit(0);
+        }
+        // hammer
+        [$r] = api($uid, $role, 'POST', [], ['action' => 'thread_start', 'to' => '2', 'subject' => 'rl', 'body' => 'x']);
+        $tid = (int)($r['id'] ?? 0);
+        for ($i = 1; $i <= 70; $i++) {
+            fwrite(STDERR, "SEND $i\n");
+            [, , $code] = api($uid, $role, 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => "spam $i"]);
+            if ($code === 429) { break; }
+        }
+        echo "CHILD-DONE\n";
+        exit(0);
+    }
+
     case 'etag304': {
         resetSchema(['043_message_read_receipts.sql', '044_message_edit_delete.sql']);
         [$r] = api(1, 'super_admin', 'POST', [], ['action' => 'thread_start', 'to' => '2', 'subject' => 'E2E etag', 'body' => 'first']);

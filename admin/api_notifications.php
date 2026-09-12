@@ -50,9 +50,10 @@ if (empty($_SESSION['admin_id'])) {
 }
 
 $action = is_string($_REQUEST['action'] ?? 'list') ? ($_REQUEST['action'] ?? 'list') : '';
-requirePostActions($action, ['mark_read', 'mark_all_read', 'task_update', 'sync_change',
+$commWriteActions = ['mark_read', 'mark_all_read', 'task_update', 'sync_change',
     'compose', 'announcement_read', 'thread_start', 'send_message', 'thread_read',
-    'message_edit', 'message_delete']);
+    'message_edit', 'message_delete'];
+requirePostActions($action, $commWriteActions);
 
 // CSRF validation for POST requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -60,6 +61,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrf($csrfToken)) {
         http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh.']);
+        exit;
+    }
+}
+
+// ── P73 Phase 6: rate limiting on WRITE actions (per user; DB-backed
+//    with file fallback — the same guard as mezmur / dept-takers).
+//    Deliberately AFTER the CSRF gate (a forged request must not burn a
+//    real user's budget) and deliberately NOT on reads: an idle ETag
+//    poll must stay a zero-write request (see Phase 5).
+if (in_array($action, $commWriteActions, true)) {
+    require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
+    $commRl = new \App\Services\SecurityRateLimiter($pdo ?? null, sys_get_temp_dir() . '/ssms_ratelimit');
+    $commRlCheck = $commRl->consume('comm_write', 'user:' . (int)$_SESSION['admin_id'], 60, 60);
+    if (!$commRlCheck['allowed']) {
+        http_response_code(429);
+        header('Retry-After: ' . (int)$commRlCheck['retry_after']);
+        header('X-RateLimit-Limit: 60');
+        echo json_encode(['status' => 'error', 'message' => 'Too many requests. Please wait a moment and try again.']);
         exit;
     }
 }
