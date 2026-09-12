@@ -36,7 +36,7 @@ if (!function_exists('renderNotificationCenter')) {
  *  heuristic caches drop the old copy (proper cache headers: Phase 5). */
 function ncAssetVersion(): string
 {
-    return '73.1';
+    return '73.2';
 }
 
 /** Emit the shared stylesheet, the ONE panel + scrim, and the runtime
@@ -74,8 +74,8 @@ function renderNotificationCenterAssets(): string
             <div class="nc-list" data-list="tasks" role="tabpanel" hidden><div class="nc-skeleton"><span></span><span></span><span></span></div></div>
         </div>
         <div class="nc-foot">
-            <a href="/admin/notifications.php" class="nc-foot-link"><i class="fa-solid fa-inbox" aria-hidden="true"></i> All notifications</a>
-            <a href="/admin/messages.php" class="nc-foot-link nc-msg-link"><i class="fa-solid fa-comments" aria-hidden="true"></i> Messages <span class="nc-count" data-count="messages" hidden>0</span></a>
+            <a href="/admin/notifications.php" class="nc-foot-link" data-comm-open="inbox"><i class="fa-solid fa-inbox" aria-hidden="true"></i> Open inbox</a>
+            <a href="/admin/messages.php" class="nc-foot-link nc-msg-link" data-comm-open="messages"><i class="fa-solid fa-comments" aria-hidden="true"></i> Messages <span class="nc-count" data-count="messages" hidden>0</span></a>
         </div>
     </div>
     <div class="nc-scrim" data-nc-scrim hidden></div>

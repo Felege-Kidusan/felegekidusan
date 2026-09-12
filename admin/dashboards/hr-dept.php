@@ -699,6 +699,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 <span class="font-semibold">Attendance Takers</span>
             </button>
 
+            <button data-comm-open="inbox"
+                    class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
+                <span class="w-8 h-8 rounded-xl bg-teal-500/30 flex items-center justify-center">
+                    <i class="fa-solid fa-comments text-sm"></i>
+                </span>
+                <span class="font-semibold">Communication</span>
+            </button>
+
         </nav>
 
         <div class="mt-5 space-y-2">
@@ -4302,5 +4310,6 @@ const HrSub = (function () {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="/admin/js/hr_data_sync.js"></script>
+<?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 </body>
 </html>

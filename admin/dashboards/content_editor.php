@@ -184,6 +184,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
     </div>
   </div>
   <div class="topbar-right">
+    <button type="button" data-comm-open="inbox" style="color:#fff;font-size:0.8rem;padding:0.4rem 0.8rem;border:1px solid rgba(255,255,255,0.3);border-radius:0.5rem;background:transparent;cursor:pointer;font-family:inherit;font-weight:600"><i class="fa-solid fa-comments" style="margin-right:0.4rem"></i>Communication</button>
     <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
     <div class="user-chip">
       <div class="user-avatar"><?= e($initials) ?></div>
@@ -292,5 +293,6 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 <div class="toast" id="toast"></div>
 
 <script src="/admin/js/content_editor.js?v=<?= (int) filemtime(__DIR__ . '/../js/content_editor.js') ?>"></script>
+<?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 </body>
 </html>

@@ -187,6 +187,9 @@ $csrfToken = generateCsrfToken();
                 <div class="nav-link" onclick="showSection('students')">
                     <i class="fa-solid fa-users w-5"></i> My Students
                 </div>
+                <div class="nav-link" data-comm-open="inbox">
+                    <i class="fa-solid fa-comments w-5"></i> Communication
+                </div>
             </nav>
             
             <div class="mt-auto pt-4 border-t border-white/10">
@@ -1268,6 +1271,7 @@ $navItems = [
         ['icon' => 'fa-solid fa-paper-plane', 'label' => 'Submit', 'attrs' => "data-sec=\"submissions\" onclick=\"showSection('submissions')\""],
         ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => "data-sec=\"reports\" onclick=\"showSection('reports')\""],
         ['icon' => 'fa-solid fa-users', 'label' => 'Students', 'attrs' => "data-sec=\"students\" onclick=\"showSection('students')\""],
+        ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
     ],
     [
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
@@ -1275,6 +1279,8 @@ $navItems = [
 ];
 require __DIR__ . '/../components/bottom_nav.php';
 ?>
+<?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
+
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 </body>
 </html>

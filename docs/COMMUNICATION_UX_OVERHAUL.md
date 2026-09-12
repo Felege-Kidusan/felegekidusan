@@ -1,6 +1,6 @@
 # Communication Center UX Overhaul — Master Plan (P73)
 
-**Status:** Phase 1 complete (shipped). Phase 2 — section integration — is next. This document is the single source of truth for
+**Status:** Phase 2 complete (shipped) — the Communication section now lives on every dashboard + the two thin-shell pages. Phase 3 (Telegram-grade messaging redesign) is next. This document is the single source of truth for
 the overhaul: the request contract, the verified defect trace, research
 conclusions, the target architecture, and the phase plan. Each phase ships
 independently, keeps the full test matrix green, and confirms the five

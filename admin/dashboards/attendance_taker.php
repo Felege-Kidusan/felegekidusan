@@ -163,6 +163,9 @@ $csrfToken = generateCsrfToken();
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
+                    <button type="button" class="hidden md:inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition" data-comm-open="inbox" title="Communication">
+                        <i class="fa-solid fa-comments"></i> Communication
+                    </button>
                     <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
                     <div class="hidden sm:block text-right text-xs">
                         <div class="font-medium"><?= e($todayFormatted) ?></div>
@@ -663,10 +666,13 @@ $navItems = [
     [
         ['icon' => 'fa-solid fa-arrow-left', 'label' => 'Back', 'href' => '/admin/dashboard.php'],
         ['icon' => 'fa-solid fa-clipboard-check', 'label' => 'Attendance', 'active' => true],
+        ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
         ['icon' => 'fa-solid fa-power-off', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];
 require __DIR__ . '/../components/bottom_nav.php';
 ?>
+<?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
+
 </body>
 </html>

@@ -647,6 +647,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <li><button class="nav-link <?= $activeSection === 'backup' ? 'active' : '' ?>" data-section="backup"><i class="fa-solid fa-database"></i> Backup & Data</button></li>
                 <li><button class="nav-link <?= $activeSection === 'syshealth' ? 'active' : '' ?>" data-section="syshealth"><i class="fa-solid fa-stethoscope"></i> System Health</button></li>
                 <li><a href="/admin/dashboards/ai_assistant.php" class="nav-link" style="text-decoration:none"><i class="fa-solid fa-robot"></i> AI Assistant <span style="font-size:.55rem;padding:.1rem .35rem;border-radius:99px;background:linear-gradient(135deg,#10b981,#3b82f6);color:#fff;font-weight:600;margin-left:auto">NEW</span></a></li>
+                <li><button class="nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
             </ul>
         </nav>
         
@@ -1430,12 +1431,14 @@ $navItems = [
         ['icon' => 'fa-solid fa-stethoscope', 'label' => 'System', 'attrs' => 'data-section="syshealth"', 'active' => (($activeSection ?? '') === 'syshealth')],
     ],
     [
+        ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
         ['icon' => 'fa-solid fa-robot', 'label' => 'AI', 'href' => '/admin/dashboards/ai_assistant.php'],
         ['icon' => 'fa-solid fa-power-off', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];
 require __DIR__ . '/../components/bottom_nav.php';
 ?>
+<?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
     <script>
     // Scroll hint indicators for bottom nav
     (function(){

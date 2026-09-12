@@ -32,6 +32,18 @@ class NotificationCenterTests(unittest.TestCase):
         # P73 Phase 1: styling/behaviour moved to cacheable static assets.
         cls.commCss = (ROOT / "admin/css/comm.css").read_text(encoding="utf-8")
         cls.commJs = (ROOT / "admin/js/comm.js").read_text(encoding="utf-8")
+        # P73 Phase 2: the shared Communication section.
+        cls.section = ROOT / "admin/components/comm/comm_section.php"
+        cls.sectionSrc = cls.section.read_text(encoding="utf-8")
+        cls.COMM_DASH_FILES = [
+            "super-admin.php", "school_admin.php", "edu_dept.php",
+            "material_department.php", "attendance_taker.php", "teacher.php",
+            "hr-dept.php", "info-dept.php", "dept_taker.php", "content_editor.php",
+        ]
+        cls.COMM_BOTTOM_NAV_FILES = [
+            "super-admin.php", "school_admin.php", "edu_dept.php",
+            "material_department.php", "attendance_taker.php", "teacher.php",
+        ]
 
     # ── 1. the single source of truth ─────────────────────────
     def test_service_defines_everything(self):
@@ -290,6 +302,126 @@ class NotificationCenterTests(unittest.TestCase):
     def test_flutter_signout_stops_the_poll(self):
         s = (MOBILE / "services/session_service.dart").read_text(encoding="utf-8")
         self.assertIn("NotificationService.instance.stop()", s)
+
+    # ── 9. P73 Phase 2 — the Communication section ──────────────
+    def test_phase2_section_partial_is_the_one_shared_surface(self):
+        """The section partial is single-source: renders from the same
+        service/component assets, is once-guarded, and exposes the
+        data-nc-section hook + page/drawer modes."""
+        self.assertTrue(self.section.exists())
+        self.assertIn("data-nc-section", self.sectionSrc)
+        self.assertIn("NC_COMM_SECTION_LOADED", self.sectionSrc)
+        self.assertIn("notification_center.php", self.sectionSrc)   # asset guarantee
+        self.assertIn("data-nc-viewpane=\"inbox\"", self.sectionSrc)
+        self.assertIn("data-nc-viewpane=\"messages\"", self.sectionSrc)
+        self.assertIn("data-nc-composer", self.sectionSrc)          # ported composer
+        self.assertIn("data-nc-newsheet", self.sectionSrc)          # new conversation
+        self.assertNotIn("$conn->", self.sectionSrc)                # markup only
+        self.assertNotIn("<script>", self.sectionSrc)               # behaviour in comm.js
+        self.assertNotIn("<style>", self.sectionSrc)                # styling in comm.css
+
+    def test_phase2_every_dashboard_integrates_the_section(self):
+        """All 10 dashboards: one include + at least one data-comm-open
+        opener (sidebar button, header button and/or bottom-nav entry)."""
+        for dash in self.COMM_DASH_FILES:
+            src = (ROOT / "admin/dashboards" / dash).read_text(encoding="utf-8")
+            self.assertIn(
+                "comm_section.php", src,
+                f"{dash} must include the shared section partial")
+            self.assertIn(
+                'data-comm-open="inbox"', src,
+                f"{dash} must expose a Communication opener")
+            self.assertEqual(
+                src.count("comm_section.php"), 1,
+                f"{dash} must render the section exactly once")
+
+    def test_phase2_bottom_nav_entries_open_the_section(self):
+        """Dashboards with $navItems get a bottom-nav entry carrying
+        data-comm-open (the nav stays visible while the section is open)."""
+        for dash in self.COMM_BOTTOM_NAV_FILES:
+            src = (ROOT / "admin/dashboards" / dash).read_text(encoding="utf-8")
+            self.assertRegex(
+                src, r"\[\s*'icon'\s*=>\s*'fa-solid fa-comments',\s*'label'\s*=>\s*'Comms',\s*'attrs'\s*=>\s*'data-comm-open=\"inbox\"'",
+                f"{dash} must add a Comms bottom-nav item")
+
+    def test_phase2_pages_are_thin_shells(self):
+        """notifications.php / messages.php contain ZERO logic and ZERO
+        page-specific JS/CSS: permissions via the service, markup via the
+        shared partial, behaviour via comm.js."""
+        for page, view in [("admin/notifications.php", "inbox"),
+                           ("admin/messages.php", "messages")]:
+            src = (ROOT / page).read_text(encoding="utf-8")
+            self.assertIn("comm_section.php", src, f"{page} renders the shared partial")
+            self.assertIn("$NC_COMM_PAGE = true", src, f"{page} runs the partial in page mode")
+            self.assertIn(f"$NC_COMM_VIEW = '{view}'", src)
+            self.assertIn("NotificationCenterService::canAnnounce", src)
+            self.assertIn("NotificationCenterService::canMessage", src)
+            self.assertNotIn("<script>", src, f"{page} must hold no page JS")
+            self.assertNotIn("<style>", src, f"{page} must hold no page CSS")
+            self.assertNotIn("$conn->prepare", src)
+
+    def test_phase2_bell_footer_links_open_the_section(self):
+        """Bell popover footer links open the section when present and
+        still navigate to the pages as the no-JS/section-less fallback."""
+        self.assertIn('data-comm-open="inbox"', self.bell)
+        self.assertIn('data-comm-open="messages"', self.bell)
+        self.assertIn('href="/admin/notifications.php"', self.bell)
+        self.assertIn('href="/admin/messages.php"', self.bell)
+
+    def test_phase2_recipient_pickers_are_checkbox_lists(self):
+        """The Ctrl-click native multi-select is dead: every recipient
+        picker (announcement targets, new-conversation partners) is a
+        checkbox pick-list — mobile-friendly per the P73 goals."""
+        self.assertNotRegex(self.sectionSrc, r"<select[^>]*multiple")
+        self.assertNotIn("multiple", self.sectionSrc)
+        self.assertIn('class="nc-picklist" data-nc-partners', self.sectionSrc)
+        self.assertIn('class="nc-picklist" data-nc-targetusers', self.sectionSrc)
+        self.assertIn("nc-pickrow", self.commJs)   # rows render as checkbox labels
+        self.assertIn('type="checkbox"', self.commJs)
+        self.assertIn("input:checked", self.commJs)  # JS reads checkbox selections
+
+    def test_phase2_section_mobile_never_covers_the_bottom_nav(self):
+        """Mobile: the section docks above the bottom nav (never a
+        full-screen takeover); without a bottom nav it respects the
+        safe area only."""
+        self.assertRegex(self.commCss, r"\.nc-sec\s*\{[^}]*bottom:\s*var\(--nav-total")
+        self.assertRegex(self.commCss, r"\.nc-sec--nonav\s*\{[^}]*--nav-safe-bottom")
+        mobile = self.commCss[self.commCss.rfind("@media (max-width: 768px)"):]  # Phase-2 block is last
+        m = re.search(r"\.nc-sec\s*\{[^}]*\}", mobile)
+        self.assertTrue(m, "mobile .nc-sec block must exist")
+        self.assertNotRegex(m.group(0), r"bottom:\s*0\s*;")  # never a takeover
+        self.assertIn(".nc-sec--page", self.commCss)  # page mode for thin shells
+
+    def test_phase2_runtime_shares_one_list_factory(self):
+        """comm.js: ONE list controller powers bell + section inbox;
+        the section wires openers, deep links, close-on-navigation and
+        gated message polling."""
+        self.assertIn("makeListController", self.commJs)
+        self.assertIn("makeListController(panel)", self.commJs)          # bell
+        self.assertIn("makeListController(inboxPane)", self.commJs)      # section
+        self.assertIn("[data-comm-open]", self.commJs)
+        self.assertIn("wbws-bnav-btn", self.commJs)                      # close-on-nav
+        self.assertIn("h === 'messages'", self.commJs)                 # deep links
+        self.assertIn("h === 'inbox'", self.commJs)
+        self.assertIn("h === 'compose'", self.commJs)
+        self.assertIn("pollStart('msgs'", self.commJs)                   # messages-only poll
+        self.assertIn("pollStop('msgs')", self.commJs)
+        for action in ("'threads'", "'thread'", "thread_start", "send_message", "'partners'"):
+            self.assertIn(action, self.commJs, "messaging actions ported")
+        self.assertIn("'compose'", self.commJs)                          # announcements ported
+        self.assertIn("'targets'", self.commJs)
+
+    def test_phase2_composer_permissions_are_dual_gated(self):
+        """Announce/New buttons: hidden server-side via $NC_COMM_CTX on
+        the pages, revealed client-side from the summary on dashboards —
+        the API itself always re-checks (test above pins that)."""
+        self.assertIn('data-can-announce', self.sectionSrc)
+        self.assertIn('data-can-message', self.sectionSrc)
+        self.assertIn("can_announce", self.commJs)
+        self.assertIn("can_message", self.commJs)
+        for page in ("admin/notifications.php", "admin/messages.php"):
+            src = (ROOT / page).read_text(encoding="utf-8")
+            self.assertIn("$NC_COMM_CTX", src)
 
     # ── 8. security posture of the new surfaces ───────────────
     def test_service_uses_prepared_statements_only(self):

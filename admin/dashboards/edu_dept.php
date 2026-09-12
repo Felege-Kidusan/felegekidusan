@@ -486,6 +486,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 <div>
 <div class="nt">Communication</div>
+<button class="nl" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Messages &amp; Alerts</button>
 <button class="nl" data-sec="submissions"><i class="fa-solid fa-inbox"></i> Submissions</button>
 <button class="nl" data-sec="reportcards"><i class="fa-solid fa-file-lines"></i> Report Cards</button>
 </div>
@@ -946,11 +947,13 @@ $navItems = [
         ['icon' => 'fa-solid fa-file-lines', 'label' => 'Reports', 'attrs' => 'data-sec="reportcards"'],
     ],
     [
+        ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
         ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];
 require __DIR__ . '/../components/bottom_nav.php';
+include __DIR__ . '/../components/comm/comm_section.php';
 
 
 ?>

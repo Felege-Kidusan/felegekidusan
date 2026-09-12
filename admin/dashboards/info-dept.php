@@ -542,6 +542,14 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 <span class="font-semibold">Settings</span>
             </button>
 
+            <button data-comm-open="inbox"
+                    class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
+                <span class="w-8 h-8 rounded-xl bg-teal-500/30 flex items-center justify-center">
+                    <i class="fa-solid fa-comments text-sm"></i>
+                </span>
+                <span class="font-semibold">Communication</span>
+            </button>
+
         </nav>
 
         <div class="mt-5 space-y-2">
@@ -2583,6 +2591,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
                     <i class="fa-solid fa-gear text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Settings</span>
+                </button>
+                <button data-comm-open="inbox"
+                        class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80">
+                    <i class="fa-solid fa-comments text-base mb-0.5"></i>
+                    <span class="text-[10px] whitespace-nowrap">Comms</span>
                 </button>
             </div>
         </nav>
@@ -4705,5 +4718,6 @@ const InfoReports = (function () {
         </button>
     </div>
 </div>
+<?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 </body>
 </html>
