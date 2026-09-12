@@ -1,0 +1,253 @@
+/* ============================================================================
+ * SSMS Communication Center stylesheet — P73 Phase 1
+ * ----------------------------------------------------------------------------
+ * ONE stylesheet for every communication surface (bell popover, mobile sheet,
+ * toasts; Phase 2+ section shells reuse the same tokens).
+ *
+ * Design OS rules (themes/design-system.css is the source of truth):
+ *   - Elevation ALWAYS from the z-scale tokens — never a magic number.
+ *   - Safe areas via tokens; the bottom nav is never covered by a scrimless
+ *     surface; toasts float above everything (tooltip-level, transient).
+ *   - All colors/spacing hang off the --nc-* custom properties scoped to
+ *     .nc-panel so future themes can restyle the whole surface by overriding
+ *     a handful of variables — no selector hunts.
+ *   - Touch targets >= 44px on coarse pointers (WCAG / MD3).
+ * ==========================================================================*/
+
+/* ── Bell (rendered once per placement by the component) ─────────────── */
+.nc-root { position: relative; display: inline-flex; flex: none; }
+.nc-bell {
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border: none; border-radius: 12px;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    color: inherit; font-size: 17px; cursor: pointer;
+    transition: background .18s ease, transform .18s ease;
+}
+.nc-bell:hover { background: color-mix(in srgb, currentColor 22%, transparent); }
+.nc-bell:active { transform: scale(.94); }
+.nc-bell:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+    .nc-bell { background: rgba(127,127,127,.18); }
+    .nc-bell:hover { background: rgba(127,127,127,.3); }
+}
+.nc-badge {
+    position: absolute; top: -5px; right: -5px; min-width: 19px; height: 19px;
+    padding: 0 5px; border-radius: 10px; background: var(--nc-danger, #ef4444); color: #fff;
+    font-size: 10.5px; font-weight: 700; line-height: 19px; text-align: center;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.85);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.nc-badge.nc-pulse { animation: nc-pop .35s cubic-bezier(.2,1.4,.4,1); }
+@keyframes nc-pop { from { transform: scale(.4); } to { transform: scale(1); } }
+
+/* ── Panel (ONE per page, JS-anchored with position:fixed) ───────────── */
+.nc-panel {
+    /* surface palette (override per theme if ever needed) */
+    --nc-ink: #0f172a; --nc-dim: #64748b; --nc-faint: #94a3b8;
+    --nc-line: #eef1f6; --nc-bg: #fff; --nc-bg-soft: #f8fafc;
+    --nc-ac: #059669; --nc-ac-deep: #047857; --nc-ac-soft: #d1fae5;
+    --nc-danger: #ef4444;
+
+    position: fixed; top: 0; left: 0; /* real coordinates set by the runtime */
+    z-index: var(--z-overlay, 1200);
+    width: min(396px, calc(100vw - 16px));
+    background: var(--nc-bg); border: 1px solid #e5e9f0; border-radius: 16px;
+    box-shadow: 0 12px 48px rgba(15,23,42,.18), 0 2px 8px rgba(15,23,42,.06);
+    overflow: hidden; text-align: left;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--nc-ink);
+}
+.nc-panel[hidden] { display: none; }
+.nc-panel.is-open { animation: nc-in .16s ease-out; }
+@keyframes nc-in { from { opacity: 0; transform: translateY(-6px) scale(.99); } to { opacity: 1; transform: none; } }
+
+/* Scrim: below the panel, above the nav — a modal surface, properly framed */
+.nc-scrim {
+    position: fixed; inset: 0;
+    z-index: calc(var(--z-overlay, 1200) - 1);
+    background: rgba(15, 23, 42, .45);
+    animation: nc-fade .16s ease-out;
+}
+.nc-scrim[hidden] { display: none; }
+@keyframes nc-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Panel header ────────────────────────────────────────────────────── */
+.nc-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 16px; border-bottom: 1px solid var(--nc-line); background: var(--nc-bg-soft);
+}
+.nc-title { font-size: 13.5px; font-weight: 700; color: var(--nc-ink); display: inline-flex; gap: 8px; align-items: center; }
+.nc-title i { color: var(--nc-ac); font-size: 13px; }
+.nc-head-actions { display: inline-flex; gap: 6px; align-items: center; }
+.nc-link {
+    background: none; border: none; cursor: pointer; font-size: 12px;
+    color: var(--nc-ac); font-weight: 600; padding: 6px 8px; border-radius: 6px;
+    font-family: inherit; min-height: 32px;
+}
+.nc-link:hover { background: var(--nc-ac-soft); }
+.nc-link[hidden] { display: none; }
+.nc-link.is-busy { opacity: .55; pointer-events: none; }
+.nc-x {
+    background: none; border: none; cursor: pointer; color: var(--nc-dim);
+    font-size: 19px; line-height: 1; padding: 2px 7px; border-radius: 6px;
+    min-width: 36px; min-height: 36px; font-family: inherit;
+}
+.nc-x:hover { background: #e2e8f0; color: var(--nc-ink); }
+
+/* ── Tabs ────────────────────────────────────────────────────────────── */
+.nc-tabs { display: flex; border-bottom: 1px solid var(--nc-line); background: var(--nc-bg); }
+.nc-tab {
+    flex: 1; min-height: 44px; padding: 11px 6px; background: none; border: none; cursor: pointer;
+    font-size: 12.5px; font-weight: 600; color: var(--nc-dim); font-family: inherit;
+    border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.nc-tab:hover { color: var(--nc-ink); background: var(--nc-bg-soft); }
+.nc-tab:focus-visible { outline: 2px solid var(--nc-ac); outline-offset: -2px; }
+.nc-tab.is-active { color: var(--nc-ac-deep); border-bottom-color: var(--nc-ac); }
+.nc-count {
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: #e2e8f0; color: #334155; font-size: 10.5px; font-weight: 700;
+    line-height: 18px; text-align: center;
+}
+.nc-tab.is-active .nc-count { background: var(--nc-ac-soft); color: #065f46; }
+.nc-count[hidden] { display: none; }
+
+/* ── List body ───────────────────────────────────────────────────────── */
+.nc-body { max-height: min(420px, 60vh); overflow-y: auto; overscroll-behavior: contain; }
+.nc-list { padding: 6px; }
+.nc-list[hidden] { display: none; }
+.nc-item {
+    display: flex; gap: 11px; padding: 11px 10px; border-radius: 12px; min-height: 56px;
+    cursor: pointer; transition: background .15s; position: relative;
+    border: 1px solid transparent;
+}
+.nc-item:hover { background: #f1f5f9; }
+.nc-item:focus-visible { outline: 2px solid var(--nc-ac); outline-offset: -2px; }
+.nc-item.nc-unread { background: #f0fdf4; border-color: var(--nc-ac-soft); }
+.nc-item.nc-unread:hover { background: #dcfce7; }
+.nc-item.nc-urgent .nc-ico { background: #fee2e2; color: #dc2626; }
+.nc-item.nc-high .nc-ico { background: #fef3c7; color: #d97706; }
+.nc-ico {
+    flex: none; width: 36px; height: 36px; border-radius: 11px;
+    background: #dbeafe; color: #2563eb; display: flex; align-items: center;
+    justify-content: center; font-size: 15px;
+}
+.nc-main { flex: 1; min-width: 0; }
+.nc-row1 { display: flex; align-items: baseline; gap: 8px; }
+.nc-t {
+    font-size: 13px; color: var(--nc-ink); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nc-unread .nc-t { font-weight: 700; }
+.nc-time { flex: none; font-size: 10.5px; color: var(--nc-faint); font-weight: 500; }
+.nc-msg {
+    font-size: 12px; color: #475569; margin-top: 3px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; line-height: 1.45;
+}
+.nc-sub { font-size: 11px; color: var(--nc-dim); margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.nc-chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+    border-radius: 999px; font-size: 10.5px; font-weight: 700;
+    background: #f1f5f9; color: #475569;
+}
+.nc-chip.nc-c-urgent { background: #fee2e2; color: #b91c1c; }
+.nc-chip.nc-c-high { background: #fef3c7; color: #b45309; }
+.nc-chip.nc-c-normal { background: #dbeafe; color: #1d4ed8; }
+.nc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nc-ac); flex: none; }
+
+/* ── Item action buttons (tasks) ─────────────────────────────────────── */
+.nc-actions { display: flex; gap: 8px; margin-top: 8px; }
+.nc-btn {
+    border: none; cursor: pointer; font-size: 11px; font-weight: 700; font-family: inherit;
+    padding: 7px 12px; border-radius: 8px; display: inline-flex; gap: 5px; align-items: center;
+    min-height: 34px;
+}
+.nc-btn-done { background: var(--nc-ac-soft); color: #065f46; }
+.nc-btn-done:hover { background: #a7f3d0; }
+.nc-btn-prog { background: #e2e8f0; color: #475569; }
+.nc-btn-prog:hover { background: #cbd5e1; }
+.nc-btn.is-busy { opacity: .55; pointer-events: none; }
+.nc-btn.is-busy i, .nc-link.is-busy i { animation: nc-spin .8s linear infinite; }
+@keyframes nc-spin { to { transform: rotate(360deg); } }
+
+/* ── States: loading / empty / error+retry ───────────────────────────── */
+.nc-empty, .nc-loading {
+    text-align: center; padding: 30px 16px; color: var(--nc-faint); font-size: 12.5px;
+}
+.nc-empty i { display: block; font-size: 26px; margin-bottom: 9px; color: #cbd5e1; }
+.nc-empty.nc-error i { color: #fca5a5; }
+.nc-retry {
+    margin-top: 12px; border: 1px solid #e2e8f0; background: var(--nc-bg); color: var(--nc-ink);
+    font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    padding: 9px 16px; border-radius: 10px; min-height: 44px;
+    display: inline-flex; align-items: center; gap: 7px;
+}
+.nc-retry:hover { background: #f1f5f9; border-color: #cbd5e1; }
+.nc-retry:focus-visible { outline: 2px solid var(--nc-ac); outline-offset: 2px; }
+
+.nc-skeleton { padding: 10px; }
+.nc-skeleton span {
+    display: block; height: 13px; border-radius: 6px; margin: 10px 8%;
+    background: linear-gradient(90deg, var(--nc-line) 25%, var(--nc-bg-soft) 50%, var(--nc-line) 75%);
+    background-size: 200% 100%; animation: nc-shimmer 1.2s infinite;
+}
+.nc-skeleton span:nth-child(2) { width: 72%; }
+.nc-skeleton span:nth-child(3) { width: 48%; }
+@keyframes nc-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ── Panel footer ────────────────────────────────────────────────────── */
+.nc-foot { display: flex; border-top: 1px solid var(--nc-line); background: var(--nc-bg-soft); }
+.nc-foot-link {
+    flex: 1; text-align: center; padding: 13px 6px; font-size: 12px; font-weight: 600;
+    color: #475569; text-decoration: none; display: inline-flex; gap: 7px; min-height: 48px;
+    align-items: center; justify-content: center;
+}
+.nc-foot-link + .nc-foot-link { border-left: 1px solid var(--nc-line); }
+.nc-foot-link:hover { background: #eef2f7; color: var(--nc-ink); }
+.nc-foot-link[hidden] { display: none; }
+
+/* ── Toast (transient, always on top — tooltip-level elevation) ──────── */
+.nc-toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    z-index: var(--z-tooltip, 1400);
+    max-width: min(92vw, 420px);
+    background: #0f172a; color: #fff; font-size: 13px; line-height: 1.45;
+    padding: 11px 18px; border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(15,23,42,.35);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+}
+.nc-toast.is-in { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+.nc-toast.nc-ok { background: var(--nc-ac-deep, #047857); }
+.nc-toast.nc-err { background: #b91c1c; }
+
+/* ── Phone: compact scrimmed bottom sheet (NOT a full-screen takeover) ─ */
+@media (max-width: 768px) {
+    .nc-panel {
+        top: auto; left: 0; right: 0; bottom: 0; /* CSS wins over JS coords */
+        width: 100%;
+        max-height: min(60vh, 520px);
+        display: flex; flex-direction: column;
+        border-radius: 20px 20px 0 0; border-bottom: none;
+        box-shadow: 0 -12px 48px rgba(15,23,42,.25);
+        padding-bottom: var(--nav-safe-bottom, 0px);
+        animation: nc-up .22s cubic-bezier(.2,.9,.3,1);
+    }
+    .nc-panel::before {
+        content: ""; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+        width: 42px; height: 5px; border-radius: 3px; background: #cbd5e1;
+    }
+    .nc-panel.is-open { animation: nc-up .22s cubic-bezier(.2,.9,.3,1); }
+    @keyframes nc-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .nc-head { padding-top: 20px; }
+    .nc-body { max-height: none; flex: 1; }
+    .nc-toast { bottom: calc(var(--nav-total, 64px) + 12px); }
+    .nc-tab { font-size: 12px; }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .nc-panel, .nc-panel.is-open, .nc-scrim, .nc-badge.nc-pulse, .nc-toast { animation: none !important; transition: none !important; }
+}

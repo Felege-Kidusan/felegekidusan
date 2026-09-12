@@ -29,6 +29,9 @@ class NotificationCenterTests(unittest.TestCase):
         cls.api = (ROOT / "admin/api_notifications.php").read_text(encoding="utf-8")
         cls.workflow = (ROOT / "admin/backend/workflow.php").read_text(encoding="utf-8")
         cls.bell = (ROOT / "admin/components/notification_center.php").read_text(encoding="utf-8")
+        # P73 Phase 1: styling/behaviour moved to cacheable static assets.
+        cls.commCss = (ROOT / "admin/css/comm.css").read_text(encoding="utf-8")
+        cls.commJs = (ROOT / "admin/js/comm.js").read_text(encoding="utf-8")
 
     # ── 1. the single source of truth ─────────────────────────
     def test_service_defines_everything(self):
@@ -113,23 +116,86 @@ class NotificationCenterTests(unittest.TestCase):
         must keep writing it when a recipient marks read."""
         self.assertIn("UPDATE notifications SET is_read = 1", self.svc)
 
-    # ── 4. the bell component (root-cause fixes) ──────────────
+    # ── 4. the bell component (root-cause fixes; P73 Phase 1 contract) ─
+    # Phase 1 moved styling to admin/css/comm.css and behaviour to
+    # admin/js/comm.js (cacheable static assets). The pins below therefore
+    # read the component AND the runtime files together (loaded in setUpClass).
+
     def test_bell_ships_own_csrf(self):
         self.assertIn("generateCsrfToken", self.bell)
-        self.assertIn("csrf_token", self.bell)  # JS sends it with every POST
+        self.assertIn("data-csrf", self.bell)            # token rides on the panel
+        self.assertIn("csrf_token", self.commJs)          # runtime sends it with every POST
 
     def test_bell_is_multi_instance_safe(self):
         """Sidebar dashboards render the bell twice (sidebar + mobile
-        header) — no duplicate DOM ids allowed."""
+        header) — no duplicate DOM ids allowed; ONE shared panel."""
         self.assertNotIn('id="nc', self.bell)
-        self.assertNotIn("getElementById('nc", self.bell)
-        self.assertIn("querySelectorAll('.nc-root')", self.bell)
+        self.assertNotIn("getElementById('nc", self.commJs)
+        self.assertIn("querySelectorAll('.nc-root')", self.commJs)
         # assets emitted exactly once per page
         self.assertIn("static $emitted = false", self.bell)
 
     def test_bell_polls_smartly(self):
-        self.assertIn("POLL_MS = 30000", self.bell)
-        self.assertIn("visibilitychange", self.bell)  # paused when hidden
+        self.assertIn("POLL_MS = 30000", self.commJs)
+        self.assertIn("visibilitychange", self.commJs)   # paused when hidden
+        # P73: backoff on failure + request de-duplication (shared hosting)
+        self.assertIn("Math.pow(2", self.commJs)          # exponential backoff
+        self.assertIn("inflight", self.commJs)            # GET de-duplication
+
+    # ── 4b. P73 Phase 1 architecture pins ─────────────────────
+    def test_phase1_assets_are_static_and_linked_once(self):
+        """No ~30KB inline style/script blob per page — cacheable files."""
+        self.assertNotIn("<style>", self.bell)
+        self.assertNotIn("<script>", self.bell)
+        self.assertIn('src="/admin/js/comm.js?v=', self.bell)
+        self.assertIn('href="/admin/css/comm.css?v=', self.bell)
+        self.assertIn("static $emitted = false", self.bell)  # linked exactly once
+
+    def test_phase1_elevation_uses_tokens_only(self):
+        """Design OS rule: no magic z-index numbers anywhere in comm.css.
+        Toast sits at tooltip level so feedback stays visible above the
+        open sheet/scrim (z-toast 1100 < overlay 1200 would hide it)."""
+        self.assertNotRegex(self.commCss, r"z-index:\s*\d")
+        self.assertIn("var(--z-overlay", self.commCss)
+        self.assertIn("var(--z-tooltip", self.commCss)
+
+    def test_phase1_panel_is_fixed_and_js_anchored(self):
+        """position:fixed + measured coordinates — escapes every ancestor
+        overflow/stacking-context trap (the desktop off-screen bug)."""
+        self.assertIn("position: fixed", self.commCss)
+        self.assertIn("getBoundingClientRect", self.commJs)
+        self.assertIn("Math.max(M, Math.min", self.commJs)  # viewport clamping
+        self.assertIn("r.bottom + 10", self.commJs)          # flip-over fallback
+
+    def test_phase1_mobile_is_compact_not_full_screen(self):
+        """≤768px = scrimmed sheet capped at 60vh — never an 82vh takeover."""
+        self.assertIn("max-height: min(60vh", self.commCss)
+        self.assertNotIn("82vh", self.commCss)
+        self.assertIn(".nc-scrim", self.commCss)
+        self.assertIn("var(--nav-safe-bottom", self.commCss)  # safe-area aware
+
+    def test_phase1_error_states_have_working_retry(self):
+        """Every dead-end error screen must offer a Retry that re-runs the
+        failed request (the old 'Tap to retry' had no handler)."""
+        self.assertIn("nc-retry", self.commJs)
+        self.assertIn("errorState", self.commJs)
+        self.assertIn("retryFn()", self.commJs)               # the button re-invokes the loader
+
+    def test_phase1_writes_have_busy_and_feedback_states(self):
+        self.assertIn("is-busy", self.commJs)
+        self.assertIn("is-busy", self.commCss)
+        self.assertIn("function toast(", self.commJs)          # success/error feedback
+
+    def test_phase1_bell_not_buried_in_sidebar_bottom(self):
+        """edu/material bells live in the always-visible brand row, not the
+        cramped sidebar-bottom slot (the 'cannot access it' complaint)."""
+        for rel in ("admin/dashboards/edu_dept.php",
+                    "admin/dashboards/material_department.php"):
+            src = (ROOT / rel).read_text(encoding="utf-8")
+            marker = '<div style="flex:1"></div><?php include __DIR__ . \'/../components/notification_center.php\'; ?>'
+            self.assertIn(marker, src, f"{rel}: bell must sit in the brand row")
+            self.assertNotIn('justify-content:flex-end;padding:.2rem .4rem', src,
+                             f"{rel}: sidebar-bottom bell slot must be gone")
 
     def test_old_bell_is_now_a_shim(self):
         for shim in ["admin/components/notification_bell.php", "backend/components/notification_bell.php"]:
