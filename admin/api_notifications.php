@@ -251,7 +251,12 @@ switch ($action) {
         if ($result['ok']) {
             // opening the conversation marks it read
             NotificationCenterService::markThreadRead($conn, (int)$_SESSION['admin_id'], $threadId);
-            echo json_encode(['status' => 'success', 'messages' => $result['messages']]);
+            echo json_encode([
+                'status' => 'success',
+                'messages' => $result['messages'],
+                // read receipts (P73 Phase 3): highest message id read by others
+                'read_watermark' => (int)($result['read_watermark'] ?? 0),
+            ]);
         } else {
             echo json_encode(['status' => 'error', 'message' => $result['error'] ?? 'Not found.']);
         }

@@ -623,7 +623,24 @@ final class NotificationCenterService
                 $rows[] = $row;
             }
             $stmt->close();
-            return ['ok' => true, 'messages' => $rows];
+
+            // Read receipts (P73 Phase 3): the highest message id that every
+            // OTHER participant has read. My message shows ✓✓ once its id is
+            // <= this watermark. NULL watermarks count as 0 (never opened).
+            $wm = 0;
+            $wstmt = $conn->prepare(
+                "SELECT MAX(last_read_message_id) AS wm
+                 FROM message_thread_participants
+                 WHERE thread_id = ? AND user_id <> ?"
+            );
+            if ($wstmt) {
+                $wstmt->bind_param('ii', $threadId, $userId);
+                $wstmt->execute();
+                $wrow = $wstmt->get_result()->fetch_assoc();
+                $wstmt->close();
+                $wm = (int)($wrow['wm'] ?? 0);
+            }
+            return ['ok' => true, 'messages' => $rows, 'read_watermark' => $wm];
         } catch (\Exception $e) {
             return ['ok' => false, 'error' => 'Could not load the conversation.'];
         }
@@ -673,6 +690,22 @@ final class NotificationCenterService
                  ON DUPLICATE KEY UPDATE read_at = NOW()"
             );
             $stmt->bind_param('ii', $userId, $threadId);
+            // Read receipts (P73 Phase 3): advance my per-participant watermark
+            // to the newest message so the SENDER sees ✓✓. The column is added
+            // by sql/043; if that migration has not run yet this update simply
+            // matches zero rows / fails closed into the existing behaviour.
+            $wmStmt = $conn->prepare(
+                "UPDATE message_thread_participants p
+                 SET p.last_read_message_id = (
+                     SELECT MAX(m.id) FROM messages m WHERE m.thread_id = p.thread_id
+                 )
+                 WHERE p.thread_id = ? AND p.user_id = ?"
+            );
+            if ($wmStmt) {
+                $wmStmt->bind_param('ii', $threadId, $userId);
+                $wmStmt->execute();
+                $wmStmt->close();
+            }
             $ok = $stmt->execute();
             $stmt->close();
             return $ok;

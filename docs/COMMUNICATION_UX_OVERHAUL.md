@@ -250,3 +250,77 @@ output line (`===DONE`), which masked the `===HARNESS-UNCAUGHT` marker
 printed just before it. The harness protocol now greps the FULL output for
 any failure marker on every page (31 runtime checks clean: 10 dashboards,
 5 pages, 13 roles, login POST, 2 frontend pages).
+
+
+## §9 Phase 2.2 — Dead bell + Communication buttons (JS strict-mode scoping incident)
+
+**Incident.** After Phase 2 shipped, every bell button and every
+`data-comm-open` control on every page was dead — clicks did nothing.
+
+**Root cause.** `comm.js` runs under `'use strict'`. A bundled helper
+declared functions *inside if/else blocks* and referenced them from
+outside those blocks. In strict mode, function declarations are
+block-scoped (not hoisted to function scope) — the outer references
+threw `ReferenceError` at load time, killing the entire runtime.
+
+**Why both gates missed it.** `node --check` proves syntax only; the
+PHP harness proves the HTML renders only. Neither *executes* the JS.
+The bug class (load-time scoping/evaluation errors) is invisible to
+both — proven twice now.
+
+**Fix + new standing gate.** Restructured to properly hoisted
+declarations, and added `tests/js/comm_runtime_test.js`: it executes
+the REAL `comm.js` in a Node `vm` with a DOM shim and simulates the
+exact interactions that were dead (bell open/close, section open via
+`data-comm-open`, view switching, Escape, sheet open/close, page-mode
+boot). **Standing rule: every JS change ships through this runtime
+gate** — green exit + `PASS` line + zero handler errors.
+
+## §9 Phase 3 — Telegram-grade messaging (D9 / D10 / D11) — SHIPPED
+
+**Scope delivered** (per §5 row 3; ETag/304 explicitly stays Phase 5):
+
+- **D9 composer** — auto-grows via native `field-sizing: content`
+  (`@supports` block, compositor-only, zero JS on the typing path)
+  with a `scrollHeight` JS fallback for legacy engines; growth capped
+  at 140px; residual scrollbar hidden in both engines; Enter sends,
+  Shift+Enter newlines, IME-safe (`!e.isComposing`).
+- **D10 contact-list picker** — the new-conversation recipients picker
+  is now a real contact list: search box, role-grouped rows, initials
+  avatars, whole-row tap, keyboard operable (Enter/Space), selection
+  counter, no-match empty state; 48px touch rows (WCAG). The
+  announcement-targets picker keeps its Phase-2 checkbox list.
+- **D11 receipts + optimistic send** — one additive guarded column
+  (`sql/043_message_read_receipts.sql`: `message_thread_participants.
+  last_read_message_id`, information_schema-guarded like 040, manual
+  idempotent convention). A message is ✓✓ Seen when its id ≤
+  MAX(other participants' watermarks), else ✓ Sent — no per-message
+  rows. Sends are optimistic: instant pending bubble, success confirmed
+  by a background refresh, failure keeps the bubble with an inline
+  Retry that refills the composer and resends. The composer never
+  blocks. `markThreadRead` advances the reader's watermark.
+- **mezmur + finance integration** — both frontend departments render
+  the shared section in place (sidebar Communication entry +
+  `comm_section.php` into the page buffer before `base.php`); their
+  bottom-nav buttons close the section (covered by the Phase-3
+  close-on-nav + `--nav-total` handling).
+- **Micro-animations** — bubble entry keyframe, guarded by the global
+  `prefers-reduced-motion` block (extended to `.nc-msg`).
+
+**Verification.**
+
+- Runtime gate extended 19 → **43 checks** (picker, receipts, composer,
+  optimistic-send suites). The DOM shim gained a mini HTML parser so
+  the runtime *queries and clicks its own rendered output* (thread
+  rows, contact rows, pending bubbles, Retry buttons) — plus POST-body
+  action capture and a `failNextSend` hook proving the failure→Retry
+  path end-to-end.
+- PHP harness (rebuilt from the working tree): mezmur + finance render
+  the section + Communication nav + picker markup, `===DONE`, zero
+  fatals; dashboards, thin shells and the API regression-clean.
+- pytest: **55 green** in the comm suites (new `CommPhase3Tests` class:
+  D9/D10/D11 structural pins, migration guard, service watermark
+  SELECT/UPDATE, API passthrough, frontend integration, reduced-motion
+  guard, and a pin that the runtime gate keeps its Phase-3 suites).
+- Full matrix: **byte-identical failing-ID diff** vs `9e0c1f9` — 40
+  pre-existing environment failures, unchanged; zero regressions.

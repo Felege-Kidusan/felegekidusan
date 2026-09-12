@@ -51,6 +51,7 @@ ob_start();
                 <li><button class="school-nav-link" data-section="attendance"><i class="fa-solid fa-inbox"></i> Submissions</button></li>
                 <li><button class="school-nav-link" data-section="analytics"><i class="fa-solid fa-chart-column"></i> Analytics</button></li>
                 <li><button class="school-nav-link" data-section="takers"><i class="fa-solid fa-user-shield"></i> Attendance Takers</button></li>
+                <li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
             </ul>
         </nav>
 
@@ -971,5 +972,8 @@ ob_start();
 
 <?php
 $bodyContent = ob_get_clean();
+ob_start();
+require __DIR__ . '/../../admin/components/comm/comm_section.php';
+$bodyContent .= ob_get_clean();
 require __DIR__ . '/../layouts/base.php';
 ?>

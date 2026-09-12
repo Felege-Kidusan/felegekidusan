@@ -72,6 +72,20 @@
         el.hidden = !(n > 0);
     }
 
+    /* ── Composer auto-grow (P73 Phase 3, fixes D9) ─────────────────
+     * Modern browsers size the textarea natively via CSS
+     * `field-sizing: content` (see comm.css) — zero JS. Legacy engines
+     * take the classic scrollHeight path below. Both paths cap growth at
+     * NC_COMPOSER_MAX px and the scrollbar is hidden in CSS, so the box
+     * NEVER shows an internal scrollbar while typing. */
+    var NC_COMPOSER_MAX = 140;
+    function autoGrow(el) {
+        if (!el) { return; }
+        if (window.CSS && CSS.supports && CSS.supports('field-sizing', 'content')) { return; }
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, NC_COMPOSER_MAX) + 'px';
+    }
+
     /* ── API client (de-duplicated GETs, CSRF'd POSTs) ────────────── */
     var panel = document.querySelector('.nc-panel[data-nc-panel]');
     if (!panel) { return; } // nothing to drive on this page
@@ -480,7 +494,7 @@
 
     if (section) {
         var pageMode = section.classList.contains('nc-sec--page');
-        if (!document.getElementById('wbwsBottomNav')) { section.classList.add('nc-sec--nonav'); }
+        if (!document.querySelector('#wbwsBottomNav, .school-bottom-nav')) { section.classList.add('nc-sec--nonav'); }
 
         var inboxPane = section.querySelector('[data-nc-viewpane="inbox"]');
         var secState = {
@@ -537,7 +551,7 @@
         // Any other in-page navigation (sidebar sections, bottom nav) closes
         // the section — it is a destination, not a persistent overlay.
         if (sec && sec.state.open && !sec.pageMode &&
-            e.target.closest('[data-sec],[data-section],.wbws-bnav-btn') &&
+            e.target.closest('[data-sec],[data-section],.wbws-bnav-btn,.school-bottom-nav-btn') &&
             !e.target.closest('[data-nc-section]')) {
             closeSection();
         }
@@ -582,6 +596,9 @@
         return true;
     }
     if (sheetScrim) { sheetScrim.addEventListener('click', closeSheetIfOpen); }
+    document.querySelectorAll('.nc-sheet-card textarea').forEach(function (t) {
+        t.addEventListener('input', function () { autoGrow(t); });
+    });
     document.querySelectorAll('[data-nc-newcancel]').forEach(function (b) { b.addEventListener('click', closeSheetIfOpen); });
     document.querySelectorAll('[data-nc-cmpcancel]').forEach(function (b) { b.addEventListener('click', closeSheetIfOpen); });
 
@@ -675,6 +692,14 @@
         };
         mEls.convBack.addEventListener('click', function () { closeConversation(); });
         mEls.form.addEventListener('submit', function (e) { e.preventDefault(); sendReply(); });
+        // Telegram-style composer: auto-grows, Enter sends, Shift+Enter = newline.
+        mEls.reply.addEventListener('input', function () { autoGrow(mEls.reply); });
+        mEls.reply.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                sendReply();
+            }
+        });
         loadThreads();
     }
 
@@ -718,7 +743,7 @@
         if (MOBILE.matches) { mEls.conv.classList.add('is-on'); }
         skeleton(mEls.msgs);
         get('thread', '&id=' + encodeURIComponent(id)).then(function (d) {
-            renderMessages((d && d.messages) || []);
+            renderMessages((d && d.messages) || [], (d && d.read_watermark) || 0);
             loadThreads(true);
         }).catch(function () {
             errorState(mEls.msgs, 'Could not load the conversation.', function () { openThread(id, subject, who); });
@@ -733,61 +758,173 @@
         mEls.form.hidden = true;
         mEls.msgs.innerHTML = '';
     }
-    function renderMessages(msgs) {
+    function renderMessages(msgs, watermark) {
         var el = mEls.msgs;
         var html = '', lastDay = '';
         msgs.forEach(function (m) {
             var day = dayLabel(m.created_at);
             if (day !== lastDay) { html += '<div class="nc-daysep">' + esc(day) + '</div>'; lastDay = day; }
+            // Read receipts (P73 Phase 3): my messages show ✓✓ once every
+            // other participant's watermark has reached them.
+            var receipt = '';
+            if (m.mine) {
+                receipt = (watermark && (parseInt(m.id, 10) <= watermark))
+                    ? '<span class="nc-seen"><i class="fa-solid fa-check-double"></i> Seen</span>'
+                    : '<i class="fa-solid fa-check"></i> Sent';
+            }
             html += '<div class="nc-msg ' + (m.mine ? 'mine' : '') + '">' +
                 (m.mine ? '' : '<div class="nc-meta" style="margin-bottom:2px"><b>' + esc(m.sender_name) + '</b> · ' + esc(m.sender_label) + '</div>') +
                 '<div class="nc-bubble">' + esc(m.body) + '</div>' +
-                '<div class="nc-meta">' + esc(timeHM(m.created_at)) + (m.mine ? ' · Sent' : '') + '</div></div>';
+                '<div class="nc-meta">' + esc(timeHM(m.created_at)) + (m.mine ? ' · ' + receipt : '') + '</div></div>';
         });
         el.innerHTML = html || '<div class="nc-empty"><i class="fa-regular fa-comment"></i>No messages yet.</div>';
         el.scrollTop = el.scrollHeight;
     }
+    function refreshOpenThread() {
+        if (!mEls || !sec.state.activeThread) { return; }
+        get('thread', '&id=' + encodeURIComponent(sec.state.activeThread)).then(function (r) {
+            renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0);
+        });
+    }
+    /* Optimistic send (P73 Phase 3, fixes D11): the bubble appears
+     * instantly in a pending state, is confirmed by a background refresh,
+     * and on failure turns into an inline Retry — the message is never
+     * lost and never blocks the composer. */
+    var pendingSeq = 0;
     function sendReply() {
         if (!mEls || !sec.state.activeThread) { return; }
         var body = mEls.reply.value.trim();
         if (!body) { return; }
-        mEls.send.disabled = true;
+        var pid = 'nc-pending-' + (++pendingSeq);
+        appendPendingMessage(pid, body);
+        mEls.reply.value = '';
+        mEls.reply.style.height = '';
         post('send_message', { thread_id: sec.state.activeThread, body: body }).then(function (d) {
-            mEls.send.disabled = false;
             if (d && d.status === 'success') {
-                mEls.reply.value = '';
-                get('thread', '&id=' + encodeURIComponent(sec.state.activeThread)).then(function (r) {
-                    renderMessages((r && r.messages) || []);
-                });
+                var node = mEls.msgs.querySelector('[data-pending="' + pid + '"]');
+                if (node) { node.remove(); }
+                refreshOpenThread();
                 loadThreads(true);
-            } else { toast((d && d.message) || 'Could not send.', 'err'); }
-        }).catch(function () { mEls.send.disabled = false; toast('Network error.', 'err'); });
+            } else {
+                failPendingMessage(pid, (d && d.message) || 'Could not send.');
+            }
+        }).catch(function () { failPendingMessage(pid, 'Network error.'); });
+    }
+    function appendPendingMessage(pid, body) {
+        var node = document.createElement('div');
+        node.className = 'nc-msg mine nc-msg--pending';
+        node.setAttribute('data-pending', pid);
+        node.innerHTML = '<div class="nc-bubble">' + esc(body) + '</div>' +
+            '<div class="nc-meta"><i class="fa-regular fa-clock" aria-hidden="true"></i> Sending…</div>';
+        mEls.msgs.appendChild(node);
+        mEls.msgs.scrollTop = mEls.msgs.scrollHeight;
+    }
+    function failPendingMessage(pid, why) {
+        var node = mEls && mEls.msgs ? mEls.msgs.querySelector('[data-pending="' + pid + '"]') : null;
+        if (!node) { return; }
+        var body = node.querySelector('.nc-bubble').textContent;
+        node.classList.add('nc-msg--failed');
+        node.innerHTML = '<div class="nc-bubble">' + esc(body) + '</div>' +
+            '<div class="nc-meta nc-meta--failed"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ' + esc(why) +
+            ' · <button type="button" class="nc-retry nc-retry--msg">Retry</button></div>';
+        node.querySelector('.nc-retry--msg').addEventListener('click', function () {
+            node.remove();
+            mEls.reply.value = body;
+            sendReply();
+        });
     }
     function pollMsgs() {
         if (!mEls || !sec.state.open || sec.state.view !== 'messages') { return Promise.resolve(); }
         var p = loadThreads(true);
         if (sec.state.activeThread) {
             p = get('thread', '&id=' + encodeURIComponent(sec.state.activeThread)).then(function (r) {
-                renderMessages((r && r.messages) || []);
+                renderMessages((r && r.messages) || [], (r && r.read_watermark) || 0);
             });
         }
         return p;
     }
 
-    /* ── new conversation sheet: partner checkbox picker ──────────── */
+    /* ── new conversation sheet: CONTACT LIST picker (P73 Phase 3,
+     *     fixes D10) — search box, role groups, avatars, whole-row tap,
+     *     keyboard operable (arrows/Enter), selection counter. ─────── */
+    var partnerData = [];
+    var partnerSel = {};
     var partnersLoaded = false;
+    function renderPartners(box, search, emptyMsg, counter, q) {
+        q = (q || '').trim().toLowerCase();
+        var groups = {};
+        (partnerData || []).forEach(function (p) {
+            var label = String(p.label || p.full_name || '');
+            var parts = label.split(' — ');
+            var name = String(p.full_name || parts[0] || '?');
+            var roleLabel = String(parts[1] || p.role || '');
+            if (q && name.toLowerCase().indexOf(q) === -1 && roleLabel.toLowerCase().indexOf(q) === -1) { return; }
+            var g = groups[p.role] = groups[p.role] || { label: roleLabel || p.role, people: [] };
+            g.people.push({ id: p.id, name: name });
+        });
+        var html = '';
+        Object.keys(groups).forEach(function (r) {
+            html += '<div class="nc-contact-group"><div class="nc-contact-group-h">' + esc(groups[r].label) + '</div>';
+            groups[r].people.forEach(function (p) {
+                var on = !!partnerSel[p.id];
+                html += '<div class="nc-contact' + (on ? ' is-on' : '') + '" data-pid="' + esc(p.id) +
+                    '" role="option" aria-selected="' + on + '" tabindex="0">' +
+                    '<span class="nc-im-avatar" aria-hidden="true">' + esc(initials(p.name)) + '</span>' +
+                    '<span class="nc-contact-name">' + esc(p.name) + '</span>' +
+                    '<span class="nc-contact-tick"><i class="fa-solid fa-check" aria-hidden="true"></i></span></div>';
+            });
+            html += '</div>';
+        });
+        box.innerHTML = html;
+        if (emptyMsg) { emptyMsg.hidden = html !== ''; }
+        syncPartnerCount(counter);
+        box.querySelectorAll('.nc-contact').forEach(function (row) {
+            row.addEventListener('click', function () {
+                var id = row.getAttribute('data-pid');
+                if (partnerSel[id]) {
+                    delete partnerSel[id];
+                    row.classList.remove('is-on');
+                    row.setAttribute('aria-selected', 'false');
+                } else {
+                    partnerSel[id] = true;
+                    row.classList.add('is-on');
+                    row.setAttribute('aria-selected', 'true');
+                }
+                syncPartnerCount(counter);
+            });
+            row.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); }
+            });
+        });
+    }
+    function syncPartnerCount(counter) {
+        var n = Object.keys(partnerSel).length;
+        if (counter) { counter.textContent = n + ' selected'; counter.hidden = n === 0; }
+    }
     function primePartners(sheet) {
-        var el = sheet.querySelector('[data-nc-partners]');
-        if (partnersLoaded) { return; }
+        var box = sheet.querySelector('[data-nc-partners]');
+        var search = sheet.querySelector('[data-nc-partnersearch]');
+        var emptyMsg = sheet.querySelector('[data-nc-partnersempty]');
+        var counter = sheet.querySelector('[data-nc-partnercount]');
+        if (!box || partnersLoaded) { return; }
         get('partners').then(function (d) {
-            var rows = (d && d.partners) || [];
-            el.innerHTML = rows.length ? rows.map(function (p) {
-                return '<label class="nc-pickrow"><input type="checkbox" value="' + esc(p.id) + '">' +
-                    '<span><span class="nc-pick-name">' + esc(p.label) + '</span></span></label>';
-            }).join('') : '<div class="nc-empty">Nobody to message yet.</div>';
+            partnerData = (d && d.partners) || [];
             partnersLoaded = true;
+            renderPartners(box, search, emptyMsg, counter, '');
+            if (search) {
+                search.addEventListener('input', function () {
+                    renderPartners(box, search, emptyMsg, counter, search.value);
+                });
+                search.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        var first = box.querySelector('.nc-contact');
+                        if (first) { first.click(); search.value = ''; renderPartners(box, search, emptyMsg, counter, ''); }
+                    }
+                });
+            }
         }).catch(function () {
-            errorState(el, 'Could not load people.', function () { partnersLoaded = false; primePartners(sheet); });
+            errorState(box, 'Could not load people.', function () { partnersLoaded = false; primePartners(sheet); });
         });
     }
     document.querySelectorAll('[data-nc-newsend]').forEach(function (btn) {
@@ -795,8 +932,7 @@
             var sheet = btn.closest('.nc-sheet-card');
             var err = sheet.querySelector('[data-nc-newerr]');
             err.textContent = '';
-            var to = [];
-            sheet.querySelectorAll('[data-nc-partners] input:checked').forEach(function (c) { to.push(c.value); });
+            var to = Object.keys(partnerSel);
             if (!to.length) { err.textContent = 'Choose at least one recipient.'; return; }
             var subject = sheet.querySelector('#ncNewSubject').value;
             var body = sheet.querySelector('#ncNewBody').value;
@@ -808,6 +944,11 @@
                     closeSheetIfOpen();
                     sheet.querySelector('#ncNewSubject').value = '';
                     sheet.querySelector('#ncNewBody').value = '';
+                    partnerSel = {};
+                    var psearch = sheet.querySelector('[data-nc-partnersearch]');
+                    if (psearch) { psearch.value = ''; }
+                    renderPartners(sheet.querySelector('[data-nc-partners]'), psearch,
+                        sheet.querySelector('[data-nc-partnersempty]'), sheet.querySelector('[data-nc-partnercount]'), '');
                     toast('Conversation started ✓', 'ok');
                     loadThreads();
                     refreshSummary();

@@ -23,6 +23,36 @@ const vm = require('vm');
  *    actually uses. ─────────────────────────────────────────────────── */
 function camel(name) { return name.replace(/-([a-z])/g, (_, c) => c.toUpperCase()); }
 
+/* Minimal HTML parser for the markup comm.js generates (div/span/button/
+ * i/b/label/a with class, id and data-* attributes). Builds REAL shim
+ * elements so the runtime can query + click its own render output. */
+function parseHtml(html) {
+    const root = makeEl('div');
+    const stack = [root];
+    const re = /<(\/?)([a-zA-Z0-9]+)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+    let m, last = 0;
+    while ((m = re.exec(html))) {
+        const text = html.slice(last, m.index);
+        if (text && text.trim()) { stack[stack.length - 1].textContent += text; }
+        last = re.lastIndex;
+        const closing = m[1] === '/', tag = m[2].toLowerCase(), attrStr = m[3] || '';
+        if (closing) {
+            for (let i = stack.length - 1; i > 0; i--) {
+                if (stack[i].tagName === tag.toUpperCase()) { stack.length = i; break; }
+            }
+            continue;
+        }
+        const attrs = {};
+        const are = /([a-zA-Z-]+)="([^"]*)"/g;
+        let a;
+        while ((a = are.exec(attrStr))) { attrs[a[1]] = a[2]; }
+        const el = makeEl(tag, attrs);
+        stack[stack.length - 1].appendChild(el);
+        if (!m[0].endsWith('/>')) { stack.push(el); }
+    }
+    return root;
+}
+
 function makeEl(tag, attrs = {}) {
     const e = {
         tagName: tag.toUpperCase(),
@@ -38,12 +68,29 @@ function makeEl(tag, attrs = {}) {
         className: attrs.class || '',
         id: attrs.id || '',
         value: attrs.value || '',
-        textContent: '',
+        _textContent: '',
         _innerHTML: '',
         offsetWidth: 100, offsetHeight: 100,
         scrollTop: 0, scrollHeight: 500,
+        // textContent mirrors into innerHTML because comm.js's esc() does
+        // `d.textContent = s; return d.innerHTML;` (real-DOM escaping trick)
+        get textContent() { return this._textContent; },
+        set textContent(v) {
+            this._textContent = String(v == null ? '' : v);
+            this._innerHTML = this._textContent
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
         get innerHTML() { return this._innerHTML; },
-        set innerHTML(v) { this._innerHTML = String(v); },
+        set innerHTML(v) {
+            this._innerHTML = String(v);
+            // parse the subset of HTML comm.js generates so the runtime can
+            // query and click what it just rendered (thread rows, contacts,
+            // pending bubbles, retry buttons…)
+            this.children = [];
+            const parsed = parseHtml(this._innerHTML);
+            this._textContent = parsed.textContent;   // bypass the mirror
+            for (const c of [...parsed.children]) { this.appendChild(c); }
+        },
     };
     for (const k of Object.keys(attrs)) {
         if (k.startsWith('data-')) { e.dataset[camel(k.slice(5))] = attrs[k]; }
@@ -70,6 +117,18 @@ function makeEl(tag, attrs = {}) {
     e.querySelectorAll = (s) => qsa(e, s);
     e.closest = (sel) => qsAncestor(e, sel);
     e.hasAttribute = (k) => k in e.attrs;
+    e.remove = () => {
+        if (e.parentNode) {
+            const i = e.parentNode.children.indexOf(e);
+            if (i >= 0) { e.parentNode.children.splice(i, 1); }
+        }
+    };
+    e.click = () => {
+        for (const fn of (e.listeners.click || []).slice()) {
+            fn({ target: e, type: 'click', preventDefault: () => {}, stopPropagation: () => {},
+                stopImmediatePropagation: () => {}, key: '', closest: (s) => qsAncestor(e, s) });
+        }
+    };
     return e;
 }
 
@@ -272,8 +331,17 @@ bodyShim.appendChild(section);
 const newsheet = makeEl('div', { class: 'nc-sheet', 'data-nc-newsheet': '', hidden: '' });
 const newsheetCard = makeEl('div', { class: 'nc-sheet-card' });
 newsheetCard.appendChild(makeEl('h2'));
-const partners = makeEl('div', { class: 'nc-picklist', 'data-nc-partners': '' });
+const partnerCount = makeEl('span', { class: 'nc-contacts-count', 'data-nc-partnercount': '', hidden: '' });
+newsheetCard.appendChild(partnerCount);
+const partnerSearch = makeEl('input', { type: 'search', 'data-nc-partnersearch': '' });
+const partnerSearchWrap = makeEl('div', { class: 'nc-contact-search' });
+partnerSearchWrap.appendChild(partnerSearch);
+newsheetCard.appendChild(partnerSearchWrap);
+const partners = makeEl('div', { class: 'nc-contacts', 'data-nc-partners': '' });
+partners.appendChild(makeEl('div', { class: 'nc-skeleton' }));
 newsheetCard.appendChild(partners);
+const partnerEmpty = makeEl('p', { class: 'nc-contacts-empty', 'data-nc-partnersempty': '', hidden: '' });
+newsheetCard.appendChild(partnerEmpty);
 const newSubject = makeEl('input', { class: 'nc-inp', id: 'ncNewSubject' });
 const newBody = makeEl('textarea', { class: 'nc-inp', id: 'ncNewBody' });
 newsheetCard.appendChild(newSubject); newsheetCard.appendChild(newBody);
@@ -325,20 +393,47 @@ const fetchLog = [];
 const nativeSetTimeout = setTimeout;
 const mql = { matches: false, addEventListener: () => {}, removeEventListener: () => {} };
 
+let failNextSend = false;   // flipped by the optimistic-send failure test
 function apiReply(action) {
     switch (action) {
+        case 'send_message': return failNextSend ? { status: 'error', message: 'blocked by test' } : { status: 'success' };
         case 'summary': return { status: 'success', summary: { alerts: 2, announcements: 1, tasks: 0, messages: 3, can_announce: true, can_message: true } };
         case 'feed': return { status: 'success', rows: [{ id: '5', title: 't', message: 'm', type: 'member', created_at: '2026-09-12 10:00:00', is_unread: 1, priority: 'normal' }], total: 1, unread: 1 };
         case 'announcements': return { status: 'success', announcements: [] };
         case 'tasks': return { status: 'success', tasks: [] };
         case 'targets': return { status: 'success', roles: {}, users: [] };
-        case 'threads': return { status: 'success', threads: [] };
-        case 'partners': return { status: 'success', partners: [] };
+        case 'threads': return {
+            status: 'success',
+            threads: [{
+                id: 7, subject: 'Budget question', participants_label: 'Berea M, Daniel T',
+                last_body: 'Can we review the budget?', last_message_at: '2026-09-12 10:00:00',
+                created_at: '2026-09-01 09:00:00', unread_count: 2
+            }]
+        };
+        case 'thread': return {
+            status: 'success',
+            messages: [
+                { id: '9', sender_id: 1, sender_name: 'Me', sender_label: 'Super Admin',
+                  body: 'my own message', created_at: '2026-09-12 10:00:00', mine: 1 },
+                { id: '4', sender_id: 2, sender_name: 'Other', sender_label: 'Teacher',
+                  body: 'hello there', created_at: '2026-09-12 09:00:00', mine: 0 }
+            ],
+            read_watermark: 20
+        };
+        case 'partners': return {
+            status: 'success',
+            partners: [
+                { id: 1, full_name: 'Ababa User', role: 'teacher', label: 'Ababa User — Teacher' },
+                { id: 2, full_name: 'Other Person', role: 'teacher', label: 'Other Person — Teacher' },
+                { id: 3, full_name: 'Third Guy', role: 'hr_dept', label: 'Third Guy — HR Dept' }
+            ]
+        };
         default: return { status: 'success' };
     }
 }
 
 const windowShim = {
+    CSS: { supports: () => false },   // no field-sizing → JS autoGrow path
     matchMedia: () => mql,
     addEventListener: () => {},
     innerWidth: 1400, innerHeight: 900,
@@ -349,9 +444,10 @@ const sandbox = {
     window: windowShim,
     location: { hash: '' },
     history: { replaceState: () => {} },
-    fetch: (url) => {
-        fetchLog.push(String(url));
-        const m = String(url).match(/action=([a-z_]+)/);
+    fetch: (url, opts) => {
+        fetchLog.push(String(url) + (opts && opts.body ? ' :: ' + String(opts.body) : ''));
+        // GETs carry action= in the URL; POSTs carry it in the form body
+        const m = (String(url) + ' ' + (opts && opts.body ? String(opts.body) : '')).match(/action=([a-z_]+)/);
         return Promise.resolve({ json: () => Promise.resolve(apiReply(m ? m[1] : '')) });
     },
     URLSearchParams,
@@ -363,6 +459,7 @@ const sandbox = {
     Math, Date, Object, Array, String, Number, JSON, RegExp, isNaN, parseInt, encodeURIComponent,
 };
 sandbox.globalThis = sandbox;
+sandbox.CSS = windowShim.CSS;   // bare `CSS` identifier used by autoGrow
 windowShim.location = sandbox.location;
 documentShim.defaultView = windowShim;
 
@@ -451,6 +548,96 @@ const sleep = (ms) => new Promise((r) => nativeSetTimeout(r, ms));
     check('SHEET: composer opens (hidden=false) + scrim', composer.hidden === false && sheetScrim.hidden === false);
     fire(cmpCancel, 'click');
     check('SHEET: composer closes + scrim hides', composer.hidden === true && sheetScrim.hidden === true);
+
+    // 6b. P73 Phase 3 — CONTACT-LIST PICKER (D10) in the new-thread sheet
+    fire(newThreadBtn, 'click');
+    await sleep(20);
+    check('PICKER: new-thread sheet opens', newsheet.hidden === false);
+    check('PICKER: partners rendered + grouped by role (2 groups / 3 rows)',
+        qsa(partners, '.nc-contact').length === 3 && qsa(partners, '.nc-contact-group').length === 2);
+    check('PICKER: group header carries the role label', qs(partners, '.nc-contact-group-h').textContent === 'Teacher');
+    check('PICKER: row shows initials avatar + full name',
+        qs(partners, '.nc-im-avatar').textContent === 'AU' && qs(partners, '.nc-contact-name').textContent === 'Ababa User');
+    fire(qs(partners, '[data-pid="1"]'), 'click');
+    check('PICKER: whole-row tap selects (is-on + aria-selected)',
+        qs(partners, '[data-pid="1"]').classList.contains('is-on') && qs(partners, '[data-pid="1"]').getAttribute('aria-selected') === 'true');
+    check('PICKER: selection counter updates', partnerCount.hidden === false && partnerCount.textContent === '1 selected');
+    fire(qs(partners, '[data-pid="2"]'), 'keydown', { key: 'Enter' });
+    check('PICKER: keyboard Enter selects second row',
+        qs(partners, '[data-pid="2"]').classList.contains('is-on') && partnerCount.textContent === '2 selected');
+    partnerSearch.value = 'third';
+    fire(partnerSearch, 'input');
+    check('PICKER: search filters rows',
+        qsa(partners, '.nc-contact').length === 1 && qs(partners, '.nc-contact-name').textContent === 'Third Guy');
+    partnerSearch.value = 'nothing-matches-this';
+    fire(partnerSearch, 'input');
+    check('PICKER: no-match empty state shows', qsa(partners, '.nc-contact').length === 0 && partnerEmpty.hidden === false);
+    partnerSearch.value = 'ababa';
+    fire(partnerSearch, 'input');
+    fire(partnerSearch, 'keydown', { key: 'Enter' });
+    check('PICKER: search-Enter toggles first visible + clears the box',
+        partnerSearch.value === '' && qsa(partners, '.nc-contact').length === 3);
+    check('PICKER: selection state survives re-renders',
+        !qs(partners, '[data-pid="1"]').classList.contains('is-on') && qs(partners, '[data-pid="2"]').classList.contains('is-on'));
+    fire(qs(partners, '[data-pid="1"]'), 'click');
+    newSubject.value = 'Hello';
+    newBody.value = 'kickoff';
+    fire(newSend, 'click');
+    await sleep(20);
+    const started = fetchLog.find((e) => e.includes('action=thread_start'));
+    check('PICKER: send posts exactly the selected ids',
+        !!started && /to=(1%2C2|2%2C1)/.test(started) && started.includes('subject=Hello'));
+    check('PICKER: success closes sheet + resets selection',
+        newsheet.hidden === true && qsa(partners, '.nc-contact').every((r) => !r.classList.contains('is-on')));
+
+    // 6c. P73 Phase 3 — THREAD VIEW: read receipts (D11), composer (D9),
+    //     optimistic send with inline Retry (D11)
+    fire(secTabMsgs, 'click');
+    await sleep(20);   // initMessages → loadThreads → rows rendered
+    const tRow = qs(threads, '[data-th="7"]');
+    check('THREADS: fixture thread rendered', !!tRow && qs(tRow, '.nc-im-tt').textContent === 'Budget question');
+    fire(tRow, 'click');
+    await sleep(20);   // openThread → get thread → renderMessages
+    check('THREAD: conversation header bound',
+        qs(convHead, '[data-nc-convtitle]').textContent === 'Budget question' && form.hidden === false);
+    check('RECEIPTS: my message ≤ watermark renders ✓✓ Seen',
+        msgs._innerHTML.includes('fa-check-double') && msgs._innerHTML.includes('Seen'));
+    check('RECEIPTS: exactly one mine bubble, no “Sent” fallback rendered',
+        qsa(msgs, '.nc-msg').length === 2 && qsa(msgs, '.nc-msg.mine').length === 1
+        && !msgs._innerHTML.includes('fa-check"></i> Sent'));
+    reply.value = 'growing the composer';
+    fire(reply, 'input');
+    check('COMPOSER: autoGrow JS fallback caps at 140px', reply.style.height === '140px');
+    const sends = () => fetchLog.filter((e) => e.includes('action=send_message')).length;
+    const threadGets = () => fetchLog.filter((e) => /action=thread&/.test(e)).length;
+    const before = { s: sends(), t: threadGets() };
+    reply.value = 'hello from the runtime gate';
+    fire(reply, 'keydown', { key: 'Enter' });
+    check('COMPOSER: Enter-to-send posts + optimistic pending bubble',
+        sends() === before.s + 1 && !!qs(msgs, '[data-pending]')
+        && qs(msgs, '[data-pending] .nc-bubble').textContent === 'hello from the runtime gate');
+    check('COMPOSER: optimistic send clears the composer instantly',
+        reply.value === '' && reply.style.height === '');
+    reply.value = 'not a send';
+    fire(reply, 'keydown', { key: 'Enter', shiftKey: true });
+    check('COMPOSER: Shift+Enter never sends', sends() === before.s + 1);
+    reply.value = '';
+    await sleep(20);
+    check('OPTIMISTIC: success removes pending + refreshes open thread',
+        !qs(msgs, '[data-pending]') && threadGets() > before.t);
+    failNextSend = true;
+    reply.value = 'this one will fail';
+    fire(reply, 'keydown', { key: 'Enter' });
+    await sleep(20);
+    const failedNode = qs(msgs, '.nc-msg--failed');
+    check('OPTIMISTIC: failed send keeps the bubble with inline Retry',
+        !!failedNode && !!qs(failedNode, '.nc-retry--msg'));
+    failNextSend = false;
+    fire(qs(failedNode, '.nc-retry--msg'), 'click');
+    await sleep(20);
+    check('OPTIMISTIC: Retry refills, resends and clears on success',
+        fetchLog.some((e) => e.includes('action=send_message') && e.includes('this+one+will+fail'))
+        && !qs(msgs, '.nc-msg--failed') && !qs(msgs, '[data-pending]'));
 
     // 7. bell again AFTER section interactions (regression for the scoping bug)
     fire(qs(documentShim, '.nc-bell'), 'click');

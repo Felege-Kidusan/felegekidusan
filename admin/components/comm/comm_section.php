@@ -110,8 +110,15 @@ if (!defined('NC_COMM_SECTION_LOADED')) {
     <div class="nc-sheet" data-nc-newsheet hidden role="dialog" aria-modal="true" aria-label="New conversation">
         <div class="nc-sheet-card">
             <h2><i class="fa-solid fa-comment" aria-hidden="true"></i> New conversation</h2>
-            <span class="nc-lbl">To</span>
-            <div class="nc-picklist" data-nc-partners><div class="nc-skeleton"><span></span><span></span><span></span></div></div>
+            <span class="nc-lbl">To <span class="nc-contacts-count" data-nc-partnercount hidden>0 selected</span></span>
+            <div class="nc-contact-search">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" data-nc-partnersearch placeholder="Search people…" aria-label="Search people" autocomplete="off">
+            </div>
+            <div class="nc-contacts" data-nc-partners role="listbox" aria-multiselectable="true">
+                <div class="nc-skeleton"><span></span><span></span><span></span></div>
+            </div>
+            <p class="nc-contacts-empty" data-nc-partnersempty hidden>No match.</p>
             <label class="nc-lbl" for="ncNewSubject">Subject</label>
             <input class="nc-inp" id="ncNewSubject" maxlength="200" placeholder="What is this about?">
             <label class="nc-lbl" for="ncNewBody">Message</label>

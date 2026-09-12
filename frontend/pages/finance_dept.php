@@ -58,6 +58,7 @@ ob_start();
                 <li><button class="school-nav-link" data-section="fees"><i class="fa-solid fa-hand-holding-dollar"></i> Member Fees</button></li>
                 <li><button class="school-nav-link" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button></li>
                 <li><button class="school-nav-link" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports</button></li>
+                <li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
             </ul>
         </nav>
 
@@ -342,5 +343,8 @@ ob_start();
 
 <?php
 $bodyContent = ob_get_clean();
+ob_start();
+require __DIR__ . '/../../admin/components/comm/comm_section.php';
+$bodyContent .= ob_get_clean();
 require __DIR__ . '/../layouts/base.php';
 ?>

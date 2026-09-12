@@ -369,16 +369,17 @@ class NotificationCenterTests(unittest.TestCase):
         self.assertIn('href="/admin/messages.php"', self.bell)
 
     def test_phase2_recipient_pickers_are_checkbox_lists(self):
-        """The Ctrl-click native multi-select is dead: every recipient
-        picker (announcement targets, new-conversation partners) is a
-        checkbox pick-list — mobile-friendly per the P73 goals."""
+        """The Ctrl-click native multi-select is dead: announcement
+        targets are a checkbox pick-list (Phase 2, unchanged). The
+        new-conversation partners picker became the Phase-3 contact
+        list (D10) — pinned in CommPhase3Tests."""
         self.assertNotRegex(self.sectionSrc, r"<select[^>]*multiple")
         self.assertNotIn("multiple", self.sectionSrc)
-        self.assertIn('class="nc-picklist" data-nc-partners', self.sectionSrc)
         self.assertIn('class="nc-picklist" data-nc-targetusers', self.sectionSrc)
         self.assertIn("nc-pickrow", self.commJs)   # rows render as checkbox labels
         self.assertIn('type="checkbox"', self.commJs)
         self.assertIn("input:checked", self.commJs)  # JS reads checkbox selections
+        self.assertNotIn('class="nc-picklist" data-nc-partners', self.sectionSrc)  # partners left the picklist world
 
     def test_phase2_section_mobile_never_covers_the_bottom_nav(self):
         """Mobile: the section docks above the bottom nav (never a
@@ -476,6 +477,114 @@ class NotificationCenterTests(unittest.TestCase):
         route/page cannot bypass it (defense against future UI bugs)."""
         self.assertIn("canAnnounce($role)", self.svc)
         self.assertIn("mayMessageRole($role", self.svc)
+
+
+class CommPhase3Tests(unittest.TestCase):
+    """P73 Phase 3 — Telegram-grade messaging pins (D9 composer auto-grow,
+    D10 contact-list picker, D11 read receipts + optimistic send with inline
+    Retry).  Behaviour is proven end-to-end by the Node runtime gate
+    (tests/js/comm_runtime_test.js, 43 checks); these pins hold the
+    structural contract in place between runs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sectionSrc = (ROOT / "admin/components/comm/comm_section.php").read_text(encoding="utf-8")
+        cls.commJs = (ROOT / "admin/js/comm.js").read_text(encoding="utf-8")
+        cls.commCss = (ROOT / "admin/css/comm.css").read_text(encoding="utf-8")
+        cls.service = (ROOT / "admin/backend/services/NotificationCenterService.php").read_text(encoding="utf-8")
+        cls.api = (ROOT / "admin/api_notifications.php").read_text(encoding="utf-8")
+        cls.migration = (ROOT / "sql/043_message_read_receipts.sql").read_text(encoding="utf-8")
+
+    def test_d9_composer_autogrow_and_enter_to_send(self):
+        """Native field-sizing where supported, JS scrollHeight fallback
+        elsewhere, growth capped at 140px, residual scrollbar hidden in
+        both engines, Enter sends / Shift+Enter newlines, IME-safe."""
+        self.assertRegex(self.commCss, r"field-sizing:\s*content")
+        self.assertRegex(self.commCss, r"@supports\s*\(\s*field-sizing:\s*content\s*\)")
+        self.assertRegex(self.commCss, r"max-height:\s*140px")
+        self.assertIn("scrollbar-width: none", self.commCss)
+        self.assertIn("::-webkit-scrollbar", self.commCss)      # WebKit hiding too
+        self.assertIn("NC_COMPOSER_MAX = 140", self.commJs)
+        self.assertIn("autoGrow", self.commJs)
+        self.assertIn("CSS.supports", self.commJs)              # native path skipped in JS
+        self.assertIn("!e.shiftKey", self.commJs)               # Shift+Enter = newline
+        self.assertIn("!e.isComposing", self.commJs)            # IME composition safe
+
+    def test_d10_partner_picker_is_a_contact_list(self):
+        """Search + role-grouped listbox + avatar initials + whole-row tap
+        + keyboard operable + selection counter + no-match state."""
+        self.assertIn('data-nc-partnersearch', self.sectionSrc)
+        self.assertIn('class="nc-contacts" data-nc-partners', self.sectionSrc)
+        self.assertIn('data-nc-partnercount', self.sectionSrc)
+        self.assertIn('data-nc-partnersempty', self.sectionSrc)
+        self.assertIn('role="listbox"', self.sectionSrc)
+        self.assertIn("renderPartners", self.commJs)
+        self.assertIn("primePartners", self.commJs)
+        self.assertIn('role="option"', self.commJs)
+        self.assertIn("aria-selected", self.commJs)
+        self.assertIn("partnerSel", self.commJs)
+        self.assertRegex(self.commCss, r"\.nc-contact\s*\{[^}]*min-height:\s*48px")  # touch target
+
+    def test_d11_read_receipts_watermark(self):
+        """One additive guarded column powers receipts: ✓✓ Seen when my
+        message id ≤ the other participants' watermark, else ✓ Sent."""
+        self.assertIn("last_read_message_id", self.migration)
+        self.assertIn("information_schema", self.migration)     # 040-style guard, idempotent
+        self.assertIn("MAX(last_read_message_id)", self.service)
+        self.assertIn("'read_watermark' => $wm", self.service)  # thread payload
+        self.assertIn("last_read_message_id = (", self.service)  # markThreadRead advances it
+        self.assertIn("'read_watermark'", self.api)              # JSON passthrough
+        self.assertIn("parseInt(m.id, 10) <= watermark", self.commJs)
+        self.assertIn("fa-check-double", self.commJs)            # ✓✓
+        self.assertIn("nc-seen", self.commCss)
+
+    def test_d11_optimistic_send_with_inline_retry(self):
+        """Sends never block the composer: instant pending bubble, success
+        confirmed by a refresh, failure keeps the bubble with an inline
+        Retry that refills and resends."""
+        self.assertIn("appendPendingMessage", self.commJs)
+        self.assertIn("failPendingMessage", self.commJs)
+        self.assertIn("nc-msg--pending", self.commJs)
+        self.assertIn("nc-msg--failed", self.commJs)
+        self.assertIn("nc-retry--msg", self.commJs)
+        self.assertIn("refreshOpenThread", self.commJs)
+        self.assertIn(".nc-msg--pending", self.commCss)
+        self.assertIn(".nc-msg--failed", self.commCss)
+        self.assertIn(".nc-retry--msg", self.commCss)
+
+    def test_phase3_microanimations_respect_reduced_motion(self):
+        """The new bubble entry animation is guarded for reduced-motion
+        users (the last global guard block covers .nc-msg)."""
+        self.assertIn("@keyframes nc-msg-in", self.commCss)
+        guard = self.commCss[self.commCss.rfind("prefers-reduced-motion"):]
+        self.assertIn(".nc-msg", guard)
+
+    def test_phase3_frontend_departments_integrate_the_section(self):
+        """mezmur + finance get the same in-place Communication section:
+        one include + a data-comm-open opener, rendered into the page
+        buffer before the base layout."""
+        for page in ("frontend/pages/mezmur_dept.php", "frontend/pages/finance_dept.php"):
+            src = (ROOT / page).read_text(encoding="utf-8")
+            self.assertIn("comm_section.php", src, f"{page} includes the shared section")
+            self.assertIn('data-comm-open="inbox"', src, f"{page} exposes an opener")
+            self.assertEqual(src.count("comm_section.php"), 1,
+                             f"{page} renders the section exactly once")
+
+    def test_phase3_runtime_gate_covers_phase3_behaviors(self):
+        """The Node gate must not silently lose its Phase-3 checks: the
+        picker/receipts/composer/optimistic suites must all run and pass."""
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node runtime not available — JS runtime gate skipped")
+        proc = subprocess.run(
+            [node, str(ROOT / "tests/js/comm_runtime_test.js")],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for marker in ("PICKER:", "RECEIPTS:", "COMPOSER:", "OPTIMISTIC:"):
+            self.assertIn(marker, proc.stdout, f"runtime gate lost its {marker} suite")
 
 
 class NotificationIncludeOrderRegression(unittest.TestCase):

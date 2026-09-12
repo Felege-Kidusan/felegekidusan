@@ -482,5 +482,89 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .nc-sec, .nc-im-conv, .nc-sheet, .nc-sheet-card { transition: none !important; animation: none !important; }
+    .nc-sec, .nc-im-conv, .nc-sheet, .nc-sheet-card, .nc-msg { transition: none !important; animation: none !important; }
 }
+
+/* ============================================================================
+ * P73 Phase 3 — Telegram-style messaging: composer, contact list, receipts
+ * ==========================================================================*/
+
+/* ── Composer: auto-growing, NEVER an internal scrollbar (fixes D9) ──── */
+.nc-im-form textarea, .nc-sheet-card textarea.nc-inp--area {
+    resize: none;
+    overflow-y: auto;                        /* JS fallback measures scrollHeight */
+    scrollbar-width: none;                   /* Firefox: hide the residual bar */
+    -ms-overflow-style: none;
+    min-height: 44px; max-height: 140px;     /* growth bounds (matches NC_COMPOSER_MAX) */
+}
+.nc-im-form textarea::-webkit-scrollbar,
+.nc-sheet-card textarea.nc-inp--area::-webkit-scrollbar {
+    width: 0; height: 0; display: none;      /* WebKit: hide the residual bar */
+}
+/* Modern engines: the browser sizes the box natively — zero JS on the
+   hot typing path (compositor thread). Legacy engines use the JS
+   scrollHeight fallback in comm.js (autoGrow). */
+@supports (field-sizing: content) {
+    .nc-im-form textarea, .nc-sheet-card textarea.nc-inp--area {
+        field-sizing: content;
+        height: auto;
+    }
+}
+
+/* ── Read receipts + optimistic send states (fixes D11) ─────────────── */
+.nc-msg .nc-seen { color: #38bdf8; font-weight: 700; }
+.nc-msg--pending .nc-bubble { opacity: .72; }
+.nc-msg--pending .nc-meta { font-style: italic; }
+.nc-msg--failed .nc-bubble {
+    border: 1px solid #fecaca !important; background: #fef2f2 !important; color: #7f1d1d;
+}
+.nc-meta--failed { color: #dc2626; font-weight: 600; }
+.nc-retry--msg {
+    background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px;
+    font-size: 10.5px; font-weight: 700; padding: 3px 10px; cursor: pointer; font-family: inherit;
+    min-height: 26px;
+}
+.nc-retry--msg:hover { background: #fecaca; }
+
+/* Bubble entry micro-animation (skipped for reduced-motion users —
+   the global prefers-reduced-motion block at the end also guards it) */
+.nc-msg { animation: nc-msg-in .18s ease-out; }
+@keyframes nc-msg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── Contact list picker (fixes D10) ─────────────────────────────────── */
+.nc-contact-search {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid #e2e8f0; border-radius: 11px; background: #f8fafc;
+    padding: 4px 10px; margin-bottom: 8px;
+}
+.nc-contact-search i { color: var(--nc-faint, #94a3b8); font-size: 12px; }
+.nc-contact-search input {
+    border: none; background: none; outline: none; font-family: inherit;
+    font-size: 13px; padding: 8px 0; flex: 1; min-width: 0; color: var(--nc-ink, #0f172a);
+    min-height: 36px;
+}
+.nc-contact-search input:focus-visible { outline: 2px solid var(--nc-ac, #059669); outline-offset: 2px; border-radius: 8px; }
+.nc-contacts {
+    border: 1px solid #e2e8f0; border-radius: 12px; max-height: 260px; overflow-y: auto; background: #fff;
+}
+.nc-contact-group-h {
+    font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--nc-faint, #94a3b8); padding: 10px 12px 4px;
+    position: sticky; top: 0; background: #fff; z-index: var(--z-content, 1);
+}
+.nc-contact {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer;
+    border-bottom: 1px solid var(--nc-line, #eef1f6); min-height: 48px; user-select: none;
+}
+.nc-contact:last-child { border-bottom: none; }
+.nc-contact:hover { background: #f8fafc; }
+.nc-contact:focus-visible { outline: 2px solid var(--nc-ac, #059669); outline-offset: -2px; }
+.nc-contact.is-on { background: var(--nc-ac-soft, #d1fae5); }
+.nc-contact-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-contact-tick {
+    flex: none; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid #cbd5e1;
+    display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 10px;
+}
+.nc-contact.is-on .nc-contact-tick { background: var(--nc-ac, #059669); border-color: var(--nc-ac, #059669); }
+.nc-contacts-empty { font-size: 12px; color: var(--nc-dim, #64748b); margin: 6px 2px; }
+.nc-contacts-count { font-weight: 600; color: #065f46; text-transform: none; letter-spacing: 0; margin-left: 6px; }
