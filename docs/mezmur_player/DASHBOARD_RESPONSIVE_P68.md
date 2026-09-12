@@ -94,3 +94,34 @@ No server steps — one CSS file, cache-busted by `filemtime` in base.php.
 4. Tablet (769–1200): sidebar intact, comfortable targets, no zoom.
 5. Desktop (≥1201): pixel-identical to before (no rule applies).
 6. Finance dashboard + login: pixel-identical (scoping test guarantees it).
+
+---
+
+# P69 — Mobile fix-up pass #2 (on-device QA feedback)
+
+User QA on a ~336px phone after P68: "player screen and other screens —
+overlapping, improper spacing, things not in their places." Screenshots could
+not be viewed by the agent (no image vision); defects were re-derived from
+source math and fixed. Markup changes were authorized ("you may add new
+screens") but proved unnecessary — all fixes are CSS, same P68 scope contract.
+
+## Defects found and fixed
+
+| # | Defect (verified by layout math) | Fix |
+|---|---|---|
+| S1 | Phone/tablet stage had **no row sizing**: two content-sized rows in a fixed-height container → big-art hero (~340px) overflowed a ~500px stage; lyrics pane left a ~100px sliver / clipped | `.mz-np-body` ≤1100px: `grid-template-rows: auto minmax(0, 1fr)` — hero takes what it needs, lyrics/queue pane owns the rest and scrolls |
+| S2 | `--mz-dock-h: 128px` was an estimate; the native range input renders ~24-27px → real dock ≈ 132px+ → stage bottom edge and content clearance **under-reserved → overlap** | Deterministic rows (seek input pinned to 24px, play 42px) → token raised to **136px** |
+| S3 | Phone hero was desktop-minded (300px centered art) on a lyrics-first screen | Compact Apple-Music-lyrics hero: 84px art + left-aligned title/sub + full-width tabs beneath |
+| S4 | View-art dialog hero: title + Set/Replace/Remove buttons fought over ~300px | Title clamps to 2 lines, buttons wrap to their own row |
+| S5 | Lyrics editor toolbar (`mz-ed-toolbar`) could not wrap in a sheet | `flex-wrap: wrap`; editor capped at 44vh |
+| S6 | Singer picker panel (absolute) capped at 300px regardless of sheet | Capped to 42vh on phone |
+| S7 | Impersonation pill (base.php, inline z-1300 styles) sat on the nav/dock | Lifted above nav (+ dock while playing); scoped `!important` against its inline styles — the only new `!important` |
+| S8 | Spacing rhythm (QA: "improper spacing") | Tighter card/stat/tile/topbar/content paddings on phone |
+
+Known out-of-scope: the Ethiopian date-picker popup is admin-shared
+(`/admin/js/wbws-calendar.js`) and used by finance too — deliberately not
+touched (constraint: other departments untouched).
+
+## Tests
+`test_responsive_contract_p69` pins S1–S7; the P68 scoping test also covers
+the P69 section (it scans to end of file). uiux suite: 29 → **30**.

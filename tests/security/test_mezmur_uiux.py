@@ -257,10 +257,30 @@ class MezmurUiUxTests(unittest.TestCase):
         # Toast never sits on the bottom nav, nor under the dock while playing.
         self.assertIn("body.page-mezmur.mz-playing .school-toast", self.css)
 
+    def test_responsive_contract_p69(self):
+        """P69: phone fix-up pass #2 — pinned contract (on-device QA)."""
+        # Stage row sizing: hero auto, lyrics pane takes the rest (the
+        # missing rule that clipped the lyrics pane on phones).
+        self.assertIn(
+            ".mz-np-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; }",
+            self.css)
+        # Deterministic dock: fixed seek-input height + 136px token.
+        self.assertIn(":root { --mz-dock-h: 136px; }", self.css)
+        self.assertIn('.mz-player-seekrow input[type="range"] { height: 24px; }', self.css)
+        # Compact phone hero (small art, left-aligned title).
+        self.assertIn(".mz-np-artwrap { width: 84px; flex-shrink: 0; }", self.css)
+        # Dialog interiors adapted to sheet width.
+        self.assertIn("body.page-mezmur .mz-view-art-title", self.css)
+        self.assertIn("-webkit-line-clamp: 2;", self.css)
+        self.assertIn("body.page-mezmur .mz-ed-toolbar { flex-wrap: wrap; row-gap: .35rem; }", self.css)
+        # Impersonation pill lifted above nav/dock on phones.
+        self.assertIn("body.page-mezmur #impersonateBar", self.css)
+
     def test_p68_rules_are_mezmur_scoped(self):
         """CONSTRAINT: finance/login share components.css — every P68
         selector must be gated by body.page-mezmur (or .mz-*), so the
-        finance dashboard and login page are provably untouched."""
+        finance dashboard and login page are provably untouched. Also covers the
+        appended P69 section (scan runs to end of file)."""
         import re
         start = self.css.index("P68 — MEZMUR DASHBOARD NATIVE RESPONSIVENESS")
         section = self.css[start:]

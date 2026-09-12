@@ -993,7 +993,11 @@ tr.mz-archived { opacity: .55; }
 
 /* ── Mid-size: hero becomes a header row, stage takes the rest ── */
 @media (max-width: 1100px) {
-    .mz-np-body { grid-template-columns: 1fr; gap: 1rem; }
+    /* P69: explicit row sizing — the hero takes what it needs, the
+     * lyrics/queue pane gets EVERYTHING left and scrolls inside it.
+     * Without this, two content-sized rows overflow the fixed-height
+     * stage and the lyrics pane was clipped/overlapped. */
+    .mz-np-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; }
     .mz-np-now {
         flex-direction: row; flex-wrap: wrap; align-items: center;
         justify-content: flex-start; gap: 1rem 1.2rem; padding: 0;
@@ -1009,11 +1013,13 @@ tr.mz-archived { opacity: .55; }
 /* ── Mobile (≤768px app-shell): dock above the pinned bottom nav,
    stage fills everything above the dock ─────────────────────────── */
 @media (max-width: 768px) {
-    /* Two-row dock: [art meta | lyrics queue close] / [transport+seek]
-     * Measured render height ≈124px (44 art + 60 transport/seek +
-     * paddings) — 128px keeps a small safety margin for the stage
-     * bottom edge and the content clearance. */
-    :root { --mz-dock-h: 128px; }
+    /* Two-row dock: [art meta | lyrics queue close] / [transport+seek].
+     * P69: every row height is now DETERMINISTIC (44 art / 42 transport
+     * / 24 seek) → 8+44+4.8+(42+2.4+24)+7.2 ≈ 132.4px; the token carries
+     * 136px so the stage bottom edge and the content clearance can
+     * never under-reserve and overlap the dock (the P67 estimate of
+     * 128px was too tight once the native range input rendered taller). */
+    :root { --mz-dock-h: 136px; }
     .mz-player {
         left: 0; bottom: var(--nav-total, 100px);
         height: auto;
@@ -1030,21 +1036,36 @@ tr.mz-archived { opacity: .55; }
     .mz-player-art { width: 44px; height: 44px; border-radius: 9px; }
     .mz-player-center { grid-row: 2; grid-column: 1 / -1; }
     .mz-player-controls button { width: 34px; height: 34px; font-size: .85rem; }
-    .mz-player-play { width: 40px; height: 40px; font-size: .9rem; }
+    .mz-player-play { width: 42px; height: 42px; font-size: .9rem; }
     .mz-player-seekrow { grid-template-columns: 40px 1fr 40px; }
-    /* Stage: full width, above nav + dock; hero column again. */
+    .mz-player-seekrow input[type="range"] { height: 24px; }
+    /* Stage: full width, above nav + dock. P69 COMPACT hero (Apple
+     * Music lyrics pattern): small art + left-aligned title on one
+     * line, tabs full-width beneath, lyrics own the remaining height —
+     * the old big-art hero left the lyrics pane a ~100px sliver. */
     .mz-np { left: 0; right: 0; bottom: calc(var(--nav-total, 100px) + var(--mz-dock-h)); }
-    .mz-np-stage { padding: calc(.9rem + var(--safe-top)) 1.1rem .9rem; }
-    .mz-np-now { flex-direction: column; justify-content: flex-start; gap: .5rem; padding: .25rem 0 .75rem; }
-    .mz-np-artwrap { width: min(68vw, 300px); }
-    .mz-np-meta { width: 100%; }
-    .mz-np-title, .mz-np-sub { text-align: center; }
-    .mz-np-tabs { margin-top: .3rem; width: 100%; max-width: 340px; }
+    .mz-np-stage { padding: calc(.7rem + var(--safe-top)) .9rem .7rem; }
+    .mz-np-head { margin-bottom: .55rem; }
+    .mz-np-head h2 { font-size: .64rem; }
+    .mz-np-now { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .6rem .9rem; padding: 0 0 .65rem; }
+    .mz-np-artwrap { width: 84px; flex-shrink: 0; }
+    .mz-np-art { border-radius: 14px; font-size: 2.2rem; }
+    .mz-np-meta { flex: 1; min-width: 150px; width: auto; }
+    .mz-np-title { text-align: left; font-size: 1.2rem; }
+    .mz-np-sub { text-align: left; margin: .1rem 0 0; }
+    .mz-np-tabs { margin-top: 0; width: 100%; max-width: none; }
+    .mz-np-lyrics { padding: .5rem 1rem 1.5rem; }
+    .mz-np-queue { padding: .25rem 1rem .75rem; }
     .mz-lrc-line { font-size: 1.1rem; padding: .35rem .6rem; }
     .mz-lrc-line.active { font-size: 1.16rem; }
     /* The app-shell sets content padding with !important; match it. */
     body.mz-playing .school-content { padding-bottom: calc(var(--mz-dock-h) + 1.25rem) !important; }
     body.mz-playing .school-toast { bottom: calc(var(--mz-dock-h) + var(--nav-total, 100px) + .75rem); }
+}
+@media (max-width: 380px) {
+    /* Tiny phones: shrink the right cluster so the title keeps room. */
+    .mz-player-right > button { width: 34px; height: 34px; }
+    .mz-player-controls button { width: 32px; height: 32px; }
 }
 @media (prefers-reduced-motion: reduce) {
     .mz-player-play, .mz-lrc-line, .mz-np-tab, .mz-player-art { transition: none; }
@@ -1351,4 +1372,62 @@ body.page-mezmur button:active { opacity: .82; }
 
 @media (prefers-reduced-motion: reduce) {
     body.page-mezmur .school-modal-content { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   P69 — MOBILE FIX-UP PASS #2 (player stage + dialog interiors)
+   ═══════════════════════════════════════════════════════════════
+   Follow-up to P68 after on-device QA (user screenshots): the phone
+   now-playing stage clipped its lyrics pane (no row sizing), the dock
+   height token under-reserved (non-deterministic range input), and
+   dialog INTERIORS (view-art hero, lyrics editor toolbar, pickers)
+   were never adapted to sheet width. Same scope contract as P68:
+   every selector below is body.page-mezmur / .mz-* gated. */
+
+@media (max-width: 768px) {
+
+    /* ── Dialog interiors (bottom-sheet width) ─────────────────── */
+
+    /* View-art hero: title + art buttons could not share ~300px —
+     * stack them; title clamps to 2 lines; buttons become compact
+     * chips with 40px targets (P68 base). */
+    body.page-mezmur .mz-view-art { height: 128px; flex-wrap: wrap; align-content: flex-end; }
+    body.page-mezmur .mz-view-art-title {
+        flex: 1 1 100%; white-space: normal; overflow: hidden;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        font-size: .95rem; line-height: 1.4; padding: .5rem .7rem 0;
+    }
+    body.page-mezmur .mz-view-art-actions {
+        width: 100%; justify-content: flex-end; flex-wrap: wrap; padding: .45rem .7rem .55rem;
+    }
+    body.page-mezmur .mz-view-art-actions .btn-sm { padding: .45rem .6rem; }
+
+    /* Lyrics editor toolbar never wrapped (fixed-width desktop bar):
+     * let it flow onto a second row inside the sheet. */
+    body.page-mezmur .mz-ed-toolbar { flex-wrap: wrap; row-gap: .35rem; }
+    body.page-mezmur .mz-editor { min-height: 160px; max-height: 44dvh; max-height: 44vh; }
+
+    /* Absolute-positioned pickers: cap to the sheet, not the page. */
+    body.page-mezmur .mz-pick-panel { max-height: 42dvh; max-height: 42vh; }
+
+    /* ── Rhythm / spacing polish (QA: "improper spacing") ─────── */
+    body.page-mezmur .school-content { padding: .9rem .75rem; }
+    body.page-mezmur .school-card { padding: 1rem; }
+    body.page-mezmur .school-card-title { font-size: .8rem; margin-bottom: .7rem; }
+    body.page-mezmur .school-stat-card { padding: .85rem .9rem; }
+    body.page-mezmur .quick-tile { padding: .75rem .8rem; }
+    body.page-mezmur .school-topbar { padding: calc(.65rem + var(--safe-top)) 1rem; }
+    body.page-mezmur .school-topbar h1 { font-size: 1.02rem; }
+    body.page-mezmur .pager { margin-top: .75rem; }
+
+    /* ── Impersonation pill (base.php, inline styles, z 1300) sits
+     * on the bottom nav / dock on phones. Inline styles need the
+     * override — scoped + !important, one deliberate exception. ── */
+    body.page-mezmur #impersonateBar {
+        left: 1rem !important; right: 1rem !important;
+        bottom: calc(var(--nav-total, 100px) + .75rem) !important;
+    }
+    body.page-mezmur.mz-playing #impersonateBar {
+        bottom: calc(var(--nav-total, 100px) + var(--mz-dock-h) + .75rem) !important;
+    }
 }
