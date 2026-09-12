@@ -489,7 +489,8 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="nl" data-sec="submissions"><i class="fa-solid fa-inbox"></i> Submissions</button>
 <button class="nl" data-sec="reportcards"><i class="fa-solid fa-file-lines"></i> Report Cards</button>
 </div>
-<div style="margin-top:auto;display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:12px;background:rgba(255,255,255,.1)"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem"><?= $initials ?></div><div><span style="font-size:.75rem;font-weight:600;color:#fff"><?= e($userName) ?></span><br><span style="font-size:.6rem;color:rgba(255,255,255,.6)"><?= $todayFormatted ?></span></div></div>
+<div style="margin-top:auto;display:flex;justify-content:flex-end;padding:.2rem .4rem"><?= renderNotificationCenter() ?></div>
+<div style="display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:12px;background:rgba(255,255,255,.1)"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem"><?= $initials ?></div><div><span style="font-size:.75rem;font-weight:600;color:#fff"><?= e($userName) ?></span><br><span style="font-size:.6rem;color:rgba(255,255,255,.6)"><?= $todayFormatted ?></span></div></div>
 <a href="/admin/logout.php" class="nl" style="color:#fca5a5"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
 
@@ -501,6 +502,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
         <h1>Education Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
+    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$tablesExist): ?>
@@ -509,7 +511,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 
 <!-- ═══ DASHBOARD ═══ -->
 <div id="sec-dashboard" class="sec act">
-<div style="margin-bottom:1.5rem"><h1 style="font-size:1.4rem;font-weight:700;color:#1e293b"><?= $greeting ?>, <?= e(explode(' ',$userName)[0]) ?> 📚</h1><p style="color:#64748b;font-size:.8rem"><?= $todayFormatted ?> • Education Department<?php if($currentYear): ?> • <span class="ch ch-p"><?= e($currentYear['year_name']) ?></span><?php endif; ?></p></div>
+<div style="margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap"><div><h1 style="font-size:1.4rem;font-weight:700;color:#1e293b"><?= $greeting ?>, <?= e(explode(' ',$userName)[0]) ?> 📚</h1><p style="color:#64748b;font-size:.8rem"><?= $todayFormatted ?> • Education Department<?php if($currentYear): ?> • <span class="ch ch-p"><?= e($currentYear['year_name']) ?></span><?php endif; ?></p></div><div style="display:flex;gap:.5rem;flex-wrap:wrap"><a href="/admin/notifications.php#compose" class="btn btn-p" style="text-decoration:none"><i class="fa-solid fa-bullhorn"></i> Announce</a><a href="/admin/messages.php" class="btn btn-o" style="text-decoration:none"><i class="fa-solid fa-comments"></i> Message Teachers</a></div></div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem">
 <div class="sc" style="background:linear-gradient(135deg,#7c3aed,#6366f1)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalStudents ?></div><div style="font-size:.75rem;opacity:.8">Total Students</div></div><i class="fa-solid fa-users" style="font-size:1.5rem;opacity:.3"></i></div></div>
 <div class="sc" style="background:linear-gradient(135deg,#059669,#10b981)"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:1.75rem;font-weight:700"><?= $totalTeachers ?></div><div style="font-size:.75rem;opacity:.8">Teachers</div></div><i class="fa-solid fa-chalkboard-teacher" style="font-size:1.5rem;opacity:.3"></i></div></div>

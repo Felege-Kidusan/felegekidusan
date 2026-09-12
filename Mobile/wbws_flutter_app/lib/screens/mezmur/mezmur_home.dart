@@ -11,6 +11,7 @@ import '../reviews/review_inbox_screen.dart';
 import 'mezmur_attendance.dart';
 import 'mezmur_hymns.dart';
 import 'mezmur_downloads.dart';
+import '../../widgets/notification_bell_button.dart';
 
 /// Mezmur Department hub (mobile) — Ethiopian greeting, feature
 /// tiles and recent attendance days. Attendance itself lives in
@@ -75,6 +76,7 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen> {
         title: const Text('Mezmur · መዝሙር ክፍል'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        actions: [const NotificationBellButton(color: Colors.white)],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openAttendance(),

@@ -184,6 +184,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
     </div>
   </div>
   <div class="topbar-right">
+    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
     <div class="user-chip">
       <div class="user-avatar"><?= e($initials) ?></div>
       <span><?= e($fullName) ?></span>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/app_nav.dart';
 import '../../utils/theme.dart';
+import '../../widgets/notification_bell_button.dart';
 
 /// HR Attendance Taker home (department-owned taker).
 ///
@@ -24,6 +25,7 @@ class _HrTakerHomeScreenState extends State<HrTakerHomeScreen> {
       appBar: AppBar(
         title: const Text('HR Attendance'),
         automaticallyImplyLeading: false,
+        actions: [const NotificationBellButton(color: Colors.white),],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),

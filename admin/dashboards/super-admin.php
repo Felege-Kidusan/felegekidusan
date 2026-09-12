@@ -664,8 +664,8 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
             <div><h1>Super Admin Dashboard</h1><div class="topbar-sub"><?= e($todayFormatted) ?></div></div>
             <div style="display:flex;align-items:center;gap:12px">
                 <?php 
-                include __DIR__ . '/../components/notification_bell.php';
-                echo renderNotificationBell();
+                include __DIR__ . '/../components/notification_center.php';
+                echo renderNotificationCenter();
                 ?>
                 <div class="status-badge"><div class="status-dot"></div> Online</div>
             </div>

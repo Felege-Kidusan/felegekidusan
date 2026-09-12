@@ -14,6 +14,7 @@ import '../../utils/transitions.dart';
 import '../members/member_list_screen.dart';
 import '../attendance/attendance_screen.dart';
 import '../teacher/teacher_grades.dart';
+import '../../widgets/notification_bell_button.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -71,6 +72,7 @@ class AdminHomeScreenState extends State<AdminHomeScreen> {
                 Text('${UserRoles.displayNameAmharic(_api.userRole)} • ${UserRoles.displayName(_api.userRole)}',
                     style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
+                const NotificationBellButton(color: Colors.white),
               actions: [
                 IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load),
               ],

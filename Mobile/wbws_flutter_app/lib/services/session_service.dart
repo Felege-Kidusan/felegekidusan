@@ -1,4 +1,5 @@
 import 'api_service.dart';
+import 'notification_service.dart';
 import 'app_lock_service.dart';
 import 'catalog_service.dart';
 import 'local_db.dart';
@@ -9,6 +10,7 @@ import 'sync_service.dart';
 class SessionService {
   static Future<void> signOut() async {
     SyncService().stopAutoSync();
+    NotificationService.instance.stop();
     CatalogService().clear();
     await LocalDb().clearAllUserData();
     // The passcode protects the session on this device; once the session

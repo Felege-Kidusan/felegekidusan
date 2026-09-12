@@ -9,6 +9,7 @@ import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../attendance/attendance_screen.dart';
+import '../../widgets/notification_bell_button.dart';
 
 class AttTakerHomeScreen extends StatefulWidget {
   const AttTakerHomeScreen({super.key});
@@ -91,6 +92,7 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
                 const Text('FKSS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 Text('ቅጥረት ያዥ • Attendance Taker', style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
+                const NotificationBellButton(color: Colors.white),
               actions: [
                 if (_pendingCount > 0)
                   IconButton(

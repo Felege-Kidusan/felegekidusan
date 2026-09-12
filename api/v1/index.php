@@ -128,6 +128,7 @@ $routeMap = [
     'app'           => 'app.php',
     'mezmur'        => 'mezmur.php',
     'hr'            => 'hr.php',
+    'notifications' => 'notifications.php',
 ];
 
 // Check if resource exists

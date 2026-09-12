@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../reviews/review_inbox_screen.dart';
+import '../../widgets/notification_bell_button.dart';
 
 /// HR department home (Phase 9) — the department's mobile surface is
 /// its review inbox; everything else stays on the web console.
@@ -19,7 +20,7 @@ class _HrDeptHomeScreenState extends State<HrDeptHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('HR Department')),
+      appBar: AppBar(title: const Text('HR Department'), actions: [const NotificationBellButton(color: Colors.white),]),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

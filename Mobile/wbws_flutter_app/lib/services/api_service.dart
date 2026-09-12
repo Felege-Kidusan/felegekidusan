@@ -946,4 +946,74 @@ class ApiService {
 
   Future<ApiResponse> enrollStudent(int memberId, int classId) =>
       post('/enrollment', body: {'member_id': memberId, 'class_id': classId});
+
+  // ============================================================
+  // P72 — Communication Center (notifications / announcements /
+  // messaging). Same service as the web dashboards; one writer.
+  // ============================================================
+
+  Future<ApiResponse> getNotificationSummary() =>
+      get('/notifications/summary');
+
+  Future<ApiResponse> getNotificationFeed(
+      {int limit = 30, int offset = 0, bool unreadOnly = false}) {
+    final params = <String, String>{
+      'limit': '$limit',
+      'offset': '$offset',
+      if (unreadOnly) 'unread': '1',
+    };
+    return get('/notifications/feed', params: params);
+  }
+
+  Future<ApiResponse> markNotificationRead(int id) =>
+      post('/notifications/mark-read', body: {'id': id});
+
+  Future<ApiResponse> markAllNotificationsRead({String scope = 'alerts'}) =>
+      post('/notifications/mark-all-read', body: {'scope': scope});
+
+  Future<ApiResponse> getAnnouncements({int limit = 30, int offset = 0}) =>
+      get('/notifications/announcements',
+          params: {'limit': '$limit', 'offset': '$offset'});
+
+  Future<ApiResponse> markAnnouncementRead(int id) =>
+      post('/notifications/announcement-read', body: {'id': id});
+
+  Future<ApiResponse> composeAnnouncement(
+      {required String title,
+      required String body,
+      String priority = 'normal',
+      String audience = 'roles',
+      List<String> roles = const [],
+      List<int> userIds = const []}) {
+    return post('/notifications/compose', body: {
+      'title': title,
+      'body': body,
+      'priority': priority,
+      'audience': audience,
+      'roles': roles,
+      'user_ids': userIds,
+    });
+  }
+
+  Future<ApiResponse> getAnnounceTargets() =>
+      get('/notifications/targets');
+
+  Future<ApiResponse> getMessagePartners() =>
+      get('/notifications/partners');
+
+  Future<ApiResponse> getThreads() => get('/notifications/threads');
+
+  Future<ApiResponse> getThread(int id) =>
+      get('/notifications/thread', params: {'id': '$id'});
+
+  Future<ApiResponse> startThread(
+          {required List<int> to,
+          required String subject,
+          required String body}) =>
+      post('/notifications/thread-start',
+          body: {'to': to, 'subject': subject, 'body': body});
+
+  Future<ApiResponse> sendMessage(int threadId, String body) =>
+      post('/notifications/send-message',
+          body: {'thread_id': threadId, 'body': body});
 }

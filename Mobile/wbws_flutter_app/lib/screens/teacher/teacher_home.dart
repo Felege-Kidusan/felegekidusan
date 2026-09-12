@@ -17,6 +17,7 @@ import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../auth/login_screen.dart';
+import '../../widgets/notification_bell_button.dart';
 
 class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
@@ -227,6 +228,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                   ),
                 ],
               ),
+                const NotificationBellButton(color: Colors.white),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.refresh_rounded, size: 22),

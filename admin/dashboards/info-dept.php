@@ -606,8 +606,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
             <div class="flex items-center gap-3">
                 <!-- Notification Bell -->
                 <?php 
-                include __DIR__ . '/../components/notification_bell.php';
-                echo renderNotificationBell();
+                include __DIR__ . '/../components/notification_center.php';
+                echo renderNotificationCenter();
                 ?>
                 
                 <div class="hidden sm:flex flex-col text-right text-xs">

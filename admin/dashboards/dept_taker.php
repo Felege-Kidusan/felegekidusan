@@ -64,7 +64,10 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
         <h1>Attendance Taker · <?= e($deptName) ?></h1>
         <div class="sub"><?= e($todayFormatted) ?></div>
     </div>
-    <a class="exit" href="/admin/logout.php">Exit</a>
+    <div style="display:flex;align-items:center;gap:10px">
+        <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
+        <a class="exit" href="/admin/logout.php">Exit</a>
+    </div>
 </header>
 
 <main class="wrap">

@@ -70,6 +70,7 @@ ob_start();
                 </div>
             </button>
 
+            <div style="display:flex;justify-content:flex-end;padding:0 .25rem .5rem"><?php include __DIR__ . '/../../admin/components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
             <div class="school-user-card">
                 <div class="school-user-avatar" data-user-initials></div>
                 <div>
@@ -92,6 +93,7 @@ ob_start();
                 <h1>Finance Department</h1>
                 <div class="school-topbar-sub" data-today></div>
             </div>
+            <div style="display:flex;align-items:center;gap:.75rem"><?php include __DIR__ . '/../../admin/components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
             <div class="school-status-badge">
                 <span class="school-status-dot"></span> Online
             </div>

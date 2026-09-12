@@ -10,6 +10,7 @@ import '../../widgets/feature_tile.dart';
 import '../../widgets/use_website_note.dart';
 import '../../utils/transitions.dart';
 import '../members/member_list_screen.dart';
+import '../../widgets/notification_bell_button.dart';
 
 class InfoHomeScreen extends StatefulWidget {
   const InfoHomeScreen({super.key});
@@ -58,7 +59,7 @@ class InfoHomeScreenState extends State<InfoHomeScreen> {
                 const Text('FKSS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 Text('የመረጃ ክፍል • Info Department', style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
-              actions: [IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],
+              actions: [const NotificationBellButton(color: Colors.white), IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],actions: [IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],
             ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),

@@ -219,6 +219,8 @@ $csrfToken = generateCsrfToken();
                         <p class="text-xs text-sky-100 amharic">እንኳን ደህና መጡ</p>
                     </div>
                 </div>
+                <div class="flex items-center gap-3">
+                <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
                 <div class="hidden sm:block text-right text-xs">
                     <div class="font-medium"><?= e($todayFormatted) ?></div>
                     <?php if ($currentYear): ?>

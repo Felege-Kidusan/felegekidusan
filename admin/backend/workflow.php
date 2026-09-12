@@ -20,20 +20,16 @@ if (!defined('DB_HOST')) {
     require_once __DIR__ . '/../config.php';
 }
 
-// Notification schema is deployment-managed by migration 012.
+// Notification schema is deployment-managed by migration 012
+// (+ 042 Communication Center tables). The service is the single writer.
+require_once __DIR__ . '/services/NotificationCenterService.php';
 
 /**
  * Department role mappings for notifications
  */
-$DEPT_ROLES = [
-    'super_admin' => 'Super Admin',
-    'school_admin' => 'School Admin',
-    'info_dept' => 'Information Dept',
-    'edu_dept' => 'Education Dept',
-    'finance_dept' => 'Finance Dept',
-    'material_dept' => 'Material Dept',
-    'mezmur_dept' => 'Mezmur Dept',
-];
+// P72: labels come from NotificationCenterService (single source of
+// truth — includes teachers, attendance takers and content editors).
+$DEPT_ROLES = \App\Services\NotificationCenterService::ROLE_LABELS;
 
 /**
  * Which departments should be notified for each event type
@@ -115,113 +111,51 @@ function sendNotification($conn, $type, $title, $message, $options = []) {
  * Get unread notifications for current user
  */
 function getUnreadNotifications($conn, $limit = 20) {
-    $userRole = $_SESSION['admin_role'] ?? '';
-    $userId = $_SESSION['admin_id'] ?? 0;
-    
-    try {
-        $stmt = $conn->prepare("
-            SELECT * FROM notifications 
-            WHERE is_read = 0 
-            AND (
-                FIND_IN_SET(?, target_roles) > 0 
-                OR target_user_id = ?
-                OR (target_roles IS NULL AND target_user_id IS NULL)
-            )
-            ORDER BY created_at DESC
-            LIMIT ?
-        ");
-        
-        if (!$stmt) return [];
-        
-        $stmt->bind_param("sii", $userRole, $userId, $limit);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $notifications = [];
-        while ($row = $result->fetch_assoc()) {
-            $row['data'] = $row['data'] ? json_decode($row['data'], true) : null;
-            $notifications[] = $row;
-        }
-        
-        return $notifications;
-    } catch (Exception $e) {
-        return [];
-    }
+    // P72: per-user read state via notification_reads (the global
+    // is_read column is no longer the source of truth for feeds).
+    $userRole = (string)($_SESSION['admin_role'] ?? '');
+    $userId = (int)($_SESSION['admin_id'] ?? 0);
+    $feed = \App\Services\NotificationCenterService::feed(
+        $conn, $userId, $userRole, max(1, min(50, (int)$limit)), 0, true
+    );
+    return $feed['rows'];
 }
 
 /**
  * Get unread notification count
  */
 function getUnreadNotificationCount($conn) {
-    $userRole = $_SESSION['admin_role'] ?? '';
-    $userId = $_SESSION['admin_id'] ?? 0;
-    
-    try {
-        $stmt = $conn->prepare("
-            SELECT COUNT(*) as cnt FROM notifications 
-            WHERE is_read = 0 
-            AND (
-                FIND_IN_SET(?, target_roles) > 0 
-                OR target_user_id = ?
-                OR (target_roles IS NULL AND target_user_id IS NULL)
-            )
-        ");
-        
-        if (!$stmt) return 0;
-        
-        $stmt->bind_param("si", $userRole, $userId);
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        
-        return (int)($result['cnt'] ?? 0);
-    } catch (Exception $e) {
-        return 0;
-    }
+    $userRole = (string)($_SESSION['admin_role'] ?? '');
+    $userId = (int)($_SESSION['admin_id'] ?? 0);
+    $summary = \App\Services\NotificationCenterService::unreadSummary($conn, $userId, $userRole);
+    return $summary['alerts'];
 }
 
 /**
  * Mark notification as read
  */
 function markNotificationRead($conn, $notificationId) {
-    try {
-        $role = (string)($_SESSION['admin_role'] ?? '');
-        $userId = (int)($_SESSION['admin_id'] ?? 0);
-        if ($userId <= 0) return false;
-        $allowed = "(FIND_IN_SET(?, target_roles) > 0 OR target_user_id = ?
-            OR (target_roles IS NULL AND target_user_id IS NULL))";
-        $find = $conn->prepare("SELECT id FROM notifications WHERE id=? AND $allowed");
-        $find->bind_param('isi', $notificationId, $role, $userId); $find->execute();
-        if (!$find->get_result()->fetch_assoc()) { $find->close(); return false; }
-        $find->close();
-        $stmt = $conn->prepare("UPDATE notifications SET is_read=1, read_at=NOW() WHERE id=? AND $allowed");
-        $stmt->bind_param('isi', $notificationId, $role, $userId);
-        $ok = $stmt->execute(); $stmt->close();
-        return $ok;
-    } catch (Exception $e) { return false; }
+    // P72: delegates to the Communication Center (per-user read state;
+    // still writes the legacy is_read column for compatibility).
+    $role = (string)($_SESSION['admin_role'] ?? '');
+    $userId = (int)($_SESSION['admin_id'] ?? 0);
+    return \App\Services\NotificationCenterService::markRead(
+        $conn, $userId, $role, (int)$notificationId
+    );
 }
 
 /**
  * Mark all notifications as read for current user
  */
 function markAllNotificationsRead($conn) {
-    try {
-        $userRole = $_SESSION['admin_role'] ?? '';
-        $userId = $_SESSION['admin_id'] ?? 0;
-        
-        $stmt = $conn->prepare("
-            UPDATE notifications SET is_read = 1, read_at = NOW()
-            WHERE is_read = 0 
-            AND (
-                FIND_IN_SET(?, target_roles) > 0 
-                OR target_user_id = ?
-                OR (target_roles IS NULL AND target_user_id IS NULL)
-            )
-        ");
-        
-        if (!$stmt) return false;
-        $stmt->bind_param("si", $userRole, $userId);
-        return $stmt->execute();
-    } catch (Exception $e) { return false; }
+    // P72: marks read for THE CURRENT USER ONLY (notification_reads
+    // pivot) — one user clearing their badge no longer clears the
+    // whole department's. Legacy is_read column still updated.
+    $userRole = (string)($_SESSION['admin_role'] ?? '');
+    $userId = (int)($_SESSION['admin_id'] ?? 0);
+    return \App\Services\NotificationCenterService::markAllRead(
+        $conn, $userId, $userRole
+    );
 }
 
 // ============================================================

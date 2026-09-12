@@ -63,6 +63,7 @@ ob_start();
                 </div>
             </button>
 
+            <div class="school-bell-slot"><?php include __DIR__ . '/../../admin/components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
             <div class="school-user-card">
                 <div class="school-user-avatar" data-user-initials></div>
                 <div>
@@ -85,6 +86,7 @@ ob_start();
                 <h1>Mezmur Department</h1>
                 <div class="school-topbar-sub" data-today></div>
             </div>
+            <div class="school-bell-inline"><?php include __DIR__ . '/../../admin/components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
             <div class="school-status-badge">
                 <span class="school-status-dot"></span> Online
             </div>

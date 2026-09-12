@@ -246,6 +246,10 @@ body.light-mode .school-sidebar {
     flex-direction: column;
     gap: 0.5rem;
 }
+/* P72 Notification Center slots (classes only — shell stays pure HTML) */
+.school-bell-slot { display: flex; justify-content: flex-end; padding: 0 .25rem .5rem; }
+.school-bell-inline { display: flex; align-items: center; gap: .75rem; }
+
 .school-user-card {
     display: flex;
     align-items: center;
