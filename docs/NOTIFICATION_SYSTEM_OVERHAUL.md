@@ -190,6 +190,6 @@ Any `edu_dept` / `material_dept` login therefore completed, redirected to `dashb
 
 **Production action:** `git pull` only — no SQL required for this fix (041/042 remain recommended for the feature's tables). Monitor row #615 was expected to read *Call to undefined function renderNotificationCenter()* in one of the two files above; confirming it closes the loop on the diagnosis.
 
-**Follow-up noted (non-blocking):** the component's JavaScript exposes a global `function empty(...)` (line 297) — a soft global-name-collision risk; rename to a namespaced name (`wbwsEmptyState`) in a future cosmetic pass.
+**Follow-up closed (verified non-issue):** the repo-wide audit sweep flagged the component's JS `function empty(...)` (line 297) as a possible global-name collision — a **false positive**: the component's entire script is wrapped in an IIFE (lines 223–518), so `empty()` and every other helper are closure-private; the component exposes no globals at all (its only `window.` reference is an event-listener registration, and no `window.empty` exists anywhere in the codebase). No rename needed — recorded here so the false lead is not chased again (and as a reminder that static sweeps cannot see scoping).
 
 Known follow-ups (non-blocking): tasks tab has no "create task" UI (pre-existing flow); announcements have no edit/delete (audit-trail-preserving by design); delivery is in-app only (email/SMS/push out of scope per §1 non-goals).
