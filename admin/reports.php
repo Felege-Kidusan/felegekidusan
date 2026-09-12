@@ -10,6 +10,7 @@
  */
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/ethiopian_date.php';
+require_once __DIR__ . '/backend/services/MemberCategory.php';
 
 if (empty($_SESSION['admin_logged_in'])) {
     header('Location: index.php');
@@ -136,7 +137,7 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
                 <div class="card-bd">
                     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Gender</label><select id="fGender" class="sel w-full"><option value="">All</option><option value="male">Male</option><option value="female">Female</option></select></div>
-                        <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Age Group</label><select id="fAge" class="sel w-full"><option value="">All</option><option value="7_13">ህጻናት (A)</option><option value="14_17">ማዕከላዊያን (B)</option><option value="18_plus">ወጣቶች (C)</option></select></div>
+                        <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Age Group</label><select id="fAge" class="sel w-full"><option value="">All</option><?php foreach (\App\Services\MemberCategory::sections() as $rpCode => $rpSec): ?><option value="<?= $rpCode ?>"><?= e($rpSec['am']) ?> (<?= e($rpSec['letter']) ?>)</option><?php endforeach; ?></select></div>
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Status</label><select id="fStatus" class="sel w-full"><option value="">All Active</option><option value="active">Active</option><option value="warning">Warning</option><option value="inactive">Inactive</option><option value="archived">Archived</option></select></div>
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Member Type</label><select id="fMemType" class="sel w-full"><option value="">All</option><option value="regular">Regular</option><option value="honorary">Honorary</option></select></div>
                         <div><label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Registration</label><select id="fRegType" class="sel w-full"><option value="">All</option><option value="direct">Direct</option><option value="transfer">Transfer</option><option value="waiting">Waiting</option></select></div>
@@ -221,6 +222,8 @@ $todayFormatted = ethio_date_format($today, 'F j, Y');
     </main>
     <div id="toastC"></div>
 
+<?php $rpLabels = array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()); ?>
+<script>const RP_SECTIONS=<?= json_encode($rpLabels, JSON_UNESCAPED_UNICODE) ?>;</script>
 <script>
 let AD=null,FM=[],CI={};
 const PAL=['#16a34a','#2563eb','#f59e0b','#dc2626','#8b5cf6','#06b6d4','#ec4899','#f97316','#14b8a6','#6366f1'];
@@ -267,7 +270,7 @@ function dO(p){return{responsive:true,maintainAspectRatio:false,cutout:'65%',plu
 function renderCharts(){
     const t=AD.totals;
     mc('cGender',{type:'doughnut',data:{labels:['Male','Female'],datasets:[{data:[t.male||0,t.female||0],backgroundColor:['#3b82f6','#ec4899'],borderWidth:0}]},options:dO()});
-    mc('cAgeGrp',{type:'doughnut',data:{labels:['ህጻናት (A)','ማዕከላዊያን (B)','ወጣቶች (C)'],datasets:[{data:[t.ag_7_13||0,t.ag_14_17||0,t.ag_18_plus||0],backgroundColor:['#3b82f6','#f59e0b','#ef4444'],borderWidth:0}]},options:dO()});
+    mc('cAgeGrp',{type:'doughnut',data:{labels:Object.values(RP_SECTIONS),datasets:[{data:[t.ag_7_13||0,t.ag_14_17||0,t.ag_18_plus||0],backgroundColor:['#3b82f6','#f59e0b','#ef4444'],borderWidth:0}]},options:dO()});
     mc('cStatus',{type:'doughnut',data:{labels:['Active','Warning','Inactive'],datasets:[{data:[t.active||0,t.warning||0,t.inactive||0],backgroundColor:['#16a34a','#f59e0b','#94a3b8'],borderWidth:0}]},options:dO()});
     const tr=AD.registration_trend||[];
     mc('cTrend',{type:'line',data:{labels:tr.map(x=>x.month),datasets:[{label:'Total',data:tr.map(x=>x.count),borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.08)',fill:true,tension:.4,borderWidth:2,pointRadius:4,pointBackgroundColor:'#16a34a'},{label:'Male',data:tr.map(x=>x.male_count),borderColor:'#3b82f6',backgroundColor:'transparent',tension:.4,borderWidth:1.5,borderDash:[4,4],pointRadius:3},{label:'Female',data:tr.map(x=>x.female_count),borderColor:'#ec4899',backgroundColor:'transparent',tension:.4,borderWidth:1.5,borderDash:[4,4],pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}}},scales:{y:{beginAtZero:true},x:{ticks:{font:{size:10}}}}}});
@@ -313,14 +316,14 @@ function applyF(){
             {l:'Total',v:sm.total||0,c:'#16a34a',b:'#d1fae5'},{l:'Male',v:sm.male||0,c:'#2563eb',b:'#dbeafe'},
             {l:'Female',v:sm.female||0,c:'#ec4899',b:'#fce7f3'},{l:'Active',v:sm.active||0,c:'#059669',b:'#d1fae5'},
             {l:'Warning',v:sm.warning||0,c:'#d97706',b:'#fef3c7'},
-            {l:'ህጻናት (A)',v:sm.ag7_13||0,c:'#3b82f6',b:'#dbeafe'},
-            {l:'ማዕከላዊያን (B)',v:sm.ag14_17||0,c:'#f59e0b',b:'#fef3c7'},
-            {l:'ወጣቶች (C)',v:sm.ag18_plus||0,c:'#f97316',b:'#ffedd5'}
+            {l:RP_SECTIONS['7_13'],v:sm.ag7_13||0,c:'#3b82f6',b:'#dbeafe'},
+            {l:RP_SECTIONS['14_17'],v:sm.ag14_17||0,c:'#f59e0b',b:'#fef3c7'},
+            {l:RP_SECTIONS['18_plus'],v:sm.ag18_plus||0,c:'#f97316',b:'#ffedd5'}
         ].map(k=>'<div class="sp" style="background:'+k.b+'"><div class="text-lg font-bold" style="color:'+k.c+'">'+Number(k.v).toLocaleString()+'</div><div class="text-[9px] font-medium" style="color:'+k.c+'80">'+k.l+'</div></div>').join('');
         if(d.count===0){document.getElementById('expEmpty').style.display='block';return;}
         document.getElementById('expRes').style.display='block';
         document.getElementById('expCount').textContent=d.count+' members found';
-        const agL={'7_13':'ህጻናት (A)','14_17':'ማዕከላዊያን (B)','18_plus':'ወጣቶች (C)'},stC={active:'ch-g',warning:'ch-a',inactive:'ch-r',archived:'ch-b'};
+        const agL=RP_SECTIONS,stC={active:'ch-g',warning:'ch-a',inactive:'ch-r',archived:'ch-b'};
         document.getElementById('expBody').innerHTML=FM.slice(0,500).map((m,i)=>
             '<tr><td>'+(i+1)+'</td><td class="font-medium">'+esc(sv(m.student_name)+' '+sv(m.father_name)+' '+sv(m.grandfather_name))+'</td>'+
             '<td><code class="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">'+esc(sv(m.member_code)||'—')+'</code></td>'+

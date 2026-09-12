@@ -12,6 +12,7 @@ require_once __DIR__ . '/backend/ethiopian_date.php';
 require_once __DIR__ . '/backend/workflow.php';
 require_once __DIR__ . '/backend/services/ExcelColumnMap.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
+require_once __DIR__ . '/backend/services/MemberCategory.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use App\Services\ExcelColumnMap;
@@ -224,6 +225,13 @@ try {
                 }
             }
 
+            if ($key === 'current_section' && $val !== '') {
+                // P71: normalize legacy section spellings onto the
+                // canonical names from App\Services\MemberCategory.
+                // Unknown values pass through untouched.
+                $normalized = \App\Services\MemberCategory::normalizeSectionAm($val);
+                if ($normalized !== null) { $val = $normalized; }
+            }
             $rowData[$key] = $val;
         }
 

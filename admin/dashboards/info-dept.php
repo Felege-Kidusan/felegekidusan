@@ -929,9 +929,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                 <select id="filterAgeGroup"
                                         class="text-xs border border-slate-200 rounded-xl px-2 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
                                     <option value="">Section (All)</option>
-                                    <option value="7_13">ህጻናት (A)</option>
-                                    <option value="14_17">ማዕከላዊያን (B)</option>
-                                    <option value="18_plus">ወጣቶች (C)</option>
+                                    <?php foreach (\App\Services\MemberCategory::sections() as $infoCode => $infoSec): ?><option value="<?= $infoCode ?>"><?= e($infoSec['am']) ?> (<?= e($infoSec['letter']) ?>)</option><?php endforeach; ?>
                                 </select>
                             </div>
                         </div>
@@ -1742,9 +1740,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                             </select>
                             <select id="manageFilterAgeGroup" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Age Groups</option>
-                                <option value="7_13">ህጻናት (A)</option>
-                                <option value="14_17">ማዕከላዊያን (B)</option>
-                                <option value="18_plus">ወጣቶች (C)</option>
+                                <?php foreach (\App\Services\MemberCategory::sections() as $infoCode => $infoSec): ?><option value="<?= $infoCode ?>"><?= e($infoSec['am']) ?> (<?= e($infoSec['letter']) ?>)</option><?php endforeach; ?>
                             </select>
                             <select id="manageFilterEducation" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Education Levels</option>
@@ -1786,7 +1782,8 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
             </section>
 
 <script src="/admin/js/paginated-list.js"></script>
-<script src="/admin/js/all-members.js" defer></script>
+<script>window.WBWS_SECTIONS=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;</script>
+        <script src="/admin/js/all-members.js" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>
@@ -2429,9 +2426,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                                     <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Default Age Group</label>
                                     <select id="defAgeGroup" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-teal-200 focus:border-teal-400">
                                         <option value="">None (manual selection)</option>
-                                        <option value="7_13">ህጻናት (7-13)</option>
-                                        <option value="14_17">ማዕከላዊያን (14-17)</option>
-                                        <option value="18_plus">ወጣቶች (18+)</option>
+                                        <?php foreach (\App\Services\MemberCategory::sections() as $infoCode => $infoSec): ?><option value="<?= $infoCode ?>"><?= e($infoSec['am']) ?> (<?= e($infoSec['ages']) ?>)</option><?php endforeach; ?>
                                     </select>
                                 </div>
                                 <div>

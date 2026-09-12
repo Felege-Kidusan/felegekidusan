@@ -21,7 +21,10 @@
     function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
     function sectionLabel(group) {
-        var map = { '7_13': 'ህጻናት (A)', '14_17': 'ማዕከላዊያን (B)', '18_plus': 'ወጣቶች (C)' };
+        // P71: labels come from the single source of truth — the page
+        // (hr-dept / info-dept) injects window.WBWS_SECTIONS from
+        // App\Services\MemberCategory. Raw codes still render if absent.
+        var map = window.WBWS_SECTIONS || {};
         return map[group] || group || '—';
     }
 

@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
+require_once __DIR__ . '/../backend/services/MemberCategory.php';
 
 // Practice members are loaded only from Super Admin → Load button.
 // Never write on a GET. That used to hold the only PHP worker and
@@ -60,7 +61,9 @@ $csrfToken = generateCsrfToken();
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>Education Department — <?= SCHOOL_NAME_SHORT ?></title>
-<script>const CSRF_TOKEN='<?= $csrfToken ?>';</script>
+<script>const CSRF_TOKEN='<?= $csrfToken ?>';
+/* P71: section/age-group definition injected from App\Services\MemberCategory (single source of truth). secCode('ህጻናት') maps legacy section names onto codes. */
+const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSON_UNESCAPED_UNICODE) ?>;function eduSecLabel(code){const s=EDU_SECTIONS[code];return s?s.am+' · '+s.ages:(code||'—');}function eduSecCode(name){if(!name)return '';if(EDU_SECTIONS[name])return name;for(const c in EDU_SECTIONS){if(EDU_SECTIONS[c].am===name)return c;}return '';}</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -290,16 +293,16 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
     body.page-edu #teacherBody td:nth-child(4)::before { content: 'Member Link'; }
     body.page-edu #teacherBody td:nth-child(5)::before { content: 'Assignments'; }
     body.page-edu #teacherBody td:nth-child(6)::before { content: 'Status'; }
-    /* Classes (9 cols) — Order is a corner chip, Amharic name is the title */
+    /* Classes (8 cols — P71 merged Section+Age Group) — Order is a corner
+       chip, Amharic name is the title */
     body.page-edu #classBody td:nth-child(1) { grid-column: auto; grid-row: 1; align-self: center; }
     body.page-edu #classBody td:nth-child(2) { grid-column: 2 / -1; grid-row: 1; }
     body.page-edu #classBody td:nth-child(2)::before { display: none; }
     body.page-edu #classBody td:nth-child(3)::before { content: 'Name (English)'; }
     body.page-edu #classBody td:nth-child(4)::before { content: 'Code'; }
-    body.page-edu #classBody td:nth-child(5)::before { content: 'Section'; }
-    body.page-edu #classBody td:nth-child(6)::before { content: 'Age Group'; }
-    body.page-edu #classBody td:nth-child(7)::before { content: 'Students'; }
-    body.page-edu #classBody td:nth-child(8)::before { content: 'Status'; }
+    body.page-edu #classBody td:nth-child(5)::before { content: 'Section / Age'; }
+    body.page-edu #classBody td:nth-child(6)::before { content: 'Students'; }
+    body.page-edu #classBody td:nth-child(7)::before { content: 'Status'; }
     /* Subjects (5 cols, PHP-rendered) */
     body.page-edu #sec-subjects .dt td:nth-child(2)::before { content: 'Subject (English)'; }
     body.page-edu #sec-subjects .dt td:nth-child(3)::before { content: 'Code'; }
@@ -547,7 +550,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <!-- ═══ CLASSES ═══ -->
 <div id="sec-classes" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-school" style="color:#0ea5e9"></i> Classes</h2><p style="font-size:.75rem;color:#64748b" class="amharic">ክፍሎች አስተዳደር</p></div><button class="btn btn-p" onclick="openClassModal()"><i class="fa-solid fa-plus"></i> Add Class</button></div>
-<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Order</th><th>Name (Amharic)</th><th>Name (English)</th><th>Code</th><th>Section</th><th>Age Group</th><th>Students</th><th>Status</th><th>Actions</th></tr></thead><tbody id="classBody"></tbody></table></div></div>
+<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Order</th><th>Name (Amharic)</th><th>Name (English)</th><th>Code</th><th>Section / Age</th><th>Students</th><th>Status</th><th>Actions</th></tr></thead><tbody id="classBody"></tbody></table></div></div>
 </div>
 
 <!-- ═══ SUBJECTS ═══ -->
@@ -607,7 +610,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div><label class="lbl">Class</label><select id="rosterClass" class="inp" onchange="loadRoster(1)"><option value="">All classes</option><option value="unassigned">Unassigned</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Gender</label><select id="rosterGender" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="male">Male</option><option value="female">Female</option></select></div>
 <div><label class="lbl">Type</label><select id="rosterType" class="inp" onchange="loadRoster(1)"><option value="">All types</option><option value="regular">Regular</option><option value="special_regular">Special</option><option value="honorary">Honorary</option></select></div>
-<div><label class="lbl">Age</label><select id="rosterAge" class="inp" onchange="loadRoster(1)"><option value="">All</option><option value="7_13">7–13</option><option value="14_17">14–17</option><option value="18_plus">18+</option></select></div>
+<div><label class="lbl">Age</label><select id="rosterAge" class="inp" onchange="loadRoster(1)"><option value="">All</option><?php foreach (\App\Services\MemberCategory::sections() as $eduCode => $eduSec): ?><option value="<?= $eduCode ?>"><?= e($eduSec['am']) ?> (<?= e($eduSec['ages']) ?>)</option><?php endforeach; ?></select></div>
 <div><label class="lbl">Sort</label><select id="rosterSort" class="inp" onchange="loadRoster(1)"><option value="name">Name</option><option value="code">Code</option><option value="class">Class</option></select></div>
 </div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-top:.65rem">
@@ -626,7 +629,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div><label class="lbl">Search Members</label><input autocomplete="off" type="text" id="unassignedSearch" class="inp" placeholder="Search by name or code..." oninput="debounceUnassigned()"></div>
 <div><label class="lbl">Gender</label><select id="unassignedGender" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="male">Male ♂</option><option value="female">Female ♀</option></select></div>
 <div><label class="lbl">Type</label><select id="unassignedMType" class="inp" onchange="loadUnassigned()"><option value="">All Types</option><option value="regular">Regular</option><option value="special_regular">Special</option><option value="honorary">Honorary</option></select></div>
-<div><label class="lbl">Age Group</label><select id="unassignedAge" class="inp" onchange="loadUnassigned()"><option value="">All</option><option value="7_13">7-13</option><option value="14_17">14-17</option><option value="18_plus">18+</option></select></div>
+<div><label class="lbl">Age Group</label><select id="unassignedAge" class="inp" onchange="loadUnassigned()"><option value="">All</option><?php foreach (\App\Services\MemberCategory::sections() as $eduCode => $eduSec): ?><option value="<?= $eduCode ?>"><?= e($eduSec['am']) ?> (<?= e($eduSec['ages']) ?>)</option><?php endforeach; ?></select></div>
 <div><label class="lbl">Enroll To</label><select id="unassignedTargetClass" class="inp"><option value="">— Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <button class="btn btn-s" onclick="bulkEnrollSelected()"><i class="fa-solid fa-users"></i> Enroll Selected</button>
 </div>
@@ -835,8 +838,10 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div><label class="lbl">Name (English)</label><input id="classNameEn" class="inp" placeholder="Grade 1"></div>
 <div><label class="lbl">Code *</label><input id="classCode" class="inp" placeholder="grade_1"></div>
 <div><label class="lbl">Level Order</label><input type="number" id="classLevel" class="inp" value="1" min="1"></div>
-<div><label class="lbl">Section</label><select id="classSection" class="inp"><option value="">—</option><option value="ልጆች">ልጆች (Children)</option><option value="ማእከላዊ">ማእከላዊ (Middle)</option><option value="ሰበካ">ሰበካ (Parish)</option></select></div>
-<div><label class="lbl">Age Group</label><select id="classAge" class="inp"><option value="">—</option><option value="7_13">7-13</option><option value="14_17">14-17</option><option value="18_plus">18+</option></select></div>
+<?php /* P71: ONE select — section IS the age group (App\Services\MemberCategory).
+         Value = the stored age_group code; the section name is derived
+         server-side in api_education save_class. */ ?>
+<div style="grid-column:1/-1"><label class="lbl">Section / Age Group</label><select id="classAge" class="inp"><option value="">—</option><?php foreach (\App\Services\MemberCategory::sections() as $eduCode => $eduSec): ?><option value="<?= $eduCode ?>"><?= e($eduSec['am']) ?> · <?= e($eduSec['ages']) ?> (<?= e($eduSec['en']) ?>)</option><?php endforeach; ?></select></div>
 </div>
 <div style="margin-top:.75rem"><label class="lbl">Description</label><textarea id="classDesc" class="inp" rows="2"></textarea></div>
 <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem"><button class="btn btn-o" onclick="closeModal('classModal')">Cancel</button><button class="btn btn-p" onclick="saveClass()"><i class="fa-solid fa-save"></i> Save</button></div>
@@ -900,7 +905,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:end;margin-bottom:.75rem">
 <div style="min-width:140px"><label class="lbl">Filter</label>
-<select id="bulkFilter" class="inp" onchange="loadBulkCandidates()"><option value="">All unassigned</option><option value="male">Male</option><option value="female">Female</option><option value="7_13">7–13</option><option value="14_17">14–17</option><option value="18_plus">18+</option></select></div>
+<select id="bulkFilter" class="inp" onchange="loadBulkCandidates()"><option value="">All unassigned</option><option value="male">Male</option><option value="female">Female</option><?php foreach (\App\Services\MemberCategory::sections() as $eduCode => $eduSec): ?><option value="<?= $eduCode ?>"><?= e($eduSec['am']) ?> (<?= e($eduSec['ages']) ?>)</option><?php endforeach; ?></select></div>
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
 <label style="font-size:.75rem;color:#64748b"><input type="checkbox" id="bulkSelectAll" onchange="toggleBulkAll()"> Select all on this list</label>
@@ -1336,10 +1341,10 @@ async function deleteTeacher(id,name){if(!confirm(`Delete teacher "${name}"? Thi
 function exportTeachers(){if(!allTeachers.length)return toast('No data','err');const h=['Name','Username','Email','Status','Assignments'];const r=allTeachers.map(t=>[t.full_name,t.username,t.email||'',t.is_active==1?'Active':'Inactive',t.assigned_classes||0]);const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Teachers');XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_Teachers.xlsx');}
 
 // ═══ CLASSES ═══
-async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td>${esc(c.section||'—')}</td><td>${esc((c.age_group||'').replace(/_/g,' '))}</td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
-function openClassModal(){document.getElementById('classFormId').value=0;document.getElementById('className').value='';document.getElementById('classNameEn').value='';document.getElementById('classCode').value='';document.getElementById('classLevel').value='1';document.getElementById('classSection').value='';document.getElementById('classAge').value='';document.getElementById('classDesc').value='';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-school"></i> Add Class';document.getElementById('classModal').classList.add('show');}
-function editClass(c){document.getElementById('classFormId').value=c.id;document.getElementById('className').value=c.class_name||'';document.getElementById('classNameEn').value=c.class_name_en||'';document.getElementById('classCode').value=c.class_code||'';document.getElementById('classLevel').value=c.level_order||1;document.getElementById('classSection').value=c.section||'';document.getElementById('classAge').value=c.age_group||'';document.getElementById('classDesc').value=c.description||'';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Class';document.getElementById('classModal').classList.add('show');}
-async function saveClass(){const fd=new FormData();fd.append('action','save_class');fd.append('id',document.getElementById('classFormId').value);fd.append('class_name',document.getElementById('className').value);fd.append('class_name_en',document.getElementById('classNameEn').value);fd.append('class_code',document.getElementById('classCode').value);fd.append('level_order',document.getElementById('classLevel').value);fd.append('section',document.getElementById('classSection').value);fd.append('age_group',document.getElementById('classAge').value);fd.append('description',document.getElementById('classDesc').value);fd.append('is_active','1');try{const d=await postAPI('/admin/api_education.php',fd);if(d.status==='success'){toast('Class saved!');closeModal('classModal');loadClasses();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
+async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td><span class="ch ch-p">${esc(eduSecLabel(c.age_group||eduSecCode(c.section)))}</span></td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
+function openClassModal(){document.getElementById('classFormId').value=0;document.getElementById('className').value='';document.getElementById('classNameEn').value='';document.getElementById('classCode').value='';document.getElementById('classLevel').value='1';document.getElementById('classAge').value='';document.getElementById('classDesc').value='';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-school"></i> Add Class';document.getElementById('classModal').classList.add('show');}
+function editClass(c){document.getElementById('classFormId').value=c.id;document.getElementById('className').value=c.class_name||'';document.getElementById('classNameEn').value=c.class_name_en||'';document.getElementById('classCode').value=c.class_code||'';document.getElementById('classLevel').value=c.level_order||1;document.getElementById('classAge').value=c.age_group||eduSecCode(c.section);document.getElementById('classDesc').value=c.description||'';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Class';document.getElementById('classModal').classList.add('show');}
+async function saveClass(){const fd=new FormData();fd.append('action','save_class');fd.append('id',document.getElementById('classFormId').value);fd.append('class_name',document.getElementById('className').value);fd.append('class_name_en',document.getElementById('classNameEn').value);fd.append('class_code',document.getElementById('classCode').value);fd.append('level_order',document.getElementById('classLevel').value);fd.append('age_group',document.getElementById('classAge').value);fd.append('description',document.getElementById('classDesc').value);fd.append('is_active','1');try{const d=await postAPI('/admin/api_education.php',fd);if(d.status==='success'){toast('Class saved!');closeModal('classModal');loadClasses();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
 async function deleteClass(id){if(!confirm('Delete this class?'))return;const fd=new FormData();fd.append('action','delete_class');fd.append('class_id',id);try{const d=await postAPI('/admin/api_education.php',fd);toast(d.message,d.status==='success'?'ok':'err');if(d.status==='success')loadClasses();}catch(e){toast('Error','err');}}
 
 // ═══ SUBJECTS ═══
@@ -1677,7 +1682,7 @@ async function loadUnassigned(page=1) {
                 <td><span class="ch ch-i">${esc(x.member_code||'—')}</span></td>
                 <td>${mtBadge(x.member_type)}</td>
                 <td>${x.gender==='male'?'<span style="color:#2563eb">♂ Male</span>':'<span style="color:#ec4899">♀ Female</span>'}</td>
-                <td style="font-size:.75rem">${esc((x.age_group||'').replace(/_/g,' '))}</td>
+                <td style="font-size:.75rem">${esc(eduSecLabel(x.age_group))}</td>
                 <td style="font-size:.75rem">${esc(x.phone_number||x.phone_primary||'—')}</td>
             </tr>`).join('')}</tbody></table></div>`:'<div style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-check-circle" style="font-size:2rem;color:#059669;display:block;margin-bottom:.5rem"></i>All members are enrolled!</div>'}
             ${unassignedFooter(from,to,total,pages)}

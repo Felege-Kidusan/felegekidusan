@@ -9,11 +9,9 @@ use RuntimeException;
 
 final class MemberReportRenderer
 {
-    private const AGE_LABELS = [
-        '7_13' => 'ህጻናት (A)',
-        '14_17' => 'ማዕከላዊያን (B)',
-        '18_plus' => 'ወጣቶች (C)',
-    ];
+    /* P71: age-group labels come from MemberCategory (the single source
+       of truth) — sectionAm() returns the canonical section name, which
+       after sql/041 equals the age group's display name. */
 
     /**
      * @param array{total:int,male:int,female:int,active:int,warning:int} $summary
@@ -206,7 +204,11 @@ final class MemberReportRenderer
     private static function tableRow(array $member, int $number, bool $statusStyle): string
     {
         $name = trim($member['student_name'] . ' ' . $member['father_name'] . ' ' . $member['grandfather_name']);
-        $age = self::AGE_LABELS[$member['age_group']] ?? $member['age_group'];
+        $ageLetter = MemberCategory::letterFor($member['age_group'] ?? null);
+        $ageSection = MemberCategory::sectionAm($member['age_group'] ?? null);
+        $age = $ageSection !== null && $ageLetter !== null
+            ? $ageSection . ' (' . $ageLetter . ')'
+            : (string)($member['age_group'] ?? '');
         $gender = $member['gender'] === 'male' ? 'M' : ($member['gender'] === 'female' ? 'F' : '');
         $status = self::h($member['status']);
         if ($statusStyle) {

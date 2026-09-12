@@ -8,6 +8,7 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../backend/ethiopian_date.php';
 require_once __DIR__ . '/../backend/calendar_system.php';
+require_once __DIR__ . '/../backend/services/MemberCategory.php';
 
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'School Admin';
 $username = $_SESSION['admin_username'] ?? '';
@@ -383,7 +384,7 @@ select.inp{cursor:pointer}
 <div><label class="flbl">Section</label><select id="fSection" class="inp" style="width:100%" onchange="applyFilters()"><option value="">All</option></select></div>
 <div><label class="flbl">Reg Type</label><select id="fRegType" class="inp" style="width:100%" onchange="applyFilters()"><option value="">All</option><option value="waiting">Waiting</option><option value="transfer">Transfer</option><option value="direct">Direct</option></select></div>
 <div><label class="flbl">Member Type</label><select id="fMemberType" class="inp" style="width:100%" onchange="applyFilters()"><option value="">All</option><option value="regular">Regular</option><option value="special_regular">Special Regular</option><option value="honorary">Honorary</option></select></div>
-<div><label class="flbl">Age Group</label><select id="fAgeGroup" class="inp" style="width:100%" onchange="applyFilters()"><option value="">All</option><option value="7_13">ህጻናት (A)</option><option value="14_17">ማዕከላዊያን (B)</option><option value="18_plus">ወጣቶች (C)</option></select></div>
+<div><label class="flbl">Age Group</label><select id="fAgeGroup" class="inp" style="width:100%" onchange="applyFilters()"><option value="">All</option><?php foreach (\App\Services\MemberCategory::sections() as $saCode => $saSec): ?><option value="<?= $saCode ?>"><?= e($saSec['am']) ?> (<?= e($saSec['letter']) ?>)</option><?php endforeach; ?></select></div>
 <div><label class="flbl">City</label><input autocomplete="off" type="text" id="fCity" class="inp" style="width:100%" placeholder="City..." oninput="applyFilters()"></div>
 </div></div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:.3rem"><div id="resultCount" style="font-size:.72rem;color:var(--dim)">Loading...</div><div style="display:flex;align-items:center;gap:.4rem"><label style="font-size:.6rem;color:var(--dim)">Per page:</label><select id="perPage" class="inp bs" onchange="applyFilters()" style="width:auto"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select></div></div>
@@ -1302,7 +1303,7 @@ function dlFile(content,filename,mime){const b=new Blob([content],{type:mime+';c
 function stBg(s){const m={active:'bg-ok',warning:'bg-w',inactive:'bg-bad'};return`<span class="bg ${m[s]||'bg-info'}">${s||'—'}</span>`;}
 function rgBg(t){const m={waiting:'bg-w',transfer:'bg-info',direct:'bg-ok'};return`<span class="bg ${m[t]||'bg-info'}">${t||'—'}</span>`;}
 function rlBg(r){const m={super_admin:'bg-bad',school_admin:'bg-info',hr_dept:'bg-pink',info_dept:'bg-ok',edu_dept:'bg-p',finance_dept:'bg-w',material_dept:'bg-p',mezmur_dept:'bg-pink',teacher:'bg-info',attendance_taker:'bg-ok'};return`<span class="bg ${m[r]||'bg-info'}">${(r||'').replace(/_/g,' ')}</span>`;}
-function fmtAge(g){const m={'7_13':'ህጻናት (A)','14_17':'ማዕከላዊያን (B)','18_plus':'ወጣቶች (C)'};return m[g]||g||'—';}
+function fmtAge(g){const m=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';},\App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;return m[g]||g||'—';}
 function fmtDate(d){if(!d)return'—';if(typeof WBWSCalendar!=='undefined')return WBWSCalendar.formatDate(d,'medium');try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
 // Shared report formatting keeps optional calendar failures out of export flows.
 function genStamp(){return typeof WBWSReportFormat!=='undefined'?WBWSReportFormat.timestamp():new Date().toISOString();}

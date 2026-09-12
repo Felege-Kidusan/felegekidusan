@@ -15,6 +15,7 @@ require_once __DIR__ . '/backend/services/AttendanceRecordService.php';
 use App\Services\AssignmentService;
 use App\Services\AttendanceRecordService;
 use App\Services\EnrollmentService;
+use App\Services\MemberCategory;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
@@ -633,7 +634,21 @@ switch ($action) {
         $code = trim($_POST['class_code'] ?? '');
         $level = (int)($_POST['level_order'] ?? 0);
         $section = trim($_POST['section'] ?? '');
-        $ageGroup = $_POST['age_group'] ?? null;
+        $ageGroup = trim((string)($_POST['age_group'] ?? ''));
+        // P71 — single source of truth (App\Services\MemberCategory):
+        // section IS the age group's name. The UI posts one Section/Age
+        // select (the age_group code); the section name is always DERIVED
+        // server-side so the stored pair can never disagree. A legacy
+        // client that posts only a section name still resolves through
+        // the canonical map; unknown values are rejected, never guessed.
+        if ($ageGroup !== '' && !in_array($ageGroup, MemberCategory::groups(), true)) {
+            echo json_encode(['status' => 'error', 'message' => 'Unknown section / age group. Please pick one of the sections listed in the form.']);
+            exit;
+        }
+        if ($ageGroup === '') {
+            $ageGroup = MemberCategory::ageGroupForSectionAm($section) ?? '';
+        }
+        $section = $ageGroup !== '' ? (MemberCategory::sectionAm($ageGroup) ?? '') : '';
         // ENUM columns reject empty strings — convert to NULL
         if ($ageGroup === '' || $ageGroup === null) {
             $ageGroup = null;
@@ -1155,7 +1170,7 @@ switch ($action) {
         $w=["m.status='active'"]; $p=[]; $t='';
         if ($search!=='') { $w[]="(m.student_name LIKE ? OR m.father_name LIKE ? OR m.member_code LIKE ? OR m.baptismal_name LIKE ?)"; $st="%$search%"; $p=array_merge($p,[$st,$st,$st,$st]); $t.='ssss'; }
         if ($genderFilter!=='' && in_array($genderFilter,['male','female'])) { $w[]="m.gender=?"; $p[]=$genderFilter; $t.='s'; }
-        if ($ageGroupFilter!=='' && in_array($ageGroupFilter,['7_13','14_17','18_plus'])) { $w[]="m.age_group=?"; $p[]=$ageGroupFilter; $t.='s'; }
+        if ($ageGroupFilter!=='' && in_array($ageGroupFilter, MemberCategory::groups(), true)) { $w[]="m.age_group=?"; $p[]=$ageGroupFilter; $t.='s'; }
         if ($memberTypeFilter!=='' && in_array($memberTypeFilter,['regular','special_regular','honorary'])) { $w[]="m.member_type=?"; $p[]=$memberTypeFilter; $t.='s'; }
         $wc=implode(' AND ',$w);
         $csql="SELECT COUNT(*) as total FROM members m WHERE $wc AND m.id NOT IN (SELECT ce.member_id FROM class_enrollments ce WHERE ce.academic_year_id=? AND ce.status='active')";
@@ -1306,7 +1321,7 @@ switch ($action) {
             $p[] = $gender;
             $t .= 's';
         }
-        if ($ageGroup !== '' && in_array($ageGroup, ['7_13', '14_17', '18_plus'], true)) {
+        if ($ageGroup !== '' && in_array($ageGroup, MemberCategory::groups(), true)) {
             $w[] = 'm.age_group = ?';
             $p[] = $ageGroup;
             $t .= 's';
