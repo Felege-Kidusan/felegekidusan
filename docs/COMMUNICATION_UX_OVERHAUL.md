@@ -1,6 +1,6 @@
 # Communication Center UX Overhaul — Master Plan (P73)
 
-**Status:** Phase 2 complete (shipped) — the Communication section now lives on every dashboard + the two thin-shell pages. Phase 3 (Telegram-grade messaging redesign) is next. This document is the single source of truth for
+**Status:** Phase 2 complete + Phase 2.1 isolation hotfix (shipped) — the Communication section lives on every dashboard + the two thin-shell pages, and the shared component is isolation-hardened (self-bootstrapping + error boundary). Phase 3 (Telegram-grade messaging redesign) is next. This document is the single source of truth for
 the overhaul: the request contract, the verified defect trace, research
 conclusions, the target architecture, and the phase plan. Each phase ships
 independently, keeps the full test matrix green, and confirms the five
@@ -209,3 +209,44 @@ Email/SMS/push delivery; real-time WebSockets/SSE (shared hosting — polling
 with conditional requests instead); message media attachments; typing
 indicators requiring server push (Phase 3 may add a polling-based indicator
 only if it stays cheap).
+
+
+## §9 Phase 2.1 — Component isolation hotfix (mezmur & finance white pages)
+
+**Incident.** After Phase 1/2, the Mezmur and Finance frontend shells rendered
+as unstyled text (white page): the output truncated at the sidebar's
+`school-bell-slot`, so no `<head>` (theme.css), no main content, no logout,
+and no bell. The notification center component called the host's `e()` helper
+unguarded, but frontend shells buffer their body BEFORE requiring
+`layouts/base.php` (which loads `config.php`, where `e()` lives) →
+`Call to undefined function e()` → fatal mid-page. Admin pages always load
+config first, which is why only the two frontend shells broke. Even without
+the fatal, the CSRF token would have been empty on those pages (silent
+write-failures — the exact P72 bug class returning).
+
+**Fix — three industry-standard layers (researched, not invented):**
+
+1. **Self-bootstrapping component** (design-system doctrine: a shared
+   component owns its dependencies): `ncEnsureBootstrapped()` requires
+   `config.php` when `ROOT_PATH` is undefined — the identical pattern
+   `layouts/base.php` itself uses. Guarantees `generateCsrfToken()`,
+   session and constants regardless of host include order.
+2. **Error boundary** (the React error-boundary pattern used at scale by
+   Meta/Google): both public render functions catch `Throwable`, report via
+   `error_log` (feeds /monitor), and degrade to rendering nothing. A broken
+   notification UI can never again blank a whole dashboard. Verified by
+   sabotage test: a throwing component now costs only the bell.
+3. **Zero host-helper calls**: escaping uses the private `ncEsc()`
+   (`htmlspecialchars`) instead of the host's `e()`; CSRF keeps its
+   `function_exists` guard and now receives a REAL token on every page.
+
+**Regression pins** (tests/security/test_notification_center.py §10):
+self-bootstrap block, two `catch (Throwable)` boundaries, `ncEsc` usage
+(`e($ncCsrf)` must never return), and the include-order fact
+(bell before base.php) that makes the contract necessary.
+
+**Verification protocol fix.** The Phase-1 smoke check read only the last
+output line (`===DONE`), which masked the `===HARNESS-UNCAUGHT` marker
+printed just before it. The harness protocol now greps the FULL output for
+any failure marker on every page (31 runtime checks clean: 10 dashboards,
+5 pages, 13 roles, login POST, 2 frontend pages).

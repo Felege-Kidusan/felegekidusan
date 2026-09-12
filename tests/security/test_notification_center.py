@@ -423,6 +423,45 @@ class NotificationCenterTests(unittest.TestCase):
             src = (ROOT / page).read_text(encoding="utf-8")
             self.assertIn("$NC_COMM_CTX", src)
 
+    # ── 10. P73 Phase 2.1 — component isolation contract ────────
+    # (Incident: the mezmur & finance shells rendered white — the component
+    #  fataled on e() because frontend pages buffer their body BEFORE
+    #  layouts/base.php loads config.php. Contract below = the fix.)
+    def test_component_is_self_bootstrapping(self):
+        """The component may render before config.php is loaded (frontend
+        shells). It must bootstrap config itself — the exact pattern
+        layouts/base.php uses — so generateCsrfToken() & co. always exist."""
+        self.assertIn("function ncEnsureBootstrapped", self.bell)
+        self.assertIn("defined('ROOT_PATH')", self.bell)
+        self.assertIn("require_once $cfg", self.bell)
+
+    def test_component_has_error_boundaries(self):
+        """Error-boundary pattern (React): a broken component degrades to
+        rendering nothing — it may NEVER kill the host page. Both public
+        render functions catch Throwable and report to error_log."""
+        self.assertEqual(self.bell.count("catch (Throwable $t)"), 2)
+        self.assertIn("error_log('[notification_center]", self.bell)
+
+    def test_component_uses_no_host_helpers(self):
+        """Zero unguarded host-function calls: escaping goes through the
+        private ncEsc() (not the host's e()); CSRF stays guarded."""
+        self.assertNotIn(" e($ncCsrf)", self.bell)     # the exact fatal line
+        self.assertIn("ncEsc($ncCsrf)", self.bell)
+        self.assertRegex(self.bell, r"function ncEsc\(")
+        self.assertIn("function_exists('generateCsrfToken')", self.bell)
+
+    def test_frontend_shells_render_bell_before_base(self):
+        """Pin the architectural fact behind the incident: frontend shells
+        include the component inside the buffered body, BEFORE requiring
+        layouts/base.php — so the component MUST stay self-sufficient."""
+        for page in ("frontend/pages/mezmur_dept.php", "frontend/pages/finance_dept.php"):
+            src = (ROOT / page).read_text(encoding="utf-8")
+            self.assertLess(
+                src.index("notification_center.php"),
+                src.index("layouts/base.php"),
+                f"{page}: bell include runs before base.php — keep it working")
+            self.assertIn("renderNotificationCenter()", src)
+
     # ── 8. security posture of the new surfaces ───────────────
     def test_service_uses_prepared_statements_only(self):
         """Raw query() calls in the service must only ever carry ints."""

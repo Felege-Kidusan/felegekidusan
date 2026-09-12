@@ -26,6 +26,23 @@
  *     full-screen takeover; safe-area aware; closes on scrim/Escape.
  *   • Self-contained CSRF token (fixes the legacy bell's silent-write
  *     bug; carried via data-csrf on the panel).
+ *
+ * COMPONENT CONTRACT (P73 Phase 2.1 — isolation hardening):
+ *   A shared component must NEVER depend on the host page's load order
+ *   and must NEVER be able to kill the page that hosts it.
+ *     1. Self-bootstrapping: if config.php is not loaded yet (frontend
+ *        shells buffer their body BEFORE requiring layouts/base.php),
+ *        the component loads it itself — exactly like base.php does.
+ *     2. Error boundary (the React error-boundary pattern): every
+ *        public render function catches Throwable, reports to
+ *        error_log (→ /monitor), and degrades to rendering nothing.
+ *        A broken notification UI may never blank a whole dashboard —
+ *        the exact regression that took the mezmur & finance shells
+ *        down ("Call to undefined function e()").
+ *     3. Zero host-helper calls: escaping uses the private ncEsc()
+ *        instead of the host's e(); CSRF falls back to '' only when
+ *        config could not be loaded (writes then fail loudly at the
+ *        API instead of silently).
  * Legacy: renderNotificationBell() (notification_bell.php) still
  * delegates here, so old includes keep working.
  */
@@ -39,9 +56,27 @@ function ncAssetVersion(): string
     return '73.2';
 }
 
+/** Self-contained HTML escaper — never call the host's helpers. */
+function ncEsc($value): string
+{
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
+/**
+ * Guarantee the component's real dependencies (config.php: session,
+ * CSRF token factory, constants) regardless of the host page's include
+ * order. Idempotent: a no-op once config.php has run (ROOT_PATH set).
+ */
+function ncEnsureBootstrapped(): void
+{
+    if (defined('ROOT_PATH')) { return; }
+    $cfg = dirname(__DIR__, 2) . '/config.php';   // admin/components/ → root
+    if (is_file($cfg)) { require_once $cfg; }
+}
+
 /** Emit the shared stylesheet, the ONE panel + scrim, and the runtime
  *  exactly once per page. */
-function renderNotificationCenterAssets(): string
+function ncRenderPanel(): string
 {
     static $emitted = false;
     if ($emitted) { return ''; }
@@ -54,7 +89,7 @@ function renderNotificationCenterAssets(): string
     ob_start();
     ?>
     <link rel="stylesheet" href="/admin/css/comm.css?v=<?= $v ?>">
-    <div class="nc-panel" data-nc-panel data-csrf="<?= e($ncCsrf) ?>" data-api="/admin/api_notifications.php"
+    <div class="nc-panel" data-nc-panel data-csrf="<?= ncEsc($ncCsrf) ?>" data-api="/admin/api_notifications.php"
          role="dialog" aria-label="Notifications" tabindex="-1" hidden>
         <div class="nc-head">
             <span class="nc-title"><i class="fa-solid fa-bell" aria-hidden="true"></i> Notifications</span>
@@ -84,19 +119,40 @@ function renderNotificationCenterAssets(): string
     return ob_get_clean();
 }
 
+/** Public: assets only. Error boundary — may never kill the host page. */
+function renderNotificationCenterAssets(): string
+{
+    try {
+        ncEnsureBootstrapped();
+        return ncRenderPanel();
+    } catch (Throwable $t) {
+        error_log('[notification_center] assets render failed: ' . $t->getMessage()
+            . ' @ ' . $t->getFile() . ':' . $t->getLine());
+        return '';
+    }
+}
+
 /**
  * Render one bell placement. Every bell on the page shares the single
- * panel + poll emitted by renderNotificationCenterAssets().
+ * panel + poll emitted by the assets. Error boundary — may never kill
+ * the host page (degrades to no bell instead).
  */
 function renderNotificationCenter(): string
 {
-    return renderNotificationCenterAssets()
-        . '<div class="nc-root">'
-        . '<button type="button" class="nc-bell" aria-haspopup="dialog" aria-expanded="false" aria-label="Notifications" title="Notifications">'
-        . '<i class="fa-solid fa-bell" aria-hidden="true"></i>'
-        . '<span class="nc-badge" hidden>0</span>'
-        . '</button>'
-        . '</div>';
+    try {
+        ncEnsureBootstrapped();
+        return ncRenderPanel()
+            . '<div class="nc-root">'
+            . '<button type="button" class="nc-bell" aria-haspopup="dialog" aria-expanded="false" aria-label="Notifications" title="Notifications">'
+            . '<i class="fa-solid fa-bell" aria-hidden="true"></i>'
+            . '<span class="nc-badge" hidden>0</span>'
+            . '</button>'
+            . '</div>';
+    } catch (Throwable $t) {
+        error_log('[notification_center] bell render failed: ' . $t->getMessage()
+            . ' @ ' . $t->getFile() . ':' . $t->getLine());
+        return '';
+    }
 }
 
 } // end function_exists guard
