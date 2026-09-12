@@ -489,7 +489,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="nl" data-sec="submissions"><i class="fa-solid fa-inbox"></i> Submissions</button>
 <button class="nl" data-sec="reportcards"><i class="fa-solid fa-file-lines"></i> Report Cards</button>
 </div>
-<div style="margin-top:auto;display:flex;justify-content:flex-end;padding:.2rem .4rem"><?= renderNotificationCenter() ?></div>
+<div style="margin-top:auto;display:flex;justify-content:flex-end;padding:.2rem .4rem"><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
 <div style="display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:12px;background:rgba(255,255,255,.1)"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem"><?= $initials ?></div><div><span style="font-size:.75rem;font-weight:600;color:#fff"><?= e($userName) ?></span><br><span style="font-size:.6rem;color:rgba(255,255,255,.6)"><?= $todayFormatted ?></span></div></div>
 <a href="/admin/logout.php" class="nl" style="color:#fca5a5"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -502,7 +502,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
         <h1>Education Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
-    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
+    <?= renderNotificationCenter() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$tablesExist): ?>

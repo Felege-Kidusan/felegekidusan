@@ -241,5 +241,59 @@ class NotificationCenterTests(unittest.TestCase):
         self.assertIn("mayMessageRole($role", self.svc)
 
 
+class NotificationIncludeOrderRegression(unittest.TestCase):
+    """P0 hotfix regression (production login killer, monitor Ref #615).
+
+    renderNotificationCenter() is defined by the component file at include
+    time. A dashboard that CALLS it earlier in the file than its include
+    line fatals at runtime with 'Call to undefined function' the moment
+    that role opens its dashboard — i.e. immediately after login. php -l
+    cannot catch this; only file-order analysis or execution can.
+
+    edu_dept.php (call@492 / include@505) and material_department.php
+    (call@81 / include@93) shipped with exactly this defect in P72.
+    """
+
+    COMPONENT = "notification_center.php"
+
+    def _php_files(self):
+        for base in ("admin", "frontend", "backend"):
+            d = ROOT / base
+            if d.is_dir():
+                yield from d.rglob("*.php")
+
+    def test_include_precedes_first_render_call_in_every_file(self):
+        offenders = []
+        checked = 0
+        for php in self._php_files():
+            src = php.read_text(encoding="utf-8", errors="replace")
+            if "renderNotificationCenter()" not in src:
+                continue
+            if php.name == self.COMPONENT:
+                continue  # the definition file itself
+            checked += 1
+            inc = src.find(self.COMPONENT)
+            call = src.find("renderNotificationCenter()")
+            if inc == -1:
+                offenders.append(f"{php.relative_to(ROOT)}: calls renderNotificationCenter() but never includes the component")
+            elif inc > call:
+                offenders.append(f"{php.relative_to(ROOT)}: include@byte {inc} AFTER first call@byte {call} → runtime 'Call to undefined function' fatal")
+        self.assertEqual(
+            offenders, [],
+            "Notification bell order defects (fatal after login):\n" + "\n".join(offenders))
+        # 10 dashboards + notifications.php + messages.php + 2 frontend pages
+        # + 2 legacy bell shims (admin + backend) that delegate to the center.
+        # Update this pin DELIBERATELY when adding a new bell surface.
+        self.assertEqual(checked, 16, f"expected 16 render surfaces, found {checked}")
+
+    def test_hotfix_pinned_files_are_safe(self):
+        for rel in ("admin/dashboards/edu_dept.php",
+                    "admin/dashboards/material_department.php"):
+            src = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertLess(
+                src.find(self.COMPONENT), src.find("renderNotificationCenter()"),
+                f"{rel}: component include must precede the first renderNotificationCenter() call")
+
+
 if __name__ == "__main__":
     unittest.main()

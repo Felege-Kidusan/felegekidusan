@@ -78,7 +78,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="np" data-section="requests"><i class="fa-solid fa-clipboard-list"></i> Requests</button>
 <button class="np" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button>
 </div>
-<div style="margin-top:auto;display:flex;justify-content:flex-end;padding:.2rem .4rem"><?= renderNotificationCenter() ?></div>
+<div style="margin-top:auto;display:flex;justify-content:flex-end;padding:.2rem .4rem"><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
 <div class="uc"><div class="ua"><?= $initials ?></div><div><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Material • <?= $todayFormatted ?></span></div></div>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -90,7 +90,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
         <h1>Material Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
-    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
+    <?= renderNotificationCenter() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$matReady): ?>
