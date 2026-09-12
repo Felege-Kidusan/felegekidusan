@@ -162,7 +162,34 @@ All change-plan steps executed; verified against the full matrix.
 | New pages | `admin/notifications.php` (full history, announcements, composer w/ group+people picker, `#compose` deep link) and `admin/messages.php` (threads + conversation + composer, mobile master-detail). Zero business logic in pages; registered in access_control for all 13 roles. |
 | api/v1 | `notifications.php` route registered; 13 actions; bearer-auth, rate-limited, delegates to the same service. |
 | Flutter | ApiService notification methods; `NotificationService` (one badge stream, 30s poll, stops on sign-out); `NotificationBellButton` on all 10 role homes; Notification Center screen (tabs + composer) + Messages screen (threads/conversation). |
-| Tests | NEW `test_notification_center.py` (25 tests). Mezmur zero-inline-styles pin PRESERVED (bell slots via theme classes). Full matrix: **723 tests / 42 failing = exact pre-existing environmental baseline. Zero new failures.** |
+| Tests | NEW `test_notification_center.py` (25 tests; 27 after the post-ship hotfix below — see §7.1). Mezmur zero-inline-styles pin PRESERVED (bell slots via theme classes). Full matrix: **723 tests / 42 failing = exact pre-existing environmental baseline. Zero new failures.** |
 | Special requirement | Nothing downloaded — no SDKs/packages to clean up. |
+
+### 7.1 Post-ship incident — P0 login blocker (hotfix `6f5608a`)
+
+**Symptom (production):** users could not log in — the error monitor's friendly page ("ያልተጠበቀ ስህተት ተከስቷል… Ref: #615") appeared right after submitting the login form. The monitor's own separate DB connection had logged the row, proving the DB and credentials were healthy; the login handler catches `Throwable` itself, so the fatal had to fire in the post-login page.
+
+**Root cause:** `renderNotificationCenter()` is defined by the component **at include time**. In two dashboards the bell was inserted twice — a desktop-sidebar call that renders **first** in the HTML, and the component include that shipped **later** in the mobile header:
+
+- `admin/dashboards/edu_dept.php` — call @492, include @505
+- `admin/dashboards/material_department.php` — call @81, include @93
+
+Any `edu_dept` / `material_dept` login therefore completed, redirected to `dashboard.php`, and fataled with *Call to undefined function renderNotificationCenter()* on the sidebar line — surfacing as the monitor page and perceived as "cannot log in."
+
+**Why every existing gate missed it:** `php -l` cannot see definition order (calls resolve at runtime); standalone component/service tests include the component first; the test matrix is static. Only *execution of the real files* or *file-order analysis* can catch this class.
+
+**Fix:** the include moved to the FIRST call site; the later mobile-header site is now a bare call (the component's assets-once guard makes double-render impossible).
+
+**New permanent gates:**
+1. `NotificationIncludeOrderRegression` — byte-order sweep over all 16 render surfaces: the component include must precede the first `renderNotificationCenter()` call; callers without an include also fail. This exact defect can never ship again.
+2. Offline runtime harness method (throwaway repo copy + userland `mysqli`/`PDO` fakes grafted onto the real `config.php`, executed under PHP 8.3 CLI with a fatal-capturing shutdown handler) — used to execute the real login POST chain and all 13 role dashboards; documented here for reuse on any future "page fatals in prod" report.
+
+**Verification:** all 13 role dashboards + notifications/messages pages + api_notifications (GET+POST) + both frontend pages executed fatal-free; full pytest matrix failing-ID set byte-identical before and after the fix.
+
+**Repo-wide class audit:** sweep of every PHP file that includes a function-defining component (129 component-include pairs) — **zero** call-before-defining-include defects remain anywhere.
+
+**Production action:** `git pull` only — no SQL required for this fix (041/042 remain recommended for the feature's tables). Monitor row #615 was expected to read *Call to undefined function renderNotificationCenter()* in one of the two files above; confirming it closes the loop on the diagnosis.
+
+**Follow-up noted (non-blocking):** the component's JavaScript exposes a global `function empty(...)` (line 297) — a soft global-name-collision risk; rename to a namespaced name (`wbwsEmptyState`) in a future cosmetic pass.
 
 Known follow-ups (non-blocking): tasks tab has no "create task" UI (pre-existing flow); announcements have no edit/delete (audit-trail-preserving by design); delivery is in-app only (email/SMS/push out of scope per §1 non-goals).
