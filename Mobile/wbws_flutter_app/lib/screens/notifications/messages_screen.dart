@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
+import '../../services/inbox_view_model.dart';
 import '../../services/messaging_view_model.dart';
 import '../../services/notification_service.dart';
 import '../../utils/theme.dart';
@@ -31,6 +32,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
   final _threads = <Map<String, dynamic>>[];
   bool _loading = true;
   bool _canMessage = false;
+  String? _listError;
   Map<int, List<Map<String, dynamic>>> _conversationCache = {};
 
   @override
@@ -49,6 +51,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
     if (!mounted) return;
     setState(() {
       _loading = false;
+      // P74 Phase 4 offline review: distinguish "no conversations"
+      // from "could not load" (the shell banner is global; this is
+      // the in-surface retry affordance).
+      _listError = res.isNetworkError ? 'You appear to be offline.' : null;
       _threads
         ..clear()
         ..addAll((res.data is Map && (res.data as Map)['threads'] is List)
@@ -87,12 +93,21 @@ class _MessagesScreenState extends State<MessagesScreen> {
           : RefreshIndicator(
               onRefresh: _load,
               child: _threads.isEmpty
-                  ? ListView(children: const [
-                      EmptyState(
-                          icon: Icons.chat_bubble_outline_rounded,
-                          title: 'No conversations yet',
-                          subtitle:
-                              'Department messages and replies appear here.')
+                  ? ListView(children: [
+                      if (_listError != null)
+                        EmptyState(
+                            icon: Icons.wifi_off_rounded,
+                            title: 'Could not load',
+                            subtitle: _listError,
+                            action: TextButton(
+                                onPressed: _load,
+                                child: const Text('Retry')))
+                      else
+                        const EmptyState(
+                            icon: Icons.chat_bubble_outline_rounded,
+                            title: 'No conversations yet',
+                            subtitle:
+                                'Department messages and replies appear here.')
                     ])
                   : ListView.builder(
                       padding: const EdgeInsets.all(14),
@@ -183,6 +198,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final messages = List<Map<String, dynamic>>.from(
         ((data['messages'] as List? ?? [])).whereType<Map<String, dynamic>>());
     _conversationCache[id] = messages;
+    // P74 Phase 4 — seed the open-conversation conditional poll with
+    // the opening fetch's ETag (that fetch just marked the thread
+    // read; a 304 on the next poll proves nothing changed since).
+    final openingEtag = res.etag;
     t['unread_count'] = 0;
     setState(() {});
     await NotificationService.instance.refresh();
@@ -196,7 +215,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
             // P74 window metadata — receipts + "Load older".
             initialWatermark: ((data['read_watermark'] ?? 0) as num).toInt(),
             initialHasOlder: data['has_older'] == true,
-            initialOldestId: ((data['oldest_id'] ?? 0) as num).toInt())));
+            initialOldestId: ((data['oldest_id'] ?? 0) as num).toInt(),
+            initialEtag: openingEtag)));
     _load(); // refresh list + badges on return
   }
 
@@ -337,7 +357,8 @@ class _ConversationScreen extends StatefulWidget {
       required this.initialMessages,
       required this.initialWatermark,
       required this.initialHasOlder,
-      required this.initialOldestId});
+      required this.initialOldestId,
+      this.initialEtag});
 
   final int threadId;
   final String subject;
@@ -345,6 +366,10 @@ class _ConversationScreen extends StatefulWidget {
   final int initialWatermark;
   final bool initialHasOlder;
   final int initialOldestId;
+
+  /// P74 Phase 4 — ETag of the opening fetch; the 30 s poll sends it
+  /// as If-None-Match and a 304 is a zero-cost no-op.
+  final String? initialEtag;
 
   @override
   State<_ConversationScreen> createState() => _ConversationScreenState();
@@ -365,6 +390,7 @@ class _ConversationScreenState extends State<_ConversationScreen>
   int _tagSeq = 0;
   bool _appVisible = true;
   Timer? _pollTimer;
+  String? _threadEtag;
 
   static const _pollInterval = Duration(seconds: 30);
 
@@ -376,6 +402,7 @@ class _ConversationScreenState extends State<_ConversationScreen>
     _watermark = widget.initialWatermark;
     _hasOlder = widget.initialHasOlder;
     _oldestId = widget.initialOldestId;
+    _threadEtag = widget.initialEtag;
     _maxServerId = _computeMaxServerId();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _pollOpenThread());
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
@@ -409,14 +436,19 @@ class _ConversationScreenState extends State<_ConversationScreen>
     return max;
   }
 
-  /// Pull the newest window (plain GET — it also marks the thread
-  /// read, like opening it). ETag/304 polling for the whole app is
-  /// Phase 3; until then this refresh keeps ✓✓ receipts and incoming
-  /// messages current while the screen is open.
+  /// Pull the newest window (P74 Phase 4: as a CONDITIONAL GET). A
+  /// full 200 response also marks the thread read (like opening it)
+  /// and rotates the stored ETag; a 304 means nothing in the thread
+  /// changed — zero body bytes, zero DB writes, state untouched
+  /// (incoming messages, ✓✓ receipts and edits all bump the version).
   Future<void> _pollOpenThread({bool forceScroll = false}) async {
     if (!_appVisible) return;
-    final res = await _api.getThread(widget.threadId);
-    if (!mounted || !res.success || res.data is! Map) return;
+    final res = await _api.getThread(
+        widget.threadId, ifNoneMatch: _threadEtag);
+    if (!mounted) return;
+    if (res.notModified) return; // idle poll — nothing to do
+    if (!res.success || res.data is! Map) return;
+    _threadEtag = updateEtag(_threadEtag, res.statusCode, res.etag);
     final data = res.data as Map;
     final window = List<Map<String, dynamic>>.from(
         ((data['messages'] as List? ?? [])).whereType<Map<String, dynamic>>());

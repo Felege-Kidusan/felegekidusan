@@ -289,8 +289,9 @@ class MezmurArtTests(unittest.TestCase):
         self.assertIn("bool get hasArt", self.track)
 
     def test_app_version_bumped_in_both_places(self):
-        self.assertIn("appVersion = '1.1.17'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
-        self.assertIn("version: 1.1.17+20", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
+        # P74 Phase 4 release prep: communication parity release.
+        self.assertIn("appVersion = '1.2.0'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
+        self.assertIn("version: 1.2.0+21", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   bool _annHasMore = false;
   int? _annNextBefore;
   int? _annNextPin;
+  String? _annError;
 
   @override
   void initState() {
@@ -139,6 +140,9 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         : null;
     setState(() {
       _loadingAnn = false;
+      // P74 Phase 4 offline review: a failed load must not masquerade
+      // as "No announcements" — mirror the alerts tab's error state.
+      _annError = res.isNetworkError ? 'You appear to be offline.' : null;
       _announcements
         ..clear()
         ..addAll((data != null && data['announcements'] is List)
@@ -489,6 +493,17 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
               4,
               (_) => const ShimmerBox(
                   width: double.infinity, height: 120, radius: 14)));
+    }
+    if (_annError != null && _announcements.isEmpty) {
+      return ListView(children: [
+        EmptyState(
+            icon: Icons.wifi_off_rounded,
+            title: 'Could not load',
+            subtitle: _annError,
+            action: TextButton(
+                onPressed: _loadAnnouncements,
+                child: const Text('Retry')))
+      ]);
     }
     if (_announcements.isEmpty) {
       return ListView(children: const [

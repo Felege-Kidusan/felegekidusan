@@ -1060,12 +1060,21 @@ class ApiService {
   /// P74 Phase 2 — the thread window. With [beforeId] this fetches the
   /// OLDER page below that message id ("Load older"); without it, the
   /// newest window (200) plus has_older/oldest_id/read_watermark.
-  Future<ApiResponse> getThread(int id, {int? beforeId}) => get(
-      '/notifications/thread',
-      params: {
-        'id': '$id',
-        if (beforeId != null && beforeId > 0) 'before_id': '$beforeId',
-      });
+  ///
+  /// P74 Phase 4 — [ifNoneMatch] makes the newest-window fetch a
+  /// conditional GET (the open-conversation poll): a 304 means
+  /// nothing in the thread changed — no body, no markRead write.
+  /// Older-page fetches (beforeId) must NOT be conditional: their
+  /// ETag seed differs (window variant).
+  Future<ApiResponse> getThread(int id, {int? beforeId, String? ifNoneMatch}) =>
+      get('/notifications/thread',
+          params: {
+            'id': '$id',
+            if (beforeId != null && beforeId > 0) 'before_id': '$beforeId',
+          },
+          headers: (ifNoneMatch == null || ifNoneMatch.isEmpty || (beforeId != null && beforeId > 0))
+              ? null
+              : {'If-None-Match': ifNoneMatch});
 
   Future<ApiResponse> startThread(
           {required List<int> to,

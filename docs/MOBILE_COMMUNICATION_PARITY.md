@@ -251,3 +251,72 @@ local run is the binding gate for this phase.
 Full matrix, offline behavior review, docs, release notes for the
 app build, five-rule-equivalent sign-off + user real-device
 sign-off.
+
+## 9. Phase 4 — Final verification & release prep — SHIPPED
+
+**No migration this round.** You still owe `044` + `045` (P73) if not
+yet applied.
+
+### What shipped
+
+- **Conversation poll upgraded to conditional GET** — the open-thread
+  30 s refresh now sends `If-None-Match` (seeded from the opening
+  fetch's ETag): a 304 = zero body bytes, zero DB writes, state
+  untouched; a 200 refreshes the window, marks the thread read and
+  rotates the tag. Older-page fetches stay unconditional by design
+  (their ETag window seed differs). The last plain poll in the app
+  is gone — every recurring request is now conditional.
+- **Offline behavior review** (fixes included):
+  - Announcement tab + Messages list: a failed load now shows
+    "Could not load + Retry" instead of a misleading "No …" empty
+    state (alerts already had it).
+  - Reviewed paths that were already correct: pollers keep last
+    known state; sends/edit/delete/load-older fail into
+    retry/revert affordances; ETags are preserved across failures
+    (never cleared on error).
+- **Release prep**: version bump `1.1.17+20 → 1.2.0+21`
+  (`pubspec.yaml` + `AppConfig`, pinned by `version_sync_test`),
+  and user-facing `Mobile/wbws_flutter_app/RELEASE_NOTES.md`.
+
+### Five-rules sign-off (P73 rules, mobile equivalent)
+
+1. **Front/back separation** — screens render, services decide:
+  every Phase 2–4 rule lives in pure-Dart view-models
+  (`messaging_view_model.dart`, `inbox_view_model.dart`) ported from
+  the web's rules, unit-pinned (38 tests); widget code contains no
+  business logic; all authZ stays server-side (the app renders what
+  the matrix returns).
+2. **Scale** — all new list surfaces are server-cursor paginated
+  (`before_id`, `(before_pin, before_id)`, `(before_lm, before_id)`,
+  thread window + `oldest_id`); every recurring request is
+  conditional (summary + open thread: 304 = zero payload); the
+  thread window is bounded (newest 200).
+3. **100% security** — JWT on every call via the v1 core; authZ only
+  in `NotificationCenterService` (participation, ownership-in-SQL,
+  role matrix); no client-side permission logic; conditional GETs
+  participation-gated server-side (no 304 oracle — Phase-1 e2e
+  pin); additive-only API so old builds keep their verified surface.
+4. **No breakage** — additive API params/fields only; the P72
+  response contract is pinned by the Phase-1 `legacy` e2e scenario
+  and by the app's own continued use of old fields; failing-ID
+  diffs byte-identical every round (40/40); the compile-blocking
+  P72 defects were fixed (documented in Phase 2).
+5. **Maintain/extend** — one view-model per concern, additive
+  `ApiService` methods, parity rules unit-pinned so web/mobile drift
+  fails a test, this plan doc + per-phase reports as the map.
+
+### Verification (user-runs-locally workflow)
+
+Sandbox: static review + brace-balance on all touched Dart files;
+pytest 780 passed / 42 skipped / 40 pre-existing env failures,
+failing-ID diff byte-identical; runtime gate 108/108 (web JS
+untouched all of P74). **User local gates (binding):**
+`flutter analyze` (0 errors expected), `flutter test` (**373/373**
+expected — Phase 4 adds no new test files; the poll upgrade reuses
+the already-pinned `updateEtag` state machine and the version bump
+keeps `version_sync_test` green), then the real-device pass.
+
+### P74 status after Phase 4
+
+Phases 1–4 complete. Remaining before release: **user's local
+analyze/test + real-device sign-off**, and migrations 044 + 045.
