@@ -1003,8 +1003,15 @@ class ApiService {
 
   Future<ApiResponse> getThreads() => get('/notifications/threads');
 
-  Future<ApiResponse> getThread(int id) =>
-      get('/notifications/thread', params: {'id': '$id'});
+  /// P74 Phase 2 — the thread window. With [beforeId] this fetches the
+  /// OLDER page below that message id ("Load older"); without it, the
+  /// newest window (200) plus has_older/oldest_id/read_watermark.
+  Future<ApiResponse> getThread(int id, {int? beforeId}) => get(
+      '/notifications/thread',
+      params: {
+        'id': '$id',
+        if (beforeId != null && beforeId > 0) 'before_id': '$beforeId',
+      });
 
   Future<ApiResponse> startThread(
           {required List<int> to,
@@ -1016,4 +1023,19 @@ class ApiService {
   Future<ApiResponse> sendMessage(int threadId, String body) =>
       post('/notifications/send-message',
           body: {'thread_id': threadId, 'body': body});
+
+  /// P74 Phase 2 — Telegram-grade own-message management (same
+  /// actions as the web center; ownership enforced server-side).
+  Future<ApiResponse> editMessage(int messageId, String body) =>
+      post('/notifications/message-edit',
+          body: {'message_id': messageId, 'body': body});
+
+  Future<ApiResponse> deleteMessage(int messageId) =>
+      post('/notifications/message-delete', body: {'message_id': messageId});
+
+  /// Explicit mark-read without refetching the conversation (the full
+  /// window GET already marks read; this is for flows that change the
+  /// thread without a refetch).
+  Future<ApiResponse> markThreadRead(int id) =>
+      post('/notifications/thread-read', body: {'id': id});
 }

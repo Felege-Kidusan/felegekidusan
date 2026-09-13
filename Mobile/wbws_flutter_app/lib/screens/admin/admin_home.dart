@@ -72,8 +72,8 @@ class AdminHomeScreenState extends State<AdminHomeScreen> {
                 Text('${UserRoles.displayNameAmharic(_api.userRole)} • ${UserRoles.displayName(_api.userRole)}',
                     style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
-                const NotificationBellButton(color: Colors.white),
               actions: [
+                const NotificationBellButton(color: Colors.white),
                 IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load),
               ],
             ),

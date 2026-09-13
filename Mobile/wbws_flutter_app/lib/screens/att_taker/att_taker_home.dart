@@ -92,8 +92,8 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
                 const Text('FKSS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 Text('ቅጥረት ያዥ • Attendance Taker', style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
-                const NotificationBellButton(color: Colors.white),
               actions: [
+                const NotificationBellButton(color: Colors.white),
                 if (_pendingCount > 0)
                   IconButton(
                     onPressed: () async {

@@ -75,7 +75,7 @@ class EduHomeScreenState extends State<EduHomeScreen> {
                 const Text('FKSS', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 Text('የትምህርት ክፍል • Education Dept', style: TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
-              actions: [const NotificationBellButton(color: Colors.white), IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],actions: [IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],
+              actions: [const NotificationBellButton(color: Colors.white), IconButton(icon: const Icon(Icons.refresh_rounded, size: 22), onPressed: _load)],
             ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),

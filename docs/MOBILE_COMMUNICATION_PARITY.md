@@ -131,3 +131,69 @@ Receipts (✓✓ via read_watermark), edit/delete + tombstones,
 Verified with a Flutter SDK downloaded into the sandbox, used for
 `flutter analyze` + `flutter test`, then deleted immediately; the
 user does the real-device pass.
+
+## 7. Phase 2 — Messaging UX (Flutter) — SHIPPED
+
+**No migration this round.** You still owe `044` + `045` (P73) if not
+yet applied.
+
+### What shipped (mobile app)
+
+- **Read receipts** — own bubbles show ✓✓ "Seen" (watermark color
+  `#38BDF8`, same as the web's `.nc-seen`) once every other
+  participant's watermark reaches them; ✓ before that. Receipts flip
+  live: the open conversation refreshes every 30 s (paused while the
+  app is backgrounded, like the web's visibility-paused pollers).
+- **Edit / delete own messages** — ⋯ affordance or long-press →
+  Edit (prefilled sheet) / Delete with a "Delete for everyone?"
+  confirmation. Both are optimistic with revert-on-failure; deletes
+  leave a tombstone ("This message was deleted", no body, no menu,
+  no receipt — the content never comes back).
+- **Load older messages** — the server's stable `oldest_id` cursor;
+  pages prepend without disturbing scroll position (reversed list).
+- **Optimistic send + inline retry** — the bubble appears instantly
+  with "Sending…"; failures keep the text in the bubble with the
+  reason and a tap-to-retry state (long-press discards).
+- **Day separators** — Today / Yesterday / `9 Sep 2026`, same labels
+  and local-time parsing as the web.
+- New pure-Dart view-model `lib/services/messaging_view_model.dart`
+  is a line-by-line port of the web's rendering rules
+  (admin/js/comm.js), pinned by 23 new unit tests.
+- Deliberate divergence (documented): a refresh keeps already-loaded
+  older pages instead of collapsing to the newest window like the
+  web — yanking loaded history out from under the user's scroll
+  position would be a bug on mobile, not parity.
+
+### Drive-by fixes (pre-existing baseline breakage, blocks the gate)
+
+The P72 mobile commit (`c385b97`) shipped with compile errors in five
+home screens and `NotificationService` — the app could not compile,
+so `flutter test` failed at baseline:
+
+- `admin_home` / `att_taker_home` / `teacher_home`: a stray positional
+  `NotificationBellButton` argument inside `SliverAppBar(...)` — moved
+  into `actions:` (the pattern every other home screen uses).
+- `edu_home` / `info_home`: duplicated `actions:` named argument from
+  a bad merge — deduped (bell + refresh kept).
+- `notification_service.dart`: missing
+  `import 'package:flutter/foundation.dart';` (`ValueNotifier`
+  undefined).
+
+### Verification
+
+- **Flutter SDK 3.47.4** (stable, downloaded to `/opt`, deleted
+  immediately after): `flutter analyze` **0 errors** (497 issues =
+  the 506 pre-existing baseline infos/warnings minus the 9 errors
+  fixed above; this round added ZERO new issues — verified by a
+  stash-in-main-tree baseline diff of the issue set). `flutter test`
+  **358/358 passed** (335 pre-existing + 23 new
+  `test/messaging_parity_test.dart`).
+- Full pytest matrix: 780 passed / 42 skipped / 40 pre-existing env
+  failures; failing-ID diff vs the previous commit **byte-identical
+  (40/40)**. Runtime gate 108/108 (web JS untouched).
+
+### Next: Phase 3 — Inbox UX + polling (Flutter)
+
+ETag-aware 30 s poller (304 = no-op — the v1 surface already answers
+conditional GETs), cursor "Load older" on alerts + announcements,
+All/Unread filter, per-item mark-read with optimistic UI.

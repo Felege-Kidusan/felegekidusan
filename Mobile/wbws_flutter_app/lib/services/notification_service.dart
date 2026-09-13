@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'api_service.dart';
 
 /// P72 — one badge source for the whole app.

@@ -228,8 +228,8 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
                   ),
                 ],
               ),
-                const NotificationBellButton(color: Colors.white),
               actions: [
+                const NotificationBellButton(color: Colors.white),
                 IconButton(
                   icon: const Icon(Icons.refresh_rounded, size: 22),
                   onPressed: _loadDashboard,
