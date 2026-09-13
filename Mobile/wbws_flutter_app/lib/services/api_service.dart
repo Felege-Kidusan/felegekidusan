@@ -15,6 +15,14 @@ class ApiResponse {
   final bool isNetworkError;
   final bool isAuthError;
 
+  /// P74 Phase 3 — the `ETag` response header, when the server sends
+  /// one (summary/thread conditional GETs). Null on ordinary calls.
+  final String? etag;
+
+  /// P74 Phase 3 — a conditional GET answered 304 Not Modified: the
+  /// body is empty and the caller keeps its current state.
+  bool get notModified => statusCode == 304;
+
   ApiResponse({
     required this.success,
     this.message,
@@ -22,9 +30,11 @@ class ApiResponse {
     this.statusCode = 200,
     this.isNetworkError = false,
     this.isAuthError = false,
+    this.etag,
   });
 
-  factory ApiResponse.fromJson(Map<String, dynamic> json, int code) {
+  factory ApiResponse.fromJson(Map<String, dynamic> json, int code,
+      {String? etag}) {
     return ApiResponse(
       success: json['status'] == 'success',
       message: json['message'],
@@ -33,6 +43,7 @@ class ApiResponse {
       data: json['data'] ?? json,
       statusCode: code,
       isAuthError: code == 401 || code == 403,
+      etag: etag,
     );
   }
 
@@ -204,38 +215,51 @@ class ApiService {
   /// and collapses identical in-flight reads so Home + WarmStore + Sync
   /// do not open three handshakes on 4G.
   Future<ApiResponse> get(String path,
-      {Map<String, String>? params, bool auth = true}) async {
+      {Map<String, String>? params,
+      bool auth = true,
+      Map<String, String>? headers}) async {
     var uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
     if (params != null && params.isNotEmpty) {
       uri = uri.replace(queryParameters: params);
     }
-    final key = uri.toString();
-    final existing = _getInflight[key];
-    if (existing != null) return existing;
+    // P74 Phase 3: conditional GETs carry caller-specific headers
+    // (If-None-Match), so they never share an in-flight slot with a
+    // plain GET of the same URI.
+    if (headers == null) {
+      final key = uri.toString();
+      final existing = _getInflight[key];
+      if (existing != null) return existing;
 
-    final future = _doGet(uri, auth);
-    _getInflight[key] = future;
-    try {
-      return await future;
-    } finally {
-      if (identical(_getInflight[key], future)) {
-        _getInflight.remove(key);
+      final future = _doGet(uri, auth, null);
+      _getInflight[key] = future;
+      try {
+        return await future;
+      } finally {
+        if (identical(_getInflight[key], future)) {
+          _getInflight.remove(key);
+        }
       }
     }
+    return _doGet(uri, auth, headers);
   }
 
-  Future<ApiResponse> _doGet(Uri uri, bool auth) async {
+  Future<ApiResponse> _doGet(
+      Uri uri, bool auth, Map<String, String>? extraHeaders) async {
     try {
       final sentToken = auth ? _token : null;
+      Map<String, String> requestHeaders = _headers(withAuth: auth);
+      if (extraHeaders != null) requestHeaders.addAll(extraHeaders);
       var response = await _http
-          .get(uri, headers: _headers(withAuth: auth))
+          .get(uri, headers: requestHeaders)
           .timeout(Duration(seconds: AppConfig.connectionTimeout));
       if (response.statusCode == 401 && auth) {
         final refreshed = (_token != null && _token != sentToken)
             || await refreshAccessToken();
         if (refreshed) {
+          final retryHeaders = _headers(withAuth: true);
+          if (extraHeaders != null) retryHeaders.addAll(extraHeaders);
           response = await _http
-              .get(uri, headers: _headers(withAuth: true))
+              .get(uri, headers: retryHeaders)
               .timeout(Duration(seconds: AppConfig.connectionTimeout));
         } else {
           _notifyIfRefreshRejected();
@@ -346,13 +370,24 @@ class ApiService {
   /// spawning one costs more than parsing them.
   Future<ApiResponse> _handleResponseAsync(http.Response response) async {
     _connectivity.markOnline();
+    // P74 Phase 3 — conditional GETs: a 304 has an empty body by
+    // design; surface it as notModified with the (re-sent) ETag.
+    if (response.statusCode == 304) {
+      return ApiResponse(
+        success: false,
+        message: 'Not modified',
+        statusCode: 304,
+        etag: response.headers['etag'],
+      );
+    }
     try {
       final body = response.body;
       final dynamic json = body.length > 32 * 1024
           ? await compute(_decodeJsonIsolate, body)
           : _decodeJson(body);
       if (json is Map<String, dynamic>) {
-        return ApiResponse.fromJson(json, response.statusCode);
+        return ApiResponse.fromJson(json, response.statusCode,
+            etag: response.headers['etag']);
       }
       return ApiResponse.error(
           _httpErrorLabel(response.statusCode), response.statusCode);
@@ -952,15 +987,26 @@ class ApiService {
   // messaging). Same service as the web dashboards; one writer.
   // ============================================================
 
-  Future<ApiResponse> getNotificationSummary() =>
-      get('/notifications/summary');
+  /// P74 Phase 3 — conditional GET: with [ifNoneMatch] (a previously
+  /// stored ETag) the server answers 304 + an empty body when nothing
+  /// changed; `ApiResponse.notModified` tells the poller to no-op.
+  Future<ApiResponse> getNotificationSummary({String? ifNoneMatch}) =>
+      get('/notifications/summary',
+          headers: (ifNoneMatch == null || ifNoneMatch.isEmpty)
+              ? null
+              : {'If-None-Match': ifNoneMatch});
 
   Future<ApiResponse> getNotificationFeed(
-      {int limit = 30, int offset = 0, bool unreadOnly = false}) {
+      {int limit = 30,
+      int offset = 0,
+      bool unreadOnly = false,
+      int? beforeId}) {
     final params = <String, String>{
       'limit': '$limit',
       'offset': '$offset',
       if (unreadOnly) 'unread': '1',
+      // P74 Phase 3 — stable cursor for "Load older".
+      if (beforeId != null && beforeId > 0) 'before_id': '$beforeId',
     };
     return get('/notifications/feed', params: params);
   }
@@ -971,9 +1017,17 @@ class ApiService {
   Future<ApiResponse> markAllNotificationsRead({String scope = 'alerts'}) =>
       post('/notifications/mark-all-read', body: {'scope': scope});
 
-  Future<ApiResponse> getAnnouncements({int limit = 30, int offset = 0}) =>
-      get('/notifications/announcements',
-          params: {'limit': '$limit', 'offset': '$offset'});
+  Future<ApiResponse> getAnnouncements(
+      {int limit = 30, int offset = 0, int? beforeId, int? beforePin}) {
+    return get('/notifications/announcements', params: {
+      'limit': '$limit',
+      'offset': '$offset',
+      // P74 Phase 3 — (before_pin, before_id) tuple cursor.
+      if (beforeId != null && beforeId > 0) 'before_id': '$beforeId',
+      if (beforePin != null && beforePin >= 0 && beforeId != null)
+        'before_pin': '$beforePin',
+    });
+  }
 
   Future<ApiResponse> markAnnouncementRead(int id) =>
       post('/notifications/announcement-read', body: {'id': id});

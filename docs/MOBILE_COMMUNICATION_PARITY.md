@@ -197,3 +197,57 @@ so `flutter test` failed at baseline:
 ETag-aware 30 s poller (304 = no-op — the v1 surface already answers
 conditional GETs), cursor "Load older" on alerts + announcements,
 All/Unread filter, per-item mark-read with optimistic UI.
+
+## 8. Phase 3 — Inbox UX + polling (Flutter) — SHIPPED
+
+**No migration this round.** You still owe `044` + `045` (P73) if not
+yet applied.
+
+### What shipped (mobile app)
+
+- **ETag-aware 30 s poller** — `NotificationService` stores the
+  summary's `ETag` (only replaced on a full 200) and sends
+  `If-None-Match` on every poll; a 304 is a no-op: zero body bytes,
+  no JSON parse, badge/summary untouched. The v1 surface has answered
+  conditional GETs since Phase 1 (pinned: 304 = empty body + zero DB
+  writes), so an idle poll drops from the full summary JSON (~1–2 KB
+  by role) to 0 body bytes + a ~40-byte request header. Plumbing:
+  `ApiResponse.etag` / `.notModified`, conditional GETs bypass the
+  in-flight dedup (caller-specific headers), 304 handled before body
+  decode, ETag survives the 401-refresh retry.
+- **"Load older" on alerts + announcements** — alerts page by the
+  stable `before_id` cursor; announcements by the `(before_pin,
+  before_id)` tuple (pinned ordering). Pages append newest-first,
+  de-duplicated at the window edge; the control only appears while
+  the server says an older page exists.
+- **All / Unread filter** (alerts) — server-side filter (`unread=1`),
+  same as the web's `unreadOnly` toggle; the Unread chip carries the
+  live count.
+- **Optimistic per-item mark-read** (alerts + announcements) — web
+  parity (P73 Phase 4 / D7): the unread state clears instantly, the
+  badge decrements locally (floored at zero), the write confirms in
+  the background; failure reverts by refetching + toast. Read rows
+  stay visible in the Unread-filtered view until reload (web
+  behavior — the filter is a query, not a live sieve).
+- New pure-Dart view-model `lib/services/inbox_view_model.dart`
+  (ETag state machine, cursor/page merges, optimistic read,
+  zero-floor decrement) pinned by 15 new unit tests
+  (`test/inbox_parity_test.dart`).
+
+### Verification (new workflow — user instruction 2026-09-13)
+
+Per the user's instruction the Flutter/Dart SDK is no longer
+downloaded into the sandbox: **the user runs `flutter analyze` +
+`flutter test` and the device pass locally.** This round's sandbox
+verification was therefore: careful static review of every Dart
+change (including a string/comment-stripped brace/paren balance check
+on all touched files), plus the unchanged server-side gates — pytest
+780 passed / 42 skipped / 40 pre-existing env failures, failing-ID
+diff **byte-identical (40/40)**, runtime gate 108/108. The user's
+local run is the binding gate for this phase.
+
+### Next: Phase 4 — Final verification & release prep
+
+Full matrix, offline behavior review, docs, release notes for the
+app build, five-rule-equivalent sign-off + user real-device
+sign-off.

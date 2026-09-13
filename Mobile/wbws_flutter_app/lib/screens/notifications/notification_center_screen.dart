@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/api_service.dart';
+import '../../services/inbox_view_model.dart';
 import '../../services/notification_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
@@ -36,6 +37,16 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   bool _canMessage = false;
   String? _error;
 
+  // P74 Phase 3 — All/Unread filter + "Load older" cursor state.
+  bool _unreadOnly = false;
+  bool _loadingOlderAlerts = false;
+  bool _loadingOlderAnn = false;
+  bool _alertsHasMore = false;
+  int? _alertsNextBefore;
+  bool _annHasMore = false;
+  int? _annNextBefore;
+  int? _annNextPin;
+
   @override
   void initState() {
     super.initState();
@@ -62,51 +73,164 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
 
   Future<void> _loadAlerts() async {
     setState(() => _loadingAlerts = true);
-    final res = await _api.getNotificationFeed(limit: 40);
+    final res = await _api.getNotificationFeed(
+        limit: 40, unreadOnly: _unreadOnly);
     if (!mounted) return;
+    final data = res.data is Map<String, dynamic>
+        ? res.data as Map<String, dynamic>
+        : null;
     setState(() {
       _loadingAlerts = false;
       _error = res.isNetworkError ? 'You appear to be offline.' : null;
       _alerts
         ..clear()
-        ..addAll((res.data is Map && (res.data as Map)['rows'] is List)
+        ..addAll((data != null && data['rows'] is List)
             ? List<Map<String, dynamic>>.from(
-                ((res.data as Map)['rows'] as List)
-                    .whereType<Map<String, dynamic>>())
+                (data['rows'] as List).whereType<Map<String, dynamic>>())
             : []);
+      _alertsHasMore = hasMore(data);
+      _alertsNextBefore = nextCursor(data, 'next_before');
     });
+  }
+
+  /// P74 Phase 3 — "Load older": page backwards by the server's
+  /// stable before_id cursor; the older page appends (newest-first
+  /// order), de-duplicated at the window edge.
+  Future<void> _loadOlderAlerts() async {
+    if (_loadingOlderAlerts || !_alertsHasMore || _alertsNextBefore == null) {
+      return;
+    }
+    setState(() => _loadingOlderAlerts = true);
+    final res = await _api.getNotificationFeed(
+        limit: 40, unreadOnly: _unreadOnly, beforeId: _alertsNextBefore);
+    if (!mounted) return;
+    final data = res.data is Map<String, dynamic>
+        ? res.data as Map<String, dynamic>
+        : null;
+    setState(() {
+      if (data != null && data['rows'] is List) {
+        // Compute BEFORE clearing — the merge reads the current rows.
+        final merged = mergeOlderRows(
+            _alerts,
+            List<Map<String, dynamic>>.from(
+                (data['rows'] as List).whereType<Map<String, dynamic>>()));
+        _alerts
+          ..clear()
+          ..addAll(merged);
+      }
+      _alertsHasMore = hasMore(data);
+      _alertsNextBefore = nextCursor(data, 'next_before');
+      _loadingOlderAlerts = false;
+    });
+  }
+
+  Future<void> _setUnreadOnly(bool value) async {
+    if (_unreadOnly == value) return;
+    _unreadOnly = value;
+    await _loadAlerts();
   }
 
   Future<void> _loadAnnouncements() async {
     setState(() => _loadingAnn = true);
     final res = await _api.getAnnouncements(limit: 40);
     if (!mounted) return;
+    final data = res.data is Map<String, dynamic>
+        ? res.data as Map<String, dynamic>
+        : null;
     setState(() {
       _loadingAnn = false;
       _announcements
         ..clear()
-        ..addAll((res.data is Map && (res.data as Map)['announcements'] is List)
-            ? List<Map<String, dynamic>>.from(
-                ((res.data as Map)['announcements'] as List)
-                    .whereType<Map<String, dynamic>>())
+        ..addAll((data != null && data['announcements'] is List)
+            ? List<Map<String, dynamic>>.from((data['announcements'] as List)
+                .whereType<Map<String, dynamic>>())
             : []);
+      _annHasMore = hasMore(data);
+      _annNextBefore = nextCursor(data, 'next_before');
+      _annNextPin = nextCursor(data, 'next_pin');
+    });
+  }
+
+  /// P74 Phase 3 — "Load older" on announcements: the (before_pin,
+  /// before_id) tuple cursor keeps pinned/unpinned ordering stable
+  /// across pages.
+  Future<void> _loadOlderAnnouncements() async {
+    if (_loadingOlderAnn || !_annHasMore || _annNextBefore == null) return;
+    setState(() => _loadingOlderAnn = true);
+    final res = await _api.getAnnouncements(
+        limit: 40, beforeId: _annNextBefore, beforePin: _annNextPin);
+    if (!mounted) return;
+    final data = res.data is Map<String, dynamic>
+        ? res.data as Map<String, dynamic>
+        : null;
+    setState(() {
+      if (data != null && data['announcements'] is List) {
+        final merged = mergeOlderRows(
+            _announcements,
+            List<Map<String, dynamic>>.from((data['announcements'] as List)
+                .whereType<Map<String, dynamic>>()));
+        _announcements
+          ..clear()
+          ..addAll(merged);
+      }
+      _annHasMore = hasMore(data);
+      _annNextBefore = nextCursor(data, 'next_before');
+      _annNextPin = nextCursor(data, 'next_pin');
+      _loadingOlderAnn = false;
     });
   }
 
   Future<void> _markRead(Map<String, dynamic> n) async {
     final id = (n['id'] as num?)?.toInt() ?? 0;
     if (id <= 0 || n['is_unread'] != 1) return;
-    setState(() => n['is_unread'] = 0);
-    await _api.markNotificationRead(id);
-    await NotificationService.instance.refresh();
+    // P74 Phase 3, web parity: the unread state clears INSTANTLY, the
+    // badge decrements locally (floored at zero), the write confirms
+    // in the background; a failure reverts by refetching.
+    final optimistic = applyReadOptimistic(_alerts, id);
+    if (!optimistic.changed) return;
+    setState(() {
+      _alerts
+        ..clear()
+        ..addAll(optimistic.rows);
+    });
+    NotificationService.instance.decrement('alerts');
+    final res = await _api.markNotificationRead(id);
+    if (!mounted) return;
+    if (res.success) {
+      await NotificationService.instance.refresh();
+    } else {
+      await _loadAlerts();
+      await NotificationService.instance.refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not mark as read.')));
+      }
+    }
   }
 
   Future<void> _markAnnouncementRead(Map<String, dynamic> a) async {
     final id = (a['id'] as num?)?.toInt() ?? 0;
     if (id <= 0 || a['is_unread'] != 1) return;
-    setState(() => a['is_unread'] = 0);
-    await _api.markAnnouncementRead(id);
-    await NotificationService.instance.refresh();
+    final optimistic = applyReadOptimistic(_announcements, id);
+    if (!optimistic.changed) return;
+    setState(() {
+      _announcements
+        ..clear()
+        ..addAll(optimistic.rows);
+    });
+    NotificationService.instance.decrement('announcements');
+    final res = await _api.markAnnouncementRead(id);
+    if (!mounted) return;
+    if (res.success) {
+      await NotificationService.instance.refresh();
+    } else {
+      await _loadAnnouncements();
+      await NotificationService.instance.refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not mark as read.')));
+      }
+    }
   }
 
   Future<void> _markAll() async {
@@ -194,17 +318,104 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
       ]);
     }
     if (_alerts.isEmpty) {
-      return ListView(children: const [
-        EmptyState(
-            icon: Icons.notifications_none_rounded,
-            title: 'You are all caught up',
-            subtitle: 'New alerts will appear here.')
-      ]);
+      return Column(
+        children: [
+          _filterChips(),
+          const Expanded(
+              child: ListView(children: [
+            EmptyState(
+                icon: Icons.notifications_none_rounded,
+                title: 'You are all caught up',
+                subtitle: 'New alerts will appear here.')
+          ])),
+        ],
+      );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.all(14),
-      itemCount: _alerts.length,
-      itemBuilder: (_, i) => _alertTile(_alerts[i]),
+    return Column(
+      children: [
+        _filterChips(),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(14),
+            itemCount: _alerts.length + (_alertsHasMore ? 1 : 0),
+            itemBuilder: (_, i) => (_alertsHasMore && i == _alerts.length)
+                ? _loadOlderControl(_loadingOlderAlerts, _loadOlderAlerts)
+                : _alertTile(_alerts[i]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// P74 Phase 3 — All / Unread filter (the web inbox's unreadOnly
+  /// toggle; the server applies the filter, this is not a client sieve).
+  Widget _filterChips() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: const Text('All',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+            selected: !_unreadOnly,
+            onSelected: (_) => _setUnreadOnly(false),
+            selectedColor: AppTheme.primary,
+            labelStyle: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white),
+            backgroundColor: Colors.white,
+            showCheckmark: false,
+            side: BorderSide(color: AppTheme.borderLight),
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: Text(
+                'Unread${NotificationService.instance.count('alerts') > 0 ? ' (${NotificationService.instance.count('alerts')})' : ''}',
+                style: const TextStyle(
+                    fontSize: 12.5, fontWeight: FontWeight.w700)),
+            selected: _unreadOnly,
+            onSelected: (_) => _setUnreadOnly(true),
+            selectedColor: AppTheme.primary,
+            labelStyle: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white),
+            backgroundColor: Colors.white,
+            showCheckmark: false,
+            side: BorderSide(color: AppTheme.borderLight),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// P74 Phase 3 — trailing "Load older" control (web parity: shown
+  /// only while the server says an older page exists).
+  Widget _loadOlderControl(bool busy, Future<void> Function() onLoad) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Center(
+        child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: AppTheme.primary,
+            side: BorderSide(color: AppTheme.borderLight),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+          ),
+          onPressed: busy ? null : onLoad,
+          icon: busy
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.expand_more_rounded, size: 18),
+          label: Text(busy ? 'Loading…' : 'Load older',
+              style:
+                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+        ),
+      ),
     );
   }
 
@@ -289,8 +500,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     }
     return ListView.builder(
       padding: const EdgeInsets.all(14),
-      itemCount: _announcements.length,
-      itemBuilder: (_, i) => _announcementCard(_announcements[i]),
+      itemCount: _announcements.length + (_annHasMore ? 1 : 0),
+      itemBuilder: (_, i) => (_annHasMore && i == _announcements.length)
+          ? _loadOlderControl(_loadingOlderAnn, _loadOlderAnnouncements)
+          : _announcementCard(_announcements[i]),
     );
   }
 
