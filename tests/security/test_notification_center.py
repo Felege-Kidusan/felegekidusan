@@ -894,5 +894,52 @@ class CommPhase6SecurityTests(unittest.TestCase):
         self.assertIn("case 'ratelimit':", e)
 
 
+class CommV1ParityTests(unittest.TestCase):
+    """P74 Phase 1 — API v1 parity surface pins (the Flutter app's backend)."""
+
+    ROOT = ROOT
+    V1 = ROOT / 'api' / 'v1' / 'routes' / 'notifications.php'
+
+    def _v1(self):
+        with open(self.V1, encoding='utf-8') as f:
+            return f.read()
+
+    def test_v1_exposes_p73_actions(self):
+        v = self._v1()
+        for action in ("'message-edit'", "'message-delete'", "'thread-read'"):
+            self.assertIn(action, v)
+
+    def test_v1_cursor_params(self):
+        v = self._v1()
+        for param in ('before_id', 'before_lm', 'before_pin'):
+            self.assertIn(param, v)
+
+    def test_v1_thread_window_metadata(self):
+        v = self._v1()
+        for field in ('read_watermark', 'has_older', 'oldest_id'):
+            self.assertIn(field, v)
+
+    def test_v1_conditional_gets(self):
+        v = self._v1()
+        self.assertIn('notificationsEtagNotModified', v)
+        self.assertIn('HTTP_IF_NONE_MATCH', v)
+        # 304 must precede markThreadRead (idle polls write nothing)
+        self.assertLess(v.index('notificationsEtagNotModified($tv'),
+                        v.index('markThreadRead('))
+
+    def test_v1_thread_version_participation_gated(self):
+        """The ETag seed comes from the participation-gated service
+        method — non-participants get no 304 oracle."""
+        v = self._v1()
+        self.assertIn('threadVersion($conn, $userId, $threadId)', v)
+
+    def test_v1_additive_only_legacy_fields(self):
+        """Installed-build contract: the P72 fields all still exist."""
+        v = self._v1()
+        for field in ("'announcements' =>", "'threads' =>", "'messages' =>",
+                      "'summary' =>", 'offset'):
+            self.assertIn(field, v)
+
+
 if __name__ == "__main__":
     unittest.main()

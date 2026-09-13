@@ -144,5 +144,57 @@ class CommEndToEndTests(unittest.TestCase):
         self.assertNotIn("success", proc.stdout)
 
 
+class CommV1EndToEndTests(unittest.TestCase):
+    """P74 — API v1 parity surface (the endpoints the Flutter app uses),
+    driven through the REAL v1 router + middleware + JWT auth."""
+
+    RUNNER_V1 = ROOT / "tests" / "e2e" / "comm_v1_lifecycle.php"
+
+    @classmethod
+    def setUpClass(cls):
+        php = _php_binary()
+        if not php:
+            raise unittest.SkipTest("php CLI not available — v1 e2e skipped")
+        if not cls.RUNNER_V1.is_file():
+            raise unittest.SkipTest("tests/e2e/comm_v1_lifecycle.php not present")
+        if not ENV_FILE.is_file():
+            raise unittest.SkipTest(".fkss_env.php not present — v1 e2e skipped")
+        if not _probe_db(php):
+            raise unittest.SkipTest("e2e database unreachable — v1 e2e skipped")
+        cls.php = php
+
+    def _run(self, scenario):
+        return subprocess.run(
+            [self.php, str(self.RUNNER_V1), scenario],
+            capture_output=True, text=True, timeout=300, cwd=str(ROOT),
+        )
+
+    def _assert_verdict_pass(self, proc, scenario):
+        self.assertEqual(
+            proc.returncode, 0,
+            f"{scenario} exited {proc.returncode}:\n{proc.stdout}\n{proc.stderr}",
+        )
+        self.assertIn("E2E-VERDICT: PASS", proc.stdout)
+
+    def test_v1_parity_surface(self):
+        """Cursor pages, thread window, edit/delete ownership, role
+        matrix, explicit thread-read — through JWT + middleware."""
+        self._assert_verdict_pass(self._run("parity"), "parity")
+
+    def test_v1_conditional_gets(self):
+        """summary/thread answer 304 with empty bodies; a 304 poll
+        writes nothing; non-participants get no 304 oracle."""
+        self._assert_verdict_pass(self._run("etag304"), "etag304")
+
+    def test_v1_legacy_compatibility(self):
+        """Installed P72 builds keep working: old params/fields intact,
+        P74 additions are purely additive."""
+        self._assert_verdict_pass(self._run("legacy"), "legacy")
+
+    def test_v1_unauth_fails_closed(self):
+        """Forged / wrong-type / missing tokens all 401."""
+        self._assert_verdict_pass(self._run("unauth"), "unauth")
+
+
 if __name__ == "__main__":
     unittest.main()

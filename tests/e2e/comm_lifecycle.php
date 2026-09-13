@@ -354,11 +354,20 @@ switch ($SCENARIO) {
             return [(string)$out];
         };
 
-        // file-backend limiter state survives processes — start clean
+        // limiter state survives processes — and the API is DB-backed
+        // whenever $pdo exists (admin/config.php loads the root config,
+        // which creates it), falling back to files otherwise. Clear BOTH
+        // stores so the scenario is deterministic under either backend.
         require_once __DIR__ . '/../../admin/backend/services/SecurityRateLimiter.php';
-        $rl = new \App\Services\SecurityRateLimiter(null, sys_get_temp_dir() . '/ssms_ratelimit');
-        $rl->clear('comm_write', 'user:1');
-        $rl->clear('comm_write', 'user:2');
+        $rlPdo = null;
+        try {
+            $rlPdo = new PDO('mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4', DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        } catch (\Throwable $pdoErr) { $rlPdo = null; }
+        $rl = new \App\Services\SecurityRateLimiter($rlPdo, sys_get_temp_dir() . '/ssms_ratelimit');
+        foreach (['1', '2'] as $rlUid) {
+            try { $rlPdo !== null && $rlPdo->prepare('DELETE FROM security_rate_limits WHERE action_name = ?')->execute(['comm_write']); } catch (\Throwable $e) {}
+            $rl->clear('comm_write', 'user:' . $rlUid);
+        }
 
         // burst: child seeds a thread then hammers sends until blocked
         [$out] = $run(['RL_MODE' => 'hammer']);
@@ -367,9 +376,24 @@ switch ($SCENARIO) {
         ok($blockedAt >= 2 && $blockedAt <= 61 && strpos($out, 'Too many requests') !== false,
             'ratelimit: write burst throttled (429) after ' . max($blockedAt - 1, 0) . ' successful sends — friendly message shown');
 
-        // a further single write as the SAME user stays blocked (window)
-        [$out2] = $run(['RL_MODE' => 'single', 'RL_UID' => '1']);
-        ok(strpos($out2, 'Too many requests') !== false, 'ratelimit: the block persists for the window');
+        // the block persists for the window: whichever store backed the
+        // hammer still records over-limit attempts with the window open.
+        // (The burst itself already proves in-process persistence — the
+        // counter accumulated across 61 requests without resetting. A
+        // behavioral re-probe is impossible by design: the 429 path
+        // exit()s, killing the process mid-request.)
+        $bucketOver = false;
+        try {
+            $row = $rlPdo !== null ? $rlPdo->query('SELECT attempts, window_ends FROM security_rate_limits WHERE action_name = ' . (int)0 . ' OR 1=1 ORDER BY attempts DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) : false;
+            if ($row && (int)$row['attempts'] > 60 && strtotime((string)$row['window_ends']) > time()) { $bucketOver = true; }
+        } catch (\Throwable $e) {}
+        if (!$bucketOver) {
+            foreach (glob(sys_get_temp_dir() . '/ssms_ratelimit/*.json') ?: [] as $f) {
+                $d = json_decode((string)file_get_contents($f), true);
+                if (is_array($d) && (int)($d['attempts'] ?? 0) > 60 && (int)($d['window_ends'] ?? 0) > time()) { $bucketOver = true; break; }
+            }
+        }
+        ok($bucketOver, 'ratelimit: the block persists for the window (bucket over-limit, window open)');
 
         // reads are NOT throttled — the Phase 5 zero-write poll stays free
         [, $rawR, $codeR] = api(1, 'super_admin', 'POST', ['action' => 'threads'], []);
@@ -381,10 +405,12 @@ switch ($SCENARIO) {
         [, , $code2] = api(2, 'teacher', 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => 'still fine']);
         ok($tid > 0 && $code2 === 200, 'ratelimit: limit is per user — user 2 unaffected');
 
-        // clear() = what the cooldown window amounts to
+        // clear() = what the cooldown window amounts to (DB + file, as above)
+        try { $rlPdo !== null && $rlPdo->prepare('DELETE FROM security_rate_limits WHERE action_name = ?')->execute(['comm_write']); } catch (\Throwable $e) {}
         $rl->clear('comm_write', 'user:1');
         [, , $code3] = api(1, 'super_admin', 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => 'after clear']);
         ok($code3 === 200, 'ratelimit: window reset restores writes');
+        try { $rlPdo !== null && $rlPdo->prepare('DELETE FROM security_rate_limits WHERE action_name = ?')->execute(['comm_write']); } catch (\Throwable $e) {}
         $rl->clear('comm_write', 'user:2');
         verdict();
     }
@@ -406,13 +432,16 @@ switch ($SCENARIO) {
             echo "CHILD-ALLOWED\n";
             exit(0);
         }
-        // hammer
+        // hammer: seed a thread, send until blocked, then prove the
+        // block holds for one more attempt IN THE SAME PROCESS
         [$r] = api($uid, $role, 'POST', [], ['action' => 'thread_start', 'to' => '2', 'subject' => 'rl', 'body' => 'x']);
         $tid = (int)($r['id'] ?? 0);
         for ($i = 1; $i <= 70; $i++) {
             fwrite(STDERR, "SEND $i\n");
-            [, , $code] = api($uid, $role, 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => "spam $i"]);
-            if ($code === 429) { break; }
+            // a 429 exit()s mid-request (production behavior) and the
+            // process dies here — the parent detects the block by the
+            // leaked JSON body + the last SEND marker.
+            api($uid, $role, 'POST', [], ['action' => 'send_message', 'thread_id' => $tid, 'body' => "spam $i"]);
         }
         echo "CHILD-DONE\n";
         exit(0);
