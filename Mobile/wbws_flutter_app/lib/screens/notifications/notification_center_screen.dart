@@ -322,11 +322,14 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
       ]);
     }
     if (_alerts.isEmpty) {
+      // NOTE: ListView's default constructor is NOT const — the const
+      // belongs on the children list, not on Expanded/ListView (this
+      // exact mistake broke the user's 1.2.0 release build once).
       return Column(
         children: [
           _filterChips(),
-          const Expanded(
-              child: ListView(children: [
+          Expanded(
+              child: ListView(children: const [
             EmptyState(
                 icon: Icons.notifications_none_rounded,
                 title: 'You are all caught up',
