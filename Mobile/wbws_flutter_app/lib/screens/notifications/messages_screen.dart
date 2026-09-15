@@ -42,26 +42,37 @@ class _MessagesScreenState extends State<MessagesScreen> {
     NotificationService.instance.start();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  /// P0 audit B5: [silent] refreshes keep the current rows on screen
+  /// and swap them in only when the fresh page arrives — the skeleton
+  /// flash is reserved for the FIRST load. Used after returning from
+  /// a conversation, on pull-to-refresh and after composing.
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
     final sum = await NotificationService.instance.refresh();
     if (!mounted) return;
     _canMessage = sum?['can_message'] == true;
     final res = await _api.getThreads();
     if (!mounted) return;
+    final okRows =
+        (res.data is Map && (res.data as Map)['threads'] is List)
+            ? List<Map<String, dynamic>>.from(
+                ((res.data as Map)['threads'] as List)
+                    .whereType<Map<String, dynamic>>())
+            : null;
     setState(() {
       _loading = false;
       // P74 Phase 4 offline review: distinguish "no conversations"
       // from "could not load" (the shell banner is global; this is
       // the in-surface retry affordance).
       _listError = res.isNetworkError ? 'You appear to be offline.' : null;
-      _threads
-        ..clear()
-        ..addAll((res.data is Map && (res.data as Map)['threads'] is List)
-            ? List<Map<String, dynamic>>.from(
-                ((res.data as Map)['threads'] as List)
-                    .whereType<Map<String, dynamic>>())
-            : []);
+      // B5/C2-lite: a silent refresh never destroys the visible rows
+      // on failure — the error state only applies when there is
+      // nothing left to keep on screen.
+      if (okRows != null || !silent) {
+        _threads
+          ..clear()
+          ..addAll(okRows ?? []);
+      }
     });
   }
 
@@ -91,7 +102,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                   (_) => const ShimmerBox(
                       width: double.infinity, height: 72, radius: 14)))
           : RefreshIndicator(
-              onRefresh: _load,
+              onRefresh: () => _load(silent: true),
               child: _threads.isEmpty
                   ? ListView(children: [
                       if (_listError != null)
@@ -159,17 +170,20 @@ class _MessagesScreenState extends State<MessagesScreen> {
           ),
         ),
         trailing: unread > 0
-            ? Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                    color: AppTheme.success,
-                    borderRadius: BorderRadius.circular(10)),
-                child: Text(unread > 9 ? '9+' : '$unread',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white)),
+            ? Semantics(
+                label: unread == 1 ? '1 unread' : '$unread unread',
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                      color: AppTheme.success,
+                      borderRadius: BorderRadius.circular(10)),
+                  child: Text(unread > 9 ? '9+' : '$unread',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white)),
+                ),
               )
             : null,
         onTap: () => _openThread(t),
@@ -217,7 +231,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
             initialHasOlder: data['has_older'] == true,
             initialOldestId: ((data['oldest_id'] ?? 0) as num).toInt(),
             initialEtag: openingEtag)));
-    _load(); // refresh list + badges on return
+    _load(silent: true); // refresh list + badges on return — no flash (B5)
   }
 
   Future<void> _openCompose() async {
@@ -324,7 +338,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                             ? 'Conversation started ✓'
                             : (send.message ??
                                 'Could not start the conversation.'))));
-                    if (send.success) _load();
+                    if (send.success) _load(silent: true);
                   },
                   child: const Text('Send',
                       style: TextStyle(fontWeight: FontWeight.w700)),
@@ -338,10 +352,17 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 }
 
-// Web palette parity (admin/css/comm.css).
-const Color _seenColor = Color(0xFF38BDF8); // .nc-seen
-const Color _failedColor = Color(0xFFDC2626); // .nc-meta--failed
-const Color _faintColor = Color(0xFF94A3B8); // .nc-daysep / .nc-edited
+// Conversation palette — P0 accessibility pass (UX audit §2A).
+// Every text pair below is computed ≥ 4.5:1 (WCAG AA), verified in
+// the audit; the previous green-bubble scheme failed at 1.28–3.77:1.
+// Own bubbles: WhatsApp-style light tint + ink (11.28:1 body).
+const Color _ownBubble = Color(0xFFD9FDD3); // own bubble background
+const Color _ownInk = Color(0xFF0B3B2E); // own bubble text (11.28:1)
+const Color _ownMeta = Color(0xFF4B635C); // time/edited/✓ on own (5.85:1)
+const Color _ownBorder = Color(0xFFC6E9CF); // hairline on gray page bg
+const Color _seenColor = Color(0xFF047857); // ✓✓ on light bubble (4.95:1)
+const Color _failedColor = Color(0xFFB91C1C); // on page/sheet bg (6.47:1)
+const Color _faintColor = Color(0xFF64748B); // day sep/tombstone (4.55:1+)
 
 /// One open conversation — P74 Phase 2 parity surface.
 ///
@@ -854,17 +875,20 @@ class _ConversationScreenState extends State<_ConversationScreen>
             color: const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.block_rounded, size: 13, color: _faintColor),
-              SizedBox(width: 5),
-              Text('This message was deleted',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      color: _faintColor)),
-            ],
+          child: const Semantics(
+            label: 'Deleted message',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.block_rounded, size: 13, color: _faintColor),
+                SizedBox(width: 5),
+                Text('This message was deleted',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: _faintColor)),
+              ],
+            ),
           ),
         ),
       );
@@ -873,6 +897,9 @@ class _ConversationScreenState extends State<_ConversationScreen>
     // Local optimistic bubbles (pending / failed) — always mine.
     if (isLocalBubble(m)) {
       final failed = m[kLocalStatus] == 'failed';
+      // P0 audit A3: the failure state sits BELOW the bubble on the
+      // page background (WhatsApp's pattern) — the old red-on-green
+      // text was 1.28:1, functionally invisible.
       return Align(
         alignment: Alignment.centerRight,
         child: GestureDetector(
@@ -882,61 +909,68 @@ class _ConversationScreenState extends State<_ConversationScreen>
             opacity: failed ? 1 : 0.72, // web .nc-msg--pending
             child: Container(
               margin: const EdgeInsets.only(bottom: 9),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
               constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * .78),
-              decoration: const BoxDecoration(
-                color: AppTheme.success,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(15),
-                  topRight: Radius.circular(15),
-                  bottomLeft: Radius.circular(15),
-                  bottomRight: Radius.circular(5),
-                ),
-              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    (m['body'] ?? '').toString(),
-                    style: const TextStyle(
-                        fontSize: 13.5, height: 1.5, color: Colors.white),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 13, vertical: 9),
+                    decoration: const BoxDecoration(
+                      color: _ownBubble,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(15),
+                        topRight: Radius.circular(15),
+                        bottomLeft: Radius.circular(15),
+                        bottomRight: Radius.circular(5),
+                      ),
+                    ),
+                    child: Text(
+                      (m['body'] ?? '').toString(),
+                      style: const TextStyle(
+                          fontSize: 13.5, height: 1.5, color: _ownInk),
+                    ),
                   ),
-                  const SizedBox(height: 3),
                   if (failed)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.warning_amber_rounded,
-                            size: 12, color: _failedColor),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            '${m['_fail_reason'] ?? 'Could not send.'} · Tap to retry',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                color: _failedColor),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3, right: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.error_outline_rounded,
+                              size: 13, color: _failedColor),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              '${m['_fail_reason'] ?? 'Could not send.'} · Tap to retry',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _failedColor),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     )
                   else
-                    const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.access_time_rounded,
-                            size: 11, color: Colors.white70),
-                        SizedBox(width: 4),
-                        Text('Sending…',
-                            style: TextStyle(
-                                fontSize: 10.5,
-                                fontStyle: FontStyle.italic,
-                                color: Colors.white70)),
-                      ],
+                    const Padding(
+                      padding: EdgeInsets.only(top: 3, right: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.access_time_rounded,
+                              size: 12, color: _ownMeta),
+                          SizedBox(width: 4),
+                          Text('Sending…',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                  color: _ownMeta)),
+                        ],
+                      ),
                     ),
                 ],
               ),
@@ -960,14 +994,18 @@ class _ConversationScreenState extends State<_ConversationScreen>
           constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * .78),
           decoration: BoxDecoration(
-            color: mine ? AppTheme.success : Colors.white,
+            // P0 audit A1/A2: own bubble is the light tint + ink
+            // (11.28:1 body, 4.95:1 ✓✓) — the old white-on-green was
+            // 3.77:1 and the sky-blue receipt 1.76:1.
+            color: mine ? _ownBubble : Colors.white,
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(15),
               topRight: const Radius.circular(15),
               bottomLeft: Radius.circular(mine ? 15 : 5),
               bottomRight: Radius.circular(mine ? 5 : 15),
             ),
-            border: mine ? null : Border.all(color: AppTheme.borderLight),
+            border: Border.all(
+                color: mine ? _ownBorder : AppTheme.borderLight),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -988,45 +1026,60 @@ class _ConversationScreenState extends State<_ConversationScreen>
                 style: TextStyle(
                     fontSize: 13.5,
                     height: 1.5,
-                    color: mine ? Colors.white : AppTheme.textPrimary),
+                    color: mine ? _ownInk : AppTheme.textPrimary),
               ),
               const SizedBox(height: 3),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (mine)
-                    // ⋯ affordance — same menu as the web's hover
-                    // reveal (long-press works too).
-                    GestureDetector(
-                      onTap: () => _openOwnMessageSheet(m),
-                      child: const Icon(Icons.more_vert_rounded,
-                          size: 14, color: Colors.white54),
+                    // ⋯ affordance (P0 audit A6): a real button with a
+                    // compliant touch target, tooltip and semantics;
+                    // long-press on the whole bubble stays as the
+                    // duplicate gesture path.
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.all(4),
+                      constraints: const BoxConstraints(
+                          minWidth: 36, minHeight: 36),
+                      iconSize: 18,
+                      color: _ownMeta,
+                      tooltip: 'Message options',
+                      onPressed: () => _openOwnMessageSheet(m),
+                      icon: const Icon(Icons.more_vert_rounded),
                     ),
-                  if (mine) const SizedBox(width: 4),
                   Text(
                     '$time${edited ? ' · edited' : ''}',
                     style: TextStyle(
                         fontSize: 10.5,
                         fontStyle: edited ? FontStyle.italic : null,
-                        color: mine ? Colors.white70 : _faintColor),
+                        color: mine ? _ownMeta : _faintColor),
                   ),
                   if (receipt != Receipt.none) ...[
                     const SizedBox(width: 4),
-                    Icon(
-                      receipt == Receipt.seen
-                          ? Icons.done_all_rounded
-                          : Icons.done_rounded,
-                      size: 13,
-                      color: receipt == Receipt.seen
-                          ? _seenColor // web .nc-seen (#38bdf8)
-                          : Colors.white70,
+                    Semantics(
+                      label: receipt == Receipt.seen ? 'Seen' : 'Sent',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            receipt == Receipt.seen
+                                ? Icons.done_all_rounded
+                                : Icons.done_rounded,
+                            size: 13,
+                            color: receipt == Receipt.seen
+                                ? _seenColor
+                                : _ownMeta,
+                          ),
+                          if (receipt == Receipt.seen)
+                            const Text(' Seen',
+                                style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: _seenColor)),
+                        ],
+                      ),
                     ),
-                    if (receipt == Receipt.seen)
-                      const Text(' Seen',
-                          style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: _seenColor)),
                   ],
                 ],
               ),
@@ -1051,7 +1104,7 @@ class _DaySeparator extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-            fontSize: 10.5, fontWeight: FontWeight.w600, color: _faintColor),
+            fontSize: 11, fontWeight: FontWeight.w600, color: _faintColor),
       ),
     );
   }

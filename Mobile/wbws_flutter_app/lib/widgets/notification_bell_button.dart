@@ -22,9 +22,12 @@ class NotificationBellButton extends StatelessWidget {
     return ValueListenableBuilder<int>(
       valueListenable: NotificationService.instance.badge,
       builder: (context, total, _) {
+        // A6: the tooltip doubles as the accessibility label, so the
+        // unread count reaches TalkBack/VoiceOver instead of a bare
+        // 'Notifications'.
         return IconButton(
           icon: _BellIcon(total: total, color: color),
-          tooltip: 'Notifications',
+          tooltip: total > 0 ? 'Notifications, $total unread' : 'Notifications',
           onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => const NotificationCenterScreen())),
         );
@@ -50,11 +53,12 @@ class _BellIcon extends StatelessWidget {
             top: -4,
             right: -6,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              constraints: const BoxConstraints(minWidth: 16),
+              // A6: 10.5px on an 18px minimum pill (was 9px/16px).
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
               decoration: BoxDecoration(
                 color: AppTheme.danger,
-                borderRadius: BorderRadius.circular(9),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                     color: Theme.of(context).scaffoldBackgroundColor,
                     width: 1.5),
@@ -64,7 +68,7 @@ class _BellIcon extends StatelessWidget {
                 total > 99 ? '99+' : '$total',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 9,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w700,
                   height: 1.2,
                 ),

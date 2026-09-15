@@ -72,8 +72,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     await Future.wait([_loadAlerts(), _loadAnnouncements()]);
   }
 
-  Future<void> _loadAlerts() async {
-    setState(() => _loadingAlerts = true);
+  /// P0 audit B5: [silent] reloads keep the rows visible — skeletons
+  /// are reserved for the first load and explicit retries.
+  Future<void> _loadAlerts({bool silent = false}) async {
+    if (!silent) setState(() => _loadingAlerts = true);
     final res = await _api.getNotificationFeed(
         limit: 40, unreadOnly: _unreadOnly);
     if (!mounted) return;
@@ -131,8 +133,8 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     await _loadAlerts();
   }
 
-  Future<void> _loadAnnouncements() async {
-    setState(() => _loadingAnn = true);
+  Future<void> _loadAnnouncements({bool silent = false}) async {
+    if (!silent) setState(() => _loadingAnn = true);
     final res = await _api.getAnnouncements(limit: 40);
     if (!mounted) return;
     final data = res.data is Map<String, dynamic>
@@ -240,7 +242,9 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   Future<void> _markAll() async {
     final scope = _tabs.index == 1 ? 'announcements' : 'alerts';
     await _api.markAllNotificationsRead(scope: scope);
-    await _loadAll();
+    // B5: no skeleton flash after a bulk action — rows update in place.
+    await Future.wait([_loadAlerts(silent: true), _loadAnnouncements(silent: true)]);
+    await NotificationService.instance.refresh();
   }
 
   @override
@@ -475,12 +479,16 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
                   fontSize: 12.5, color: AppTheme.textSecondary)),
         ),
         trailing: unread
-            ? Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                    color: AppTheme.success,
-                    borderRadius: BorderRadius.circular(5)),
+            ? const Semantics(
+                label: 'Unread',
+                child: SizedBox(
+                  width: 9,
+                  height: 9,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                        color: AppTheme.success, shape: BoxShape.circle),
+                  ),
+                ),
               )
             : null,
         onTap: () => _markRead(n),
@@ -570,17 +578,22 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
                 ),
               ),
               if (unread)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: const Color(0xFFD1FAE5),
-                      borderRadius: BorderRadius.circular(9)),
-                  child: const Text('NEW',
-                      style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF065F46))),
+                const Semantics(
+                  label: 'New announcement',
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                        color: Color(0xFFD1FAE5),
+                        borderRadius: BorderRadius.all(Radius.circular(9))),
+                    child: Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      child: Text('NEW',
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF065F46))),
+                    ),
+                  ),
                 ),
             ],
           ),
