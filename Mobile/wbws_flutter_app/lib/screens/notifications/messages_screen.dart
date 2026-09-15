@@ -125,16 +125,48 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     ])
                   : ListView.builder(
                       padding: const EdgeInsets.all(14),
-                      itemCount: _threads.length,
-                      itemBuilder: (_, i) => _threadTile(_threads[i]),
+                      itemCount: _threads.length + (_listError != null ? 1 : 0),
+                      itemBuilder: (_, i) => i == 0 && _listError != null
+                          ? _staleBanner(_listError!)
+                          : _threadTile(_threads[i - (_listError != null ? 1 : 0)]),
                     ),
             ),
+    );
+  }
+
+  /// P1 audit C2 — Google's rule: a failed refresh never destroys
+  /// content. Rows stay (P0 keeps them on silent failure) and this
+  /// slim banner says what happened. Text #92400E on #FEF3C7 = 6.37:1.
+  Widget _staleBanner(String message) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded, size: 15, color: Color(0xFF92400E)),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text('$message — showing recent conversations.',
+                style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF92400E))),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _threadTile(Map<String, dynamic> t) {
     final unread = ((t['unread_count'] ?? 0) as num).toInt();
     final who = (t['participants_label'] ?? '').toString();
+    // P1 audit B6 — WhatsApp's right column: muted time over the
+    // unread pill. Today → 14:05, Yesterday, weekday, then d MMM.
+    final when = threadTimeLabel((t['last_message_at'] ?? '').toString());
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -172,8 +204,20 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 fontSize: 12.5, color: AppTheme.textSecondary),
           ),
         ),
-        trailing: unread > 0
-            ? Semantics(
+        trailing: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (when.isNotEmpty)
+              Text(when,
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _faintColor)), // 4.55:1 on the unread tint
+            if (unread > 0) ...[
+              if (when.isNotEmpty) const SizedBox(height: 5),
+              Semantics(
                 label: unread == 1 ? '1 unread' : '$unread unread',
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -187,8 +231,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           fontWeight: FontWeight.w800,
                           color: Colors.white)),
                 ),
-              )
-            : null,
+              ),
+            ],
+          ],
+        ),
         onTap: () => _openThread(t),
       ),
     );
@@ -257,6 +303,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final subject = TextEditingController();
     final body = TextEditingController();
     final selected = <int>{};
+    var query = ''; // B10: live search filter
 
     await showModalBottomSheet(
       context: context,
@@ -292,27 +339,86 @@ class _MessagesScreenState extends State<MessagesScreen> {
                       labelText: 'Message',
                       border: OutlineInputBorder())),
               const SizedBox(height: 12),
-              Text('To',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textSecondary)),
+              // P1 audit B10 — the web's searchable contact picker
+              // (its D10 fix), ported: search field, selected-chips
+              // row, live-filtered list and a selection counter.
+              Row(
+                children: [
+                  const Text('To',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textSecondary)),
+                  const Spacer(),
+                  if (selected.isNotEmpty)
+                    Text('${selected.length} selected',
+                        style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF047857))), // 4.95:1
+                ],
+              ),
               const SizedBox(height: 6),
+              TextField(
+                decoration: const InputDecoration(
+                    hintText: 'Search people…',
+                    prefixIcon: Icon(Icons.search_rounded, size: 19),
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                    border: OutlineInputBorder()),
+                onChanged: (v) =>
+                    setSheet(() => query = v.trim().toLowerCase()),
+              ),
+              if (selected.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final p in partners)
+                      if (selected.contains((p['id'] as num).toInt()))
+                        InputChip(
+                          label: Text(p['label']?.toString() ?? '',
+                              style: const TextStyle(fontSize: 11.5)),
+                          onDeleted: () => setSheet(
+                              () => selected.remove((p['id'] as num).toInt())),
+                        ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 8),
               Flexible(
                 child: SizedBox(
-                  height: 180,
-                  child: ListView(
-                    children: partners.map((p) {
-                      final id = (p['id'] as num).toInt();
-                      return CheckboxListTile(
-                        dense: true,
-                        value: selected.contains(id),
-                        title: Text(p['label']?.toString() ?? ''),
-                        onChanged: (v) => setSheet(() =>
-                            v == true ? selected.add(id) : selected.remove(id)),
-                      );
-                    }).toList(),
-                  ),
+                  height: 230,
+                  child: Builder(builder: (_) {
+                    final hits = partners
+                        .where((p) =>
+                            (p['label']?.toString() ?? '')
+                                .toLowerCase()
+                                .contains(query))
+                        .toList();
+                    if (hits.isEmpty) {
+                      return const Center(
+                          child: Text('No matching people.',
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppTheme.textSecondary)));
+                    }
+                    return ListView(
+                      children: hits.map((p) {
+                        final id = (p['id'] as num).toInt();
+                        return CheckboxListTile(
+                          dense: true,
+                          value: selected.contains(id),
+                          title: Text(p['label']?.toString() ?? ''),
+                          onChanged: (v) => setSheet(() => v == true
+                              ? selected.add(id)
+                              : selected.remove(id)),
+                        );
+                      }).toList(),
+                    );
+                  }),
                 ),
               ),
               const SizedBox(height: 14),

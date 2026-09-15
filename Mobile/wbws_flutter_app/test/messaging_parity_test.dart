@@ -371,4 +371,37 @@ void main() {
           'tel:+251911223344');
     });
   });
+
+  group('threadTimeLabel (B6 thread-row time)', () {
+    final now = DateTime(2026, 9, 15, 15, 0);
+
+    test('today renders the clock time', () {
+      expect(threadTimeLabel('2026-09-15 14:05:00', now: now), '14:05');
+      expect(threadTimeLabel('2026-09-15 00:01:00', now: now), '00:01');
+    });
+
+    test('yesterday renders Yesterday', () {
+      expect(threadTimeLabel('2026-09-14 23:59:00', now: now), 'Yesterday');
+    });
+
+    test('within the week renders the weekday', () {
+      // 2026-09-15 is a Tuesday; 2026-09-11 is a Friday.
+      expect(threadTimeLabel('2026-09-11 09:00:00', now: now), 'Fri');
+      expect(threadTimeLabel('2026-09-09 09:00:00', now: now), 'Wed');
+    });
+
+    test('older renders day + short month', () {
+      expect(threadTimeLabel('2026-08-30 10:00:00', now: now), '30 Aug');
+      expect(threadTimeLabel('2025-01-05 10:00:00', now: now), '5 Jan');
+    });
+
+    test('exactly 7 days ago is older, not weekday', () {
+      expect(threadTimeLabel('2026-09-08 15:00:00', now: now), '8 Sep');
+    });
+
+    test('unparseable renders empty (no wrong label)', () {
+      expect(threadTimeLabel('', now: now), '');
+      expect(threadTimeLabel('junk', now: now), '');
+    });
+  });
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import 'api_service.dart';
 import 'inbox_view_model.dart';
@@ -16,7 +16,14 @@ import 'inbox_view_model.dart';
 /// an empty body whenever nothing changed (same contract as the web),
 /// so an idle poll costs a few header bytes and no JSON parse. The
 /// stored ETag is only replaced on a full 200 response.
-class NotificationService {
+///
+/// P1 audit D4 — the poll is lifecycle-aware: it observes
+/// AppLifecycleState and stops the timer whenever the app is not
+/// resumed (the web pauses on visibilitychange; same battery rule).
+/// Returning to the foreground restarts the timer and refreshes
+/// immediately, so the badge is fresh the moment the app is visible
+/// again.
+class NotificationService with WidgetsBindingObserver {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
@@ -42,18 +49,39 @@ class NotificationService {
   void start() {
     if (_started) return;
     _started = true;
+    WidgetsBinding.instance.addObserver(this);
     refresh();
     _timer = Timer.periodic(_pollInterval, (_) => refresh());
   }
 
   /// Stop polling (sign-out / app lock).
   void stop() {
+    if (!_started) return;
     _started = false;
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _timer = null;
     badge.value = 0;
     summary.value = {};
     _summaryEtag = null;
+  }
+
+  /// P1 audit D4 — poll only while the app is visible: the timer is
+  /// cancelled on every non-resumed state (paused/hidden/detached)
+  /// and restarted with an immediate refresh on resume. The ETag
+  /// keeps an idle restart cheap.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_started) return;
+    if (state == AppLifecycleState.resumed) {
+      if (_timer == null) {
+        _timer = Timer.periodic(_pollInterval, (_) => refresh());
+      }
+      refresh();
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
   }
 
   /// One-shot refresh; returns the raw summary map — the freshly

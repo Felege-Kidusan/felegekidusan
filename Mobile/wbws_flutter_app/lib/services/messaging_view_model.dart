@@ -41,6 +41,22 @@ String dayLabel(String iso, {DateTime? now}) {
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
+/// P1 audit B6 — right-column time label for thread tiles:
+/// Today → `14:05`, Yesterday → `Yesterday`, within the last week →
+/// short weekday (`Mon`), older → `9 Sep`. Empty for unparseable
+/// input (no label rather than a wrong one).
+String threadTimeLabel(String iso, {DateTime? now}) {
+  final t = parseServerTime(iso);
+  if (t == null) return '';
+  final n = now ?? DateTime.now();
+  if (_sameDay(t, n)) return timeHM(iso);
+  if (_sameDay(t, n.subtract(const Duration(days: 1)))) return 'Yesterday';
+  if (t.isBefore(n) && n.difference(t).inDays < 7) {
+    return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.weekday - 1];
+  }
+  return '${t.day} ${_months[t.month - 1]}';
+}
+
 /// `14:05` — 24h clock, like the web's en-GB timeHM().
 String timeHM(String iso) {
   final t = parseServerTime(iso);

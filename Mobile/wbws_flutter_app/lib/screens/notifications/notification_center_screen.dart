@@ -430,6 +430,34 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     );
   }
 
+  /// P1 audit C2 — Google's rule: a failed refresh never destroys
+  /// content; a slim banner says what happened instead. Text
+  /// #92400E on #FEF3C7 = 6.37:1.
+  Widget _staleBanner(String message, String what) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded,
+              size: 15, color: Color(0xFF92400E)),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text('$message — showing recent $what.',
+                style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF92400E))),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _alertTile(Map<String, dynamic> n) {
     final unread = n['is_unread'] == 1;
     final priority = (n['priority'] ?? 'normal') as String;
@@ -455,7 +483,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
               : high
                   ? const Color(0xFFFEF3C7)
                   : const Color(0xFFDBEAFE),
-          child: Icon(Icons.notifications_rounded,
+          // P1 audit C7 — the web's type→icon table, ported: every
+          // domain gets its own glyph; tint still follows priority.
+          child: Icon(
+              notificationTypeIcon(n['type']?.toString()),
               size: 19,
               color: urgent
                   ? AppTheme.danger
@@ -529,10 +560,20 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     }
     return ListView.builder(
       padding: const EdgeInsets.all(14),
-      itemCount: _announcements.length + (_annHasMore ? 1 : 0),
-      itemBuilder: (_, i) => (_annHasMore && i == _announcements.length)
-          ? _loadOlderControl(_loadingOlderAnn, _loadOlderAnnouncements)
-          : _announcementCard(_announcements[i]),
+      itemCount: _announcements.length +
+          (_annHasMore ? 1 : 0) +
+          (_annError != null ? 1 : 0),
+      itemBuilder: (_, i) {
+        // P1 audit C2 — stale banner over kept rows.
+        if (_annError != null && i == 0) {
+          return _staleBanner(_annError!, 'announcements');
+        }
+        final j = i - (_annError != null ? 1 : 0);
+        if (_annHasMore && j == _announcements.length) {
+          return _loadOlderControl(_loadingOlderAnn, _loadOlderAnnouncements);
+        }
+        return _announcementCard(_announcements[j]);
+      },
     );
   }
 
