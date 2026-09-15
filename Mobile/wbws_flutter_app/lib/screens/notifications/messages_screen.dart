@@ -875,9 +875,9 @@ class _ConversationScreenState extends State<_ConversationScreen>
             color: const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Semantics(
+          child: Semantics(
             label: 'Deleted message',
-            child: Row(
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.block_rounded, size: 13, color: _faintColor),

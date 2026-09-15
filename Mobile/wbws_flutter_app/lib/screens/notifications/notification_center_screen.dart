@@ -479,9 +479,12 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
                   fontSize: 12.5, color: AppTheme.textSecondary)),
         ),
         trailing: unread
-            ? const Semantics(
+            ? Semantics(
                 label: 'Unread',
-                child: SizedBox(
+                // NOTE: Semantics' constructor is NOT const (unlike its
+                // children here) — this exact const mistake has broken
+                // two release builds; keep const off the wrapper.
+                child: const SizedBox(
                   width: 9,
                   height: 9,
                   child: DecoratedBox(
@@ -578,9 +581,9 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
                 ),
               ),
               if (unread)
-                const Semantics(
+                Semantics(
                   label: 'New announcement',
-                  child: DecoratedBox(
+                  child: const DecoratedBox(
                     decoration: BoxDecoration(
                         color: Color(0xFFD1FAE5),
                         borderRadius: BorderRadius.all(Radius.circular(9))),
