@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
 import 'inbox_view_model.dart';
@@ -42,6 +44,12 @@ class NotificationService with WidgetsBindingObserver {
   /// ETag of the last full summary response (P74 Phase 3).
   String? _summaryEtag;
 
+  /// O1 (offline-first): the last known summary is persisted so the
+  /// bell renders its badge the moment the app starts — the first
+  /// network refresh then reconciles it. WhatsApp shows the last
+  /// known state instantly for the same reason.
+  static const _summaryCacheKey = 'comm_summary_cache';
+
   static const _pollInterval = Duration(seconds: 30);
 
   /// Start polling. Safe to call from every screen — only the first
@@ -50,8 +58,25 @@ class NotificationService with WidgetsBindingObserver {
     if (_started) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
+    _restoreCachedSummary();
     refresh();
     _timer = Timer.periodic(_pollInterval, (_) => refresh());
+  }
+
+  Future<void> _restoreCachedSummary() async {
+    if (summary.value.isNotEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_summaryCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      final map = jsonDecode(raw);
+      if (map is Map<String, dynamic> && map.isNotEmpty) {
+        summary.value = map;
+        badge.value = ((map['total'] ?? 0) as num).toInt();
+      }
+    } catch (_) {
+      // Corrupt cache: ignore — the network refresh owns the truth.
+    }
   }
 
   /// Stop polling (sign-out / app lock).
@@ -64,6 +89,19 @@ class NotificationService with WidgetsBindingObserver {
     badge.value = 0;
     summary.value = {};
     _summaryEtag = null;
+    // Sign-out hygiene: the persisted badge is member data too.
+    SharedPreferences.getInstance()
+        .then((p) => p.remove(_summaryCacheKey))
+        .catchError((_) {});
+  }
+
+  Future<void> _persistSummary(Map<String, dynamic> map) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_summaryCacheKey, jsonEncode(map));
+    } catch (_) {
+      // Persistence is best-effort; the in-memory value is already set.
+    }
   }
 
   /// P1 audit D4 — poll only while the app is visible: the timer is
@@ -102,6 +140,7 @@ class NotificationService with WidgetsBindingObserver {
           _summaryEtag = updateEtag(_summaryEtag, res.statusCode, res.etag);
           summary.value = map;
           badge.value = ((map['total'] ?? 0) as num).toInt();
+          _persistSummary(map);
           return map;
         }
       }

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_service.dart';
+import '../../services/comm_store.dart';
 import '../../services/inbox_view_model.dart';
 import '../../services/messaging_view_model.dart';
 import '../../services/notification_service.dart';
@@ -50,7 +51,23 @@ class _MessagesScreenState extends State<MessagesScreen> {
   /// flash is reserved for the FIRST load. Used after returning from
   /// a conversation, on pull-to-refresh and after composing.
   Future<void> _load({bool silent = false}) async {
-    if (!silent) setState(() => _loading = true);
+    // O1 (offline-first): the local store renders FIRST — instant
+    // open, full offline browsing — and the network only refreshes
+    // it afterwards. Skeletons are reserved for the first ever open
+    // of the feature on this device (WhatsApp's read path).
+    final local = await CommStore.instance.threads();
+    if (!mounted) return;
+    if (local.isNotEmpty) {
+      setState(() {
+        _threads
+          ..clear()
+          ..addAll(local);
+        _loading = false;
+        _listError = null; // last-known-good rows on screen — reassess after fetch
+      });
+    } else if (!silent) {
+      setState(() => _loading = true);
+    }
     final sum = await NotificationService.instance.refresh();
     if (!mounted) return;
     _canMessage = sum?['can_message'] == true;
@@ -77,6 +94,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
           ..addAll(okRows ?? []);
       }
     });
+    // O1: persist the fresh window — next cold start opens instantly
+    // and works offline. (Runs after setState; the UI is already
+    // correct either way, the store is the durability layer.)
+    if (okRows != null && okRows.isNotEmpty) {
+      await CommStore.instance.replaceAllThreads(okRows);
+    }
   }
 
   @override

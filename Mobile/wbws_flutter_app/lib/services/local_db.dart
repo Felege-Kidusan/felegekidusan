@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 25,
+      version: 26,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -379,6 +379,12 @@ class LocalDb {
           // interrupted rebuilds and future normaliser changes.
           await _createSearchMetaTables(db);
         }
+        if (oldVersion < 26) {
+          // O1 (offline-first comm): WhatsApp-style local store — the
+          // UI reads these tables first; the network only refreshes
+          // them. All five are member PII → wiped on logout below.
+          await _createCommTables(db);
+        }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
           // rebuilt from scratch because normalisation changed —
@@ -416,6 +422,70 @@ class LocalDb {
         }
       },
     );
+  }
+
+  /// Communication offline tables (schema v26, offline-first O1).
+  /// Kept in one place so onCreate and onUpgrade stay identical —
+  /// every statement is CREATE ... IF NOT EXISTS, so running it on an
+  /// upgraded device is a no-op. Threads/messages/outbox/drafts/meta
+  /// mirror the v1 API rows; the pure row<->JSON mappers and merge
+  /// rules live in comm_store.dart / messaging_view_model.dart.
+  Future<void> _createCommTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS comm_threads (
+        id INTEGER PRIMARY KEY,
+        subject TEXT NOT NULL DEFAULT '',
+        participants_label TEXT,
+        last_body TEXT,
+        last_message_at TEXT,
+        unread_count INTEGER NOT NULL DEFAULT 0,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT,
+        fetched_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS comm_messages (
+        id INTEGER PRIMARY KEY,
+        thread_id INTEGER NOT NULL,
+        sender_id INTEGER,
+        sender_name TEXT,
+        sender_label TEXT,
+        body TEXT NOT NULL DEFAULT '',
+        created_at TEXT,
+        edited INTEGER NOT NULL DEFAULT 0,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        mine INTEGER NOT NULL DEFAULT 0,
+        client_tag TEXT
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_comm_messages_thread ON comm_messages(thread_id, id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS comm_outbox (
+        client_tag TEXT PRIMARY KEY,
+        thread_id INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        created_at TEXT NOT NULL,
+        fail_reason TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS comm_drafts (
+        thread_id INTEGER PRIMARY KEY,
+        body TEXT NOT NULL DEFAULT '',
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS comm_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
   }
 
   /// Hymn-library offline tables (schema v11). Kept in one place so
@@ -1062,6 +1132,7 @@ class LocalDb {
   }
 
   Future<void> _createTables(Database db) async {
+    await _createCommTables(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -3087,6 +3158,13 @@ class LocalDb {
         // cached_mezmur_categories, hymn_sync_meta, pending_hymn_ops.
         // Hymns are shared library content (no member PII); queued
         // hymn edits wait here until a curator signs in again.
+        // Comm tables (threads/messages/outbox/drafts/meta) ARE
+        // member PII — wiped like everything else.
+        'comm_threads',
+        'comm_messages',
+        'comm_outbox',
+        'comm_drafts',
+        'comm_meta',
         'sync_log',
       ]) {
         await txn.delete(table);

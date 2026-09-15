@@ -269,8 +269,17 @@ class MezmurArtTests(unittest.TestCase):
 
     # ── Flutter cache & offline ───────────────────────────────
     def test_local_db_v25_art_columns(self):
-        self.assertIn("version: 25,", self.local_db)
+        # Schema version moved 25 -> 26 in O1 (offline-first comm
+        # tables); this pin tracks the CURRENT version.
+        self.assertIn("version: 26,", self.local_db)
         self.assertIn("if (oldVersion < 25)", self.local_db)
+        # O1: comm store tables ship in v26 — created idempotently for
+        # both fresh installs and upgrades, and wiped on logout (PII).
+        self.assertIn("if (oldVersion < 26)", self.local_db)
+        self.assertIn("_createCommTables(db)", self.local_db)
+        for t in ["comm_threads", "comm_messages", "comm_outbox", "comm_drafts", "comm_meta"]:
+            self.assertIn(f"CREATE TABLE IF NOT EXISTS {t} (", self.local_db)
+            self.assertIn(f"'{t}',", self.local_db)  # logout wipe list
         for col in ["art_status", "art_color", "art_url_medium", "art_url_small"]:
             self.assertIn(f"'{col}'", self.local_db.split("upsertHymns", 1)[1][:6000],
                           f"{col} must be in the upsert probe/merge")
