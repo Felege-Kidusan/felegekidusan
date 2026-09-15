@@ -191,6 +191,10 @@ final class NotificationCenterService
             while ($row = $res->fetch_assoc()) {
                 $row['data'] = $row['data'] ? json_decode($row['data'], true) : null;
                 $row['is_unread'] = ($row['my_read_at'] === null) ? 1 : 0;
+                // P1 (mobile UX audit C1): additive routing target — what
+                // the alert is ABOUT, so clients can deep-link. Purely
+                // additive: older clients and the web ignore the field.
+                $row['target'] = self::targetFor($row);
                 $rows[] = $row;
             }
             $stmt->close();
@@ -208,6 +212,31 @@ final class NotificationCenterService
         } catch (\Exception $e) {
             return $empty;
         }
+    }
+
+    /**
+     * P1 (mobile UX audit C1) — routing target for a feed row: what
+     * the alert is about, derived from type + data payload. Today's
+     * producers all carry either member_id (member_registered /
+     * member_archived / role_changed / class_enrolled /
+     * attendance_alert / attendance_issue) or task_id +
+     * related_member_id (task_assigned — mobile has no tasks surface
+     * by scope, so a task routes to the member it references when
+     * one exists). Rows without a usable reference get null —
+     * clients simply mark those read, as before. No schema change.
+     */
+    private static function targetFor(array $row): ?array
+    {
+        $data = is_array($row['data'] ?? null) ? $row['data'] : [];
+        $memberId = isset($data['member_id']) ? (int)$data['member_id'] : 0;
+        if ($memberId > 0) {
+            return ['kind' => 'member', 'id' => $memberId];
+        }
+        $relatedId = isset($data['related_member_id']) ? (int)$data['related_member_id'] : 0;
+        if ($relatedId > 0) {
+            return ['kind' => 'member', 'id' => $relatedId];
+        }
+        return null;
     }
 
     /** Mark one notification read for THIS user (recipient-checked). */

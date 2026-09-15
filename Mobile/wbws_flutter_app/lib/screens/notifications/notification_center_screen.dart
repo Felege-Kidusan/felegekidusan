@@ -3,10 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../../services/api_service.dart';
 import '../../services/inbox_view_model.dart';
+import '../../utils/notification_icons.dart';
 import '../../services/notification_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../members/member_detail_screen.dart';
 import 'messages_screen.dart';
 
 /// P72 — the mobile Notification Center: Alerts + Announcements in
@@ -82,15 +84,21 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     final data = res.data is Map<String, dynamic>
         ? res.data as Map<String, dynamic>
         : null;
+    final okRows = (data != null && data['rows'] is List)
+        ? List<Map<String, dynamic>>.from(
+            (data['rows'] as List).whereType<Map<String, dynamic>>())
+        : null;
     setState(() {
       _loadingAlerts = false;
       _error = res.isNetworkError ? 'You appear to be offline.' : null;
-      _alerts
-        ..clear()
-        ..addAll((data != null && data['rows'] is List)
-            ? List<Map<String, dynamic>>.from(
-                (data['rows'] as List).whereType<Map<String, dynamic>>())
-            : []);
+      // P1 audit C2: only a successful load may replace the rows —
+      // a failed refresh keeps what's on screen under the stale
+      // banner instead of destroying the user's content.
+      if (okRows != null || _alerts.isEmpty) {
+        _alerts
+          ..clear()
+          ..addAll(okRows ?? []);
+      }
       _alertsHasMore = hasMore(data);
       _alertsNextBefore = nextCursor(data, 'next_before');
     });
@@ -140,17 +148,21 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     final data = res.data is Map<String, dynamic>
         ? res.data as Map<String, dynamic>
         : null;
+    final okRows = (data != null && data['announcements'] is List)
+        ? List<Map<String, dynamic>>.from((data['announcements'] as List)
+            .whereType<Map<String, dynamic>>())
+        : null;
     setState(() {
       _loadingAnn = false;
       // P74 Phase 4 offline review: a failed load must not masquerade
       // as "No announcements" — mirror the alerts tab's error state.
       _annError = res.isNetworkError ? 'You appear to be offline.' : null;
-      _announcements
-        ..clear()
-        ..addAll((data != null && data['announcements'] is List)
-            ? List<Map<String, dynamic>>.from((data['announcements'] as List)
-                .whereType<Map<String, dynamic>>())
-            : []);
+      // P1 audit C2: only a successful load may replace the rows.
+      if (okRows != null || _announcements.isEmpty) {
+        _announcements
+          ..clear()
+          ..addAll(okRows ?? []);
+      }
       _annHasMore = hasMore(data);
       _annNextBefore = nextCursor(data, 'next_before');
       _annNextPin = nextCursor(data, 'next_pin');
@@ -184,6 +196,19 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
       _annNextPin = nextCursor(data, 'next_pin');
       _loadingOlderAnn = false;
     });
+  }
+
+  /// P1 audit C1 — alerts are actionable: tapping marks the row read
+  /// (if it isn't already — unchanged optimistic flow) AND routes to
+  /// the alert's subject when the server sent a target. 'member'
+  /// targets open that member's profile — the Outlook/Teams
+  /// contract; rows without a target behave exactly as before.
+  void _openAlert(Map<String, dynamic> n) {
+    _markRead(n); // fire-and-forget; it owns its own error handling
+    final memberId = memberTargetId(n);
+    if (memberId == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => MemberDetailScreen(memberId: memberId)));
   }
 
   Future<void> _markRead(Map<String, dynamic> n) async {
@@ -348,10 +373,19 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(14),
-            itemCount: _alerts.length + (_alertsHasMore ? 1 : 0),
-            itemBuilder: (_, i) => (_alertsHasMore && i == _alerts.length)
-                ? _loadOlderControl(_loadingOlderAlerts, _loadOlderAlerts)
-                : _alertTile(_alerts[i]),
+            itemCount:
+                _alerts.length + (_alertsHasMore ? 1 : 0) + (_error != null ? 1 : 0),
+            itemBuilder: (_, i) {
+              // P1 audit C2 — stale banner over kept rows.
+              if (_error != null && i == 0) {
+                return _staleBanner(_error!, 'alerts');
+              }
+              final j = i - (_error != null ? 1 : 0);
+              if (_alertsHasMore && j == _alerts.length) {
+                return _loadOlderControl(_loadingOlderAlerts, _loadOlderAlerts);
+              }
+              return _alertTile(_alerts[j]);
+            },
           ),
         ),
       ],
@@ -525,7 +559,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
                 ),
               )
             : null,
-        onTap: () => _markRead(n),
+        onTap: () => _openAlert(n),
       ),
     );
   }

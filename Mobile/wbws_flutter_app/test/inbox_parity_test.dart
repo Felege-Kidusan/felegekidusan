@@ -137,4 +137,23 @@ void main() {
       expect(decrementCount(0), 0);
     });
   });
+
+  group('memberTargetId (C1 deep-link target)', () {
+    test('member target returns the id', () {
+      expect(memberTargetId({'target': {'kind': 'member', 'id': 15}}), 15);
+    });
+
+    test('other kinds return null', () {
+      expect(memberTargetId({'target': {'kind': 'task', 'id': 3}}), isNull);
+    });
+
+    test('missing / malformed target never throws and returns null', () {
+      expect(memberTargetId({}), isNull);
+      expect(memberTargetId({'target': null}), isNull);
+      expect(memberTargetId({'target': 'member'}), isNull);
+      expect(memberTargetId({'target': {'kind': 'member'}}), isNull);
+      expect(memberTargetId({'target': {'kind': 'member', 'id': 0}}), isNull);
+      expect(memberTargetId({'target': {'kind': 'member', 'id': 'x'}}), isNull);
+    });
+  });
 }

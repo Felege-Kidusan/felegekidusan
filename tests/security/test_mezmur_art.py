@@ -290,8 +290,8 @@ class MezmurArtTests(unittest.TestCase):
 
     def test_app_version_bumped_in_both_places(self):
         # P74 Phase 4 release prep: communication parity release.
-        self.assertIn("appVersion = '1.2.0'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
-        self.assertIn("version: 1.2.0+21", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
+        self.assertIn("appVersion = '1.3.0'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
+        self.assertIn("version: 1.3.0+22", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

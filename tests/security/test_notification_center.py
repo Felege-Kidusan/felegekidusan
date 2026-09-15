@@ -58,6 +58,20 @@ class NotificationCenterTests(unittest.TestCase):
                       "public static function unreadSummary"]:
             self.assertIn(token, self.svc, f"service lost {token}")
 
+    def test_feed_rows_carry_additive_routing_target(self):
+        """P1 UX audit C1 — feed() attaches an additive routing target
+        (targetFor): member_id — or related_member_id for tasks — becomes
+        {kind: member, id}; rows without a usable reference get null and
+        clients keep the mark-read-only behavior. Derived entirely from
+        the existing data payload: no schema change, web ignores it."""
+        self.assertIn("$row['target'] = self::targetFor($row);", self.svc)
+        self.assertIn(
+            "private static function targetFor(array $row): ?array", self.svc)
+        self.assertIn("['kind' => 'member', 'id' => $memberId]", self.svc)
+        self.assertIn("['kind' => 'member', 'id' => $relatedId]", self.svc)
+        # purely derived — no DDL snuck in
+        self.assertNotIn("ALTER TABLE", self.svc)
+
     def test_service_covers_every_live_role(self):
         roles = re.search(r"ROLE_LABELS = \[(.*?)\];", self.svc, re.S).group(1)
         for role in ["super_admin", "school_admin", "info_dept", "edu_dept", "finance_dept",

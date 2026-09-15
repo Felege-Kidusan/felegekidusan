@@ -5,6 +5,60 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.3.0 (build 22) — Communication polish (UX audit)
+
+A full accessibility and craft pass over Messages and Notifications,
+built on a professional UI/UX audit of the feature.
+
+### Readable by everyone (accessibility)
+
+- **High-contrast messages** — your own messages now use a light
+  background with dark text (WhatsApp-style); timestamps, ✓✓ "Seen"
+  and failed-send states are clearly visible on any screen, in
+  sunlight, for low-vision users. Every text pair meets the WCAG AA
+  contrast standard.
+- **Screen-reader support** — unread badges, receipts, deleted
+  placeholders and the notification bell now announce themselves
+  properly to TalkBack/VoiceOver, including the unread count.
+- **Bigger touch targets** for message menus and the bell badge.
+
+### Messages that feel right
+
+- **Message grouping** — streaks from one sender collapse into tidy
+  groups: name once, time on the last bubble, tight spacing.
+- **Copy & links** — long-press any message to copy it. Links,
+  email addresses and phone numbers in messages are tappable (open
+  in browser / mail / dialer).
+- **Drafts** — a half-written reply survives leaving the
+  conversation and comes back when you return.
+- **New-message pill** — reading history while new messages arrive
+  shows a "N new messages ↓" pill instead of jumping the screen.
+- **Thread times** — the conversation list shows when each thread
+  was last active (Today 14:05 / Yesterday / weekday / date).
+- **Searchable recipients** — the new-conversation picker has a
+  search box, removable chips and a selection counter.
+
+### A trustworthy inbox
+
+- **Actionable alerts** — tapping an alert about a person now opens
+  that person's profile directly (in addition to marking it read).
+- **Offline never loses your content** — a failed refresh keeps
+  your rows and shows a slim "offline — showing recent" banner
+  instead of wiping the list.
+- **Per-type icons** — attendance, enrollment, tasks, roles and
+  member events each get their own icon.
+- **No more flashing skeletons** when returning from a conversation
+  or marking everything read.
+- **Battery-friendly** — the notification poll pauses whenever the
+  app is in the background and refreshes immediately on return.
+
+### For the server administrator
+
+- No new migrations in this release (044 + 045 from the previous
+  release still apply if not yet applied). The alert deep-link uses
+  data the server already stores — an additive field older apps and
+  the web simply ignore.
+
 ## 1.2.0 (build 21) — Communication parity
 
 The Messages and Notifications experience now matches the web

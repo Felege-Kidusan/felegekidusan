@@ -110,3 +110,18 @@ OptimisticRead applyReadOptimistic(
 
 /// Local badge decrement with the web's zero floor.
 int decrementCount(int current) => current > 0 ? current - 1 : 0;
+
+/// P1 audit C1 — deep-link destination for a feed row. The server
+/// (NotificationCenterService::targetFor) attaches an additive
+/// `target: {kind, id}` to feed rows; today the only routable kind
+/// is 'member' (member detail screen). Returns the member id, or
+/// null when the row has no usable target — the caller then just
+/// marks it read, exactly like before.
+int? memberTargetId(Map<String, dynamic> n) {
+  final target = n['target'];
+  if (target is! Map) return null;
+  if ((target['kind'] ?? '').toString() != 'member') return null;
+  final raw = target['id'];
+  final id = raw is num ? raw.toInt() : 0; // lenient: never throw on bad JSON
+  return id > 0 ? id : null;
+}
