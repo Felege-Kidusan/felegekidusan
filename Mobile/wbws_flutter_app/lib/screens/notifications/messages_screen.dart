@@ -1456,7 +1456,11 @@ class _LinkTextState extends State<_LinkText> {
       }
       final uri = linkUri(seg);
       if (uri == null) continue;
-      final r = TapGestureRecognizer(onTap: () => widget.onOpen(uri));
+      // NOTE: TapGestureRecognizer's constructor takes no callbacks —
+      // onTap/onTapCancel are settable properties (assigning them in
+      // the constructor broke a release build; this exact pattern is
+      // the canonical linkify wiring).
+      final r = TapGestureRecognizer()..onTap = () => widget.onOpen(uri);
       _recognizers.add(r);
       children.add(TextSpan(
           text: seg.text, style: widget.linkStyle, recognizer: r));
