@@ -14,6 +14,10 @@ dependencies:
   # HTTP & API
   http: ^1.2.0
 
+  # Open tappable links in messages (https:/mailto:/tel:) externally.
+  # First-party Flutter plugin. P1 UX audit B1.
+  url_launcher: ^6.3.2
+
   # Category cover images — pick from gallery (uploads go through the
   # same hardened validator as the web manager).
   image_picker: ^1.1.2

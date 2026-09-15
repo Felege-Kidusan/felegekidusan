@@ -7,6 +7,10 @@
 /// function over the same Map<String, dynamic> JSON the v1 API
 /// returns, so the widget layer stays thin and these rules are
 /// unit-testable (test/messaging_parity_test.dart).
+///
+/// P1 (UX audit): message grouping (B4) and link/copy segmentation
+/// (B1) live here too — same purity contract, pinned by the same
+/// test file.
 library;
 
 /// Server timestamps look like `2026-09-13 14:05:00` (no timezone).
@@ -181,4 +185,148 @@ List<Map<String, dynamic>> mergeFreshWindow(
     ..sort((a, b) =>
         (a['id'] as num).toInt().compareTo((b['id'] as num).toInt()));
   return [...server, ...locals];
+}
+
+// ── P1 audit B4 — message grouping ─────────────────────────────────
+//
+// Consecutive server messages from the same sender on the same day
+// within 5 minutes form a visual group (the WhatsApp rhythm): the
+// sender header renders on the FIRST bubble of a group only, the
+// meta row (time · edited · ✓✓ · ⋯) on the LAST only, the vertical
+// gap tightens inside the group and the "tail" corner stays with the
+// last bubble. Tombstones and local optimistic bubbles always stand
+// alone — they have neither header nor standard meta.
+
+class MessageGrouping {
+  const MessageGrouping({required this.showHeader, required this.showMeta, required this.tightGap});
+
+  /// Sender name row (other people's bubbles; own bubbles never show one).
+  final bool showHeader;
+
+  /// Meta row (time · edited · receipts · ⋯) — only on the group's last
+  /// bubble. Local bubbles always show their status row.
+  final bool showMeta;
+
+  /// The gap BELOW this bubble tightens when the group continues.
+  final bool tightGap;
+}
+
+const Duration _groupWindow = Duration(minutes: 5);
+
+bool _continuesGroup(Map<String, dynamic> older, Map<String, dynamic> newer) {
+  if (isLocalBubble(older) || isLocalBubble(newer)) return false;
+  if (isTombstone(older) || isTombstone(newer)) return false;
+  if (isMine(older) != isMine(newer)) return false;
+  if (!isMine(older)) {
+    // Others' bubbles group by sender; sender_id when the payload has
+    // it (it always renders a name — same payload), else by name.
+    final a = (older['sender_id'] ?? older['sender_name'] ?? '').toString();
+    final b = (newer['sender_id'] ?? newer['sender_name'] ?? '').toString();
+    if (a != b || a.isEmpty) return false;
+  }
+  final t1 = parseServerTime((older['created_at'] ?? '').toString());
+  final t2 = parseServerTime((newer['created_at'] ?? '').toString());
+  if (t1 == null || t2 == null) return false;
+  if (!_sameDay(t1, t2)) return false;
+  return t2.difference(t1).abs() <= _groupWindow;
+}
+
+/// Grouping flags for the message at [i] of the chronological list
+/// (oldest first — the screen renders it reversed). Pure; defensive
+/// on empty/short lists.
+MessageGrouping groupingFor(List<Map<String, dynamic>> msgs, int i) {
+  if (msgs.isEmpty || i < 0 || i >= msgs.length) {
+    return const MessageGrouping(showHeader: true, showMeta: true, tightGap: false);
+  }
+  final m = msgs[i];
+  final standalone = isLocalBubble(m) || isTombstone(m);
+  final head = standalone ||
+      i == 0 ||
+      !_continuesGroup(msgs[i - 1], m);
+  final tail = standalone ||
+      i == msgs.length - 1 ||
+      !_continuesGroup(m, msgs[i + 1]);
+  return MessageGrouping(showHeader: head, showMeta: tail, tightGap: !tail);
+}
+
+// ── P1 audit B1 — copy & links ─────────────────────────────────────
+//
+// Message bodies are segmented into tappable links (URL / www / email
+// / Ethiopian mobile numbers) and plain text. Detection is
+// deliberately conservative: a false "link" on an ID number or a
+// Bible reference is worse than a missed deep link. Trailing prose
+// punctuation (", ok." etc.) is excluded from the match.
+
+enum LinkKind { text, url, email, phone }
+
+class TextSegment {
+  const TextSegment(this.text, this.kind);
+  final String text;
+  final LinkKind kind;
+}
+
+// Patterns are whitespace-delimited and deliberately quote-free
+// (raw Dart strings cannot contain their own delimiter); trailing
+// prose punctuation is trimmed from matches in [_trimPunctuation].
+final RegExp _linkPattern = RegExp(
+  r'https?://\S+'
+  r'|\bwww\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?:/\S*)?'
+  r'|[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+'
+  r'|\+2519\d{8}(?!\d)'
+  r'|\b09\d{8}(?!\d)',
+);
+
+LinkKind _kindOf(String s) {
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('www.')) {
+    return LinkKind.url;
+  }
+  if (s.contains('@')) return LinkKind.email;
+  return LinkKind.phone;
+}
+
+String _trimPunctuation(String s) {
+  while (s.isNotEmpty && '.,;:!?)\'"'.contains(s[s.length - 1])) {
+    s = s.substring(0, s.length - 1);
+  }
+  return s;
+}
+
+/// Split [body] into text and link segments, left to right, never
+/// overlapping. Plain strings come back as a single text segment.
+List<TextSegment> segmentText(String body) {
+  if (body.isEmpty) return const [];
+  final out = <TextSegment>[];
+  var pos = 0;
+  for (final match in _linkPattern.allMatches(body)) {
+    final s = _trimPunctuation(match.group(0)!);
+    if (s.isEmpty) continue;
+    if (match.start > pos) {
+      out.add(TextSegment(body.substring(pos, match.start), LinkKind.text));
+    }
+    out.add(TextSegment(s, _kindOf(s)));
+    pos = match.start + s.length;
+  }
+  if (pos < body.length) {
+    out.add(TextSegment(body.substring(pos), LinkKind.text));
+  }
+  return out;
+}
+
+/// Launchable URI for a detected segment: URLs gain a scheme when
+/// written as `www.…`, emails become `mailto:`, Ethiopian local
+/// mobile numbers (`09…`) are normalized to international `+251…`
+/// `tel:` URIs. Returns null for plain text.
+Uri? linkUri(TextSegment s) {
+  switch (s.kind) {
+    case LinkKind.text:
+      return null;
+    case LinkKind.url:
+      return Uri.tryParse(
+          s.text.startsWith('http') ? s.text : 'https://${s.text}');
+    case LinkKind.email:
+      return Uri.tryParse('mailto:${s.text}');
+    case LinkKind.phone:
+      final t = s.text.startsWith('+') ? s.text : '+251${s.text.substring(1)}';
+      return Uri.tryParse('tel:$t');
+  }
 }

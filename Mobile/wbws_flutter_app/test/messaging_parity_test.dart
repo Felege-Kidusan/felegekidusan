@@ -194,4 +194,181 @@ void main() {
       expect(ids, [1, 2, 90, 91, 92]);
     });
   });
+
+  // ── P1 (UX audit): grouping (B4) + link segmentation (B1) ────────
+
+  Map<String, dynamic> gmsg(int id, String at,
+          {int mine = 0, int senderId = 7, int deleted = 0, int? local}) =>
+      {
+        'id': id,
+        'created_at': at,
+        'mine': mine,
+        'sender_id': senderId,
+        'sender_name': 'Sender $senderId',
+        'sender_label': 'Teacher',
+        'deleted': deleted,
+        if (local != null) kLocalTag: local,
+      };
+
+  group('groupingFor (B4 message grouping)', () {
+    test('empty list / out of range is standalone', () {
+      const g = MessageGrouping(showHeader: true, showMeta: true, tightGap: false);
+      expect(groupingFor([], 0).showHeader, g.showHeader);
+      expect(groupingFor([gmsg(1, '2026-09-10 10:00:00')], -1).showMeta, true);
+      expect(groupingFor([gmsg(1, '2026-09-10 10:00:00')], 5).showMeta, true);
+    });
+
+    test('single message shows header and meta', () {
+      final msgs = [gmsg(1, '2026-09-10 10:00:00')];
+      final g = groupingFor(msgs, 0);
+      expect(g.showHeader, isTrue);
+      expect(g.showMeta, isTrue);
+      expect(g.tightGap, isFalse);
+    });
+
+    test('same-sender streak: header once, meta on last, tight inside', () {
+      final msgs = [
+        gmsg(1, '2026-09-10 10:00:00'),
+        gmsg(2, '2026-09-10 10:02:00'),
+        gmsg(3, '2026-09-10 10:04:00'),
+      ];
+      expect(groupingFor(msgs, 0).showHeader, isTrue);
+      expect(groupingFor(msgs, 0).showMeta, isFalse);
+      expect(groupingFor(msgs, 0).tightGap, isTrue);
+      expect(groupingFor(msgs, 1).showHeader, isFalse);
+      expect(groupingFor(msgs, 1).showMeta, isFalse);
+      expect(groupingFor(msgs, 2).showHeader, isFalse);
+      expect(groupingFor(msgs, 2).showMeta, isTrue);
+      expect(groupingFor(msgs, 2).tightGap, isFalse);
+    });
+
+    test('exactly 5 minutes still groups; 5:01 does not', () {
+      expect(
+          groupingFor([
+            gmsg(1, '2026-09-10 10:00:00'),
+            gmsg(2, '2026-09-10 10:05:00'),
+          ], 0).showMeta,
+          isFalse);
+      expect(
+          groupingFor([
+            gmsg(1, '2026-09-10 10:00:00'),
+            gmsg(2, '2026-09-10 10:05:01'),
+          ], 0).showMeta,
+          isTrue);
+    });
+
+    test('midnight crossing splits (different day)', () {
+      final msgs = [
+        gmsg(1, '2026-09-10 23:59:00'),
+        gmsg(2, '2026-09-11 00:01:00'),
+      ];
+      expect(groupingFor(msgs, 0).showMeta, isTrue);
+      expect(groupingFor(msgs, 1).showHeader, isTrue);
+    });
+
+    test('sender change splits', () {
+      final msgs = [
+        gmsg(1, '2026-09-10 10:00:00', senderId: 7),
+        gmsg(2, '2026-09-10 10:01:00', senderId: 8),
+      ];
+      expect(groupingFor(msgs, 0).showMeta, isTrue);
+      expect(groupingFor(msgs, 1).showHeader, isTrue);
+    });
+
+    test('own streak groups too (mine flag)', () {
+      final msgs = [
+        gmsg(1, '2026-09-10 10:00:00', mine: 1),
+        gmsg(2, '2026-09-10 10:01:00', mine: 1),
+      ];
+      expect(groupingFor(msgs, 0).showMeta, isFalse);
+      expect(groupingFor(msgs, 1).showMeta, isTrue);
+    });
+
+    test('tombstone stands alone and breaks the streak', () {
+      final msgs = [
+        gmsg(1, '2026-09-10 10:00:00'),
+        gmsg(2, '2026-09-10 10:01:00', deleted: 1),
+        gmsg(3, '2026-09-10 10:02:00'),
+      ];
+      expect(groupingFor(msgs, 0).showMeta, isTrue); // broken by tombstone
+      expect(groupingFor(msgs, 1).showMeta, isTrue); // tombstone standalone
+      expect(groupingFor(msgs, 2).showHeader, isTrue); // broken by tombstone
+    });
+
+    test('local bubble at the end never groups with the last server row', () {
+      final msgs = [
+        gmsg(1, '2026-09-10 10:00:00'),
+        gmsg(0, '', local: 42),
+      ];
+      expect(groupingFor(msgs, 0).showMeta, isTrue);
+      expect(groupingFor(msgs, 1).showMeta, isTrue);
+    });
+  });
+
+  group('segmentText (B1 link detection)', () {
+    test('plain text is a single text segment', () {
+      final segs = segmentText('Staff meeting at 2pm, room 4.');
+      expect(segs.length, 1);
+      expect(segs.single.kind, LinkKind.text);
+      expect(segs.single.text, 'Staff meeting at 2pm, room 4.');
+    });
+
+    test('https URL with trailing comma is trimmed', () {
+      final segs = segmentText('See https://example.com/a?b=1, ok?');
+      expect(segs[1].kind, LinkKind.url);
+      expect(segs[1].text, 'https://example.com/a?b=1');
+    });
+
+    test('www URL gains scheme, trailing period trimmed', () {
+      final segs = segmentText('visit www.school.edu.et/news.');
+      expect(segs[1].kind, LinkKind.url);
+      expect(segs[1].text, 'www.school.edu.et/news');
+    });
+
+    test('email detected', () {
+      final segs = segmentText('mail a.bekele@school.edu.et today');
+      expect(segs[1].kind, LinkKind.email);
+      expect(segs[1].text, 'a.bekele@school.edu.et');
+    });
+
+    test('Ethiopian mobile numbers detected', () {
+      expect(segmentText('call 0911223344.')[1].text, '0911223344');
+      expect(segmentText('call +251911223344 now')[1].text, '+251911223344');
+    });
+
+    test('references and IDs are NOT phones', () {
+      expect(segmentText('John 3:16').single.kind, LinkKind.text);
+      expect(segmentText('ID 123456789').single.kind, LinkKind.text);
+      expect(segmentText('salary 1500 birr').single.kind, LinkKind.text);
+    });
+
+    test('mixed body segments in order', () {
+      final segs = segmentText('see https://x.edu.ey and mail a@b.co');
+      expect(segs.length, 4);
+      expect(segs[0].kind, LinkKind.text);
+      expect(segs[1].kind, LinkKind.url);
+      expect(segs[2].kind, LinkKind.text);
+      expect(segs[3].kind, LinkKind.email);
+    });
+  });
+
+  group('linkUri (B1 launch targets)', () {
+    test('www URL gets an https scheme', () {
+      expect(linkUri(const TextSegment('www.x.com', LinkKind.url)).toString(),
+          'https://www.x.com');
+    });
+
+    test('email becomes mailto:', () {
+      expect(linkUri(const TextSegment('a@b.co', LinkKind.email)).toString(),
+          'mailto:a@b.co');
+    });
+
+    test('local mobile is normalized to international tel:', () {
+      expect(linkUri(const TextSegment('0911223344', LinkKind.phone)).toString(),
+          'tel:+251911223344');
+      expect(
+          linkUri(const TextSegment('+251911223344', LinkKind.phone)).toString(),
+          'tel:+251911223344');
+    });
+  });
 }

@@ -47,18 +47,24 @@ def main() -> int:
     # `const X({` (parameter list opens immediately) — usage sites
     # `const X(<arg>` are deliberately NOT matched, otherwise a bad
     # usage in a changed file would whitelist itself.
-    DECL = r'const ([A-Z][A-Za-z]*)\(\{'
+    # declaration shapes: `const X({...})` (params may wrap to the
+    # next line) and `const X(a, b);` / `const X();` (positional)
+    DECL_BRACED = r'const ([A-Z][A-Za-z]*)\(\s*\{'
+    DECL_POSITIONAL = r'const ([A-Z][A-Za-z]*)\([^){]*\);'
+    def declare_from(text):
+        return set(re.findall(DECL_BRACED, text)) | set(re.findall(DECL_POSITIONAL, text))
+
     declared = set()
     for f in files:
         blob = subprocess.run(['git', 'show', f'HEAD:./{f}'],
                               capture_output=True, text=True).stdout
-        declared |= set(re.findall(DECL, blob))
+        declared |= declare_from(blob)
     for root, _, names in os.walk('lib'):
         for n in names:
             if n.endswith('.dart'):
                 try:
-                    declared |= set(re.findall(
-                        DECL, open(os.path.join(root, n), encoding='utf-8').read()))
+                    declared |= declare_from(
+                        open(os.path.join(root, n), encoding='utf-8').read())
                 except OSError:
                     pass
 

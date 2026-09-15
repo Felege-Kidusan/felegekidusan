@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_service.dart';
 import '../../services/inbox_view_model.dart';
@@ -363,6 +366,7 @@ const Color _ownBorder = Color(0xFFC6E9CF); // hairline on gray page bg
 const Color _seenColor = Color(0xFF047857); // ✓✓ on light bubble (4.95:1)
 const Color _failedColor = Color(0xFFB91C1C); // on page/sheet bg (6.47:1)
 const Color _faintColor = Color(0xFF64748B); // day sep/tombstone (4.55:1+)
+const Color _linkColor = Color(0xFF0757B5); // links, 6.23:1 on tint / 6.91:1 white
 
 /// One open conversation — P74 Phase 2 parity surface.
 ///
@@ -412,6 +416,15 @@ class _ConversationScreenState extends State<_ConversationScreen>
   bool _appVisible = true;
   Timer? _pollTimer;
   String? _threadEtag;
+  bool _atBottom = true; // B3: reversed list — offset 0 IS the bottom
+  int _newBelow = 0; // B3: unread arrivals above the fold → pill
+
+  /// P1 audit B2 — per-thread composer drafts. Backing out of a
+  /// conversation (or hopping between threads) keeps the half-written
+  /// reply and restores it on return; dispatching the send clears it.
+  /// In-memory by design, like the web: survives navigation, not
+  /// process death.
+  static final Map<int, String> _drafts = {};
 
   static const _pollInterval = Duration(seconds: 30);
 
@@ -425,6 +438,8 @@ class _ConversationScreenState extends State<_ConversationScreen>
     _oldestId = widget.initialOldestId;
     _threadEtag = widget.initialEtag;
     _maxServerId = _computeMaxServerId();
+    _scroll.addListener(_onScroll);
+    _box.text = _drafts[widget.threadId] ?? '';
     _pollTimer = Timer.periodic(_pollInterval, (_) => _pollOpenThread());
     WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
   }
@@ -433,6 +448,7 @@ class _ConversationScreenState extends State<_ConversationScreen>
   void dispose() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _box.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -474,7 +490,6 @@ class _ConversationScreenState extends State<_ConversationScreen>
     final window = List<Map<String, dynamic>>.from(
         ((data['messages'] as List? ?? [])).whereType<Map<String, dynamic>>());
     final newWatermark = ((data['read_watermark'] ?? 0) as num).toInt();
-    final nearBottom = !_scroll.hasClients || _scroll.offset < 400;
     setState(() {
       _messages = mergeFreshWindow(_messages, window);
       _watermark = newWatermark;
@@ -484,10 +499,40 @@ class _ConversationScreenState extends State<_ConversationScreen>
         _oldestId = ((data['oldest_id'] ?? 0) as num).toInt();
       }
     });
+    final prevMax = _maxServerId;
     final newMax = _computeMaxServerId();
-    final grew = newMax > _maxServerId;
+    final grew = newMax > prevMax;
     _maxServerId = newMax;
-    if ((grew && nearBottom) || forceScroll) _jumpToBottom();
+    if (!grew) return;
+    if (forceScroll || _atBottom) {
+      _jumpToBottom();
+      return;
+    }
+    // P1 audit B3: rows landed while the user is reading history —
+    // surface the pill instead of yanking the scroll position.
+    final arrived = _messages
+        .where((m) =>
+            !isLocalBubble(m) &&
+            (m['id'] as num?) != null &&
+            (m['id'] as num).toInt() > prevMax)
+        .length;
+    if (arrived > 0) setState(() => _newBelow += arrived);
+  }
+
+  /// Reversed-list bottom detection for the new-messages pill (B3):
+  /// offset 0 is the newest message; anything within ~120 px of it
+  /// still counts as reading the latest.
+  void _onScroll() {
+    final at = !_scroll.hasClients || _scroll.offset < 120;
+    if (at == _atBottom) return;
+    _atBottom = at;
+    if (at && _newBelow > 0) setState(() => _newBelow = 0);
+  }
+
+  void _showNewMessages() {
+    HapticFeedback.selectionClick();
+    setState(() => _newBelow = 0);
+    _jumpToBottom();
   }
 
   void _jumpToBottom() {
@@ -530,6 +575,7 @@ class _ConversationScreenState extends State<_ConversationScreen>
   Future<void> _send() async {
     final text = _box.text.trim();
     if (text.isEmpty) return;
+    _drafts.remove(widget.threadId); // B2: dispatched — draft's job is done
     final tag = ++_tagSeq;
     setState(() => _messages.add(pendingBubble(tag, text)));
     _box.clear();
@@ -568,9 +614,28 @@ class _ConversationScreenState extends State<_ConversationScreen>
     setState(() => _messages.remove(m));
   }
 
-  // ── Own-message management (web ⋯ menu → Edit / Delete) ───────────
+  /// P1 audit B1 — tappable links open externally (browser for
+  /// http/mailto, dialer for tel:). launchUrl directly: no
+  /// canLaunchUrl, so no Android <queries> manifest entry needed.
+  Future<void> _openLink(Uri uri) async {
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) _linkFailed();
+    } catch (_) {
+      if (mounted) _linkFailed();
+    }
+  }
 
-  Future<void> _openOwnMessageSheet(Map<String, dynamic> m) async {
+  void _linkFailed() {
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the link.')));
+  }
+
+  // ── Message management (P1 B1: Copy for every message; the web ⋯
+  // menu's Edit / Delete stay own-only) ──────────────────────────────
+
+  Future<void> _openMessageSheet(Map<String, dynamic> m) async {
+    final mine = isMine(m) && !isLocalBubble(m);
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
@@ -580,23 +645,40 @@ class _ConversationScreenState extends State<_ConversationScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // B1: WhatsApp puts Copy at the top of the long-press
+            // menu — schedule links and phone numbers are the most
+            // forwarded thing in a school.
             ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Edit'),
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy'),
               onTap: () {
+                Clipboard.setData(ClipboardData(
+                    text: (m['body'] ?? '').toString()));
                 Navigator.of(ctx).pop();
-                _openEditSheet(m);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Copied'),
+                    duration: Duration(milliseconds: 1200)));
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: _failedColor),
-              title: const Text('Delete',
-                  style: TextStyle(color: _failedColor)),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _confirmDelete(m);
-              },
-            ),
+            if (mine) ...[
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _openEditSheet(m);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: _failedColor),
+                title: const Text('Delete',
+                    style: TextStyle(color: _failedColor)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _confirmDelete(m);
+                },
+              ),
+            ],
           ],
         ),
       ),
@@ -759,7 +841,9 @@ class _ConversationScreenState extends State<_ConversationScreen>
                 ? const EmptyState(
                     icon: Icons.chat_bubble_outline_rounded,
                     title: 'No messages')
-                : ListView.builder(
+                : Stack(
+                    children: [
+                      ListView.builder(
                     // Reverse: index 0 = newest message = visual bottom.
                     // Older pages prepend at higher indices, which keeps
                     // the anchored scroll position for free.
@@ -773,6 +857,10 @@ class _ConversationScreenState extends State<_ConversationScreen>
                       }
                       final i = _messages.length - 1 - v;
                       final m = _messages[i];
+                      // P1 audit B4 — grouping flags (header on the
+                      // group's first bubble, meta on its last, tight
+                      // intra-group gap, tail corner on the last).
+                      final g = groupingFor(_messages, i);
                       final createdAt = (m['created_at'] ?? '').toString();
                       final prevCreatedAt = i > 0
                           ? (_messages[i - 1]['created_at'] ?? '').toString()
@@ -781,10 +869,54 @@ class _ConversationScreenState extends State<_ConversationScreen>
                         children: [
                           if (startsNewDay(createdAt, prevCreatedAt))
                             _DaySeparator(label: dayLabel(createdAt)),
-                          _bubble(m),
+                          _bubble(m, g),
                         ],
                       );
                     },
+                      ),
+                      // P1 audit B3 — the ↓ pill: new rows landed while
+                      // the user reads history. Never yank the scroll.
+                      if (_newBelow > 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 10,
+                          child: Center(
+                            child: Tooltip(
+                              message: 'Jump to the latest messages',
+                              child: Material(
+                                color: const Color(0xFF0F172A),
+                                borderRadius: BorderRadius.circular(22),
+                                elevation: 4,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(22),
+                                  onTap: _showNewMessages,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 13, vertical: 8),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                            Icons.arrow_downward_rounded,
+                                            size: 14,
+                                            color: Colors.white),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                            '$_newBelow new message${_newBelow == 1 ? '' : 's'}',
+                                            style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.white)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
           ),
           SafeArea(
@@ -812,6 +944,15 @@ class _ConversationScreenState extends State<_ConversationScreen>
                             borderSide: BorderSide.none),
                       ),
                       onSubmitted: (_) => _send(),
+                      onChanged: (v) {
+                        // P1 audit B2 — keep the half-written reply
+                        // per thread; empty box = no draft.
+                        if (v.trim().isEmpty) {
+                          _drafts.remove(widget.threadId);
+                        } else {
+                          _drafts[widget.threadId] = v;
+                        }
+                      },
                     ),
                   ),
                   const SizedBox(width: 9),
@@ -862,7 +1003,7 @@ class _ConversationScreenState extends State<_ConversationScreen>
     );
   }
 
-  Widget _bubble(Map<String, dynamic> m) {
+  Widget _bubble(Map<String, dynamic> m, MessageGrouping g) {
     // Tombstone — the content never comes back: no body, no menu, no
     // receipt (web .nc-bubble--gone).
     if (isTombstone(m)) {
@@ -904,7 +1045,12 @@ class _ConversationScreenState extends State<_ConversationScreen>
         alignment: Alignment.centerRight,
         child: GestureDetector(
           onTap: failed ? () => _retryLocal(m) : null,
-          onLongPress: failed ? () => _discardLocal(m) : null,
+          onLongPress: failed
+              ? () {
+                  HapticFeedback.mediumImpact(); // B7: discard is destructive
+                  _discardLocal(m);
+                }
+              : null,
           child: Opacity(
             opacity: failed ? 1 : 0.72, // web .nc-msg--pending
             child: Container(
@@ -984,52 +1130,81 @@ class _ConversationScreenState extends State<_ConversationScreen>
     final receipt = receiptFor(m, _watermark);
     final edited = (m['edited'] ?? 0) == 1;
     final time = timeHM((m['created_at'] ?? '').toString());
+    // Group-aware corner treatment (B4): the small "tail" corner
+    // stays with the group's LAST bubble; grouped siblings are fully
+    // rounded.
+    final radius = BorderRadius.only(
+      topLeft: const Radius.circular(15),
+      topRight: const Radius.circular(15),
+      bottomLeft: Radius.circular(mine ? 15 : (g.showMeta ? 5 : 15)),
+      bottomRight: Radius.circular(mine ? (g.showMeta ? 5 : 15) : 15),
+    );
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: mine ? () => _openOwnMessageSheet(m) : null,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 9),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-          constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * .78),
-          decoration: BoxDecoration(
-            // P0 audit A1/A2: own bubble is the light tint + ink
-            // (11.28:1 body, 4.95:1 ✓✓) — the old white-on-green was
-            // 3.77:1 and the sky-blue receipt 1.76:1.
-            color: mine ? _ownBubble : Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(15),
-              topRight: const Radius.circular(15),
-              bottomLeft: Radius.circular(mine ? 15 : 5),
-              bottomRight: Radius.circular(mine ? 5 : 15),
-            ),
-            border: Border.all(
+      child: Padding(
+        // B4: 2.5 px inside a group, 9 px between groups/senders.
+        padding: EdgeInsets.only(bottom: g.tightGap ? 2.5 : 9),
+        child: Material(
+          // P0 audit A1/A2: own bubble is the light tint + ink
+          // (11.28:1 body, 4.95:1 ✓✓) — the old white-on-green was
+          // 3.77:1 and the sky-blue receipt 1.76:1.
+          color: mine ? _ownBubble : Colors.white,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(
                 color: mine ? _ownBorder : AppTheme.borderLight),
+            borderRadius: radius,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (!mine)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    '${m['sender_name'] ?? ''} · ${m['sender_label'] ?? ''}',
-                    style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textSecondary),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            borderRadius: radius,
+            // P1 audits B1 + B7: long-press answers with a haptic and
+            // a menu — Copy for every message, Edit/Delete for own.
+            onLongPress: () {
+              HapticFeedback.mediumImpact();
+              _openMessageSheet(m);
+            },
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * .78),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (!mine && g.showHeader)
+                    // B4: the sender header renders once per group.
+                    SizedBox(
+                      width: double.infinity,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Text(
+                          '${m['sender_name'] ?? ''} · ${m['sender_label'] ?? ''}',
+                          style: const TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    ),
+                  _LinkText(
+                    text: m['body']?.toString() ?? '',
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        height: 1.5,
+                        color: mine ? _ownInk : AppTheme.textPrimary),
+                    linkStyle: const TextStyle(
+                        fontSize: 13.5,
+                        height: 1.5,
+                        color: _linkColor,
+                        decoration: TextDecoration.underline,
+                        decorationColor: _linkColor),
+                    onOpen: _openLink,
                   ),
-                ),
-              Text(
-                m['body']?.toString() ?? '',
-                style: TextStyle(
-                    fontSize: 13.5,
-                    height: 1.5,
-                    color: mine ? _ownInk : AppTheme.textPrimary),
-              ),
-              const SizedBox(height: 3),
-              Row(
+                  // B4: the meta row (time · edited · ✓✓ · ⋯) renders
+                  // on the group's LAST bubble only.
+                  if (g.showMeta) ...[
+                  const SizedBox(height: 3),
+                  Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (mine)
@@ -1045,7 +1220,7 @@ class _ConversationScreenState extends State<_ConversationScreen>
                       iconSize: 18,
                       color: _ownMeta,
                       tooltip: 'Message options',
-                      onPressed: () => _openOwnMessageSheet(m),
+                      onPressed: () => _openMessageSheet(m),
                       icon: const Icon(Icons.more_vert_rounded),
                     ),
                   Text(
@@ -1081,13 +1256,16 @@ class _ConversationScreenState extends State<_ConversationScreen>
                       ),
                     ),
                   ],
-                ],
+                  ],
+                  ),
+                  ],
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -1108,4 +1286,78 @@ class _DaySeparator extends StatelessWidget {
       ),
     );
   }
+}
+
+/// P1 audit B1 — message body with tappable links (URL / email /
+/// phone), segmented by the pure VM. TapGestureRecognizers carry a
+/// dispose contract, so they are owned here and rebuilt only when the
+/// text actually changes (edits), never on every build.
+class _LinkText extends StatefulWidget {
+  const _LinkText({
+    required this.text,
+    required this.style,
+    required this.linkStyle,
+    required this.onOpen,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextStyle linkStyle;
+  final ValueChanged<Uri> onOpen;
+
+  @override
+  State<_LinkText> createState() => _LinkTextState();
+}
+
+class _LinkTextState extends State<_LinkText> {
+  final _recognizers = <TapGestureRecognizer>[];
+  late TextSpan _span;
+
+  @override
+  void initState() {
+    super.initState();
+    _span = _build();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LinkText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _disposeRecognizers();
+      _span = _build();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  TextSpan _build() {
+    final children = <InlineSpan>[];
+    for (final seg in segmentText(widget.text)) {
+      if (seg.kind == LinkKind.text) {
+        children.add(TextSpan(text: seg.text, style: widget.style));
+        continue;
+      }
+      final uri = linkUri(seg);
+      if (uri == null) continue;
+      final r = TapGestureRecognizer(onTap: () => widget.onOpen(uri));
+      _recognizers.add(r);
+      children.add(TextSpan(
+          text: seg.text, style: widget.linkStyle, recognizer: r));
+    }
+    return TextSpan(style: widget.style, children: children);
+  }
+
+  @override
+  Widget build(BuildContext context) => Text.rich(_span);
 }
