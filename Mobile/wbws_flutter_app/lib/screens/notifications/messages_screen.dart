@@ -37,7 +37,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
   bool _loading = true;
   bool _canMessage = false;
   String? _listError;
-  Map<int, List<Map<String, dynamic>>> _conversationCache = {};
+  // O2: the in-memory per-thread conversation cache is retired —
+  // CommStore (SQLite) plays that role now, and it survives process
+  // death and airplane mode, which the map never did.
 
   @override
   void initState() {
@@ -273,6 +275,36 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   Future<void> _openThread(Map<String, dynamic> t) async {
     final id = (t['id'] as num).toInt();
+    // O2 (offline-first): open from the local store when it holds
+    // history for this thread — the conversation renders instantly,
+    // airplane mode included, exactly like the thread list in O1.
+    final cached = await CommStore.instance.messages(id);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      final meta = await CommStore.instance.threadMeta(id);
+      if (!mounted) return;
+      final oldest = (cached.first['id'] as num?)?.toInt() ?? 0;
+      t['unread_count'] = 0;
+      setState(() {});
+      await NotificationService.instance.refresh();
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => _ConversationScreen(
+              threadId: id,
+              subject: t['subject']?.toString() ?? '',
+              initialMessages: cached,
+              // Window state from the last session (receipts + the
+              // deepest loaded page); the reconciling poll — fired
+              // immediately by openedFromCache — refreshes both.
+              initialWatermark: _metaInt(meta, 'watermark'),
+              initialHasOlder: meta?['has_older'] ?? true,
+              initialOldestId: _metaInt(meta, 'oldest_id', oldest),
+              // No ETag: the reconciling fetch must be a FULL 200 —
+              // that is what marks the thread read server-side.
+              )));
+      _load(silent: true); // refresh list + badges on return — no flash (B5)
+      return;
+    }
     final res = await _api.getThread(id);
     if (!mounted) return;
     if (!res.success || res.data is! Map) {
@@ -283,7 +315,16 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final data = res.data as Map;
     final messages = List<Map<String, dynamic>>.from(
         ((data['messages'] as List? ?? [])).whereType<Map<String, dynamic>>());
-    _conversationCache[id] = messages;
+    // O2: every successful full fetch is durable — the window and
+    // its counters go to the store, so the NEXT open (offline or
+    // not) starts from here.
+    await CommStore.instance.upsertMessages(id,
+        messages.where((m) => !isLocalBubble(m) && m['id'] is num).toList());
+    await CommStore.instance.setThreadMeta(id, {
+      'watermark': ((data['read_watermark'] ?? 0) as num).toInt(),
+      'has_older': data['has_older'] == true,
+      'oldest_id': ((data['oldest_id'] ?? 0) as num).toInt(),
+    });
     // P74 Phase 4 — seed the open-conversation conditional poll with
     // the opening fetch's ETag (that fetch just marked the thread
     // read; a 304 on the next poll proves nothing changed since).
@@ -497,6 +538,15 @@ const Color _failedColor = Color(0xFFB91C1C); // on page/sheet bg (6.47:1)
 const Color _faintColor = Color(0xFF64748B); // day sep/tombstone (4.55:1+)
 const Color _linkColor = Color(0xFF0757B5); // links, 6.23:1 on tint / 6.91:1 white
 
+/// Lenient int read from a persisted thread-meta map (bools stay
+/// bools; ints may arrive as doubles or strings through JSON).
+int _metaInt(Map<String, dynamic>? meta, String key, [int fallback = 0]) {
+  final v = meta?[key];
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? fallback;
+  return fallback;
+}
+
 /// One open conversation — P74 Phase 2 parity surface.
 ///
 /// The list is a reversed ListView: index 0 is the newest message at
@@ -512,7 +562,8 @@ class _ConversationScreen extends StatefulWidget {
       required this.initialWatermark,
       required this.initialHasOlder,
       required this.initialOldestId,
-      this.initialEtag});
+      this.initialEtag,
+      this.openedFromCache = false});
 
   final int threadId;
   final String subject;
@@ -524,6 +575,12 @@ class _ConversationScreen extends StatefulWidget {
   /// P74 Phase 4 — ETag of the opening fetch; the 30 s poll sends it
   /// as If-None-Match and a 304 is a zero-cost no-op.
   final String? initialEtag;
+
+  /// O2 — true when the screen opened from the local store (no
+  /// network fetch happened yet). The post-frame callback then fires
+  /// an immediate FULL poll: it reconciles the window AND marks the
+  /// thread read server-side, which only a 200 does.
+  final bool openedFromCache;
 
   @override
   State<_ConversationScreen> createState() => _ConversationScreenState();
@@ -557,6 +614,10 @@ class _ConversationScreenState extends State<_ConversationScreen>
 
   static const _pollInterval = Duration(seconds: 30);
 
+  /// DB page size for load-older (network pages stay server-sized;
+  /// the local store pages a little wider to cut tap count).
+  static const _olderPageSize = 50;
+
   @override
   void initState() {
     super.initState();
@@ -570,7 +631,10 @@ class _ConversationScreenState extends State<_ConversationScreen>
     _scroll.addListener(_onScroll);
     _box.text = _drafts[widget.threadId] ?? '';
     _pollTimer = Timer.periodic(_pollInterval, (_) => _pollOpenThread());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _jumpToBottom();
+      if (widget.openedFromCache) _pollOpenThread();
+    });
   }
 
   @override
@@ -628,6 +692,10 @@ class _ConversationScreenState extends State<_ConversationScreen>
         _oldestId = ((data['oldest_id'] ?? 0) as num).toInt();
       }
     });
+    // O2: the merged window and its counters are durable the moment
+    // they are on screen (fire-and-forget — the UI is already
+    // correct; this only makes the NEXT open instant).
+    _persistThreadState();
     final prevMax = _maxServerId;
     final newMax = _computeMaxServerId();
     final grew = newMax > prevMax;
@@ -672,9 +740,26 @@ class _ConversationScreenState extends State<_ConversationScreen>
   /// oldest_id cursor (web P73 Phase 5 semantics). Prepending to a
   /// reversed list keeps the current scroll offset anchored to the
   /// same visual position automatically.
+  ///
+  /// O2: DB-FIRST — history loaded on a previous visit (or deeper
+  /// windows from earlier sessions) prepends instantly and works
+  /// offline; the network is only hit once the local window below
+  /// the cursor is exhausted.
   Future<void> _loadOlder() async {
     if (_loadingOlder || !_hasOlder || _oldestId <= 0) return;
     setState(() => _loadingOlder = true);
+    final cached = await CommStore.instance.messages(widget.threadId,
+        olderThan: _oldestId, limit: _olderPageSize);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _messages = mergeOlderPage(_messages, cached);
+        // cached is id-ascending — its first row is the new floor.
+        _oldestId = (cached.first['id'] as num?)?.toInt() ?? _oldestId;
+        _loadingOlder = false;
+      });
+      return;
+    }
     final res = await _api.getThread(widget.threadId, beforeId: _oldestId);
     if (!mounted) return;
     if (!res.success || res.data is! Map) {
@@ -693,6 +778,25 @@ class _ConversationScreenState extends State<_ConversationScreen>
       _hasOlder = data['has_older'] == true;
       _oldestId = ((data['oldest_id'] ?? 0) as num).toInt();
       _loadingOlder = false;
+    });
+    // O2: the deeper page is part of local history now — the offline
+    // reopen above can serve it back.
+    _persistThreadState();
+  }
+
+  /// O2 — write the on-screen server history + window counters to
+  /// the store. Unawaited by design: callers fire it after setState
+  /// and never wait on durability. Local bubbles are runtime state
+  /// and are filtered out (the outbox owns them from O3 on).
+  Future<void> _persistThreadState() async {
+    final server = _messages
+        .where((m) => !isLocalBubble(m) && m['id'] is num)
+        .toList();
+    await CommStore.instance.upsertMessages(widget.threadId, server);
+    await CommStore.instance.setThreadMeta(widget.threadId, {
+      'watermark': _watermark,
+      'has_older': _hasOlder,
+      'oldest_id': _oldestId,
     });
   }
 
@@ -873,7 +977,10 @@ class _ConversationScreenState extends State<_ConversationScreen>
     });
     final res = await _api.editMessage(id, newBody);
     if (!mounted) return;
-    if (res.success) return;
+    if (res.success) {
+      _persistThreadState(); // O2: the optimistic edit is now durable
+      return;
+    }
     setState(() {
       final i = _messages.indexWhere((x) =>
           !isLocalBubble(x) && (x['id'] as num?)?.toInt() == id);
@@ -940,7 +1047,10 @@ class _ConversationScreenState extends State<_ConversationScreen>
     });
     final res = await _api.deleteMessage(id);
     if (!mounted) return;
-    if (res.success) return;
+    if (res.success) {
+      _persistThreadState(); // O2: the tombstone is now durable
+      return;
+    }
     setState(() {
       final i = _messages.indexWhere((x) =>
           !isLocalBubble(x) && (x['id'] as num?)?.toInt() == id);

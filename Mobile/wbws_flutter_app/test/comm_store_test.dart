@@ -45,4 +45,50 @@ void main() {
   test('null id maps to 0 (server always sends one; defensive only)', () {
     expect(threadToRow({})['id'], 0);
   });
+
+  group('O2 — message mappers', () {
+    test('roundtrip preserves every rendered field', () {
+      final m = {
+        'id': 501,
+        'sender_id': 12,
+        'sender_name': 'Alemitu Bekele',
+        'sender_label': 'Grade 4 · Parent',
+        'body': 'Meeting moved to 3pm',
+        'created_at': '2026-09-15 09:41:00',
+        'edited': 1,
+        'deleted': 0,
+        'mine': 1,
+        'client_tag': null,
+      };
+      final back = messageFromRow(messageToRow(9, m));
+      expect(back, m);
+      // thread_id is stamped from the caller's context, never the payload
+      expect(messageToRow(9, m)['thread_id'], 9);
+      expect(messageToRow(1234, m)['thread_id'], 1234);
+    });
+
+    test('null sender_id stays null; missing fields become defaults', () {
+      final back = messageFromRow(messageToRow(3, {'id': 5}));
+      expect(back['sender_id'], isNull); // 0 would be a real, wrong id
+      expect(back['body'], '');
+      expect(back['edited'], 0);
+      expect(back['deleted'], 0);
+      expect(back['mine'], 0);
+    });
+
+    test('tombstone and client_tag survive the roundtrip', () {
+      final m = {
+        'id': 77,
+        'deleted': 1,
+        'body': '',
+        'mine': 0,
+        'client_tag': 'abc-123',
+        'sender_id': '8', // lenient string coercion
+      };
+      final back = messageFromRow(messageToRow(2, m));
+      expect(back['deleted'], 1);
+      expect(back['client_tag'], 'abc-123');
+      expect(back['sender_id'], 8);
+    });
+  });
 }
