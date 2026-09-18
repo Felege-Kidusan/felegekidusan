@@ -5,6 +5,46 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.4.0 (build 23) — Works offline (Messages)
+
+The Messages feature is now offline-first, like WhatsApp: the phone's
+database is what you see, and the network only refreshes it.
+
+### Opens instantly, everywhere
+
+- **Instant thread list** — Messages opens with your conversations
+  immediately; the first-ever open is the only one that waits for the
+  network.
+- **Instant conversations** — every thread opens from its local
+  history, airplane mode included, receipts and all. History you
+  scrolled through before stays available offline ("Load older"
+  serves it from the phone).
+- **Instant badge** — the bell shows your unread count the moment the
+  app starts, not after the first network round-trip.
+
+### Sends that survive
+
+- **Send in airplane mode** — a message leaves the composer
+  immediately with a clock icon and delivers itself the moment the
+  connection returns. The phone keeps trying on its own (with
+  smart, staggered retries), so you never tap "retry" for a
+  connection problem again.
+- **Real failures are honest** — if the school's server rejects a
+  message on the merits, the bubble turns red with the reason once;
+  tap to retry, long-press to discard.
+- **Drafts are kept** — a half-written reply survives closing the
+  app, per conversation, like WhatsApp.
+
+### Behind the scenes
+
+- Messages are stored locally (with the same sign-out wipe as all
+  your other data on a shared phone) and synced with cheap
+  conditional requests — idle polls cost almost nothing.
+- Each send carries a unique tag so a flaky connection can never
+  post the same message twice (server migration 046).
+- Local history is capped at the newest 500 messages per
+  conversation (older ones load from the server on demand).
+
 ## 1.3.0 (build 22) — Communication polish (UX audit)
 
 A full accessibility and craft pass over Messages and Notifications,

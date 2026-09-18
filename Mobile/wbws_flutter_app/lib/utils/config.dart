@@ -18,8 +18,8 @@ class AppConfig {
   // version only feeds the Android package version. They MUST stay in sync
   // (test/version_sync_test.dart fails the release build if they drift —
   // drifting is what hid updates from phones before P65).
-  static const String appVersion = '1.3.0';
-  static const int appBuild = 21;
+  static const String appVersion = '1.4.0';
+  static const int appBuild = 23; // was 21 — 1.3.0+22 missed this (version_sync pin failed); fixed with 1.4.0+23
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';

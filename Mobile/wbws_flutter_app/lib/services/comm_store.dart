@@ -80,6 +80,15 @@ class CommStore extends ChangeNotifier {
   /// row is INSERT OR REPLACE, so the newest version of a message —
   /// edit or tombstone — always wins; history is otherwise
   /// append-only. Callers filter local bubbles out first.
+  ///
+  /// O4 perf trim: local history is a CACHE, not an archive — once a
+  /// thread passes [_trimAbove] rows it is cut back to [_trimKeep]
+  /// newest (hysteresis, so the trim doesn't run every poll). "Load
+  /// older" falls through to the network's before_id paging the
+  /// moment the local window runs out, by design (O2).
+  static const _trimKeep = 500;
+  static const _trimAbove = 600;
+
   Future<void> upsertMessages(
       int threadId, List<Map<String, dynamic>> rows) async {
     final db = await _db;
@@ -88,6 +97,16 @@ class CommStore extends ChangeNotifier {
       for (final r in mapped) {
         await txn.insert('comm_messages', r,
             conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      final c = await txn.rawQuery(
+          'SELECT COUNT(*) c FROM comm_messages WHERE thread_id = ?',
+          [threadId]);
+      if ((c.first['c'] as int? ?? 0) > _trimAbove) {
+        await txn.rawDelete(
+            'DELETE FROM comm_messages WHERE thread_id = ? AND id NOT IN '
+            '(SELECT id FROM comm_messages WHERE thread_id = ? '
+            'ORDER BY id DESC LIMIT ?)',
+            [threadId, threadId, _trimKeep]);
       }
     });
   }

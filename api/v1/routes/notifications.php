@@ -266,11 +266,18 @@ if ($method === 'POST') {
     }
 
     if ($action === 'send-message') {
+        // O4 (046): client_tag rides along for exactly-once; absent on
+        // web + pre-1.4.0 clients (null → tagless insert, same as ever).
         $result = NotificationCenterService::sendMessage(
-            $conn, $userId, (int)($body['thread_id'] ?? 0), (string)($body['body'] ?? '')
+            $conn, $userId, (int)($body['thread_id'] ?? 0), (string)($body['body'] ?? ''),
+            isset($body['client_tag']) ? (string)$body['client_tag'] : null
         );
         if ($result['ok']) {
-            ok(['status' => 'success']);
+            // 'replayed' tells the phone's outbox the duplicate was
+            // absorbed — same success, no second bubble.
+            ok(isset($result['replayed']) && $result['replayed']
+                ? ['status' => 'success', 'replayed' => true]
+                : ['status' => 'success']);
         }
         err($result['error'] ?? 'Could not send.');
     }

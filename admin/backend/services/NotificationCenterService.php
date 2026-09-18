@@ -28,6 +28,10 @@ namespace App\Services;
 
 final class NotificationCenterService
 {
+
+    /** O4 (046) — per-request cache of the messages.client_tag probe. */
+    private static ?bool $messagesClientTag = null;
+
     /** All live roles (single label source — replaces the stale $DEPT_ROLES). */
     public const ROLE_LABELS = [
         'super_admin'             => 'Super Admin',
@@ -813,8 +817,17 @@ final class NotificationCenterService
         }
     }
 
-    /** Reply to a thread I belong to. */
-    public static function sendMessage(\mysqli $conn, int $userId, int $threadId, string $body): array
+    /**
+     * Reply to a thread I belong to.
+     *
+     * O4 (046) — client_tag makes sends exactly-once. A retried drain
+     * (crash mid-POST, timeout after commit, double-drain) carries the
+     * SAME tag; the unique index uk_client_tag is the arbiter and a
+     * duplicate becomes a replay SUCCESS so the phone deletes its
+     * outbox row. Pre-046 servers (column absent) transparently fall
+     * back to today's tagless behavior — deploy order is free.
+     */
+    public static function sendMessage(\mysqli $conn, int $userId, int $threadId, string $body, ?string $clientTag = null): array
     {
         $body = trim($body);
         if ($body === '') {
@@ -823,6 +836,7 @@ final class NotificationCenterService
         if (mb_strlen($body) > 5000) {
             return ['ok' => false, 'error' => 'Message is too long (max 5000 characters).'];
         }
+        $clientTag = self::normalizeClientTag($clientTag);
         try {
             $chk = $conn->prepare("SELECT 1 FROM message_thread_participants WHERE thread_id = ? AND user_id = ?");
             $chk->bind_param('ii', $threadId, $userId);
@@ -830,16 +844,82 @@ final class NotificationCenterService
             if (!$chk->get_result()->fetch_assoc()) { $chk->close(); return ['ok' => false, 'error' => 'Not your conversation.']; }
             $chk->close();
 
-            $stmt = $conn->prepare("INSERT INTO messages (thread_id, sender_id, body) VALUES (?, ?, ?)");
-            $stmt->bind_param('iis', $threadId, $userId, $body);
-            $ok = $stmt->execute();
-            $stmt->close();
-            if (!$ok) { return ['ok' => false, 'error' => 'Could not send the message.']; }
+            if ($clientTag !== null && self::messagesHaveClientTag($conn)) {
+                // Fast path: the common replay (retry after timeout)
+                // finds its row without touching last_message_at.
+                $dup = $conn->prepare("SELECT id FROM messages WHERE client_tag = ? LIMIT 1");
+                $dup->bind_param('s', $clientTag);
+                $dup->execute();
+                $existing = $dup->get_result()->fetch_assoc();
+                $dup->close();
+                if ($existing) {
+                    return ['ok' => true, 'replayed' => true, 'id' => (int)$existing['id']];
+                }
+                try {
+                    $stmt = $conn->prepare("INSERT INTO messages (thread_id, sender_id, body, client_tag) VALUES (?, ?, ?, ?)");
+                    $stmt->bind_param('iiss', $threadId, $userId, $body, $clientTag);
+                    $stmt->execute();
+                    $ok = $stmt->affected_rows > 0;
+                    $stmt->close();
+                } catch (\Exception $race) {
+                    // 1062 = the tiny check-then-insert race window: a
+                    // concurrent identical POST won the index. The
+                    // message EXISTS — exactly-once says that is success.
+                    $errno = (int)$race->getCode();
+                    if ($errno === 1062 || (int)$conn->errno === 1062) {
+                        return ['ok' => true, 'replayed' => true];
+                    }
+                    throw $race;
+                }
+                if (!$ok) { return ['ok' => false, 'error' => 'Could not send the message.']; }
+            } else {
+                // Web sends, pre-1.4.0 clients, or a pre-046 schema:
+                // exactly today's behavior, byte for byte.
+                $stmt = $conn->prepare("INSERT INTO messages (thread_id, sender_id, body) VALUES (?, ?, ?)");
+                $stmt->bind_param('iis', $threadId, $userId, $body);
+                $ok = $stmt->execute();
+                $stmt->close();
+                if (!$ok) { return ['ok' => false, 'error' => 'Could not send the message.']; }
+            }
             $conn->query("UPDATE message_threads SET last_message_at = NOW() WHERE id = " . (int)$threadId);
             return ['ok' => true];
         } catch (\Exception $e) {
             return ['ok' => false, 'error' => 'Could not send the message.'];
         }
+    }
+
+    /**
+     * O4 (046) — a client_tag must be a short, URL-safe token (the app
+     * sends a 36-char v4 UUID). Anything else is IGNORED, never a hard
+     * failure: a weird tag degrades to a tagless send, not a lost one.
+     */
+    private static function normalizeClientTag(?string $tag): ?string
+    {
+        if ($tag === null) { return null; }
+        $tag = trim($tag);
+        if ($tag === '' || strlen($tag) > 64 || !preg_match('/^[A-Za-z0-9._-]+$/', $tag)) {
+            return null;
+        }
+        return $tag;
+    }
+
+    /**
+     * O4 (046) — does the schema have messages.client_tag yet? Probed
+     * once per request (static), only when a tag is present; a missing
+     * column means the tag rides along unstored — pre-046 servers keep
+     * working exactly as before.
+     */
+    private static function messagesHaveClientTag(\mysqli $conn): bool
+    {
+        if (self::$messagesClientTag !== null) { return self::$messagesClientTag; }
+        try {
+            $res = $conn->query("SHOW COLUMNS FROM `messages` LIKE 'client_tag'");
+            self::$messagesClientTag = ($res !== false && $res->num_rows > 0);
+            if ($res !== false) { $res->free(); }
+        } catch (\Exception $e) {
+            self::$messagesClientTag = false;
+        }
+        return self::$messagesClientTag;
     }
 
     public static function markThreadRead(\mysqli $conn, int $userId, int $threadId): bool
