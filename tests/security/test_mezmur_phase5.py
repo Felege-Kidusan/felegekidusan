@@ -152,8 +152,9 @@ class MezmurPhase5Tests(unittest.TestCase):
         self.assertIn("fetchSectionSheet", self.route)
         self.assertIn("saveSectionSheet", self.route)
         self.assertIn("MezmurSubmissionService::takerMayWrite", self.route)
-        # 409 lock + idempotency + rate limiting intact
-        self.assertIn("err('This attendance is already submitted. Only administrators can change it.', 409);", self.route)
+        # 409 lock + idempotency + rate limiting intact (F8: the lock
+        # now carries a machine-readable code for the mobile outbox)
+        self.assertIn("err('This attendance is already submitted. Only administrators can change it.', 409,\n                    ['code' => 'ALREADY_SUBMITTED']);", self.route)
         self.assertIn("apiIdempotencyBegin(", self.route)
         self.assertIn("isApiRateLimited('mezmur_sheet_save'", self.route)
 

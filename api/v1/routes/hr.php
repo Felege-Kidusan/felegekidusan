@@ -87,7 +87,8 @@ try {
         }
 
         if (!HrSubmissionService::takerMayWrite($conn, $auth, $date, $section)) {
-            err('This attendance is already submitted. Only administrators can change it.', 409);
+            err('This attendance is already submitted. Only administrators can change it.', 409,
+                ['code' => 'ALREADY_SUBMITTED']);
         }
         $kind = strtolower(trim((string)($input['kind'] ?? 'draft')));
         $packetStatus = $kind === 'submitted'
@@ -121,7 +122,7 @@ try {
             // Domain messages are controlled service wording, never
             // diagnostics (kept behind a variable for the disclosure lint).
             $safeMessage = $error->getMessage();
-            err($safeMessage, 409);
+            err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
         } catch (\Throwable $error) {
             $conn->rollback();
             error_log('API hr sheet save failed: ' . $error->getMessage());
@@ -196,7 +197,7 @@ try {
 } catch (\DomainException $e) {
     // Controlled service wording only (never stack/diagnostic text).
     $safeMessage = $e->getMessage();
-    err($safeMessage, 409);
+    err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
 } catch (\Throwable $e) {
     error_log('API hr route failed: ' . $e->getMessage());
     err('Unable to complete the request. Please try again.', 500);

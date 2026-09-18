@@ -153,7 +153,8 @@ try {
         // Section-scoped save + submission packet (teacher-clone).
         if ($section !== '') {
             if (!MezmurSubmissionService::takerMayWrite($conn, $auth, $date, $section)) {
-                err('This attendance is already submitted. Only administrators can change it.', 409);
+                err('This attendance is already submitted. Only administrators can change it.', 409,
+                    ['code' => 'ALREADY_SUBMITTED']);
             }
             $kind = strtolower(trim((string)($input['kind'] ?? 'draft')));
             $packetStatus = $kind === 'submitted'
@@ -185,7 +186,7 @@ try {
             } catch (\DomainException $error) {
                 $conn->rollback();
                 $safeMessage = $error->getMessage();
-                err($safeMessage, 409);
+                err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
             } catch (\Throwable $error) {
                 $conn->rollback();
                 error_log('API mezmur sheet save failed: ' . $error->getMessage());

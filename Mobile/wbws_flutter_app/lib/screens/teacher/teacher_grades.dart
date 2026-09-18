@@ -7,6 +7,7 @@ import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
+import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/packet.dart';
 import '../../utils/roster.dart';
@@ -53,6 +54,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   bool _isOffline = false;
   String? _error;
   int _pendingGrades = 0;
+  int _rejectedCount = 0;
   StreamSubscription<bool>? _netSub;
 
   @override
@@ -66,7 +68,12 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     _loadClasses();
     _updatePendingCount();
     _sync.syncStream.listen((s) {
-      if (mounted) setState(() => _pendingGrades = s.pendingGrades);
+      if (mounted) {
+        setState(() {
+          _pendingGrades = s.pendingGrades;
+          _rejectedCount = s.rejected;
+        });
+      }
     });
   }
 
@@ -83,7 +90,15 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
 
   Future<void> _updatePendingCount() async {
     final c = await _db.getPendingGradesCount();
-    if (mounted) setState(() => _pendingGrades = c);
+    final rejected = (await _db.getRejectedBatches())
+        .where((b) => b['kind'] == 'grades')
+        .length;
+    if (mounted) {
+      setState(() {
+        _pendingGrades = c;
+        _rejectedCount = rejected;
+      });
+    }
   }
 
   Future<void> _loadClasses() async {
@@ -235,6 +250,8 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
                         padding: const EdgeInsets.all(16),
                         children: [
                           if (_isOffline) _offlineBanner(),
+                          if (_rejectedCount > 0)
+                            SyncAttentionBanner(rejectedCount: _rejectedCount),
                           _buildClassSelector(),
                           const SizedBox(height: 12),
                           if (_selectedClassId != null) ...[
@@ -540,6 +557,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   String? _rosterNote;
   int _gradedCount = 0;
   int _pendingSync = 0;
+  int _rejectedCount = 0;
   StreamSubscription<bool>? _netSub;
   StreamSubscription<dynamic>? _syncSub;
 
@@ -556,8 +574,14 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     // Icon-only delivery state (WhatsApp tick analogue): a tiny cloud while
     // the packet is still on this phone, nothing once the outbox delivers.
     _syncSub = SyncService().syncStream.listen((s) {
-      if (!mounted || s.pendingGrades == _pendingSync) return;
-      setState(() => _pendingSync = s.pendingGrades);
+      if (!mounted ||
+          (s.pendingGrades == _pendingSync && s.rejected == _rejectedCount)) {
+        return;
+      }
+      setState(() {
+        _pendingSync = s.pendingGrades;
+        _rejectedCount = s.rejected;
+      });
     });
     SyncService().emitCurrentStatus();
     _loadStudents();
@@ -977,6 +1001,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                             Expanded(child: Text('Waiting for network — scores stay on this phone until you are back online',
                                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
                           ])),
+                      if (_rejectedCount > 0)
+                        SyncAttentionBanner(rejectedCount: _rejectedCount),
                       if (_rosterNote != null)
                         StatusBanner.warning(_rosterNote!),
                       if (_returnNote != null &&

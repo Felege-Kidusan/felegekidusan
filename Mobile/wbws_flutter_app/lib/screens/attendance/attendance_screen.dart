@@ -7,6 +7,7 @@ import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
+import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/packet.dart';
@@ -53,6 +54,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   /// Education's reason when this sheet was returned for correction.
   String? _returnNote;
   int _pendingCount = 0;
+  int _rejectedCount = 0;
   /// WhatsApp-state visibility: true the moment anything changes after a
   /// save; drives the Save button's grayed-out/lit appearance without
   /// rebuilding the student list (ValueListenable -> action bar only).
@@ -97,7 +99,10 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     // Listen for sync updates
     _sync.syncStream.listen((status) {
       if (mounted) {
-        setState(() => _pendingCount = status.pendingAttendance);
+        setState(() {
+          _pendingCount = status.pendingAttendance;
+          _rejectedCount = status.rejected;
+        });
       }
     });
   }
@@ -117,7 +122,15 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _updatePendingCount() async {
     final count = await _db.getPendingAttendanceCount();
-    if (mounted) setState(() => _pendingCount = count);
+    final rejected = (await _db.getRejectedBatches())
+        .where((b) => b['kind'] == 'attendance')
+        .length;
+    if (mounted) {
+      setState(() {
+        _pendingCount = count;
+        _rejectedCount = rejected;
+      });
+    }
   }
 
   Future<void> _loadClasses() async {
@@ -669,6 +682,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                 ],
               ),
             ),
+
+          // F8: packets the school's workflow refused — kept on
+          // this phone; Review explains and offers Discard.
+          if (_rejectedCount > 0)
+            SyncAttentionBanner(rejectedCount: _rejectedCount),
 
           // Class + Date selector
           Padding(

@@ -545,7 +545,8 @@ if ($action === 'save' && $method === 'POST') {
 
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
-        err('This test is already submitted. Only Education can change scores now.', 409);
+        err('This test is already submitted. Only Education can change scores now.', 409,
+            ['code' => 'ALREADY_SUBMITTED']);
     }
     
     $successCount = 0;
@@ -659,7 +660,8 @@ if ($action === 'submit' && $method === 'POST') {
 
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
-        err('This test is already submitted. Only Education can change scores now.', 409);
+        err('This test is already submitted. Only Education can change scores now.', 409,
+            ['code' => 'ALREADY_SUBMITTED']);
     }
 
     apiEnsureSubmissionsTable();
@@ -711,7 +713,8 @@ if ($action === 'submit' && $method === 'POST') {
             'force' => \App\Services\SubmissionService::staffCanOverride($auth),
         ]);
         if (empty($packet['ok'])) {
-            err($packet['message'] ?? 'This test is already submitted. Only Education can change scores now.', 409);
+            err($packet['message'] ?? 'This test is already submitted. Only Education can change scores now.', 409,
+            ['code' => 'WORKFLOW_REJECTED']);
         }
     }
 

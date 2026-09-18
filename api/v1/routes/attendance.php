@@ -212,7 +212,8 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
 
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
-        err('This day’s attendance is already submitted. Only Education can change it.', 409);
+        err('This day’s attendance is already submitted. Only Education can change it.', 409,
+            ['code' => 'ALREADY_SUBMITTED']);
     }
 
     if (!class_exists('\\App\\Services\\SubmissionService')) {
@@ -254,7 +255,7 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     } catch (\DomainException $error) {
         $conn->rollback();
         $safeMessage = $error->getMessage();
-        err($safeMessage, 409);
+        err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
     } catch (\Throwable $error) {
         $conn->rollback();
         error_log('API attendance draft failed: ' . $error->getMessage());
@@ -295,7 +296,8 @@ if ($method === 'POST' && $action === 'submit') {
     $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records);
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
-        err('This day’s attendance is already submitted. Only Education can change it.', 409);
+        err('This day’s attendance is already submitted. Only Education can change it.', 409,
+            ['code' => 'ALREADY_SUBMITTED']);
     }
     if (!class_exists('\\App\\Services\\SubmissionService')) {
         err('Attendance workflow is temporarily unavailable.', 503);
@@ -335,7 +337,7 @@ if ($method === 'POST' && $action === 'submit') {
     } catch (\DomainException $error) {
         $conn->rollback();
         $safeMessage = $error->getMessage();
-        err($safeMessage, 409);
+        err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
     } catch (\Throwable $error) {
         $conn->rollback();
         error_log('API attendance submission failed: ' . $error->getMessage());

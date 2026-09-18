@@ -172,13 +172,15 @@ function apiIdempotencyBegin(int $userId, ?string $fromBody = null): void {
         exit;
     }
     if (($result['state'] ?? '') === 'conflict') {
-        err('This idempotency key was already used with a different request.', 409);
+        err('This idempotency key was already used with a different request.', 409,
+            ['code' => 'IDEMPOTENCY_CONFLICT']);
     }
     if (($result['state'] ?? '') === 'processing') {
         if (!headers_sent()) {
             header('Retry-After: ' . max(1, (int)($result['retry_after'] ?? 1)));
         }
-        err('A request with this idempotency key is still processing.', 409);
+        err('A request with this idempotency key is still processing.', 409,
+            ['code' => 'IDEMPOTENCY_IN_PROGRESS']);
     }
     err('Idempotency service is temporarily unavailable. Please retry safely.', 503);
 }

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
+import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/packet.dart';
@@ -64,6 +65,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   String _packetStatus = '';
   String? _returnNote;
   int _pendingCount = 0;
+  int _rejectedCount = 0;
   final ValueNotifier<bool> _dirty = ValueNotifier(false);
 
   // Phase 8: instant autosave (every mutation → durable local draft).
@@ -119,7 +121,12 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     _loadSections();
     _updatePendingCount();
     _sync.syncStream.listen((status) {
-      if (mounted) setState(() => _pendingCount = status.totalPending);
+      if (mounted) {
+        setState(() {
+          _pendingCount = status.totalPending;
+          _rejectedCount = status.rejected;
+        });
+      }
     });
   }
 
@@ -135,7 +142,15 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
 
   Future<void> _updatePendingCount() async {
     final count = await _db.getPendingMezmurCount();
-    if (mounted) setState(() => _pendingCount = count);
+    final rejected = (await _db.getRejectedBatches())
+        .where((b) => b['kind'] == 'mezmur')
+        .length;
+    if (mounted) {
+      setState(() {
+        _pendingCount = count;
+        _rejectedCount = rejected;
+      });
+    }
   }
 
   // ── [Section ▾] like teachers' [Class ▾] ─────────────────────
@@ -863,6 +878,11 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
                 ],
               ),
             ),
+
+          // F8: packets the school's workflow refused — kept on
+          // this phone; Review explains and offers Discard.
+          if (_rejectedCount > 0)
+            SyncAttentionBanner(rejectedCount: _rejectedCount),
 
           // [Section ▾] + Ethiopian date selector (teacher layout)
           Padding(

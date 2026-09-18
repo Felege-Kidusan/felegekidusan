@@ -137,6 +137,9 @@ class SyncService {
 
       final pendingAtt = await _db.getPendingAttendance();
       for (final batch in pendingAtt) {
+        // F8: already refused by the school's workflow — kept on this
+        // phone until the user reviews or discards it. Never re-sent.
+        if (batch['rejected'] == 1) continue;
         final classId = _asInt(batch['class_id']);
         final date = '${batch['date'] ?? ''}';
         if (classId <= 0 || date.isEmpty) continue;
@@ -157,11 +160,17 @@ class SyncService {
                   clientOpId: opId)
               : await _api.saveAttendance(classId, date, apiRecords,
                   clientOpId: opId);
-          if (_accepted(res)) {
+          final outcome = classifyDrainResponse(res);
+          if (outcome == DrainOutcome.accepted) {
             await _db.markAttendanceSynced(classId, date);
             synced++;
             didWork = true;
             lastError = '';
+          } else if (outcome == DrainOutcome.rejected) {
+            await _db.rejectAttendance(
+                classId, date, res.message ?? 'Rejected by the server');
+            lastError = res.message ?? 'Attendance was not accepted';
+            await _db.logSync('attendance', lastError, 'rejected');
           } else {
             failed++;
             lastError = res.message ?? 'Attendance did not save.';
@@ -175,6 +184,8 @@ class SyncService {
 
       final pendingGrades = await _db.getPendingGrades();
       for (final batch in pendingGrades) {
+        // F8: refused by the school's workflow — kept for review.
+        if (batch['rejected'] == 1) continue;
         final assessmentId = batch['assessment_id'] as int;
         final kind = '${batch['packet_kind'] ?? 'draft'}';
         final opId = '${batch['client_op_id'] ?? ''}';
@@ -193,11 +204,17 @@ class SyncService {
               ? await _api.submitGrades(assessmentId, apiGrades,
                   clientOpId: opId)
               : await _api.saveGrades(assessmentId, apiGrades, clientOpId: opId);
-          if (_accepted(res)) {
+          final outcome = classifyDrainResponse(res);
+          if (outcome == DrainOutcome.accepted) {
             await _db.markGradesSynced(assessmentId);
             synced++;
             didWork = true;
             lastError = '';
+          } else if (outcome == DrainOutcome.rejected) {
+            await _db.rejectGrades(
+                assessmentId, res.message ?? 'Rejected by the server');
+            lastError = res.message ?? 'Grades were not accepted';
+            await _db.logSync('grades', lastError, 'rejected');
           } else {
             failed++;
             lastError = res.message ?? 'Grades did not save.';
@@ -211,6 +228,8 @@ class SyncService {
 
       final pendingMez = await _db.getPendingMezmur();
       for (final batch in pendingMez) {
+        // F8: refused by the school's workflow — kept for review.
+        if (batch['rejected'] == 1) continue;
         final date = '${batch['date'] ?? ''}';
         if (date.isEmpty) continue;
         final section = '${batch['section'] ?? ''}';
@@ -233,11 +252,17 @@ class SyncService {
                   section: section, kind: kind, clientOpId: opId)
               : await _api.saveMezmurSheet(date, apiRecords,
                   clientOpId: opId);
-          if (_accepted(res)) {
+          final outcome = classifyDrainResponse(res);
+          if (outcome == DrainOutcome.accepted) {
             await _db.markMezmurSynced(date, section);
             synced++;
             didWork = true;
             lastError = '';
+          } else if (outcome == DrainOutcome.rejected) {
+            await _db.rejectMezmur(date, section,
+                res.message ?? 'Rejected by the server');
+            lastError = res.message ?? 'Mezmur attendance was not accepted';
+            await _db.logSync('mezmur', lastError, 'rejected');
           } else {
             failed++;
             lastError = res.message ?? 'Mezmur attendance did not save.';
@@ -254,6 +279,8 @@ class SyncService {
       // streams never cross.
       final pendingHr = await _db.getPendingHr();
       for (final batch in pendingHr) {
+        // F8: refused by the school's workflow — kept for review.
+        if (batch['rejected'] == 1) continue;
         final date = '${batch['date'] ?? ''}';
         if (date.isEmpty) continue;
         final section = '${batch['section'] ?? ''}';
@@ -271,11 +298,17 @@ class SyncService {
               .toList();
           final res = await _api.saveHrSheet(date, apiRecords,
               section: section, kind: kind, clientOpId: opId);
-          if (_accepted(res)) {
+          final outcome = classifyDrainResponse(res);
+          if (outcome == DrainOutcome.accepted) {
             await _db.markHrSynced(date, section);
             synced++;
             didWork = true;
             lastError = '';
+          } else if (outcome == DrainOutcome.rejected) {
+            await _db.rejectHr(date, section,
+                res.message ?? 'Rejected by the server');
+            lastError = res.message ?? 'HR attendance was not accepted';
+            await _db.logSync('hr_attendance', lastError, 'rejected');
           } else {
             failed++;
             lastError = res.message ?? 'HR attendance did not save.';
@@ -344,13 +377,6 @@ class SyncService {
     );
   }
 
-  bool _accepted(ApiResponse res) {
-    if (res.success) return true;
-    if (res.statusCode == 409) return true;
-    final m = (res.message ?? '').toLowerCase();
-    return m.contains('already submitted');
-  }
-
   Future<void> cacheForOffline() async {
     if (!_api.isLoggedIn) return;
     try {
@@ -370,12 +396,14 @@ class SyncService {
     final pm = await _db.getPendingMezmurCount();
     final phr = await _db.getPendingHrCount();
     final ph = await _db.getPendingHymnOpsCount();
+    final rejectedBatches = await _db.getRejectedBatches();
     _lastStatus = SyncStatus(
         pendingAttendance: pa,
         pendingGrades: pg,
         pendingMezmur: pm,
         pendingHr: phr,
         pendingHymns: ph,
+        rejected: rejectedBatches.length,
         syncing: syncing ?? (_inflight != null));
     _syncController.add(_lastStatus);
   }
@@ -395,13 +423,21 @@ class SyncStatus {
   final int pendingHr;
   final int pendingHymns;
   final bool syncing;
+
+  /// F8: batches the school's workflow refused (kept on this phone
+  /// until reviewed or discarded). Included in totalPending — they
+  /// are genuinely "not yet sent" — but called out separately so no
+  /// screen can claim they are merely waiting for the network.
+  final int rejected;
+  bool get needsAttention => rejected > 0;
+
   int get totalPending => pendingAttendance +
       pendingGrades +
       pendingMezmur +
       pendingHr +
       pendingHymns;
   String get breakdown {
-    if (totalPending <= 0) return 'All synced';
+    if (totalPending <= 0 && rejected <= 0) return 'All synced';
     final parts = <String>[];
     if (pendingAttendance > 0) {
       parts.add(
@@ -419,6 +455,9 @@ class SyncStatus {
     if (pendingHymns > 0) {
       parts.add('$pendingHymns hymn change${pendingHymns == 1 ? '' : 's'}');
     }
+    if (rejected > 0) {
+      parts.add('$rejected need${rejected == 1 ? 's' : ''} attention');
+    }
     return parts.join(' · ');
   }
 
@@ -428,6 +467,7 @@ class SyncStatus {
       this.pendingMezmur = 0,
       this.pendingHr = 0,
       this.pendingHymns = 0,
+      this.rejected = 0,
       required this.syncing});
 }
 
@@ -437,4 +477,68 @@ class SyncResult {
   final String message;
   SyncResult(
       {required this.synced, required this.failed, required this.message});
+}
+
+/// F8 — how a legacy-outbox drain response must be treated.
+enum DrainOutcome {
+  /// The server applied the packet, or validly replayed it (a true
+  /// idempotent replay returns the ORIGINAL 200 + body, so it lands
+  /// in `res.success` — response-loss retries stay safe).
+  accepted,
+
+  /// The school's workflow refused the packet for good: the day/test
+  /// was already submitted by another role, a business rule blocked
+  /// it, or the idempotency key was misused. The data was NOT
+  /// applied and resending the same bytes can never succeed — mark
+  /// the batch rejected, keep it on this phone, surface it honestly.
+  rejected,
+
+  /// Network error / auth hiccup / timeout / rate limit / server
+  /// error / request still processing. Retry later, exactly like a
+  /// plain failure. Never destroys data, never reports success.
+  transient,
+}
+
+/// Classifies a drain response for the four legacy outboxes
+/// (attendance, grades, mezmur, HR). Pure function — pinned by
+/// test/drain_outcome_test.dart.
+///
+/// Evidence (api/v1/core/middleware.php): apiIdempotencyBegin runs
+/// BEFORE every workflow-lock check, and a replay returns the
+/// original 200 + `Idempotency-Replayed: true` — so a 409 from these
+/// routes is never a replay. Outbox-reachable 409s carry a
+/// machine-readable `code` (merged into the body by err()'s $extra):
+///   ALREADY_SUBMITTED / WORKFLOW_REJECTED / IDEMPOTENCY_CONFLICT
+///     → rejected (server state or rule refuses the packet)
+///   IDEMPOTENCY_IN_PROGRESS (+ Retry-After) → transient
+///
+/// A 409 WITHOUT a known code (old server before this deploy)
+/// → transient: retry like a failure. The invariant of this fix is
+/// that a 409 must never be treated as SUCCESS; refusing to guess
+/// beyond that keeps old-server behavior unchanged (retry, no data
+/// loss, no false success) instead of risking a wrong verdict.
+DrainOutcome classifyDrainResponse(ApiResponse res) {
+  if (res.success) return DrainOutcome.accepted;
+  if (res.isNetworkError) return DrainOutcome.transient;
+  final code =
+      res.data is Map ? '${(res.data as Map)['code'] ?? ''}' : '';
+  final status = res.statusCode;
+  if (status == 409) {
+    if (code == 'IDEMPOTENCY_IN_PROGRESS') return DrainOutcome.transient;
+    if (code == 'ALREADY_SUBMITTED' ||
+        code == 'WORKFLOW_REJECTED' ||
+        code == 'IDEMPOTENCY_CONFLICT') {
+      return DrainOutcome.rejected;
+    }
+    return DrainOutcome.transient; // unknown 409 — never guess
+  }
+  if (status == 401 || status == 408 || status == 429 || status >= 500) {
+    return DrainOutcome.transient;
+  }
+  // Definite protocol refusals of this exact packet: retrying the
+  // same bytes can never succeed (minimal F9 touch, F8 directive §9).
+  if (status == 400 || status == 403 || status == 404 || status == 422) {
+    return DrainOutcome.rejected;
+  }
+  return DrainOutcome.transient; // unknown shape — never destroy data
 }

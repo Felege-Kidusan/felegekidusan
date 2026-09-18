@@ -1653,7 +1653,8 @@ class LocalDb {
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
              MAX(client_op_id) as client_op_id,
-             COUNT(*) as student_count, MIN(created_at) as created_at
+             COUNT(*) as student_count, MIN(created_at) as created_at,
+             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
       FROM pending_attendance WHERE synced = 0
       GROUP BY class_id, date ORDER BY date DESC
     ''');
@@ -1748,7 +1749,9 @@ class LocalDb {
       SELECT assessment_id, assessment_name, class_name, subject_name,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
-             COUNT(*) as grade_count, MIN(created_at) as created_at
+             MAX(client_op_id) as client_op_id,
+             COUNT(*) as grade_count, MIN(created_at) as created_at,
+             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
       FROM pending_grades WHERE synced = 0
       GROUP BY assessment_id ORDER BY created_at DESC
     ''');
@@ -1959,7 +1962,8 @@ class LocalDb {
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
              MAX(client_op_id) as client_op_id,
-             COUNT(*) as member_count, MIN(created_at) as created_at
+             COUNT(*) as member_count, MIN(created_at) as created_at,
+             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
       FROM pending_mezmur WHERE synced = 0
       GROUP BY date, section ORDER BY date DESC
     ''');
@@ -2139,7 +2143,8 @@ class LocalDb {
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
              MAX(client_op_id) as client_op_id,
-             COUNT(*) as member_count, MIN(created_at) as created_at
+             COUNT(*) as member_count, MIN(created_at) as created_at,
+             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
       FROM pending_hr WHERE synced = 0
       GROUP BY date, section ORDER BY date DESC
     ''');
@@ -2161,6 +2166,114 @@ class LocalDb {
         where: 'date = ? AND section = ? AND synced = 0',
         whereArgs: [date, section]);
   }
+
+  // ── F8: workflow-rejected outbox batches ──────────────────────────
+  //
+  // A 409 from the school's workflow (day/test submitted while this
+  // phone was offline) is NOT sync success. The batch stays here,
+  // unsynced, with the server's reason in sync_error — recoverable
+  // until the user explicitly discards it. Rejected batches are
+  // excluded from every drain (the feeds above carry `rejected` and
+  // the worker skips them) but still count as "not yet sent" in the
+  // UI, which is the truth: the data lives only on this phone.
+
+  Future<void> rejectAttendance(int classId, String date, String reason) async {
+    final db = await database;
+    await db.update(
+        'pending_attendance',
+        {'sync_error': reason},
+        where: 'class_id = ? AND date = ? AND synced = 0',
+        whereArgs: [classId, date]);
+  }
+
+  Future<void> rejectGrades(int assessmentId, String reason) async {
+    final db = await database;
+    await db.update(
+        'pending_grades',
+        {'sync_error': reason},
+        where: 'assessment_id = ? AND synced = 0',
+        whereArgs: [assessmentId]);
+  }
+
+  Future<void> rejectMezmur(String date, String section, String reason) async {
+    final db = await database;
+    await db.update(
+        'pending_mezmur',
+        {'sync_error': reason},
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  Future<void> rejectHr(String date, String section, String reason) async {
+    final db = await database;
+    await db.update(
+        'pending_hr',
+        {'sync_error': reason},
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  /// Explicit, user-consented destruction of a rejected batch (the
+  /// review sheet's Discard). Never called by the sync engine.
+  Future<void> discardRejectedAttendance(int classId, String date) async {
+    final db = await database;
+    await db.delete('pending_attendance',
+        where: 'class_id = ? AND date = ? AND synced = 0',
+        whereArgs: [classId, date]);
+  }
+
+  Future<void> discardRejectedGrades(int assessmentId) async {
+    final db = await database;
+    await db.delete('pending_grades',
+        where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
+  }
+
+  Future<void> discardRejectedMezmur(String date, String section) async {
+    final db = await database;
+    await db.delete('pending_mezmur',
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  Future<void> discardRejectedHr(String date, String section) async {
+    final db = await database;
+    await db.delete('pending_hr',
+        where: 'date = ? AND section = ? AND synced = 0',
+        whereArgs: [date, section]);
+  }
+
+  /// All rejected batches across the four legacy outboxes, for the
+  /// review sheet and the SyncStatus count. Fields: kind, label,
+  /// detail, reason (all PII-light: names/dates, never member rows).
+  Future<List<Map<String, dynamic>>> getRejectedBatches() async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT 'attendance' AS kind, class_name AS label, date AS detail,
+             class_id AS key1, date AS key2, MAX(sync_error) AS reason
+      FROM pending_attendance WHERE synced = 0 AND sync_error IS NOT NULL
+      GROUP BY class_id, date
+      UNION ALL
+      SELECT 'grades' AS kind, assessment_name AS label,
+             COALESCE(class_name, '') AS detail,
+             assessment_id AS key1, '' AS key2, MAX(sync_error) AS reason
+      FROM pending_grades WHERE synced = 0 AND sync_error IS NOT NULL
+      GROUP BY assessment_id
+      UNION ALL
+      SELECT 'mezmur' AS kind, 'Mezmur attendance' AS label,
+             date || ' · ' || section AS detail,
+             date AS key1, section AS key2, MAX(sync_error) AS reason
+      FROM pending_mezmur WHERE synced = 0 AND sync_error IS NOT NULL
+      GROUP BY date, section
+      UNION ALL
+      SELECT 'hr' AS kind, 'HR attendance' AS label,
+             date || ' · ' || section AS detail,
+             date AS key1, section AS key2, MAX(sync_error) AS reason
+      FROM pending_hr WHERE synced = 0 AND sync_error IS NOT NULL
+      GROUP BY date, section
+      ORDER BY kind, detail
+    ''');
+  }
+
 
   Future<void> dropPendingHr(String date, String section) async {
     final db = await database;
