@@ -33,6 +33,7 @@ import '../mezmur/mezmur_attendance.dart';
 import '../mezmur/mezmur_hymns.dart';
 import '../mezmur/mezmur_analytics.dart';
 import '../profile/profile_screen.dart';
+import '../../services/comm_outbox_service.dart';
 
 /// AppShell — Role-based bottom navigation with auto-refresh,
 /// global offline banner, and auth expiry handling.
@@ -77,6 +78,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // Handle auth expiry — redirect to login
     _api.onAuthExpired = _handleAuthExpired;
     SyncService().startAutoSync();
+    CommOutboxService.instance.start(); // O3: offline sends drain app-wide
 
     // Radio came back — refresh the open tab after the link settles.
     // Do not pile cacheForOffline + ping + sync on the same 4G radio.

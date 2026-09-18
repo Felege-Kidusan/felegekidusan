@@ -115,11 +115,20 @@ bool isMine(Map<String, dynamic> m) => (m['mine'] ?? 0).toString() == '1';
 const kLocalTag = '_local_tag';
 const kLocalStatus = '_local_status';
 
+/// O3 — the outbox entry's client_tag on a local bubble. This is the
+/// join key between the on-screen bubble and its durable comm_outbox
+/// row: the worker deletes the row on success, the screen removes the
+/// bubble with the same tag. Null only on legacy/runtime-only bubbles.
+const kClientTag = '_client_tag';
+
 bool isLocalBubble(Map<String, dynamic> m) => m[kLocalTag] != null;
 
-Map<String, dynamic> pendingBubble(int tag, String body, {DateTime? now}) => {
+Map<String, dynamic> pendingBubble(int tag, String body,
+        {DateTime? now, String? clientTag}) =>
+    {
       kLocalTag: tag,
       kLocalStatus: 'pending',
+      if (clientTag != null) kClientTag: clientTag,
       'mine': 1,
       'body': body,
       'created_at': _serverStamp(now ?? DateTime.now()),
@@ -132,6 +141,35 @@ Map<String, dynamic> failBubble(Map<String, dynamic> local, String reason) => {
     };
 
 String _serverStamp(DateTime t) => t.toIso8601String(); // sortable, local
+
+/// O3 — an outbox row becomes an on-screen bubble. Built on every
+/// open and every worker event, so it must be a pure function of the
+/// row: [tag] is the screen's runtime handle only.
+Map<String, dynamic> outboxBubble(int tag, Map<String, dynamic> entry) {
+  final failed = entry['state']?.toString() == 'failed';
+  return {
+    kLocalTag: tag,
+    kLocalStatus: failed ? 'failed' : 'pending',
+    kClientTag: entry['client_tag']?.toString() ?? '',
+    'mine': 1,
+    'body': entry['body']?.toString() ?? '',
+    'created_at': entry['created_at']?.toString() ?? '',
+    if (failed) '_fail_reason': entry['fail_reason']?.toString() ?? 'Could not send.',
+  };
+}
+
+/// O3 — send-failure triage (outbox canon). Transport failures and
+/// overload/server statuses are TRANSIENT: retry with backoff+jitter.
+/// A rejection on the merits (4xx other than auth/timeout/overload) is
+/// PERMANENT: surface once as a tappable failed bubble, never loop.
+/// 401 is transient for the outbox — sessions heal (token rotation,
+/// re-login); the message itself was never judged.
+bool isTransientSendFailure(bool isNetworkError, int statusCode) {
+  if (isNetworkError) return true;
+  if (statusCode == 401 || statusCode == 408 || statusCode == 429) return true;
+  if (statusCode >= 500 && statusCode < 600) return true;
+  return false;
+}
 
 int? localTag(Map<String, dynamic> m) => m[kLocalTag] is num
     ? (m[kLocalTag] as num).toInt()

@@ -115,6 +115,109 @@ class CommStore extends ChangeNotifier {
     await metaSet('thread:$threadId', jsonEncode(meta));
   }
 
+  // ── Outbox (O3) ──────────────────────────────────────────────────
+
+  /// Queue a send — ONE durable row; from this moment the message is
+  /// the worker's responsibility and survives process death and
+  /// airplane mode. state stays 'pending'/'failed' in the DB only:
+  /// in-flight is a worker-memory flag, so a crash mid-POST re-drains
+  /// the row instead of stranding it (exactly-once closes with 046).
+  Future<void> enqueueOutbox(
+      int threadId, String clientTag, String body) async {
+    final db = await _db;
+    await db.insert('comm_outbox', {
+      'client_tag': clientTag,
+      'thread_id': threadId,
+      'body': body,
+      'state': 'pending',
+      'attempts': 0,
+      'next_attempt_at': null,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// All pending entries, global FIFO by created_at (preserves each
+  /// thread's order too). The worker's drain feed.
+  Future<List<Map<String, dynamic>>> pendingOutbox() async {
+    final db = await _db;
+    return db.query('comm_outbox',
+        where: "state = 'pending'",
+        orderBy: 'created_at ASC, client_tag ASC');
+  }
+
+  /// Unfinished entries (pending + failed) of one thread, FIFO — the
+  /// conversation screen renders these as the local bubble tail.
+  Future<List<Map<String, dynamic>>> outboxForThread(int threadId) async {
+    final db = await _db;
+    return db.query('comm_outbox',
+        where: "thread_id = ? AND state IN ('pending', 'failed')",
+        whereArgs: [threadId],
+        orderBy: 'created_at ASC, client_tag ASC');
+  }
+
+  /// Partial state-machine update (attempts/next_attempt_at/fail_reason).
+  Future<void> updateOutbox(
+      String clientTag, Map<String, dynamic> fields) async {
+    final db = await _db;
+    await db.update('comm_outbox', fields,
+        where: 'client_tag = ?', whereArgs: [clientTag]);
+  }
+
+  /// Entry delivered — the row's whole purpose is fulfilled.
+  Future<void> deleteOutbox(String clientTag) async {
+    final db = await _db;
+    await db.delete('comm_outbox', where: 'client_tag = ?', whereArgs: [clientTag]);
+  }
+
+  /// Manual retry of a permanently-failed entry: fresh ladder, the
+  /// reason clears, the worker picks it up on the next kick.
+  Future<void> retryOutbox(String clientTag) async {
+    await updateOutbox(clientTag, {
+      'state': 'pending',
+      'attempts': 0,
+      'next_attempt_at': null,
+      'fail_reason': null,
+    });
+  }
+
+  /// Earliest scheduled retry (ISO string) among pending entries, or
+  /// null when nothing waits — the worker's timer anchor.
+  Future<String?> outboxNextDue() async {
+    final db = await _db;
+    final rows = await db.rawQuery(
+        "SELECT MIN(next_attempt_at) m FROM comm_outbox "
+        "WHERE state = 'pending' AND next_attempt_at IS NOT NULL");
+    if (rows.isEmpty) return null;
+    return rows.first['m']?.toString();
+  }
+
+  // ── Drafts (O3) ──────────────────────────────────────────────────
+
+  /// The persisted composer draft of one thread ('' when none). Makes
+  /// the B2 session drafts survive process death (WhatsApp keeps
+  /// half-written replies the same way).
+  Future<String> draftFor(int threadId) async {
+    final db = await _db;
+    final rows = await db.query('comm_drafts',
+        where: 'thread_id = ?', whereArgs: [threadId], limit: 1);
+    if (rows.isEmpty) return '';
+    return rows.first['body']?.toString() ?? '';
+  }
+
+  /// Persist (or clear, when [body] is empty) a draft. Debounced by
+  /// the caller — one small upsert per typing pause, not per key.
+  Future<void> saveDraft(int threadId, String body) async {
+    final db = await _db;
+    if (body.isEmpty) {
+      await db.delete('comm_drafts', where: 'thread_id = ?', whereArgs: [threadId]);
+      return;
+    }
+    await db.insert(
+        'comm_drafts',
+        {'thread_id': threadId, 'body': body, 'updated_at': DateTime.now().toIso8601String()},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
   // ── Meta (per-thread ETags, cursors — O2) ────────────────────────
 
   Future<String?> metaGet(String key) async {

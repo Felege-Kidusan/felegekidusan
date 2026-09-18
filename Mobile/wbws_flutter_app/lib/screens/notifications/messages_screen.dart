@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_service.dart';
+import '../../services/comm_outbox_service.dart';
 import '../../services/comm_store.dart';
 import '../../services/inbox_view_model.dart';
+import '../../services/local_db.dart' show newClientOpId;
 import '../../services/messaging_view_model.dart';
 import '../../services/notification_service.dart';
 import '../../utils/theme.dart';
@@ -608,9 +610,29 @@ class _ConversationScreenState extends State<_ConversationScreen>
   /// P1 audit B2 — per-thread composer drafts. Backing out of a
   /// conversation (or hopping between threads) keeps the half-written
   /// reply and restores it on return; dispatching the send clears it.
-  /// In-memory by design, like the web: survives navigation, not
-  /// process death.
+  /// O3: the session map is now a write-through cache over comm_drafts
+  /// — drafts survive process death too (WhatsApp keeps half-written
+  /// replies the same way).
   static final Map<int, String> _drafts = {};
+
+  /// O3 — debounced draft persistence (one small upsert per typing
+  /// pause, not per keystroke).
+  Timer? _draftSaveTimer;
+
+  void _onDraftChanged() {
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(const Duration(milliseconds: 600), _flushDraft);
+  }
+
+  void _flushDraft() {
+    final v = _box.text;
+    if (v.trim().isEmpty) {
+      _drafts.remove(widget.threadId);
+    } else {
+      _drafts[widget.threadId] = v;
+    }
+    CommStore.instance.saveDraft(widget.threadId, v.trim());
+  }
 
   static const _pollInterval = Duration(seconds: 30);
 
@@ -630,6 +652,18 @@ class _ConversationScreenState extends State<_ConversationScreen>
     _maxServerId = _computeMaxServerId();
     _scroll.addListener(_onScroll);
     _box.text = _drafts[widget.threadId] ?? '';
+    if (_drafts[widget.threadId] == null) {
+      // O3: no session draft — fall back to the durable one.
+      CommStore.instance.draftFor(widget.threadId).then((t) {
+        if (mounted && t.isNotEmpty && _box.text.isEmpty) _box.text = t;
+      });
+    }
+    _box.addListener(_onDraftChanged);
+    // O3: the worker's events drive the bubble tail (succeeded sends
+    // drop their bubbles, failed ones flip to tap-to-retry).
+    CommOutboxService.instance.addListener(_onOutboxChanged);
+    // O3: queued/failed sends from previous sessions render on open.
+    _syncOutboxTail();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _pollOpenThread());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _jumpToBottom();
@@ -641,8 +675,11 @@ class _ConversationScreenState extends State<_ConversationScreen>
   void dispose() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    CommOutboxService.instance.removeListener(_onOutboxChanged);
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
+    _draftSaveTimer?.cancel();
+    _flushDraft(); // O3: process death must not lose the draft's tail
     _box.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -800,51 +837,68 @@ class _ConversationScreenState extends State<_ConversationScreen>
     });
   }
 
-  /// Optimistic send (web sendReply): the bubble appears instantly
-  /// with a "Sending…" state; on success it is replaced by the
-  /// authoritative row via a window refresh; on failure it flips to a
-  /// tappable retry state and the composer text is preserved in the
-  /// bubble itself.
+  /// O3 (offline-first) — send through the outbox (web sendReply's
+  /// optimistic bubble, made durable): ONE SQLite row is the send;
+  /// the worker owns the POST with backoff + jitter. The bubble
+  /// renders from that row in the same breath, so the UI never
+  /// blocks on the network — and a send typed in airplane mode
+  /// leaves with the clock icon, exactly like WhatsApp.
   Future<void> _send() async {
     final text = _box.text.trim();
     if (text.isEmpty) return;
     _drafts.remove(widget.threadId); // B2: dispatched — draft's job is done
-    final tag = ++_tagSeq;
-    setState(() => _messages.add(pendingBubble(tag, text)));
+    _draftSaveTimer?.cancel();
+    await CommStore.instance.saveDraft(widget.threadId, ''); // O3: durable too
+    final clientTag = newClientOpId();
+    await CommStore.instance.enqueueOutbox(widget.threadId, clientTag, text);
     _box.clear();
+    await _syncOutboxTail(); // the bubble IS the row — single truth
     _jumpToBottom();
-    await _deliver(tag, text);
+    CommOutboxService.instance.kick();
   }
 
-  Future<void> _deliver(int tag, String body) async {
-    final res = await _api.sendMessage(widget.threadId, body);
+  /// Rebuild the local-bubble tail from the outbox — the DB is the
+  /// only truth for pending/failed sends. Called on open, on send,
+  /// and on every worker event; succeeded entries drop their bubbles
+  /// and trigger a window refresh so the authoritative row lands.
+  Future<void> _syncOutboxTail() async {
+    final entries =
+        await CommStore.instance.outboxForThread(widget.threadId);
     if (!mounted) return;
-    if (res.success) {
-      setState(() => _messages.removeWhere(
-          (m) => isLocalBubble(m) && localTag(m) == tag));
-      await _pollOpenThread(forceScroll: true);
-    } else {
-      setState(() {
-        final i = _messages.indexWhere(
-            (m) => isLocalBubble(m) && localTag(m) == tag);
-        if (i >= 0) _messages[i] = failBubble(_messages[i], res.message ?? 'Could not send.');
-      });
+    final hadLocals = _messages.any(isLocalBubble);
+    setState(() {
+      _messages.removeWhere(isLocalBubble);
+      for (final e in entries) {
+        _messages.add(outboxBubble(++_tagSeq, e));
+      }
+    });
+    if (hadLocals && entries.isEmpty) {
+      // Every bubble resolved — at least one send SUCCEEDED; fetch
+      // the real rows now (conditional GET; a 304 costs nothing).
+      _pollOpenThread(forceScroll: true);
     }
   }
 
+  void _onOutboxChanged() {
+    if (!mounted) return;
+    _syncOutboxTail();
+  }
+
   void _retryLocal(Map<String, dynamic> m) {
-    final tag = localTag(m);
-    final body = (m['body'] ?? '').toString();
-    if (tag == null || body.isEmpty) return;
-    setState(() {
-      final i = _messages.indexOf(m);
-      if (i >= 0) _messages[i] = pendingBubble(tag, body);
-    });
-    _deliver(tag, body);
+    // O3: retry is the outbox's, not the screen's — flip the row back
+    // to pending (fresh ladder) and let the worker run.
+    final clientTag = m[kClientTag]?.toString();
+    if (clientTag == null || clientTag.isEmpty) return;
+    CommStore.instance.retryOutbox(clientTag);
+    _syncOutboxTail();
+    CommOutboxService.instance.kick();
   }
 
   void _discardLocal(Map<String, dynamic> m) {
-    setState(() => _messages.remove(m));
+    final clientTag = m[kClientTag]?.toString();
+    if (clientTag == null || clientTag.isEmpty) return;
+    CommStore.instance.deleteOutbox(clientTag);
+    _syncOutboxTail();
   }
 
   /// P1 audit B1 — tappable links open externally (browser for
@@ -1183,15 +1237,9 @@ class _ConversationScreenState extends State<_ConversationScreen>
                             borderSide: BorderSide.none),
                       ),
                       onSubmitted: (_) => _send(),
-                      onChanged: (v) {
-                        // P1 audit B2 — keep the half-written reply
-                        // per thread; empty box = no draft.
-                        if (v.trim().isEmpty) {
-                          _drafts.remove(widget.threadId);
-                        } else {
-                          _drafts[widget.threadId] = v;
-                        }
-                      },
+                      // B2/O3 draft keeping moved to the controller
+                      // listener (_onDraftChanged) — it also catches
+                      // clears and programmatic restores.
                     ),
                   ),
                   const SizedBox(width: 9),

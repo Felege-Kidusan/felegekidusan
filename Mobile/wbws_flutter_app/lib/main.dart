@@ -24,6 +24,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/shell/app_shell.dart';
 import 'screens/update/update_screen.dart';
 import 'screens/mezmur/mezmur_mini_player_host.dart';
+import 'services/comm_outbox_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -100,6 +101,7 @@ Future<void> runBootstrap() async {
         MezmurDownloadManager.instance.boot();
       });
       SyncService().startAutoSync();
+      CommOutboxService.instance.start(); // O3: offline sends drain app-wide
     }
   });
 }

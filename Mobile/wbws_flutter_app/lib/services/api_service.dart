@@ -1083,9 +1083,17 @@ class ApiService {
       post('/notifications/thread-start',
           body: {'to': to, 'subject': subject, 'body': body});
 
-  Future<ApiResponse> sendMessage(int threadId, String body) =>
-      post('/notifications/send-message',
-          body: {'thread_id': threadId, 'body': body});
+  /// O3 — [clientTag] rides the payload for exactly-once sending. The
+  /// server ignores it until migration 046 lands (messages.client_tag
+  /// unique index); from then on a drained-and-retried send can never
+  /// duplicate. Harmless extra field today by design.
+  Future<ApiResponse> sendMessage(int threadId, String body,
+          {String? clientTag}) =>
+      post('/notifications/send-message', body: {
+        'thread_id': threadId,
+        'body': body,
+        if (clientTag != null && clientTag.isNotEmpty) 'client_tag': clientTag,
+      });
 
   /// P74 Phase 2 — Telegram-grade own-message management (same
   /// actions as the web center; ownership enforced server-side).

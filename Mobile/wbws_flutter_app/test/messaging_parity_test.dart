@@ -404,4 +404,58 @@ void main() {
       expect(threadTimeLabel('junk', now: now), '');
     });
   });
+
+  group('O3 — outbox bubble + send-failure triage', () {
+    test('pending entry becomes a pending local bubble', () {
+      final b = outboxBubble(7, {
+        'client_tag': 'tag-1',
+        'thread_id': 9,
+        'body': 'see you at 3',
+        'state': 'pending',
+        'attempts': 2,
+        'created_at': '2026-09-15T10:00:00',
+      });
+      expect(isLocalBubble(b), isTrue);
+      expect(b[kLocalStatus], 'pending');
+      expect(b[kClientTag], 'tag-1');
+      expect(b['mine'], 1);
+      expect(b['body'], 'see you at 3');
+    });
+
+    test('failed entry carries the reason (tap-to-retry UI)', () {
+      final b = outboxBubble(8, {
+        'client_tag': 'tag-2',
+        'body': 'nope',
+        'state': 'failed',
+        'fail_reason': 'Not your conversation.',
+        'created_at': '2026-09-15T10:05:00',
+      });
+      expect(b[kLocalStatus], 'failed');
+      expect(b['_fail_reason'], 'Not your conversation.');
+    });
+
+    test('pendingBubble stamps the client tag', () {
+      final b = pendingBubble(3, 'hi', clientTag: 'tag-3');
+      expect(b[kClientTag], 'tag-3');
+      final bare = pendingBubble(4, 'hi');
+      expect(bare.containsKey(kClientTag), isFalse);
+    });
+
+    test('transient failures retry; merit rejections are permanent', () {
+      // transport + overload + server → transient (backoff owns them)
+      expect(isTransientSendFailure(true, 0), isTrue);
+      expect(isTransientSendFailure(true, 400), isTrue);
+      expect(isTransientSendFailure(false, 408), isTrue);
+      expect(isTransientSendFailure(false, 429), isTrue);
+      expect(isTransientSendFailure(false, 500), isTrue);
+      expect(isTransientSendFailure(false, 503), isTrue);
+      // 401 is transient for the OUTBOX: sessions heal; retry later
+      expect(isTransientSendFailure(false, 401), isTrue);
+      // rejected on the merits → permanent (surface once, no loop)
+      expect(isTransientSendFailure(false, 400), isFalse);
+      expect(isTransientSendFailure(false, 403), isFalse);
+      expect(isTransientSendFailure(false, 404), isFalse);
+      expect(isTransientSendFailure(false, 422), isFalse);
+    });
+  });
 }

@@ -6,6 +6,7 @@ import '../../services/warm_store.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../shell/app_shell.dart';
+import '../../services/comm_outbox_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -50,6 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (res.success) {
       // Start background services
       SyncService().startAutoSync();
+      CommOutboxService.instance.start(); // O3: drain queued sends
       WarmStore().afterLogin();
 
       Navigator.of(context).pushAndRemoveUntil(
