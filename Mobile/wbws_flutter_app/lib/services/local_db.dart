@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 26,
+      version: 27,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -384,6 +384,15 @@ class LocalDb {
           // UI reads these tables first; the network only refreshes
           // them. All five are member PII → wiped on logout below.
           await _createCommTables(db);
+        }
+        if (oldVersion < 27) {
+          // P1-B (offline-first notification center): alerts +
+          // announcements cached for instant local render, mirroring
+          // the two server feeds' contracts. Caches start empty and
+          // fill from the first successful refresh — no data
+          // migration. User-scoped server responses → wiped on
+          // logout like every other cache.
+          await _createNotificationTables(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1131,8 +1140,34 @@ class LocalDb {
     }
   }
 
+  /// P1-B (DB v27): local-first Notification Center store. Two
+  /// tables because the two server feeds have different contracts —
+  /// alerts page by id DESC / before_id; announcements by
+  /// (is_pinned, id) DESC with the server-authoritative expires_at.
+  Future<void> _createNotificationTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_notifications (
+        id INTEGER PRIMARY KEY,
+        is_unread INTEGER NOT NULL DEFAULT 1,
+        data_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_announcements (
+        id INTEGER PRIMARY KEY,
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        is_unread INTEGER NOT NULL DEFAULT 1,
+        expires_at TEXT,
+        data_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
+    await _createNotificationTables(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -1514,6 +1549,176 @@ class LocalDb {
         'local_updated_at': row['updated_at'],
       };
     }
+  }
+
+  // ============================================================
+  // P1-B: CACHED NOTIFICATION CENTER (alerts + announcements)
+  // ============================================================
+
+  /// Merge-upsert feed rows by server id (ConflictAlgorithm.replace —
+  /// the server is authoritative on refresh; alert rows never
+  /// disappear server-side, so merge-only is safe). The optimistic
+  /// read flip writes is_unread separately and the next successful
+  /// refresh reconciles it.
+  Future<void> cacheNotificationRows(List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
+    for (final m in rows) {
+      batch.insert(
+        'cached_notifications',
+        {
+          'id': m['id'],
+          'is_unread': (m['is_unread'] ?? 0) == 1 ? 1 : 0,
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Local feed page — the server's exact ordering (id DESC) and
+  /// cursor semantics (before_id → id < ?); [unreadOnly] mirrors the
+  /// server-side unread filter. Rows come back shaped like the
+  /// server's feed rows (is_unread from the local column, so
+  /// optimistic flips survive restarts).
+  Future<List<Map<String, dynamic>>> getCachedNotifications({
+    bool unreadOnly = false,
+    int? beforeId,
+    int limit = 40,
+  }) async {
+    final db = await database;
+    final where = <String>[
+      if (unreadOnly) 'is_unread = 1',
+      if (beforeId != null && beforeId > 0) 'id < ?',
+    ];
+    final rows = await db.query(
+      'cached_notifications',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: [
+        if (beforeId != null && beforeId > 0) beforeId,
+      ],
+      orderBy: 'id DESC',
+      limit: limit,
+    );
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['is_unread'] = (row['is_unread'] as int? ?? 0) == 1 ? 1 : 0;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        return decoded;
+      } catch (_) {
+        // Corrupt/missing blob — identify the row honestly, never
+        // fabricate content.
+        return <String, dynamic>{
+          'id': row['id'],
+          'is_unread': (row['is_unread'] as int? ?? 0) == 1 ? 1 : 0,
+          'local_fetched_at': row['fetched_at'],
+        };
+      }
+    }).toList();
+  }
+
+  /// P1-B optimistic read persistence: the flip survives restart and
+  /// offline browsing; the server reconciles on the next successful
+  /// refresh (and reverts it there if the mark-read write never
+  /// landed — the existing revert-by-refetch semantics).
+  Future<void> markCachedNotificationRead(int id) async {
+    final db = await database;
+    await db.update('cached_notifications', {'is_unread': 0},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Merge-upsert announcement rows by server id; expires_at is
+  /// stored verbatim (server-authoritative — no local TTL).
+  Future<void> cacheAnnouncementRows(List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
+    for (final m in rows) {
+      batch.insert(
+        'cached_announcements',
+        {
+          'id': m['id'],
+          'is_pinned': (m['is_pinned'] ?? 0) == 1 ? 1 : 0,
+          'is_unread': (m['is_unread'] ?? 0) == 1 ? 1 : 0,
+          'expires_at': m['expires_at'],
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Local announcements page — the server's exact ordering
+  /// (is_pinned DESC, id DESC), its tuple cursor semantics, and its
+  /// retention rule: a cached announcement whose stored server
+  /// expires_at has passed is never displayed (and never modified —
+  /// the next successful refresh stays authoritative).
+  Future<List<Map<String, dynamic>>> getCachedAnnouncements({
+    int? beforePin,
+    int? beforeId,
+    int limit = 40,
+  }) async {
+    final db = await database;
+    final now = _localMysqlStyleNow();
+    final where = <String>[
+      "(expires_at IS NULL OR expires_at > '$now')",
+    ];
+    final args = <dynamic>[];
+    if (beforeId != null && beforeId > 0 && beforePin != null) {
+      // (is_pinned, id) < (beforePin, beforeId) — the server's tuple
+      // cursor, written in the classic OR form (no row-value syntax
+      // dependency).
+      where.add('(is_pinned < ? OR (is_pinned = ? AND id < ?))');
+      args..add(beforePin)..add(beforePin)..add(beforeId);
+    }
+    final rows = await db.query(
+      'cached_announcements',
+      where: where.join(' AND '),
+      whereArgs: args,
+      orderBy: 'is_pinned DESC, id DESC',
+      limit: limit,
+    );
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['is_unread'] = (row['is_unread'] as int? ?? 0) == 1 ? 1 : 0;
+        decoded['is_pinned'] = (row['is_pinned'] as int? ?? 0) == 1 ? 1 : 0;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        return decoded;
+      } catch (_) {
+        return <String, dynamic>{
+          'id': row['id'],
+          'is_unread': (row['is_unread'] as int? ?? 0) == 1 ? 1 : 0,
+          'is_pinned': (row['is_pinned'] as int? ?? 0) == 1 ? 1 : 0,
+          'local_fetched_at': row['fetched_at'],
+        };
+      }
+    }).toList();
+  }
+
+  Future<void> markCachedAnnouncementRead(int id) async {
+    final db = await database;
+    await db.update('cached_announcements', {'is_unread': 0},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Device-local 'YYYY-MM-DD HH:MM:SS' — the server DATETIME string
+  /// shape — for the offline expiry comparison. Device clock/TZ skew
+  /// vs the server is the accepted edge (audit §22); the next
+  /// successful refresh remains authoritative.
+  static String _localMysqlStyleNow() {
+    final n = DateTime.now();
+    String p2(int v) => v.toString().padLeft(2, '0');
+    return '${n.year}-${p2(n.month)}-${p2(n.day)} '
+        '${p2(n.hour)}:${p2(n.minute)}:${p2(n.second)}';
   }
 
   // ============================================================
@@ -3334,6 +3539,10 @@ class LocalDb {
         'comm_outbox',
         'comm_drafts',
         'comm_meta',
+        // P1-B: cached notification center rows are user-scoped
+        // server responses — same wipe discipline as the comm store.
+        'cached_notifications',
+        'cached_announcements',
         'sync_log',
       ]) {
         await txn.delete(table);

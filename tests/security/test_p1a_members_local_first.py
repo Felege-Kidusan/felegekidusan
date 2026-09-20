@@ -90,13 +90,17 @@ class P1ADbContract(unittest.TestCase):
     def setUp(self):
         self.ldb = read(LDB)
 
-    def test_db_version_is_26(self):
-        self.assertIn('version: 26', self.ldb)
-        self.assertNotIn('version: 27', self.ldb)
+    def test_db_version_tracks_current(self):
+        # v27 = P1-B's authorized notification-center tables. P1-A
+        # itself introduced no version bump or migration (its commit
+        # history is unchanged); this pin now tracks the current
+        # version so an accidental further bump is still caught.
+        self.assertIn('version: 27,', self.ldb)
+        self.assertNotIn('version: 28', self.ldb)
 
     def test_no_migration_introduced(self):
         self.assertNotIn('ALTER TABLE cached_members', self.ldb)
-        self.assertNotIn('oldVersion < 27', self.ldb)
+        self.assertNotIn('oldVersion < 28', self.ldb)
         self.assertEqual(glob.glob(os.path.join(SQLDIR, '*047*')), [])
         self.assertEqual(glob.glob(os.path.join(SQLDIR, '*p1*')), [])
 

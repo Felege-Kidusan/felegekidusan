@@ -270,8 +270,9 @@ class MezmurArtTests(unittest.TestCase):
     # ── Flutter cache & offline ───────────────────────────────
     def test_local_db_v25_art_columns(self):
         # Schema version moved 25 -> 26 in O1 (offline-first comm
-        # tables); this pin tracks the CURRENT version.
-        self.assertIn("version: 26,", self.local_db)
+        # tables), then 26 -> 27 in P1-B (notification center cache);
+        # this pin tracks the CURRENT version.
+        self.assertIn("version: 27,", self.local_db)
         self.assertIn("if (oldVersion < 25)", self.local_db)
         # O1: comm store tables ship in v26 — created idempotently for
         # both fresh installs and upgrades, and wiped on logout (PII).

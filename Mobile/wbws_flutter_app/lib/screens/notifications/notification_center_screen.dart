@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/api_service.dart';
+import '../../services/connectivity_service.dart';
 import '../../services/inbox_view_model.dart';
+import '../../services/local_db.dart';
 import '../../utils/notification_icons.dart';
 import '../../services/notification_service.dart';
 import '../../utils/theme.dart';
@@ -27,8 +31,9 @@ class NotificationCenterScreen extends StatefulWidget {
 }
 
 class _NotificationCenterScreenState extends State<NotificationCenterScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final _api = ApiService();
+  final _db = LocalDb();
   late final TabController _tabs = TabController(length: 2, vsync: this);
 
   final _alerts = <Map<String, dynamic>>[];
@@ -50,34 +55,86 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   int? _annNextPin;
   String? _annError;
 
+  // P1-B local-first state: background-refresh flag + per-tab cache
+  // freshness ('· updated HH:MM' for the stale banner).
+  bool _refreshingAll = false;
+  String? _alertsFresh;
+  String? _annFresh;
+  StreamSubscription<bool>? _radioSub;
+
   @override
   void initState() {
     super.initState();
     _tabs.addListener(() => setState(() {}));
     _loadAll();
     NotificationService.instance.start();
+    // P1-B: radio-return + app-resume refresh (P1-A screen-local
+    // pattern — the center is a pushed route, so the shell's
+    // tab-refresh never reaches it). Rows stay visible throughout.
+    WidgetsBinding.instance.addObserver(this);
+    _radioSub = ConnectivityService().statusStream.listen((online) {
+      if (online) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) _loadAll();
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _radioSub?.cancel();
     _tabs.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App return: refresh the local store from the server.
+    if (state == AppLifecycleState.resumed) _loadAll();
+  }
+
   Future<void> _loadAll() async {
-    final sum = await NotificationService.instance.refresh();
-    if (!mounted) return;
-    if (sum != null) {
-      _canAnnounce = sum['can_announce'] == true;
-      _canMessage = sum['can_message'] == true;
+    if (_refreshingAll) return; // single-flight: pull/radio/resume overlap
+    _refreshingAll = true;
+    try {
+      final sum = await NotificationService.instance.refresh();
+      if (!mounted) return;
+      if (sum != null) {
+        _canAnnounce = sum['can_announce'] == true;
+        _canMessage = sum['can_message'] == true;
+      }
+      await Future.wait([_loadAlerts(), _loadAnnouncements()]);
+    } finally {
+      _refreshingAll = false;
+      if (mounted) setState(() {});
     }
-    await Future.wait([_loadAlerts(), _loadAnnouncements()]);
   }
 
   /// P0 audit B5: [silent] reloads keep the rows visible — skeletons
   /// are reserved for the first load and explicit retries.
+  /// P1-B: the local cache renders FIRST (offline-capable); the API
+  /// refresh runs independently afterwards, persists its page, and
+  /// the list re-renders from the refreshed local store.
   Future<void> _loadAlerts({bool silent = false}) async {
-    if (!silent) setState(() => _loadingAlerts = true);
+    // ── 1. LOCAL READ (instant; offline-capable) ─────────────────
+    if (!silent) {
+      final cached =
+          await _db.getCachedNotifications(unreadOnly: _unreadOnly, limit: 40);
+      if (!mounted) return;
+      if (cached.isNotEmpty) {
+        setState(() {
+          _alerts
+            ..clear()
+            ..addAll(cached);
+          _loadingAlerts = false;
+          _alertsFresh = _freshest(cached);
+        });
+      }
+    }
+    // ── 2. SERVER REFRESH (independent, non-blocking) ────────────
+    if (!silent) setState(() => _loadingAlerts = _alerts.isEmpty);
     final res = await _api.getNotificationFeed(
         limit: 40, unreadOnly: _unreadOnly);
     if (!mounted) return;
@@ -88,43 +145,110 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         ? List<Map<String, dynamic>>.from(
             (data['rows'] as List).whereType<Map<String, dynamic>>())
         : null;
+    // P1-B: persist the successful page (merge-upsert by server id —
+    // repeated refreshes can never duplicate).
+    if (okRows != null && okRows.isNotEmpty) {
+      await _db.cacheNotificationRows(okRows);
+    }
+    // Re-render from the local store so UI == SQLite.
+    final localNow = okRows != null
+        ? await _db.getCachedNotifications(unreadOnly: _unreadOnly, limit: 40)
+        : null;
+    if (!mounted) return;
     setState(() {
       _loadingAlerts = false;
       _error = res.isNetworkError ? 'You appear to be offline.' : null;
       // P1 audit C2: only a successful load may replace the rows —
       // a failed refresh keeps what's on screen under the stale
       // banner instead of destroying the user's content.
-      if (okRows != null || _alerts.isEmpty) {
+      if (localNow != null || _alerts.isEmpty) {
         _alerts
           ..clear()
-          ..addAll(okRows ?? []);
+          ..addAll(localNow ?? []);
+        if (localNow != null && localNow.isNotEmpty) {
+          _alertsFresh = _freshest(localNow);
+        }
       }
       _alertsHasMore = hasMore(data);
       _alertsNextBefore = nextCursor(data, 'next_before');
     });
   }
 
+  /// P1-B freshness: newest cache-write stamp among the rendered
+  /// rows, as 'HH:MM' (same day) or 'YYYY-MM-DD'.
+  String? _freshest(List<Map<String, dynamic>> rows) {
+    String? maxIso;
+    for (final r in rows) {
+      final iso = r['local_fetched_at'];
+      if (iso is String && (maxIso == null || iso.compareTo(maxIso) > 0)) {
+        maxIso = iso;
+      }
+    }
+    if (maxIso == null) return null;
+    final dt = DateTime.tryParse(maxIso);
+    if (dt == null) return null;
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    String p2(int v) => v.toString().padLeft(2, '0');
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return sameDay
+        ? '${p2(local.hour)}:${p2(local.minute)}'
+        : '${local.year}-${p2(local.month)}-${p2(local.day)}';
+  }
+
   /// P74 Phase 3 — "Load older": page backwards by the server's
   /// stable before_id cursor; the older page appends (newest-first
   /// order), de-duplicated at the window edge.
+  /// P1-B: cached pages serve first (offline-capable, id < oldest
+  /// displayed); the server cursor continues when the local set is
+  /// exhausted.
   Future<void> _loadOlderAlerts() async {
     if (_loadingOlderAlerts || !_alertsHasMore || _alertsNextBefore == null) {
       return;
     }
     setState(() => _loadingOlderAlerts = true);
+    // ── 1. LOCAL page first: the server's before_id semantics on
+    //     SQLite (id < oldest displayed id, id DESC).
+    if (_alerts.isNotEmpty) {
+      final oldest = (_alerts.last['id'] as num?)?.toInt() ?? 0;
+      if (oldest > 0) {
+        final localPage = await _db.getCachedNotifications(
+            unreadOnly: _unreadOnly, beforeId: oldest, limit: 40);
+        if (!mounted) return;
+        if (localPage.isNotEmpty) {
+          // Compute BEFORE clearing — the merge reads the current rows.
+          final merged = mergeOlderRows(_alerts, localPage);
+          setState(() {
+            _alerts
+              ..clear()
+              ..addAll(merged);
+            _loadingOlderAlerts = false;
+          });
+          return;
+        }
+      }
+    }
+    // ── 2. Local set exhausted → the server's cursor.
     final res = await _api.getNotificationFeed(
         limit: 40, unreadOnly: _unreadOnly, beforeId: _alertsNextBefore);
     if (!mounted) return;
     final data = res.data is Map<String, dynamic>
         ? res.data as Map<String, dynamic>
         : null;
+    final serverPage = (data != null && data['rows'] is List)
+        ? List<Map<String, dynamic>>.from(
+            (data['rows'] as List).whereType<Map<String, dynamic>>())
+        : null;
+    if (serverPage != null && serverPage.isNotEmpty) {
+      await _db.cacheNotificationRows(serverPage);
+    }
+    if (!mounted) return;
     setState(() {
-      if (data != null && data['rows'] is List) {
+      if (serverPage != null) {
         // Compute BEFORE clearing — the merge reads the current rows.
-        final merged = mergeOlderRows(
-            _alerts,
-            List<Map<String, dynamic>>.from(
-                (data['rows'] as List).whereType<Map<String, dynamic>>()));
+        final merged = mergeOlderRows(_alerts, serverPage);
         _alerts
           ..clear()
           ..addAll(merged);
@@ -141,8 +265,26 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     await _loadAlerts();
   }
 
+  /// P1-B: the local cache renders FIRST (offline-capable, expiry
+  /// filtered); the API refresh runs independently, persists its
+  /// page, and the tab re-renders from the refreshed local store.
   Future<void> _loadAnnouncements({bool silent = false}) async {
-    if (!silent) setState(() => _loadingAnn = true);
+    // ── 1. LOCAL READ (instant; offline-capable) ─────────────────
+    if (!silent) {
+      final cached = await _db.getCachedAnnouncements(limit: 40);
+      if (!mounted) return;
+      if (cached.isNotEmpty) {
+        setState(() {
+          _announcements
+            ..clear()
+            ..addAll(cached);
+          _loadingAnn = false;
+          _annFresh = _freshest(cached);
+        });
+      }
+    }
+    // ── 2. SERVER REFRESH (independent, non-blocking) ────────────
+    if (!silent) setState(() => _loadingAnn = _announcements.isEmpty);
     final res = await _api.getAnnouncements(limit: 40);
     if (!mounted) return;
     final data = res.data is Map<String, dynamic>
@@ -152,16 +294,27 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         ? List<Map<String, dynamic>>.from((data['announcements'] as List)
             .whereType<Map<String, dynamic>>())
         : null;
+    // P1-B: persist the successful page (merge-upsert by server id).
+    if (okRows != null && okRows.isNotEmpty) {
+      await _db.cacheAnnouncementRows(okRows);
+    }
+    // Re-render from the local store so UI == SQLite.
+    final localNow =
+        okRows != null ? await _db.getCachedAnnouncements(limit: 40) : null;
+    if (!mounted) return;
     setState(() {
       _loadingAnn = false;
       // P74 Phase 4 offline review: a failed load must not masquerade
       // as "No announcements" — mirror the alerts tab's error state.
       _annError = res.isNetworkError ? 'You appear to be offline.' : null;
       // P1 audit C2: only a successful load may replace the rows.
-      if (okRows != null || _announcements.isEmpty) {
+      if (localNow != null || _announcements.isEmpty) {
         _announcements
           ..clear()
-          ..addAll(okRows ?? []);
+          ..addAll(localNow ?? []);
+        if (localNow != null && localNow.isNotEmpty) {
+          _annFresh = _freshest(localNow);
+        }
       }
       _annHasMore = hasMore(data);
       _annNextBefore = nextCursor(data, 'next_before');
@@ -172,21 +325,52 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
   /// P74 Phase 3 — "Load older" on announcements: the (before_pin,
   /// before_id) tuple cursor keeps pinned/unpinned ordering stable
   /// across pages.
+  /// P1-B: cached pages serve first (offline-capable, same tuple
+  /// semantics); the server cursor continues when the local set is
+  /// exhausted.
   Future<void> _loadOlderAnnouncements() async {
     if (_loadingOlderAnn || !_annHasMore || _annNextBefore == null) return;
     setState(() => _loadingOlderAnn = true);
+    // ── 1. LOCAL page first: the server's tuple cursor on SQLite —
+    //     (is_pinned, id) < the oldest displayed row's own tuple.
+    if (_announcements.isNotEmpty) {
+      final lastRow = _announcements.last;
+      final oldestId = (lastRow['id'] as num?)?.toInt() ?? 0;
+      final oldestPin = lastRow['is_pinned']?.toString() == '1' ? 1 : 0;
+      if (oldestId > 0) {
+        final localPage = await _db.getCachedAnnouncements(
+            beforePin: oldestPin, beforeId: oldestId, limit: 40);
+        if (!mounted) return;
+        if (localPage.isNotEmpty) {
+          final merged = mergeOlderRows(_announcements, localPage);
+          setState(() {
+            _announcements
+              ..clear()
+              ..addAll(merged);
+            _loadingOlderAnn = false;
+          });
+          return;
+        }
+      }
+    }
+    // ── 2. Local set exhausted → the server's tuple cursor.
     final res = await _api.getAnnouncements(
         limit: 40, beforeId: _annNextBefore, beforePin: _annNextPin);
     if (!mounted) return;
     final data = res.data is Map<String, dynamic>
         ? res.data as Map<String, dynamic>
         : null;
+    final serverPage = (data != null && data['announcements'] is List)
+        ? List<Map<String, dynamic>>.from((data['announcements'] as List)
+            .whereType<Map<String, dynamic>>())
+        : null;
+    if (serverPage != null && serverPage.isNotEmpty) {
+      await _db.cacheAnnouncementRows(serverPage);
+    }
+    if (!mounted) return;
     setState(() {
-      if (data != null && data['announcements'] is List) {
-        final merged = mergeOlderRows(
-            _announcements,
-            List<Map<String, dynamic>>.from((data['announcements'] as List)
-                .whereType<Map<String, dynamic>>()));
+      if (serverPage != null) {
+        final merged = mergeOlderRows(_announcements, serverPage);
         _announcements
           ..clear()
           ..addAll(merged);
@@ -225,6 +409,11 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         ..addAll(optimistic.rows);
     });
     NotificationService.instance.decrement('alerts');
+    // P1-B: persist the optimistic read state so it survives restart
+    // and offline browsing; the server reconciles on the next
+    // successful refresh (and reverts there if this write below
+    // never landed — the existing revert-by-refetch semantics).
+    await _db.markCachedNotificationRead(id);
     final res = await _api.markNotificationRead(id);
     if (!mounted) return;
     if (res.success) {
@@ -250,6 +439,8 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
         ..addAll(optimistic.rows);
     });
     NotificationService.instance.decrement('announcements');
+    // P1-B: persist the optimistic read state (see _markRead).
+    await _db.markCachedAnnouncementRead(id);
     final res = await _api.markAnnouncementRead(id);
     if (!mounted) return;
     if (res.success) {
@@ -266,7 +457,15 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
 
   Future<void> _markAll() async {
     final scope = _tabs.index == 1 ? 'announcements' : 'alerts';
-    await _api.markAllNotificationsRead(scope: scope);
+    final res = await _api.markAllNotificationsRead(scope: scope);
+    if (!mounted) return;
+    if (!res.success) {
+      // P1-B: this used to fail silently offline — say it honestly.
+      // The rows stay exactly as they are; the next successful
+      // refresh reconciles them.
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not mark all as read.')));
+    }
     // B5: no skeleton flash after a bulk action — rows update in place.
     await Future.wait([_loadAlerts(silent: true), _loadAnnouncements(silent: true)]);
     await NotificationService.instance.refresh();
@@ -322,12 +521,23 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
               onPressed: () => _openComposer(context),
             )
           : null,
-      body: RefreshIndicator(
-        onRefresh: _loadAll,
-        child: TabBarView(
-          controller: _tabs,
-          children: [_alertsTab(), _announcementsTab()],
-        ),
+      body: Column(
+        children: [
+          // P1-B: a background refresh (open/radio-return/resume) is
+          // in flight — the rows stay visible underneath.
+          if (_refreshingAll)
+            const LinearProgressIndicator(
+                minHeight: 3, color: AppTheme.primary),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadAll,
+              child: TabBarView(
+                controller: _tabs,
+                children: [_alertsTab(), _announcementsTab()],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -378,7 +588,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
             itemBuilder: (_, i) {
               // P1 audit C2 — stale banner over kept rows.
               if (_error != null && i == 0) {
-                return _staleBanner(_error!, 'alerts');
+                return _staleBanner(_error!, 'alerts', updated: _alertsFresh);
               }
               final j = i - (_error != null ? 1 : 0);
               if (_alertsHasMore && j == _alerts.length) {
@@ -466,8 +676,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
 
   /// P1 audit C2 — Google's rule: a failed refresh never destroys
   /// content; a slim banner says what happened instead. Text
-  /// #92400E on #FEF3C7 = 6.37:1.
-  Widget _staleBanner(String message, String what) {
+  /// #92400E on #FEF3C7 = 6.37:1. P1-B: appends the cache's last
+  /// write time when known ('· updated HH:MM').
+  Widget _staleBanner(String message, String what, {String? updated}) {
+    final suffix = updated == null ? '' : ' · updated $updated';
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -481,7 +693,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
               size: 15, color: Color(0xFF92400E)),
           const SizedBox(width: 7),
           Expanded(
-            child: Text('$message — showing recent $what.',
+            child: Text('$message — showing recent $what$suffix.',
                 style: const TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600,
@@ -600,7 +812,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
       itemBuilder: (_, i) {
         // P1 audit C2 — stale banner over kept rows.
         if (_annError != null && i == 0) {
-          return _staleBanner(_annError!, 'announcements');
+          return _staleBanner(_annError!, 'announcements', updated: _annFresh);
         }
         final j = i - (_annError != null ? 1 : 0);
         if (_annHasMore && j == _announcements.length) {
