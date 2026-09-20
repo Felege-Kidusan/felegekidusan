@@ -267,6 +267,78 @@ class F8LocalOutbox(unittest.TestCase):
         self.assertIn('MAX(client_op_id) as client_op_id', feed)
 
 
+class F8DropPendingReconciliation(unittest.TestCase):
+    """Audit blocker fix (2026-09-18): locked-day screen cleanup
+    (dropPending*) must NEVER delete F8-rejected rows
+    (synced=0 + sync_error NOT NULL) — they belong to the Needs
+    Attention review / explicit Discard flow. Ordinary stale pending
+    rows (sync_error NULL) keep the pre-existing cleanup behavior.
+
+    Runtime DB-level testing is impossible in this repo (no sqflite
+    test harness — documented limitation); these are the strongest
+    static pins: the SQL WHERE clauses themselves."""
+
+    def setUp(self):
+        self.db = read(LDB)
+
+    def _method(self, name):
+        i = self.db.find(f'Future<void> {name}(')
+        self.assertGreater(i, -1, name)
+        j = self.db.find('\n  }', i)
+        return self.db[i:j]
+
+    def test_locked_day_cleanup_spares_rejected_rows(self):
+        # Case 2: synced=0 + sync_error NOT NULL must survive the
+        # automatic locked-day cleanup on all four outboxes.
+        for name in ('dropPendingAttendance', 'dropPendingGrades',
+                     'dropPendingMezmur', 'dropPendingHr'):
+            body = self._method(name)
+            self.assertIn('synced = 0', body, name)
+            self.assertIn('sync_error IS NULL', body,
+                          f'{name} must never delete F8-rejected rows')
+
+    def test_stale_pending_cleanup_behavior_unchanged(self):
+        # Case 1: the guard is strictly additive — ordinary stale
+        # pending rows (sync_error NULL) are still cleaned, still
+        # scoped to synced=0 only.
+        for name in ('dropPendingAttendance', 'dropPendingGrades',
+                     'dropPendingMezmur', 'dropPendingHr'):
+            body = self._method(name)
+            self.assertNotIn('synced = 1', body, name)
+            self.assertIn("db.delete('pending_", body, name)
+
+    def test_explicit_discard_still_deletes_rejected(self):
+        # Case 3: the review sheet's Discard remains the deliberate
+        # deleter of rejected rows — NO sync_error-IS-NULL guard there.
+        for name in ('discardRejectedAttendance', 'discardRejectedGrades',
+                     'discardRejectedMezmur', 'discardRejectedHr'):
+            body = self._method(name)
+            self.assertIn('synced = 0', body, name)
+            self.assertNotIn('sync_error IS NULL', body, name)
+
+    def test_resave_replacement_still_replaces_rejected(self):
+        # Recovery: a user re-save must keep replacing the WHOLE
+        # unsynced batch (rejected rows included) with a fresh op id —
+        # that is the designed resave path, not a deletion path.
+        for name in ('saveAttendanceLocal', 'saveGradesLocal',
+                     'saveMezmurLocal', 'saveHrLocal'):
+            body = self._method(name)
+            self.assertIn("newClientOpId()", body, name)
+            self.assertIn('synced = 0', body, name)
+            self.assertNotIn('sync_error IS NULL', body, name)
+
+    def test_needs_attention_pipeline_unaffected(self):
+        # Case 4: the review system still reads the spared rows
+        # (already pinned above; this asserts the invariant that makes
+        # the spare meaningful — rejected visibility does not depend
+        # on dropPending).
+        for name in ('getRejectedBatches',):
+            i = self.db.find(f'Future<List<Map<String, dynamic>>> {name}(')
+            self.assertGreater(i, -1, name)
+        self.assertNotIn('dropPending', read(SYNC),
+                         'the sync engine must not invoke locked-day drops')
+
+
 class F8HonestUi(unittest.TestCase):
     """A refused packet is never reported as 'waiting for network' and
     is surfaced with its reason + an explicit Discard (§10)."""

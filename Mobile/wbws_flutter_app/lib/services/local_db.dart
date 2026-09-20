@@ -1890,14 +1890,20 @@ class LocalDb {
   Future<void> dropPendingAttendance(int classId, String date) async {
     final db = await database;
     await db.delete('pending_attendance',
-        where: 'class_id = ? AND date = ? AND synced = 0',
+        // F8: never delete workflow-rejected rows here (they stay for
+        // the Needs Attention review / explicit Discard) — only stale
+        // never-rejected drafts for a day the server has since locked.
+        where: 'class_id = ? AND date = ? AND synced = 0'
+            ' AND sync_error IS NULL',
         whereArgs: [classId, date]);
   }
 
   Future<void> dropPendingGrades(int assessmentId) async {
     final db = await database;
     await db.delete('pending_grades',
-        where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
+        // F8: spare workflow-rejected rows (see dropPendingAttendance).
+        where: 'assessment_id = ? AND synced = 0 AND sync_error IS NULL',
+        whereArgs: [assessmentId]);
   }
 
   // ============================================================
@@ -1989,7 +1995,9 @@ class LocalDb {
   Future<void> dropPendingMezmur(String date, String section) async {
     final db = await database;
     await db.delete('pending_mezmur',
-        where: 'date = ? AND section = ? AND synced = 0',
+        // F8: spare workflow-rejected rows (see dropPendingAttendance).
+        where: 'date = ? AND section = ? AND synced = 0'
+            ' AND sync_error IS NULL',
         whereArgs: [date, section]);
   }
 
@@ -2278,7 +2286,9 @@ class LocalDb {
   Future<void> dropPendingHr(String date, String section) async {
     final db = await database;
     await db.delete('pending_hr',
-        where: 'date = ? AND section = ? AND synced = 0',
+        // F8: spare workflow-rejected rows (see dropPendingAttendance).
+        where: 'date = ? AND section = ? AND synced = 0'
+            ' AND sync_error IS NULL',
         whereArgs: [date, section]);
   }
 
