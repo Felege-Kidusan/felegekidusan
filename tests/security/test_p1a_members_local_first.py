@@ -195,5 +195,37 @@ class P1ADoNotTouch(unittest.TestCase):
             self.assertNotIn('MemberRepository', src)
 
 
+class P1ADartSyntaxGuards(unittest.TestCase):
+    """The sandbox has no Dart compiler, so these pins guard the
+    constructor syntax class that broke the user's 16712dd build
+    (`required: this.memberId` — a colon makes the parser treat
+    `required` as a parameter name and `this.memberId` as a default
+    value, which is invalid). Found by the user's local
+    `flutter run --release`; the fix must never regress."""
+
+    def test_detail_constructor_syntax(self):
+        detail_src = read(DETAIL)
+        self.assertIn(
+            'const MemberDetailScreen({super.key, required this.memberId});',
+            detail_src)
+        self.assertNotIn('required: this', detail_src)
+
+    def test_no_colon_required_this_anywhere(self):
+        # `required: this` is never valid Dart in this codebase.
+        for root, _, files in os.walk(APP):
+            for f in files:
+                if not f.endswith('.dart'):
+                    continue
+                p = os.path.join(root, f)
+                src = read(p)
+                self.assertNotIn(
+                    'required: this', src,
+                    f'{p}: `required:` before `this.` is invalid Dart '
+                    '(parameter lists take `required this.x`)')
+
+    def test_list_screen_constructor_intact(self):
+        self.assertIn('const MemberListScreen({super.key});', read(LIST))
+
+
 if __name__ == '__main__':
     unittest.main()

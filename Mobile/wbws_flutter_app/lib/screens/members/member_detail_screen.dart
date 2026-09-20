@@ -8,7 +8,7 @@ import '../../utils/theme.dart';
 
 class MemberDetailScreen extends StatefulWidget {
   final int memberId;
-  const MemberDetailScreen({super.key, required: this.memberId});
+  const MemberDetailScreen({super.key, required this.memberId});
 
   @override
   State<MemberDetailScreen> createState() => _MemberDetailScreenState();
