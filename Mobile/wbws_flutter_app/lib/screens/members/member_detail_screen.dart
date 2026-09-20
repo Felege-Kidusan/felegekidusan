@@ -8,8 +8,8 @@ import '../../utils/theme.dart';
 
 class MemberDetailScreen extends StatefulWidget {
   final int memberId;
-  const MemberDetailScreen({super.key, required this.memberId});
-  
+  const MemberDetailScreen({super.key, required: this.memberId});
+
   @override
   State<MemberDetailScreen> createState() => _MemberDetailScreenState();
 }
@@ -18,35 +18,112 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
   final _api = ApiService();
   final _db = LocalDb();
   Map<String, dynamic>? _member;
-  bool _loading = true;
-  bool _isOffline = false;
+  bool _loading = true; // nothing rendered yet (no cached row)
+  bool _refreshing = false; // background refresh in flight
+  bool _fromCache = false; // current view came from the local cache
+  bool _isOffline = false; // OS radio down / network error
   String? _error;
-  
+
   @override
   void initState() {
     super.initState();
     _loadMember();
   }
-  
+
+  /// P1-A local-first load:
+  ///   getCachedMemberById → render immediately (offline works)
+  ///   → GET /members/{id} independently
+  ///   → upsert the response into cached_members (enriches the local
+  ///     row with this role's full projection)
+  ///   → update the UI from that data.
+  /// Nothing is invented: no cached row + failed fetch = honest
+  /// unavailable state.
   Future<void> _loadMember() async {
-    setState(() { _loading = true; _error = null; _isOffline = false; });
+    setState(() => _error = null);
+
+    // ── 1. LOCAL READ (instant; offline-capable) ───────────────────
+    final cached = await _db.getCachedMemberById(widget.memberId);
+    if (!mounted) return;
+    if (cached != null) {
+      setState(() {
+        _member = cached;
+        _loading = false;
+        _fromCache = true;
+      });
+    } else {
+      setState(() => _loading = true);
+    }
+
+    // ── 2. SERVER REFRESH (independent, non-blocking) ──────────────
+    if (!ConnectivityService().hasLink) {
+      setState(() {
+        _refreshing = false;
+        _isOffline = true;
+        if (cached == null) {
+          _loading = false;
+          _error =
+              'Waiting for network — this member is not saved on this phone';
+        }
+      });
+      return;
+    }
+    setState(() {
+      _refreshing = true;
+      _isOffline = false;
+    });
     final res = await _api.getMember(widget.memberId);
     if (!mounted) return;
-    
+    setState(() => _refreshing = false);
     if (res.success && res.data != null) {
-      setState(() { _member = res.data; _loading = false; });
-    } else {
-      // Fallback to cached member data
-      final cached = await _db.getCachedMembers();
-      final match = cached.where((m) => m['id'] == widget.memberId).toList();
-      if (match.isNotEmpty) {
-        setState(() { _member = match.first; _loading = false; _isOffline = !ConnectivityService().hasLink; });
-      } else {
-        setState(() { _error = res.message ?? 'Member not found'; _loading = false; _isOffline = res.isNetworkError; });
-      }
+      // Upsert the full detail response — the cached row keeps the
+      // richest projection this role is allowed to see (merge/upsert
+      // semantics unchanged; no deletion/eviction work here).
+      await _db.cacheMembers([res.data]);
+      if (!mounted) return;
+      setState(() {
+        _member = res.data;
+        _fromCache = false;
+        _loading = false;
+        _error = null;
+      });
+    } else if (cached == null) {
+      // No local copy and the fetch failed — honest unavailable state.
+      setState(() {
+        _loading = false;
+        _isOffline = res.isNetworkError;
+        _error = res.isNetworkError
+            ? 'Waiting for network — this member is not saved on this phone'
+            : (res.message ?? 'Member not found');
+      });
     }
+    // else: fetch failed but a cached row is on screen — keep it and
+    // keep the cached banner up (stale, honestly labeled).
   }
-  
+
+  /// '… · updated 14:32' — from the cached row's local stamp.
+  String? _fmtUpdated(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return null;
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return sameDay
+        ? '$hh:$mm'
+        : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+  }
+
+  String get _cachedBannerText {
+    final base = 'Showing cached data';
+    if (_refreshing) return '$base — updating…';
+    final updated = _fmtUpdated(_member?['local_updated_at']);
+    return updated == null ? base : '$base · updated $updated';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -59,7 +136,16 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
               ? Center(child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_error!, style: const TextStyle(color: AppTheme.danger)),
+                    Icon(_isOffline ? Icons.cloud_off : Icons.error_outline,
+                        size: 48,
+                        color: _isOffline ? AppTheme.warning : AppTheme.danger),
+                    const SizedBox(height: 12),
+                    Text(_error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color:
+                                _isOffline ? AppTheme.warning : AppTheme.danger,
+                            fontSize: 14)),
                     TextButton(onPressed: _loadMember, child: const Text('Retry')),
                   ],
                 ))
@@ -68,7 +154,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      if (_isOffline)
+                      if (_fromCache)
                         Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -80,7 +166,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                           child: Row(children: [
                             Icon(Icons.cloud_off, size: 16, color: AppTheme.warning),
                             const SizedBox(width: 8),
-                            Expanded(child: Text('Showing cached data',
+                            Expanded(child: Text(_cachedBannerText,
                                 style: TextStyle(fontSize: 11, color: AppTheme.warning, fontWeight: FontWeight.w500))),
                           ]),
                         ),
@@ -127,12 +213,12 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                 ),
     );
   }
-  
+
   Widget _buildHeader() {
     final status = _member?['status'] ?? 'active';
     final statusColor = status == 'active' ? AppTheme.success
         : status == 'warning' ? AppTheme.warning : AppTheme.danger;
-    
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -176,7 +262,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                       color: AppTheme.info.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(_member!['member_code'], style: const TextStyle(color: AppTheme.info, fontWeight: FontWeight.w600, fontSize: 12)),
+                    child: Text(_member!['member_code'], style: TextStyle(color: AppTheme.info, fontWeight: FontWeight.w600, fontSize: 12)),
                   ),
                 ],
               ],
@@ -186,12 +272,12 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       ),
     );
   }
-  
+
   Widget _buildSection(String title, List<Widget> children) {
     // Filter out empty fields
     final nonEmpty = children.where((w) => w is! SizedBox).toList();
     if (nonEmpty.isEmpty) return const SizedBox.shrink();
-    
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -206,7 +292,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       ),
     );
   }
-  
+
   /// Convert Gregorian date string to Ethiopian display
   String? _formatEcDate(dynamic value) {
     if (value == null || value.toString().trim().isEmpty) return null;
@@ -236,4 +322,3 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     );
   }
 }
-

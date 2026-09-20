@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../utils/transitions.dart';
@@ -18,39 +20,70 @@ class MemberListScreen extends StatefulWidget {
   State<MemberListScreen> createState() => _MemberListScreenState();
 }
 
-class _MemberListScreenState extends State<MemberListScreen> {
+class _MemberListScreenState extends State<MemberListScreen>
+    with WidgetsBindingObserver {
   final _api = ApiService();
   final _db = LocalDb();
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
 
-  List<dynamic> _members = [];
-  int _page = 1;
-  int _totalPages = 1;
-  bool _loading = false;
+  static const int _pageSize = 20;
+
+  // P1-A local-first state: SQLite is the read source; the server
+  // refresh runs independently and the list re-renders from the cache.
+  List<Map<String, dynamic>> _members = [];
+  int _localPagesLoaded = 0; // SQLite pages opened for the current query
+  int _serverPage = 0; // deepest server page fetched for the query
+  int _totalPages = 1; // server-reported page count for the query
+  bool _initialLoading = false; // empty cache + first fetch in flight
+  bool _refreshing = false; // background refresh in flight
   bool _loadingMore = false;
-  bool _isOffline = false;
-  String? _error;
+  bool _refreshFailed = false; // last refresh failed — cached list stays up
+  bool _isOffline = false; // OS radio down / network error
+  String? _error; // set only when nothing can be rendered
   String _statusFilter = '';
+  String? _lastSynced; // MAX(cached_members.updated_at)
+
+  StreamSubscription<bool>? _radioSub;
 
   @override
   void initState() {
     super.initState();
-    _loadMembers();
+    WidgetsBinding.instance.addObserver(this); // app-return refresh
+    _loadMembers(newQuery: true);
     _scrollController.addListener(_onScroll);
+    // Radio return: the shell's radio-refresh has no 'members' case,
+    // so this screen listens for itself — settle 1 s first (same
+    // pattern as app_shell: don't pile requests on a waking 4G radio).
+    _radioSub = ConnectivityService().statusStream.listen((online) {
+      if (online) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) _loadMembers();
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _radioSub?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App return: same trigger the shell gives every other tab.
+    if (state == AppLifecycleState.resumed) _loadMembers();
+  }
+
   void _onScroll() {
-    if (!_isOffline &&
-        _scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 200) {
+    // Local pagination works offline too; the server continuation
+    // inside _loadMore checks the radio itself.
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
       _loadMore();
     }
   }
@@ -101,76 +134,243 @@ class _MemberListScreenState extends State<MemberListScreen> {
     );
   }
 
-  Future<void> _loadMembers({bool refresh = false}) async {
-    if (refresh) {
-      _page = 1;
-      _members.clear();
-    }
+  /// The SQLite window for the current query: every local page opened
+  /// so far (at least one page), so a refresh re-reads the same depth
+  /// instead of shrinking the visible list back to page 1.
+  Future<List<Map<String, dynamic>>> _readLocalWindow(
+      String search, String? status) async {
+    final rows = await _db.getCachedMembers(
+      search: search.isEmpty ? null : search,
+      status: status,
+      limit: (_localPagesLoaded <= 0 ? 1 : _localPagesLoaded) * _pageSize,
+      offset: 0,
+    );
+    _localPagesLoaded =
+        rows.isEmpty ? 0 : (rows.length + _pageSize - 1) ~/ _pageSize;
+    return rows;
+  }
 
+  /// Server matches the local predicate cannot see (full_name_am /
+  /// phone search for PII roles) are appended after the local window.
+  List<Map<String, dynamic>> _mergeLocalAndServer(
+      List<Map<String, dynamic>> local,
+      List<Map<String, dynamic>> server) {
+    if (server.isEmpty) return local;
+    final ids = local.map((m) => m['id']).toSet();
+    return [...local, ...server.where((m) => !ids.contains(m['id']))];
+  }
+
+  /// P1-A local-first load:
+  ///   SQLite read → render immediately → server refresh independently
+  ///   → cache upsert → re-render from the local DB.
+  /// The network is never the prerequisite for the first useful render
+  /// once anything is cached; nothing is fabricated when offline.
+  Future<void> _loadMembers({bool newQuery = false}) async {
+    if (_refreshing) return; // single-flight: pull/radio/resume overlap
+    if (newQuery) {
+      _localPagesLoaded = 0;
+      _serverPage = 0;
+      _totalPages = 1;
+    }
+    final search = _searchController.text.trim();
+    final status = _statusFilter.isEmpty ? null : _statusFilter;
+
+    // ── 1. LOCAL READ (instant; offline-capable) ───────────────────
+    final window = await _readLocalWindow(search, status);
+    final lastSynced = await _db.getCachedMembersLastSynced();
+    if (!mounted) return;
     setState(() {
-      _loading = _members.isEmpty;
+      _lastSynced = lastSynced;
       _error = null;
+      if (window.isNotEmpty) {
+        _members = window;
+        _initialLoading = false;
+      } else if (newQuery) {
+        // Genuine empty local result for this query — shown now, never
+        // fabricated; a refresh may still fill it in.
+        _members = [];
+      }
     });
 
-    final res = await _api.getMembers(
-      page: _page,
-      search: _searchController.text.trim(),
-      status: _statusFilter.isEmpty ? null : _statusFilter,
-    );
-
-    if (!mounted) return;
-
-    if (res.success && res.data != null) {
-      final items = res.data['items'] as List? ?? [];
-      final pagination = res.data['pagination'] as Map? ?? {};
+    // ── 2. SERVER REFRESH (independent, non-blocking) ──────────────
+    if (!ConnectivityService().hasLink) {
       setState(() {
-        if (refresh || _page == 1) _members = items;
-        else _members.addAll(items);
-        _totalPages = pagination['pages'] ?? 1;
-        _loading = false;
-        _loadingMore = false;
-        _isOffline = false;
+        _isOffline = true;
+        _refreshing = false;
+        if (_members.isEmpty) {
+          _initialLoading = false;
+          _error = 'Waiting for network and no members saved on this phone';
+        }
       });
-      // Cache members for offline use
-      if (items.isNotEmpty) {
-        _db.cacheMembers(items);
-      }
-    } else {
-      // Fallback to cached members
-      final cached = await _db.getCachedMembers(
-        search: _searchController.text.trim().isEmpty
-            ? null
-            : _searchController.text.trim(),
-        status: _statusFilter.isEmpty ? null : _statusFilter,
+      return;
+    }
+    setState(() {
+      _refreshing = true;
+      _refreshFailed = false;
+      _isOffline = false;
+      if (_members.isEmpty) _initialLoading = true;
+    });
+
+    final depth = _localPagesLoaded <= 0 ? 1 : _localPagesLoaded;
+    final serverRows = <Map<String, dynamic>>[];
+    var ok = true;
+    String? failMessage;
+    for (var p = 1; p <= depth && p <= _totalPages; p++) {
+      final res = await _api.getMembers(
+        page: p,
+        search: search.isEmpty ? null : search,
+        status: status,
       );
-      if (cached.isNotEmpty) {
-        setState(() {
-          _members = cached;
-          _loading = false;
-          _loadingMore = false;
-          _isOffline = !ConnectivityService().hasLink;
-        });
+      if (!mounted) return;
+      if (res.success && res.data != null) {
+        final items = (res.data!['items'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        if (items.isNotEmpty) {
+          // Existing merge/upsert semantics — unchanged (no F10 work).
+          await _db.cacheMembers(items);
+        }
+        serverRows.addAll(items);
+        final pagination = res.data!['pagination'] as Map? ?? {};
+        _totalPages = (pagination['pages'] as num?)?.toInt() ?? 1;
+        _serverPage = p;
       } else {
-        setState(() {
-          _error = res.isNetworkError
-              ? 'Waiting for network and no members saved on this phone'
-              : res.message;
-          _loading = false;
-          _loadingMore = false;
-          _isOffline = res.isNetworkError;
-        });
+        ok = false;
+        _isOffline = res.isNetworkError;
+        failMessage = res.message;
+        break;
       }
+    }
+    if (!mounted) return;
+    if (ok) {
+      // Re-render from the refreshed local cache.
+      final refreshed = await _readLocalWindow(search, status);
+      if (!mounted) return;
+      setState(() {
+        _members = _mergeLocalAndServer(refreshed, serverRows);
+        _refreshing = false;
+        _initialLoading = false;
+        _refreshFailed = false;
+      });
+    } else {
+      // Failure with data on screen: keep the cached list visible and
+      // surface the failure honestly — never a fake "no members".
+      setState(() {
+        _refreshing = false;
+        _initialLoading = false;
+        _refreshFailed = true;
+        if (_members.isEmpty) {
+          _error = _isOffline
+              ? 'Waiting for network and no members saved on this phone'
+              : (failMessage ?? "Couldn't load members right now");
+        }
+      });
     }
   }
 
   Future<void> _loadMore() async {
-    if (_loadingMore || _page >= _totalPages || _isOffline) return;
-    // Silent pagination: no setState for the flag and no inline footer row.
-    // A full-screen rebuild mid-fling (plus itemCount churn) is exactly the
-    // hitch Telegram avoids by appending quietly.
+    if (_loadingMore || _refreshing || _initialLoading) return;
     _loadingMore = true;
-    _page++;
-    await _loadMembers();
+    try {
+      final search = _searchController.text.trim();
+      final status = _statusFilter.isEmpty ? null : _statusFilter;
+
+      // 1. Open the next LOCAL page first — works fully offline.
+      final next = await _db.getCachedMembers(
+        search: search.isEmpty ? null : search,
+        status: status,
+        limit: _pageSize,
+        offset: _localPagesLoaded * _pageSize,
+      );
+      if (next.isNotEmpty && mounted) {
+        final ids = _members.map((m) => m['id']).toSet();
+        final added = next.where((m) => !ids.contains(m['id'])).toList();
+        if (added.isNotEmpty) {
+          setState(() => _members = [..._members, ...added]);
+        }
+        _localPagesLoaded++;
+      }
+
+      // 2. Local set exhausted → continue from the server while online
+      //    (the pagination this screen always had; every fetched page
+      //    upserts the cache, so it becomes locally available too).
+      if (next.length < _pageSize &&
+          ConnectivityService().hasLink &&
+          _serverPage < _totalPages) {
+        final res = await _api.getMembers(
+          page: _serverPage + 1,
+          search: search.isEmpty ? null : search,
+          status: status,
+        );
+        if (!mounted) return;
+        if (res.success && res.data != null) {
+          final items = (res.data!['items'] as List? ?? [])
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+          if (items.isNotEmpty) await _db.cacheMembers(items);
+          _serverPage++;
+          final pagination = res.data!['pagination'] as Map? ?? {};
+          _totalPages = (pagination['pages'] as num?)?.toInt() ?? 1;
+          final ids = _members.map((m) => m['id']).toSet();
+          final added = items.where((m) => !ids.contains(m['id'])).toList();
+          if (added.isNotEmpty && mounted) {
+            setState(() => _members = [..._members, ...added]);
+          }
+        } else if (mounted) {
+          setState(() {
+            _refreshFailed = true;
+            _isOffline = res.isNetworkError;
+          });
+        }
+      }
+    } finally {
+      _loadingMore = false;
+    }
+  }
+
+  /// '…saved on this phone · updated 14:32' — concise freshness from
+  /// the existing cached_members.updated_at (no framework, no schema).
+  String? _fmtUpdated(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return null;
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return sameDay
+        ? '$hh:$mm'
+        : '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+  }
+
+  Widget _cachedStrip(String message, IconData icon) {
+    final updated = _fmtUpdated(_lastSynced);
+    final text = updated == null ? message : '$message · updated $updated';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: AppTheme.warning.withOpacity(0.12),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: AppTheme.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.warning,
+                  fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -187,33 +387,24 @@ class _MemberListScreenState extends State<MemberListScreen> {
               onPressed: _openLookup),
           IconButton(
               icon: const Icon(Icons.refresh, size: 20),
-              onPressed: () => _loadMembers(refresh: true)),
+              onPressed: () => _loadMembers()),
         ],
       ),
       body: Column(
         children: [
-          // Offline indicator
-          if (_isOffline)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              color: AppTheme.warning.withOpacity(0.12),
-              child: Row(
-                children: [
-                  Icon(Icons.cloud_off, size: 14, color: AppTheme.warning),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Waiting for network — showing members saved on this phone',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.warning,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          // Honest cached-data strips: what's on screen is local.
+          if (_isOffline && _members.isNotEmpty)
+            _cachedStrip(
+                'Waiting for network — showing members saved on this phone',
+                Icons.cloud_off),
+          if (!_isOffline && _refreshFailed && _members.isNotEmpty)
+            _cachedStrip(
+                "Couldn't update right now — showing members saved on this phone",
+                Icons.sync_problem),
+          // Background refresh in flight — data stays, never a blank.
+          if (_refreshing)
+            const LinearProgressIndicator(
+                minHeight: 3, color: AppTheme.primary),
 
           // Search bar
           Padding(
@@ -228,7 +419,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
                         icon: const Icon(Icons.clear, size: 18),
                         onPressed: () {
                           _searchController.clear();
-                          _loadMembers(refresh: true);
+                          _loadMembers(newQuery: true);
                         },
                       )
                     : null,
@@ -237,7 +428,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
                 border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12)),
               ),
-              onSubmitted: (_) => _loadMembers(refresh: true),
+              onSubmitted: (_) => _loadMembers(newQuery: true),
               textInputAction: TextInputAction.search,
             ),
           ),
@@ -260,7 +451,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
 
           // List
           Expanded(
-            child: _loading
+            child: _initialLoading
                 ? const MemberListSkeleton()
                 : _error != null
                     ? Center(
@@ -288,8 +479,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
                                       fontSize: 14)),
                               const SizedBox(height: 12),
                               ElevatedButton.icon(
-                                onPressed: () =>
-                                    _loadMembers(refresh: true),
+                                onPressed: () => _loadMembers(newQuery: true),
                                 icon: const Icon(Icons.refresh, size: 18),
                                 label: const Text('Retry'),
                               ),
@@ -308,7 +498,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
                             radius: const Radius.circular(3),
                             thumbColor: const Color(0x595A1212),
                             child: RefreshIndicator(
-                              onRefresh: () => _loadMembers(refresh: true),
+                              onRefresh: () => _loadMembers(),
                               child: ListView.builder(
                                 controller: _scrollController,
                                 itemCount: _members.length,
@@ -344,7 +534,7 @@ class _MemberListScreenState extends State<MemberListScreen> {
         selected: selected,
         onSelected: (_) {
           setState(() => _statusFilter = value);
-          _loadMembers(refresh: true);
+          _loadMembers(newQuery: true);
         },
         selectedColor: AppTheme.primary,
         checkmarkColor: Colors.white,
@@ -380,13 +570,12 @@ class _MemberListScreenState extends State<MemberListScreen> {
       index: index,
       height: kFastRowHeight,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      onTap: _isOffline
-          ? null // Disable detail navigation when offline
-          : () => Navigator.push(
-                context,
-                SmoothPageRoute(page:
-                        MemberDetailScreen(memberId: member['id'])),
-              ),
+      // P1-A: detail opens offline too — it renders from the local
+      // cache and refreshes when the network allows.
+      onTap: () => Navigator.push(
+        context,
+        SmoothPageRoute(page: MemberDetailScreen(memberId: member['id'])),
+      ),
       child: Row(
         children: [
           CircleAvatar(
@@ -456,13 +645,10 @@ class _MemberListScreenState extends State<MemberListScreen> {
                     fontWeight: FontWeight.w600)),
           ),
           const SizedBox(width: 2),
-          if (!_isOffline)
-            const Icon(Icons.chevron_right,
-                size: 16, color: AppTheme.textSecondary),
+          const Icon(Icons.chevron_right,
+              size: 16, color: AppTheme.textSecondary),
         ],
       ),
     );
   }
 }
-
-

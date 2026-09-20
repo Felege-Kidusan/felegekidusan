@@ -1424,6 +1424,7 @@ class LocalDb {
     String? search,
     String? status,
     int limit = 50,
+    int offset = 0, // P1-A: local pagination (offline scrolling)
   }) async {
     final db = await database;
     String where = '1=1';
@@ -1444,6 +1445,7 @@ class LocalDb {
       whereArgs: whereArgs,
       orderBy: 'student_name',
       limit: limit,
+      offset: offset,
     );
 
     // Return full member data from JSON
@@ -1468,6 +1470,50 @@ class LocalDb {
     final db = await database;
     final r = await db.rawQuery('SELECT COUNT(*) as cnt FROM cached_members');
     return r.first['cnt'] as int? ?? 0;
+  }
+
+  /// P1-A: newest cache-write timestamp across cached_members (null when
+  /// nothing is cached) — drives the Members list's freshness line.
+  /// Read-only; uses the column that already exists (no schema change).
+  Future<String?> getCachedMembersLastSynced() async {
+    final db = await database;
+    final r = await db.rawQuery('SELECT MAX(updated_at) as m FROM cached_members');
+    if (r.isEmpty) return null;
+    final m = r.first['m'];
+    return m == null ? null : '$m';
+  }
+
+  /// P1-A: single-member local read by PRIMARY KEY. Independent of the
+  /// cached-list page size (the old detail fallback loaded the whole
+  /// list with its default limit and could not find members past the
+  /// first 50 rows). Returns the decoded server row plus a
+  /// `local_updated_at` stamp for the cached-data banner; null when
+  /// this member was never cached.
+  Future<Map<String, dynamic>?> getCachedMemberById(int id) async {
+    final db = await database;
+    final rows = await db.query('cached_members',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    try {
+      final decoded =
+          jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+      decoded['local_updated_at'] = row['updated_at'];
+      return decoded;
+    } catch (_) {
+      // Corrupt/missing blob — the filter columns still identify the
+      // member honestly (never fabricate fields we do not have).
+      return <String, dynamic>{
+        'id': row['id'],
+        'student_name': row['student_name'],
+        'father_name': row['father_name'],
+        'member_code': row['member_code'],
+        'gender': row['gender'],
+        'status': row['status'],
+        'current_section': row['current_section'],
+        'local_updated_at': row['updated_at'],
+      };
+    }
   }
 
   // ============================================================
