@@ -223,7 +223,7 @@ $csrfToken = generateCsrfToken();
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
-                <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?>
+                <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
                 <div class="hidden sm:block text-right text-xs">
                     <div class="font-medium"><?= e($todayFormatted) ?></div>
                     <?php if ($currentYear): ?>

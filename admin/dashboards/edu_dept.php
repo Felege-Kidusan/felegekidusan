@@ -469,7 +469,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="display:flex;min-height:100vh">
 <!-- SIDEBAR -->
 <aside class="sb school-sidebar">
-<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem"><div style="width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:12px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-graduation-cap" style="color:#fff;font-size:1.1rem"></i></div><div><div style="color:#fff;font-weight:700;font-size:.9rem">Education Dept</div><div class="amharic" style="color:rgba(255,255,255,.6);font-size:.65rem">የትምህርት ክፍል</div></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem"><div style="width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:12px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-graduation-cap" style="color:#fff;font-size:1.1rem"></i></div><div><div style="color:#fff;font-weight:700;font-size:.9rem">Education Dept</div><div class="amharic" style="color:rgba(255,255,255,.6);font-size:.65rem">የትምህርት ክፍል</div></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
 <div>
 <div class="nt">Main</div>
 <button class="nl act" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
@@ -502,7 +502,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
         <h1>Education Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
-    <?= renderNotificationCenter() ?><?= render_account_settings() ?>
+    <?= renderNotificationCenter() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$tablesExist): ?>
