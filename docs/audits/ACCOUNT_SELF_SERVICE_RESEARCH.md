@@ -259,3 +259,20 @@ server-side renderer** (`render_account_section()` in the same component), the J
 data via a MutationObserver on section visibility — so no per-dashboard JavaScript,
 no copy-paste, and future dashboards get parity with one `include` + one wrapper
 element following their own router conventions.
+
+### Appendix C.1 — v1.2.0 post-release audit finding (fixed in v1.2.1)
+
+**Bug:** the runtime's MutationObserver watched only the `<section data-wba-section>`
+element itself — but every host router toggles the section's WRAPPER
+(`#sec-account` gains `.act`, `#section-account` loses `[hidden]`, tab parents gain
+`.active`). The section's own attributes never change → the observer never fired →
+on surfaces relying purely on their native router (super-admin, content_editor,
+mobile bottom-nav entries) the section appeared but stayed EMPTY.
+
+**Why tests missed it:** the explicit `data-wba-nav` click-hook masked the broken
+observer on most surfaces, and E2E asserted data-loading only on education.
+
+**Fix (v1.2.1):** observe the whole ancestor chain (≤10 hops) + add the explicit
+`data-wba-nav` hook to the 5 missing entry points (super-admin sidebar + mobile,
+content_editor tab, edu + school mobile). E2E re-run: 5/5 including the strict
+"data auto-loads" criterion on the previously broken surfaces.
