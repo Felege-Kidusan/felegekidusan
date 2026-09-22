@@ -278,7 +278,7 @@ select.inp{cursor:pointer}
 <button class="np" data-section="departments"><i class="fa-solid fa-building"></i> Departments</button>
 <button class="np" data-section="staff"><i class="fa-solid fa-user-gear"></i> Staff & Users</button>
 <button class="np" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports & Export</button>
-<button class="np" data-section="system"><i class="fa-solid fa-server"></i> System Health</button><button class="np" data-section="account" data-wba-nav="account"><i class="fa-solid fa-id-badge"></i> My Account</button>
+<button class="np" data-section="system"><i class="fa-solid fa-server"></i> System Health</button>
 <button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button>
 <div class="uc"><div class="ua"><?=$initials?></div><div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:.75rem;font-weight:600;color:var(--bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?=e($fullName)?></span><span style="font-size:.57rem;color:var(--dim)">School Admin • <?=$todayFormatted?></span></div></div>
 <a href="/admin/logout.php" class="np" style="color:var(--bad);margin-top:.2rem"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
@@ -304,7 +304,6 @@ select.inp{cursor:pointer}
 </div>
 
 <!-- ═══ OVERVIEW ═══ -->
-<section id="section-account" class="cs"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
 <div id="section-dashboard" class="cs active">
 <!-- Stats -->
 <div class="sg">
@@ -551,8 +550,7 @@ $navItems = [
         ['icon' => 'fa-solid fa-building', 'label' => 'Depts', 'attrs' => 'data-section="departments"'],
         ['icon' => 'fa-solid fa-user-tie', 'label' => 'Staff', 'attrs' => 'data-section="staff"'],
         ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => 'data-section="reports"'],
-        ['icon' => 'fa-solid fa-gear', 'label' => 'System', 'attrs' => 'data-section="system"'],['icon' => 'fa-solid fa-gear', 'label' => 'System', 'attrs' => 'data-section="system"'],
-        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-section="account"'],
+        ['icon' => 'fa-solid fa-gear', 'label' => 'System', 'attrs' => 'data-section="system"'],
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
     ],
     [
