@@ -47,17 +47,17 @@ class P1BDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # v28 = P1-C's authorized mezmur-days table; P1-B's bump to
+        # v29 = P1-D's authorized review-inbox tables; P1-B's bump to
         # v27 (notification center) is history. The notification
-        # tables themselves are untouched by the v28 step.
-        self.assertIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 27,', self.ldb)
-        self.assertNotIn('version: 29', self.ldb)
+        # tables themselves are untouched by later steps.
+        self.assertIn('version: 29,', self.ldb)
+        self.assertNotIn('version: 28,', self.ldb)
+        self.assertNotIn('version: 30', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 27)', self.ldb)
         self.assertIn('_createNotificationTables(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 29)', self.ldb)
+        self.assertNotIn('if (oldVersion < 30)', self.ldb)
 
     def test_two_tables_created(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_notifications', self.ldb)
@@ -72,7 +72,9 @@ class P1BDatabase(unittest.TestCase):
         self.assertIn("'cached_announcements'", body)
 
     def test_no_unrelated_migrations(self):
-        self.assertEqual(glob.glob(os.path.join(SQLDIR, '*047*')), [])
+        # sql/047_account_self_service.sql landed later via server-side
+        # PR #3 (account self-service) — it is not a mobile migration.
+        # P1-B's own no-sql-file intent is pinned by the *p1b* glob.
         self.assertEqual(glob.glob(os.path.join(SQLDIR, '*p1b*')), [])
         self.assertNotIn('ALTER TABLE cached_notifications', self.ldb)
         self.assertNotIn('ALTER TABLE cached_announcements', self.ldb)

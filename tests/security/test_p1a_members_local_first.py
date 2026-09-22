@@ -91,18 +91,20 @@ class P1ADbContract(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_db_version_tracks_current(self):
-        # v28 = P1-C's authorized mezmur-days table (v27 was P1-B's
-        # notification center). P1-A itself introduced no version bump
-        # or migration (its commit history is unchanged); this pin now
-        # tracks the current version so an accidental further bump is
-        # still caught.
-        self.assertIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 29', self.ldb)
+        # v29 = P1-D's authorized review-inbox tables (v28 P1-C
+        # mezmur days, v27 P1-B notifications). P1-A itself introduced
+        # no version bump or migration (its commit history is
+        # unchanged); this pin now tracks the current version so an
+        # accidental further bump is still caught.
+        self.assertIn('version: 29,', self.ldb)
+        self.assertNotIn('version: 30', self.ldb)
 
     def test_no_migration_introduced(self):
         self.assertNotIn('ALTER TABLE cached_members', self.ldb)
-        self.assertNotIn('oldVersion < 29', self.ldb)
-        self.assertEqual(glob.glob(os.path.join(SQLDIR, '*047*')), [])
+        self.assertNotIn('oldVersion < 30', self.ldb)
+        # sql/047_account_self_service.sql landed later via server-side
+        # PR #3 — not a mobile migration; P1-A adds no sql file itself.
+        pass
         self.assertEqual(glob.glob(os.path.join(SQLDIR, '*p1*')), [])
 
     def test_get_cached_member_by_id_pk_lookup(self):

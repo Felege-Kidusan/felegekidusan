@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 28,
+      version: 29,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -402,6 +402,15 @@ class LocalDb {
           // cached_mezmur_sheet. User-scoped server response → wiped
           // on logout like every other cache.
           await _createMezmurDaysTable(db);
+        }
+        if (oldVersion < 29) {
+          // P1-D (Review Inbox local-first): the department review
+          // queue's read model — list packets, detail payloads, and
+          // per-department stats, all stored verbatim from the three
+          // /submissions endpoints. Cache starts empty — no data
+          // migration. Dept-scoped server responses (detail rows
+          // carry member marks) → wiped on logout.
+          await _createReviewTables(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1194,10 +1203,52 @@ class LocalDb {
     ''');
   }
 
+  /// P1-D (DB v29): local-first Review Inbox read model. Identity is
+  /// (dept, id) — the three departments' submission tables are
+  /// independent server tables, so the same numeric id can exist in
+  /// more than one department context. Status stays a discrete
+  /// verbatim column (the server's per-filter windows query it);
+  /// updated_at (server string, verbatim) reproduces every service's
+  /// ORDER BY updated_at DESC, id DESC. Details live in their own
+  /// table so a list refresh can never clobber a cached detail's
+  /// roster rows; stats are stored verbatim per department and are
+  /// NEVER recomputed locally (server stats cover a different
+  /// population/window than the cached rows).
+  Future<void> _createReviewTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_review_packets (
+        dept TEXT NOT NULL,
+        id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT '',
+        updated_at TEXT,
+        data_json TEXT,
+        fetched_at TEXT,
+        PRIMARY KEY (dept, id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_review_packet_details (
+        dept TEXT NOT NULL,
+        id INTEGER NOT NULL,
+        data_json TEXT,
+        fetched_at TEXT,
+        PRIMARY KEY (dept, id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_review_stats (
+        dept TEXT NOT NULL PRIMARY KEY,
+        stats_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
     await _createNotificationTables(db);
     await _createMezmurDaysTable(db);
+    await _createReviewTables(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -1807,6 +1858,144 @@ class LocalDb {
         };
       }
     }).toList();
+  }
+
+  // ============================================================
+  // P1-D: CACHED REVIEW INBOX (read model, dept-scoped)
+  // ============================================================
+
+  /// Merge-upsert list rows by (dept, id). Merge-only: review
+  /// packets never disappear through the review workflow itself
+  /// (deletion exists only via web-console class/subject removal —
+  /// disclosed deletion-blindness, same class as P1-B), so nothing
+  /// is ever deleted here and repeated refreshes cannot duplicate.
+  Future<void> cacheReviewPackets(
+      String dept, List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
+    for (final m in rows) {
+      batch.insert(
+        'cached_review_packets',
+        {
+          'dept': dept,
+          'id': m['id'],
+          'status': '${m['status'] ?? ''}',
+          'updated_at': '${m['updated_at'] ?? ''}',
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Local review window — the server's exact ordering
+  /// (updated_at DESC, id DESC — every department service sorts this
+  /// way) with the server's per-filter semantics supplied by the
+  /// caller as a status set ([statusIn] null = the 'all' window).
+  Future<List<Map<String, dynamic>>> getCachedReviewPackets(String dept,
+      {List<String>? statusIn, int limit = 50}) async {
+    final db = await database;
+    final where = <String>['dept = ?'];
+    final args = <dynamic>[dept];
+    if (statusIn != null && statusIn.isNotEmpty) {
+      where.add('status IN (${List.filled(statusIn.length, '?').join(', ')})');
+      args.addAll(statusIn);
+    }
+    final rows = await db.query('cached_review_packets',
+        where: where.join(' AND '),
+        whereArgs: args,
+        orderBy: 'updated_at DESC, id DESC',
+        limit: limit);
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        return decoded;
+      } catch (_) {
+        // Corrupt/missing blob — identify the row honestly, never
+        // fabricate content.
+        return <String, dynamic>{
+          'dept': row['dept'],
+          'id': row['id'],
+          'status': row['status'],
+          'updated_at': row['updated_at'],
+          'local_fetched_at': row['fetched_at'],
+        };
+      }
+    }).toList();
+  }
+
+  /// Cache one detail payload (roster rows included) — separate
+  /// table so a list refresh can never clobber it.
+  Future<void> cacheReviewPacketDetail(
+      String dept, int id, Map<String, dynamic> payload) async {
+    final db = await database;
+    await db.insert(
+      'cached_review_packet_details',
+      {
+        'dept': dept,
+        'id': id,
+        'data_json': jsonEncode(payload),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getCachedReviewPacketDetail(
+      String dept, int id) async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_review_packet_details',
+          where: 'dept = ? AND id = ?', whereArgs: [dept, id], limit: 1);
+      if (rows.isEmpty) return null;
+      final raw = rows.first['data_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        decoded['local_fetched_at'] = rows.first['fetched_at'];
+        return decoded;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Stats are server aggregates over the department's FULL queue —
+  /// a different population than any cached row window. Stored
+  /// verbatim per department; NEVER recomputed from cached rows.
+  Future<void> cacheReviewStats(
+      String dept, Map<String, dynamic> stats) async {
+    final db = await database;
+    await db.insert(
+      'cached_review_stats',
+      {
+        'dept': dept,
+        'stats_json': jsonEncode(stats),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getCachedReviewStats(String dept) async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_review_stats',
+          where: 'dept = ?', whereArgs: [dept], limit: 1);
+      if (rows.isEmpty) return null;
+      final raw = rows.first['stats_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ============================================================
@@ -3611,6 +3800,9 @@ class LocalDb {
         'cached_mezmur_sheet',
         'cached_mezmur_sections',
         'cached_mezmur_days',
+        'cached_review_packets',
+        'cached_review_packet_details',
+        'cached_review_stats',
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',
