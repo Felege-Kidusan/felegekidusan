@@ -954,7 +954,7 @@ $navItems = [
     [
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
         ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],
-        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-sec="account" data-wba-nav="account"'],
+        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-sec="account"'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];
