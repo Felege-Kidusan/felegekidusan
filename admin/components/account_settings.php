@@ -46,7 +46,7 @@ if (!function_exists('render_account_settings')) {
  *  so heuristic caches drop the old copy. */
 function wba_asset_version(): string
 {
-    return '1.0';
+    return '1.1';
 }
 
 /** Self-contained HTML escaper — never call the host's helpers. */
