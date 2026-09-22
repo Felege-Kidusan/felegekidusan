@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 30,
+      version: 31,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -423,6 +423,17 @@ class LocalDb {
           // byte-untouched. Cache starts empty — no data migration.
           // Rosters carry member PII → wiped on logout.
           await _createEduTables(db);
+        }
+        if (oldVersion < 31) {
+          // P1-F (Education Subjects local-first): the education
+          // department's subject catalog — the complete active set
+          // from GET /subjects, stored verbatim. Dedicated table:
+          // cached_subjects is the teacher grade-bootstrap cache
+          // ((id, class_id) composite PK, fed from /grades/bootstrap)
+          // and stays byte-untouched. Cache starts empty — no data
+          // migration. Role-scoped server response → wiped on logout
+          // with everything else.
+          await _createEduSubjectsTable(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1293,12 +1304,41 @@ class LocalDb {
     ''');
   }
 
+  /// P1-F (DB v31): local-first Education Subjects read model — the
+  /// complete active subject catalog from GET /subjects, one row per
+  /// subject, payload verbatim (including the class_count aggregate,
+  /// a server count over class_subjects that is NEVER recomputed
+  /// locally). Deliberately SEPARATE from cached_subjects: that table
+  /// is the teacher grade-bootstrap cache ((id, class_id) composite
+  /// PK, written from /grades/bootstrap) and belongs to the protected
+  /// teacher workflow. The catalog is a complete scoped snapshot
+  /// replaced on every successful refresh (deletion-aware: renames,
+  /// deactivations and eligible hard deletes propagate); local
+  /// ordering reproduces the server's ORDER BY subject_name —
+  /// COLLATE NOCASE approximates MySQL utf8mb4_unicode_ci's ASCII
+  /// case fold (Amharic orders code-point-identically; the residual
+  /// case-mixed Latin edge is a disclosed cosmetic limitation).
+  Future<void> _createEduSubjectsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_edu_subjects (
+        id INTEGER PRIMARY KEY,
+        subject_name TEXT NOT NULL DEFAULT '',
+        subject_name_en TEXT,
+        subject_code TEXT,
+        class_count INTEGER NOT NULL DEFAULT 0,
+        data_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
     await _createNotificationTables(db);
     await _createMezmurDaysTable(db);
     await _createReviewTables(db);
     await _createEduTables(db);
+    await _createEduSubjectsTable(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -2171,6 +2211,74 @@ class LocalDb {
     } catch (_) {
       return null;
     }
+  }
+
+  // ============================================================
+  // P1-F: CACHED EDU SUBJECTS (education read model)
+  // ============================================================
+
+  /// Replace-on-success snapshot of the Education subject catalog.
+  /// GET /subjects returns the COMPLETE active set (no pagination),
+  /// so this delete + insert in ONE transaction propagates renames,
+  /// deactivations and eligible hard deletes on every successful
+  /// refresh. Called only AFTER a successful server response; a
+  /// failed or offline refresh never reaches this write. An
+  /// empty-but-valid catalog replaces too (zero active subjects is
+  /// honest emptiness, not a failure).
+  Future<void> replaceCachedEduSubjects(
+      List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete('cached_edu_subjects');
+      for (final m in rows) {
+        await txn.insert('cached_edu_subjects', {
+          'id': m['id'],
+          'subject_name': '${m['subject_name'] ?? ''}',
+          'subject_name_en':
+              m['subject_name_en'] == null ? null : '${m['subject_name_en']}',
+          'subject_code':
+              m['subject_code'] == null ? null : '${m['subject_code']}',
+          'class_count': _asIntLocal(m['class_count']),
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        });
+      }
+    });
+  }
+
+  /// Local Education subject catalog — the server's ordering
+  /// (ORDER BY subject_name under MySQL utf8mb4_unicode_ci;
+  /// COLLATE NOCASE approximates the case-insensitive fold for
+  /// ASCII — Amharic orders code-point-identically). Never the
+  /// teacher grade-bootstrap cached_subjects (different identity:
+  /// (id, class_id) composite PK from /grades/bootstrap). Rows come
+  /// back shaped like the server's items plus a local_fetched_at
+  /// stamp for the '· updated HH:MM' banner. class_count is the
+  /// server's aggregate, read verbatim — never recomputed locally.
+  Future<List<Map<String, dynamic>>> getCachedEduSubjects() async {
+    final db = await database;
+    final rows = await db.query('cached_edu_subjects',
+        orderBy: 'subject_name COLLATE NOCASE');
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        return decoded;
+      } catch (_) {
+        // Corrupt/missing blob — identify the row honestly from its
+        // discrete columns, never fabricate content.
+        return <String, dynamic>{
+          'id': row['id'],
+          'subject_name': row['subject_name'],
+          'subject_name_en': row['subject_name_en'],
+          'subject_code': row['subject_code'],
+          'class_count': row['class_count'],
+          'local_fetched_at': row['fetched_at'],
+        };
+      }
+    }).toList();
   }
 
   // ============================================================
@@ -3983,6 +4091,9 @@ class LocalDb {
         // discipline as every other cache.
         'cached_edu_classes',
         'cached_edu_class_rosters',
+        // P1-F: the subject catalog is a role-scoped server response
+        // — same wipe discipline.
+        'cached_edu_subjects',
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',

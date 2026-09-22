@@ -64,17 +64,17 @@ class P1DDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # P1-D's bump was to v29; the CURRENT version is v30 (P1-E's
-        # education read model). The review tables themselves are
-        # untouched by the v30 step.
-        self.assertIn('version: 30,', self.ldb)
+        # P1-D's bump was to v29; the CURRENT version is v31 (P1-F's
+        # subjects catalog; v30 was P1-E's education classes). The
+        # review tables themselves are untouched by later steps.
+        self.assertIn('version: 31,', self.ldb)
         self.assertNotIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 31', self.ldb)
+        self.assertNotIn('version: 32', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 29)', self.ldb)
         self.assertIn('_createReviewTables(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 31)', self.ldb)
+        self.assertNotIn('if (oldVersion < 32)', self.ldb)
 
     def test_tables_and_identity(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_review_packets',
