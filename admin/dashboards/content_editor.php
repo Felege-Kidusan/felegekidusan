@@ -206,10 +206,12 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
     <button class="tab" data-panel="teachers"><i class="fa-solid fa-chalkboard-user"></i> Teachers</button>
     <button class="tab" data-panel="schedule"><i class="fa-solid fa-calendar-week"></i> Schedule</button>
     <button class="tab" data-panel="programs"><i class="fa-solid fa-graduation-cap"></i> Programs</button>
-    <button class="tab" data-panel="social"><i class="fa-solid fa-share-nodes"></i> Social Links</button>
+    <button class="tab" data-panel="social"><i class="fa-solid fa-share-nodes"></i> Social Links</button><button class="tab" data-panel="account"><i class="fa-solid fa-id-badge"></i> My Account</button>
   </div>
 
   <!-- ═══════════ REGISTRATIONS ═══════════ -->
+  <div class="panel" id="panel-account"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></div>
+
   <div class="panel active" id="panel-registrations">
     <div class="panel-head">
       <div><h2>Registration Submissions</h2><p>Requests from the public website registration form</p></div>

@@ -202,6 +202,9 @@ $csrfToken = generateCsrfToken();
                         <div class="text-sky-200 text-[10px] uppercase">Teacher</div>
                     </div>
                 </div>
+                <div class="nav-link" onclick="showSection('account')" data-wba-nav="account">
+                    <i class="fa-solid fa-id-badge w-5"></i> My Account
+                </div>
                 <a href="/admin/logout.php" class="nav-link text-red-300 hover:bg-red-500/20">
                     <i class="fa-solid fa-power-off w-5"></i> Logout
                 </a>
@@ -254,6 +257,8 @@ $csrfToken = generateCsrfToken();
                 </div>
                 
                 <!-- DASHBOARD -->
+                <section id="sec-account" class="section"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
+
                 <section id="sec-dashboard" class="section active">
                     <?php if ($currentYear): ?>
                     <div class="card p-4 mb-6">

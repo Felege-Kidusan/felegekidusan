@@ -130,6 +130,9 @@ $csrfToken = generateCsrfToken();
                 <div class="nav-link" onclick="showSection('history')">
                     <i class="fa-solid fa-clock-rotate-left w-5"></i> History
                 </div>
+                <div class="nav-link" onclick="showSection('account')" data-wba-nav="account">
+                    <i class="fa-solid fa-id-badge w-5"></i> My Account
+                </div>
             </nav>
             
             <div class="mt-auto pt-4 border-t border-white/10">
@@ -193,6 +196,8 @@ $csrfToken = generateCsrfToken();
                 </div>
                 
                 <!-- DASHBOARD -->
+                <section id="sec-account" class="section"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
+
                 <section id="sec-dashboard" class="section active">
                     <?php if ($currentYear): ?>
                     <div class="card p-4 mb-6">

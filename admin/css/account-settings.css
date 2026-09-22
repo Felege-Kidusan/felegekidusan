@@ -198,3 +198,65 @@
 /* ── Host-page isolation: the component paints its own surface, so a
       dark dashboard's inherited colors can never leak in. ─────────── */
 .wba-panel, .wba-panel * { box-sizing: border-box; }
+
+/* ============================================================
+   v1.2 — INLINE SECTION MODE ("My Account" sidebar page)
+   The host dashboard's router owns visibility (it toggles its
+   own wrapper); this stylesheet owns the content's look. Same
+   palette as the modal → one consistent account identity across
+   every department, light or dark host.
+   ============================================================ */
+.wba-sec[hidden] { display: none !important; }
+
+.wba-sec {
+    --wba-ink: #0f172a; --wba-dim: #64748b; --wba-faint: #94a3b8;
+    --wba-line: #e2e8f0; --wba-bg: #ffffff; --wba-soft: #f8fafc;
+    --wba-brand: #0f766e;
+    background: var(--wba-bg); color: var(--wba-ink);
+    border: 1px solid var(--wba-line); border-radius: 18px;
+    padding: 20px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.5; text-align: left;
+    box-shadow: 0 10px 30px rgba(2, 6, 23, .08);
+}
+.wba-sec *, .wba-sec { box-sizing: border-box; }
+
+.wba-sec-head {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding-bottom: 16px; border-bottom: 1px solid var(--wba-line); margin-bottom: 16px;
+}
+.wba-sec-avatar { width: 60px; height: 60px; font-size: 26px; border-radius: 18px; }
+.wba-sec-id { min-width: 180px; }
+.wba-sec-title { margin: 0; font-size: 18px; font-weight: 800; }
+.wba-sec-title .wba-am { font-size: 12px; font-weight: 600; color: var(--wba-faint); margin-left: 6px; }
+.wba-sec-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
+.wba-sec-name { font-size: 13px; font-weight: 650; }
+.wba-sec-user { font-size: 12px; color: var(--wba-dim); }
+.wba-sec-facts {
+    margin: 0 0 0 auto; display: grid; grid-template-columns: repeat(2, minmax(160px, auto));
+    gap: 2px 22px; border: 1px solid var(--wba-line); border-radius: 12px; padding: 10px 14px;
+    background: var(--wba-soft);
+}
+.wba-sec-facts .wba-fact { padding: 3px 0; border: none !important; font-size: 12px; }
+
+.wba-sec-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+@media (max-width: 900px) { .wba-sec-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .wba-sec-facts { grid-template-columns: 1fr; margin: 0; width: 100%; } }
+
+.wba-card {
+    border: 1px solid var(--wba-line); border-radius: 14px;
+    padding: 16px; background: var(--wba-bg);
+}
+.wba-cardtitle {
+    margin: 0 0 12px; font-size: 13.5px; font-weight: 750;
+    display: flex; align-items: center; gap: 8px;
+}
+.wba-cardtitle .fa-solid, .wba-cardtitle .fa-regular { color: var(--wba-brand); }
+.wba-cardtitle .wba-am { font-size: 11px; color: var(--wba-faint); font-weight: 600; margin-left: auto; }
+.wba-cardtext { margin: 0 0 12px; font-size: 12.5px; color: var(--wba-dim); }
+
+/* host-page isolation for forms inside the section (same as modal) */
+.wba-sec .wba-field input { background: var(--wba-bg); color: var(--wba-ink); }

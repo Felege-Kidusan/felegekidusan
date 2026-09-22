@@ -92,6 +92,7 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
             own takers and reviewers — it is never combined with other departments.
         </div>
     </div>
+<div class="card" style="padding:0;border:none;background:transparent"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></div>
 </main>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 </body>

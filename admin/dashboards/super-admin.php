@@ -646,6 +646,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <li><button class="nav-link <?= $activeSection === 'logs' ? 'active' : '' ?>" data-section="logs"><i class="fa-solid fa-clock-rotate-left"></i> Activity Logs</button></li>
                 <li><button class="nav-link <?= $activeSection === 'backup' ? 'active' : '' ?>" data-section="backup"><i class="fa-solid fa-database"></i> Backup & Data</button></li>
                 <li><button class="nav-link <?= $activeSection === 'syshealth' ? 'active' : '' ?>" data-section="syshealth"><i class="fa-solid fa-stethoscope"></i> System Health</button></li>
+                <li><button class="nav-link <?= $activeSection === 'account' ? 'active' : '' ?>" data-section="account"><i class="fa-solid fa-id-badge"></i> My Account</button></li>
                 <li><a href="/admin/dashboards/ai_assistant.php" class="nav-link" style="text-decoration:none"><i class="fa-solid fa-robot"></i> AI Assistant <span style="font-size:.55rem;padding:.1rem .35rem;border-radius:99px;background:linear-gradient(135deg,#10b981,#3b82f6);color:#fff;font-weight:600;margin-left:auto">NEW</span></a></li>
                 <li><button class="nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
             </ul>
@@ -676,6 +677,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
 
         <div class="content">
             <!-- OVERVIEW -->
+            <section id="section-account" class="section <?= $activeSection === 'account' ? 'active' : '' ?>"<?= $activeSection === 'account' ? '' : ' hidden' ?>><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
             <section id="section-overview" class="section <?= $activeSection === 'overview' ? 'active' : '' ?>"<?= $activeSection === 'overview' ? '' : ' hidden' ?>>
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-gauge-high"></i> Overview</h2><p class="sec-desc">System statistics and quick actions</p></div>
                 <div class="grid-4" style="margin-bottom:1rem">
@@ -1430,6 +1432,7 @@ $navItems = [
     [
         ['icon' => 'fa-solid fa-clock-rotate-left', 'label' => 'Logs', 'attrs' => 'data-section="logs"', 'active' => (($activeSection ?? '') === 'logs')],
         ['icon' => 'fa-solid fa-database', 'label' => 'Backup', 'attrs' => 'data-section="backup"', 'active' => (($activeSection ?? '') === 'backup')],
+        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-section="account"', 'active' => (($activeSection ?? '') === 'account')],
         ['icon' => 'fa-solid fa-stethoscope', 'label' => 'System', 'attrs' => 'data-section="syshealth"', 'active' => (($activeSection ?? '') === 'syshealth')],
     ],
     [
@@ -1462,7 +1465,7 @@ require __DIR__ . '/../components/bottom_nav.php';
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/super_admin.js?v=20260827a"></script>
+    <script src="/admin/js/super_admin.js?v=20260922a"></script>
     <script>
         // Calendar mode save
         async function saveCalendarMode(mode){

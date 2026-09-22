@@ -46,7 +46,7 @@ if (!function_exists('render_account_settings')) {
  *  so heuristic caches drop the old copy. */
 function wba_asset_version(): string
 {
-    return '1.1';
+    return '1.2';
 }
 
 /** Self-contained HTML escaper — never call the host's helpers. */
@@ -104,6 +104,20 @@ function wba_role_label(string $role): string
 }
 
 /**
+ * Emit the shared stylesheet + runtime exactly once per page, from
+ * whichever render call (modal or section) runs first.
+ */
+function render_account_settings_assets(): string
+{
+    static $emitted = false;
+    if ($emitted) { return ''; }
+    $emitted = true;
+    $v = wba_asset_version();
+    return '<link rel="stylesheet" href="/admin/css/account-settings.css?v=' . $v . '">'
+         . '<script src="/admin/js/account-settings.js?v=' . $v . '" defer></script>';
+}
+
+/**
  * Render the account trigger + the ONE modal panel + assets.
  * Every placement on a page shares a single panel (static guard).
  * Error boundary — may never kill the host page.
@@ -120,13 +134,12 @@ function render_account_settings(): string
 
             // Self-contained CSRF — never depend on the host page.
             $csrf = function_exists('generateCsrfToken') ? generateCsrfToken() : '';
-            $v = wba_asset_version();
 
             $userName  = wba_session('admin_full_name', wba_session('admin_username', 'User'));
             $initial   = wba_mb_initial(trim($userName) !== '' ? $userName : 'U');
 
-            ob_start(); ?>
-<link rel="stylesheet" href="/admin/css/account-settings.css?v=<?= $v ?>">
+            ob_start();
+            echo render_account_settings_assets(); ?>
 <div class="wba-panel" data-wba-panel data-csrf="<?= wba_esc($csrf) ?>" data-api="/admin/api_settings.php"
      role="dialog" aria-modal="true" aria-label="My Account" tabindex="-1" hidden>
     <div class="wba-card" role="document">
@@ -245,7 +258,6 @@ function render_account_settings(): string
     </div>
 </div>
 <div class="wba-scrim" data-wba-scrim hidden></div>
-<script src="/admin/js/account-settings.js?v=<?= $v ?>" defer></script>
 <?php
             $panel = (string)ob_get_clean();
         }
@@ -261,6 +273,160 @@ function render_account_settings(): string
             . '</span>';
     } catch (Throwable $t) {
         error_log('[account_settings] render failed: ' . $t->getMessage()
+            . ' @ ' . $t->getFile() . ':' . $t->getLine());
+        return '';
+    }
+}
+
+/**
+ * Render the inline "My Account" SECTION — the sidebar-driven, HR/Info-style
+ * profile management page for every department dashboard (v1.2.0 sidebar
+ * parity; see docs/audits/ACCOUNT_SELF_SERVICE_RESEARCH.md, Appendix C).
+ *
+ * The HOST dashboard owns routing: wrap this call in the dashboard's own
+ * section container so its existing router reveals it, e.g.
+ *   edu:      <div id="sec-account" class="sec"><?= render_account_section() ?></div>
+ *   school:   <section id="section-account" class="cs"><?= render_account_section() ?></section>
+ *   super:    <section id="section-account" class="section" hidden>…
+ * Card pages without a router (content_editor) may render it bare with
+ * data-wba-selfroute handling in the shared runtime.
+ *
+ * Shares the single runtime + stylesheet with the modal (emitted once per
+ * page by whichever render call runs first). Error boundary — may never
+ * kill the host page.
+ */
+function render_account_section(array $opts = []): string
+{
+    try {
+        wba_ensure_bootstrapped();
+
+        static $emitted = false;
+        if ($emitted) { return ''; }
+        $emitted = true;
+
+        $csrf = function_exists('generateCsrfToken') ? generateCsrfToken() : '';
+
+        $userName  = wba_session('admin_full_name', wba_session('admin_username', 'User'));
+        $initial   = wba_mb_initial(trim($userName) !== '' ? $userName : 'U');
+
+        // selfroute: card pages with no host router (content_editor) — the
+        // shared runtime toggles visibility itself on [data-wba-nav] clicks.
+        // visible: pages that should show the section immediately (dept_taker).
+        $attrs = ' data-wba-section';
+        if (!empty($opts['selfroute'])) { $attrs .= ' data-wba-selfroute'; }
+        if (empty($opts['visible'])) { $attrs .= ' hidden'; }
+
+        ob_start();
+        // Assets are shared with the modal renderer; emit them here if the
+        // modal has not already (static guard inside the panel renderer).
+        echo render_account_settings_assets();
+        ?>
+<section class="wba-sec"<?= $attrs ?> data-csrf="<?= wba_esc($csrf) ?>" data-api="/admin/api_settings.php">
+    <header class="wba-sec-head">
+        <div class="wba-avatar wba-sec-avatar" data-wba-avatar><?= wba_esc($initial) ?></div>
+        <div class="wba-sec-id">
+            <h2 class="wba-sec-title">My Account <span class="wba-am">የእኔ መገለጫ</span></h2>
+            <div class="wba-sec-sub">
+                <span class="wba-sec-name" data-wba-name><?= wba_esc($userName) ?></span>
+                <span class="wba-sec-user">@<span data-wba-username><?= wba_esc(wba_session('admin_username')) ?></span></span>
+                <span class="wba-rolebadge" data-wba-role><?= wba_esc(wba_role_label(wba_session('admin_role'))) ?></span>
+            </div>
+        </div>
+        <dl class="wba-facts wba-sec-facts">
+            <div class="wba-fact"><dt>Email</dt><dd data-wba-email>—</dd></div>
+            <div class="wba-fact"><dt>Phone</dt><dd data-wba-phone>—</dd></div>
+            <div class="wba-fact"><dt>Last login</dt><dd data-wba-lastlogin>—</dd></div>
+            <div class="wba-fact"><dt>Total logins</dt><dd data-wba-logins>—</dd></div>
+        </dl>
+    </header>
+
+    <div class="wba-sec-grid">
+        <!-- Edit profile -->
+        <div class="wba-card">
+            <h3 class="wba-cardtitle"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> Edit profile <span class="wba-am">መገለጫ ማስተካከያ</span></h3>
+            <form class="wba-form" data-wba-form="profile" novalidate>
+                <label class="wba-field">
+                    <span class="wba-label">Full name <b class="wba-req">*</b></span>
+                    <input type="text" name="full_name" data-wba-input="full_name" maxlength="100" autocomplete="name" required>
+                </label>
+                <label class="wba-field">
+                    <span class="wba-label">Email</span>
+                    <input type="email" name="email" data-wba-input="email" maxlength="100" autocomplete="email">
+                    <small class="wba-hint" data-wba-email-hint hidden>Changing your email requires your current password.</small>
+                </label>
+                <label class="wba-field" data-wba-stepup hidden>
+                    <span class="wba-label">Current password <span class="wba-am">(ለኢሜይል ለውጥ)</span></span>
+                    <div class="wba-pwdwrap">
+                        <input type="password" name="current_password" data-wba-input="current_password" autocomplete="current-password">
+                        <button type="button" class="wba-eye" data-wba-eye aria-label="Show password" tabindex="-1"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
+                    </div>
+                </label>
+                <label class="wba-field">
+                    <span class="wba-label">Phone</span>
+                    <input type="tel" name="phone" data-wba-input="phone" maxlength="20" placeholder="09xxxxxxxx" autocomplete="tel">
+                </label>
+                <div class="wba-actions"><button type="submit" class="wba-btn wba-primary"><i class="fa-solid fa-check" aria-hidden="true"></i> Save changes</button></div>
+            </form>
+        </div>
+
+        <!-- Password -->
+        <div class="wba-card">
+            <h3 class="wba-cardtitle"><i class="fa-solid fa-key" aria-hidden="true"></i> Change password <span class="wba-am">የይለፍ ቃል ለውጥ</span></h3>
+            <form class="wba-form" data-wba-form="password" novalidate>
+                <label class="wba-field">
+                    <span class="wba-label">Current password <b class="wba-req">*</b></span>
+                    <div class="wba-pwdwrap">
+                        <input type="password" name="current_password" data-wba-input="pwd_current" autocomplete="current-password" required>
+                        <button type="button" class="wba-eye" data-wba-eye aria-label="Show password" tabindex="-1"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
+                    </div>
+                </label>
+                <label class="wba-field">
+                    <span class="wba-label">New password <b class="wba-req">*</b></span>
+                    <div class="wba-pwdwrap">
+                        <input type="password" name="new_password" data-wba-input="pwd_new" autocomplete="new-password" required>
+                        <button type="button" class="wba-eye" data-wba-eye aria-label="Show password" tabindex="-1"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
+                    </div>
+                    <div class="wba-meter" aria-hidden="true"><span data-wba-meter></span></div>
+                    <ul class="wba-reqs" data-wba-reqs>
+                        <li data-req="len">At least 12 characters</li>
+                        <li data-req="bytes72">At most 72 bytes (bcrypt limit)</li>
+                        <li data-req="common">Not a commonly used password</li>
+                        <li data-req="different">Different from your current password</li>
+                    </ul>
+                </label>
+                <label class="wba-field">
+                    <span class="wba-label">Confirm new password <b class="wba-req">*</b></span>
+                    <div class="wba-pwdwrap">
+                        <input type="password" name="confirm_password" data-wba-input="pwd_confirm" autocomplete="new-password" required>
+                        <button type="button" class="wba-eye" data-wba-eye aria-label="Show password" tabindex="-1"><i class="fa-regular fa-eye" aria-hidden="true"></i></button>
+                    </div>
+                </label>
+                <div class="wba-actions"><button type="submit" class="wba-btn wba-primary"><i class="fa-solid fa-key" aria-hidden="true"></i> Change password</button></div>
+            </form>
+        </div>
+
+        <!-- Security activity -->
+        <div class="wba-card">
+            <h3 class="wba-cardtitle"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Security activity <span class="wba-am">የደህንነት እንቅስቃሴ</span></h3>
+            <ul class="wba-timeline" data-wba-timeline>
+                <li class="wba-tl-loading">Loading…</li>
+            </ul>
+        </div>
+
+        <!-- Devices -->
+        <div class="wba-card">
+            <h3 class="wba-cardtitle"><i class="fa-solid fa-mobile-screen" aria-hidden="true"></i> Mobile devices</h3>
+            <p class="wba-cardtext">Revoke every FKSS mobile-app session signed in with this account. Each device must sign in again.</p>
+            <button type="button" class="wba-btn wba-danger" data-wba-signout><i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i> Sign out mobile devices</button>
+        </div>
+    </div>
+
+    <div class="wba-toast" data-wba-toast hidden></div>
+</section>
+<?php
+        return (string)ob_get_clean();
+    } catch (Throwable $t) {
+        error_log('[account_settings] section render failed: ' . $t->getMessage()
             . ' @ ' . $t->getFile() . ':' . $t->getLine());
         return '';
     }
