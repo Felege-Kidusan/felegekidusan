@@ -58,7 +58,7 @@ ob_start();
                 <li><button class="school-nav-link" data-section="fees"><i class="fa-solid fa-hand-holding-dollar"></i> Member Fees</button></li>
                 <li><button class="school-nav-link" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button></li>
                 <li><button class="school-nav-link" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports</button></li>
-                <li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
+                <li><button class="school-nav-link" data-section="account" data-wba-nav="account"><i class="fa-solid fa-id-badge"></i> My Account</button></li><li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
             </ul>
         </nav>
 
@@ -112,6 +112,7 @@ ob_start();
             </div>
 
             <!-- ═══ DASHBOARD SECTION ═══ -->
+            <div id="section-account" class="school-section"><?php include __DIR__ . '/../../admin/components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></div>
             <div id="section-dashboard" class="school-section active">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.5rem">
                     <div>

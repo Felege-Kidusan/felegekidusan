@@ -230,3 +230,32 @@ grep -n "requireCsrfForPost" admin/api_settings.php        → line 31
 grep -n "function sApiPost" -A6 admin/dashboards/hr-dept.php → JSON body, no CSRF
 config.php:544 requireCsrfForPost → $_POST or X-CSRF-TOKEN header only
 ```
+
+---
+
+## Appendix C — Sidebar/nav router map (Phase 2: sidebar parity, v1.2.0)
+
+User-facing requirement after v1.1.x feedback: profile management must live **in the
+sidebar as a native section** (HR/Info style) on **every** department — not only as a
+top-bar modal. Audit of every dashboard's navigation system:
+
+| Surface | Nav item mechanism | Section container | Router | Wiring needed |
+|---|---|---|---|---|
+| `edu_dept.php` | `<button class="nl" data-sec="N">` (delegated binder) | `<div id="sec-N" class="sec">` | generic `nav(n)` | markup only + mobile array entry |
+| `school_admin.php` | `<button class="np" data-section="N">` (delegated) | `<section id="section-N" class="cs">` | generic `nav(n)` | markup only + mobile array entry |
+| `material_department.php` | `<button class="np" data-section="N">` (delegated) | `<section id="section-N" class="cs">` | generic `nav(n)` | markup only |
+| `super-admin.php` | `<li><button class="nav-link" data-section="N">` (delegated in super_admin.js) | `<section id="section-N" class="section" hidden>` | `switchSection` with **ALLOWED map** | markup + `account:1` in ALLOWED + cache-bust `?v=` |
+| `teacher.php` | `<div class="nav-link" onclick="showSection('N')">` | `<section id="sec-N" class="section">` | generic | markup only |
+| `attendance_taker.php` | same as teacher | `<section id="sec-N" class="section">` | generic | markup only |
+| `content_editor.php` | card page, no sidebar | — | none | topbar button + self-routed section (shared JS toggles) |
+| `dept_taker.php` | single-card landing | — | none | always-visible account card |
+| `finance_dept.php` (shell) | `.school-nav-link[data-section]` (core.js generic) | `<div id="section-N" class="school-section">` | generic + mobile btns | markup only + mobile entry |
+| `mezmur_dept.php` (shell) | same (core.js) | `<section id="section-N" class="school-section">` | generic `loadTab` | markup only + mobile entry |
+| `hr-dept.php`, `info-dept.php` | native Settings section (reference implementation) | — | own | none — already the pattern being replicated |
+
+Design decision (the anti-root-cause rule): the section UI is **one shared
+server-side renderer** (`render_account_section()` in the same component), the JS is
+**one runtime** that now binds any number of roots (modal + sections) and lazy-loads
+data via a MutationObserver on section visibility — so no per-dashboard JavaScript,
+no copy-paste, and future dashboards get parity with one `include` + one wrapper
+element following their own router conventions.

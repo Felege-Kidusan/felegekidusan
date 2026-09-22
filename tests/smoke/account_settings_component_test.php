@@ -88,6 +88,22 @@ foreach (['የእኔ መገለጫ', 'Security activity', 'Change password', 'dat
 }
 $pass('profile/password/activity sections and Amharic labels present');
 
+// ── 5b. Inline SECTION renderer (v1.2 sidebar parity) ────────────────
+$sec = render_account_section(['visible' => true]);
+strpos($sec, 'data-wba-section') !== false || $fail('section markup missing');
+strpos($sec, 'data-wba-form="profile"') !== false || $fail('section profile form missing');
+strpos($sec, 'data-wba-form="password"') !== false || $fail('section password form missing');
+strpos($sec, 'data-wba-signout') !== false || $fail('section devices card missing');
+$secOpenTag = substr($sec, 0, (int)strpos($sec, '>') + 1);
+strpos($secOpenTag, 'hidden') === false || $fail('visible section root must not carry hidden');
+strpos($sec, 'account-settings.css') !== false && $fail('section must not re-emit assets (shared runtime)');
+$sec2 = render_account_section();
+$sec2 === '' || $fail('section must render once per page');
+$pass('inline section renders once, fully featured, assets shared with modal');
+
+// ── 5c. Section options: hidden default + selfroute ─────────────────
+// (fresh process state is not available here; covered by E2E instead)
+
 // ── 6. Error boundary: no warnings/notices during render ────────────
 $warnings === [] || $fail('PHP warnings/notices emitted: ' . implode('; ', array_slice($warnings, 0, 3)));
 $pass('render is warning-free under E_ALL');

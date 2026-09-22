@@ -7,7 +7,8 @@
 
   var ALLOWED = {
     overview: 1, users: 1, departments: 1, identity: 1, health: 1, settings: 1,
-    branding: 1, logs: 1, backup: 1, syshealth: 1
+    branding: 1, logs: 1, backup: 1, syshealth: 1,
+    account: 1
   };
 
   function panels() {
