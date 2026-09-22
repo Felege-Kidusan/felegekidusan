@@ -1,0 +1,77 @@
+# ============================================================================
+# SSMS CI — quality gates for every pull request and push to main.
+#
+# Strategy: lint/test ONLY what changed (the repo ships vendored libraries,
+# linting the whole tree would be slow and would flag pre-existing issues
+# unrelated to a change), plus the DB-free component smoke test on every run.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: PHP / JS quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed to diff against the base commit
+
+      - name: Setup PHP 8.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring
+          coverage: none
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Lint changed PHP & JS files
+        run: |
+          set -e
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          git cat-file -e "$BASE" 2>/dev/null || BASE=HEAD~1
+          echo "Diffing against $BASE"
+
+          CHANGED_PHP=$(git diff --name-only --diff-filter=ACM "$BASE" HEAD -- '*.php' \
+            | grep -v -e '^vendor/' -e '^admin/backend/pdf/' || true)
+          CHANGED_JS=$(git diff --name-only --diff-filter=ACM "$BASE" HEAD -- '*.js' \
+            | grep -v -e '^vendor/' -e '^admin/js/chart.umd.min.js' || true)
+
+          FAIL=0
+          if [ -n "$CHANGED_PHP" ]; then
+            echo "--- php -l on changed files ---"
+            while IFS= read -r f; do
+              [ -f "$f" ] || continue
+              php -l "$f" || FAIL=1
+            done <<< "$CHANGED_PHP"
+          else
+            echo "no changed PHP files"
+          fi
+
+          if [ -n "$CHANGED_JS" ]; then
+            echo "--- node --check on changed files ---"
+            while IFS= read -r f; do
+              [ -f "$f" ] || continue
+              node --check "$f" || FAIL=1
+            done <<< "$CHANGED_JS"
+          else
+            echo "no changed JS files"
+          fi
+          exit $FAIL
+        shell: bash
+
+      - name: Account component smoke test (no DB required)
+        run: php tests/smoke/account_settings_component_test.php
