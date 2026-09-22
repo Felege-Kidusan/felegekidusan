@@ -47,17 +47,17 @@ class P1BDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # v29 = P1-D's authorized review-inbox tables; P1-B's bump to
-        # v27 (notification center) is history. The notification
-        # tables themselves are untouched by later steps.
-        self.assertIn('version: 29,', self.ldb)
+        # v30 = P1-E's authorized education read-model tables; P1-B's
+        # bump to v27 (notification center) is history. The
+        # notification tables themselves are untouched by later steps.
+        self.assertIn('version: 30,', self.ldb)
         self.assertNotIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 30', self.ldb)
+        self.assertNotIn('version: 31', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 27)', self.ldb)
         self.assertIn('_createNotificationTables(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 30)', self.ldb)
+        self.assertNotIn('if (oldVersion < 31)', self.ldb)
 
     def test_two_tables_created(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_notifications', self.ldb)

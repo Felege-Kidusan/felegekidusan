@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 29,
+      version: 30,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -411,6 +411,18 @@ class LocalDb {
           // migration. Dept-scoped server responses (detail rows
           // carry member marks) → wiped on logout.
           await _createReviewTables(db);
+        }
+        if (oldVersion < 30) {
+          // P1-E (Education Classes local-first): the education
+          // department's own read model — the complete active class
+          // list plus per-class rosters, stored verbatim from the two
+          // /classes endpoints. Deliberately SEPARATE tables: the
+          // teacher workflow's cached_classes/cached_students are
+          // protected shared caches (destructive writers, three
+          // writers, no level_order/year contract) and stay
+          // byte-untouched. Cache starts empty — no data migration.
+          // Rosters carry member PII → wiped on logout.
+          await _createEduTables(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1244,11 +1256,49 @@ class LocalDb {
     ''');
   }
 
+  /// P1-E (DB v30): local-first Education Classes read model — its
+  /// OWN tables, never the teacher workflow's cached_classes /
+  /// cached_students (protected shared caches: CatalogService's
+  /// destructive full replace, three cacheStudents writers, no
+  /// level_order column, no roster-year contract). The class list is
+  /// a complete scoped snapshot replaced on every successful refresh
+  /// (deletion-aware: renames, deactivations, eligible hard deletes
+  /// all propagate); local ordering reproduces the server's
+  /// `level_order, class_name`. Each roster is ONE row per class_id
+  /// holding the server response verbatim — including the
+  /// year-resolution metadata (roster_year_id / roster_year_name /
+  /// roster_fallback), which is server contract and is never
+  /// reconstructed locally.
+  Future<void> _createEduTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_edu_classes (
+        id INTEGER PRIMARY KEY,
+        class_name TEXT NOT NULL DEFAULT '',
+        class_name_en TEXT,
+        level_order INTEGER NOT NULL DEFAULT 0,
+        student_count INTEGER NOT NULL DEFAULT 0,
+        data_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_edu_class_rosters (
+        class_id INTEGER PRIMARY KEY,
+        roster_year_id INTEGER,
+        roster_year_name TEXT,
+        roster_fallback INTEGER NOT NULL DEFAULT 0,
+        data_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
     await _createNotificationTables(db);
     await _createMezmurDaysTable(db);
     await _createReviewTables(db);
+    await _createEduTables(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -1993,6 +2043,131 @@ class LocalDb {
       if (raw == null || raw.isEmpty) return null;
       final decoded = jsonDecode(raw);
       return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ============================================================
+  // P1-E: CACHED EDU CLASSES (education read model)
+  // ============================================================
+
+  /// Replace-on-success snapshot of the Education class list.
+  /// GET /classes returns the COMPLETE active class set for the
+  /// signed-in scope, so this delete + insert in ONE transaction
+  /// propagates renames, deactivations and eligible hard deletes on
+  /// every successful refresh — deliberately NOT P1-D's merge-only
+  /// model (a merge could never drop a deactivated class). Callers
+  /// invoke this only AFTER a successful server response, so a
+  /// failed or offline refresh never reaches this write and cached
+  /// rows always survive failures. An empty-but-valid class set
+  /// replaces too (a scope with zero active classes is honest
+  /// emptiness, not a failure).
+  Future<void> replaceCachedEduClasses(
+      List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete('cached_edu_classes');
+      for (final m in rows) {
+        await txn.insert('cached_edu_classes', {
+          'id': m['id'],
+          'class_name': '${m['class_name'] ?? ''}',
+          'class_name_en':
+              m['class_name_en'] == null ? null : '${m['class_name_en']}',
+          'level_order': _asIntLocal(m['level_order']),
+          'student_count': _asIntLocal(m['student_count']),
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        });
+      }
+    });
+  }
+
+  /// Local Education class list — the server's exact ordering
+  /// (level_order, class_name), never an alphabetical-only
+  /// reconstruction (the shared cached_classes cannot express this).
+  /// Rows come back shaped like the server's class items plus a
+  /// local_fetched_at stamp for the '· updated HH:MM' banner.
+  Future<List<Map<String, dynamic>>> getCachedEduClasses() async {
+    final db = await database;
+    final rows = await db.query('cached_edu_classes',
+        orderBy: 'level_order, class_name');
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        return decoded;
+      } catch (_) {
+        // Corrupt/missing blob — identify the row honestly from its
+        // discrete columns, never fabricate content.
+        return <String, dynamic>{
+          'id': row['id'],
+          'class_name': row['class_name'],
+          'class_name_en': row['class_name_en'],
+          'level_order': row['level_order'],
+          'student_count': row['student_count'],
+          'local_fetched_at': row['fetched_at'],
+        };
+      }
+    }).toList();
+  }
+
+  /// Replace-on-success roster for ONE class — the /classes/{id}/
+  /// students response stored verbatim (students + count + year
+  /// metadata). Per-class keying means refreshing class A never
+  /// touches class B, and merely SELECTING another class never
+  /// clears anything: each roster is isolated by class_id. Called
+  /// only after a successful response, so failures never write.
+  /// Class membership comes ONLY from this endpoint — never derived
+  /// from cached_members (a directory is not a relationship).
+  Future<void> cacheEduClassRoster(
+      int classId, Map<String, dynamic> payload) async {
+    final db = await database;
+    await db.insert(
+      'cached_edu_class_rosters',
+      {
+        'class_id': classId,
+        'roster_year_id': payload['roster_year_id'] == null
+            ? null
+            : _asIntLocal(payload['roster_year_id']),
+        'roster_year_name': payload['roster_year_name'] == null
+            ? null
+            : '${payload['roster_year_name']}',
+        'roster_fallback':
+            (payload['roster_fallback'] == true ||
+                    payload['roster_fallback'] == 1 ||
+                    payload['roster_fallback'] == '1')
+                ? 1
+                : 0,
+        'data_json': jsonEncode(payload),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Cached roster for one class, or null when it was never fetched.
+  /// Returns the server response shape (class_id / students / count
+  /// / roster_year_id / roster_year_name / roster_fallback) plus a
+  /// local_fetched_at stamp. The year metadata is read back verbatim
+  /// — the current-year vs most-populated-prior-year resolution is
+  /// server contract and is never re-resolved locally.
+  Future<Map<String, dynamic>?> getCachedEduClassRoster(int classId) async {
+    final db = await database;
+    try {
+      final rows = await db.query('cached_edu_class_rosters',
+          where: 'class_id = ?', whereArgs: [classId], limit: 1);
+      if (rows.isEmpty) return null;
+      final raw = rows.first['data_json'] as String?;
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        decoded['local_fetched_at'] = rows.first['fetched_at'];
+        return decoded;
+      }
+      return null;
     } catch (_) {
       return null;
     }
@@ -3803,6 +3978,11 @@ class LocalDb {
         'cached_review_packets',
         'cached_review_packet_details',
         'cached_review_stats',
+        // P1-E: education read model is user-scoped (rosters carry
+        // member PII; the class list is role-filtered) — same wipe
+        // discipline as every other cache.
+        'cached_edu_classes',
+        'cached_edu_class_rosters',
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',
