@@ -5,8 +5,12 @@
  * ============================================================
  * Handles:
  *   profile_get        - Get current user profile
- *   profile_update     - Update name, email
- *   password_change    - Change password
+ *   profile_update     - Update name, email, phone (email change requires
+ *                        current password — step-up verification)
+ *   password_change    - Change password (rate-limited, audits, revokes
+ *                        mobile refresh families)
+ *   account_activity   - THIS user's recent security events (audit trail)
+ *   signout_devices    - Revoke all mobile refresh sessions for this user
  *   dept_get           - Get department settings
  *   dept_save          - Save department settings
  *   system_info        - System statistics
@@ -30,6 +34,59 @@ $action = $_REQUEST['action'] ?? '';
 // CSRF protection for all POST requests
 requireCsrfForPost();
 
+// Credential APIs get the same fixed-window rate limiting as login
+// (SecurityRateLimiter is NOT loaded by the admin bootstrap — api_mezmur.php
+// documents this trap). Fails open for availability; the current-password
+// proof still gates the underlying action.
+if (!function_exists('wba_rate_limiter')) {
+    function wba_rate_limiter(): \App\Services\SecurityRateLimiter
+    {
+        require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
+        $pdo = $GLOBALS['pdo'] ?? null;
+        $cacheDir = __DIR__ . '/uploads/cache';
+        if (!is_dir($cacheDir)) { @mkdir($cacheDir, 0755, true); }
+        return new \App\Services\SecurityRateLimiter($pdo instanceof PDO ? $pdo : null, $cacheDir);
+    }
+}
+
+/** True when users.phone exists (migration 047). Cached per request. */
+if (!function_exists('wba_users_have_phone')) {
+    function wba_users_have_phone(mysqli $conn): bool
+    {
+        static $hasPhone = null;
+        if ($hasPhone !== null) { return $hasPhone; }
+        try {
+            $res = $conn->query("SELECT 1 FROM information_schema.COLUMNS
+                                 WHERE TABLE_SCHEMA = DATABASE()
+                                   AND TABLE_NAME = 'users' AND COLUMN_NAME = 'phone'");
+            $hasPhone = (bool)($res && $res->num_rows > 0);
+        } catch (Throwable $error) {
+            $hasPhone = false;
+        }
+        return $hasPhone;
+    }
+}
+
+/** Append one row to the audit trail; audit downtime never fails the action. */
+if (!function_exists('wba_audit')) {
+    function wba_audit(mysqli $conn, int $userId, string $username, string $action, string $details): void
+    {
+        try {
+            $log = $conn->prepare(
+                "INSERT INTO activity_logs (user_id, username, action, details, ip_address)
+                 VALUES (?, ?, ?, ?, ?)"
+            );
+            if (!$log) { return; }
+            $ip = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+            $log->bind_param('issss', $userId, $username, $action, $details, $ip);
+            $log->execute();
+            $log->close();
+        } catch (Throwable $error) {
+            // Audit-table downtime must not prevent the account change.
+        }
+    }
+}
+
 // Settings schema is deployment-managed by migration 013.
 
 try {
@@ -38,7 +95,8 @@ try {
         // ============================================================
         case 'profile_get':
         // ============================================================
-            $stmt = $conn->prepare("SELECT id, username, email, full_name, role, is_active, created_at, last_login FROM users WHERE id = ?");
+            $phoneSelect = wba_users_have_phone($conn) ? ', phone' : '';
+            $stmt = $conn->prepare("SELECT id, username, email, full_name, role, is_active, created_at, last_login{$phoneSelect} FROM users WHERE id = ?");
             $stmt->bind_param('i', $adminId);
             $stmt->execute();
             $user = $stmt->get_result()->fetch_assoc();
@@ -76,6 +134,8 @@ try {
             $input = json_decode(file_get_contents('php://input'), true);
             $fullName = trim($input['full_name'] ?? '');
             $email = trim($input['email'] ?? '');
+            $phone = validatePhone($input['phone'] ?? null); // normalized or null
+            $currentPwd = (string)($input['current_password'] ?? '');
 
             if (empty($fullName)) {
                 echo json_encode(['status' => 'error', 'message' => 'Full name is required']);
@@ -85,6 +145,40 @@ try {
             if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 echo json_encode(['status' => 'error', 'message' => 'Invalid email format']);
                 break;
+            }
+
+            // Fetch the current row once — needed for the email step-up check
+            // below and to detect which fields actually changed (audit).
+            $stmt = $conn->prepare("SELECT username, email, full_name FROM users WHERE id = ?");
+            $stmt->bind_param('i', $adminId);
+            $stmt->execute();
+            $current = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$current) {
+                echo json_encode(['status' => 'error', 'message' => 'User not found']);
+                break;
+            }
+
+            // Step-up verification: the email address is the future recovery
+            // channel, so changing it requires proving the current password
+            // (same principle as Microsoft/Google sensitive-change re-auth).
+            $emailChanging = !empty($email) && strcasecmp((string)($current['email'] ?? ''), $email) !== 0;
+            if ($emailChanging) {
+                if ($currentPwd === '') {
+                    echo json_encode(['status' => 'error', 'message' => 'Enter your current password to change your email.']);
+                    break;
+                }
+                $pwStmt = $conn->prepare("SELECT password_hash FROM users WHERE id = ?");
+                $pwStmt->bind_param('i', $adminId);
+                $pwStmt->execute();
+                $pwRow = $pwStmt->get_result()->fetch_assoc();
+                $pwStmt->close();
+                if (!$pwRow || !password_verify($currentPwd, $pwRow['password_hash'])) {
+                    // Generic message — no signal that the account exists.
+                    echo json_encode(['status' => 'error', 'message' => 'Current password is incorrect.']);
+                    break;
+                }
             }
 
             // Check email uniqueness (if changed)
@@ -106,6 +200,31 @@ try {
             
             if ($stmt->execute()) {
                 $_SESSION['admin_full_name'] = $fullName;
+
+                // Optional phone column (migration 047) — feature-detected so
+                // deployments without the migration keep working.
+                if ($phone !== null && wba_users_have_phone($conn)) {
+                    $phStmt = $conn->prepare("UPDATE users SET phone = ? WHERE id = ?");
+                    $phStmt->bind_param('si', $phone, $adminId);
+                    $phStmt->execute();
+                    $phStmt->close();
+                }
+
+                // Audit which fields changed (names only — never values).
+                $changed = [];
+                if (strcasecmp((string)($current['full_name'] ?? ''), $fullName) !== 0) { $changed[] = 'full_name'; }
+                if ($emailChanging) { $changed[] = 'email'; }
+                if ($phone !== null) { $changed[] = 'phone'; }
+                if ($changed !== []) {
+                    wba_audit(
+                        $conn,
+                        $adminId,
+                        (string)($_SESSION['admin_username'] ?? $current['username']),
+                        'Profile Updated',
+                        'Changed: ' . implode(', ', $changed) . ' (via settings)'
+                    );
+                }
+
                 echo json_encode(['status' => 'success', 'message' => 'Profile updated successfully']);
             } else {
                 echo json_encode(['status' => 'error', 'message' => 'Failed to update profile']);
@@ -125,6 +244,24 @@ try {
             $currentPwd = $input['current_password'] ?? '';
             $newPwd = $input['new_password'] ?? '';
             $confirmPwd = $input['confirm_password'] ?? '';
+
+            // Same throttle profile as login: 5 attempts / 5 min per account
+            // AND per IP, so neither spraying one account nor stuffing from
+            // one machine slips through. Fails open for availability.
+            try {
+                $limiter = wba_rate_limiter();
+                $ipLimit = $limiter->consume('pwd-change-ip', (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'), 20, 300);
+                $acctLimit = $limiter->consume('pwd-change-account', 'user-' . $adminId, 5, 300);
+                if (!$ipLimit['allowed'] || !$acctLimit['allowed']) {
+                    $retryAfter = max((int)$ipLimit['retry_after'], (int)$acctLimit['retry_after']);
+                    header('Retry-After: ' . max(1, $retryAfter));
+                    http_response_code(429);
+                    echo json_encode(['status' => 'error', 'message' => 'Too many attempts. Please wait a few minutes.']);
+                    break;
+                }
+            } catch (Throwable $error) {
+                // Limiter outage never blocks the (current-password-gated) change.
+            }
 
             if (empty($currentPwd) || empty($newPwd) || empty($confirmPwd)) {
                 echo json_encode(['status' => 'error', 'message' => 'All password fields are required']);
@@ -203,6 +340,59 @@ try {
                 echo json_encode(['status' => 'error', 'message' => 'Failed to change password']);
             }
             $stmt->close();
+            break;
+
+        // ============================================================
+        case 'account_activity':
+        // ============================================================
+            // Security timeline: THIS user's own events only. Read-only.
+            $stmt = $conn->prepare(
+                "SELECT action, details, ip_address, created_at
+                 FROM activity_logs WHERE user_id = ?
+                 ORDER BY id DESC LIMIT 15"
+            );
+            if ($stmt) {
+                $stmt->bind_param('i', $adminId);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                $events = [];
+                while ($row = $res->fetch_assoc()) { $events[] = $row; }
+                $stmt->close();
+            } else {
+                $events = [];
+            }
+            echo json_encode(['status' => 'success', 'events' => $events]);
+            break;
+
+        // ============================================================
+        case 'signout_devices':
+        // ============================================================
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                echo json_encode(['status' => 'error', 'message' => 'POST required']);
+                break;
+            }
+            // Revoke every mobile refresh-token family for this account.
+            // Migration 010 may not be present during rollout — fail soft.
+            $revoked = false;
+            try {
+                $revoke = $conn->prepare(
+                    'UPDATE api_refresh_sessions
+                     SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+                     WHERE user_id = ? AND revoked_at IS NULL'
+                );
+                $revoke->bind_param('i', $adminId);
+                $revoke->execute();
+                $revoked = ($revoke->affected_rows >= 0);
+                $revoke->close();
+            } catch (Throwable $error) {
+                $revoked = false;
+            }
+            if ($revoked) {
+                wba_audit($conn, $adminId, (string)($_SESSION['admin_username'] ?? ''), 'Device Signout', 'Revoked mobile sessions via account settings');
+                echo json_encode(['status' => 'success', 'message' => 'All mobile devices signed out. They must sign in again.']);
+            } else {
+                echo json_encode(['status' => 'error', 'message' => 'Could not revoke device sessions.']);
+            }
             break;
 
         // ============================================================

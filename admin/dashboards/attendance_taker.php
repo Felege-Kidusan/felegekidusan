@@ -166,7 +166,7 @@ $csrfToken = generateCsrfToken();
                     <button type="button" class="hidden md:inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition" data-comm-open="inbox" title="Communication">
                         <i class="fa-solid fa-comments"></i> Communication
                     </button>
-                    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
+                    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?>
                     <div class="hidden sm:block text-right text-xs">
                         <div class="font-medium"><?= e($todayFormatted) ?></div>
                         <div class="text-orange-100"><?= $todayDate ?></div>

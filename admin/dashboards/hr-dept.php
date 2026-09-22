@@ -1715,6 +1715,10 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                     <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Email</label>
                                     <input type="email" id="profEmail" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400" placeholder="your@email.com">
                                 </div>
+                                <div id="pwdEmailStepWrap" style="display:none">
+                                    <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Current Password <span class="text-amber-500">(to change email)</span></label>
+                                    <input type="password" id="pwdEmailStep" autocomplete="current-password" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Confirm your current password">
+                                </div>
                                 <button onclick="saveProfile()" class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition flex items-center gap-2">
                                     <i class="fa-solid fa-check"></i> Save Changes
                                 </button>
@@ -3660,9 +3664,13 @@ function settingsToast(msg, ok) {
 }
 
 function sApiPost(action, data) {
+    // F2 fix (docs/audits/ACCOUNT_SELF_SERVICE_RESEARCH.md): api_settings.php
+    // enforces CSRF on every POST via requireCsrfForPost(), which reads
+    // $_POST['csrf_token'] or the X-CSRF-TOKEN header. JSON bodies populate
+    // neither, so every save 403'd. The header is the supported JSON path.
     return fetch('/admin/api_settings.php?action=' + action, {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
         body: JSON.stringify(data)
     }).then(r => r.json());
 }
@@ -3671,6 +3679,9 @@ function sApiGet(action) {
 }
 
 // --- Profile ---
+// Tracks the email as loaded from the server, so saveProfile knows when the
+// email actually changed and must include the step-up password (API enforces).
+let sLoadedEmail = '';
 function loadProfile() {
     sApiGet('profile_get').then(d => {
         if (d.status !== 'success') return;
@@ -3678,6 +3689,7 @@ function loadProfile() {
         document.getElementById('profUsername').value = u.username || '';
         document.getElementById('profName').value = u.full_name || '';
         document.getElementById('profEmail').value = u.email || '';
+        sLoadedEmail = u.email || '';
         document.getElementById('spEmail').textContent = u.email || '—';
         document.getElementById('spCreated').textContent = u.created_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.created_at,'medium'):new Date(u.created_at).toLocaleDateString()) : '—';
         document.getElementById('spLastLogin').textContent = u.last_login ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.last_login,'medium'):new Date(u.last_login).toLocaleDateString()) : 'Never';
@@ -3689,9 +3701,29 @@ function saveProfile() {
     const name = document.getElementById('profName').value.trim();
     const email = document.getElementById('profEmail').value.trim();
     if (!name) { settingsToast('Name is required', false); return; }
-    sApiPost('profile_update', { full_name: name, email: email }).then(d => {
+    // Step-up: changing the email requires proving the current password
+    // (mirrors the API's email-change re-auth requirement).
+    const emailChanged = email !== (typeof sLoadedEmail !== 'undefined' ? sLoadedEmail : email);
+    const stepField = document.getElementById('pwdEmailStep');
+    if (emailChanged) {
+        const cur = stepField ? stepField.value : '';
+        if (!cur) {
+            const wrap = document.getElementById('pwdEmailStepWrap');
+            if (wrap) { wrap.style.display = 'block'; }
+            if (stepField) { stepField.focus(); }
+            settingsToast('Enter your current password to change your email', false);
+            return;
+        }
+    }
+    const payload = { full_name: name, email: email };
+    if (emailChanged && stepField) { payload.current_password = stepField.value; }
+    sApiPost('profile_update', payload).then(d => {
         settingsToast(d.message, d.status === 'success');
         if (d.status === 'success') {
+            sLoadedEmail = email;
+            if (stepField) { stepField.value = ''; }
+            const wrapDone = document.getElementById('pwdEmailStepWrap');
+            if (wrapDone) { wrapDone.style.display = 'none'; }
             document.getElementById('spName').textContent = name;
             document.getElementById('spEmail').textContent = email || '—';
             document.getElementById('spAvatar').textContent = name.charAt(0).toUpperCase();

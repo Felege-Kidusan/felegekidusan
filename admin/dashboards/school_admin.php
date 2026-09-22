@@ -297,7 +297,7 @@ select.inp{cursor:pointer}
 </div>
 <div class="topbar-right">
 <div class="search-box"><i class="fa-solid fa-search"></i><input id="globalSearch" placeholder="Search members, sections..." oninput="globalSearchHandler(this.value)" autocomplete="off"><div class="search-results" id="searchResults"></div></div>
-<?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
+<?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?>
 <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme"><i class="fa-solid fa-sun" id="themeIcon"></i></button>
 <button class="icon-btn" onclick="window.print()" title="Print"><i class="fa-solid fa-print"></i></button>
 </div>
