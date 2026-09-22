@@ -130,9 +130,6 @@ $csrfToken = generateCsrfToken();
                 <div class="nav-link" onclick="showSection('history')">
                     <i class="fa-solid fa-clock-rotate-left w-5"></i> History
                 </div>
-                <div class="nav-link" onclick="showSection('account')" data-wba-nav="account">
-                    <i class="fa-solid fa-id-badge w-5"></i> My Account
-                </div>
             </nav>
             
             <div class="mt-auto pt-4 border-t border-white/10">
@@ -169,7 +166,7 @@ $csrfToken = generateCsrfToken();
                     <button type="button" class="hidden md:inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition" data-comm-open="inbox" title="Communication">
                         <i class="fa-solid fa-comments"></i> Communication
                     </button>
-                    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?>
+                    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
                     <div class="hidden sm:block text-right text-xs">
                         <div class="font-medium"><?= e($todayFormatted) ?></div>
                         <div class="text-orange-100"><?= $todayDate ?></div>
@@ -196,8 +193,6 @@ $csrfToken = generateCsrfToken();
                 </div>
                 
                 <!-- DASHBOARD -->
-                <section id="sec-account" class="section"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
-
                 <section id="sec-dashboard" class="section active">
                     <?php if ($currentYear): ?>
                     <div class="card p-4 mb-6">

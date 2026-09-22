@@ -51,7 +51,7 @@ ob_start();
                 <li><button class="school-nav-link" data-section="attendance"><i class="fa-solid fa-inbox"></i> Submissions</button></li>
                 <li><button class="school-nav-link" data-section="analytics"><i class="fa-solid fa-chart-column"></i> Analytics</button></li>
                 <li><button class="school-nav-link" data-section="takers"><i class="fa-solid fa-user-shield"></i> Attendance Takers</button></li>
-                <li><button class="school-nav-link" data-section="account" data-wba-nav="account"><i class="fa-solid fa-id-badge"></i> My Account</button></li><li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
+                <li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
             </ul>
         </nav>
 
@@ -72,7 +72,6 @@ ob_start();
                     <div class="school-user-role">Mezmur • <span data-today></span></div>
                 </div>
             </div>
-            <?php include __DIR__ . '/../../admin/components/account_settings.php'; ?><?= render_account_settings() ?>
             <a href="/backend/auth/logout.php" class="school-logout-btn">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
@@ -97,7 +96,6 @@ ob_start();
         <div class="school-content">
 
             <!-- ═══ OVERVIEW SECTION ═══ -->
-            <section id="section-account" class="school-section" data-section="account"><?php include __DIR__ . '/../../admin/components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
             <section id="section-overview" class="school-section active" data-section="overview">
 
                 <div class="page-head">

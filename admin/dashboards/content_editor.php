@@ -185,7 +185,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
   </div>
   <div class="topbar-right">
     <button type="button" data-comm-open="inbox" style="color:#fff;font-size:0.8rem;padding:0.4rem 0.8rem;border:1px solid rgba(255,255,255,0.3);border-radius:0.5rem;background:transparent;cursor:pointer;font-family:inherit;font-weight:600"><i class="fa-solid fa-comments" style="margin-right:0.4rem"></i>Communication</button>
-    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?>
+    <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
     <div class="user-chip">
       <div class="user-avatar"><?= e($initials) ?></div>
       <span><?= e($fullName) ?></span>
@@ -206,12 +206,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
     <button class="tab" data-panel="teachers"><i class="fa-solid fa-chalkboard-user"></i> Teachers</button>
     <button class="tab" data-panel="schedule"><i class="fa-solid fa-calendar-week"></i> Schedule</button>
     <button class="tab" data-panel="programs"><i class="fa-solid fa-graduation-cap"></i> Programs</button>
-    <button class="tab" data-panel="social"><i class="fa-solid fa-share-nodes"></i> Social Links</button><button class="tab" data-panel="account" data-wba-nav="account"><i class="fa-solid fa-id-badge"></i> My Account</button>
+    <button class="tab" data-panel="social"><i class="fa-solid fa-share-nodes"></i> Social Links</button>
   </div>
 
   <!-- ═══════════ REGISTRATIONS ═══════════ -->
-  <div class="panel" id="panel-account"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></div>
-
   <div class="panel active" id="panel-registrations">
     <div class="panel-head">
       <div><h2>Registration Submissions</h2><p>Requests from the public website registration form</p></div>

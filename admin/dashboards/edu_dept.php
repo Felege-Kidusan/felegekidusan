@@ -469,7 +469,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div style="display:flex;min-height:100vh">
 <!-- SIDEBAR -->
 <aside class="sb school-sidebar">
-<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem"><div style="width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:12px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-graduation-cap" style="color:#fff;font-size:1.1rem"></i></div><div><div style="color:#fff;font-weight:700;font-size:.9rem">Education Dept</div><div class="amharic" style="color:rgba(255,255,255,.6);font-size:.65rem">የትምህርት ክፍል</div></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?></div>
+<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem"><div style="width:42px;height:42px;background:rgba(255,255,255,.2);border-radius:12px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-graduation-cap" style="color:#fff;font-size:1.1rem"></i></div><div><div style="color:#fff;font-weight:700;font-size:.9rem">Education Dept</div><div class="amharic" style="color:rgba(255,255,255,.6);font-size:.65rem">የትምህርት ክፍል</div></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
 <div>
 <div class="nt">Main</div>
 <button class="nl act" data-sec="dashboard"><i class="fa-solid fa-gauge-high"></i> Dashboard</button>
@@ -490,10 +490,6 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="nl" data-sec="submissions"><i class="fa-solid fa-inbox"></i> Submissions</button>
 <button class="nl" data-sec="reportcards"><i class="fa-solid fa-file-lines"></i> Report Cards</button>
 </div>
-<div>
-<div class="nt">Account</div>
-<button class="nl" data-sec="account" data-wba-nav="account"><i class="fa-solid fa-id-badge"></i> My Account</button>
-</div>
 <div style="display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:12px;background:rgba(255,255,255,.1)"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem"><?= $initials ?></div><div><span style="font-size:.75rem;font-weight:600;color:#fff"><?= e($userName) ?></span><br><span style="font-size:.6rem;color:rgba(255,255,255,.6)"><?= $todayFormatted ?></span></div></div>
 <a href="/admin/logout.php" class="nl" style="color:#fca5a5"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -506,7 +502,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
         <h1>Education Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
-    <?= renderNotificationCenter() ?><?= render_account_settings() ?>
+    <?= renderNotificationCenter() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$tablesExist): ?>
@@ -514,7 +510,6 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <?php else: ?>
 
 <!-- ═══ DASHBOARD ═══ -->
-<div id="sec-account" class="sec"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></div>
 <div id="sec-dashboard" class="sec act">
 <div style="margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap"><div><h1 style="font-size:1.4rem;font-weight:700;color:#1e293b"><?= $greeting ?>, <?= e(explode(' ',$userName)[0]) ?> 📚</h1><p style="color:#64748b;font-size:.8rem"><?= $todayFormatted ?> • Education Department<?php if($currentYear): ?> • <span class="ch ch-p"><?= e($currentYear['year_name']) ?></span><?php endif; ?></p></div><div style="display:flex;gap:.5rem;flex-wrap:wrap"><a href="/admin/notifications.php#compose" class="btn btn-p" style="text-decoration:none"><i class="fa-solid fa-bullhorn"></i> Announce</a><a href="/admin/messages.php" class="btn btn-o" style="text-decoration:none"><i class="fa-solid fa-comments"></i> Message Teachers</a></div></div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem">
@@ -953,8 +948,7 @@ $navItems = [
     ],
     [
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
-        ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],
-        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-sec="account" data-wba-nav="account"'],
+        ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];

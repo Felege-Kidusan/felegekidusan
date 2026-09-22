@@ -69,7 +69,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <body>
 <?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 <aside class="school-sidebar">
-<div class="brand"><div class="bl"><i class="fa-solid fa-warehouse"></i></div><div><span style="font-size:.95rem;font-weight:600;color:#f1f5f9"><?= SCHOOL_NAME_SHORT ?> Material</span><br><span style="font-size:.7rem;color:var(--dm)"><?= DEPT_MATERIAL_NAME ?></span></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?></div>
+<div class="brand"><div class="bl"><i class="fa-solid fa-warehouse"></i></div><div><span style="font-size:.95rem;font-weight:600;color:#f1f5f9"><?= SCHOOL_NAME_SHORT ?> Material</span><br><span style="font-size:.7rem;color:var(--dm)"><?= DEPT_MATERIAL_NAME ?></span></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
 <div><div class="nt">Inventory</div>
 <button class="np active" data-section="dashboard"><i class="fa-solid fa-gauge-high"></i> Overview</button>
 <button class="np" data-section="inventory"><i class="fa-solid fa-boxes-stacked"></i> Inventory</button>
@@ -77,7 +77,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="np" data-section="outgoing"><i class="fa-solid fa-dolly"></i> Outgoing</button>
 <button class="np" data-section="requests"><i class="fa-solid fa-clipboard-list"></i> Requests</button>
 <button class="np" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button>
-<button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button><button class="np" data-section="account" data-wba-nav="account"><i class="fa-solid fa-id-badge"></i> My Account</button>
+<button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button>
 </div>
 <div class="uc"><div class="ua"><?= $initials ?></div><div><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Material • <?= $todayFormatted ?></span></div></div>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
@@ -90,14 +90,13 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
         <h1>Material Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
-    <?= renderNotificationCenter() ?><?= render_account_settings() ?>
+    <?= renderNotificationCenter() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$matReady): ?>
 <div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:var(--ac);margin-bottom:1rem"></i><h2 style="color:#f1f5f9;margin-bottom:.5rem">Setup Required</h2><p style="color:var(--dm);margin-bottom:1.5rem">Material tables need to be created.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>
 <?php else: ?>
 <!-- DASHBOARD -->
-<section id="section-account" class="cs"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></section>
 <div id="section-dashboard" class="cs active">
 <div style="margin-bottom:1.5rem"><h1 style="font-size:1.4rem;font-weight:700;color:#f1f5f9"><?= $greeting ?>, <?= e(explode(' ',$fullName)[0]) ?> 📦</h1><p style="color:var(--dm);font-size:.8rem"><?= $todayFormatted ?> • Inventory Management</p></div>
 <div class="sg">

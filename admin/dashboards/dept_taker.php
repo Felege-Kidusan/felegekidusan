@@ -68,7 +68,7 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
         <button type="button" data-comm-open="inbox" style="color:#fff;text-decoration:none;font-size:.8rem;border:1px solid rgba(255,255,255,.35);padding:7px 14px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer;font-family:inherit">
             <i class="fa-solid fa-comments" style="margin-right:6px"></i>Communication
         </button>
-        <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?>
+        <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
         <a class="exit" href="/admin/logout.php">Exit</a>
     </div>
 </header>
@@ -92,7 +92,6 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
             own takers and reviewers — it is never combined with other departments.
         </div>
     </div>
-<div class="card" style="padding:0;border:none;background:transparent"><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_section(['visible' => true]) ?></div>
 </main>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 </body>
