@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/connectivity_service.dart';
+import '../../services/local_db.dart';
 import '../../utils/config.dart';
 import '../../utils/ethiopian_calendar.dart';
 import '../../utils/theme.dart';
@@ -22,11 +26,19 @@ class MezmurHomeScreen extends StatefulWidget {
   State<MezmurHomeScreen> createState() => MezmurHomeScreenState();
 }
 
-class MezmurHomeScreenState extends State<MezmurHomeScreen> {
+class MezmurHomeScreenState extends State<MezmurHomeScreen>
+    with WidgetsBindingObserver {
   final _api = ApiService();
+  final _db = LocalDb();
   bool _loading = true;
   String? _error;
   List<dynamic> _days = [];
+
+  // P1-C local-first state: single-flight refresh guard + cache
+  // freshness ('· updated HH:MM' for the stale banner).
+  bool _refreshing = false;
+  String? _fresh;
+  StreamSubscription<bool>? _radioSub;
 
   bool get _isStaff {
     final role = _api.userRole;
@@ -38,29 +50,163 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen> {
   @override
   void initState() {
     super.initState();
+    // P1-C: radio-return + app-resume refresh (the established
+    // P1-A/P1-B screen-local pattern — the shell's tab-return
+    // refresh() already exists and flows through the same
+    // single-flight _load). Cached rows stay visible throughout.
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _radioSub = ConnectivityService().statusStream.listen((online) {
+      if (online) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) _load();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _radioSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
   }
 
   void refresh() => _load();
 
+  /// P1-C: local-first — SQLite renders first (offline-capable); the
+  /// server refresh runs only when the radio is up, persists page 1,
+  /// and the list re-renders from the store. A failed or skipped
+  /// refresh keeps the cached rows under an honest stale banner —
+  /// never an error card over valid history.
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    final res = await _api.getMezmurDays(page: 1);
-    if (!mounted) return;
-    if (!res.success) {
-      setState(() {
-        _loading = false;
-        _error = res.message ?? 'Unable to load attendance days.';
-      });
-      return;
+    if (_refreshing) return; // single-flight: open/radio/resume/pull
+    _refreshing = true;
+    try {
+      // ── 1. LOCAL READ (instant; offline-capable) ───────────────
+      final cached = await _db.getCachedMezmurDays();
+      final offline = !ConnectivityService().hasLink;
+      if (!mounted) return;
+      if (cached.isNotEmpty) {
+        // Cached days render immediately — the network never gates
+        // the first paint when history exists.
+        setState(() {
+          _days = cached.take(5).toList();
+          _loading = false;
+          _fresh = _freshest(cached);
+        });
+      } else if (offline) {
+        // Empty cache + offline: no network attempt, honest state.
+        setState(() {
+          _loading = false;
+          _error = 'You are offline and no attendance days are cached yet.';
+        });
+        return;
+      }
+      if (offline) {
+        // Cached rows shown; the radio is down so no refresh is
+        // attempted — say so honestly instead of silently skipping.
+        setState(() => _error = 'You appear to be offline.');
+        return; // radio-return refreshes
+      }
+      // ── 2. SERVER REFRESH (page 1; server-authoritative window) ─
+      final res = await _api.getMezmurDays(page: 1);
+      if (!mounted) return;
+      if (res.success) {
+        final raw = (res.data ?? {})['items'] ?? [];
+        final items = raw is List
+            ? raw
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList()
+            : <Map<String, dynamic>>[];
+        // Merge-upsert by server id — never a destructive replace.
+        if (items.isNotEmpty) {
+          await _db.cacheMezmurDays(items);
+        }
+        // Re-render from the local store so UI == SQLite.
+        final localNow = await _db.getCachedMezmurDays();
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _error = null;
+          _days = localNow.take(5).toList();
+          _fresh = localNow.isNotEmpty ? _freshest(localNow) : null;
+        });
+      } else {
+        // Failure: keep whatever is on screen. Only a genuinely
+        // empty history may fall back to the error card.
+        setState(() {
+          _loading = false;
+          _error = res.isNetworkError
+              ? 'You appear to be offline.'
+              : (res.message ?? 'Unable to load attendance days.');
+        });
+      }
+    } finally {
+      _refreshing = false; // always resets — success, failure, exception
+      if (mounted) setState(() {});
     }
-    setState(() {
-      _loading = false;
-      _days = ((res.data ?? {})['items'] ?? []).take(5).toList();
-    });
+  }
+
+  /// P1-C: newest cache-write stamp among the rendered rows, as
+  /// 'HH:MM' (same day) or 'YYYY-MM-DD'.
+  String? _freshest(List<dynamic> rows) {
+    String? maxIso;
+    for (final r in rows) {
+      if (r is Map) {
+        final iso = r['local_fetched_at'];
+        if (iso is String && (maxIso == null || iso.compareTo(maxIso) > 0)) {
+          maxIso = iso;
+        }
+      }
+    }
+    if (maxIso == null) return null;
+    final dt = DateTime.tryParse(maxIso);
+    if (dt == null) return null;
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    String p2(int v) => v.toString().padLeft(2, '0');
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    return sameDay
+        ? '${p2(local.hour)}:${p2(local.minute)}'
+        : '${local.year}-${p2(local.month)}-${p2(local.day)}';
+  }
+
+  /// P1-C: honest stale state — a failed or skipped refresh keeps
+  /// the cached rows and says so (same visual language as the
+  /// notification center: #92400E on #FEF3C7 = 6.37:1).
+  Widget _staleBanner(String message) {
+    final suffix = _fresh == null ? '' : ' · updated $_fresh';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded,
+              size: 15, color: Color(0xFF92400E)),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text('$message — showing recent days$suffix.',
+                style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF92400E))),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openAttendance([String? date]) {
@@ -158,7 +304,7 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen> {
             const SizedBox(height: 8),
             if (_loading)
               const StudentListSkeleton()
-            else if (_error != null)
+            else if (_error != null && _days.isEmpty)
               AppErrorCard(
                   error: AppError.fromMessage(_error), onRetry: _load)
             else if (_days.isEmpty)
@@ -173,8 +319,18 @@ class MezmurHomeScreenState extends State<MezmurHomeScreen> {
                   ),
                 ),
               )
-            else
+            else ...[
+              // P1-C: a failed/skipped refresh keeps the cached rows
+              // and says so; an in-flight refresh shows a slim line.
+              if (_error != null) _staleBanner(_error!),
+              if (_refreshing)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: LinearProgressIndicator(
+                      minHeight: 3, color: AppTheme.primary),
+                ),
               for (final d in _days) _dayRow(d),
+            ],
           ],
         ),
       ),

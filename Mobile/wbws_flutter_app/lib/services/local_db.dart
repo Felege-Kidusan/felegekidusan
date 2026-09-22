@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 27,
+      version: 28,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -393,6 +393,15 @@ class LocalDb {
           // migration. User-scoped server responses → wiped on
           // logout like every other cache.
           await _createNotificationTables(db);
+        }
+        if (oldVersion < 28) {
+          // P1-C (Mezmur Home local-first): the department-wide
+          // attendance-day aggregate from GET /mezmur/days, verbatim.
+          // Cache starts empty and fills from the first successful
+          // refresh — no data migration, nothing derived from
+          // cached_mezmur_sheet. User-scoped server response → wiped
+          // on logout like every other cache.
+          await _createMezmurDaysTable(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1165,9 +1174,30 @@ class LocalDb {
     ''');
   }
 
+  /// P1-C (DB v28): local-first Mezmur Home store — the
+  /// department-wide attendance-day aggregate from GET /mezmur/days,
+  /// stored verbatim. Days never disappear server-side (no delete
+  /// path) and attendance_date is UNIQUE server-side, so merge-upsert
+  /// by server id is safe. marked/attended are server-authoritative
+  /// aggregates — never derived from cached_mezmur_sheet (which only
+  /// holds (date, section) pairs visited on this phone).
+  Future<void> _createMezmurDaysTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_mezmur_days (
+        id INTEGER PRIMARY KEY,
+        attendance_date TEXT NOT NULL,
+        marked INTEGER NOT NULL DEFAULT 0,
+        attended INTEGER NOT NULL DEFAULT 0,
+        data_json TEXT,
+        fetched_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
     await _createNotificationTables(db);
+    await _createMezmurDaysTable(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -1719,6 +1749,64 @@ class LocalDb {
     String p2(int v) => v.toString().padLeft(2, '0');
     return '${n.year}-${p2(n.month)}-${p2(n.day)} '
         '${p2(n.hour)}:${p2(n.minute)}:${p2(n.second)}';
+  }
+
+  // ============================================================
+  // P1-C: CACHED MEZMUR HOME DAYS (department-wide aggregate)
+  // ============================================================
+
+  /// Merge-upsert the server's day rows by server id
+  /// (ConflictAlgorithm.replace — merge-only; days never disappear
+  /// server-side, so nothing is ever deleted here). Repeated
+  /// refreshes can never duplicate a day or lose history.
+  Future<void> cacheMezmurDays(List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
+    for (final m in rows) {
+      batch.insert(
+        'cached_mezmur_days',
+        {
+          'id': m['id'],
+          'attendance_date': '${m['attendance_date'] ?? ''}',
+          'marked': _asIntLocal(m['marked']),
+          'attended': _asIntLocal(m['attended']),
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Local Mezmur Home page — the server's exact ordering
+  /// (attendance_date DESC; yyyy-MM-dd strings sort identically to
+  /// MySQL DATE). Rows come back shaped like the server's day items
+  /// plus a local_fetched_at stamp for the '· updated HH:MM' banner.
+  Future<List<Map<String, dynamic>>> getCachedMezmurDays(
+      {int limit = 25}) async {
+    final db = await database;
+    final rows = await db.query('cached_mezmur_days',
+        orderBy: 'attendance_date DESC', limit: limit);
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        return decoded;
+      } catch (_) {
+        // Corrupt/missing blob — identify the row honestly from its
+        // discrete columns, never fabricate content.
+        return <String, dynamic>{
+          'id': row['id'],
+          'attendance_date': row['attendance_date'],
+          'marked': row['marked'],
+          'attended': row['attended'],
+          'local_fetched_at': row['fetched_at'],
+        };
+      }
+    }).toList();
   }
 
   // ============================================================
@@ -3522,6 +3610,7 @@ class LocalDb {
         'cached_grade_sheets',
         'cached_mezmur_sheet',
         'cached_mezmur_sections',
+        'cached_mezmur_days',
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',
