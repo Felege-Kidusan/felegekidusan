@@ -69,7 +69,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <body>
 <?php if (function_exists("ay_context_bar_html")) echo ay_context_bar_html($conn ?? null); ?>
 <aside class="school-sidebar">
-<div class="brand"><div class="bl"><i class="fa-solid fa-warehouse"></i></div><div><span style="font-size:.95rem;font-weight:600;color:#f1f5f9"><?= SCHOOL_NAME_SHORT ?> Material</span><br><span style="font-size:.7rem;color:var(--dm)"><?= DEPT_MATERIAL_NAME ?></span></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
+<div class="brand"><div class="bl"><i class="fa-solid fa-warehouse"></i></div><div><span style="font-size:.95rem;font-weight:600;color:#f1f5f9"><?= SCHOOL_NAME_SHORT ?> Material</span><br><span style="font-size:.7rem;color:var(--dm)"><?= DEPT_MATERIAL_NAME ?></span></div><div style="flex:1"></div><?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?><?php include __DIR__ . '/../components/account_settings.php'; ?><?= render_account_settings() ?></div>
 <div><div class="nt">Inventory</div>
 <button class="np active" data-section="dashboard"><i class="fa-solid fa-gauge-high"></i> Overview</button>
 <button class="np" data-section="inventory"><i class="fa-solid fa-boxes-stacked"></i> Inventory</button>
@@ -90,7 +90,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
         <h1>Material Dept</h1>
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
-    <?= renderNotificationCenter() ?>
+    <?= renderNotificationCenter() ?><?= render_account_settings() ?>
     <div class="mob-avatar"><?= $initials ?></div>
 </div>
 <?php if (!$matReady): ?>

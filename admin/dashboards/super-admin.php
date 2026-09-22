@@ -667,6 +667,8 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <?php 
                 include __DIR__ . '/../components/notification_center.php';
                 echo renderNotificationCenter();
+                include __DIR__ . '/../components/account_settings.php';
+                echo render_account_settings();
                 ?>
                 <div class="status-badge"><div class="status-dot"></div> Online</div>
             </div>

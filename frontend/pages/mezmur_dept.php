@@ -72,6 +72,7 @@ ob_start();
                     <div class="school-user-role">Mezmur • <span data-today></span></div>
                 </div>
             </div>
+            <?php include __DIR__ . '/../../admin/components/account_settings.php'; ?><?= render_account_settings() ?>
             <a href="/backend/auth/logout.php" class="school-logout-btn">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
