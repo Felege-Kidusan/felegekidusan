@@ -115,11 +115,26 @@
     }
 
     function observeSection(sec) {
+        // v1.2.1 fix: host routers toggle visibility on the section's
+        // WRAPPER (e.g. #sec-account gets .act, #section-account loses
+        // [hidden]) — the section's own attributes never change, so an
+        // observer on `sec` alone never fires. Observe the WHOLE ancestor
+        // chain instead: any class/hidden/style change above the section
+        // triggers a cheap visibility re-check. ~8 observers max per page.
         if (!window.MutationObserver) { return; }
-        var mo = new MutationObserver(function () {
+        var moCallback = function () {
             if (rootVisible(sec)) { ensureLoaded(); }
-        });
-        mo.observe(sec, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+        };
+        var ancestor = sec.parentElement;
+        var hops = 0;
+        while (ancestor && hops < 10) {
+            try {
+                var mo = new MutationObserver(moCallback);
+                mo.observe(ancestor, { attributes: true, attributeFilter: ['class', 'hidden', 'style'] });
+            } catch (e) { /* never block the host page */ }
+            ancestor = ancestor.parentElement;
+            hops += 1;
+        }
     }
 
     /* ── modal open / close ──────────────────────────────────────── */

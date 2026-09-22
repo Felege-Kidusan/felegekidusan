@@ -552,7 +552,7 @@ $navItems = [
         ['icon' => 'fa-solid fa-user-tie', 'label' => 'Staff', 'attrs' => 'data-section="staff"'],
         ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => 'data-section="reports"'],
         ['icon' => 'fa-solid fa-gear', 'label' => 'System', 'attrs' => 'data-section="system"'],['icon' => 'fa-solid fa-gear', 'label' => 'System', 'attrs' => 'data-section="system"'],
-        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-section="account"'],
+        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Account', 'attrs' => 'data-section="account" data-wba-nav="account"'],
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
     ],
     [
