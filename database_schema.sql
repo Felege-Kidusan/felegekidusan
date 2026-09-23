@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `role` enum('super_admin','school_admin','info_dept','edu_dept','finance_dept','material_dept') NOT NULL,
   `password_hash` varchar(255) NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `authorization_version` bigint(20) UNSIGNED NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),

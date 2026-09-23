@@ -88,7 +88,8 @@ class P1CDatabase(unittest.TestCase):
         self.assertIn('CREATE TABLE IF NOT EXISTS pending_mezmur', self.ldb)
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_mezmur_sheet',
                       self.ldb)
-        self.assertEqual(glob.glob(os.path.join(SQLDIR, '*048*')), [])
+        # P1-C did not add a server migration. Do not reserve a global
+        # migration number here: later, unrelated server work may use it.
         self.assertEqual(glob.glob(os.path.join(SQLDIR, '*p1c*')), [])
 
 

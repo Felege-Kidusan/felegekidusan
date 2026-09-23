@@ -22,7 +22,7 @@ final class RefreshTokenService
         $this->refreshTtl = max(300, min($refreshTtl, 31536000));
     }
 
-    /** @param array{id:mixed,username:mixed,role:mixed,full_name:mixed} $user */
+    /** @param array{id:mixed,username:mixed,role:mixed,full_name:mixed,authorization_version:mixed} $user */
     public function issue(array $user, string $clientIp, string $userAgent): string
     {
         $familyId = bin2hex(random_bytes(32));
@@ -227,7 +227,7 @@ final class RefreshTokenService
     /**
      * Caller owns transaction boundaries when applicable.
      *
-     * @param array{id:mixed,username:mixed,role:mixed,full_name:mixed} $user
+     * @param array{id:mixed,username:mixed,role:mixed,full_name:mixed,authorization_version:mixed} $user
      * @return array{token:string,session_id:string}
      */
     private function issueWithinTransaction(
@@ -243,6 +243,7 @@ final class RefreshTokenService
             (string)$user['username'],
             (string)$user['role'],
             (string)($user['full_name'] ?? ''),
+            max(1, (int)($user['authorization_version'] ?? 1)),
             $sessionId,
             $familyId,
             $expiresAt
@@ -276,11 +277,11 @@ final class RefreshTokenService
         return ['token' => $token, 'session_id' => $sessionId];
     }
 
-    /** @return array{id:int,username:string,full_name:string,role:string}|null */
+    /** @return array{id:int,username:string,full_name:string,role:string,authorization_version:int}|null */
     private function findActiveUserForUpdate(int $userId): ?array
     {
         $statement = $this->database->prepare(
-            'SELECT id, username, full_name, role FROM users
+            'SELECT id, username, full_name, role, authorization_version FROM users
              WHERE id=? AND is_active=1 LIMIT 1 FOR UPDATE'
         );
         $statement->bind_param('i', $userId);
@@ -295,6 +296,7 @@ final class RefreshTokenService
             'username' => (string)$user['username'],
             'full_name' => (string)($user['full_name'] ?? ''),
             'role' => (string)$user['role'],
+            'authorization_version' => max(1, (int)$user['authorization_version']),
         ];
     }
 

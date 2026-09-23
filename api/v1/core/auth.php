@@ -11,6 +11,19 @@ define('API_LEGACY_TOKEN_EXPIRY', 86400 * 30);
 define('API_ROTATION_CLIENT_BUILD', 16);
 define('API_LEGACY_CLIENT_COMPAT_UNTIL', strtotime('2026-09-24 23:59:59'));
 
+// Authorization-scope revalidation is additive for build 24+, while installed
+// build 23 remains on its former token-window behavior during the controlled
+// rollout. Deployment overrides the timestamp in the private env file and sets
+// it to a past value only after build 24 is the enforced minimum. The build
+// header is therefore temporary compatibility metadata, never a permanent
+// security boundary.
+if (!defined('API_AUTHZ_SCOPE_CLIENT_BUILD')) {
+    define('API_AUTHZ_SCOPE_CLIENT_BUILD', 24);
+}
+if (!defined('API_AUTHZ_LEGACY_COMPAT_UNTIL')) {
+    define('API_AUTHZ_LEGACY_COMPAT_UNTIL', PHP_INT_MAX);
+}
+
 /**
  * Temporary compatibility adapter for already-installed app builds that can
  * race refresh requests. Build 16+ is single-flight and receives short access
@@ -28,13 +41,21 @@ function apiAccessTokenExpiryForClient(): int {
 /**
  * Create a JWT token
  */
-function createToken($userId, $username, $role, $fullName, $expiry = null) {
+function createToken(
+    $userId,
+    $username,
+    $role,
+    $fullName,
+    $expiry = null,
+    $authorizationVersion = 1
+) {
     $exp = $expiry ?? API_TOKEN_EXPIRY;
     $payload = [
         'uid' => (int)$userId,
         'usr' => $username,
         'rol' => $role,
         'nam' => $fullName,
+        'av' => max(1, (int)$authorizationVersion),
         'iat' => time(),
         'exp' => time() + $exp,
         'typ' => 'access',
@@ -52,6 +73,7 @@ function createRefreshToken(
     $username,
     $role,
     $fullName,
+    $authorizationVersion,
     $sessionId,
     $familyId,
     $expiresAt
@@ -61,6 +83,7 @@ function createRefreshToken(
         'usr' => $username,
         'rol' => $role,
         'nam' => $fullName,
+        'av' => max(1, (int)$authorizationVersion),
         'iat' => time(),
         'exp' => (int)$expiresAt,
         'typ' => 'refresh',
@@ -116,6 +139,92 @@ function getTokenFromRequest() {
 }
 
 /**
+ * Whether this request is in the live authorization-scope cohort.
+ *
+ * Build 24+ is always checked. Older/unknown clients are checked after the
+ * deployment-controlled compatibility deadline. Once the minimum build is 24,
+ * operations set the deadline to the past so a spoofed old build cannot bypass
+ * revalidation.
+ */
+function apiAuthorizationScopeEnforcedForClient(): bool {
+    $build = max(0, (int)($_SERVER['HTTP_X_APP_BUILD'] ?? 0));
+    return $build >= API_AUTHZ_SCOPE_CLIENT_BUILD
+        || time() > (int)API_AUTHZ_LEGACY_COMPAT_UNTIL;
+}
+
+/**
+ * Revalidate the signed scope against the authoritative current user row.
+ *
+ * Do not overwrite token claims and continue the original request when the
+ * scope changed. A capable client must refresh/reconcile first; a missing or
+ * unavailable authority fails closed with a typed response.
+ *
+ * @param array<string,mixed> $payload verified access-token payload
+ * @return array<string,mixed>
+ */
+function apiRevalidateAuthorizationScope(array $payload): array {
+    if (!apiAuthorizationScopeEnforcedForClient()) {
+        return $payload;
+    }
+
+    global $conn;
+    $statement = null;
+    try {
+        if (!isset($conn) || !($conn instanceof mysqli)) {
+            throw new RuntimeException('API database connection is unavailable.');
+        }
+        $statement = $conn->prepare(
+            'SELECT role, is_active, authorization_version FROM users WHERE id=? LIMIT 1'
+        );
+        if (!$statement) {
+            throw new RuntimeException('Could not prepare authorization revalidation.');
+        }
+        $userId = (int)($payload['uid'] ?? 0);
+        $statement->bind_param('i', $userId);
+        if (!$statement->execute()) {
+            throw new RuntimeException('Could not execute authorization revalidation.');
+        }
+        $result = $statement->get_result();
+        $current = $result ? $result->fetch_assoc() : null;
+        $statement->close();
+        $statement = null;
+    } catch (Throwable $error) {
+        if ($statement instanceof mysqli_stmt) {
+            $statement->close();
+        }
+        error_log('API authorization scope revalidation unavailable.');
+        err(
+            'Authorization could not be revalidated. Please try again.',
+            503,
+            ['code' => 'AUTH_REVALIDATION_UNAVAILABLE']
+        );
+    }
+
+    if (!$current) {
+        err('This account no longer exists. Please sign in again.', 401,
+            ['code' => 'ACCOUNT_REMOVED']);
+    }
+    if ((int)$current['is_active'] !== 1) {
+        err('This account is disabled. Contact an administrator.', 401,
+            ['code' => 'ACCOUNT_DISABLED']);
+    }
+    if (!array_key_exists('av', $payload) || (int)$payload['av'] <= 0) {
+        err('Authorization scope must be refreshed. Please try again.', 401,
+            ['code' => 'AUTH_SCOPE_REFRESH_REQUIRED']);
+    }
+
+    $currentRole = (string)$current['role'];
+    $currentVersion = max(1, (int)$current['authorization_version']);
+    if (!hash_equals($currentRole, (string)($payload['rol'] ?? ''))
+        || $currentVersion !== (int)$payload['av']) {
+        err('Your access changed. Refresh your session before continuing.', 401,
+            ['code' => 'AUTH_SCOPE_CHANGED']);
+    }
+
+    return $payload;
+}
+
+/**
  * Authenticate the current request — returns user payload or calls err()
  */
 function apiRequireAuth() {
@@ -132,7 +241,7 @@ function apiRequireAuth() {
         && ((int)$payload['exp'] - (int)$payload['iat']) > (API_TOKEN_EXPIRY + 60)) {
         err('Access token must be refreshed. Please try again.', 401);
     }
-    return $payload;
+    return apiRevalidateAuthorizationScope($payload);
 }
 
 /**

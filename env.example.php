@@ -42,6 +42,14 @@ define('BACKUP_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_2'); // encrypts
 define('HEALTH_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_3'); // HTTP Basic/X-Health-Key health credential
 define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password for the error-monitor dashboard (/monitor/)
 
+// ---- Mobile authorization-scope rollout (TEMPORARY / OPTIONAL) ----
+// Build 24+ always receives live role/status/assignment revalidation. Older
+// builds keep their former token-window behavior until this UNIX timestamp.
+// Leave omitted during the build-24 pilot (the code defaults to compatibility).
+// After build 24 is the enforced minimum, set this to a past timestamp (for
+// example 1) so a spoofed old X-App-Build value cannot bypass revalidation.
+// define('API_AUTHZ_LEGACY_COMPAT_UNTIL', 1);
+
 // ---- Encrypted database backup storage (OPTIONAL) ----
 // Defaults to `ssms_secure_backups` beside (not inside) public_html. The path
 // must be absolute, outside the web root, and writable by the PHP/cron account.

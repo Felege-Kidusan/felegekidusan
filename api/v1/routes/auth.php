@@ -12,9 +12,25 @@ require_once __DIR__ . '/../../../admin/backend/services/RefreshTokenService.php
 $action = $ROUTE['id'] ?? '';
 $refreshService = new \App\Services\RefreshTokenService(
     $conn,
-    static function ($userId, $username, $role, $fullName, $sessionId, $familyId, $expiresAt) {
+    static function (
+        $userId,
+        $username,
+        $role,
+        $fullName,
+        $authorizationVersion,
+        $sessionId,
+        $familyId,
+        $expiresAt
+    ) {
         return createRefreshToken(
-            $userId, $username, $role, $fullName, $sessionId, $familyId, $expiresAt
+            $userId,
+            $username,
+            $role,
+            $fullName,
+            $authorizationVersion,
+            $sessionId,
+            $familyId,
+            $expiresAt
         );
     },
     API_REFRESH_EXPIRY
@@ -43,7 +59,10 @@ if ($action === 'login' && $method === 'POST') {
         err('Invalid username or password.', 401);
     }
     
-    $stmt = $conn->prepare("SELECT id, username, email, full_name, role, password_hash, is_active FROM users WHERE (username = ? OR email = ?) LIMIT 1");
+    $stmt = $conn->prepare(
+        "SELECT id, username, email, full_name, role, password_hash, is_active, authorization_version
+         FROM users WHERE (username = ? OR email = ?) LIMIT 1"
+    );
     if (!$stmt) err('Database error', 500);
     $stmt->bind_param('ss', $username, $username);
     $stmt->execute();
@@ -69,7 +88,14 @@ if ($action === 'login' && $method === 'POST') {
     logApiAction($user['id'], $user['username'], 'API Login', 'REST API v1');
     
     ok([
-        'token' => createToken($user['id'], $user['username'], $user['role'], $user['full_name'], $accessTokenExpiry),
+        'token' => createToken(
+            $user['id'],
+            $user['username'],
+            $user['role'],
+            $user['full_name'],
+            $accessTokenExpiry,
+            $user['authorization_version']
+        ),
         'refresh_token' => $refreshToken,
         'expires_in' => $accessTokenExpiry,
         'user' => [
@@ -77,7 +103,8 @@ if ($action === 'login' && $method === 'POST') {
             'username' => $user['username'],
             'full_name' => $user['full_name'],
             'email' => $user['email'] ?? '',
-            'role' => $user['role']
+            'role' => $user['role'],
+            'authorization_version' => max(1, (int)$user['authorization_version'])
         ]
     ]);
 }
@@ -117,9 +144,23 @@ if ($action === 'refresh-token' && $method === 'POST') {
 
     $user = $rotation['user'];
     ok([
-        'token' => createToken($user['id'], $user['username'], $user['role'], $user['full_name'], $accessTokenExpiry),
+        'token' => createToken(
+            $user['id'],
+            $user['username'],
+            $user['role'],
+            $user['full_name'],
+            $accessTokenExpiry,
+            $user['authorization_version']
+        ),
         'refresh_token' => $rotation['token'],
         'expires_in' => $accessTokenExpiry,
+        'user' => [
+            'id' => (int)$user['id'],
+            'username' => $user['username'],
+            'full_name' => $user['full_name'],
+            'role' => $user['role'],
+            'authorization_version' => max(1, (int)$user['authorization_version']),
+        ],
     ]);
 }
 
