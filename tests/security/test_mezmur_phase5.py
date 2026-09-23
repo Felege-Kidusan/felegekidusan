@@ -858,7 +858,7 @@ class SingleTitleAndFilterSheetTests(unittest.TestCase):
         self.assertNotIn("_referenceCtrl", self.editor)
         self.assertIn("Title (ርዕስ) *", self.editor)
         # local DB folds on upgrade to v16 and rebuilds the word index.
-        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34)
+        self.assertIn("version: localDatabaseSchemaVersion,", self.db)
         self.assertIn("UPDATE cached_hymns SET title = title_am", self.db)
         self.assertIn("UPDATE cached_hymns SET title_am = NULL, reference = NULL", self.db)
         # local LIKE search is title-only.
@@ -997,7 +997,7 @@ class CoverColorAndUxStateTests(unittest.TestCase):
     # ── mobile gradient system ─────────────────────────────────
     def test_mobile_gradient_pipeline(self):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/utils/cover_palette.dart").exists())
-        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34)
+        self.assertIn("version: localDatabaseSchemaVersion,", self.db)
         self.assertIn("gradient_start", self.db)           # columns + upserts
         self.assertIn("coverColors", self.hymns)           # shared util used
         self.assertIn("Cover color", self.cats)            # manager entry
@@ -1264,7 +1264,7 @@ class SubcategoryClientTests(unittest.TestCase):
         self.assertTrue((ROOT / "Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_category_screen.dart").exists())
         self.assertIn("MezmurCategoryScreen(", self.hymns)
         self.assertIn("image_url", self.db)   # covers cached on-device
-        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34)
+        self.assertIn("version: localDatabaseSchemaVersion,", self.db)
 
     def test_mobile_rollup(self):
         # local filter + counts roll a MAIN over its subs
@@ -1517,7 +1517,7 @@ class ZemarianImagesAndCatalogCollapseTests(unittest.TestCase):
 
     # ── singer images: mobile ───────────────────────────────────
     def test_mobile_local_schema_v19(self):
-        self.assertIn("version: 20,", self.db)
+        self.assertIn("version: localDatabaseSchemaVersion,", self.db)
         self.assertIn(
             "ALTER TABLE cached_mezmur_zemarians ADD COLUMN image_url TEXT NULL", self.db)
         self.assertIn("image_url TEXT NULL,", self.db)  # fresh installs
@@ -2351,7 +2351,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
 
     # ── local DB contract ─────────────────────────────────────
     def test_localdb_v11_hymn_tables(self):
-        self.assertIn("version: 20,", self.db)  # 20 = audio + synced lyrics (P0); 19 = singer covers (P34);
+        self.assertIn("version: localDatabaseSchemaVersion,", self.db)
         # 17 = two-level taxonomy (P30); 16 = single title
         for t in ("cached_hymns", "pending_hymn_ops", "hymn_sync_meta",
                   "cached_mezmur_categories"):

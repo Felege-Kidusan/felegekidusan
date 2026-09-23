@@ -49,17 +49,15 @@ class P1CDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # v33 = P1-H's authorized Mezmur analytics last-view cache;
-        # P1-C's bump to v28 (mezmur days) is history. The
+        # P1-C's bump to v28 (Mezmur days) is history. The current
+        # version is centralized in the v34 schema contract; the
         # mezmur-days table itself is untouched by later steps.
-        self.assertIn('version: 33,', self.ldb)
+        self.assertIn('version: localDatabaseSchemaVersion,', self.ldb)
         self.assertNotIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 34', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 28)', self.ldb)
         self.assertIn('_createMezmurDaysTable(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 34)', self.ldb)
 
     def test_table_schema(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_mezmur_days',
@@ -221,8 +219,8 @@ class P1CFailureAndRefresh(unittest.TestCase):
 
 
 class P1CDoNotTouch(unittest.TestCase):
-    """The Mezmur write/outbox architecture, F8 logic, server
-    contracts, and the timeout are byte-untouched."""
+    """The Mezmur write architecture, F8 reason guard, server contracts,
+    and timeout remain intact while v34 also spares terminal states."""
 
     def setUp(self):
         self.ldb = read(LDB)
@@ -234,9 +232,11 @@ class P1CDoNotTouch(unittest.TestCase):
                      'dropPendingMezmur', 'dropPendingHr'):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
-        # The exact F8-protected mezmur drop where-clause.
+            self.assertIn("sync_state IN ('pending', 'retry_wait')", body, name)
+        # F8 reasons and v34 terminal/paused states are both protected.
         self.assertIn(
             "'date = ? AND section = ? AND synced = 0'\n"
+            "            \" AND sync_state IN ('pending', 'retry_wait')\"\n"
             "            ' AND sync_error IS NULL'", self.ldb)
 
     def test_f8_classification_unchanged(self):

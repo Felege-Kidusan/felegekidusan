@@ -47,17 +47,15 @@ class P1BDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # v33 = P1-H's authorized Mezmur analytics last-view cache;
         # P1-B's bump to v27 (notification center) is history. The
+        # current version is centralized in the v34 schema contract; the
         # notification tables themselves are untouched by later steps.
-        self.assertIn('version: 33,', self.ldb)
+        self.assertIn('version: localDatabaseSchemaVersion,', self.ldb)
         self.assertNotIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 34', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 27)', self.ldb)
         self.assertIn('_createNotificationTables(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 34)', self.ldb)
 
     def test_two_tables_created(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_notifications', self.ldb)

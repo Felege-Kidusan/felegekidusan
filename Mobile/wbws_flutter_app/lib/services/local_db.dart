@@ -10,6 +10,8 @@ import 'synced_lyrics_merge.dart';
 import 'package:path/path.dart';
 
 import 'taxonomy_reconcile.dart';
+import 'legacy_outbox_models.dart';
+import 'local_schema_v34.dart';
 
 String newClientOpId() {
   final r = Random.secure();
@@ -46,7 +48,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 33,
+      version: localDatabaseSchemaVersion,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -58,6 +60,7 @@ class LocalDb {
       },
       onCreate: (db, version) async {
         await _createTables(db);
+        await _migrateToV34(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -486,8 +489,287 @@ class LocalDb {
               'UPDATE cached_hymns SET title_am = NULL, reference = NULL');
           await _rebuildHymnSearchIndex(db);
         }
+        if (oldVersion < 34) {
+          // Risks #1/#9/#8/#10: one coordinated owner/scope/state and
+          // immutable-operation migration. sqflite wraps onUpgrade in one
+          // transaction; the migration itself is repeat-safe.
+          await _migrateToV34(db);
+        }
+      },
+      onOpen: (db) async {
+        // No HTTP request survives its issuing process. Recover durable claims
+        // before any scheduler can observe/select work, preserving operation
+        // and idempotency identity for safe replay.
+        await _recoverOrphanedInFlightWithDb(db);
       },
     );
+  }
+
+  Future<bool> _tableExists(Database db, String table) async {
+    final rows = await db.rawQuery(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      [table],
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<Set<String>> _columnNames(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.map((row) => '${row['name']}').toSet();
+  }
+
+  /// Coordinated schema-v34 migration. onCreate/onUpgrade supply the outer
+  /// transaction; every step is repeat-safe so interrupted opens can resume.
+  Future<void> _migrateToV34(Database db) async {
+    for (final spec in localV34ColumnSpecs) {
+      if (!await _tableExists(db, spec.table)) continue;
+      final columns = await _columnNames(db, spec.table);
+      if (!columns.contains(spec.name)) {
+        await db.execute(
+          'ALTER TABLE ${spec.table} ADD COLUMN ${spec.name} '
+          '${spec.declaration}',
+        );
+      }
+    }
+
+    await db.execute(localSessionStateV34Sql);
+    await db.insert(
+      'local_session_state',
+      {
+        'id': 1,
+        'state': 'anonymous_clean',
+        'generation': 0,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    for (final spec in legacyOutboxTableSpecs) {
+      if (!await _tableExists(db, spec.table)) continue;
+      await db.rawUpdate(
+        "UPDATE ${spec.table} SET sync_state = 'synced' "
+        "WHERE synced = 1 AND sync_state <> 'synced'",
+      );
+      await db.rawUpdate(
+        "UPDATE ${spec.table} "
+        "SET sync_state = 'needs_attention', "
+        "failure_code = COALESCE(failure_code, 'LEGACY_REJECTION'), "
+        'failed_at = COALESCE(failed_at, ?) '
+        "WHERE synced = 0 AND sync_error IS NOT NULL "
+        "AND sync_state = 'pending'",
+        [now],
+      );
+    }
+
+    if (await _tableExists(db, 'pending_hymn_ops')) {
+      await db.rawUpdate(
+        "UPDATE pending_hymn_ops SET sync_state = 'synced' "
+        "WHERE synced = 1 AND sync_state <> 'synced'",
+      );
+      final missingIds = await db.query(
+        'pending_hymn_ops',
+        columns: ['id'],
+        where: "synced = 0 AND (client_op_id IS NULL OR "
+            "TRIM(client_op_id) = '')",
+      );
+      for (final row in missingIds) {
+        await db.update(
+          'pending_hymn_ops',
+          {'client_op_id': newClientOpId()},
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+    }
+
+    if (await _tableExists(db, 'comm_outbox')) {
+      // Keep `failed` for the existing bubble UI. The structured metadata
+      // gives it needs-attention semantics without switching live behavior.
+      await db.rawUpdate(
+        "UPDATE comm_outbox SET "
+        "failure_code = COALESCE(failure_code, 'LEGACY_COMM_FAILURE'), "
+        'failed_at = COALESCE(failed_at, ?) '
+        "WHERE state = 'failed'",
+        [now],
+      );
+    }
+
+    await _reconcileLegacyOperationIds(db, now);
+
+    for (final sql in localV34IndexSql) {
+      await db.execute(sql);
+    }
+  }
+
+  String _legacyBusinessKey(
+    LegacyOutboxTableSpec spec,
+    Map<String, Object?> row,
+  ) {
+    return jsonEncode([
+      for (final column in spec.businessKeyColumns) row[column],
+    ]);
+  }
+
+  String _legacyPacketKind(Map<String, Object?> row) {
+    final value = '${row['packet_kind'] ?? 'draft'}'.trim().toLowerCase();
+    return value.isEmpty ? 'draft' : value;
+  }
+
+  /// Gives coherent pre-v34 packets one shared id. Ambiguous generations are
+  /// never merged/selected lexically: every row is retained and quarantined.
+  Future<void> _reconcileLegacyOperationIds(Database db, String now) async {
+    for (final spec in legacyOutboxTableSpecs) {
+      if (!await _tableExists(db, spec.table)) continue;
+      final rows = await db.query(
+        spec.table,
+        columns: [
+          'id',
+          ...spec.businessKeyColumns,
+          'packet_kind',
+          'client_op_id',
+          'failed_at',
+        ],
+        where: 'synced = 0',
+        orderBy: 'id',
+      );
+      final groups = <String, List<Map<String, Object?>>>{};
+      for (final row in rows) {
+        groups.putIfAbsent(_legacyBusinessKey(spec, row), () => []).add(row);
+      }
+
+      for (final group in groups.values) {
+        final ids = <String>{};
+        final blankRows = <Map<String, Object?>>[];
+        final packetKinds = <String>{};
+        for (final row in group) {
+          final id = '${row['client_op_id'] ?? ''}';
+          if (id.trim().isEmpty) {
+            blankRows.add(row);
+          } else {
+            ids.add(id);
+          }
+          packetKinds.add(_legacyPacketKind(row));
+        }
+
+        final validPacketKind = packetKinds.length == 1 &&
+            (packetKinds.single == 'draft' ||
+                packetKinds.single == 'submitted');
+        final coherent = validPacketKind &&
+            (ids.isEmpty || (ids.length == 1 && blankRows.isEmpty));
+
+        if (coherent && ids.isEmpty) {
+          final generated = newClientOpId();
+          for (final row in blankRows) {
+            await db.update(
+              spec.table,
+              {'client_op_id': generated},
+              where: 'id = ? AND synced = 0',
+              whereArgs: [row['id']],
+            );
+          }
+          continue;
+        }
+        if (coherent) continue;
+
+        // Blank children in an ambiguous set receive individual identities;
+        // assigning one shared id would falsely assert a coherent generation.
+        for (final row in group) {
+          final values = <String, Object?>{
+            'sync_state': 'needs_attention',
+            'failure_code': 'LEGACY_MIXED_OPERATION_SET',
+            if (row['failed_at'] == null) 'failed_at': now,
+          };
+          if ('${row['client_op_id'] ?? ''}'.trim().isEmpty) {
+            values['client_op_id'] = newClientOpId();
+          }
+          await db.update(
+            spec.table,
+            values,
+            where: 'id = ? AND synced = 0',
+            whereArgs: [row['id']],
+          );
+        }
+      }
+    }
+
+    // Also reject one id reused across business keys, packet kinds, or tables.
+    // UUID lexical ordering is deliberately absent from this reconciliation.
+    final identitiesById = <String, Set<String>>{};
+    final tablesById = <String, Set<String>>{};
+    for (final spec in legacyOutboxTableSpecs) {
+      if (!await _tableExists(db, spec.table)) continue;
+      final rows = await db.query(
+        spec.table,
+        columns: [
+          ...spec.businessKeyColumns,
+          'packet_kind',
+          'client_op_id',
+        ],
+        where: 'synced = 0',
+      );
+      for (final row in rows) {
+        final id = '${row['client_op_id'] ?? ''}';
+        if (id.trim().isEmpty) continue;
+        final identity = '${spec.table}|${_legacyBusinessKey(spec, row)}|'
+            '${_legacyPacketKind(row)}';
+        identitiesById.putIfAbsent(id, () => <String>{}).add(identity);
+        tablesById.putIfAbsent(id, () => <String>{}).add(spec.table);
+      }
+    }
+    for (final entry in identitiesById.entries) {
+      if (entry.value.length <= 1) continue;
+      for (final table in tablesById[entry.key] ?? const <String>{}) {
+        await db.rawUpdate(
+          "UPDATE $table SET sync_state = 'needs_attention', "
+          "failure_code = 'LEGACY_MIXED_OPERATION_SET', "
+          'failed_at = COALESCE(failed_at, ?) '
+          'WHERE client_op_id = ? AND synced = 0',
+          [now, entry.key],
+        );
+      }
+    }
+  }
+
+  /// Public for startup orchestration and deterministic recovery tests.
+  Future<void> recoverOrphanedInFlightOperations() async {
+    final db = await database;
+    await _recoverOrphanedInFlightWithDb(db);
+  }
+
+  Future<void> _recoverOrphanedInFlightWithDb(Database db) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final existingLegacy = <LegacyOutboxTableSpec>[];
+    for (final spec in legacyOutboxTableSpecs) {
+      if (await _tableExists(db, spec.table)) existingLegacy.add(spec);
+    }
+    final hasHymn = await _tableExists(db, 'pending_hymn_ops');
+    final hasComm = await _tableExists(db, 'comm_outbox');
+    await db.transaction((txn) async {
+      for (final spec in existingLegacy) {
+        await txn.rawUpdate(
+          "UPDATE ${spec.table} SET sync_state = 'retry_wait', "
+          'next_attempt_at = ? '
+          "WHERE synced = 0 AND sync_state = 'in_flight'",
+          [now],
+        );
+      }
+      if (hasHymn) {
+        await txn.rawUpdate(
+          "UPDATE pending_hymn_ops SET sync_state = 'retry_wait', "
+          'next_attempt_at = ? '
+          "WHERE synced = 0 AND sync_state = 'in_flight'",
+          [now],
+        );
+      }
+      if (hasComm) {
+        await txn.rawUpdate(
+          "UPDATE comm_outbox SET state = 'pending', next_attempt_at = ? "
+          "WHERE state = 'in_flight'",
+          [now],
+        );
+      }
+    });
   }
 
   /// Communication offline tables (schema v26, offline-first O1).
@@ -536,14 +818,22 @@ class LocalDb {
         attempts INTEGER NOT NULL DEFAULT 0,
         next_attempt_at TEXT,
         created_at TEXT NOT NULL,
-        fail_reason TEXT
+        fail_reason TEXT,
+        last_attempt_at TEXT,
+        failure_code TEXT,
+        failure_http_status INTEGER,
+        failed_at TEXT,
+        owner_user_id INTEGER,
+        created_authorization_version INTEGER
       )
     ''');
     await db.execute('''
       CREATE TABLE IF NOT EXISTS comm_drafts (
         thread_id INTEGER PRIMARY KEY,
         body TEXT NOT NULL DEFAULT '',
-        updated_at TEXT
+        updated_at TEXT,
+        owner_user_id INTEGER,
+        created_authorization_version INTEGER
       )
     ''');
     await db.execute('''
@@ -639,7 +929,18 @@ class LocalDb {
         created_at TEXT NOT NULL,
         synced INTEGER NOT NULL DEFAULT 0,
         synced_at TEXT,
-        sync_error TEXT
+        sync_error TEXT,
+        sync_state TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_attempt_at TEXT,
+        failure_code TEXT,
+        failure_http_status INTEGER,
+        failed_at TEXT,
+        created_authorization_version INTEGER,
+        created_by_user_id INTEGER,
+        entity_key TEXT,
+        depends_on INTEGER
       )
     ''');
     await db.execute('''
@@ -1439,7 +1740,16 @@ class LocalDb {
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
-        sync_error TEXT
+        sync_error TEXT,
+        sync_state TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_attempt_at TEXT,
+        failure_code TEXT,
+        failure_http_status INTEGER,
+        failed_at TEXT,
+        created_authorization_version INTEGER,
+        owner_user_id INTEGER
       )
     ''');
 
@@ -1458,7 +1768,16 @@ class LocalDb {
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
-        sync_error TEXT
+        sync_error TEXT,
+        sync_state TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_attempt_at TEXT,
+        failure_code TEXT,
+        failure_http_status INTEGER,
+        failed_at TEXT,
+        created_authorization_version INTEGER,
+        owner_user_id INTEGER
       )
     ''');
     await db.execute('''
@@ -1491,7 +1810,16 @@ class LocalDb {
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
-        sync_error TEXT
+        sync_error TEXT,
+        sync_state TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_attempt_at TEXT,
+        failure_code TEXT,
+        failure_http_status INTEGER,
+        failed_at TEXT,
+        created_authorization_version INTEGER,
+        owner_user_id INTEGER
       )
     ''');
     await db.execute('''
@@ -1530,7 +1858,16 @@ class LocalDb {
         synced INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         synced_at TEXT,
-        sync_error TEXT
+        sync_error TEXT,
+        sync_state TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_attempt_at TEXT,
+        failure_code TEXT,
+        failure_http_status INTEGER,
+        failed_at TEXT,
+        created_authorization_version INTEGER,
+        owner_user_id INTEGER
       )
     ''');
 
@@ -2748,6 +3085,281 @@ class LocalDb {
   }
 
   // ============================================================
+  // LEGACY OUTBOX OPERATION PRIMITIVES (schema v34)
+  // ============================================================
+
+  LegacyOutboxTableSpec _legacySpecFor(LegacyOperationKind kind) {
+    final table = switch (kind) {
+      LegacyOperationKind.attendance => 'pending_attendance',
+      LegacyOperationKind.grades => 'pending_grades',
+      LegacyOperationKind.mezmur => 'pending_mezmur',
+      LegacyOperationKind.hr => 'pending_hr',
+    };
+    return legacyOutboxTableSpecs.firstWhere((spec) => spec.table == table);
+  }
+
+  Map<String, Object?> _legacyNaturalKey(
+    LegacyOutboxTableSpec spec,
+    Map<String, Object?> row,
+  ) {
+    return {
+      for (final column in spec.businessKeyColumns) column: row[column],
+    };
+  }
+
+  (String, List<Object?>) _legacyExactWhere(
+    LegacyOutboxTableSpec spec,
+    LegacyOperationRef operation,
+  ) {
+    final clauses = <String>[
+      'client_op_id = ?',
+      'synced = 0',
+      "sync_state = 'in_flight'",
+      'owner_user_id = ?',
+      'created_authorization_version = ?',
+    ];
+    final args = <Object?>[
+      operation.clientOpId,
+      operation.ownerUserId,
+      operation.createdAuthorizationVersion,
+    ];
+    for (final column in spec.businessKeyColumns) {
+      clauses.add('$column = ?');
+      args.add(operation.naturalKey[column]);
+    }
+    return (clauses.join(' AND '), args);
+  }
+
+  /// Atomically claims and snapshots one due operation. The returned immutable
+  /// snapshot is the only object that may cross the HTTP boundary.
+  Future<LegacyClaimSnapshot?> claimNextLegacyOperation({
+    required LegacyOperationKind kind,
+    required int ownerUserId,
+    required int authorizationVersion,
+    required int runtimeGeneration,
+    DateTime? now,
+  }) async {
+    final db = await database;
+    final spec = _legacySpecFor(kind);
+    final claimedAt = (now ?? DateTime.now()).toUtc();
+    final claimedAtText = claimedAt.toIso8601String();
+
+    return db.transaction((txn) async {
+      final candidates = await txn.rawQuery(
+        'SELECT client_op_id, MIN(id) AS first_id '
+        'FROM ${spec.table} '
+        'WHERE synced = 0 '
+        "AND sync_state IN ('pending', 'retry_wait') "
+        'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '
+        'AND owner_user_id = ? '
+        'AND created_authorization_version = ? '
+        "AND client_op_id IS NOT NULL AND TRIM(client_op_id) <> '' "
+        'GROUP BY client_op_id '
+        'ORDER BY MIN(created_at), MIN(id) LIMIT 1',
+        [claimedAtText, ownerUserId, authorizationVersion],
+      );
+      if (candidates.isEmpty) return null;
+      final clientOpId = '${candidates.first['client_op_id']}';
+      final rows = await txn.query(
+        spec.table,
+        where: 'client_op_id = ? AND synced = 0',
+        whereArgs: [clientOpId],
+        orderBy: 'id',
+      );
+      if (rows.isEmpty) return null;
+
+      final naturalKeys = <String>{};
+      final packetKinds = <String>{};
+      final states = <String>{};
+      for (final row in rows) {
+        naturalKeys.add(_legacyBusinessKey(spec, row));
+        packetKinds.add(_legacyPacketKind(row));
+        states.add('${row['sync_state']}');
+        if (row['owner_user_id'] != ownerUserId ||
+            row['created_authorization_version'] != authorizationVersion) {
+          return null;
+        }
+      }
+      if (naturalKeys.length != 1 ||
+          packetKinds.length != 1 ||
+          !const {'draft', 'submitted'}.contains(packetKinds.single) ||
+          states.length != 1 ||
+          !const {'pending', 'retry_wait'}.contains(states.single)) {
+        return null;
+      }
+
+      final naturalKey = _legacyNaturalKey(spec, rows.first);
+      final keyClauses = <String>[];
+      final updateArgs = <Object?>[claimedAtText, clientOpId, states.single];
+      for (final column in spec.businessKeyColumns) {
+        keyClauses.add('$column = ?');
+        updateArgs.add(naturalKey[column]);
+      }
+      updateArgs.add(ownerUserId);
+      updateArgs.add(authorizationVersion);
+      final affected = await txn.rawUpdate(
+        "UPDATE ${spec.table} SET sync_state = 'in_flight', "
+        'attempt_count = attempt_count + 1, last_attempt_at = ?, '
+        'next_attempt_at = NULL '
+        'WHERE client_op_id = ? AND synced = 0 AND sync_state = ? '
+        'AND ${keyClauses.join(' AND ')} '
+        'AND owner_user_id = ? AND created_authorization_version = ?',
+        updateArgs,
+      );
+      if (affected != rows.length) {
+        throw StateError('Legacy operation claim was not atomic.');
+      }
+
+      final snapshotWhere = <String>[
+        'client_op_id = ?',
+        'synced = 0',
+        "sync_state = 'in_flight'",
+        ...keyClauses,
+        'owner_user_id = ?',
+        'created_authorization_version = ?',
+      ].join(' AND ');
+      final claimedRows = await txn.query(
+        spec.table,
+        where: snapshotWhere,
+        whereArgs: [
+          clientOpId,
+          for (final column in spec.businessKeyColumns) naturalKey[column],
+          ownerUserId,
+          authorizationVersion,
+        ],
+        orderBy: 'id',
+      );
+      if (claimedRows.length != rows.length) {
+        throw StateError('Legacy operation snapshot was not coherent.');
+      }
+      final attemptCount = int.tryParse(
+            '${claimedRows.first['attempt_count'] ?? 0}',
+          ) ??
+          0;
+      final packetKind = packetKinds.single == 'submitted'
+          ? LegacyPacketKind.submitted
+          : LegacyPacketKind.draft;
+      return LegacyClaimSnapshot(
+        operation: LegacyOperationRef(
+          kind: kind,
+          naturalKey: naturalKey,
+          clientOpId: clientOpId,
+          packetKind: packetKind,
+          ownerUserId: ownerUserId,
+          createdAuthorizationVersion: authorizationVersion,
+          runtimeGeneration: runtimeGeneration,
+        ),
+        records: claimedRows,
+        claimedAt: claimedAt,
+        attemptCount: attemptCount,
+      );
+    });
+  }
+
+  /// Settles only the exact claimed generation. A replacement, wrong state,
+  /// owner/scope mismatch, or stale runtime generation changes no row.
+  Future<LegacySettlementResult> settleLegacyOperation({
+    required LegacyClaimSnapshot claim,
+    required LegacySettlement settlement,
+    required int currentOwnerUserId,
+    required int currentAuthorizationVersion,
+    required int currentRuntimeGeneration,
+    DateTime? now,
+  }) async {
+    final operation = claim.operation;
+    if (operation.runtimeGeneration != currentRuntimeGeneration ||
+        operation.ownerUserId != currentOwnerUserId ||
+        operation.createdAuthorizationVersion != currentAuthorizationVersion) {
+      return LegacySettlementResult.supersededSession;
+    }
+
+    final db = await database;
+    final spec = _legacySpecFor(operation.kind);
+    final settledAt = (now ?? DateTime.now()).toUtc().toIso8601String();
+    return db.transaction((txn) async {
+      final exact = _legacyExactWhere(spec, operation);
+      final before = await txn.rawQuery(
+        'SELECT COUNT(*) AS count FROM ${spec.table} WHERE ${exact.$1}',
+        exact.$2,
+      );
+      final matching = int.tryParse('${before.first['count'] ?? 0}') ?? 0;
+      if (matching != claim.records.length) {
+        return LegacySettlementResult.supersededLocal;
+      }
+
+      final values = <String, Object?>{
+        'failure_code': settlement.failureCode,
+        'failure_http_status': settlement.failureHttpStatus,
+      };
+      switch (settlement.kind) {
+        case LegacySettlementKind.accepted:
+          values.addAll({
+            'sync_state': 'synced',
+            'synced': 1,
+            'synced_at': settledAt,
+            'sync_error': null,
+            'next_attempt_at': null,
+            'failed_at': null,
+          });
+          break;
+        case LegacySettlementKind.retryable:
+          values.addAll({
+            'sync_state': 'retry_wait',
+            'next_attempt_at':
+                (settlement.nextAttemptAt ?? DateTime.parse(settledAt))
+                    .toUtc()
+                    .toIso8601String(),
+            'sync_error': settlement.failureMessage,
+            'failed_at': null,
+          });
+          break;
+        case LegacySettlementKind.needsAttention:
+          values.addAll({
+            'sync_state': 'needs_attention',
+            'next_attempt_at': null,
+            'sync_error': settlement.failureMessage,
+            'failed_at': settledAt,
+          });
+          break;
+        case LegacySettlementKind.pausedAuthentication:
+          values.addAll({
+            'sync_state': 'paused_auth',
+            'next_attempt_at': null,
+            'sync_error': settlement.failureMessage,
+            'failed_at': null,
+          });
+          break;
+        case LegacySettlementKind.pausedAuthorizationScope:
+          values.addAll({
+            'sync_state': 'paused_scope',
+            'next_attempt_at': null,
+            'sync_error': settlement.failureMessage,
+            'failed_at': null,
+          });
+          break;
+        case LegacySettlementKind.resolvedConflict:
+          values.addAll({
+            'sync_state': 'resolved_conflict',
+            'next_attempt_at': null,
+            'sync_error': settlement.failureMessage,
+            'failed_at': settledAt,
+          });
+          break;
+      }
+      final affected = await txn.update(
+        spec.table,
+        values,
+        where: exact.$1,
+        whereArgs: exact.$2,
+      );
+      if (affected != matching) {
+        throw StateError('Legacy operation settlement was not atomic.');
+      }
+      return LegacySettlementResult.applied;
+    });
+  }
+
+  // ============================================================
   // PENDING ATTENDANCE
   // ============================================================
 
@@ -2804,10 +3416,12 @@ class LocalDb {
       SELECT class_id, class_name, date,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
-             MAX(client_op_id) as client_op_id,
+             CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
              COUNT(*) as student_count, MIN(created_at) as created_at,
              MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_attendance WHERE synced = 0
+      FROM pending_attendance
+      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
       GROUP BY class_id, date ORDER BY date DESC
     ''');
   }
@@ -2901,10 +3515,12 @@ class LocalDb {
       SELECT assessment_id, assessment_name, class_name, subject_name,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
-             MAX(client_op_id) as client_op_id,
+             CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
              COUNT(*) as grade_count, MIN(created_at) as created_at,
              MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_grades WHERE synced = 0
+      FROM pending_grades
+      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
       GROUP BY assessment_id ORDER BY created_at DESC
     ''');
   }
@@ -3046,6 +3662,7 @@ class LocalDb {
         // the Needs Attention review / explicit Discard) — only stale
         // never-rejected drafts for a day the server has since locked.
         where: 'class_id = ? AND date = ? AND synced = 0'
+            " AND sync_state IN ('pending', 'retry_wait')"
             ' AND sync_error IS NULL',
         whereArgs: [classId, date]);
   }
@@ -3054,7 +3671,9 @@ class LocalDb {
     final db = await database;
     await db.delete('pending_grades',
         // F8: spare workflow-rejected rows (see dropPendingAttendance).
-        where: 'assessment_id = ? AND synced = 0 AND sync_error IS NULL',
+        where: "assessment_id = ? AND synced = 0 "
+            "AND sync_state IN ('pending', 'retry_wait') "
+            'AND sync_error IS NULL',
         whereArgs: [assessmentId]);
   }
 
@@ -3119,10 +3738,12 @@ class LocalDb {
       SELECT date, section,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
-             MAX(client_op_id) as client_op_id,
+             CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
              COUNT(*) as member_count, MIN(created_at) as created_at,
              MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_mezmur WHERE synced = 0
+      FROM pending_mezmur
+      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
       GROUP BY date, section ORDER BY date DESC
     ''');
   }
@@ -3149,6 +3770,7 @@ class LocalDb {
     await db.delete('pending_mezmur',
         // F8: spare workflow-rejected rows (see dropPendingAttendance).
         where: 'date = ? AND section = ? AND synced = 0'
+            " AND sync_state IN ('pending', 'retry_wait')"
             ' AND sync_error IS NULL',
         whereArgs: [date, section]);
   }
@@ -3302,10 +3924,12 @@ class LocalDb {
       SELECT date, section,
              CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
                   THEN 'submitted' ELSE 'draft' END as packet_kind,
-             MAX(client_op_id) as client_op_id,
+             CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
              COUNT(*) as member_count, MIN(created_at) as created_at,
              MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_hr WHERE synced = 0
+      FROM pending_hr
+      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
       GROUP BY date, section ORDER BY date DESC
     ''');
   }
@@ -3440,6 +4064,7 @@ class LocalDb {
     await db.delete('pending_hr',
         // F8: spare workflow-rejected rows (see dropPendingAttendance).
         where: 'date = ? AND section = ? AND synced = 0'
+            " AND sync_state IN ('pending', 'retry_wait')"
             ' AND sync_error IS NULL',
         whereArgs: [date, section]);
   }

@@ -95,14 +95,12 @@ class P1ADbContract(unittest.TestCase):
         # (v30 P1-E education classes, v29 P1-D review inbox, v28 P1-C
         # mezmur days, v27 P1-B notifications). P1-A itself
         # introduced no version bump or migration (its commit history
-        # is unchanged); this pin now tracks the current version so
-        # an accidental further bump is still caught.
-        self.assertIn('version: 33,', self.ldb)
-        self.assertNotIn('version: 34', self.ldb)
+        # is unchanged). The current version is centralized in the
+        # v34 schema contract and pinned by its migration harness.
+        self.assertIn('version: localDatabaseSchemaVersion,', self.ldb)
 
     def test_no_migration_introduced(self):
         self.assertNotIn('ALTER TABLE cached_members', self.ldb)
-        self.assertNotIn('oldVersion < 34', self.ldb)
         # sql/047_account_self_service.sql landed later via server-side
         # PR #3 — not a mobile migration; P1-A adds no sql file itself.
         pass

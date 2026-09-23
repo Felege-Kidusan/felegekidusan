@@ -74,16 +74,14 @@ class P1FDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # P1-F introduced v31; P1-H's analytics last-view cache advances
-        # the current DB to v33 without changing the subject tables.
-        self.assertIn('version: 33,', self.ldb)
+        # P1-F introduced v31. The current version is centralized in
+        # the v34 schema contract without changing the subject tables.
+        self.assertIn('version: localDatabaseSchemaVersion,', self.ldb)
         self.assertNotIn('version: 30,', self.ldb)
-        self.assertNotIn('version: 34', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 31)', self.ldb)
         self.assertIn('_createEduSubjectsTable(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 34)', self.ldb)
         # P1-E's own migration branch is intact history.
         self.assertIn('if (oldVersion < 30)', self.ldb)
         self.assertIn('_createEduTables(db)', self.ldb)

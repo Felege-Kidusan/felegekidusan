@@ -260,11 +260,14 @@ class F8LocalOutbox(unittest.TestCase):
 
     def test_grades_outbox_now_has_an_idempotency_key(self):
         # getPendingGrades previously omitted client_op_id, so grades
-        # drained with no key (safe only by upsert accident). F8 pins
-        # the key into the feed.
+        # drained with no key (safe only by upsert accident). The v34
+        # feed returns an id only for one coherent generation; UUID lexical
+        # MAX is explicitly forbidden because it is not temporal ordering.
         feed = self.db[self.db.find('getPendingGrades'):
-                       self.db.find('getPendingGrades') + 500]
-        self.assertIn('MAX(client_op_id) as client_op_id', feed)
+                       self.db.find('getPendingGrades') + 650]
+        self.assertIn('COUNT(DISTINCT client_op_id) = 1', feed)
+        self.assertIn('MIN(client_op_id) ELSE NULL', feed)
+        self.assertNotIn('MAX(client_op_id)', feed)
 
 
 class F8DropPendingReconciliation(unittest.TestCase):

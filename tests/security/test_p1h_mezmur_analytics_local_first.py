@@ -48,14 +48,12 @@ class P1HDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_bumped_v32_to_v33(self):
-        self.assertIn('version: 33,', self.ldb)
+        self.assertIn('version: localDatabaseSchemaVersion,', self.ldb)
         self.assertNotIn('version: 32,', self.ldb)
-        self.assertNotIn('version: 34', self.ldb)
 
     def test_additive_migration_and_fresh_install_wiring(self):
         self.assertIn('if (oldVersion < 33)', self.ldb)
         self.assertIn('await _createMezmurAnalyticsTable(db);', self.ldb)
-        self.assertNotIn('if (oldVersion < 34)', self.ldb)
         create = method_body(self.ldb, 'Future<void> _createTables(')
         self.assertIn('await _createMezmurAnalyticsTable(db);', create)
         self.assertIn('if (oldVersion < 32)', self.ldb)
