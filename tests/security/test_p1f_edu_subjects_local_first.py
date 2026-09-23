@@ -73,15 +73,17 @@ class P1FDatabase(unittest.TestCase):
     def setUp(self):
         self.ldb = read(LDB)
 
-    def test_version_bumped_to_31(self):
-        self.assertIn('version: 31,', self.ldb)
+    def test_version_tracks_current(self):
+        # P1-F introduced v31; P1-G's dedicated teacher cache advances
+        # the current DB to v32 without changing the subject tables.
+        self.assertIn('version: 32,', self.ldb)
         self.assertNotIn('version: 30,', self.ldb)
-        self.assertNotIn('version: 32', self.ldb)
+        self.assertNotIn('version: 33', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 31)', self.ldb)
         self.assertIn('_createEduSubjectsTable(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 32)', self.ldb)
+        self.assertNotIn('if (oldVersion < 33)', self.ldb)
         # P1-E's own migration branch is intact history.
         self.assertIn('if (oldVersion < 30)', self.ldb)
         self.assertIn('_createEduTables(db)', self.ldb)

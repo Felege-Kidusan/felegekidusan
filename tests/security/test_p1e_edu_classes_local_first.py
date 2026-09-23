@@ -83,17 +83,17 @@ class P1EDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # P1-E's bump was to v30; the CURRENT version is v31 (P1-F's
-        # subjects catalog). The education classes tables themselves
-        # are untouched by the v31 step.
-        self.assertIn('version: 31,', self.ldb)
+        # P1-E's bump was to v30; the CURRENT version is v32 (P1-G's
+        # teacher directory/detail cache). The education class tables
+        # themselves are untouched by the later steps.
+        self.assertIn('version: 32,', self.ldb)
         self.assertNotIn('version: 29,', self.ldb)
-        self.assertNotIn('version: 32', self.ldb)
+        self.assertNotIn('version: 33', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 30)', self.ldb)
         self.assertIn('_createEduTables(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 32)', self.ldb)
+        self.assertNotIn('if (oldVersion < 33)', self.ldb)
         # P1-D's own migration branch is intact history.
         self.assertIn('if (oldVersion < 29)', self.ldb)
         self.assertIn('_createReviewTables(db)', self.ldb)

@@ -65,6 +65,11 @@ if ($method === 'GET' && $id === null) {
             'created_at' => $row['created_at'],
             'assigned_classes' => (int)$row['assigned_classes'],
             'assigned_subjects' => (int)$row['assigned_subjects'],
+            // P1-G: the counts above are current-academic-year scoped.
+            // Return that scope explicitly so offline clients never infer
+            // a year from the device clock or relabel stale counts.
+            'academic_year_id' => $yearId > 0 ? $yearId : null,
+            'academic_year_name' => $year['year_name'] ?? null,
         ];
     }
     $stmt->close();
@@ -116,6 +121,11 @@ if ($method === 'GET' && $id !== null && $ROUTE['sub'] === null) {
 
     $teacher['id'] = (int)$teacher['id'];
     $teacher['is_active'] = (int)$teacher['is_active'];
+    // P1-G: assignments are filtered to this exact server-resolved
+    // academic-year scope. Additive metadata; authorization and data
+    // selection remain unchanged.
+    $teacher['academic_year_id'] = $yearId > 0 ? $yearId : null;
+    $teacher['academic_year_name'] = $year['year_name'] ?? null;
     $teacher['assignments'] = $assignments;
     ok($teacher);
 }

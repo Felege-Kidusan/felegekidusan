@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 31,
+      version: 32,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -434,6 +434,15 @@ class LocalDb {
           // migration. Role-scoped server response → wiped on logout
           // with everything else.
           await _createEduSubjectsTable(db);
+        }
+        if (oldVersion < 32) {
+          // P1-G (Education Teachers local-first): a dedicated,
+          // COMPLETE active-teacher snapshot plus view-once details.
+          // The singleton metadata row distinguishes never-cached from
+          // a valid empty directory; assignment details are explicitly
+          // keyed by (teacher_id, academic_year_id). Nothing is derived
+          // from or written into member/teacher workflow caches.
+          await _createEduTeachersTables(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1332,6 +1341,52 @@ class LocalDb {
     ''');
   }
 
+  /// P1-G: Education Teachers uses its OWN read model. The singleton
+  /// snapshot row records a valid complete fetch even when zero teachers
+  /// exist; sort_order preserves the server's cross-page ordering; details
+  /// are scoped by the exact server-resolved academic year. Deliberately
+  /// separate from cached_members and the teacher workflow's destructive
+  /// cached_classes/cached_students/cached_subjects stores.
+  Future<void> _createEduTeachersTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_edu_teacher_snapshot (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        academic_year_id INTEGER NOT NULL DEFAULT 0,
+        academic_year_name TEXT,
+        total INTEGER NOT NULL DEFAULT 0,
+        fetched_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_edu_teachers (
+        id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL DEFAULT '',
+        full_name TEXT NOT NULL DEFAULT '',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        assigned_classes INTEGER NOT NULL DEFAULT 0,
+        assigned_subjects INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL,
+        data_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_cached_edu_teachers_sort
+      ON cached_edu_teachers (sort_order)
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_edu_teacher_details (
+        teacher_id INTEGER NOT NULL,
+        academic_year_id INTEGER NOT NULL DEFAULT 0,
+        academic_year_name TEXT,
+        data_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (teacher_id, academic_year_id)
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
     await _createNotificationTables(db);
@@ -1339,6 +1394,7 @@ class LocalDb {
     await _createReviewTables(db);
     await _createEduTables(db);
     await _createEduSubjectsTable(db);
+    await _createEduTeachersTables(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -2279,6 +2335,158 @@ class LocalDb {
         };
       }
     }).toList();
+  }
+
+  // ============================================================
+  // P1-G: CACHED EDU TEACHERS + YEAR-SCOPED DETAILS
+  // ============================================================
+
+  /// Metadata for the last COMPLETE teacher-directory crawl. A present
+  /// row with total=0 is a valid empty server snapshot, not "never cached".
+  Future<Map<String, dynamic>?> getCachedEduTeacherSnapshot() async {
+    final db = await database;
+    final rows = await db.query('cached_edu_teacher_snapshot',
+        where: 'id = ?', whereArgs: [1], limit: 1);
+    return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first);
+  }
+
+  /// Replace the complete active-teacher directory only after EVERY server
+  /// page has succeeded and the caller has validated stable pagination,
+  /// year scope and identity uniqueness. The transaction also invalidates
+  /// details for disappeared teachers and obsolete academic-year scopes.
+  Future<void> replaceCachedEduTeachers(
+    List<Map<String, dynamic>> rows, {
+    required int academicYearId,
+    String? academicYearName,
+    required int total,
+  }) async {
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete('cached_edu_teachers');
+      for (var i = 0; i < rows.length; i++) {
+        final m = rows[i];
+        await txn.insert('cached_edu_teachers', {
+          'id': _asIntLocal(m['id']),
+          'username': '${m['username'] ?? ''}',
+          'full_name': '${m['full_name'] ?? ''}',
+          'is_active': _asIntLocal(m['is_active']),
+          'created_at':
+              m['created_at'] == null ? null : '${m['created_at']}',
+          'assigned_classes': _asIntLocal(m['assigned_classes']),
+          'assigned_subjects': _asIntLocal(m['assigned_subjects']),
+          'sort_order': i,
+          'data_json': jsonEncode(m),
+          'fetched_at': now,
+        });
+      }
+      await txn.insert(
+        'cached_edu_teacher_snapshot',
+        {
+          'id': 1,
+          'academic_year_id': academicYearId,
+          'academic_year_name': academicYearName,
+          'total': total,
+          'fetched_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.delete('cached_edu_teacher_details',
+          where: 'academic_year_id != ?', whereArgs: [academicYearId]);
+      await txn.rawDelete('''
+        DELETE FROM cached_edu_teacher_details
+        WHERE NOT EXISTS (
+          SELECT 1 FROM cached_edu_teachers t
+          WHERE t.id = cached_edu_teacher_details.teacher_id
+        )
+      ''');
+    });
+  }
+
+  /// Search the COMPLETE cached directory locally, but retain the current
+  /// screen's 50-result display cap. sort_order reproduces the server's
+  /// ORDER BY u.full_name across the validated page crawl.
+  Future<List<Map<String, dynamic>>> getCachedEduTeachers({
+    String? search,
+    int limit = 50,
+  }) async {
+    final db = await database;
+    final q = search?.trim() ?? '';
+    final rows = await db.query(
+      'cached_edu_teachers',
+      where: q.isEmpty ? null : '(full_name LIKE ? OR username LIKE ?)',
+      whereArgs: q.isEmpty ? null : ['%$q%', '%$q%'],
+      orderBy: 'sort_order ASC',
+      limit: limit,
+    );
+    return rows.map((row) {
+      try {
+        final decoded =
+            jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+        decoded['local_fetched_at'] = row['fetched_at'];
+        decoded['local_sort_order'] = row['sort_order'];
+        return decoded;
+      } catch (_) {
+        // Corrupt/missing blob: preserve only discrete server-derived fields.
+        return <String, dynamic>{
+          'id': row['id'],
+          'username': row['username'],
+          'full_name': row['full_name'],
+          'is_active': row['is_active'],
+          'created_at': row['created_at'],
+          'assigned_classes': row['assigned_classes'],
+          'assigned_subjects': row['assigned_subjects'],
+          'local_fetched_at': row['fetched_at'],
+          'local_sort_order': row['sort_order'],
+        };
+      }
+    }).toList();
+  }
+
+  /// Cache one successfully validated teacher detail under the explicit
+  /// server academic-year scope. A valid empty assignments list is stored;
+  /// transport/server/malformed failures never call this method.
+  Future<void> cacheEduTeacherDetail(
+    Map<String, dynamic> detail, {
+    required int academicYearId,
+    String? academicYearName,
+  }) async {
+    final db = await database;
+    await db.insert(
+      'cached_edu_teacher_details',
+      {
+        'teacher_id': _asIntLocal(detail['id']),
+        'academic_year_id': academicYearId,
+        'academic_year_name': academicYearName,
+        'data_json': jsonEncode(detail),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getCachedEduTeacherDetail(
+      int teacherId, int academicYearId) async {
+    final db = await database;
+    final rows = await db.query(
+      'cached_edu_teacher_details',
+      where: 'teacher_id = ? AND academic_year_id = ?',
+      whereArgs: [teacherId, academicYearId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    try {
+      final decoded =
+          jsonDecode(row['data_json'] as String) as Map<String, dynamic>;
+      decoded['local_fetched_at'] = row['fetched_at'];
+      decoded['local_academic_year_id'] = row['academic_year_id'];
+      decoded['local_academic_year_name'] = row['academic_year_name'];
+      return decoded;
+    } catch (_) {
+      // Never fabricate assignments from a corrupt detail blob.
+      return null;
+    }
   }
 
   // ============================================================
@@ -4094,6 +4302,11 @@ class LocalDb {
         // P1-F: the subject catalog is a role-scoped server response
         // — same wipe discipline.
         'cached_edu_subjects',
+        // P1-G: staff directory + assignment details are authenticated,
+        // year-scoped data. Never retain or reuse them across logout.
+        'cached_edu_teacher_snapshot',
+        'cached_edu_teachers',
+        'cached_edu_teacher_details',
         'pending_attendance',
         'pending_grades',
         'pending_mezmur',

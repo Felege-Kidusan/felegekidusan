@@ -97,12 +97,12 @@ class P1ADbContract(unittest.TestCase):
         # introduced no version bump or migration (its commit history
         # is unchanged); this pin now tracks the current version so
         # an accidental further bump is still caught.
-        self.assertIn('version: 31,', self.ldb)
-        self.assertNotIn('version: 32', self.ldb)
+        self.assertIn('version: 32,', self.ldb)
+        self.assertNotIn('version: 33', self.ldb)
 
     def test_no_migration_introduced(self):
         self.assertNotIn('ALTER TABLE cached_members', self.ldb)
-        self.assertNotIn('oldVersion < 32', self.ldb)
+        self.assertNotIn('oldVersion < 33', self.ldb)
         # sql/047_account_self_service.sql landed later via server-side
         # PR #3 — not a mobile migration; P1-A adds no sql file itself.
         pass
