@@ -55,15 +55,17 @@ class P1GDatabase(unittest.TestCase):
     def setUp(self):
         self.ldb = read(LDB)
 
-    def test_version_bumped_v31_to_v32(self):
-        self.assertIn('version: 32,', self.ldb)
+    def test_version_tracks_current(self):
+        # P1-G introduced v32; P1-H advances the current DB to v33
+        # without changing the teacher-directory/detail tables.
+        self.assertIn('version: 33,', self.ldb)
         self.assertNotIn('version: 31,', self.ldb)
-        self.assertNotIn('version: 33', self.ldb)
+        self.assertNotIn('version: 34', self.ldb)
 
     def test_additive_migration_and_fresh_install_wiring(self):
         self.assertIn('if (oldVersion < 32)', self.ldb)
         self.assertIn('await _createEduTeachersTables(db);', self.ldb)
-        self.assertNotIn('if (oldVersion < 33)', self.ldb)
+        self.assertNotIn('if (oldVersion < 34)', self.ldb)
         create = method_body(self.ldb, 'Future<void> _createTables(')
         self.assertIn('await _createEduTeachersTables(db);', create)
         self.assertIn('if (oldVersion < 31)', self.ldb)

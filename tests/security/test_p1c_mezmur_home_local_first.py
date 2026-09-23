@@ -49,17 +49,17 @@ class P1CDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # v32 = P1-G's authorized education teacher read model;
+        # v33 = P1-H's authorized Mezmur analytics last-view cache;
         # P1-C's bump to v28 (mezmur days) is history. The
         # mezmur-days table itself is untouched by later steps.
-        self.assertIn('version: 32,', self.ldb)
+        self.assertIn('version: 33,', self.ldb)
         self.assertNotIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 33', self.ldb)
+        self.assertNotIn('version: 34', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 28)', self.ldb)
         self.assertIn('_createMezmurDaysTable(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 33)', self.ldb)
+        self.assertNotIn('if (oldVersion < 34)', self.ldb)
 
     def test_table_schema(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_mezmur_days',

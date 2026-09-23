@@ -46,7 +46,7 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
-      version: 32,
+      version: 33,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
         // Set-form PRAGMAs must go through rawQuery on Android: db.execute()
@@ -443,6 +443,13 @@ class LocalDb {
           // keyed by (teacher_id, academic_year_id). Nothing is derived
           // from or written into member/teacher workflow caches.
           await _createEduTeachersTables(db);
+        }
+        if (oldVersion < 33) {
+          // P1-H (Mezmur Analytics local-first): one bounded, sensitive
+          // last-view row containing the successfully validated member-page
+          // and section-rollup pair. Deliberately NOT derived from attendance
+          // sheets/days/sections or pending Mezmur writes.
+          await _createMezmurAnalyticsTable(db);
         }
         if (oldVersion < 22) {
           // P37: Telegram-style lyrics search. The word index is
@@ -1387,6 +1394,24 @@ class LocalDb {
     ''');
   }
 
+  /// P1-H: the LAST successfully validated Mezmur analytics view only.
+  /// One row stores the member-page + section-rollup pair atomically. It is
+  /// sensitive member attendance data and is wiped on logout; it never reuses
+  /// sheet/day/section caches or overlays pending_mezmur writes.
+  Future<void> _createMezmurAnalyticsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_mezmur_analytics_last (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        from_date TEXT NOT NULL,
+        to_date TEXT NOT NULL,
+        sessions_held INTEGER NOT NULL DEFAULT 0,
+        members_response_json TEXT NOT NULL,
+        sections_response_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+      )
+    ''');
+  }
+
   Future<void> _createTables(Database db) async {
     await _createCommTables(db);
     await _createNotificationTables(db);
@@ -1395,6 +1420,7 @@ class LocalDb {
     await _createEduTables(db);
     await _createEduSubjectsTable(db);
     await _createEduTeachersTables(db);
+    await _createMezmurAnalyticsTable(db);
     // ---- ATTENDANCE ----
     await db.execute('''
       CREATE TABLE pending_attendance (
@@ -2485,6 +2511,113 @@ class LocalDb {
       return decoded;
     } catch (_) {
       // Never fabricate assignments from a corrupt detail blob.
+      return null;
+    }
+  }
+
+  // ============================================================
+  // P1-H: CACHED MEZMUR ANALYTICS LAST VIEW
+  // ============================================================
+
+  /// Atomically replace the one bounded last-view row. The caller invokes
+  /// this only after BOTH endpoint responses have valid List items, the same
+  /// canonical server window, and the same sessions_held value.
+  Future<void> cacheMezmurAnalyticsLast({
+    required String fromDate,
+    required String toDate,
+    required int sessionsHeld,
+    required Map<String, dynamic> membersResponse,
+    required Map<String, dynamic> sectionsResponse,
+  }) async {
+    final db = await database;
+    await db.insert(
+      'cached_mezmur_analytics_last',
+      {
+        'id': 1,
+        'from_date': fromDate,
+        'to_date': toDate,
+        'sessions_held': sessionsHeld,
+        'members_response_json': jsonEncode(membersResponse),
+        'sections_response_json': jsonEncode(sectionsResponse),
+        'fetched_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Return only a coherent pair. Corrupt JSON, non-list items, or any
+  /// mismatch between stored dates/held count and either response is treated
+  /// as no cache; analytics is never fabricated from a half-valid blob.
+  Future<Map<String, dynamic>?> getCachedMezmurAnalyticsLast() async {
+    final db = await database;
+    final rows = await db.query('cached_mezmur_analytics_last',
+        where: 'id = ?', whereArgs: [1], limit: 1);
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    int? strictInt(dynamic value) {
+      if (value is int) return value;
+      if (value is num && value.isFinite && value == value.roundToDouble()) {
+        return value.toInt();
+      }
+      if (value is String) return int.tryParse(value);
+      return null;
+    }
+    bool validIsoDate(dynamic value) {
+      if (value is! String) return false;
+      final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
+      if (match == null) return false;
+      final parsed = DateTime.tryParse(value);
+      return parsed != null &&
+          parsed.year == int.parse(match.group(1)!) &&
+          parsed.month == int.parse(match.group(2)!) &&
+          parsed.day == int.parse(match.group(3)!);
+    }
+
+    try {
+      final memberRaw = jsonDecode(row['members_response_json'] as String);
+      final sectionRaw = jsonDecode(row['sections_response_json'] as String);
+      if (memberRaw is! Map || sectionRaw is! Map) return null;
+      final members = Map<String, dynamic>.from(memberRaw);
+      final sections = Map<String, dynamic>.from(sectionRaw);
+      if (members['items'] is! List || sections['items'] is! List) return null;
+      final memberItems = members['items'] as List;
+      final sectionItems = sections['items'] as List;
+      if (memberItems.any((item) => item is! Map) ||
+          sectionItems.any((item) => item is! Map) ||
+          strictInt(members['page']) != 1 ||
+          memberItems.length > 100) {
+        return null;
+      }
+      final memberWindow = members['window'];
+      final sectionWindow = sections['window'];
+      if (memberWindow is! Map || sectionWindow is! Map) return null;
+      final fromDate = row['from_date'];
+      final toDate = row['to_date'];
+      final held = strictInt(row['sessions_held']);
+      final memberHeld = strictInt(members['sessions_held']);
+      final sectionHeld = strictInt(sections['sessions_held']);
+      if (!validIsoDate(fromDate) ||
+          !validIsoDate(toDate) ||
+          '$fromDate'.compareTo('$toDate') > 0 ||
+          held == null ||
+          held < 0 ||
+          memberHeld != held ||
+          sectionHeld != held ||
+          memberWindow['from'] != fromDate ||
+          memberWindow['to'] != toDate ||
+          sectionWindow['from'] != fromDate ||
+          sectionWindow['to'] != toDate) {
+        return null;
+      }
+      return <String, dynamic>{
+        'from_date': fromDate,
+        'to_date': toDate,
+        'sessions_held': held,
+        'members_response': members,
+        'sections_response': sections,
+        'local_fetched_at': row['fetched_at'],
+      };
+    } catch (_) {
       return null;
     }
   }
@@ -4291,6 +4424,9 @@ class LocalDb {
         'cached_mezmur_sheet',
         'cached_mezmur_sections',
         'cached_mezmur_days',
+        // P1-H: member attendance analytics (names/codes/rates) is
+        // authenticated PII and must never cross a logout boundary.
+        'cached_mezmur_analytics_last',
         'cached_review_packets',
         'cached_review_packet_details',
         'cached_review_stats',

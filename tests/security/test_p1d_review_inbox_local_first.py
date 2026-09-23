@@ -64,17 +64,17 @@ class P1DDatabase(unittest.TestCase):
         self.ldb = read(LDB)
 
     def test_version_tracks_current(self):
-        # P1-D's bump was to v29; the CURRENT version is v32 (P1-G's
-        # teacher directory/detail cache). The review tables themselves
+        # P1-D's bump was to v29; the CURRENT version is v33 (P1-H's
+        # Mezmur analytics last-view cache). The review tables themselves
         # are untouched by later steps.
-        self.assertIn('version: 32,', self.ldb)
+        self.assertIn('version: 33,', self.ldb)
         self.assertNotIn('version: 28,', self.ldb)
-        self.assertNotIn('version: 33', self.ldb)
+        self.assertNotIn('version: 34', self.ldb)
 
     def test_migration_branch_exists(self):
         self.assertIn('if (oldVersion < 29)', self.ldb)
         self.assertIn('_createReviewTables(db)', self.ldb)
-        self.assertNotIn('if (oldVersion < 33)', self.ldb)
+        self.assertNotIn('if (oldVersion < 34)', self.ldb)
 
     def test_tables_and_identity(self):
         self.assertIn('CREATE TABLE IF NOT EXISTS cached_review_packets',

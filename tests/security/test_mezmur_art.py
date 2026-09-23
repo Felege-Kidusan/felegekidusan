@@ -272,11 +272,11 @@ class MezmurArtTests(unittest.TestCase):
         # Schema version moved 25 -> 26 in O1 (offline-first comm
         # tables), 26 -> 27 in P1-B (notification center), 27 -> 28 in
         # P1-C (mezmur home days), 28 -> 29 in P1-D (review inbox),
-        # 29 -> 30 in P1-E (education classes), 30 -> 31 in P1-F
-        # (education subjects), 31 -> 32 in P1-G (education teachers);
+        # 29 -> 30 in P1-E (education classes), 30 -> 31 in P1-F,
+        # 31 -> 32 in P1-G, 32 -> 33 in P1-H (Mezmur analytics);
         # this pin tracks the CURRENT version.
-        self.assertIn("version: 32,", self.local_db)
-        self.assertNotIn("version: 33", self.local_db)
+        self.assertIn("version: 33,", self.local_db)
+        self.assertNotIn("version: 34", self.local_db)
         self.assertIn("if (oldVersion < 25)", self.local_db)
         # O1: comm store tables ship in v26 — created idempotently for
         # both fresh installs and upgrades, and wiped on logout (PII).
