@@ -47,7 +47,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
   void initState() {
     super.initState();
     _load();
-    NotificationService.instance.start();
   }
 
   /// P0 audit B5: [silent] refreshes keep the current rows on screen

@@ -12,6 +12,7 @@ import 'package:path/path.dart';
 import 'taxonomy_reconcile.dart';
 import 'legacy_outbox_models.dart';
 import 'local_schema_v34.dart';
+import 'session_models.dart';
 
 String newClientOpId() {
   final r = Random.secure();
@@ -3385,6 +3386,7 @@ class LocalDb {
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final opId = newClientOpId();
     await db.transaction((txn) async {
+      final ownerBinding = await requireActiveOwnerBinding(txn);
       await txn.delete('pending_attendance',
           where: 'class_id = ? AND date = ? AND synced = 0',
           whereArgs: [classId, date]);
@@ -3404,6 +3406,7 @@ class LocalDb {
           'client_op_id': opId,
           'synced': 0,
           'created_at': now,
+          ...ownerBinding,
         });
       }
       await batch.commit(noResult: true);
@@ -3481,32 +3484,37 @@ class LocalDb {
       {String packetKind = 'draft'}) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
-    await db.delete('pending_grades',
-        where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final opId = newClientOpId();
-    final batch = db.batch();
-    for (final g in grades) {
-      batch.insert('pending_grades', {
-        'assessment_id': assessmentId,
-        'assessment_name': assessmentName,
-        'class_id': classId,
-        'class_name': className,
-        'subject_id': subjectId,
-        'subject_name': subjectName,
-        'member_id': g['member_id'],
-        'student_name': g['student_name'] ?? '',
-        'record_id': g['record_id'],
-        'score': g['score'],
-        'remark': g['remark'] ?? '',
-        'max_score': maxScore,
-        'packet_kind': kind,
-        'client_op_id': opId,
-        'synced': 0,
-        'created_at': now,
-      });
-    }
-    await batch.commit(noResult: true);
+    await db.transaction((txn) async {
+      final ownerBinding = await requireActiveOwnerBinding(txn);
+      await txn.delete('pending_grades',
+          where: 'assessment_id = ? AND synced = 0',
+          whereArgs: [assessmentId]);
+      final batch = txn.batch();
+      for (final g in grades) {
+        batch.insert('pending_grades', {
+          'assessment_id': assessmentId,
+          'assessment_name': assessmentName,
+          'class_id': classId,
+          'class_name': className,
+          'subject_id': subjectId,
+          'subject_name': subjectName,
+          'member_id': g['member_id'],
+          'student_name': g['student_name'] ?? '',
+          'record_id': g['record_id'],
+          'score': g['score'],
+          'remark': g['remark'] ?? '',
+          'max_score': maxScore,
+          'packet_kind': kind,
+          'client_op_id': opId,
+          'synced': 0,
+          'created_at': now,
+          ...ownerBinding,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPendingGrades() async {
@@ -3708,6 +3716,7 @@ class LocalDb {
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final opId = newClientOpId();
     await db.transaction((txn) async {
+      final ownerBinding = await requireActiveOwnerBinding(txn);
       await txn.delete('pending_mezmur',
           where: 'date = ? AND section = ? AND synced = 0',
           whereArgs: [date, section]);
@@ -3725,6 +3734,7 @@ class LocalDb {
           'client_op_id': opId,
           'synced': 0,
           'created_at': now,
+          ...ownerBinding,
         });
       }
       await batch.commit(noResult: true);
@@ -3895,6 +3905,7 @@ class LocalDb {
     final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
     final opId = newClientOpId();
     await db.transaction((txn) async {
+      final ownerBinding = await requireActiveOwnerBinding(txn);
       await txn.delete('pending_hr',
           where: 'date = ? AND section = ? AND synced = 0',
           whereArgs: [date, section]);
@@ -3911,6 +3922,7 @@ class LocalDb {
           'client_op_id': opId,
           'synced': 0,
           'created_at': now,
+          ...ownerBinding,
         });
       }
       await batch.commit(noResult: true);
@@ -4884,11 +4896,17 @@ class LocalDb {
     final db = await database;
     final opId = newClientOpId();
     payload['client_op_id'] = opId;
-    return db.insert('pending_hymn_ops', {
-      'op': op,
-      'payload_json': jsonEncode(payload),
-      'client_op_id': opId,
-      'created_at': DateTime.now().toIso8601String(),
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.insert('pending_hymn_ops', {
+        'op': op,
+        'payload_json': jsonEncode(payload),
+        'client_op_id': opId,
+        'created_at': DateTime.now().toIso8601String(),
+        'created_by_user_id': binding['owner_user_id'],
+        'created_authorization_version':
+            binding['created_authorization_version'],
+      });
     });
   }
 
@@ -4963,6 +4981,283 @@ class LocalDb {
       {'key': 'cursor', 'value': cursor},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  // ============================================================
+  // SESSION OWNERSHIP + PRIVATE-DATA INVENTORY (v34)
+  // ============================================================
+
+  Future<Map<String, int>> requireActiveOwnerBinding(
+      [DatabaseExecutor? executor]) async {
+    final db = executor ?? await database;
+    final rows = await db.query(
+      'local_session_state',
+      columns: [
+        'state',
+        'owner_user_id',
+        'owner_authorization_version',
+      ],
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+    if (rows.isEmpty || rows.first['state'] != 'active') {
+      throw StateError('Private writes require an active reconciled session.');
+    }
+    final owner = _nullablePositiveInt(rows.first['owner_user_id']);
+    final version =
+        _nullableNonNegativeInt(rows.first['owner_authorization_version']);
+    if (owner == null || version == null) {
+      throw StateError('The active session has no owner/scope binding.');
+    }
+    return {
+      'owner_user_id': owner,
+      'created_authorization_version': version,
+    };
+  }
+
+  Future<LocalSessionRecord> getLocalSession() async {
+    final db = await database;
+    final rows = await db.query(
+      'local_session_state',
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return const LocalSessionRecord(
+        state: SessionState.anonymousClean,
+        generation: 0,
+      );
+    }
+    final row = rows.first;
+    return LocalSessionRecord(
+      state: SessionState.fromStorage(row['state']?.toString()),
+      generation: _asIntLocal(row['generation']),
+      ownerUserId: _nullablePositiveInt(row['owner_user_id']),
+      authorizationVersion:
+          _nullableNonNegativeInt(row['owner_authorization_version']),
+      ownerRole: row['owner_role']?.toString(),
+      ownerUsername: row['owner_username']?.toString(),
+      ownerDisplayName: row['owner_display_name']?.toString(),
+      reauthReason: row['reason']?.toString(),
+      updatedAt: row['updated_at']?.toString(),
+    );
+  }
+
+  Future<void> persistLocalSession({
+    required SessionState state,
+    required int generation,
+    int? ownerUserId,
+    int? authorizationVersion,
+    String? ownerRole,
+    String? ownerUsername,
+    String? ownerDisplayName,
+    String? reason,
+  }) async {
+    final db = await database;
+    await db.insert(
+      'local_session_state',
+      {
+        'id': 1,
+        'owner_user_id': ownerUserId,
+        'owner_username': ownerUsername,
+        'owner_display_name': ownerDisplayName,
+        'owner_role': ownerRole,
+        'owner_authorization_version': authorizationVersion,
+        'state': state.storageValue,
+        'reason': reason,
+        'generation': generation,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// A complete credential bundle is the only evidence permitted to claim
+  /// ownerless legacy rows.  Shared hymn work receives creator provenance but
+  /// remains outside the private-account deletion boundary.
+  Future<void> backfillOwnerlessRows({
+    required int ownerUserId,
+    required int authorizationVersion,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final table in const [
+        'pending_attendance',
+        'pending_grades',
+        'pending_mezmur',
+        'pending_hr',
+      ]) {
+        await txn.update(
+          table,
+          {
+            'owner_user_id': ownerUserId,
+            'created_authorization_version': authorizationVersion,
+          },
+          where: 'synced = 0 AND owner_user_id IS NULL',
+        );
+      }
+      for (final table in const ['comm_outbox', 'comm_drafts']) {
+        await txn.update(
+          table,
+          {
+            'owner_user_id': ownerUserId,
+            'created_authorization_version': authorizationVersion,
+          },
+          where: 'owner_user_id IS NULL',
+        );
+      }
+      await txn.update(
+        'pending_hymn_ops',
+        {
+          'created_by_user_id': ownerUserId,
+          'created_authorization_version': authorizationVersion,
+        },
+        where: 'synced = 0 AND created_by_user_id IS NULL',
+      );
+    });
+  }
+
+  /// One SQLite snapshot used by logout, forgot-PIN and owner activation.
+  /// Legacy domains count operations/batches, not member rows. Paused and
+  /// attention counts are reported separately and intentionally overlap the
+  /// domain totals rather than inflating the destructive-work decision.
+  Future<LocalDataInventory> getLocalDataInventory() async {
+    final db = await database;
+    return db.transaction((txn) async {
+      Future<int> scalar(String sql, [List<Object?>? args]) async {
+        final rows = await txn.rawQuery(sql, args);
+        if (rows.isEmpty) return 0;
+        return _asIntLocal(rows.first.values.first);
+      }
+
+      Future<int> operationCount(String table) => scalar(
+            'SELECT COUNT(DISTINCT client_op_id) FROM $table '
+            'WHERE synced = 0',
+          );
+
+      final attendance = await operationCount('pending_attendance');
+      final grades = await operationCount('pending_grades');
+      final mezmur = await operationCount('pending_mezmur');
+      final hr = await operationCount('pending_hr');
+      final commPending = await scalar(
+        "SELECT COUNT(*) FROM comm_outbox WHERE state IN ('pending', 'in_flight')",
+      );
+      final commFailed = await scalar(
+        "SELECT COUNT(*) FROM comm_outbox WHERE state = 'failed'",
+      );
+      final drafts = await scalar(
+        "SELECT COUNT(*) FROM comm_drafts WHERE TRIM(body) <> ''",
+      );
+      final attention = await scalar('''
+        SELECT
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_attendance
+             WHERE synced = 0 AND sync_state = 'needs_attention') +
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_grades
+             WHERE synced = 0 AND sync_state = 'needs_attention') +
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_mezmur
+             WHERE synced = 0 AND sync_state = 'needs_attention') +
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_hr
+             WHERE synced = 0 AND sync_state = 'needs_attention')
+      ''');
+      final paused = await scalar('''
+        SELECT
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_attendance
+             WHERE synced = 0 AND sync_state = 'paused_auth') +
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_grades
+             WHERE synced = 0 AND sync_state = 'paused_auth') +
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_mezmur
+             WHERE synced = 0 AND sync_state = 'paused_auth') +
+          (SELECT COUNT(DISTINCT client_op_id) FROM pending_hr
+             WHERE synced = 0 AND sync_state = 'paused_auth')
+      ''');
+      final sharedHymns = await scalar(
+        'SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops '
+        'WHERE synced = 0',
+      );
+      final ownerRows = await txn.rawQuery('''
+        SELECT owner_user_id FROM pending_attendance
+          WHERE synced = 0 AND owner_user_id IS NOT NULL
+        UNION SELECT owner_user_id FROM pending_grades
+          WHERE synced = 0 AND owner_user_id IS NOT NULL
+        UNION SELECT owner_user_id FROM pending_mezmur
+          WHERE synced = 0 AND owner_user_id IS NOT NULL
+        UNION SELECT owner_user_id FROM pending_hr
+          WHERE synced = 0 AND owner_user_id IS NOT NULL
+        UNION SELECT owner_user_id FROM comm_outbox
+          WHERE owner_user_id IS NOT NULL
+        UNION SELECT owner_user_id FROM comm_drafts
+          WHERE TRIM(body) <> '' AND owner_user_id IS NOT NULL
+        ORDER BY owner_user_id
+      ''');
+      final privateOwners = ownerRows
+          .map((row) => _nullablePositiveInt(row['owner_user_id']))
+          .whereType<int>()
+          .toList(growable: false);
+
+      var cacheRows = 0;
+      for (final table in const [
+        'cached_classes',
+        'cached_students',
+        'cached_subjects',
+        'cached_assessments',
+        'cached_dashboard',
+        'cached_members',
+        'cached_attendance',
+        'cached_grade_sheets',
+        'cached_mezmur_sheet',
+        'cached_mezmur_sheet_v2',
+        'cached_mezmur_sections',
+        'cached_mezmur_days',
+        'cached_mezmur_analytics_last',
+        'cached_hr_sheet',
+        'cached_hr_sections',
+        'cached_review_packets',
+        'cached_review_packet_details',
+        'cached_review_stats',
+        'cached_edu_classes',
+        'cached_edu_class_rosters',
+        'cached_edu_subjects',
+        'cached_edu_teacher_snapshot',
+        'cached_edu_teachers',
+        'cached_edu_teacher_details',
+        'cached_notifications',
+        'cached_announcements',
+        'comm_threads',
+        'comm_messages',
+        'comm_meta',
+        'sync_log',
+      ]) {
+        cacheRows += await scalar('SELECT COUNT(*) FROM $table');
+      }
+
+      return LocalDataInventory(
+        attendanceOperations: attendance,
+        gradeOperations: grades,
+        mezmurOperations: mezmur,
+        hrOperations: hr,
+        communicationPending: commPending,
+        communicationFailed: commFailed,
+        communicationDrafts: drafts,
+        attentionOperations: attention,
+        pausedOperations: paused,
+        privateCacheRows: cacheRows,
+        privateOwnerUserIds: privateOwners,
+        sharedHymnOperations: sharedHymns,
+      );
+    });
+  }
+
+  static int? _nullablePositiveInt(Object? value) {
+    final parsed = _asIntLocal(value);
+    return parsed > 0 ? parsed : null;
+  }
+
+  static int? _nullableNonNegativeInt(Object? value) {
+    if (value == null) return null;
+    final parsed = _asIntLocal(value);
+    return parsed >= 0 ? parsed : null;
   }
 
   // ============================================================
@@ -5047,6 +5342,7 @@ class LocalDb {
         'cached_attendance',
         'cached_grade_sheets',
         'cached_mezmur_sheet',
+        'cached_mezmur_sheet_v2',
         'cached_mezmur_sections',
         'cached_mezmur_days',
         // P1-H: member attendance analytics (names/codes/rates) is

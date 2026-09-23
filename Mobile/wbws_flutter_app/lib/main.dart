@@ -5,26 +5,24 @@ import 'package:flutter/services.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
-import 'services/api_service.dart';
 import 'services/app_lock_service.dart';
-import 'services/catalog_service.dart';
 import 'services/local_db.dart';
-import 'services/sync_service.dart';
+import 'services/session_models.dart';
+import 'services/session_service.dart';
 import 'screens/lock/lock_screen.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/device_tier_service.dart';
-import 'services/warm_store.dart';
 import 'services/app_navigator.dart';
 import 'services/mezmur_download_manager.dart';
 import 'services/lyrics_reader_settings.dart';
 import 'utils/scrolling.dart';
 import 'utils/theme.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/auth/session_recovery_screen.dart';
 import 'screens/shell/app_shell.dart';
 import 'screens/update/update_screen.dart';
 import 'screens/mezmur/mezmur_mini_player_host.dart';
-import 'services/comm_outbox_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,20 +59,15 @@ void main() async {
 /// without restarting the process.
 Future<void> runBootstrap() async {
   try {
-    await ApiService().init();
+    // SQLite opens/migrates before credentials are interpreted. The session
+    // coordinator then reconciles the durable owner marker, protected
+    // credentials and a single-snapshot local inventory.
     await LocalDb().database;
-    if (ApiService().discardedInvalidSession) {
-      await LocalDb().clearAllUserData();
-    }
-    await CatalogService().hydrate();
-    // Telegram-style cold-start gate: if a passcode is set, the app
-    // opens locked (the long-lived session stays signed in).
+    await SessionCoordinator().bootstrap();
+    // App Lock protects active AND recoverable private state. The PIN is not
+    // cleared by auth expiry or preserve-for-reauth logout.
     await AppLockService().lockAtColdStartIfConfigured();
   } catch (error, stack) {
-    // Local offline storage is the only genuinely blocking part. Never
-    // reset or expose it; write the real error for diagnosis and offer a
-    // retry. With OS-protected storage this screen is rare (full/corrupt
-    // phone storage) rather than a key/migration failure.
     final detail = await _writeBootstrapLog(error, stack);
     runApp(OfflineDataProtectionFailureApp(detail: detail));
     return;
@@ -83,25 +76,17 @@ Future<void> runBootstrap() async {
   runApp(const FKSSApp());
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    // OS radio only — no HTTP ping. Warm and sync wait so Home can use 4G first.
+    // Device-global services may start independently. Account-scoped workers
+    // are started only by SessionCoordinator after active owner reconciliation.
     ConnectivityService().startMonitoring();
-    // Device-local, no network: restore the lyric text-size / reading-mode
-    // preference so it is ready before the player ever opens.
     LyricsReaderSettings.instance.boot();
-    // P65: classify the hardware (RAM class / ABI) and scale the image
-    // cache to it — 1–2GB phones get a 32MB budget instead of Flutter's
-    // 100MB default. Also feeds the ABI-aware update download and the
-    // Profile → Diagnostics report. No-op on web.
     DeviceTierService.instance.boot();
-    if (ApiService().isLoggedIn) {
+    if (SessionCoordinator().isActive) {
       Future<void>.delayed(const Duration(seconds: 2), () {
-        WarmStore().afterLogin();
-        // P33: restore the offline-download queue (resumes interrupted
-        // downloads as soon as the radio/Wi-Fi allows).
-        MezmurDownloadManager.instance.boot();
+        if (SessionCoordinator().isActive) {
+          MezmurDownloadManager.instance.boot();
+        }
       });
-      SyncService().startAutoSync();
-      CommOutboxService.instance.start(); // O3: offline sends drain app-wide
     }
   });
 }
@@ -207,11 +192,13 @@ class FKSSApp extends StatefulWidget {
 
 class _FKSSAppState extends State<FKSSApp> {
   final _appLock = AppLockService();
+  final _session = SessionCoordinator();
 
   @override
   void initState() {
     super.initState();
-    _appLock.addListener(_onLockChanged);
+    _appLock.addListener(_onRootStateChanged);
+    _session.addListener(_onRootStateChanged);
     AppUpdateService().check().then((_) {
       if (mounted) setState(() {});
     });
@@ -219,28 +206,46 @@ class _FKSSAppState extends State<FKSSApp> {
 
   @override
   void dispose() {
-    _appLock.removeListener(_onLockChanged);
+    _appLock.removeListener(_onRootStateChanged);
+    _session.removeListener(_onRootStateChanged);
     super.dispose();
   }
 
-  void _onLockChanged() {
+  void _onRootStateChanged() {
     if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final api = ApiService();
     final update = AppUpdateService();
 
     Widget home;
-    if (_appLock.isLocked && api.isLoggedIn) {
-      // Passcode gate sits in front of everything (Telegram model):
-      // the session is alive, but the content waits for the PIN.
+    if (_appLock.isLocked && _session.protectsPrivateState) {
+      // Passcode gate sits in front of active and recoverable private data.
       home = const LockScreen();
     } else if (update.decision.force) {
       home = const UpdateScreen(blocking: true);
     } else {
-      home = api.isLoggedIn ? const AppShell() : const LoginScreen();
+      switch (_session.root) {
+        case SessionRoot.active:
+          home = const AppShell();
+          break;
+        case SessionRoot.reauthentication:
+          home = const SessionRecoveryScreen();
+          break;
+        case SessionRoot.orphanRecovery:
+          home = const OrphanedDataRecoveryScreen();
+          break;
+        case SessionRoot.purging:
+          home = const PurgingSessionScreen();
+          break;
+        case SessionRoot.protectionFailure:
+          home = const SessionProtectionFailureScreen();
+          break;
+        case SessionRoot.cleanLogin:
+          home = const LoginScreen();
+          break;
+      }
     }
 
     return MaterialApp(

@@ -6,18 +6,15 @@ import '../../services/app_update_service.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/local_db.dart';
-import '../../services/session_service.dart';
-import '../../services/warm_store.dart';
 import '../../utils/config.dart';
 import '../../utils/ethiopian_calendar.dart';
-import '../../utils/transitions.dart';
 import '../../utils/theme.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/app_error.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
-import '../auth/login_screen.dart';
 import '../../widgets/notification_bell_button.dart';
+import '../../widgets/session_logout_dialog.dart';
 
 class TeacherHomeScreen extends StatefulWidget {
   const TeacherHomeScreen({super.key});
@@ -117,7 +114,6 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     }
 
     await _overlayLocalToday();
-    WarmStore().afterLogin();
   }
 
   /// Local-first: a sheet sitting in the outbox already counts as taken today.
@@ -179,30 +175,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
     return 'እንደምን አመሹ';
   }
 
-  Future<void> _logout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child:
-                  const Text('Logout', style: TextStyle(color: AppTheme.danger))),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      await SessionService.signOut();
-      if (!mounted) return;
-      context.pushAndClearSmooth(const LoginScreen());
-    }
-  }
+  Future<void> _logout() => showSessionLogoutDialog(context);
 
   @override
   Widget build(BuildContext context) {

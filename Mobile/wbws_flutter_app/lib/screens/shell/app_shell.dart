@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/app_lock_service.dart';
 import '../../services/app_nav.dart';
-import '../../services/sync_service.dart';
 import '../../services/session_service.dart';
 import '../../services/connectivity_service.dart';
 import '../../services/app_update_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/offline_banner.dart';
-import '../auth/login_screen.dart';
 import '../update/update_banner.dart';
 // Role home screens
 import '../teacher/teacher_home.dart';
@@ -33,7 +30,6 @@ import '../mezmur/mezmur_attendance.dart';
 import '../mezmur/mezmur_hymns.dart';
 import '../mezmur/mezmur_analytics.dart';
 import '../profile/profile_screen.dart';
-import '../../services/comm_outbox_service.dart';
 
 /// AppShell — Role-based bottom navigation with auto-refresh,
 /// global offline banner, and auth expiry handling.
@@ -75,10 +71,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (i >= 0) _onTabChanged(i);
     });
 
-    // Handle auth expiry — redirect to login
-    _api.onAuthExpired = _handleAuthExpired;
-    SyncService().startAutoSync();
-    CommOutboxService.instance.start(); // O3: offline sends drain app-wide
+    // SessionCoordinator owns auth-loss transitions and starts account-scoped
+    // workers only after owner/scope reconciliation.
 
     // Radio came back — refresh the open tab after the link settles.
     // Do not pile cacheForOffline + ping + sync on the same 4G radio.
@@ -91,7 +85,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     });
 
     if (_tabs.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _forceLogout());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        SessionCoordinator().enterReauthentication(reason: 'no_authorized_tabs');
+      });
     }
     AppUpdateService().check().then((_) => _applyFeatureTabs());
   }
@@ -139,7 +135,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _api.onAuthExpired = null;
     super.dispose();
   }
 
@@ -150,38 +145,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // auto-lock interval, the gate appears before any content.
       AppLockService().evaluateOnResume();
       _connectivity.startMonitoring();
-      // Drain the outbox immediately — do not wait 90s or a tap.
-      SyncService().startAutoSync();
-      SyncService().syncAll(force: true);
-      _refreshCurrentTab();
-      AppUpdateService().check().then((_) => _applyFeatureTabs());
+      if (SessionCoordinator().isActive) {
+        // The coordinator restarts/drains workers. The shell only refreshes
+        // currently visible UI after the active root survives resume.
+        _refreshCurrentTab();
+        AppUpdateService().check().then((_) => _applyFeatureTabs());
+      }
     } else if (state == AppLifecycleState.paused) {
       // Keep the outbox. Android freezes timers in the background anyway;
       // killing it here meant a failed Save sat until the teacher tapped Sync.
       _connectivity.stopMonitoring();
       AppLockService().recordBackgrounded();
     }
-  }
-
-  void _handleAuthExpired() {
-    if (!mounted) return;
-    // Show a message and redirect to login
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Session expired. Please login again.'),
-        backgroundColor: AppTheme.warning,
-        duration: Duration(seconds: 3),
-      ),
-    );
-    _forceLogout();
-  }
-
-  void _forceLogout() async {
-    await SessionService.signOut();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-        SmoothPageRoute(page: const LoginScreen()),
-        (route) => false);
   }
 
   void _selectTabById(String id) {

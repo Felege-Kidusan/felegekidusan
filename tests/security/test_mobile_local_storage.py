@@ -67,18 +67,26 @@ class MobileLocalStorageTests(unittest.TestCase):
         self.assertIn("legacyUserJson", self.api)
         self.assertIn("prefs.remove(AppConfig.userDataKey)", self.api)
         self.assertNotIn("prefs.setString(AppConfig.userDataKey", self.api)
-        self.assertIn("discardedInvalidSession", self.api)
-        self.assertIn("await LocalDb().clearAllUserData()", self.main)
+        # Bootstrap classifies credential state; it never converts a partial
+        # or unreadable session into a destructive logout.
+        self.assertIn("Future<CredentialLoadResult> loadCredentials()", self.api)
+        self.assertIn("CredentialLoadResult.incomplete", self.api)
+        self.assertIn("CredentialLoadResult.storageUnavailable", self.api)
+        self.assertNotIn("discardedInvalidSession", self.api)
+        self.assertIn("await SessionCoordinator().bootstrap()", self.main)
+        self.assertNotIn("await LocalDb().clearAllUserData()", self.main)
 
     def test_bootstrap_degrades_gracefully_with_diagnostics(self):
-        # Secure-storage reads must never throw out of init().
-        self.assertIn("best-effort at bootstrap", self.api)
-        # legacyUserJson must be declared OUTSIDE the try block: the
-        # session-discard check below it references it (Dart scope).
-        self.assertIn("String? legacyUserJson;", self.api)
-        self.assertNotIn("final legacyUserJson = prefs.getString", self.api)
+        # Protected-storage failures are typed and fail closed; they are not
+        # flattened to "no credentials" and do not delete secure values.
+        load = self.api.split("Future<CredentialLoadResult> loadCredentials()")[1]
+        load = load.split("/// Backward-compatible")[0]
+        self.assertIn("CredentialLoadResult.unreadable", load)
+        self.assertIn("CredentialLoadResult.storageUnavailable", load)
+        self.assertNotIn("_secureStorage.delete", load)
         # The failure screen keeps a retry path and records the real error.
         self.assertIn("OfflineDataProtectionFailureApp", self.main)
+        self.assertIn("SessionProtectionFailureScreen", self.main)
         self.assertIn("runBootstrap", self.main)
         self.assertIn("onPressed", self.main)
         self.assertIn("fkss_bootstrap_error.log", self.main)

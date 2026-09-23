@@ -40,6 +40,13 @@ class NotificationService with WidgetsBindingObserver {
 
   Timer? _timer;
   bool _started = false;
+  bool Function()? activeSessionGate;
+  int Function()? sessionGenerationProvider;
+
+  bool _ownsGeneration(int generation) =>
+      _started &&
+      activeSessionGate?.call() != false &&
+      generation == (sessionGenerationProvider?.call() ?? generation);
 
   /// ETag of the last full summary response (P74 Phase 3).
   String? _summaryEtag;
@@ -55,22 +62,27 @@ class NotificationService with WidgetsBindingObserver {
   /// Start polling. Safe to call from every screen — only the first
   /// call actually starts the timer.
   void start() {
+    if (activeSessionGate?.call() == false) return;
     if (_started) return;
     _started = true;
+    final generation = sessionGenerationProvider?.call() ?? 0;
     WidgetsBinding.instance.addObserver(this);
-    _restoreCachedSummary();
+    _restoreCachedSummary(generation);
     refresh();
     _timer = Timer.periodic(_pollInterval, (_) => refresh());
   }
 
-  Future<void> _restoreCachedSummary() async {
-    if (summary.value.isNotEmpty) return;
+  Future<void> _restoreCachedSummary(int generation) async {
+    if (summary.value.isNotEmpty || !_ownsGeneration(generation)) return;
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!_ownsGeneration(generation)) return;
       final raw = prefs.getString(_summaryCacheKey);
       if (raw == null || raw.isEmpty) return;
       final map = jsonDecode(raw);
-      if (map is Map<String, dynamic> && map.isNotEmpty) {
+      if (_ownsGeneration(generation) &&
+          map is Map<String, dynamic> &&
+          map.isNotEmpty) {
         summary.value = map;
         badge.value = ((map['total'] ?? 0) as num).toInt();
       }
@@ -89,15 +101,26 @@ class NotificationService with WidgetsBindingObserver {
     badge.value = 0;
     summary.value = {};
     _summaryEtag = null;
-    // Sign-out hygiene: the persisted badge is member data too.
-    SharedPreferences.getInstance()
-        .then((p) => p.remove(_summaryCacheKey))
-        .catchError((_) {});
   }
 
-  Future<void> _persistSummary(Map<String, dynamic> map) async {
+  /// The coordinator calls this inside the destructive purge boundary. Auth
+  /// loss/reauth preserves this private cache for the same owner.
+  Future<bool> hasPersistedState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_summaryCacheKey);
+    return value != null && value.isNotEmpty;
+  }
+
+  Future<void> clearPersistedState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_summaryCacheKey);
+  }
+
+  Future<void> _persistSummary(
+      Map<String, dynamic> map, int generation) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!_ownsGeneration(generation)) return;
       await prefs.setString(_summaryCacheKey, jsonEncode(map));
     } catch (_) {
       // Persistence is best-effort; the in-memory value is already set.
@@ -127,9 +150,12 @@ class NotificationService with WidgetsBindingObserver {
   /// answered 304 (nothing changed). Null when offline / errored and
   /// nothing is known yet.
   Future<Map<String, dynamic>?> refresh() async {
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    if (!_ownsGeneration(generation)) return null;
     try {
       final res = await _api.getNotificationSummary(
           ifNoneMatch: _summaryEtag);
+      if (!_ownsGeneration(generation) || res.sessionSuperseded) return null;
       if (res.notModified) {
         // Idle poll: keep badge + summary exactly as they are.
         return summary.value.isEmpty ? null : summary.value;
@@ -138,9 +164,10 @@ class NotificationService with WidgetsBindingObserver {
         final map = (res.data as Map<String, dynamic>)['summary'];
         if (map is Map<String, dynamic>) {
           _summaryEtag = updateEtag(_summaryEtag, res.statusCode, res.etag);
+          if (!_ownsGeneration(generation)) return null;
           summary.value = map;
           badge.value = ((map['total'] ?? 0) as num).toInt();
-          _persistSummary(map);
+          _persistSummary(map, generation);
           return map;
         }
       }

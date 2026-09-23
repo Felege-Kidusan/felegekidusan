@@ -39,12 +39,19 @@ class CommOutboxService extends ChangeNotifier
 
   bool _draining = false;
   bool _queued = false;
+  bool Function()? activeSessionGate;
+  int Function()? sessionGenerationProvider;
+
+  bool _ownsGeneration(int generation) =>
+      activeSessionGate?.call() != false &&
+      generation == (sessionGenerationProvider?.call() ?? generation);
 
   /// SyncService's ladder, extended: a queued chat message can wait
   /// longer than an attendance batch. Full jitter rides on top.
   static const _backoff = <int>[2, 5, 12, 30, 60, 120, 300];
 
   void start() {
+    if (activeSessionGate?.call() == false) return;
     if (_started) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
@@ -64,7 +71,8 @@ class CommOutboxService extends ChangeNotifier
     _radioSub = null;
     _retryTimer?.cancel();
     _retryTimer = null;
-    _draining = false;
+    // An in-flight pass owns this flag until its finally block. A newly
+    // activated generation queues behind it instead of draining in parallel.
     _queued = false;
   }
 
@@ -77,13 +85,19 @@ class CommOutboxService extends ChangeNotifier
   /// Request a drain. Safe from anywhere, any number of times —
   /// rapid sends collapse into one pass plus a re-check.
   void kick({Duration delay = const Duration(milliseconds: 300)}) {
+    if (activeSessionGate?.call() == false) return;
     if (!_started) start();
-    if (!_api.isLoggedIn) return; // entries wait; logout wipes them
-    Timer(delay, _drain);
+    if (!_api.isLoggedIn) return; // entries wait behind session recovery
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(delay, () {
+      _retryTimer = null;
+      _drain(generation);
+    });
   }
 
-  Future<void> _drain() async {
-    if (!_started) return;
+  Future<void> _drain(int generation) async {
+    if (!_started || !_ownsGeneration(generation)) return;
     if (!_api.isLoggedIn) return;
     if (_draining) {
       _queued = true; // a pass is running — re-check when it ends
@@ -95,20 +109,30 @@ class CommOutboxService extends ChangeNotifier
       do {
         _queued = false;
         pass++;
-        await _drainOnce();
-      } while (_queued && pass < 10); // safety valve against loops
-      _scheduleNextRetry();
+        await _drainOnce(generation);
+      } while (_queued &&
+          _ownsGeneration(generation) &&
+          pass < 10); // safety valve against loops
+      if (_ownsGeneration(generation)) _scheduleNextRetry(generation);
     } finally {
       _draining = false;
+      if (_queued && activeSessionGate?.call() != false) {
+        kick(delay: Duration.zero);
+      }
     }
   }
 
   /// One FIFO pass over the due pending entries. Not-due entries are
   /// left alone (their timer is rescheduled from the DB afterwards).
-  Future<void> _drainOnce() async {
+  Future<void> _drainOnce(int generation) async {
     final pending = await CommStore.instance.pendingOutbox();
+    if (!_ownsGeneration(generation)) return;
     for (final e in pending) {
-      if (!_started || !_api.isLoggedIn) return; // stopped mid-pass (sign-out)
+      if (!_started ||
+          !_api.isLoggedIn ||
+          !_ownsGeneration(generation)) {
+        return; // stopped or superseded mid-pass
+      }
       final tag = e['client_tag']?.toString() ?? '';
       final threadId = (e['thread_id'] as num?)?.toInt() ?? 0;
       final body = e['body']?.toString() ?? '';
@@ -122,6 +146,9 @@ class CommOutboxService extends ChangeNotifier
 
       final res =
           await _api.sendMessage(threadId, body, clientTag: tag);
+      if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+        return; // a newer coordinator generation owns all settlement
+      }
       if (res.success) {
         await CommStore.instance.deleteOutbox(tag);
         notifyListeners(); // screens drop the bubble + poll
@@ -152,11 +179,11 @@ class CommOutboxService extends ChangeNotifier
   /// Anchor the retry timer on the earliest due entry in the DB (or
   /// cancel it when nothing waits). A stale timer simply re-drains
   /// and reschedules — the DB is the truth, the timer is a hint.
-  void _scheduleNextRetry() {
+  void _scheduleNextRetry(int generation) {
     _retryTimer?.cancel();
     _retryTimer = null;
     CommStore.instance.outboxNextDue().then((due) {
-      if (!_started || due == null) return;
+      if (!_started || !_ownsGeneration(generation) || due == null) return;
       final at = DateTime.tryParse(due);
       if (at == null) return;
       final wait = at.difference(DateTime.now());
@@ -164,7 +191,7 @@ class CommOutboxService extends ChangeNotifier
           wait <= Duration.zero
               ? const Duration(milliseconds: 50)
               : wait + const Duration(milliseconds: 50),
-          _drain);
+          () => _drain(generation));
     });
   }
 }

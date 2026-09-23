@@ -2,16 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../utils/transitions.dart';
 import '../../services/api_service.dart';
 import '../../services/app_lock_service.dart';
 import '../../services/crash_log_service.dart';
 import '../../services/device_tier_service.dart';
-import '../../services/session_service.dart';
 import '../../services/sync_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
-import '../auth/login_screen.dart';
+import '../../widgets/session_logout_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -73,66 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _logout() async {
-    // Check for pending data
-    if (_pendingSync > 0) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Unsaved Data'),
-          content: Text(
-              'You still have ${_sync.lastStatus.breakdown} not yet sent. '
-              'If you logout, unsynced attendance/grades will be lost '
-              '(hymn library changes are kept and will sync for the next '
-              'curator). Sync first?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Logout anyway',
-                    style: TextStyle(color: AppTheme.danger))),
-            ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  final result = await _sync.syncAll(force: true);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(result.message)),
-                    );
-                    _loadPendingCount();
-                  }
-                },
-                child: const Text('Sync first')),
-          ],
-        ),
-      );
-      if (confirm != false) return; // User chose to sync or dismissed
-    } else {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel')),
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Logout',
-                    style: TextStyle(color: AppTheme.danger))),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-    }
-
-    await SessionService.signOut();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      SmoothPageRoute(page: const LoginScreen()),
-      (route) => false,
-    );
-  }
+  Future<void> _logout() => showSessionLogoutDialog(context);
 
   void _showChangePassword() {
     final currentCtrl = TextEditingController();

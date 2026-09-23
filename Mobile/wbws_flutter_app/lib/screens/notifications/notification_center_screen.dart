@@ -67,7 +67,6 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen>
     super.initState();
     _tabs.addListener(() => setState(() {}));
     _loadAll();
-    NotificationService.instance.start();
     // P1-B: radio-return + app-resume refresh (P1-A screen-local
     // pattern — the center is a pushed route, so the shell's
     // tab-refresh never reaches it). Rows stay visible throughout.

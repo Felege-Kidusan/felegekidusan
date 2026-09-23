@@ -13,19 +13,86 @@ void main() {
     );
   });
 
-  test('private durable inventory excludes shared hymn work', () {
+  test('private durable inventory is domain-accurate and excludes hymns', () {
     const inventory = LocalDataInventory(
-      privatePending: 2,
-      privateNeedsAttention: 1,
-      privatePaused: 1,
+      attendanceOperations: 2,
       communicationDrafts: 1,
-      sharedHymnUnresolved: 9,
+      attentionOperations: 1,
+      pausedOperations: 1,
+      sharedHymnOperations: 9,
     );
-    expect(inventory.privateDurableWork, 5);
+    // Attention and paused are reporting subsets, not extra operations.
+    expect(inventory.privateDurableWork, 3);
     expect(inventory.hasPrivateDurableWork, isTrue);
     expect(
-      const LocalDataInventory(sharedHymnUnresolved: 9).hasPrivateData,
+      const LocalDataInventory(sharedHymnOperations: 9).hasPrivateData,
       isFalse,
+    );
+  });
+
+  test('known prior owner blocks another user only for durable private work', () {
+    expect(
+      canActivateCandidate(
+        currentState: SessionState.reauthRequired,
+        boundOwnerUserId: 7,
+        candidateUserId: 8,
+        inventory: const LocalDataInventory(attendanceOperations: 1),
+      ),
+      isFalse,
+    );
+    expect(
+      canActivateCandidate(
+        currentState: SessionState.reauthRequired,
+        boundOwnerUserId: 7,
+        candidateUserId: 8,
+        inventory: const LocalDataInventory(privateCacheRows: 20),
+      ),
+      isTrue,
+    );
+    expect(
+      canActivateCandidate(
+        currentState: SessionState.reauthRequired,
+        boundOwnerUserId: 8,
+        candidateUserId: 8,
+        inventory: const LocalDataInventory(
+          attendanceOperations: 1,
+          privateOwnerUserIds: [7],
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      canActivateCandidate(
+        currentState: SessionState.orphanedLocalData,
+        boundOwnerUserId: null,
+        candidateUserId: 8,
+        inventory: const LocalDataInventory(),
+      ),
+      isFalse,
+    );
+  });
+
+  test('missing credentials preserve known work and orphan unknown rows', () {
+    expect(
+      stateForMissingCredentials(
+        boundOwnerUserId: 7,
+        inventory: const LocalDataInventory(),
+      ),
+      SessionState.reauthRequired,
+    );
+    expect(
+      stateForMissingCredentials(
+        boundOwnerUserId: null,
+        inventory: const LocalDataInventory(communicationDrafts: 1),
+      ),
+      SessionState.orphanedLocalData,
+    );
+    expect(
+      stateForMissingCredentials(
+        boundOwnerUserId: null,
+        inventory: const LocalDataInventory(),
+      ),
+      SessionState.anonymousClean,
     );
   });
 

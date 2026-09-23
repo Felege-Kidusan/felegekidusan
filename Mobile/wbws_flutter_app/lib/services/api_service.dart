@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../utils/config.dart';
 import 'connectivity_service.dart';
+import 'session_models.dart';
 
 /// API response wrapper
 class ApiResponse {
@@ -14,6 +17,12 @@ class ApiResponse {
   final int statusCode;
   final bool isNetworkError;
   final bool isAuthError;
+
+  /// The coordinator generation captured before this request left the
+  /// process. A response from an older generation is never allowed to drive
+  /// state or persist server data.
+  final int requestGeneration;
+  final bool sessionSuperseded;
 
   /// P74 Phase 3 — the `ETag` response header, when the server sends
   /// one (summary/thread conditional GETs). Null on ordinary calls.
@@ -30,6 +39,8 @@ class ApiResponse {
     this.statusCode = 200,
     this.isNetworkError = false,
     this.isAuthError = false,
+    this.requestGeneration = 0,
+    this.sessionSuperseded = false,
     this.etag,
   });
 
@@ -56,6 +67,25 @@ class ApiResponse {
       isAuthError: code == 401 || code == 403,
     );
   }
+
+  factory ApiResponse.superseded(int generation) => ApiResponse(
+        success: false,
+        message: 'This request belongs to an older signed-in session.',
+        requestGeneration: generation,
+        sessionSuperseded: true,
+      );
+
+  ApiResponse withGeneration(int generation) => ApiResponse(
+        success: success,
+        message: message,
+        data: data,
+        statusCode: statusCode,
+        isNetworkError: isNetworkError,
+        isAuthError: isAuthError,
+        requestGeneration: generation,
+        sessionSuperseded: sessionSuperseded,
+        etag: etag,
+      );
 }
 
 /// Core API client — singleton
@@ -73,129 +103,258 @@ class ApiService {
   String? _refreshToken;
   Map<String, dynamic>? _userData;
   Future<bool>? _refreshInFlight;
+  int? _refreshInFlightGeneration;
+  Future<void> _credentialMutationTail = Future<void>.value();
   bool _refreshWasRejected = false;
   bool _authExpiryNotified = false;
-  bool _discardedInvalidSession = false;
 
-  // Auth expiry callback — set by AppShell to handle token expiry
-  void Function()? onAuthExpired;
+  /// Installed by SessionCoordinator once at bootstrap. ApiService never chooses a
+  /// root or destroys local data; it reports definitive credential loss to the
+  /// one coordinator which owns that transition.
+  Future<void> Function(String reason)? onAuthExpired;
+  int Function()? sessionGenerationProvider;
 
   // Getters
   String? get token => _token;
   Map<String, dynamic>? get userData => _userData;
-  bool get isLoggedIn => _token != null;
-  bool get discardedInvalidSession => _discardedInvalidSession;
-  String get userRole => _userData?['role'] ?? '';
-  String get userName => _userData?['full_name'] ?? '';
-  int get userId => _userData?['id'] ?? 0;
+  bool get isLoggedIn => _token != null && _refreshToken != null;
+  String get userRole => _userData?['role']?.toString() ?? '';
+  String get userName => _userData?['full_name']?.toString() ?? '';
+  int get userId => _positiveInt(_userData?['id']) ?? 0;
+  int get authorizationVersion =>
+      _nonNegativeInt(_userData?['authorization_version']) ?? 0;
 
-  /// Initialize credentials and migrate legacy plaintext profile metadata.
-  Future<void> init() async {
-    // Secure storage is best-effort at bootstrap: a keystore hiccup must
-    // never dead-end the whole app. A failed read simply means "not signed
-    // in"; the login screen is reached and the next launch retries.
-    Future<String?> _read(String key) async {
-      try {
-        return await _secureStorage.read(key: key);
-      } catch (_) {
-        return null;
-      }
-    }
+  int get _requestGeneration => sessionGenerationProvider?.call() ?? 0;
+  bool _generationIsCurrent(int captured) =>
+      captured == (sessionGenerationProvider?.call() ?? 0);
 
-    final token = await _read(AppConfig.tokenKey);
-    final refreshToken = await _read(AppConfig.refreshTokenKey);
-    var userJson = await _read(AppConfig.userDataKey);
+  /// Read secure credentials without mutating them. In particular, exceptions
+  /// are not converted into "logged out" and never trigger credential deletion.
+  Future<CredentialLoadResult> loadCredentials() async {
+    _clearMemoryCredentials();
 
-    // Versions <= 1.1.14 stored the staff profile in SharedPreferences. Move it
-    // to platform secure storage once, then remove the plaintext value.
-    String? legacyUserJson;
+    String? token;
+    String? refreshToken;
+    String? userJson;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      legacyUserJson = prefs.getString(AppConfig.userDataKey);
-      if (userJson == null && legacyUserJson != null) {
-        try {
-          await _secureStorage.write(
-              key: AppConfig.userDataKey, value: legacyUserJson);
-        } catch (_) {}
-        userJson = legacyUserJson;
-      }
-      if (legacyUserJson != null) {
-        try {
-          await prefs.remove(AppConfig.userDataKey);
-        } catch (_) {}
-      }
-    } catch (_) {}
-
-    Map<String, dynamic>? user;
-    if (userJson != null) {
-      try {
-        final decoded = jsonDecode(userJson);
-        if (decoded is Map<String, dynamic>) user = decoded;
-      } catch (_) {}
+      token = await _secureStorage.read(key: AppConfig.tokenKey);
+      refreshToken =
+          await _secureStorage.read(key: AppConfig.refreshTokenKey);
+      userJson = await _secureStorage.read(key: AppConfig.userDataKey);
+    } on MissingPluginException catch (error) {
+      return CredentialLoadResult.storageUnavailable('$error');
+    } on PlatformException catch (error) {
+      return CredentialLoadResult.storageUnavailable('$error');
+    } catch (error) {
+      return CredentialLoadResult.unreadable('$error');
     }
 
-    // A session is accepted only as a complete token + refresh + role binding.
-    if (token == null || refreshToken == null || user == null) {
-      _discardedInvalidSession = token != null ||
-          refreshToken != null ||
-          userJson != null ||
-          legacyUserJson != null;
+    // Versions <= 1.1.14 stored only the profile in SharedPreferences. The
+    // plaintext key is removed strictly after the secure write succeeds.
+    if (userJson == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final legacyUserJson = prefs.getString(AppConfig.userDataKey);
+        if (legacyUserJson != null && legacyUserJson.isNotEmpty) {
+          try {
+            await _secureStorage.write(
+              key: AppConfig.userDataKey,
+              value: legacyUserJson,
+            );
+          } on MissingPluginException catch (error) {
+            return CredentialLoadResult.storageUnavailable('$error');
+          } on PlatformException catch (error) {
+            return CredentialLoadResult.storageUnavailable('$error');
+          } catch (error) {
+            return CredentialLoadResult.unreadable('$error');
+          }
+          userJson = legacyUserJson;
+          await prefs.remove(AppConfig.userDataKey);
+        }
+      } catch (error) {
+        return CredentialLoadResult.unreadable('$error');
+      }
+    }
+
+    final present = [token, refreshToken, userJson]
+        .where((value) => value != null && value.isNotEmpty)
+        .length;
+    if (present == 0) return const CredentialLoadResult.absent();
+    if (present != 3) {
+      return const CredentialLoadResult.incomplete(
+        'Secure credentials are present but incomplete.',
+      );
+    }
+
+    final bundle = _bundleFromValues(token!, refreshToken!, userJson!);
+    if (bundle == null || !bundle.isComplete) {
+      return const CredentialLoadResult.unreadable(
+        'The protected staff profile is malformed.',
+      );
+    }
+    return CredentialLoadResult.complete(bundle);
+  }
+
+  /// Backward-compatible name for bootstrap callers. The typed result must be
+  /// inspected; it is never flattened to a nullable session.
+  Future<CredentialLoadResult> init() => loadCredentials();
+
+  AuthBundle? _bundleFromValues(
+      String token, String refreshToken, String userJson) {
+    try {
+      final decoded = jsonDecode(userJson);
+      if (decoded is! Map<String, dynamic>) return null;
+      final userId = _positiveInt(decoded['id']);
+      final role = decoded['role']?.toString().trim() ?? '';
+      if (userId == null || role.isEmpty) return null;
+      return AuthBundle(
+        accessToken: token,
+        refreshToken: refreshToken,
+        userId: userId,
+        username: decoded['username']?.toString() ?? '',
+        displayName: decoded['full_name']?.toString() ?? '',
+        role: role,
+        authorizationVersion:
+            _nonNegativeInt(decoded['authorization_version']) ?? 0,
+        userJson: userJson,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  AuthBundle? bundleFromLoginResponse(ApiResponse response) {
+    if (!response.success || response.data is! Map) return null;
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final token = data['token'];
+    final refreshToken = data['refresh_token'];
+    final rawUser = data['user'];
+    if (token is! String ||
+        token.isEmpty ||
+        refreshToken is! String ||
+        refreshToken.isEmpty ||
+        rawUser is! Map) {
+      return null;
+    }
+    final user = Map<String, dynamic>.from(rawUser);
+    return _bundleFromValues(token, refreshToken, jsonEncode(user));
+  }
+
+  /// Phase two of login. SessionCoordinator calls this only after owner and local
+  /// inventory reconciliation succeeds. Candidate login credentials remain in
+  /// memory owned by the call stack until this point.
+  Future<void> activateCredentials(AuthBundle bundle) async {
+    final decoded = jsonDecode(bundle.userJson);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Invalid staff profile');
+    }
+    await _serializeCredentialMutation(() async {
+      await _secureStorage.write(
+          key: AppConfig.userDataKey, value: bundle.userJson);
+      await _secureStorage.write(
+          key: AppConfig.refreshTokenKey, value: bundle.refreshToken);
+      // Commit marker last: bootstrap never accepts an access token without
+      // the profile and one-time refresh token which support it.
+      await _secureStorage.write(
+          key: AppConfig.tokenKey, value: bundle.accessToken);
+      _token = bundle.accessToken;
+      _refreshToken = bundle.refreshToken;
+      _userData = Map<String, dynamic>.from(decoded);
+      _authExpiryNotified = false;
+      _refreshWasRejected = false;
+    });
+  }
+
+  /// Adopt a complete bundle which was already read from secure storage. No
+  /// writes occur during this bootstrap-only operation.
+  void adoptLoadedCredentials(AuthBundle bundle) {
+    final decoded = jsonDecode(bundle.userJson);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Invalid staff profile');
+    }
+    _token = bundle.accessToken;
+    _refreshToken = bundle.refreshToken;
+    _userData = Map<String, dynamic>.from(decoded);
+    _authExpiryNotified = false;
+    _refreshWasRejected = false;
+  }
+
+  Future<void> revokeBundle(AuthBundle bundle) async {
+    try {
+      await _http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}/auth/logout'),
+            headers: _headers(withAuth: false),
+            body: jsonEncode({'refresh_token': bundle.refreshToken}),
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Rejection/owner mismatch must remain safe while offline. Candidate
+      // credentials are never activated even if best-effort revocation fails.
+    }
+  }
+
+  Future<void> clearCredentials() async {
+    // Clear memory before waiting so no new authenticated request can start.
+    _clearMemoryCredentials();
+    await _serializeCredentialMutation(() async {
       await _secureStorage.delete(key: AppConfig.tokenKey);
       await _secureStorage.delete(key: AppConfig.refreshTokenKey);
       await _secureStorage.delete(key: AppConfig.userDataKey);
-      _token = null;
-      _refreshToken = null;
-      _userData = null;
-      return;
-    }
-    _token = token;
-    _refreshToken = refreshToken;
-    _userData = user;
-    _discardedInvalidSession = false;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(AppConfig.userDataKey);
+    });
   }
 
-  /// Persist tokens and staff profile only in platform encrypted storage.
-  Future<void> _saveTokens(
-      String token, String refreshToken, Map<String, dynamic> user) async {
-    // Commit supporting state first and the access token last. If the process
-    // stops between writes, startup never accepts a token without its profile.
-    await _secureStorage.write(
-        key: AppConfig.userDataKey, value: jsonEncode(user));
-    await _secureStorage.write(key: AppConfig.refreshTokenKey, value: refreshToken);
-    await _secureStorage.write(key: AppConfig.tokenKey, value: token);
-    _token = token;
-    _refreshToken = refreshToken;
-    _userData = user;
-    _authExpiryNotified = false;
-    _discardedInvalidSession = false;
+  Future<T> _serializeCredentialMutation<T>(Future<T> Function() action) async {
+    final previous = _credentialMutationTail;
+    final done = Completer<void>();
+    _credentialMutationTail = done.future;
+    try {
+      await previous;
+    } catch (_) {
+      // The previous caller receives its own error; it must not deadlock the
+      // next fail-closed cleanup attempt.
+    }
+    try {
+      return await action();
+    } finally {
+      done.complete();
+    }
   }
 
-  /// Revoke the server-side refresh family, then clear all local credentials.
-  Future<void> logout() async {
-    final presentedRefreshToken = _refreshToken;
-    if (presentedRefreshToken != null && presentedRefreshToken.isNotEmpty) {
-      try {
-        await _http
-            .post(
-              Uri.parse('${AppConfig.apiBaseUrl}/auth/logout'),
-              headers: _headers(withAuth: false),
-              body: jsonEncode({'refresh_token': presentedRefreshToken}),
-            )
-            .timeout(const Duration(seconds: 5));
-      } catch (_) {
-        // Offline sign-out must still erase sensitive local data and tokens.
-      }
-    }
-
+  void _clearMemoryCredentials() {
     _token = null;
     _refreshToken = null;
     _userData = null;
-    await _secureStorage.delete(key: AppConfig.tokenKey);
-    await _secureStorage.delete(key: AppConfig.refreshTokenKey);
-    await _secureStorage.delete(key: AppConfig.userDataKey);
-    // Defense-in-depth cleanup for upgrades from the legacy plaintext store.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(AppConfig.userDataKey);
+    _authExpiryNotified = false;
+    _refreshWasRejected = false;
+  }
+
+  /// Revoke the currently active server-side refresh family and clear only
+  /// credentials. Private SQLite/PIN policy belongs to SessionCoordinator.
+  Future<void> logout() async {
+    final bundle = _currentBundle();
+    if (bundle != null) await revokeBundle(bundle);
+    await clearCredentials();
+  }
+
+  AuthBundle? _currentBundle() {
+    final token = _token;
+    final refreshToken = _refreshToken;
+    final user = _userData;
+    if (token == null || refreshToken == null || user == null) return null;
+    return _bundleFromValues(token, refreshToken, jsonEncode(user));
+  }
+
+  static int? _positiveInt(Object? value) {
+    final parsed = value is int ? value : int.tryParse('${value ?? ''}');
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  static int? _nonNegativeInt(Object? value) {
+    final parsed = value is int ? value : int.tryParse('${value ?? ''}');
+    return parsed != null && parsed >= 0 ? parsed : null;
   }
 
   /// Build headers
@@ -222,15 +381,17 @@ class ApiService {
     if (params != null && params.isNotEmpty) {
       uri = uri.replace(queryParameters: params);
     }
+    final generation = _requestGeneration;
     // P74 Phase 3: conditional GETs carry caller-specific headers
     // (If-None-Match), so they never share an in-flight slot with a
-    // plain GET of the same URI.
+    // plain GET of the same URI. A generation is part of the key so a newly
+    // activated owner can never inherit the previous owner's future.
     if (headers == null) {
-      final key = uri.toString();
+      final key = '$generation:${uri.toString()}';
       final existing = _getInflight[key];
       if (existing != null) return existing;
 
-      final future = _doGet(uri, auth, null);
+      final future = _doGet(uri, auth, null, generation);
       _getInflight[key] = future;
       try {
         return await future;
@@ -240,11 +401,11 @@ class ApiService {
         }
       }
     }
-    return _doGet(uri, auth, headers);
+    return _doGet(uri, auth, headers, generation);
   }
 
-  Future<ApiResponse> _doGet(
-      Uri uri, bool auth, Map<String, String>? extraHeaders) async {
+  Future<ApiResponse> _doGet(Uri uri, bool auth,
+      Map<String, String>? extraHeaders, int generation) async {
     try {
       final sentToken = auth ? _token : null;
       Map<String, String> requestHeaders = _headers(withAuth: auth);
@@ -252,9 +413,15 @@ class ApiService {
       var response = await _http
           .get(uri, headers: requestHeaders)
           .timeout(Duration(seconds: AppConfig.connectionTimeout));
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
       if (response.statusCode == 401 && auth) {
-        final refreshed = (_token != null && _token != sentToken)
-            || await refreshAccessToken();
+        final refreshed = (_token != null && _token != sentToken) ||
+            await refreshAccessToken();
+        if (!_generationIsCurrent(generation)) {
+          return ApiResponse.superseded(generation);
+        }
         if (refreshed) {
           final retryHeaders = _headers(withAuth: true);
           if (extraHeaders != null) retryHeaders.addAll(extraHeaders);
@@ -262,18 +429,31 @@ class ApiService {
               .get(uri, headers: retryHeaders)
               .timeout(Duration(seconds: AppConfig.connectionTimeout));
         } else {
-          _notifyIfRefreshRejected();
+          await _notifyIfRefreshRejected();
         }
       }
-      return await _handleResponseAsync(response);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      final handled = await _handleResponseAsync(response);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return handled.withGeneration(generation);
     } catch (e) {
-      return _handleError(e);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(e).withGeneration(generation);
     }
   }
 
   /// Core POST request
   Future<ApiResponse> post(String path,
-      {Map<String, dynamic>? body, bool auth = true, String? idempotencyKey}) async {
+      {Map<String, dynamic>? body,
+      bool auth = true,
+      String? idempotencyKey}) async {
+    final generation = _requestGeneration;
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
       var headers = _headers(withAuth: auth);
@@ -290,9 +470,15 @@ class ApiService {
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
       if (response.statusCode == 401 && auth) {
-        final refreshed = (_token != null && _token != sentToken)
-            || await refreshAccessToken();
+        final refreshed = (_token != null && _token != sentToken) ||
+            await refreshAccessToken();
+        if (!_generationIsCurrent(generation)) {
+          return ApiResponse.superseded(generation);
+        }
         if (refreshed) {
           headers = _headers(withAuth: true);
           if (key.isNotEmpty) headers['Idempotency-Key'] = key;
@@ -304,17 +490,24 @@ class ApiService {
               )
               .timeout(Duration(seconds: AppConfig.postTimeout));
         } else {
-          _notifyIfRefreshRejected();
+          await _notifyIfRefreshRejected();
         }
       }
-      return _handleResponse(response);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleResponse(response).withGeneration(generation);
     } catch (e) {
-      return _handleError(e);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(e).withGeneration(generation);
     }
   }
 
   /// Core PUT request
   Future<ApiResponse> put(String path, {Map<String, dynamic>? body}) async {
+    final generation = _requestGeneration;
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
       final sentToken = _token;
@@ -325,9 +518,15 @@ class ApiService {
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
       if (response.statusCode == 401) {
-        final refreshed = (_token != null && _token != sentToken)
-            || await refreshAccessToken();
+        final refreshed = (_token != null && _token != sentToken) ||
+            await refreshAccessToken();
+        if (!_generationIsCurrent(generation)) {
+          return ApiResponse.superseded(generation);
+        }
         if (refreshed) {
           response = await _http
               .put(
@@ -337,12 +536,18 @@ class ApiService {
               )
               .timeout(Duration(seconds: AppConfig.postTimeout));
         } else {
-          _notifyIfRefreshRejected();
+          await _notifyIfRefreshRejected();
         }
       }
-      return _handleResponse(response);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleResponse(response).withGeneration(generation);
     } catch (e) {
-      return _handleError(e);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(e).withGeneration(generation);
     }
   }
 
@@ -462,10 +667,10 @@ class ApiService {
     return ApiResponse.error('Could not finish this request. Please try again.');
   }
 
-  void _notifyIfRefreshRejected() {
+  Future<void> _notifyIfRefreshRejected() async {
     if (_refreshWasRejected && !_authExpiryNotified && onAuthExpired != null) {
       _authExpiryNotified = true;
-      onAuthExpired!();
+      await onAuthExpired!('refresh_rejected');
     }
   }
 
@@ -473,40 +678,42 @@ class ApiService {
   // AUTH
   // ============================================================
 
-  Future<ApiResponse> login(String username, String password) async {
-    final res = await post('/auth/login', body: {
-      'username': username,
-      'password': password,
-    }, auth: false);
-
-    if (res.success && res.data != null) {
-      await _saveTokens(
-        res.data['token'],
-        res.data['refresh_token'],
-        res.data['user'],
-      );
-    }
-    return res;
-  }
+  /// Phase one of login: authenticate only. The returned candidate is never
+  /// persisted here; SessionCoordinator performs owner/inventory reconciliation
+  /// before calling [activateCredentials].
+  Future<ApiResponse> login(String username, String password) =>
+      post('/auth/login', body: {
+        'username': username,
+        'password': password,
+      }, auth: false);
 
   /// Rotate the refresh token exactly once even when several requests receive
   /// a 401 together. This prevents a legitimate app from looking like a replay.
   Future<bool> refreshAccessToken() async {
+    final generation = _requestGeneration;
     final existing = _refreshInFlight;
-    if (existing != null) return existing;
+    if (existing != null && _refreshInFlightGeneration == generation) {
+      return existing;
+    }
 
+    // A refresh from a superseded generation may still be unwinding after
+    // logout. The new owner never joins that future; both remain safe because
+    // credential writes are serialized and generation/token checked.
     final attempt = _performRefreshAccessToken();
     _refreshInFlight = attempt;
+    _refreshInFlightGeneration = generation;
     try {
       return await attempt;
     } finally {
       if (identical(_refreshInFlight, attempt)) {
         _refreshInFlight = null;
+        _refreshInFlightGeneration = null;
       }
     }
   }
 
   Future<bool> _performRefreshAccessToken() async {
+    final generation = _requestGeneration;
     final presentedRefreshToken = _refreshToken;
     _refreshWasRejected = presentedRefreshToken == null;
     if (presentedRefreshToken == null) return false;
@@ -519,8 +726,13 @@ class ApiService {
             body: jsonEncode({'refresh_token': presentedRefreshToken}),
           )
           .timeout(Duration(seconds: AppConfig.postTimeout));
+      if (!_generationIsCurrent(generation) ||
+          _refreshToken != presentedRefreshToken) {
+        return false;
+      }
       _connectivity.markOnline();
-      _refreshWasRejected = response.statusCode == 401 || response.statusCode == 403;
+      _refreshWasRejected =
+          response.statusCode == 401 || response.statusCode == 403;
 
       final decoded = _decodeJson(response.body);
       if (response.statusCode < 200 ||
@@ -541,16 +753,23 @@ class ApiService {
         return false;
       }
 
-      // Persist the one-time refresh token first. If the process stops between
-      // writes, the app can still recover instead of replaying the old token.
-      await _secureStorage.write(
-          key: AppConfig.refreshTokenKey, value: nextRefreshToken);
-      await _secureStorage.write(key: AppConfig.tokenKey, value: nextToken);
-      _refreshToken = nextRefreshToken;
-      _token = nextToken;
-      _refreshWasRejected = false;
-      _authExpiryNotified = false;
-      return true;
+      return _serializeCredentialMutation(() async {
+        if (!_generationIsCurrent(generation) ||
+            _refreshToken != presentedRefreshToken) {
+          return false;
+        }
+        // Persist the one-time refresh token first. If the process stops
+        // between writes, bootstrap reports incomplete credentials and keeps
+        // private SQLite state behind recovery rather than guessing.
+        await _secureStorage.write(
+            key: AppConfig.refreshTokenKey, value: nextRefreshToken);
+        await _secureStorage.write(key: AppConfig.tokenKey, value: nextToken);
+        _refreshToken = nextRefreshToken;
+        _token = nextToken;
+        _refreshWasRejected = false;
+        _authExpiryNotified = false;
+        return true;
+      });
     } catch (error) {
       // Network and 5xx failures keep the local session and offline data. Only
       // an explicit server rejection asks AppShell to sign the user out.
@@ -835,6 +1054,7 @@ class ApiService {
 
   Future<ApiResponse> _uploadTaxonomyImage(
       String path, int id, String filePath) async {
+    final generation = _requestGeneration;
     try {
       Future<http.Response> send() async {
         final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
@@ -853,17 +1073,29 @@ class ApiService {
       }
 
       var response = await send();
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
       if (response.statusCode == 401) {
         final refreshed = await refreshAccessToken();
+        if (!_generationIsCurrent(generation)) {
+          return ApiResponse.superseded(generation);
+        }
         if (refreshed) {
           response = await send();
         } else {
-          _notifyIfRefreshRejected();
+          await _notifyIfRefreshRejected();
         }
       }
-      return _handleResponse(response);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleResponse(response).withGeneration(generation);
     } catch (e) {
-      return _handleError(e);
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(e).withGeneration(generation);
     }
   }
 

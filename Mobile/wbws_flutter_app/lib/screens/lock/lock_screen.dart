@@ -105,32 +105,33 @@ class _LockScreenState extends State<LockScreen>
     HapticFeedback.mediumImpact();
   }
 
-  void _showForgotHelp() {
-    showDialog<void>(
+  Future<void> _showForgotHelp() async {
+    final inventory = await SessionCoordinator().refreshInventory();
+    if (!mounted) return;
+    await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Forgot passcode?', style: TextStyle(fontSize: 15)),
-        content: const Text(
-          'The passcode is stored only on this phone and cannot be '
-          'recovered. Sign out and sign back in to reset it — your data '
-          'on the server is not affected.',
-          style: TextStyle(fontSize: 12.5, height: 1.5),
+        content: Text(
+          'There is no passcode backdoor. Resetting it is destructive: it '
+          'permanently removes private caches, ${inventory.workSummary}, '
+          'saved credentials, and the app passcode. Server '
+          'data is not affected.'
+          '${inventory.sharedHymnOperations > 0 ? '\n\n${inventory.sharedHymnOperations} shared hymn operation(s) will be kept.' : ''}',
+          style: const TextStyle(fontSize: 12.5, height: 1.5),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Cancel')),
-          TextButton(
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.of(ctx).pop();
-              try {
-                await SessionService.signOut();
-              } catch (_) {
-                // Tokens + member data are already erased locally; the
-                // app gate will flip to the login screen either way.
-              }
+              await SessionCoordinator().destructiveSignOut(reason: 'forgot_pin');
             },
-            child: const Text('Sign out & reset'),
+            child: const Text('Erase local data & reset'),
           ),
         ],
       ),

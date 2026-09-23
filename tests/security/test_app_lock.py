@@ -31,6 +31,7 @@ class AppLockSecurityTests(unittest.TestCase):
         cls.main = (M / "lib/main.dart").read_text(encoding="utf-8")
         cls.shell = (M / "lib/screens/shell/app_shell.dart").read_text(encoding="utf-8")
         cls.profile = (M / "lib/screens/profile/profile_screen.dart").read_text(encoding="utf-8")
+        cls.logout_dialog = (M / "lib/widgets/session_logout_dialog.dart").read_text(encoding="utf-8")
         cls.main_activity = (
             M / "android/app/src/main/kotlin/com/arkeonethiopia/fkss/MainActivity.kt"
         ).read_text(encoding="utf-8")
@@ -79,9 +80,12 @@ class AppLockSecurityTests(unittest.TestCase):
     # ── app-wide gate ─────────────────────────────────────────
     def test_gate_in_main_swaps_home(self):
         self.assertIn("LockScreen", self.main)
-        self.assertIn("_appLock.isLocked && api.isLoggedIn", self.main)
+        # Recovery roots contain private data even after tokens are cleared;
+        # App Lock therefore follows the coordinator, not token presence.
+        self.assertIn("_appLock.isLocked && _session.protectsPrivateState", self.main)
         self.assertIn("lockAtColdStartIfConfigured", self.main)
-        self.assertIn("_appLock.addListener(_onLockChanged)", self.main)
+        self.assertIn("_appLock.addListener(_onRootStateChanged)", self.main)
+        self.assertIn("_session.addListener(_onRootStateChanged)", self.main)
 
     def test_lock_screen_is_a_real_gate(self):
         self.assertIn("verifyPin", self.lock_screen)
@@ -119,11 +123,13 @@ class AppLockSecurityTests(unittest.TestCase):
         self.assertIn("USE_BIOMETRIC", self.manifest)
 
     # ── forgot-passcode recovery (no backdoor, but reachable) ─
-    def test_forgot_passcode_can_sign_out_from_lock(self):
-        # The dialog offers a real action; sign-out erases member data
-        # AND resets the device-local PIN so the user can start over.
-        self.assertIn("Sign out & reset", self.lock_screen)
-        self.assertIn("SessionService.signOut()", self.lock_screen)
+    def test_forgot_passcode_is_explicitly_destructive(self):
+        # No PIN backdoor: inventory is shown before the coordinator enters
+        # the crash-safe purge path, which also clears the device-local PIN.
+        self.assertIn("inventory.workSummary", self.lock_screen)
+        self.assertIn("Erase local data & reset", self.lock_screen)
+        self.assertIn("destructiveSignOut(reason: 'forgot_pin')", self.lock_screen)
+        self.assertNotIn("SessionService.signOut()", self.lock_screen)
         self.assertIn("import '../../services/session_service.dart';",
                       self.lock_screen)
         self.assertIn("await AppLockService().clearPin();", self.session)
@@ -166,7 +172,8 @@ class AppLockSecurityTests(unittest.TestCase):
         for kept in ("'cached_hymns',", "'pending_hymn_ops',", "'hymn_sync_meta',"):
             self.assertNotIn(kept, wipe)
         self.assertIn("if (!canEdit) return 0;", self.store)
-        self.assertIn("hymn library changes are kept", self.profile)
+        self.assertIn("shared hymn operation", self.logout_dialog)
+        self.assertIn("will be kept", self.logout_dialog)
 
 
 if __name__ == "__main__":

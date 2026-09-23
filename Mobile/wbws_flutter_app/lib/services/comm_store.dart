@@ -144,14 +144,18 @@ class CommStore extends ChangeNotifier {
   Future<void> enqueueOutbox(
       int threadId, String clientTag, String body) async {
     final db = await _db;
-    await db.insert('comm_outbox', {
-      'client_tag': clientTag,
-      'thread_id': threadId,
-      'body': body,
-      'state': 'pending',
-      'attempts': 0,
-      'next_attempt_at': null,
-      'created_at': DateTime.now().toIso8601String(),
+    await db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      await txn.insert('comm_outbox', {
+        'client_tag': clientTag,
+        'thread_id': threadId,
+        'body': body,
+        'state': 'pending',
+        'attempts': 0,
+        'next_attempt_at': null,
+        'created_at': DateTime.now().toIso8601String(),
+        ...binding,
+      });
     });
   }
 
@@ -227,14 +231,26 @@ class CommStore extends ChangeNotifier {
   /// the caller — one small upsert per typing pause, not per key.
   Future<void> saveDraft(int threadId, String body) async {
     final db = await _db;
-    if (body.isEmpty) {
-      await db.delete('comm_drafts', where: 'thread_id = ?', whereArgs: [threadId]);
-      return;
-    }
-    await db.insert(
-        'comm_drafts',
-        {'thread_id': threadId, 'body': body, 'updated_at': DateTime.now().toIso8601String()},
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      if (body.isEmpty) {
+        await txn.delete(
+          'comm_drafts',
+          where: 'thread_id = ? AND owner_user_id = ?',
+          whereArgs: [threadId, binding['owner_user_id']],
+        );
+        return;
+      }
+      await txn.insert(
+          'comm_drafts',
+          {
+            'thread_id': threadId,
+            'body': body,
+            'updated_at': DateTime.now().toIso8601String(),
+            ...binding,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   // ── Meta (per-thread ETags, cursors — O2) ────────────────────────

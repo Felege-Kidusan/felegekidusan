@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../utils/transitions.dart';
-import '../../services/api_service.dart';
-import '../../services/sync_service.dart';
-import '../../services/warm_store.dart';
+import '../../services/session_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
-import '../shell/app_shell.dart';
-import '../../services/comm_outbox_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -43,35 +38,17 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
 
-    final api = ApiService();
-    final res = await api.login(username, password);
+    final result = await SessionCoordinator().login(username, password);
 
     if (!mounted) return;
-
-    if (res.success) {
-      // Start background services
-      SyncService().startAutoSync();
-      CommOutboxService.instance.start(); // O3: drain queued sends
-      WarmStore().afterLogin();
-
-      Navigator.of(context).pushAndRemoveUntil(
-        SmoothPageRoute(page: const AppShell()),
-        (route) => false,
-      );
-    } else {
-      String errorMsg = res.message ?? 'Login failed. Please try again.';
-
-      // Give a clearer message for network errors
-      if (res.isNetworkError) {
-        errorMsg =
-            'Cannot reach the server. Check your internet connection and try again.';
-      }
-
+    if (!result.activated) {
       setState(() {
         _loading = false;
-        _error = errorMsg;
+        _error = result.message ?? 'Login failed. Please try again.';
       });
     }
+    // On success the coordinator publishes the active root. FKSSApp swaps to
+    // AppShell; this screen never starts workers or navigates around policy.
   }
 
   @override

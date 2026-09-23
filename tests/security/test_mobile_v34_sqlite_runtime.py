@@ -860,3 +860,190 @@ def test_dart_sources_bind_runtime_contract_and_never_use_lexical_max() -> None:
     assert "enum OutboxDecision" in policy and "supersededLocal" in policy
     assert "enum ApiFailureKind" in policy
     assert "enum SessionState" in session and "reauth_required" in session
+
+
+def test_risk9_complete_credentials_backfill_ownerless_rows_atomically() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    insert_packet(
+        connection,
+        "pending_attendance",
+        (4, "2026-09-24"),
+        "attendance-op",
+        ("one", "two"),
+        owner=0,
+        authorization_version=0,
+    )
+    connection.execute(
+        "UPDATE pending_attendance SET owner_user_id=NULL, "
+        "created_authorization_version=NULL"
+    )
+    connection.execute(
+        "INSERT INTO comm_outbox(client_tag,thread_id,body,state,created_at) "
+        "VALUES(?,?,?,?,?)",
+        ("comm-op", 2, "body", "pending", "2026-09-24T00:00:00Z"),
+    )
+    connection.execute(
+        "INSERT INTO comm_drafts(thread_id,body,updated_at) VALUES(?,?,?)",
+        (2, "draft", "2026-09-24T00:00:00Z"),
+    )
+    connection.execute(
+        "INSERT INTO pending_hymn_ops"
+        "(op,payload_json,client_op_id,created_at) VALUES(?,?,?,?)",
+        ("hymn_save", "{}", "hymn-op", "2026-09-24T00:00:00Z"),
+    )
+
+    with connection:
+        connection.execute(
+            "UPDATE pending_attendance SET owner_user_id=?, "
+            "created_authorization_version=? "
+            "WHERE synced=0 AND owner_user_id IS NULL",
+            (17, 4),
+        )
+        for table in ("comm_outbox", "comm_drafts"):
+            connection.execute(
+                f"UPDATE {table} SET owner_user_id=?, "
+                "created_authorization_version=? WHERE owner_user_id IS NULL",
+                (17, 4),
+            )
+        connection.execute(
+            "UPDATE pending_hymn_ops SET created_by_user_id=?, "
+            "created_authorization_version=? "
+            "WHERE synced=0 AND created_by_user_id IS NULL",
+            (17, 4),
+        )
+
+    assert [tuple(row) for row in connection.execute(
+        "SELECT DISTINCT owner_user_id,created_authorization_version "
+        "FROM pending_attendance"
+    ).fetchall()] == [(17, 4)]
+    assert tuple(connection.execute(
+        "SELECT owner_user_id,created_authorization_version FROM comm_outbox"
+    ).fetchone()) == (17, 4)
+    assert tuple(connection.execute(
+        "SELECT owner_user_id,created_authorization_version FROM comm_drafts"
+    ).fetchone()) == (17, 4)
+    assert tuple(connection.execute(
+        "SELECT created_by_user_id,created_authorization_version "
+        "FROM pending_hymn_ops"
+    ).fetchone()) == (17, 4)
+
+
+def test_risk9_inventory_counts_batches_messages_drafts_and_hymns_separately() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    insert_packet(
+        connection,
+        "pending_attendance",
+        (4, "2026-09-24"),
+        "attendance-op",
+        ("one", "two"),
+        state="needs_attention",
+    )
+    insert_packet(connection, "pending_grades", (8,), "grade-op", ("grade",))
+    insert_packet(
+        connection,
+        "pending_mezmur",
+        ("2026-09-24", "choir"),
+        "mezmur-op",
+        ("mezmur",),
+        state="paused_auth",
+    )
+    insert_packet(
+        connection,
+        "pending_hr",
+        ("2026-09-24", "staff"),
+        "hr-op",
+        ("hr",),
+    )
+    connection.executemany(
+        "INSERT INTO comm_outbox"
+        "(client_tag,thread_id,body,state,created_at,owner_user_id) "
+        "VALUES(?,?,?,?,?,?)",
+        [
+            ("pending", 1, "p", "pending", "2026-09-24T00:00:00Z", 17),
+            ("failed", 1, "f", "failed", "2026-09-24T00:00:01Z", 17),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO comm_drafts(thread_id,body,updated_at,owner_user_id) "
+        "VALUES(?,?,?,?)",
+        [(1, "real draft", "2026-09-24T00:00:00Z", 17), (2, "   ", "2026-09-24T00:00:00Z", 17)],
+    )
+    connection.execute(
+        "INSERT INTO pending_hymn_ops"
+        "(op,payload_json,client_op_id,created_at) VALUES(?,?,?,?)",
+        ("hymn_save", "{}", "shared-op", "2026-09-24T00:00:00Z"),
+    )
+
+    operation_counts = {
+        table: connection.execute(
+            f"SELECT COUNT(DISTINCT client_op_id) FROM {table} WHERE synced=0"
+        ).fetchone()[0]
+        for table in LEGACY_KEYS
+    }
+    assert operation_counts == {
+        "pending_attendance": 1,
+        "pending_grades": 1,
+        "pending_mezmur": 1,
+        "pending_hr": 1,
+    }
+    assert connection.execute(
+        "SELECT COUNT(*) FROM comm_outbox WHERE state='pending'"
+    ).fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT COUNT(*) FROM comm_outbox WHERE state='failed'"
+    ).fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT COUNT(*) FROM comm_drafts WHERE TRIM(body)<>''"
+    ).fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops WHERE synced=0"
+    ).fetchone()[0] == 1
+
+
+def test_risk9_purging_resume_is_idempotent_and_preserves_shared_hymns() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    insert_packet(
+        connection,
+        "pending_attendance",
+        (4, "2026-09-24"),
+        "private-op",
+        ("private",),
+    )
+    connection.execute(
+        "INSERT INTO comm_outbox(client_tag,thread_id,body,state,created_at) "
+        "VALUES(?,?,?,?,?)",
+        ("private-message", 1, "body", "pending", "2026-09-24T00:00:00Z"),
+    )
+    connection.execute(
+        "INSERT INTO pending_hymn_ops"
+        "(op,payload_json,client_op_id,created_at) VALUES(?,?,?,?)",
+        ("hymn_save", '{"title":"kept"}', "shared-op", "2026-09-24T00:00:00Z"),
+    )
+    connection.execute(
+        "UPDATE local_session_state SET state='purging',owner_user_id=17,generation=9"
+    )
+
+    # Resume the destructive phase twice to model process death at any delete.
+    for _ in range(2):
+        with connection:
+            for table in (*LEGACY_KEYS, "comm_outbox", "comm_drafts"):
+                connection.execute(f"DELETE FROM {table}")
+    with connection:
+        connection.execute(
+            "UPDATE local_session_state SET state='anonymous_clean',"
+            "owner_user_id=NULL,owner_authorization_version=NULL WHERE id=1"
+        )
+
+    assert connection.execute(
+        "SELECT COUNT(*) FROM pending_attendance"
+    ).fetchone()[0] == 0
+    assert connection.execute("SELECT COUNT(*) FROM comm_outbox").fetchone()[0] == 0
+    assert tuple(connection.execute(
+        "SELECT client_op_id,payload_json FROM pending_hymn_ops"
+    ).fetchone()) == ("shared-op", '{"title":"kept"}')
+    assert tuple(connection.execute(
+        "SELECT state,owner_user_id,generation FROM local_session_state WHERE id=1"
+    ).fetchone()) == ("anonymous_clean", None, 9)

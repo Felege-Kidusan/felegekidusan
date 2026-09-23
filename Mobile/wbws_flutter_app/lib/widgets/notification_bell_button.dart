@@ -17,8 +17,6 @@ class NotificationBellButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Ensure polling is running wherever a bell is visible.
-    NotificationService.instance.start();
     return ValueListenableBuilder<int>(
       valueListenable: NotificationService.instance.badge,
       builder: (context, total, _) {

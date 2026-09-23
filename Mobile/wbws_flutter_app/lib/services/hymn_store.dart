@@ -29,7 +29,15 @@ class HymnStore extends ChangeNotifier {
   final _db = LocalDb();
 
   bool _pulling = false;
+  int? _pullingGeneration;
+  Completer<void>? _pullInflight;
   bool get pulling => _pulling;
+  bool Function()? activeSessionGate;
+  int Function()? sessionGenerationProvider;
+
+  bool _ownsGeneration(int generation) =>
+      activeSessionGate?.call() != false &&
+      generation == (sessionGenerationProvider?.call() ?? generation);
 
   /// Roles that curate the library (the server re-checks every write).
   static const _writeRoles = {'mezmur_dept', 'school_admin', 'super_admin'};
@@ -860,6 +868,7 @@ class HymnStore extends ChangeNotifier {
   // ── outbox drain (Gmail pattern: one worker, ordered push) ──
 
   Completer<int>? _pushInflight;
+  int? _pushInflightGeneration;
 
   /// P46: save timed (LRC) lyrics, offline-first.
   ///
@@ -885,21 +894,32 @@ class HymnStore extends ChangeNotifier {
   }
 
   Future<int> pushPending() async {
-    if (_pushInflight != null) return _pushInflight!.future;
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    if (!_ownsGeneration(generation)) return 0;
+    if (_pushInflight != null) {
+      if (_pushInflightGeneration == generation) return _pushInflight!.future;
+      await _pushInflight!.future;
+      if (!_ownsGeneration(generation)) return 0;
+      return pushPending();
+    }
     // Queued hymn edits survive logout by design; they wait here until
     // a curator (mezmur_dept/admin) signs in. Non-curators never push
     // them, so nothing can be posted under the wrong identity.
     if (!canEdit) return 0;
     final c = Completer<int>();
     _pushInflight = c;
+    _pushInflightGeneration = generation;
     try {
       var pushed = 0;
-      for (var guard = 0; guard < 50; guard++) {
+      for (var guard = 0;
+          guard < 50 && _ownsGeneration(generation);
+          guard++) {
         final ops = await _db.getPendingHymnOps();
-        if (ops.isEmpty) break;
+        if (!_ownsGeneration(generation) || ops.isEmpty) break;
         var progress = false;
         for (final op in ops) {
-          final done = await _pushOne(op);
+          if (!_ownsGeneration(generation)) break;
+          final done = await _pushOne(op, generation);
           if (done) {
             pushed++;
             progress = true;
@@ -909,13 +929,20 @@ class HymnStore extends ChangeNotifier {
       }
       if (!c.isCompleted) c.complete(pushed);
       return pushed;
+    } catch (_) {
+      if (!c.isCompleted) c.complete(0);
+      rethrow;
     } finally {
-      _pushInflight = null;
+      if (identical(_pushInflight, c)) {
+        _pushInflight = null;
+        _pushInflightGeneration = null;
+      }
       notifyListeners();
     }
   }
 
-  Future<bool> _pushOne(Map<String, dynamic> op) async {
+  Future<bool> _pushOne(Map<String, dynamic> op, int generation) async {
+    if (!_ownsGeneration(generation)) return false;
     final id = _asInt(op['id']);
     final kind = '${op['op'] ?? ''}';
     Map<String, dynamic> payload;
@@ -937,10 +964,14 @@ class HymnStore extends ChangeNotifier {
           final localId = _asInt(payload['id']);
           // P23: swap placeholder refs for synced twin ids when possible.
           await _rewritePlaceholderRefs(payload);
+          if (!_ownsGeneration(generation)) return false;
           final res = await _api.saveMezmurHymn(payload,
               clientOpId: opId,
               baseRevision:
                   baseRevision != null && baseRevision > 0 ? baseRevision : null);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success) {
             final item = _itemFrom(res.data);
             if (item != null) {
@@ -977,9 +1008,13 @@ class HymnStore extends ChangeNotifier {
             await _db.dropHymnOp(id); // never reached the server: nothing to flip
             return true;
           }
+          if (!_ownsGeneration(generation)) return false;
           final res = await _api.setMezmurHymnStatus(
               _asInt(payload['id']), '${payload['status'] ?? ''}',
               clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success || res.statusCode == 409) {
             final item = _itemFrom(res.data);
             if (item != null) await _db.upsertHymns([item]);
@@ -1000,8 +1035,12 @@ class HymnStore extends ChangeNotifier {
           // create (id 0), never a negative row id.
           final catBody = Map<String, dynamic>.from(payload);
           if (catLocalId < 0) catBody['id'] = 0;
+          if (!_ownsGeneration(generation)) return false;
           final res =
               await _api.saveMezmurCategory(catBody, clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success) {
             final item = _itemFrom(res.data);
             if (item != null) await _db.upsertCategoryLocal(item);
@@ -1039,8 +1078,12 @@ class HymnStore extends ChangeNotifier {
               return true;
             }
           }
+          if (!_ownsGeneration(generation)) return false;
           final res = await _api.setMezmurCategoryStatus(
               catId, payload['active'] == true, clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success || res.statusCode == 409) {
             await _db.markHymnOpSynced(id);
             return true;
@@ -1059,7 +1102,11 @@ class HymnStore extends ChangeNotifier {
           // payload is a clean create.
           final zBody = Map<String, dynamic>.from(payload);
           if (zLocalId < 0) zBody['id'] = 0;
+          if (!_ownsGeneration(generation)) return false;
           final res = await _api.saveMezmurZemarian(zBody, clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success) {
             final item = _itemFrom(res.data);
             if (item != null) await _db.upsertZemarianLocal(item);
@@ -1092,9 +1139,13 @@ class HymnStore extends ChangeNotifier {
             await _db.dropHymnOp(id); // nothing addressable to update
             return true;
           }
+          if (!_ownsGeneration(generation)) return false;
           final res = await _api.saveMezmurSyncedLyrics(
               lyricHymnId, '${payload['lrc'] ?? ''}',
               clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success || res.statusCode == 409) {
             await _db.markHymnOpSynced(id);
             return true;
@@ -1120,8 +1171,12 @@ class HymnStore extends ChangeNotifier {
               return true;
             }
           }
+          if (!_ownsGeneration(generation)) return false;
           final res = await _api.setMezmurZemarianStatus(
               zemId, payload['active'] == true, clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return false;
+          }
           if (res.success || res.statusCode == 409) {
             await _db.markHymnOpSynced(id);
             return true;
@@ -1139,6 +1194,7 @@ class HymnStore extends ChangeNotifier {
           return false;
       }
     } catch (_) {
+      if (!_ownsGeneration(generation)) return false;
       await _db.failHymnOp(id, 'network');
       return false;
     }
@@ -1196,10 +1252,23 @@ class HymnStore extends ChangeNotifier {
       _db.ensureSearchIndexFresh(userIsSearching: userIsSearching);
 
   Future<void> pullChanges({int lyricsBatch = 15}) async {
-    if (!_api.isLoggedIn || _pulling) return;
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    if (!_api.isLoggedIn || !_ownsGeneration(generation)) return;
+    if (_pulling) {
+      final priorGeneration = _pullingGeneration;
+      await _pullInflight!.future;
+      if (priorGeneration != generation && _ownsGeneration(generation)) {
+        return pullChanges(lyricsBatch: lyricsBatch);
+      }
+      return;
+    }
+    final completion = Completer<void>();
     _pulling = true;
+    _pullingGeneration = generation;
+    _pullInflight = completion;
     try {
       var cursor = await _db.getHymnSyncCursor();
+      if (!_ownsGeneration(generation)) return;
       // Rows with queued local edits are protected from server deltas.
       final protect = <int>{};
       for (final op in await _db.getPendingHymnOps()) {
@@ -1219,9 +1288,10 @@ class HymnStore extends ChangeNotifier {
       // visibly behind for a long time. Bounded so a pathological loop can
       // never spin forever; each page advances the persisted cursor.
       var pages = 0;
-      while (pages < 10) {
+      while (pages < 10 && _ownsGeneration(generation)) {
         pages++;
         final res = await _api.getMezmurHymnsChanges(cursor: cursor);
+        if (res.sessionSuperseded || !_ownsGeneration(generation)) return;
         if (!res.success || res.data is! Map) break;
         final data = Map<String, dynamic>.from(res.data as Map);
         final items = (data['items'] is List) ? data['items'] as List : [];
@@ -1240,14 +1310,19 @@ class HymnStore extends ChangeNotifier {
       // genuinely successful response is what makes an empty list mean
       // "no categories exist" instead of "the request failed".
       // Rows with queued local edits are protected from the sweep.
+      if (!_ownsGeneration(generation)) return;
       final taxProtect = await _pendingTaxonomyIds();
+      if (!_ownsGeneration(generation)) return;
       final cats = await _api.getMezmurCategories();
+      if (cats.sessionSuperseded || !_ownsGeneration(generation)) return;
       if (cats.success && cats.data is Map && cats.data['items'] is List) {
         await _db.upsertCategories(cats.data['items'] as List,
             authoritative: true, protectIds: taxProtect.categories);
       }
       // Singers (zemarians): same small canonical list, same contract.
+      if (!_ownsGeneration(generation)) return;
       final zem = await _api.getMezmurZemarians();
+      if (zem.sessionSuperseded || !_ownsGeneration(generation)) return;
       if (zem.success && zem.data is Map && zem.data['items'] is List) {
         await _db.upsertZemarians(zem.data['items'] as List,
             authoritative: true, protectIds: taxProtect.zemarians);
@@ -1255,9 +1330,12 @@ class HymnStore extends ChangeNotifier {
       // Lazy lyrics: bounded, resumable batch per cycle (Telegram-style
       // "download media as you go" — keeps the first sync seconds-fast).
       final missing = await _db.getHymnsMissingLyrics(lyricsBatch);
+      if (!_ownsGeneration(generation)) return;
       for (final h in missing) {
+        if (!_ownsGeneration(generation)) return;
         try {
           final one = await _api.getMezmurHymn(_asInt(h['id']));
+          if (one.sessionSuperseded || !_ownsGeneration(generation)) return;
           if (one.success && one.data is Map && one.data['item'] is Map) {
             final item = Map<String, dynamic>.from(one.data['item']);
             // P50: store the whole row through the same reconciling upsert
@@ -1270,23 +1348,31 @@ class HymnStore extends ChangeNotifier {
           }
         } catch (_) {}
       }
-      notifyListeners();
+      if (_ownsGeneration(generation)) notifyListeners();
     } catch (_) {
       // Offline or flaky link: the delta simply waits for next cycle.
     } finally {
-      _pulling = false;
       // P38: hymns change daily, so verify the index after EVERY sync
       // rather than trusting a one-time migration. This repairs dirty
       // rows and rebuilds outright if the analyzer version moved.
       try {
         await _db.ensureSearchIndexFresh();
       } catch (_) {}
+      if (identical(_pullInflight, completion)) {
+        _pulling = false;
+        _pullingGeneration = null;
+        _pullInflight = null;
+        if (!completion.isCompleted) completion.complete();
+      }
     }
   }
 
   /// Pull-to-refresh: push everything queued, then pull the delta.
   Future<void> refreshAll() async {
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    if (!_ownsGeneration(generation)) return;
     await pushPending();
+    if (!_ownsGeneration(generation)) return;
     await pullChanges();
   }
 

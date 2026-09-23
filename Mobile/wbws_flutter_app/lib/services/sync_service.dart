@@ -21,9 +21,16 @@ class SyncService {
   StreamSubscription<bool>? _radioSub;
   bool _started = false;
   Completer<SyncResult>? _inflight;
+  int? _inflightGeneration;
   bool _queued = false;
   bool _forceNext = false;
   int _failStreak = 0;
+  bool Function()? activeSessionGate;
+  int Function()? sessionGenerationProvider;
+
+  bool _ownsGeneration(int generation) =>
+      activeSessionGate?.call() != false &&
+      generation == (sessionGenerationProvider?.call() ?? generation);
 
   final _syncController = StreamController<SyncStatus>.broadcast();
   Stream<SyncStatus> get syncStream => _syncController.stream;
@@ -40,6 +47,7 @@ class SyncService {
   static const _backoff = <int>[2, 5, 12, 30, 60];
 
   void startAutoSync() {
+    if (activeSessionGate?.call() == false) return;
     if (_started) {
       nudge(delay: const Duration(milliseconds: 400));
       return;
@@ -58,20 +66,29 @@ class SyncService {
     _radioSub?.cancel();
     _radioSub = null;
     _started = false;
+    _queued = false;
+    _forceNext = false;
     _failStreak = 0;
   }
 
   void nudge({Duration delay = const Duration(milliseconds: 300)}) {
+    if (activeSessionGate?.call() == false) return;
     if (!_api.isLoggedIn) return;
     if (!_started) startAutoSync();
     _retryTimer?.cancel();
+    final generation = sessionGenerationProvider?.call() ?? 0;
     _retryTimer = Timer(delay, () {
-      syncAll();
+      _syncAllForGeneration(generation);
     });
   }
 
-  Future<SyncResult> syncAll({bool force = false}) async {
-    if (!_api.isLoggedIn) {
+  Future<SyncResult> syncAll({bool force = false}) => _syncAllForGeneration(
+      sessionGenerationProvider?.call() ?? 0,
+      force: force);
+
+  Future<SyncResult> _syncAllForGeneration(int generation,
+      {bool force = false}) async {
+    if (!_ownsGeneration(generation) || !_api.isLoggedIn) {
       return SyncResult(synced: 0, failed: 0, message: 'Not logged in');
     }
     if (force) _forceNext = true;
@@ -79,29 +96,39 @@ class SyncService {
     // after it. Joining the in-flight future without that flag swallows
     // any Save that landed while the first drain was already reading.
     if (_inflight != null) {
-      _queued = true;
+      final sameGeneration = _inflightGeneration == generation;
+      if (sameGeneration) _queued = true;
       final r = await _inflight!.future;
+      if (!_ownsGeneration(generation)) {
+        return SyncResult(
+            synced: 0,
+            failed: 0,
+            message: 'Sync paused until this account is active again.');
+      }
       if (_inflight == null) {
         final left = await _db.getTotalPendingCount();
-        if (left > 0) return syncAll(force: force);
+        if (left > 0) {
+          return _syncAllForGeneration(generation, force: force);
+        }
       }
       return r;
     }
     final c = Completer<SyncResult>();
     _inflight = c;
+    _inflightGeneration = generation;
     try {
       var r = SyncResult(synced: 0, failed: 0, message: 'Nothing waiting to send');
       do {
         _queued = false;
         final useForce = force || _forceNext;
         _forceNext = false;
-        final next = await _drain(force: useForce);
+        final next = await _drain(generation: generation, force: useForce);
         r = SyncResult(
           synced: r.synced + next.synced,
           failed: next.failed,
           message: next.message,
         );
-      } while (_queued);
+      } while (_queued && _ownsGeneration(generation));
       if (!c.isCompleted) c.complete(r);
       return r;
     } catch (e) {
@@ -112,7 +139,10 @@ class SyncService {
       if (!c.isCompleted) c.complete(r);
       return r;
     } finally {
-      if (identical(_inflight, c)) _inflight = null;
+      if (identical(_inflight, c)) {
+        _inflight = null;
+        _inflightGeneration = null;
+      }
     }
   }
 
@@ -122,21 +152,43 @@ class SyncService {
     return int.tryParse('$v') ?? 0;
   }
 
-  Future<SyncResult> _drain({required bool force}) async {
+  Future<SyncResult> _drain(
+      {required int generation, required bool force}) async {
     // User tap (force) always tries the school. The OS radio is only a
     // banner — Tecno phones often report "none" while 4G is working.
 
+    if (!_ownsGeneration(generation)) {
+      return SyncResult(
+        synced: 0,
+        failed: 0,
+        message: 'Sync paused until this account is active again.',
+      );
+    }
     await _emitStatus(syncing: true);
     int synced = 0;
     int failed = 0;
     var loops = 0;
 
     do {
+      if (!_ownsGeneration(generation)) {
+        return SyncResult(
+          synced: synced,
+          failed: failed,
+          message: 'Sync paused until this account is active again.',
+        );
+      }
       loops++;
       var didWork = false;
 
       final pendingAtt = await _db.getPendingAttendance();
       for (final batch in pendingAtt) {
+        if (!_ownsGeneration(generation)) {
+          return SyncResult(
+            synced: synced,
+            failed: failed,
+            message: 'Sync paused until this account is active again.',
+          );
+        }
         // F8: already refused by the school's workflow — kept on this
         // phone until the user reviews or discards it. Never re-sent.
         if (batch['rejected'] == 1) continue;
@@ -148,6 +200,13 @@ class SyncService {
         try {
           final records = await _db.getPendingAttendanceRecords(classId, date);
           if (records.isEmpty) continue;
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final apiRecords = records
               .map((r) => {
                     'member_id': r['member_id'],
@@ -160,6 +219,13 @@ class SyncService {
                   clientOpId: opId)
               : await _api.saveAttendance(classId, date, apiRecords,
                   clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final outcome = classifyDrainResponse(res);
           if (outcome == DrainOutcome.accepted) {
             await _db.markAttendanceSynced(classId, date);
@@ -177,6 +243,13 @@ class SyncService {
             await _db.logSync('attendance', lastError, 'error');
           }
         } catch (e) {
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           failed++;
           await _db.logSync('attendance', e.toString(), 'error');
         }
@@ -184,6 +257,13 @@ class SyncService {
 
       final pendingGrades = await _db.getPendingGrades();
       for (final batch in pendingGrades) {
+        if (!_ownsGeneration(generation)) {
+          return SyncResult(
+            synced: synced,
+            failed: failed,
+            message: 'Sync paused until this account is active again.',
+          );
+        }
         // F8: refused by the school's workflow — kept for review.
         if (batch['rejected'] == 1) continue;
         final assessmentId = batch['assessment_id'] as int;
@@ -192,6 +272,13 @@ class SyncService {
         try {
           final records = await _db.getPendingGradeRecords(assessmentId);
           if (records.isEmpty) continue;
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final apiGrades = records.map((r) {
             return <String, dynamic>{
               'member_id': r['member_id'],
@@ -204,6 +291,13 @@ class SyncService {
               ? await _api.submitGrades(assessmentId, apiGrades,
                   clientOpId: opId)
               : await _api.saveGrades(assessmentId, apiGrades, clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final outcome = classifyDrainResponse(res);
           if (outcome == DrainOutcome.accepted) {
             await _db.markGradesSynced(assessmentId);
@@ -221,6 +315,13 @@ class SyncService {
             await _db.logSync('grades', lastError, 'error');
           }
         } catch (e) {
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           failed++;
           await _db.logSync('grades', e.toString(), 'error');
         }
@@ -228,6 +329,13 @@ class SyncService {
 
       final pendingMez = await _db.getPendingMezmur();
       for (final batch in pendingMez) {
+        if (!_ownsGeneration(generation)) {
+          return SyncResult(
+            synced: synced,
+            failed: failed,
+            message: 'Sync paused until this account is active again.',
+          );
+        }
         // F8: refused by the school's workflow — kept for review.
         if (batch['rejected'] == 1) continue;
         final date = '${batch['date'] ?? ''}';
@@ -238,6 +346,13 @@ class SyncService {
         try {
           final records = await _db.getPendingMezmurRecords(date, section);
           if (records.isEmpty) continue;
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final apiRecords = records
               .map((r) => {
                     'member_id': r['member_id'],
@@ -252,6 +367,13 @@ class SyncService {
                   section: section, kind: kind, clientOpId: opId)
               : await _api.saveMezmurSheet(date, apiRecords,
                   clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final outcome = classifyDrainResponse(res);
           if (outcome == DrainOutcome.accepted) {
             await _db.markMezmurSynced(date, section);
@@ -269,6 +391,13 @@ class SyncService {
             await _db.logSync('mezmur', lastError, 'error');
           }
         } catch (e) {
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           failed++;
           await _db.logSync('mezmur', e.toString(), 'error');
         }
@@ -279,6 +408,13 @@ class SyncService {
       // streams never cross.
       final pendingHr = await _db.getPendingHr();
       for (final batch in pendingHr) {
+        if (!_ownsGeneration(generation)) {
+          return SyncResult(
+            synced: synced,
+            failed: failed,
+            message: 'Sync paused until this account is active again.',
+          );
+        }
         // F8: refused by the school's workflow — kept for review.
         if (batch['rejected'] == 1) continue;
         final date = '${batch['date'] ?? ''}';
@@ -289,6 +425,13 @@ class SyncService {
         try {
           final records = await _db.getPendingHrRecords(date, section);
           if (records.isEmpty) continue;
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final apiRecords = records
               .map((r) => {
                     'member_id': r['member_id'],
@@ -298,6 +441,13 @@ class SyncService {
               .toList();
           final res = await _api.saveHrSheet(date, apiRecords,
               section: section, kind: kind, clientOpId: opId);
+          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final outcome = classifyDrainResponse(res);
           if (outcome == DrainOutcome.accepted) {
             await _db.markHrSynced(date, section);
@@ -315,6 +465,13 @@ class SyncService {
             await _db.logSync('hr_attendance', lastError, 'error');
           }
         } catch (e) {
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           failed++;
           await _db.logSync('hr_attendance', e.toString(), 'error');
         }
@@ -326,8 +483,22 @@ class SyncService {
       try {
         final hymnStore = HymnStore();
         final before = await _db.getPendingHymnOpsCount();
+        if (!_ownsGeneration(generation)) {
+          return SyncResult(
+            synced: synced,
+            failed: failed,
+            message: 'Sync paused until this account is active again.',
+          );
+        }
         if (before > 0) {
           final pushed = await hymnStore.pushPending();
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           final after = await _db.getPendingHymnOpsCount();
           if (pushed > 0 || after < before) {
             if (pushed > 0) synced++;
@@ -337,23 +508,58 @@ class SyncService {
             lastError = 'Hymn changes are still waiting to send.';
           }
         }
-        if (ConnectivityService().hasLink) {
+        if (ConnectivityService().hasLink && _ownsGeneration(generation)) {
           await hymnStore.pullChanges();
+          if (!_ownsGeneration(generation)) {
+            return SyncResult(
+              synced: synced,
+              failed: failed,
+              message: 'Sync paused until this account is active again.',
+            );
+          }
           // P33: a delta may have added hymns to a pinned category or
           // replaced an audio object — top up / refresh offline copies.
           await MezmurDownloadManager.instance.syncPins();
         }
       } catch (e) {
+        if (!_ownsGeneration(generation)) {
+          return SyncResult(
+            synced: synced,
+            failed: failed,
+            message: 'Sync paused until this account is active again.',
+          );
+        }
         await _db.logSync('hymns', e.toString(), 'error');
       }
 
       if (!didWork) break;
     } while (loops < 4);
 
+    if (!_ownsGeneration(generation)) {
+      return SyncResult(
+        synced: synced,
+        failed: failed,
+        message: 'Sync paused until this account is active again.',
+      );
+    }
     await _db.cleanupSynced();
+    if (!_ownsGeneration(generation)) {
+      return SyncResult(
+        synced: synced,
+        failed: failed,
+        message: 'Sync paused until this account is active again.',
+      );
+    }
     await _emitStatus();
 
     final pendingLeft = await _db.getTotalPendingCount();
+    if (!_ownsGeneration(generation)) {
+      return SyncResult(
+        synced: synced,
+        failed: failed,
+        message: 'Sync paused until this account is active again.',
+      );
+    }
     final stillWaiting = failed > 0 || pendingLeft > 0;
     if (stillWaiting && (force || ConnectivityService().hasLink)) {
       _failStreak = (_failStreak + 1).clamp(1, _backoff.length);
@@ -378,13 +584,18 @@ class SyncService {
   }
 
   Future<void> cacheForOffline() async {
-    if (!_api.isLoggedIn) return;
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    if (!_ownsGeneration(generation) || !_api.isLoggedIn) return;
     try {
       final dashRes = await _api.getDashboardStats();
-      if (dashRes.success && dashRes.data != null) {
+      if (!dashRes.sessionSuperseded &&
+          _ownsGeneration(generation) &&
+          dashRes.success &&
+          dashRes.data != null) {
         await _db.cacheDashboardStats(dashRes.data, _api.userRole);
       }
     } catch (_) {}
+    if (!_ownsGeneration(generation)) return;
     try {
       await CatalogService().classes();
     } catch (_) {}

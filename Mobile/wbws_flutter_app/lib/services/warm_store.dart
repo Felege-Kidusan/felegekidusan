@@ -10,55 +10,82 @@ class WarmStore {
   factory WarmStore() => _instance;
   WarmStore._internal();
 
-  bool _running = false;
+  int? _runningGeneration;
+  bool Function()? activeSessionGate;
+  int Function()? sessionGenerationProvider;
+
+  bool _ownsGeneration(int generation) =>
+      activeSessionGate?.call() != false &&
+      generation == (sessionGenerationProvider?.call() ?? generation);
 
   Future<void> afterLogin() async {
-    if (_running || !ApiService().isLoggedIn) return;
-    _running = true;
+    if (activeSessionGate?.call() == false || !ApiService().isLoggedIn) {
+      return;
+    }
+    final generation = sessionGenerationProvider?.call() ?? 0;
+    if (_runningGeneration == generation) return;
+    _runningGeneration = generation;
     try {
-      final classes = await CatalogService().classes();
-      if (classes.isEmpty) return;
+      final classes = await CatalogService()
+          .classes(expectedGeneration: generation);
+      if (!_ownsGeneration(generation) || classes.isEmpty) return;
       final id = _asInt(classes.first['id']);
       if (id == null) return;
       await Future.wait<void>([
-        _warmAttendance(id),
-        _warmGrades(id),
+        _warmAttendance(id, generation),
+        _warmGrades(id, generation),
       ]);
     } catch (_) {
       // Never block the UI. Next open will try again.
     } finally {
-      _running = false;
+      if (_runningGeneration == generation) _runningGeneration = null;
     }
   }
 
-  Future<void> _warmAttendance(int classId) async {
+  Future<void> _warmAttendance(int classId, int generation) async {
     final db = LocalDb();
     final date = _today();
     final cached = await db.getCachedAttendanceResponse(classId, date);
-    if (cached != null && cached.isNotEmpty) return;
+    if (!_ownsGeneration(generation) ||
+        (cached != null && cached.isNotEmpty)) {
+      return;
+    }
     final res = await ApiService().getAttendance(classId, date: date);
-    if (!res.success || res.data == null) return;
+    if (!_ownsGeneration(generation) ||
+        res.sessionSuperseded ||
+        !res.success ||
+        res.data == null) {
+      return;
+    }
     final raw = res.data['students'];
     if (raw is! List || raw.isEmpty) return;
     final students = raw
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
-    if (students.isEmpty) return;
+    if (students.isEmpty || !_ownsGeneration(generation)) return;
     await db.cacheAttendanceResponse(classId, date, students);
+    if (!_ownsGeneration(generation)) return;
     await db.cacheStudents(classId, students);
   }
 
-  Future<void> _warmGrades(int classId) async {
+  Future<void> _warmGrades(int classId, int generation) async {
     final db = LocalDb();
     final have = await db.getCachedSubjects(classId);
-    if (have.isNotEmpty) return;
+    if (!_ownsGeneration(generation) || have.isNotEmpty) return;
     final res = await ApiService().getGradeBootstrap(classId);
-    if (!res.success || res.data == null) return;
+    if (!_ownsGeneration(generation) ||
+        res.sessionSuperseded ||
+        !res.success ||
+        res.data == null) {
+      return;
+    }
     final subjects = res.data['subjects'];
     if (subjects is List && subjects.isNotEmpty) {
+      if (!_ownsGeneration(generation)) return;
       await db.cacheSubjects(classId, subjects);
     }
+    if (!_ownsGeneration(generation)) return;
     final assessments = res.data['assessments'];
     if (assessments is List && assessments.isNotEmpty) {
       final bySubject = <int, List<dynamic>>{};
@@ -69,6 +96,7 @@ class WarmStore {
         bySubject.putIfAbsent(sid, () => []).add(a);
       }
       for (final e in bySubject.entries) {
+        if (!_ownsGeneration(generation)) return;
         await db.cacheAssessments(classId, e.key, e.value);
       }
     }
