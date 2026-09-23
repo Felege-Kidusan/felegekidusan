@@ -117,23 +117,28 @@ final class RefreshTokenService
                 return ['state' => 'invalid'];
             }
 
-            if ($session['consumed_at'] !== null || $session['revoked_at'] !== null) {
+            if ($session['consumed_at'] !== null) {
                 $this->revokeFamily((string)$session['family_id']);
                 $this->database->commit();
                 return ['state' => 'reused'];
             }
+            if ($session['revoked_at'] !== null) {
+                $this->database->commit();
+                return ['state' => 'revoked'];
+            }
             if (strtotime((string)$session['expires_at']) <= time()) {
                 $this->revokeFamily((string)$session['family_id']);
                 $this->database->commit();
-                return ['state' => 'invalid'];
+                return ['state' => 'expired'];
             }
 
-            $user = $this->findActiveUserForUpdate((int)$session['user_id']);
-            if (!$user) {
+            $account = $this->findUserForUpdate((int)$session['user_id']);
+            if (($account['state'] ?? '') !== 'active') {
                 $this->revokeFamily((string)$session['family_id']);
                 $this->database->commit();
-                return ['state' => 'invalid'];
+                return ['state' => (string)($account['state'] ?? 'account_removed')];
             }
+            $user = $account['user'];
 
             $issued = $this->issueWithinTransaction(
                 $user,
@@ -207,11 +212,15 @@ final class RefreshTokenService
                 return ['state' => 'reused'];
             }
 
-            $user = $this->findActiveUserForUpdate($userId);
-            if (!$user) {
-                $this->database->rollback();
-                return ['state' => 'invalid'];
+            $account = $this->findUserForUpdate($userId);
+            if (($account['state'] ?? '') !== 'active') {
+                // Consume the one-time legacy exchange even when the account is
+                // gone/disabled so this signed token cannot later bootstrap a
+                // fresh tracked family after an account-state transition.
+                $this->database->commit();
+                return ['state' => (string)($account['state'] ?? 'account_removed')];
             }
+            $user = $account['user'];
             $issued = $this->issueWithinTransaction($user, $familyId, $clientIp, $userAgent);
             $this->database->commit();
             return ['state' => 'rotated', 'token' => $issued['token'], 'user' => $user];
@@ -277,26 +286,34 @@ final class RefreshTokenService
         return ['token' => $token, 'session_id' => $sessionId];
     }
 
-    /** @return array{id:int,username:string,full_name:string,role:string,authorization_version:int}|null */
-    private function findActiveUserForUpdate(int $userId): ?array
+    /**
+     * @return array{state:string,user?:array{id:int,username:string,full_name:string,role:string,authorization_version:int}}
+     */
+    private function findUserForUpdate(int $userId): array
     {
         $statement = $this->database->prepare(
-            'SELECT id, username, full_name, role, authorization_version FROM users
-             WHERE id=? AND is_active=1 LIMIT 1 FOR UPDATE'
+            'SELECT id, username, full_name, role, is_active, authorization_version FROM users
+             WHERE id=? LIMIT 1 FOR UPDATE'
         );
         $statement->bind_param('i', $userId);
         $statement->execute();
         $user = $statement->get_result()->fetch_assoc();
         $statement->close();
         if (!$user) {
-            return null;
+            return ['state' => 'account_removed'];
+        }
+        if ((int)$user['is_active'] !== 1) {
+            return ['state' => 'account_disabled'];
         }
         return [
-            'id' => (int)$user['id'],
-            'username' => (string)$user['username'],
-            'full_name' => (string)($user['full_name'] ?? ''),
-            'role' => (string)$user['role'],
-            'authorization_version' => max(1, (int)$user['authorization_version']),
+            'state' => 'active',
+            'user' => [
+                'id' => (int)$user['id'],
+                'username' => (string)$user['username'],
+                'full_name' => (string)($user['full_name'] ?? ''),
+                'role' => (string)$user['role'],
+                'authorization_version' => max(1, (int)$user['authorization_version']),
+            ],
         ];
     }
 

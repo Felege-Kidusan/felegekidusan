@@ -6,8 +6,8 @@ Pins the exactly-once send contract and the offline-first client wiring:
   • sql/046 — messages.client_tag + UNIQUE uk_client_tag, guarded and
     re-runnable like 040/043/044/045; NULL stays legal (web + legacy)
   • NotificationCenterService.sendMessage — tag normalization, the
-    pre-check replay fast path, the 1062 race catch, and the graceful
-    pre-046 fallback (probe, then tagless insert)
+    pre-check replay fast path, the 1062 race catch, and fail-closed
+    tagged sends when migration 046 is unavailable
   • api route — client_tag passes through; a replay answers success
     with `replayed` so the phone's outbox deletes its row
   • mobile — client_tag rides the send payload (O3), the local store
@@ -64,11 +64,18 @@ class SendMessageExactlyOnceTests(unittest.TestCase):
         self.assertIn("1062", self.svc)
         self.assertIn("['ok' => true, 'replayed' => true]", self.svc)
 
-    def test_pre046_servers_keep_working(self):
-        # Deploy order is free: no column → probe fails → tagless
-        # insert, byte-for-byte today's behavior.
+    def test_tagged_send_fails_closed_without_migration_046(self):
+        # A queued mobile send must never silently lose its exactly-once
+        # identity by falling back to a tagless insert.
         self.assertIn("messagesHaveClientTag", self.svc)
         self.assertIn("SHOW COLUMNS FROM `messages` LIKE 'client_tag'", self.svc)
+        self.assertIn(
+            "$clientTag !== null && !self::messagesHaveClientTag($conn)",
+            self.svc)
+        self.assertIn("Message retry protection is temporarily unavailable.",
+                      self.svc)
+        self.assertIn("'code' => 'MESSAGE_SEND_UNAVAILABLE'", self.svc)
+        # Untagged web/legacy sends retain their established behavior.
         self.assertIn(
             'INSERT INTO messages (thread_id, sender_id, body) VALUES (?, ?, ?)',
             self.svc)

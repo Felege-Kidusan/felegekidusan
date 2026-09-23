@@ -1200,12 +1200,12 @@ final class MezmurHymnService
         // existing rows. The FKs already stop unknown ids at the storage
         // layer, but INSERT IGNORE used to swallow them silently — a stale
         // picker (category/singer deleted on another device) got a fake
-        // success. Surface an honest 422 instead.
+        // success. Surface an honest TARGET_NOT_FOUND response instead.
         if ($categoryIds && self::unknownTaxonomyIds($conn, 'mezmur_categories', $categoryIds)) {
-            return ['ok' => false, 'message' => 'One of the selected categories no longer exists. Refresh the catalog and try again.'];
+            return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'One of the selected categories no longer exists. Refresh the catalog and try again.'];
         }
         if ($zemarianIds && self::unknownTaxonomyIds($conn, 'mezmur_zemarians', $zemarianIds)) {
-            return ['ok' => false, 'message' => 'One of the selected singers no longer exists. Refresh the catalog and try again.'];
+            return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'One of the selected singers no longer exists. Refresh the catalog and try again.'];
         }
 
         // Legacy single-name input becomes a category id. MZ-10: the row is
@@ -1254,7 +1254,7 @@ final class MezmurHymnService
             $current = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if (!$current) {
-                return ['ok' => false, 'message' => 'Hymn not found.'];
+                return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Hymn not found.'];
             }
             $baseRevision = isset($input['base_revision']) && $input['base_revision'] !== '' && $input['base_revision'] !== null
                 ? (int)$input['base_revision'] : null;
@@ -1262,6 +1262,7 @@ final class MezmurHymnService
                 return [
                     'ok' => false,
                     'conflict' => true,
+                    'code' => 'REVISION_CONFLICT',
                     'item' => self::getHymn($conn, $id),
                     'message' => 'This hymn changed on the server while you were offline. Review the newest copy and save again.',
                 ];
@@ -1339,11 +1340,12 @@ final class MezmurHymnService
                     $conn->rollback();
                     $winner = self::getHymn($conn, $id);
                     if ($winner === null) {
-                        return ['ok' => false, 'message' => 'Hymn not found.'];
+                        return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Hymn not found.'];
                     }
                     return [
                         'ok' => false,
                         'conflict' => true,
+                        'code' => 'REVISION_CONFLICT',
                         'item' => $winner,
                         'message' => 'This hymn changed on the server while you were offline. Review the newest copy and save again.',
                     ];
@@ -1470,8 +1472,18 @@ final class MezmurHymnService
         $ok = $stmt->execute();
         $affected = $stmt->affected_rows;
         $stmt->close();
-        if (!$ok || $affected === 0) {
-            return ['ok' => false, 'message' => 'Hymn not found or already in that state.'];
+        if (!$ok) {
+            return ['ok' => false, 'message' => 'Unable to change the hymn status.'];
+        }
+        if ($affected === 0) {
+            $check = $conn->prepare("SELECT 1 FROM mezmur_hymns WHERE id=? LIMIT 1");
+            $check->bind_param('i', $id);
+            $check->execute();
+            $exists = (bool)$check->get_result()->fetch_assoc();
+            $check->close();
+            return $exists
+                ? ['ok' => false, 'message' => 'Hymn is already in that state.']
+                : ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Hymn not found.'];
         }
         self::auditHymn($conn, $status === 'archived' ? 'Mezmur Hymn Archived' : 'Mezmur Hymn Restored', [
             'new_status' => $status, 'source' => 'sync',
@@ -1811,7 +1823,7 @@ final class MezmurHymnService
                 $parent = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
                 if (!$parent) {
-                    return ['ok' => false, 'message' => 'The parent category does not exist.'];
+                    return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'The parent category does not exist.'];
                 }
                 if ($parent['parent_id'] !== null) {
                     return ['ok' => false, 'message' => 'Sub-categories cannot have their own sub-categories (two levels maximum).'];
@@ -1862,7 +1874,7 @@ final class MezmurHymnService
             $old = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if (!$old) {
-                return ['ok' => false, 'message' => 'Category not found.'];
+                return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Category not found.'];
             }
             // P32: a cover-color change is a real change even when the
             // name and order are untouched (color-only edits).
@@ -1876,7 +1888,7 @@ final class MezmurHymnService
             }
             $renamed = $old['name'] !== $name;
             if (!$renamed && (int)$old['sort_order'] === $sortOrder && !$colorsChanged) {
-                return ['ok' => false, 'message' => 'Category not found or unchanged.'];
+                return ['ok' => false, 'message' => 'Category is unchanged.'];
             }
             $relabelled = 0;
             $conn->begin_transaction();
@@ -1976,8 +1988,18 @@ final class MezmurHymnService
         $ok = $stmt->execute();
         $affected = $stmt->affected_rows;
         $stmt->close();
-        if (!$ok || $affected === 0) {
-            return ['ok' => false, 'message' => 'Category not found or unchanged.'];
+        if (!$ok) {
+            return ['ok' => false, 'message' => 'Unable to change the category status.'];
+        }
+        if ($affected === 0) {
+            $check = $conn->prepare("SELECT 1 FROM mezmur_categories WHERE id=? LIMIT 1");
+            $check->bind_param('i', $id);
+            $check->execute();
+            $exists = (bool)$check->get_result()->fetch_assoc();
+            $check->close();
+            return $exists
+                ? ['ok' => false, 'message' => 'Category is already in that state.']
+                : ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Category not found.'];
         }
         self::audit($conn, $active ? 'Mezmur Category Activated' : 'Mezmur Category Deactivated', [], 'mezmur_category', $id, $actorId);
         return ['ok' => true, 'message' => $active ? 'Category restored.' : 'Category hidden.'];
@@ -2073,7 +2095,7 @@ final class MezmurHymnService
             $old = $stmt->get_result()->fetch_assoc();
             $stmt->close();
             if (!$old) {
-                return ['ok' => false, 'message' => 'Singer not found.'];
+                return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Singer not found.'];
             }
             $stmt = $conn->prepare("UPDATE mezmur_zemarians SET name=?, name_am=?, sort_order=? WHERE id=?");
             $stmt->bind_param('ssii', $name, $nameAm, $sortOrder, $id);
@@ -2111,7 +2133,17 @@ final class MezmurHymnService
         $ok = $stmt->execute();
         $affected = $stmt->affected_rows;
         $stmt->close();
-        if (!$ok || $affected === 0) return ['ok' => false, 'message' => 'Singer not found or unchanged.'];
+        if (!$ok) return ['ok' => false, 'message' => 'Unable to change the singer status.'];
+        if ($affected === 0) {
+            $check = $conn->prepare("SELECT 1 FROM mezmur_zemarians WHERE id=? LIMIT 1");
+            $check->bind_param('i', $id);
+            $check->execute();
+            $exists = (bool)$check->get_result()->fetch_assoc();
+            $check->close();
+            return $exists
+                ? ['ok' => false, 'message' => 'Singer is already in that state.']
+                : ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'Singer not found.'];
+        }
         self::audit($conn, $active ? 'Mezmur Singer Activated' : 'Mezmur Singer Deactivated', [], 'mezmur_zemarian', $id, $actorId);
         return ['ok' => true, 'message' => $active ? 'Singer restored.' : 'Singer hidden.'];
     }

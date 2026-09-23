@@ -34,7 +34,7 @@ $MEZMUR_ANALYTICS_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
 $MEZMUR_LIBRARY_WRITE_ROLES = ['mezmur_dept', 'school_admin', 'super_admin'];
 
 if (!apiRoleIs($auth, $MEZMUR_ROLES)) {
-    err('You cannot access the Mezmur module.', 403);
+    err('You cannot access the Mezmur module.', 403, ['code' => 'FORBIDDEN']);
 }
 
 require_once __DIR__ . '/../../../admin/backend/services/MezmurAttendanceService.php';
@@ -57,6 +57,37 @@ use App\Services\MezmurArtService;
 
 $action = $ROUTE['id'] ?? '';
 $method = $ROUTE['method'] ?? 'GET';
+
+/**
+ * Emit the stable error contract used by queued hymn/taxonomy operations.
+ * A revision conflict is valid only when the service supplied the canonical
+ * current item; middleware idempotency 409s use their own codes upstream.
+ */
+if (!function_exists('mezmurWriteError')) {
+    function mezmurWriteError(array $result): void
+    {
+        $item = $result['item'] ?? null;
+        $code = (string)($result['code'] ?? 'VALIDATION_FAILED');
+        $isRevisionConflict = $code === 'REVISION_CONFLICT'
+            || !empty($result['conflict']);
+        if ($isRevisionConflict && !is_array($item)) {
+            err('Current hymn state could not be loaded. Please retry.', 500);
+        }
+        if ($isRevisionConflict) {
+            $code = 'REVISION_CONFLICT';
+        }
+        if (!in_array($code, ['REVISION_CONFLICT', 'VALIDATION_FAILED', 'TARGET_NOT_FOUND'], true)) {
+            $code = 'VALIDATION_FAILED';
+        }
+        $status = $code === 'REVISION_CONFLICT' ? 409
+            : ($code === 'TARGET_NOT_FOUND' ? 404 : 422);
+        $extra = ['code' => $code];
+        if ($code === 'REVISION_CONFLICT') {
+            $extra['data'] = ['item' => $item];
+        }
+        err((string)($result['message'] ?? 'The operation was rejected.'), $status, $extra);
+    }
+}
 
 try {
 
@@ -286,7 +317,8 @@ try {
     // ── POST /mezmur/hymn — create / update (offline outbox) ───
     if ($method === 'POST' && $action === 'hymn') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can edit the hymn library.', 403);
+            err('Only Mezmur staff and admins can edit the hymn library.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -295,12 +327,7 @@ try {
         }
         $result = MezmurHymnService::saveHymn($conn, $input, (int)$auth['uid']);
         if (empty($result['ok'])) {
-            if (!empty($result['conflict'])) {
-                // data.item carries the server copy so the device can
-                // reconcile without a second round trip.
-                err($result['message'], 409, ['data' => ['item' => $result['item'] ?? null]]);
-            }
-            err($result['message'], 422);
+            mezmurWriteError($result);
         }
         ok([
             'saved' => true,
@@ -312,7 +339,8 @@ try {
     // ── POST /mezmur/hymn-status — archive / restore ───────────
     if ($method === 'POST' && $action === 'hymn-status') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can edit the hymn library.', 403);
+            err('Only Mezmur staff and admins can edit the hymn library.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -325,7 +353,7 @@ try {
             (string)($input['status'] ?? ''),
             (int)$auth['uid']
         );
-        if (empty($result['ok'])) err($result['message'], 422);
+        if (empty($result['ok'])) mezmurWriteError($result);
         ok(['saved' => true, 'item' => $result['item'] ?? null]);
     }
 
@@ -340,7 +368,8 @@ try {
     // ── POST /mezmur/category — create / rename ─────────────────
     if ($method === 'POST' && $action === 'category') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage categories.', 403);
+            err('Only Mezmur staff and admins can manage categories.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -348,7 +377,7 @@ try {
             err('Too many category changes. Please wait a moment.', 429);
         }
         $result = MezmurHymnService::saveCategory($conn, $input, (int)$auth['uid']);
-        if (empty($result['ok'])) err($result['message'], 422);
+        if (empty($result['ok'])) mezmurWriteError($result);
         ok(['saved' => true, 'item' => $result['item'] ?? null]);
     }
 
@@ -358,7 +387,8 @@ try {
     // the web manager uses (magic bytes, re-encode, random name).
     if ($method === 'POST' && $action === 'category-image') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage categories.', 403);
+            err('Only Mezmur staff and admins can manage categories.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         if (isApiRateLimited('mezmur_hymn_write', 30)) {
             err('Too many uploads. Please wait a moment.', 429);
@@ -376,7 +406,8 @@ try {
     // ── POST /mezmur/zemarian-image — singer cover (multipart) ──
     if ($method === 'POST' && $action === 'zemarian-image') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage singers.', 403);
+            err('Only Mezmur staff and admins can manage singers.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         if (isApiRateLimited('mezmur_hymn_write', 30)) {
             err('Too many uploads. Please wait a moment.', 429);
@@ -394,7 +425,8 @@ try {
     // ── POST /mezmur/zemarian-image-remove — drop the singer cover ─
     if ($method === 'POST' && $action === 'zemarian-image-remove') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage singers.', 403);
+            err('Only Mezmur staff and admins can manage singers.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         if (isApiRateLimited('mezmur_hymn_write', 30)) {
             err('Too many changes. Please wait a moment.', 429);
@@ -408,7 +440,8 @@ try {
     // ── POST /mezmur/category-image-remove — drop the cover ─────
     if ($method === 'POST' && $action === 'category-image-remove') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage categories.', 403);
+            err('Only Mezmur staff and admins can manage categories.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         if (isApiRateLimited('mezmur_hymn_write', 30)) {
             err('Too many changes. Please wait a moment.', 429);
@@ -428,7 +461,8 @@ try {
     // response carries the full art payload for immediate render.
     if ($method === 'POST' && $action === 'art') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage hymn art.', 403);
+            err('Only Mezmur staff and admins can manage hymn art.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         if (isApiRateLimited('mezmur_art_write', 30)) {
             err('Too many uploads. Please wait a moment.', 429);
@@ -446,7 +480,8 @@ try {
     // ── POST /mezmur/art-remove — drop a hymn's cover art ───────
     if ($method === 'POST' && $action === 'art-remove') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage hymn art.', 403);
+            err('Only Mezmur staff and admins can manage hymn art.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         if (isApiRateLimited('mezmur_art_write', 30)) {
             err('Too many changes. Please wait a moment.', 429);
@@ -460,7 +495,8 @@ try {
     // ── POST /mezmur/category-status — activate / hide ─────────
     if ($method === 'POST' && $action === 'category-status') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage categories.', 403);
+            err('Only Mezmur staff and admins can manage categories.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -473,7 +509,7 @@ try {
             !empty($input['active']),
             (int)$auth['uid']
         );
-        if (empty($result['ok'])) err($result['message'], 422);
+        if (empty($result['ok'])) mezmurWriteError($result);
         ok(['saved' => true]);
     }
 
@@ -488,7 +524,8 @@ try {
     // ── POST /mezmur/zemarian — add / rename a singer ───────────
     if ($method === 'POST' && $action === 'zemarian') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage singers.', 403);
+            err('Only Mezmur staff and admins can manage singers.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -496,14 +533,15 @@ try {
             err('Too many singer changes. Please wait a moment.', 429);
         }
         $result = MezmurHymnService::saveZemarian($conn, $input, (int)$auth['uid']);
-        if (empty($result['ok'])) err($result['message'], 422);
+        if (empty($result['ok'])) mezmurWriteError($result);
         ok(['saved' => true, 'item' => $result['item'] ?? null]);
     }
 
     // ── POST /mezmur/zemarian-status — activate / hide ──────────
     if ($method === 'POST' && $action === 'zemarian-status') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage singers.', 403);
+            err('Only Mezmur staff and admins can manage singers.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -516,7 +554,7 @@ try {
             !empty($input['active']),
             (int)$auth['uid']
         );
-        if (empty($result['ok'])) err($result['message'], 422);
+        if (empty($result['ok'])) mezmurWriteError($result);
         ok(['saved' => true]);
     }
 
@@ -533,7 +571,8 @@ try {
     // ── POST /mezmur/audio-presign — phase 1 ─────────────────────
     if ($method === 'POST' && $action === 'audio-presign') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage hymn audio.', 403);
+            err('Only Mezmur staff and admins can manage hymn audio.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -565,7 +604,8 @@ try {
     // ── POST /mezmur/audio-confirm — phase 2 (verifies object) ───
     if ($method === 'POST' && $action === 'audio-confirm') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage hymn audio.', 403);
+            err('Only Mezmur staff and admins can manage hymn audio.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -588,7 +628,8 @@ try {
     // ── POST /mezmur/audio-remove — detach + delete object ───────
     if ($method === 'POST' && $action === 'audio-remove') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can manage hymn audio.', 403);
+            err('Only Mezmur staff and admins can manage hymn audio.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -608,7 +649,8 @@ try {
     // Empty lrc clears the synced lyrics back to static-only.
     if ($method === 'POST' && $action === 'lyrics-synced') {
         if (!apiRoleIs($auth, $MEZMUR_LIBRARY_WRITE_ROLES)) {
-            err('Only Mezmur staff and admins can edit synced lyrics.', 403);
+            err('Only Mezmur staff and admins can edit synced lyrics.', 403,
+                ['code' => 'FORBIDDEN']);
         }
         $input = getBody();
         apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
@@ -620,7 +662,7 @@ try {
         $result = $lrc === ''
             ? MezmurMediaService::removeSyncedLyrics($conn, $hymnId, (int)$auth['uid'])
             : MezmurMediaService::saveSyncedLyrics($conn, $hymnId, $lrc, (int)$auth['uid']);
-        if (empty($result['ok'])) err($result['message'], 422);
+        if (empty($result['ok'])) mezmurWriteError($result);
         ok(['saved' => true, 'message' => $result['message']]);
     }
 

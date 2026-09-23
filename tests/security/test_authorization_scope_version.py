@@ -138,7 +138,7 @@ class AuthorizationScopeVersionTests(unittest.TestCase):
 
     def test_refresh_reloads_version_under_lock_and_returns_safe_user(self):
         self.assertIn(
-            "SELECT id, username, full_name, role, authorization_version FROM users",
+            "SELECT id, username, full_name, role, is_active, authorization_version FROM users",
             self.refresh,
         )
         self.assertIn("LIMIT 1 FOR UPDATE", self.refresh)

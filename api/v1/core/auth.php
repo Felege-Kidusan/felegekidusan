@@ -95,23 +95,47 @@ function createRefreshToken(
 }
 
 /**
- * Verify a token and return payload, or null if invalid
+ * Verify signature and required claims while preserving an explicit expiry
+ * state for refresh-token responses. Expired signed payloads are never exposed
+ * to callers; only the machine-readable state is retained.
+ *
+ * @return array{state:string,payload?:array<string,mixed>,token_type?:string}
  */
-function verifyToken($token) {
-    if (!is_string($token) || $token === '' || strlen($token) > 8192 || strpos($token, '.') === false) return null;
+function verifyTokenState($token): array {
+    if (!is_string($token) || $token === '' || strlen($token) > 8192 || strpos($token, '.') === false) {
+        return ['state' => 'invalid'];
+    }
     $parts = explode('.', $token, 2);
-    if (count($parts) !== 2 || !preg_match('/^[a-f0-9]{64}$/', $parts[1])) return null;
-    if (!hash_equals(hash_hmac('sha256', $parts[0], API_TOKEN_SECRET), $parts[1])) return null;
+    if (count($parts) !== 2 || !preg_match('/^[a-f0-9]{64}$/', $parts[1])) {
+        return ['state' => 'invalid'];
+    }
+    if (!hash_equals(hash_hmac('sha256', $parts[0], API_TOKEN_SECRET), $parts[1])) {
+        return ['state' => 'invalid'];
+    }
     $decoded = base64_decode($parts[0], true);
-    if ($decoded === false) return null;
+    if ($decoded === false) {
+        return ['state' => 'invalid'];
+    }
     $payload = json_decode($decoded, true);
     $now = time();
     if (!is_array($payload)
         || !isset($payload['uid'], $payload['exp'], $payload['iat'], $payload['typ'])
         || (int)$payload['uid'] <= 0
-        || (int)$payload['exp'] < $now
-        || (int)$payload['iat'] > ($now + 60)) return null;
-    return $payload;
+        || (int)$payload['iat'] > ($now + 60)) {
+        return ['state' => 'invalid'];
+    }
+    if ((int)$payload['exp'] < $now) {
+        return ['state' => 'expired', 'token_type' => (string)$payload['typ']];
+    }
+    return ['state' => 'valid', 'payload' => $payload];
+}
+
+/**
+ * Verify a token and return payload, or null if invalid/expired.
+ */
+function verifyToken($token) {
+    $result = verifyTokenState($token);
+    return ($result['state'] ?? '') === 'valid' ? $result['payload'] : null;
 }
 
 /**

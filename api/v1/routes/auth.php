@@ -80,8 +80,9 @@ if ($action === 'login' && $method === 'POST') {
     try {
         $refreshToken = $refreshService->issue($user, $clientIp, $userAgent);
     } catch (Throwable $error) {
-        error_log('API refresh session creation failed. Apply migration 010.');
-        err('Authentication service is temporarily unavailable.', 503);
+        error_log('API refresh session creation failed. Apply migrations 010 and 048.');
+        err('Authentication service is temporarily unavailable.', 503,
+            ['code' => 'AUTH_SERVICE_UNAVAILABLE']);
     }
 
     $conn->query("UPDATE users SET last_login = NOW() WHERE id = " . (int)$user['id']);
@@ -120,26 +121,58 @@ if ($action === 'refresh-token' && $method === 'POST') {
     $input = getBody();
     $refreshToken = (string)($input['refresh_token'] ?? '');
     if ($refreshToken === '') {
-        err('Refresh token is required.');
+        err('Refresh token is required.', 401, ['code' => 'INVALID_REFRESH_TOKEN']);
     }
 
-    $payload = verifyToken($refreshToken);
-    if (!$payload || ($payload['typ'] ?? '') !== 'refresh') {
-        err('Invalid or expired refresh token. Please login again.', 401);
+    $verification = verifyTokenState($refreshToken);
+    if (($verification['state'] ?? '') === 'expired') {
+        if (($verification['token_type'] ?? '') !== 'refresh') {
+            err('Invalid refresh token. Please login again.', 401,
+                ['code' => 'INVALID_REFRESH_TOKEN']);
+        }
+        err('Refresh token expired. Please login again.', 401,
+            ['code' => 'REFRESH_EXPIRED']);
+    }
+    $payload = ($verification['state'] ?? '') === 'valid'
+        ? ($verification['payload'] ?? null)
+        : null;
+    if (!is_array($payload) || ($payload['typ'] ?? '') !== 'refresh') {
+        err('Invalid refresh token. Please login again.', 401,
+            ['code' => 'INVALID_REFRESH_TOKEN']);
     }
 
     $rotation = $refreshService->rotate($refreshToken, $payload, $clientIp, $userAgent);
-    if (($rotation['state'] ?? '') === 'reused') {
+    $rotationState = (string)($rotation['state'] ?? 'invalid');
+    if ($rotationState === 'reused') {
         logApiAction((int)($payload['uid'] ?? 0), (string)($payload['usr'] ?? ''),
             'Refresh token reuse blocked', 'Refresh-token family revoked');
-        err('Refresh token reuse detected. Please login again.', 401);
+        err('Refresh token reuse detected. Please login again.', 401,
+            ['code' => 'REFRESH_REUSED']);
     }
-    if (($rotation['state'] ?? '') === 'unavailable') {
-        error_log('API refresh rotation failed. Apply migration 010.');
-        err('Authentication service is temporarily unavailable.', 503);
+    if ($rotationState === 'expired') {
+        err('Refresh session expired. Please login again.', 401,
+            ['code' => 'REFRESH_EXPIRED']);
     }
-    if (($rotation['state'] ?? '') !== 'rotated' || empty($rotation['token']) || empty($rotation['user'])) {
-        err('Invalid or expired refresh token. Please login again.', 401);
+    if ($rotationState === 'revoked') {
+        err('This session was revoked. Please login again.', 401,
+            ['code' => 'SESSION_REVOKED']);
+    }
+    if ($rotationState === 'account_disabled') {
+        err('This account is disabled. Contact an administrator.', 401,
+            ['code' => 'ACCOUNT_DISABLED']);
+    }
+    if ($rotationState === 'account_removed') {
+        err('This account no longer exists. Please login again.', 401,
+            ['code' => 'ACCOUNT_REMOVED']);
+    }
+    if ($rotationState === 'unavailable') {
+        error_log('API refresh rotation failed. Apply migrations 010 and 048.');
+        err('Authentication service is temporarily unavailable.', 503,
+            ['code' => 'AUTH_SERVICE_UNAVAILABLE']);
+    }
+    if ($rotationState !== 'rotated' || empty($rotation['token']) || empty($rotation['user'])) {
+        err('Invalid refresh token. Please login again.', 401,
+            ['code' => 'INVALID_REFRESH_TOKEN']);
     }
 
     $user = $rotation['user'];

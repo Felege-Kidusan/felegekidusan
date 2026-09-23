@@ -2308,8 +2308,12 @@ class MezmurOfflineHymnTests(unittest.TestCase):
     def test_routes_delta_and_conflict_shapes(self):
         self.assertIn("($ROUTE['sub'] ?? '') === 'changes'", self.route)
         self.assertIn("listChangedSince(", self.route)
-        # 409 conflict carries the server copy inside data.item
-        self.assertIn("err($result['message'], 409, ['data' => ['item' => $result['item'] ?? null]]);", self.route)
+        # Only a coded revision conflict with a canonical server item gets
+        # HTTP 409 + data.item; middleware idempotency 409s stay distinct.
+        self.assertIn("is_array($item)", self.route)
+        self.assertIn("$code = 'REVISION_CONFLICT'", self.route)
+        self.assertIn("$code === 'REVISION_CONFLICT' ? 409", self.route)
+        self.assertIn("$extra['data'] = ['item' => $item]", self.route)
 
     # ── client: local-first store ─────────────────────────────
     def test_store_is_local_first_and_role_gated(self):

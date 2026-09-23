@@ -814,7 +814,7 @@ final class MezmurMediaService
         if ($affected === 0) {
             // Row id did not match anything — silently "succeeding" here
             // would tell the user their work was saved when it was not.
-            return ['ok' => false, 'message' => 'That hymn no longer exists (id ' . $hymnId . '). Reload the library and try again.'];
+            return ['ok' => false, 'code' => 'TARGET_NOT_FOUND', 'message' => 'That hymn no longer exists (id ' . $hymnId . '). Reload the library and try again.'];
         }
         self::audit($conn, 'Mezmur Synced Lyrics Saved', ['lines' => $timed], $hymnId, $actorId);
         return ['ok' => true, 'message' => 'Synced lyrics saved (' . $timed . ' timed lines).'];
@@ -837,8 +837,16 @@ final class MezmurMediaService
             return ['ok' => false, 'message' => 'The database rejected the update. Press “Sync DB schema” in the Mezmur console, then try again.'];
         }
         $stmt->bind_param('ii', $actorId, $hymnId);
-        $stmt->execute();
+        $ok = $stmt->execute();
+        $affected = $ok ? $stmt->affected_rows : -1;
         $stmt->close();
+        if (!$ok) {
+            return ['ok' => false, 'message' => 'Could not remove synced lyrics.'];
+        }
+        if ($affected === 0) {
+            return ['ok' => false, 'code' => 'TARGET_NOT_FOUND',
+                'message' => 'That hymn no longer exists. Reload the library and try again.'];
+        }
         self::audit($conn, 'Mezmur Synced Lyrics Removed', [], $hymnId, $actorId);
         return ['ok' => true, 'message' => 'Synced lyrics removed — static lyrics still show.'];
     }

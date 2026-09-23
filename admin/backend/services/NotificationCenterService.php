@@ -824,27 +824,42 @@ final class NotificationCenterService
      * (crash mid-POST, timeout after commit, double-drain) carries the
      * SAME tag; the unique index uk_client_tag is the arbiter and a
      * duplicate becomes a replay SUCCESS so the phone deletes its
-     * outbox row. Pre-046 servers (column absent) transparently fall
-     * back to today's tagless behavior — deploy order is free.
+     * outbox row. A tagged mobile send fails retryably when migration 046 is
+     * absent; silently degrading it to a tagless insert would lose the
+     * exactly-once identity the queued operation depends on.
+     *
+     * @return array{ok:bool,error?:string,code?:string,http_status?:int,replayed?:bool,id?:int}
      */
     public static function sendMessage(\mysqli $conn, int $userId, int $threadId, string $body, ?string $clientTag = null): array
     {
         $body = trim($body);
         if ($body === '') {
-            return ['ok' => false, 'error' => 'Message cannot be empty.'];
+            return ['ok' => false, 'error' => 'Message cannot be empty.',
+                'code' => 'MESSAGE_EMPTY', 'http_status' => 422];
         }
         if (mb_strlen($body) > 5000) {
-            return ['ok' => false, 'error' => 'Message is too long (max 5000 characters).'];
+            return ['ok' => false, 'error' => 'Message is too long (max 5000 characters).',
+                'code' => 'MESSAGE_TOO_LONG', 'http_status' => 422];
         }
         $clientTag = self::normalizeClientTag($clientTag);
         try {
             $chk = $conn->prepare("SELECT 1 FROM message_thread_participants WHERE thread_id = ? AND user_id = ?");
             $chk->bind_param('ii', $threadId, $userId);
             $chk->execute();
-            if (!$chk->get_result()->fetch_assoc()) { $chk->close(); return ['ok' => false, 'error' => 'Not your conversation.']; }
+            if (!$chk->get_result()->fetch_assoc()) {
+                $chk->close();
+                return ['ok' => false, 'error' => 'Not your conversation.',
+                    'code' => 'THREAD_FORBIDDEN', 'http_status' => 403];
+            }
             $chk->close();
 
-            if ($clientTag !== null && self::messagesHaveClientTag($conn)) {
+            if ($clientTag !== null && !self::messagesHaveClientTag($conn)) {
+                return ['ok' => false,
+                    'error' => 'Message retry protection is temporarily unavailable.',
+                    'code' => 'MESSAGE_SEND_UNAVAILABLE', 'http_status' => 500];
+            }
+
+            if ($clientTag !== null) {
                 // Fast path: the common replay (retry after timeout)
                 // finds its row without touching last_message_at.
                 $dup = $conn->prepare("SELECT id FROM messages WHERE client_tag = ? LIMIT 1");
@@ -871,20 +886,27 @@ final class NotificationCenterService
                     }
                     throw $race;
                 }
-                if (!$ok) { return ['ok' => false, 'error' => 'Could not send the message.']; }
+                if (!$ok) {
+                    return ['ok' => false, 'error' => 'Could not send the message.',
+                        'code' => 'MESSAGE_SEND_UNAVAILABLE', 'http_status' => 500];
+                }
             } else {
-                // Web sends, pre-1.4.0 clients, or a pre-046 schema:
-                // exactly today's behavior, byte for byte.
+                // Web sends and pre-1.4.0 clients carry no operation identity;
+                // preserve their existing tagless behavior.
                 $stmt = $conn->prepare("INSERT INTO messages (thread_id, sender_id, body) VALUES (?, ?, ?)");
                 $stmt->bind_param('iis', $threadId, $userId, $body);
                 $ok = $stmt->execute();
                 $stmt->close();
-                if (!$ok) { return ['ok' => false, 'error' => 'Could not send the message.']; }
+                if (!$ok) {
+                    return ['ok' => false, 'error' => 'Could not send the message.',
+                        'code' => 'MESSAGE_SEND_UNAVAILABLE', 'http_status' => 500];
+                }
             }
             $conn->query("UPDATE message_threads SET last_message_at = NOW() WHERE id = " . (int)$threadId);
             return ['ok' => true];
-        } catch (\Exception $e) {
-            return ['ok' => false, 'error' => 'Could not send the message.'];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => 'Could not send the message.',
+                'code' => 'MESSAGE_SEND_UNAVAILABLE', 'http_status' => 500];
         }
     }
 
@@ -905,9 +927,9 @@ final class NotificationCenterService
 
     /**
      * O4 (046) — does the schema have messages.client_tag yet? Probed
-     * once per request (static), only when a tag is present; a missing
-     * column means the tag rides along unstored — pre-046 servers keep
-     * working exactly as before.
+     * once per request (static), only when a tag is present. A false result
+     * makes the tagged send fail retryably; it never falls back to a tagless
+     * insert and loses operation identity.
      */
     private static function messagesHaveClientTag(\mysqli $conn): bool
     {

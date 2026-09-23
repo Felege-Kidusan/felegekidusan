@@ -279,7 +279,18 @@ if ($method === 'POST') {
                 ? ['status' => 'success', 'replayed' => true]
                 : ['status' => 'success']);
         }
-        err($result['error'] ?? 'Could not send.');
+        $sendCode = (string)($result['code'] ?? 'MESSAGE_SEND_UNAVAILABLE');
+        $sendStatuses = [
+            'MESSAGE_EMPTY' => 422,
+            'MESSAGE_TOO_LONG' => 422,
+            'THREAD_FORBIDDEN' => 403,
+            'MESSAGE_SEND_UNAVAILABLE' => 500,
+        ];
+        if (!isset($sendStatuses[$sendCode])) {
+            $sendCode = 'MESSAGE_SEND_UNAVAILABLE';
+        }
+        err($result['error'] ?? 'Could not send.', $sendStatuses[$sendCode],
+            ['code' => $sendCode]);
     }
 
     if ($action === 'message-edit') {
