@@ -15,6 +15,11 @@ if ($method === 'GET' && ($action === 'config' || $action === '' || $action === 
     header('Cache-Control: no-store');
     $rel = fkssLoadAppRelease();
     $rel['tiles'] = \App\Services\FeatureGate::filterMobileTiles($rel['tiles'] ?? []);
+    $features = \App\Services\FeatureGate::mobileCapabilities();
+    // Release-owned emergency containment. This is intentionally separate
+    // from module visibility: false stops outbound outbox drains while local
+    // SQLite saves, queue rows, and recovery UI stay available.
+    $features['background_outbox_drain'] = $rel['background_drains_enabled'];
     $banner = null;
     if ($rel['banner_text'] !== '') {
         $banner = [
@@ -40,7 +45,7 @@ if ($method === 'GET' && ($action === 'config' || $action === '' || $action === 
         // when the server only publishes the universal build.
         'apk_artifacts' => $rel['apk_artifacts'],
         'banner' => $banner,
-        'features' => \App\Services\FeatureGate::mobileCapabilities(),
+        'features' => $features,
         'tiles' => $rel['tiles'],
     ]);
 }

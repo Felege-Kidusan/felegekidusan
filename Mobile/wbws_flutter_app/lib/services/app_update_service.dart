@@ -123,6 +123,7 @@ class AppUpdateService {
 
   static const _featureCacheKey = 'fkss_remote_features_v1';
   static const _tileCacheKey = 'fkss_remote_tiles_v1';
+  static const backgroundDrainFeature = 'background_outbox_drain';
 
   AppRemoteConfig? config;
   UpdateDecision decision = const UpdateDecision(force: false, optional: false);
@@ -134,11 +135,33 @@ class AppUpdateService {
   Map<String, bool> _cachedFeatures = const {};
   Map<String, List<String>> _cachedTiles = const {};
   Future<void>? _cacheFuture;
+  Future<void>? _checkFuture;
+  bool _releaseCheckCompleted = false;
 
   final _progress = StreamController<double>.broadcast();
   Stream<double> get progressStream => _progress.stream;
 
-  Future<void> check() async {
+  /// Loads release metadata once at a time. Outbound drains remain held until
+  /// the first launch check finishes, so an already-published emergency pause
+  /// is observed before account-scoped workers claim more rows. On an outage,
+  /// the durable cached setting wins; a device with no cache keeps the legacy
+  /// enabled default so an old server cannot permanently strand its queue.
+  Future<void> check() {
+    final existing = _checkFuture;
+    if (existing != null) return existing;
+    // Every launch/resume check creates a short no-new-claims window. Existing
+    // in-flight requests still settle by exact identity; workers resume only
+    // after fresh config (or the durable fallback) has been selected.
+    _releaseCheckCompleted = false;
+    late final Future<void> future;
+    future = _checkOnce().whenComplete(() {
+      if (identical(_checkFuture, future)) _checkFuture = null;
+    });
+    _checkFuture = future;
+    return future;
+  }
+
+  Future<void> _checkOnce() async {
     await _loadCapabilityCache();
     try {
       final res = await ApiService().get('/app/config', auth: false);
@@ -160,8 +183,15 @@ class AppUpdateService {
       revision.value++;
     } catch (_) {
       // Stay on the current app if the check fails — do not lock teachers out.
+    } finally {
+      _releaseCheckCompleted = true;
     }
   }
+
+  /// False during the cold-start release check. Afterwards the server value,
+  /// then its durable cache, then the old-server-compatible default is used.
+  bool get backgroundDrainsEnabled =>
+      _releaseCheckCompleted && featureEnabled(backgroundDrainFeature);
 
   Future<void> _loadCapabilityCache() {
     return _cacheFuture ??= _readCapabilityCache();

@@ -2,6 +2,12 @@
 
 **Read this ONE document to deploy.** It puts every "what you must do" step from the audit reports in the exact order to do them. Each step says what to do and how to confirm it worked. Do them top to bottom. Don't skip.
 
+> **Build 24 authorization/outbox release:** also complete the mandatory staged
+> migration, build-23 compatibility, background-drain containment, device-drill,
+> and forward-only SQLite v34 gates in
+> [`AUTH_OUTBOX_BUILD24_ROLLOUT_RUNBOOK.md`](AUTH_OUTBOX_BUILD24_ROLLOUT_RUNBOOK.md).
+> Its stop conditions supersede generic rollback advice for this release.
+
 > You have other documents for detail (`FOUNDATION_VERIFICATION.md`, `PRODUCTION_HARDENING_PLAN.md`, the three audits). You do **not** need to read them to deploy — this runbook is the checklist. They're reference if something is unclear.
 
 ---

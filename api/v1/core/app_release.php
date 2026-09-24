@@ -42,11 +42,17 @@ function fkssApkMeta(string $file): array
 function fkssLoadAppRelease(): array
 {
     $defaults = [
-        'latest_version' => '1.1.0',
-        'latest_build'   => 2,
+        // Keep these synchronized with Mobile/wbws_flutter_app/pubspec.yaml
+        // and AppConfig. Deployment-owned metadata may move ahead only after
+        // the matching APK and checksums have been published.
+        'latest_version' => '1.5.0',
+        'latest_build'   => 24,
         'min_version'    => '1.0.0',
         'min_build'      => 1,
         'force_update'   => false,
+        // Emergency containment only: false pauses outbound mobile outbox
+        // drains. It never disables durable local saves or deletes rows.
+        'background_drains_enabled' => true,
         'release_notes'  => '',
         'banner_text'    => '',
         'banner_kind'    => 'info',
@@ -83,11 +89,14 @@ function fkssLoadAppRelease(): array
     }
 
     $out = array_merge($defaults, $loaded);
-    $out['latest_version'] = preg_replace('/[^0-9.]/', '', (string)$out['latest_version']) ?: '1.1.0';
+    $out['latest_version'] = preg_replace('/[^0-9.]/', '', (string)$out['latest_version']) ?: '1.5.0';
     $out['min_version'] = preg_replace('/[^0-9.]/', '', (string)$out['min_version']) ?: '1.0.0';
     $out['latest_build'] = max(1, (int)$out['latest_build']);
     $out['min_build'] = max(1, (int)$out['min_build']);
     $out['force_update'] = !empty($out['force_update']);
+    // Deliberately strict: a typo such as the string "false" must not turn
+    // an emergency pause back on. Omission inherits the safe normal default.
+    $out['background_drains_enabled'] = $out['background_drains_enabled'] === true;
     $out['release_notes'] = trim((string)$out['release_notes']);
     $out['banner_text'] = trim((string)$out['banner_text']);
     $out['banner_kind'] = in_array($out['banner_kind'] ?? '', ['info', 'warn'], true) ? $out['banner_kind'] : 'info';

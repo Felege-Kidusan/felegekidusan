@@ -136,9 +136,9 @@ class OfflineFirstClientTests(unittest.TestCase):
     def test_version_is_140_build_23(self):
         config = (MOBILE / "utils/config.dart").read_text(encoding="utf-8")
         pubspec = (ROOT / "Mobile/wbws_flutter_app/pubspec.yaml").read_text(encoding="utf-8")
-        self.assertIn("appVersion = '1.4.0'", config)
-        self.assertIn("appBuild = 23", config)
-        self.assertIn("version: 1.4.0+23", pubspec)
+        self.assertIn("appVersion = '1.5.0'", config)
+        self.assertIn("appBuild = 24", config)
+        self.assertIn("version: 1.5.0+24", pubspec)
 
 
 if __name__ == "__main__":

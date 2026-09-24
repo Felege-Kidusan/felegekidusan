@@ -41,13 +41,16 @@ class CommOutboxService extends ChangeNotifier
   bool _queued = false;
   bool Function()? activeSessionGate;
   int Function()? sessionGenerationProvider;
+  bool Function()? drainEnabledGate;
+
+  bool get _drainsAllowed => drainEnabledGate?.call() != false;
 
   bool _ownsGeneration(int generation) =>
       activeSessionGate?.call() != false &&
       generation == (sessionGenerationProvider?.call() ?? generation);
 
   void start() {
-    if (activeSessionGate?.call() == false) return;
+    if (activeSessionGate?.call() == false || !_drainsAllowed) return;
     if (_started) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
@@ -81,7 +84,7 @@ class CommOutboxService extends ChangeNotifier
   /// Request a drain. Safe from anywhere, any number of times —
   /// rapid sends collapse into one pass plus a re-check.
   void kick({Duration delay = const Duration(milliseconds: 300)}) {
-    if (activeSessionGate?.call() == false) return;
+    if (activeSessionGate?.call() == false || !_drainsAllowed) return;
     if (!_started) start();
     if (!_api.isLoggedIn) return; // entries wait behind session recovery
     final generation = sessionGenerationProvider?.call() ?? 0;
@@ -93,7 +96,7 @@ class CommOutboxService extends ChangeNotifier
   }
 
   Future<void> _drain(int generation) async {
-    if (!_started || !_ownsGeneration(generation)) return;
+    if (!_started || !_ownsGeneration(generation) || !_drainsAllowed) return;
     if (!_api.isLoggedIn) return;
     if (_draining) {
       _queued = true; // a pass is running — re-check when it ends
@@ -108,8 +111,11 @@ class CommOutboxService extends ChangeNotifier
         await _drainOnce(generation);
       } while (_queued &&
           _ownsGeneration(generation) &&
+          _drainsAllowed &&
           pass < 10); // safety valve against loops
-      if (_ownsGeneration(generation)) _scheduleNextRetry(generation);
+      if (_ownsGeneration(generation) && _drainsAllowed) {
+        _scheduleNextRetry(generation);
+      }
     } finally {
       _draining = false;
       if (_queued && activeSessionGate?.call() != false) {
@@ -122,7 +128,12 @@ class CommOutboxService extends ChangeNotifier
   /// left alone (their timer is rescheduled from the DB afterwards).
   Future<void> _drainOnce(int generation) async {
     for (var guard = 0; guard < 100; guard++) {
-      if (!_started || !_api.isLoggedIn || !_ownsGeneration(generation)) {
+      // Finish settling a request that was already claimed, but never claim a
+      // second row after the remote containment flag turns off.
+      if (!_started ||
+          !_api.isLoggedIn ||
+          !_ownsGeneration(generation) ||
+          !_drainsAllowed) {
         return;
       }
       final claim = await CommStore.instance.claimNextDueHead(
@@ -182,7 +193,7 @@ class CommOutboxService extends ChangeNotifier
       // can still select the due head of another thread in this same pass.
     }
     // The pass limit is a yield point, not a reason to strand row 101.
-    if (_ownsGeneration(generation)) _queued = true;
+    if (_ownsGeneration(generation) && _drainsAllowed) _queued = true;
   }
 
   /// Anchor the retry timer on the earliest due entry in the DB (or
@@ -197,7 +208,10 @@ class CommOutboxService extends ChangeNotifier
           authorizationVersion: _api.authorizationVersion,
         )
         .then((due) {
-      if (!_started || !_ownsGeneration(generation) || due == null) return;
+      if (!_started ||
+          !_ownsGeneration(generation) ||
+          !_drainsAllowed ||
+          due == null) return;
       final at = DateTime.tryParse(due);
       if (at == null) return;
       final wait = at.difference(DateTime.now());

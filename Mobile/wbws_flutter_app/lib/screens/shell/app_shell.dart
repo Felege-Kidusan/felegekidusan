@@ -90,7 +90,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         SessionCoordinator().enterReauthentication(reason: 'no_authorized_tabs');
       });
     }
-    AppUpdateService().check().then((_) => _applyFeatureTabs());
+    AppUpdateService().check().then((_) => _applyReleaseConfig());
+  }
+
+  void _applyReleaseConfig() {
+    SessionCoordinator().reconcileReleaseGates();
+    _applyFeatureTabs();
   }
 
   List<NavTab> _configuredTabs() {
@@ -150,7 +155,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         // The coordinator restarts/drains workers. The shell only refreshes
         // currently visible UI after the active root survives resume.
         _refreshCurrentTab();
-        AppUpdateService().check().then((_) => _applyFeatureTabs());
+        AppUpdateService().check().then((_) => _applyReleaseConfig());
       }
     } else if (state == AppLifecycleState.paused) {
       // Keep the outbox. Android freezes timers in the background anyway;

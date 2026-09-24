@@ -5,6 +5,19 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.5.0 (build 24) — Safer access and recoverable offline work
+
+- Live role, status, and teacher-assignment changes now reconcile before the
+  app continues under an old authorization scope.
+- Authentication expiry preserves owner-bound offline attendance, grades,
+  communication, and hymn operations for safe same-account recovery.
+- Sync Center shows queued and needs-attention work without exposing another
+  user's payload, and recovery actions target the exact operation reviewed.
+- Legacy attendance/grade replacement and settlement are atomic and
+  operation-identity safe across rapid edits, retries, crashes, and races.
+- Operations can remotely pause outbound background drains without disabling
+  durable local saves or deleting queued rows.
+
 ## 1.4.0 (build 23) — Works offline (Messages)
 
 The Messages feature is now offline-first, like WhatsApp: the phone's

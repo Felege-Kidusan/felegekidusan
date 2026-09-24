@@ -20,16 +20,19 @@
  *   cp FKSS-arm64-v8a.apk    /home/arkeonet/fkss_releases/fkss-arm64.apk
  *
  * After each new build, raise latest_version / latest_build to match
- * pubspec.yaml (for example 1.1.0+2 → version 1.1.0, build 2).
- * Raise min_build only when old phones MUST update (security fix).
+ * pubspec.yaml (currently 1.5.0+24). Raise min_build only after the staged
+ * compatibility window and adoption checks in the release runbook.
  */
 return [
-    'latest_version' => '1.1.0',
-    'latest_build'   => 2,
+    'latest_version' => '1.5.0',
+    'latest_build'   => 24,
     'min_version'    => '1.0.0',
     'min_build'      => 1,
     'force_update'   => false,
-    'release_notes'  => 'Education on the phone, safer student data, in-app update.',
+    // Emergency containment: set false to pause outbound app outbox drains.
+    // Local SQLite saves and queued rows continue and must not be deleted.
+    'background_drains_enabled' => true,
+    'release_notes'  => 'Owner-safe recovery, live access reconciliation, and durable outbox controls.',
     'banner_text'    => '',
     'banner_kind'    => 'info',
     // Universal APK (both 32-bit and 64-bit phones) — ALWAYS publish.

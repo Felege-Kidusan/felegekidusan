@@ -302,12 +302,11 @@ class MezmurArtTests(unittest.TestCase):
         self.assertIn("bool get hasArt", self.track)
 
     def test_app_version_bumped_in_both_places(self):
-        # P74 Phase 4 release prep: communication parity release.
-        # 1.4.0+23 (O4): appBuild was left at 21 by the 1.3.0+22 round,
-        # failing the flutter version_sync pin locally — now in lockstep.
-        self.assertIn("appVersion = '1.4.0'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
-        self.assertIn("appBuild = 23", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
-        self.assertIn("version: 1.4.0+23", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
+        # Build metadata is mirrored for request headers/update decisions and
+        # must move with pubspec on every release.
+        self.assertIn("appVersion = '1.5.0'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
+        self.assertIn("appBuild = 24", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
+        self.assertIn("version: 1.5.0+24", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

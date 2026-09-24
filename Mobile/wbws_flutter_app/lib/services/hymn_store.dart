@@ -40,6 +40,9 @@ class HymnStore extends ChangeNotifier {
   bool get pulling => _pulling;
   bool Function()? activeSessionGate;
   int Function()? sessionGenerationProvider;
+  bool Function()? drainEnabledGate;
+
+  bool get _drainsAllowed => drainEnabledGate?.call() != false;
 
   bool _ownsGeneration(int generation) =>
       activeSessionGate?.call() != false &&
@@ -915,6 +918,7 @@ class HymnStore extends ChangeNotifier {
 
   Future<int> pushPending() async {
     if (!canEdit ||
+        !_drainsAllowed ||
         !_api.isLoggedIn ||
         !ConnectivityService().hasLink) {
       return 0;
@@ -930,7 +934,9 @@ class HymnStore extends ChangeNotifier {
     var pushed = 0;
     var scans = 0;
     try {
-      while (_ownsGeneration(generation) && scans < 100) {
+      // The release gate is checked between exact claims. A request already in
+      // flight is still settled durably before the next iteration stops.
+      while (_ownsGeneration(generation) && _drainsAllowed && scans < 100) {
         scans++;
         final claim = await _db.claimNextHymnOperation(
           runtimeGeneration: generation,
@@ -1045,7 +1051,9 @@ class HymnStore extends ChangeNotifier {
           break;
         }
       }
-      if (scans >= 100 && _ownsGeneration(generation)) _pushAgain = true;
+      if (scans >= 100 && _ownsGeneration(generation) && _drainsAllowed) {
+        _pushAgain = true;
+      }
       return pushed;
     } finally {
       final rerun = _pushAgain;
@@ -1053,7 +1061,9 @@ class HymnStore extends ChangeNotifier {
       _pushing = false;
       if (_ownsGeneration(generation)) {
         notifyListeners();
-        if (rerun) unawaited(pushPending().then<void>((_) {}));
+        if (rerun && _drainsAllowed) {
+          unawaited(pushPending().then<void>((_) {}));
+        }
       }
     }
   }

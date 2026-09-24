@@ -31,6 +31,9 @@ class SyncService {
   bool _forceNext = false;
   bool Function()? activeSessionGate;
   int Function()? sessionGenerationProvider;
+  bool Function()? drainEnabledGate;
+
+  bool get _drainsAllowed => drainEnabledGate?.call() != false;
 
   bool _ownsGeneration(int generation) =>
       activeSessionGate?.call() != false &&
@@ -49,7 +52,7 @@ class SyncService {
   String lastError = '';
 
   void startAutoSync() {
-    if (activeSessionGate?.call() == false) return;
+    if (activeSessionGate?.call() == false || !_drainsAllowed) return;
     if (_started) {
       nudge(delay: const Duration(milliseconds: 400));
       return;
@@ -73,7 +76,7 @@ class SyncService {
   }
 
   void nudge({Duration delay = const Duration(milliseconds: 300)}) {
-    if (activeSessionGate?.call() == false) return;
+    if (activeSessionGate?.call() == false || !_drainsAllowed) return;
     if (!_api.isLoggedIn) return;
     if (!_started) startAutoSync();
     _retryTimer?.cancel();
@@ -92,6 +95,7 @@ class SyncService {
     if (!_ownsGeneration(generation) || !_api.isLoggedIn) {
       return SyncResult(synced: 0, failed: 0, message: 'Not logged in');
     }
+    if (!_drainsAllowed) return _releasePausedResult();
     if (force) _forceNext = true;
     // Gmail outbox: if a drain is already running, mark "run again"
     // after it. Joining the in-flight future without that flag swallows
@@ -166,6 +170,7 @@ class SyncService {
   Future<SyncResult> _drain(
       {required int generation, required bool force}) async {
     if (!_ownsGeneration(generation)) return _pausedResult();
+    if (!_drainsAllowed) return _releasePausedResult();
 
     await _emitStatus(syncing: true);
     var synced = 0;
@@ -173,12 +178,20 @@ class SyncService {
     var supersededLocal = false;
 
     for (final kind in LegacyOperationKind.values) {
+      if (!_drainsAllowed) {
+        await _emitStatus();
+        return _releasePausedResult(synced: synced, failed: failed);
+      }
       final result = await _drainLegacyKind(kind, generation);
       synced += result.synced;
       failed += result.failed;
       supersededLocal = supersededLocal || result.supersededLocal;
       if (!_ownsGeneration(generation) || result.supersededSession) {
         return _pausedResult(synced: synced, failed: failed);
+      }
+      if (!_drainsAllowed) {
+        await _emitStatus();
+        return _releasePausedResult(synced: synced, failed: failed);
       }
       if (result.paused) {
         await _emitStatus();
@@ -195,6 +208,10 @@ class SyncService {
         return _pausedResult(synced: synced, failed: failed);
       }
       if (pushed > 0) synced += pushed;
+      if (!_drainsAllowed) {
+        await _emitStatus();
+        return _releasePausedResult(synced: synced, failed: failed);
+      }
       if (ConnectivityService().hasLink) {
         await hymnStore.pullChanges();
         if (!_ownsGeneration(generation)) {
@@ -262,6 +279,10 @@ class SyncService {
     var supersededLocal = false;
 
     for (var guard = 0; guard < 100; guard++) {
+      // Do not abandon an HTTP result already in flight: it must settle by its
+      // exact operation id. The gate is checked between claims so a remote
+      // pause prevents the next transmission without corrupting row state.
+      if (!_drainsAllowed) break;
       if (!_ownsGeneration(generation)) {
         return _LegacyDrainStats(
           synced: synced,
@@ -476,6 +497,13 @@ class SyncService {
         synced: synced,
         failed: failed,
         message: 'Sync paused until this account is active again.',
+      );
+
+  SyncResult _releasePausedResult({int synced = 0, int failed = 0}) =>
+      SyncResult(
+        synced: synced,
+        failed: failed,
+        message: 'Sending is temporarily paused. Your work remains saved.',
       );
 
   Future<void> cacheForOffline() async {

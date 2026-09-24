@@ -201,6 +201,7 @@ class _FKSSAppState extends State<FKSSApp> {
     _appLock.addListener(_onRootStateChanged);
     _session.addListener(_onRootStateChanged);
     AppUpdateService().check().then((_) {
+      _session.reconcileReleaseGates();
       if (mounted) setState(() {});
     });
   }

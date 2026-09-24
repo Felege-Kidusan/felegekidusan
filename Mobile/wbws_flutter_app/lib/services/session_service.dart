@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'api_service.dart';
 import 'app_lock_service.dart';
 import 'app_nav.dart';
+import 'app_update_service.dart';
 import 'app_navigator.dart';
 import 'catalog_service.dart';
 import 'comm_outbox_service.dart';
@@ -29,8 +30,12 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     _api.onAuthorizationScopeChanged = applyAuthorizationScopeChange;
     SyncService().activeSessionGate = () => isActive;
     SyncService().sessionGenerationProvider = () => _generation;
+    SyncService().drainEnabledGate =
+        () => AppUpdateService().backgroundDrainsEnabled;
     CommOutboxService.instance.activeSessionGate = () => isActive;
     CommOutboxService.instance.sessionGenerationProvider = () => _generation;
+    CommOutboxService.instance.drainEnabledGate =
+        () => AppUpdateService().backgroundDrainsEnabled;
     NotificationService.instance.activeSessionGate = () => isActive;
     NotificationService.instance.sessionGenerationProvider = () => _generation;
     CatalogService().activeSessionGate = () => isActive;
@@ -39,6 +44,8 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     WarmStore().sessionGenerationProvider = () => _generation;
     HymnStore().activeSessionGate = () => isActive;
     HymnStore().sessionGenerationProvider = () => _generation;
+    HymnStore().drainEnabledGate =
+        () => AppUpdateService().backgroundDrainsEnabled;
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -863,15 +870,35 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed || !isActive) return;
+    // Hold new claims while the no-store release config is refreshed. This is
+    // what makes a remote emergency pause effective before resume-triggered
+    // sync; an already in-flight request is still allowed to settle safely.
+    AppUpdateService().check().then((_) {
+      if (!isActive) return;
+      reconcileReleaseGates();
+      SyncService().syncAll(force: true);
+      CommOutboxService.instance.kick();
+    });
     _startPrivateServices();
-    SyncService().syncAll(force: true);
-    CommOutboxService.instance.kick();
+  }
+
+  /// Applies the release-owned emergency drain gate after every config check.
+  /// Local stores and non-outbox services stay live while transmission is
+  /// paused; re-enabling the flag resumes from the same durable rows.
+  void reconcileReleaseGates() {
+    if (!isActive || !_api.isLoggedIn) return;
+    if (AppUpdateService().backgroundDrainsEnabled) {
+      SyncService().startAutoSync();
+      CommOutboxService.instance.start();
+    } else {
+      SyncService().stopAutoSync();
+      CommOutboxService.instance.stop();
+    }
   }
 
   void _startPrivateServices() {
     if (_root != SessionRoot.active || !_api.isLoggedIn) return;
-    SyncService().startAutoSync();
-    CommOutboxService.instance.start();
+    reconcileReleaseGates();
     NotificationService.instance.start();
     CatalogService().hydrate();
     WarmStore().afterLogin();
