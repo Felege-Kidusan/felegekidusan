@@ -24,6 +24,7 @@ LDB = os.path.join(APP, 'lib', 'services', 'local_db.dart')
 SUBJECTS = os.path.join(APP, 'lib', 'screens', 'edu_dept',
                         'edu_subjects_screen.dart')
 SYNC = os.path.join(APP, 'lib', 'services', 'sync_service.dart')
+POLICY = os.path.join(APP, 'lib', 'services', 'outbox_policy.dart')
 WARM = os.path.join(APP, 'lib', 'services', 'warm_store.dart')
 GRADES = os.path.join(APP, 'lib', 'screens', 'teacher', 'teacher_grades.dart')
 NOTIF = os.path.join(APP, 'lib', 'screens', 'notifications',
@@ -310,10 +311,10 @@ class P1FDoNotTouch(unittest.TestCase):
                      'dropPendingMezmur', 'dropPendingHr'):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
-        sync = read(SYNC)
+        sync = read(SYNC) + read(POLICY)
         for token in ('ALREADY_SUBMITTED', 'WORKFLOW_REJECTED',
                       'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_IN_PROGRESS',
-                      'classifyDrainResponse'):
+                      'classifyOutboxResponse'):
             self.assertIn(token, sync)
         # The subject cache has no relationship to the outbox.
         for token in ('pending_mezmur', 'pending_attendance',

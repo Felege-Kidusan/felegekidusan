@@ -10,6 +10,7 @@ import 'synced_lyrics_merge.dart';
 import 'package:path/path.dart';
 
 import 'taxonomy_reconcile.dart';
+import 'hymn_outbox_models.dart';
 import 'legacy_outbox_models.dart';
 import 'local_schema_v34.dart';
 import 'session_models.dart';
@@ -32,6 +33,16 @@ class LocalDb {
   LocalDb._internal();
 
   Database? _db;
+  Future<void> _legacySaveTail = Future<void>.value();
+
+  /// Serializes packet replacement in invocation order. SQLite transactions
+  /// make each replacement atomic; this chain also makes rapid same-key user
+  /// intent deterministic instead of depending on platform scheduling.
+  Future<T> _serializeLegacySave<T>(Future<T> Function() action) {
+    final result = _legacySaveTail.then((_) => action());
+    _legacySaveTail = result.then<void>((_) {}).catchError((_) {});
+    return result;
+  }
 
   Future<Database> get database async {
     if (_db != null) return _db!;
@@ -765,7 +776,7 @@ class LocalDb {
       }
       if (hasComm) {
         await txn.rawUpdate(
-          "UPDATE comm_outbox SET state = 'pending', next_attempt_at = ? "
+          "UPDATE comm_outbox SET state = 'retry_wait', next_attempt_at = ? "
           "WHERE state = 'in_flight'",
           [now],
         );
@@ -3110,17 +3121,20 @@ class LocalDb {
 
   (String, List<Object?>) _legacyExactWhere(
     LegacyOutboxTableSpec spec,
-    LegacyOperationRef operation,
+    LegacyClaimSnapshot claim,
   ) {
+    final operation = claim.operation;
     final clauses = <String>[
       'client_op_id = ?',
       'synced = 0',
       "sync_state = 'in_flight'",
+      'last_attempt_at = ?',
       'owner_user_id = ?',
       'created_authorization_version = ?',
     ];
     final args = <Object?>[
       operation.clientOpId,
+      claim.claimedAt.toUtc().toIso8601String(),
       operation.ownerUserId,
       operation.createdAuthorizationVersion,
     ];
@@ -3129,6 +3143,102 @@ class LocalDb {
       args.add(operation.naturalKey[column]);
     }
     return (clauses.join(' AND '), args);
+  }
+
+  Future<void> pauseLegacyInFlightForAuthentication({
+    required int ownerUserId,
+    required int authorizationVersion,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final spec in legacyOutboxTableSpecs) {
+        await txn.update(
+          spec.table,
+          {
+            'sync_state': 'paused_auth',
+            'next_attempt_at': null,
+            'failure_code': 'AUTHENTICATION_REQUIRED',
+            'sync_error': 'Sign in to continue sending this work.',
+          },
+          where: "synced = 0 AND sync_state = 'in_flight' "
+              'AND owner_user_id = ? '
+              'AND created_authorization_version = ?',
+          whereArgs: [ownerUserId, authorizationVersion],
+        );
+      }
+      await txn.update(
+        'comm_outbox',
+        {
+          'state': 'paused_auth',
+          'next_attempt_at': null,
+          'failure_code': 'AUTHENTICATION_REQUIRED',
+          'fail_reason': 'Sign in to continue sending this message.',
+        },
+        where: "state = 'in_flight' AND owner_user_id = ? "
+            'AND created_authorization_version = ?',
+        whereArgs: [ownerUserId, authorizationVersion],
+      );
+      // Hymn operations are shared rather than private-owner-bound. Preserve
+      // the exact id and make an interrupted request retryable for the next
+      // authorized curator instead of attaching it to the lost session.
+      await txn.update(
+        'pending_hymn_ops',
+        {
+          'sync_state': 'retry_wait',
+          'next_attempt_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        where: "synced = 0 AND sync_state = 'in_flight'",
+      );
+    });
+  }
+
+  Future<void> resumeLegacyPausedAuthentication({
+    required int ownerUserId,
+    required int authorizationVersion,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final spec in legacyOutboxTableSpecs) {
+        await txn.update(
+          spec.table,
+          {
+            'sync_state': 'pending',
+            'next_attempt_at': null,
+            'failure_code': null,
+            'failure_http_status': null,
+            'sync_error': null,
+          },
+          where: "synced = 0 AND sync_state = 'paused_auth' "
+              'AND owner_user_id = ? '
+              'AND created_authorization_version = ?',
+          whereArgs: [ownerUserId, authorizationVersion],
+        );
+      }
+      await txn.update(
+        'pending_hymn_ops',
+        {
+          'sync_state': 'pending',
+          'next_attempt_at': null,
+          'failure_code': null,
+          'failure_http_status': null,
+          'sync_error': null,
+        },
+        where: "synced = 0 AND sync_state = 'paused_auth'",
+      );
+      await txn.update(
+        'comm_outbox',
+        {
+          'state': 'pending',
+          'next_attempt_at': null,
+          'failure_code': null,
+          'failure_http_status': null,
+          'fail_reason': null,
+        },
+        where: "state = 'paused_auth' AND owner_user_id = ? "
+            'AND created_authorization_version = ?',
+        whereArgs: [ownerUserId, authorizationVersion],
+      );
+    });
   }
 
   /// Atomically claims and snapshots one due operation. The returned immutable
@@ -3146,6 +3256,13 @@ class LocalDb {
     final claimedAtText = claimedAt.toIso8601String();
 
     return db.transaction((txn) async {
+      final sessionMatches = await activeSessionMatches(
+        runtimeGeneration: runtimeGeneration,
+        ownerUserId: ownerUserId,
+        authorizationVersion: authorizationVersion,
+        executor: txn,
+      );
+      if (!sessionMatches) return null;
       final candidates = await txn.rawQuery(
         'SELECT client_op_id, MIN(id) AS first_id '
         'FROM ${spec.table} '
@@ -3163,8 +3280,9 @@ class LocalDb {
       final clientOpId = '${candidates.first['client_op_id']}';
       final rows = await txn.query(
         spec.table,
-        where: 'client_op_id = ? AND synced = 0',
-        whereArgs: [clientOpId],
+        where: 'client_op_id = ? AND synced = 0 AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [clientOpId, ownerUserId, authorizationVersion],
         orderBy: 'id',
       );
       if (rows.isEmpty) return null;
@@ -3278,7 +3396,16 @@ class LocalDb {
     final spec = _legacySpecFor(operation.kind);
     final settledAt = (now ?? DateTime.now()).toUtc().toIso8601String();
     return db.transaction((txn) async {
-      final exact = _legacyExactWhere(spec, operation);
+      final sessionMatches = await activeSessionMatches(
+        runtimeGeneration: currentRuntimeGeneration,
+        ownerUserId: currentOwnerUserId,
+        authorizationVersion: currentAuthorizationVersion,
+        executor: txn,
+      );
+      if (!sessionMatches) {
+        return LegacySettlementResult.supersededSession;
+      }
+      final exact = _legacyExactWhere(spec, claim);
       final before = await txn.rawQuery(
         'SELECT COUNT(*) AS count FROM ${spec.table} WHERE ${exact.$1}',
         exact.$2,
@@ -3360,11 +3487,177 @@ class LocalDb {
     });
   }
 
+  /// Converts only the exact, still-unclaimed submitted generation back to a
+  /// fresh draft generation. It never falls back to a natural-key mutation.
+  Future<SubmitUndoResult> undoSubmittedLegacyOperation(
+    LegacyOperationRef operation,
+  ) {
+    if (operation.packetKind != LegacyPacketKind.submitted) {
+      return Future.value(SubmitUndoResult.supersededLocal);
+    }
+    return _serializeLegacySave(() async {
+      final db = await database;
+      final spec = _legacySpecFor(operation.kind);
+      return db.transaction((txn) async {
+        Map<String, int> binding;
+        int runtimeGeneration;
+        try {
+          binding = await requireActiveOwnerBinding(txn);
+          runtimeGeneration = await _activeRuntimeGeneration(txn);
+        } catch (_) {
+          return SubmitUndoResult.supersededSession;
+        }
+        if (binding['owner_user_id'] != operation.ownerUserId ||
+            binding['created_authorization_version'] !=
+                operation.createdAuthorizationVersion ||
+            runtimeGeneration != operation.runtimeGeneration) {
+          return SubmitUndoResult.supersededSession;
+        }
+
+        final keyClauses = <String>[];
+        final keyArgs = <Object?>[];
+        for (final column in spec.businessKeyColumns) {
+          keyClauses.add('$column = ?');
+          keyArgs.add(operation.naturalKey[column]);
+        }
+        final baseWhere = 'synced = 0 AND ${keyClauses.join(' AND ')} '
+            'AND owner_user_id = ? AND created_authorization_version = ?';
+        final baseArgs = <Object?>[
+          ...keyArgs,
+          operation.ownerUserId,
+          operation.createdAuthorizationVersion,
+        ];
+        final rows = await txn.query(
+          spec.table,
+          columns: ['client_op_id', 'packet_kind', 'sync_state'],
+          where: baseWhere,
+          whereArgs: baseArgs,
+        );
+        if (rows.isEmpty) return SubmitUndoResult.alreadyClaimed;
+        final exact = rows.where((row) =>
+            '${row['client_op_id']}' == operation.clientOpId &&
+            '${row['packet_kind']}' == 'submitted');
+        if (exact.isEmpty || exact.length != rows.length) {
+          return SubmitUndoResult.supersededLocal;
+        }
+        if (exact.any((row) => '${row['sync_state']}' == 'in_flight')) {
+          return SubmitUndoResult.alreadyClaimed;
+        }
+        if (exact.any((row) => !const {'pending', 'retry_wait'}
+            .contains('${row['sync_state']}'))) {
+          return SubmitUndoResult.supersededLocal;
+        }
+
+        final freshId = newClientOpId();
+        final affected = await txn.update(
+          spec.table,
+          {
+            'packet_kind': 'draft',
+            'client_op_id': freshId,
+            'sync_state': 'pending',
+            'attempt_count': 0,
+            'next_attempt_at': null,
+            'last_attempt_at': null,
+            'failure_code': null,
+            'failure_http_status': null,
+            'failed_at': null,
+            'sync_error': null,
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+          },
+          where: '$baseWhere AND client_op_id = ? '
+              "AND packet_kind = 'submitted' "
+              "AND sync_state IN ('pending', 'retry_wait')",
+          whereArgs: [...baseArgs, operation.clientOpId],
+        );
+        if (affected != rows.length) {
+          return SubmitUndoResult.supersededLocal;
+        }
+        return SubmitUndoResult.applied;
+      });
+    });
+  }
+
+  Future<LegacyOperationRef> _replaceLegacyOperation({
+    required LegacyOperationKind kind,
+    required String table,
+    required String naturalKeyWhere,
+    required List<Object?> naturalKeyArgs,
+    required Map<String, Object?> naturalKey,
+    required String packetKind,
+    DateTime? notBefore,
+    required List<Map<String, Object?>> rows,
+  }) {
+    final memberIds = rows
+        .map((row) => _asIntLocal(row['member_id']))
+        .where((id) => id > 0)
+        .toSet();
+    if (rows.isEmpty || memberIds.length != rows.length) {
+      throw ArgumentError(
+          'A durable operation requires one row per valid member.');
+    }
+    return _serializeLegacySave(() async {
+      final db = await database;
+      final createdAt = DateTime.now().toUtc().toIso8601String();
+      final normalizedKind =
+          packetKind == 'submitted' ? 'submitted' : 'draft';
+      final opId = newClientOpId();
+      late Map<String, int> binding;
+      late int runtimeGeneration;
+      await db.transaction((txn) async {
+        binding = await requireActiveOwnerBinding(txn);
+        runtimeGeneration = await _activeRuntimeGeneration(txn);
+        await txn.delete(
+          table,
+          where: '$naturalKeyWhere AND synced = 0 '
+              'AND owner_user_id = ? '
+              'AND created_authorization_version = ?',
+          whereArgs: [
+            ...naturalKeyArgs,
+            binding['owner_user_id'],
+            binding['created_authorization_version'],
+          ],
+        );
+        final batch = txn.batch();
+        for (final row in rows) {
+          batch.insert(table, {
+            ...row,
+            'packet_kind': normalizedKind,
+            'client_op_id': opId,
+            'synced': 0,
+            'sync_state': 'pending',
+            'attempt_count': 0,
+            'next_attempt_at': notBefore?.toUtc().toIso8601String(),
+            'last_attempt_at': null,
+            'failure_code': null,
+            'failure_http_status': null,
+            'failed_at': null,
+            'sync_error': null,
+            'created_at': createdAt,
+            ...binding,
+          });
+        }
+        await batch.commit(noResult: true);
+      });
+      return LegacyOperationRef(
+        kind: kind,
+        naturalKey: naturalKey,
+        clientOpId: opId,
+        packetKind: normalizedKind == 'submitted'
+            ? LegacyPacketKind.submitted
+            : LegacyPacketKind.draft,
+        ownerUserId: binding['owner_user_id']!,
+        createdAuthorizationVersion:
+            binding['created_authorization_version']!,
+        runtimeGeneration: runtimeGeneration,
+      );
+    });
+  }
+
   // ============================================================
   // PENDING ATTENDANCE
   // ============================================================
 
-  Future<void> saveAttendanceLocal(int classId, String className, String date,
+  Future<LegacyOperationRef> saveAttendanceLocal(int classId, String className, String date,
       List<Map<String, dynamic>> records,
       {String packetKind = 'draft'}) async {
     const validStatuses = {'present', 'absent', 'late', 'excused'};
@@ -3381,36 +3674,27 @@ class LocalDb {
       }
     }
 
-    final db = await database;
-    final now = DateTime.now().toIso8601String();
-    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
-    final opId = newClientOpId();
-    await db.transaction((txn) async {
-      final ownerBinding = await requireActiveOwnerBinding(txn);
-      await txn.delete('pending_attendance',
-          where: 'class_id = ? AND date = ? AND synced = 0',
-          whereArgs: [classId, date]);
-      final batch = txn.batch();
-      for (final r in records) {
-        batch.insert('pending_attendance', {
-          'class_id': classId,
-          'class_name': className,
-          'date': date,
-          'member_id': r['member_id'],
-          'student_name': r['student_name'] ?? '',
-          'father_name': r['father_name'] ?? '',
-          'member_code': r['member_code'] ?? '',
-          'status': '${r['status']}'.trim().toLowerCase(),
-          'notes': r['notes'] ?? r['note'] ?? '',
-          'packet_kind': kind,
-          'client_op_id': opId,
-          'synced': 0,
-          'created_at': now,
-          ...ownerBinding,
-        });
-      }
-      await batch.commit(noResult: true);
-    });
+    return _replaceLegacyOperation(
+      kind: LegacyOperationKind.attendance,
+      table: 'pending_attendance',
+      naturalKeyWhere: 'class_id = ? AND date = ?',
+      naturalKeyArgs: [classId, date],
+      naturalKey: {'class_id': classId, 'date': date},
+      packetKind: packetKind,
+      rows: records
+          .map((r) => <String, Object?>{
+                'class_id': classId,
+                'class_name': className,
+                'date': date,
+                'member_id': r['member_id'],
+                'student_name': r['student_name'] ?? '',
+                'father_name': r['father_name'] ?? '',
+                'member_code': r['member_code'] ?? '',
+                'status': '${r['status']}'.trim().toLowerCase(),
+                'notes': r['notes'] ?? r['note'] ?? '',
+              })
+          .toList(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getPendingAttendance() async {
@@ -3459,20 +3743,13 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first['class_name'] as String?;
   }
 
-  Future<void> markAttendanceSynced(int classId, String date) async {
-    final db = await database;
-    await db.update(
-        'pending_attendance',
-        {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
-        where: 'class_id = ? AND date = ? AND synced = 0',
-        whereArgs: [classId, date]);
-  }
+
 
   // ============================================================
   // PENDING GRADES
   // ============================================================
 
-  Future<void> saveGradesLocal(
+  Future<LegacyOperationRef> saveGradesLocal(
       int assessmentId,
       String assessmentName,
       int classId,
@@ -3481,40 +3758,39 @@ class LocalDb {
       String subjectName,
       double maxScore,
       List<Map<String, dynamic>> grades,
-      {String packetKind = 'draft'}) async {
-    final db = await database;
-    final now = DateTime.now().toIso8601String();
-    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
-    final opId = newClientOpId();
-    await db.transaction((txn) async {
-      final ownerBinding = await requireActiveOwnerBinding(txn);
-      await txn.delete('pending_grades',
-          where: 'assessment_id = ? AND synced = 0',
-          whereArgs: [assessmentId]);
-      final batch = txn.batch();
-      for (final g in grades) {
-        batch.insert('pending_grades', {
-          'assessment_id': assessmentId,
-          'assessment_name': assessmentName,
-          'class_id': classId,
-          'class_name': className,
-          'subject_id': subjectId,
-          'subject_name': subjectName,
-          'member_id': g['member_id'],
-          'student_name': g['student_name'] ?? '',
-          'record_id': g['record_id'],
-          'score': g['score'],
-          'remark': g['remark'] ?? '',
-          'max_score': maxScore,
-          'packet_kind': kind,
-          'client_op_id': opId,
-          'synced': 0,
-          'created_at': now,
-          ...ownerBinding,
-        });
-      }
-      await batch.commit(noResult: true);
-    });
+      {String packetKind = 'draft', DateTime? notBefore}) async {
+    final memberIds = grades
+        .map((grade) => _asIntLocal(grade['member_id']))
+        .where((id) => id > 0)
+        .toSet();
+    if (grades.isEmpty || memberIds.length != grades.length) {
+      throw ArgumentError('Grades require one row per valid member.');
+    }
+    return _replaceLegacyOperation(
+      kind: LegacyOperationKind.grades,
+      table: 'pending_grades',
+      naturalKeyWhere: 'assessment_id = ?',
+      naturalKeyArgs: [assessmentId],
+      naturalKey: {'assessment_id': assessmentId},
+      packetKind: packetKind,
+      notBefore: notBefore,
+      rows: grades
+          .map((g) => <String, Object?>{
+                'assessment_id': assessmentId,
+                'assessment_name': assessmentName,
+                'class_id': classId,
+                'class_name': className,
+                'subject_id': subjectId,
+                'subject_name': subjectName,
+                'member_id': g['member_id'],
+                'student_name': g['student_name'] ?? '',
+                'record_id': g['record_id'],
+                'score': g['score'],
+                'remark': g['remark'] ?? '',
+                'max_score': maxScore,
+              })
+          .toList(),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getPendingGrades() async {
@@ -3540,14 +3816,7 @@ class LocalDb {
         where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
   }
 
-  Future<void> markGradesSynced(int assessmentId) async {
-    final db = await database;
-    await db.update(
-        'pending_grades',
-        {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
-        where: 'assessment_id = ? AND synced = 0',
-        whereArgs: [assessmentId]);
-  }
+
 
   /// Truth check for the Submit-Undo window: is the packet still only on
   /// this phone? If the outbox already delivered it, undo must refuse.
@@ -3693,7 +3962,7 @@ class LocalDb {
   // PENDING MEZMUR (offline outbox, date-keyed)
   // ============================================================
 
-  Future<void> saveMezmurLocal(String date, String section,
+  Future<LegacyOperationRef> saveMezmurLocal(String date, String section,
       List<Map<String, dynamic>> records,
       {String packetKind = 'draft'}) async {
     // Teacher parity: present / absent / late / excused.
@@ -3711,34 +3980,25 @@ class LocalDb {
       }
     }
 
-    final db = await database;
-    final now = DateTime.now().toIso8601String();
-    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
-    final opId = newClientOpId();
-    await db.transaction((txn) async {
-      final ownerBinding = await requireActiveOwnerBinding(txn);
-      await txn.delete('pending_mezmur',
-          where: 'date = ? AND section = ? AND synced = 0',
-          whereArgs: [date, section]);
-      final batch = txn.batch();
-      for (final r in records) {
+    return _replaceLegacyOperation(
+      kind: LegacyOperationKind.mezmur,
+      table: 'pending_mezmur',
+      naturalKeyWhere: 'date = ? AND section = ?',
+      naturalKeyArgs: [date, section],
+      naturalKey: {'date': date, 'section': section},
+      packetKind: packetKind,
+      rows: records.map((r) {
         final note = '${r['notes'] ?? r['note'] ?? ''}'.trim();
-        batch.insert('pending_mezmur', {
+        return <String, Object?>{
           'date': date,
           'section': section,
           'program': r['program'],
           'member_id': r['member_id'],
           'status': '${r['status']}'.trim().toLowerCase(),
           if (note.isNotEmpty) 'notes': note,
-          'packet_kind': kind,
-          'client_op_id': opId,
-          'synced': 0,
-          'created_at': now,
-          ...ownerBinding,
-        });
-      }
-      await batch.commit(noResult: true);
-    });
+        };
+      }).toList(),
+    );
   }
 
   /// Pending packets grouped by (date, section).
@@ -3766,14 +4026,7 @@ class LocalDb {
         whereArgs: [date, section]);
   }
 
-  Future<void> markMezmurSynced(String date, String section) async {
-    final db = await database;
-    await db.update(
-        'pending_mezmur',
-        {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
-  }
+
 
   Future<void> dropPendingMezmur(String date, String section) async {
     final db = await database;
@@ -3869,6 +4122,34 @@ class LocalDb {
     return r.first['cnt'] as int? ?? 0;
   }
 
+  Future<DateTime?> nextOutboxAttemptAt({
+    required int ownerUserId,
+    required int authorizationVersion,
+  }) async {
+    final db = await database;
+    final selects = <String>[
+      for (final spec in legacyOutboxTableSpecs)
+        "SELECT next_attempt_at AS due FROM ${spec.table} "
+            "WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait') "
+            'AND next_attempt_at IS NOT NULL AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+      "SELECT next_attempt_at AS due FROM pending_hymn_ops "
+          "WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait') "
+          'AND next_attempt_at IS NOT NULL',
+    ];
+    final rows = await db.rawQuery(
+      'SELECT MIN(due) AS due FROM (${selects.join(' UNION ALL ')})',
+      [
+        for (var i = 0; i < legacyOutboxTableSpecs.length; i++) ...[
+          ownerUserId,
+          authorizationVersion,
+        ],
+      ],
+    );
+    final raw = rows.isEmpty ? null : rows.first['due']?.toString();
+    return raw == null ? null : DateTime.tryParse(raw)?.toUtc();
+  }
+
   Future<int> getTotalPendingCount() async {
     return (await getPendingAttendanceCount()) +
         (await getPendingGradesCount()) +
@@ -3883,7 +4164,7 @@ class LocalDb {
   // two departments' data never touch each other on the phone either.
   // ============================================================
 
-  Future<void> saveHrLocal(String date, String section,
+  Future<LegacyOperationRef> saveHrLocal(String date, String section,
       List<Map<String, dynamic>> records,
       {String packetKind = 'draft'}) async {
     const validStatuses = {'present', 'absent', 'late', 'excused'};
@@ -3900,33 +4181,24 @@ class LocalDb {
       }
     }
 
-    final db = await database;
-    final now = DateTime.now().toIso8601String();
-    final kind = packetKind == 'submitted' ? 'submitted' : 'draft';
-    final opId = newClientOpId();
-    await db.transaction((txn) async {
-      final ownerBinding = await requireActiveOwnerBinding(txn);
-      await txn.delete('pending_hr',
-          where: 'date = ? AND section = ? AND synced = 0',
-          whereArgs: [date, section]);
-      final batch = txn.batch();
-      for (final r in records) {
+    return _replaceLegacyOperation(
+      kind: LegacyOperationKind.hr,
+      table: 'pending_hr',
+      naturalKeyWhere: 'date = ? AND section = ?',
+      naturalKeyArgs: [date, section],
+      naturalKey: {'date': date, 'section': section},
+      packetKind: packetKind,
+      rows: records.map((r) {
         final note = '${r['notes'] ?? r['note'] ?? ''}'.trim();
-        batch.insert('pending_hr', {
+        return <String, Object?>{
           'date': date,
           'section': section,
           'member_id': r['member_id'],
           'status': '${r['status']}'.trim().toLowerCase(),
           if (note.isNotEmpty) 'notes': note,
-          'packet_kind': kind,
-          'client_op_id': opId,
-          'synced': 0,
-          'created_at': now,
-          ...ownerBinding,
-        });
-      }
-      await batch.commit(noResult: true);
-    });
+        };
+      }).toList(),
+    );
   }
 
   /// Pending HR packets grouped by (date, section).
@@ -3954,14 +4226,7 @@ class LocalDb {
         whereArgs: [date, section]);
   }
 
-  Future<void> markHrSynced(String date, String section) async {
-    final db = await database;
-    await db.update(
-        'pending_hr',
-        {'synced': 1, 'synced_at': DateTime.now().toIso8601String()},
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
-  }
+
 
   // ── F8: workflow-rejected outbox batches ──────────────────────────
   //
@@ -3973,41 +4238,13 @@ class LocalDb {
   // the worker skips them) but still count as "not yet sent" in the
   // UI, which is the truth: the data lives only on this phone.
 
-  Future<void> rejectAttendance(int classId, String date, String reason) async {
-    final db = await database;
-    await db.update(
-        'pending_attendance',
-        {'sync_error': reason},
-        where: 'class_id = ? AND date = ? AND synced = 0',
-        whereArgs: [classId, date]);
-  }
 
-  Future<void> rejectGrades(int assessmentId, String reason) async {
-    final db = await database;
-    await db.update(
-        'pending_grades',
-        {'sync_error': reason},
-        where: 'assessment_id = ? AND synced = 0',
-        whereArgs: [assessmentId]);
-  }
 
-  Future<void> rejectMezmur(String date, String section, String reason) async {
-    final db = await database;
-    await db.update(
-        'pending_mezmur',
-        {'sync_error': reason},
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
-  }
 
-  Future<void> rejectHr(String date, String section, String reason) async {
-    final db = await database;
-    await db.update(
-        'pending_hr',
-        {'sync_error': reason},
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
-  }
+
+
+
+
 
   /// Explicit, user-consented destruction of a rejected batch (the
   /// review sheet's Discard). Never called by the sync engine.
@@ -4892,12 +5129,86 @@ class LocalDb {
 
   // ── outbox: queued hymn mutations ───────────────────────────
 
+  String? _hymnEntityKey(String op, Map<String, dynamic> payload) {
+    final id = _asIntLocal(payload['id']);
+    if (op.startsWith('hymn_') || op == 'lyrics_synced') {
+      return id == 0 ? null : 'hymn:$id';
+    }
+    if (op.startsWith('category_')) {
+      if (id != 0) return 'category:$id';
+      final name = '${payload['name'] ?? ''}'.trim().toLowerCase();
+      return name.isEmpty ? null : 'category-name:$name';
+    }
+    if (op.startsWith('zemarian_')) {
+      if (id != 0) return 'zemarian:$id';
+      final name = '${payload['name'] ?? ''}'.trim().toLowerCase();
+      return name.isEmpty ? null : 'zemarian-name:$name';
+    }
+    return null;
+  }
+
+  bool _hasNegativeHymnReference(Map<String, dynamic> payload) {
+    for (final field in const ['categories', 'zemarians']) {
+      final values = payload[field];
+      if (values is! List) continue;
+      for (final value in values) {
+        final id = value is Map
+            ? _asIntLocal(value['id'])
+            : _asIntLocal(value);
+        if (id < 0) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<int?> _hymnDependencyFor(
+    Transaction txn,
+    String op,
+    Map<String, dynamic> payload,
+    String? entityKey,
+  ) async {
+    final ids = <int>[];
+    if (entityKey != null) {
+      final prior = await txn.query(
+        'pending_hymn_ops',
+        columns: ['id'],
+        where: 'synced = 0 AND entity_key = ?',
+        whereArgs: [entityKey],
+        orderBy: 'id DESC',
+        limit: 1,
+      );
+      if (prior.isNotEmpty) ids.add(_asIntLocal(prior.first['id']));
+    }
+    final isPlaceholderTaxonomy =
+        (op == 'category_save' || op == 'zemarian_save') &&
+            _asIntLocal(payload['id']) < 0;
+    if (isPlaceholderTaxonomy ||
+        (op == 'hymn_save' && _hasNegativeHymnReference(payload))) {
+      final priorPlaceholder = await txn.rawQuery('''
+        SELECT id FROM pending_hymn_ops
+         WHERE synced = 0
+           AND (entity_key LIKE 'category:-%'
+                OR entity_key LIKE 'zemarian:-%')
+         ORDER BY id DESC LIMIT 1
+      ''');
+      if (priorPlaceholder.isNotEmpty) {
+        ids.add(_asIntLocal(priorPlaceholder.first['id']));
+      }
+    }
+    ids.removeWhere((id) => id <= 0);
+    if (ids.isEmpty) return null;
+    return ids.reduce((a, b) => a > b ? a : b);
+  }
+
   Future<int> enqueueHymnOp(String op, Map<String, dynamic> payload) async {
     final db = await database;
     final opId = newClientOpId();
     payload['client_op_id'] = opId;
     return db.transaction((txn) async {
       final binding = await requireActiveOwnerBinding(txn);
+      final entityKey = _hymnEntityKey(op, payload);
+      final dependsOn =
+          await _hymnDependencyFor(txn, op, payload, entityKey);
       return txn.insert('pending_hymn_ops', {
         'op': op,
         'payload_json': jsonEncode(payload),
@@ -4906,6 +5217,8 @@ class LocalDb {
         'created_by_user_id': binding['owner_user_id'],
         'created_authorization_version':
             binding['created_authorization_version'],
+        'entity_key': entityKey,
+        'depends_on': dependsOn,
       });
     });
   }
@@ -4917,33 +5230,406 @@ class LocalDb {
 
   Future<int> getPendingHymnOpsCount() async {
     final db = await database;
-    final r = await db.rawQuery('SELECT COUNT(*) c FROM pending_hymn_ops WHERE synced = 0');
+    final r = await db.rawQuery(
+        'SELECT COUNT(*) c FROM pending_hymn_ops WHERE synced = 0');
     return _asIntLocal(r.first['c']);
   }
 
-  Future<void> markHymnOpSynced(int id) async {
+  /// Claims one due hymn operation. New keyed operations are FIFO per entity;
+  /// old unkeyed rows conservatively retain global FIFO ordering. A failed
+  /// prerequisite blocks its dependent payload instead of letting it overtake.
+  Future<HymnOutboxClaim?> claimNextHymnOperation({
+    required int runtimeGeneration,
+    required int ownerUserId,
+    required int authorizationVersion,
+    DateTime? now,
+  }) async {
     final db = await database;
-    await db.update(
+    final claimedAt = (now ?? DateTime.now()).toUtc();
+    final claimedAtText = claimedAt.toIso8601String();
+    return db.transaction((txn) async {
+      final sessionMatches = await activeSessionMatches(
+        runtimeGeneration: runtimeGeneration,
+        ownerUserId: ownerUserId,
+        authorizationVersion: authorizationVersion,
+        executor: txn,
+      );
+      if (!sessionMatches) return null;
+      await txn.rawUpdate('''
+        UPDATE pending_hymn_ops
+           SET sync_state = 'blocked_dependency',
+               failure_code = 'DEPENDENCY_UNRESOLVED',
+               sync_error = 'A required earlier change needs attention.',
+               next_attempt_at = NULL
+         WHERE synced = 0
+           AND sync_state IN ('pending', 'retry_wait')
+           AND depends_on IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM pending_hymn_ops dependency
+              WHERE dependency.id = pending_hymn_ops.depends_on
+                AND dependency.synced = 0
+                AND dependency.sync_state IN (
+                  'needs_attention', 'paused_scope', 'resolved_conflict',
+                  'blocked_dependency'
+                )
+           )
+      ''');
+      final rows = await txn.rawQuery('''
+        SELECT candidate.*
+          FROM pending_hymn_ops candidate
+         WHERE candidate.synced = 0
+           AND candidate.sync_state IN ('pending', 'retry_wait')
+           AND (candidate.next_attempt_at IS NULL
+                OR candidate.next_attempt_at <= ?)
+           AND (
+             candidate.depends_on IS NULL OR EXISTS (
+               SELECT 1 FROM pending_hymn_ops dependency
+                WHERE dependency.id = candidate.depends_on
+                  AND dependency.synced = 1
+             )
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM pending_hymn_ops earlier
+              WHERE earlier.id < candidate.id
+                AND earlier.synced = 0
+                AND (
+                  earlier.entity_key IS NULL
+                  OR TRIM(earlier.entity_key) = ''
+                  OR candidate.entity_key IS NULL
+                  OR TRIM(candidate.entity_key) = ''
+                  OR earlier.entity_key = candidate.entity_key
+                )
+           )
+         ORDER BY candidate.id
+         LIMIT 1
+      ''', [claimedAtText]);
+      if (rows.isEmpty) return null;
+      final row = rows.first;
+      final rowId = _asIntLocal(row['id']);
+      final priorState = '${row['sync_state']}';
+      final affected = await txn.rawUpdate(
+        "UPDATE pending_hymn_ops SET sync_state = 'in_flight', "
+        'attempt_count = attempt_count + 1, last_attempt_at = ?, '
+        'next_attempt_at = NULL '
+        'WHERE id = ? AND synced = 0 AND sync_state = ?',
+        [claimedAtText, rowId, priorState],
+      );
+      if (affected != 1) {
+        throw StateError('Hymn operation claim was not atomic.');
+      }
+      return HymnOutboxClaim(
+        rowId: rowId,
+        operation: '${row['op'] ?? ''}',
+        payloadJson: '${row['payload_json'] ?? ''}',
+        clientOpId: '${row['client_op_id'] ?? ''}',
+        runtimeGeneration: runtimeGeneration,
+        attemptCount: _asIntLocal(row['attempt_count']) + 1,
+        claimedAt: claimedAt,
+      );
+    });
+  }
+
+  Future<HymnSettlementResult> settleHymnOperation({
+    required HymnOutboxClaim claim,
+    required HymnSettlement settlement,
+    required int currentRuntimeGeneration,
+    DateTime? now,
+  }) async {
+    if (claim.runtimeGeneration != currentRuntimeGeneration) {
+      return HymnSettlementResult.supersededSession;
+    }
+    final db = await database;
+    final settledAt = (now ?? DateTime.now()).toUtc().toIso8601String();
+    final values = <String, Object?>{
+      'failure_code': settlement.failureCode,
+      'failure_http_status': settlement.failureHttpStatus,
+    };
+    switch (settlement.kind) {
+      case HymnSettlementKind.accepted:
+        values.addAll({
+          'sync_state': 'synced',
+          'synced': 1,
+          'synced_at': settledAt,
+          'sync_error': null,
+          'next_attempt_at': null,
+          'failed_at': null,
+        });
+        break;
+      case HymnSettlementKind.retryable:
+        values.addAll({
+          'sync_state': 'retry_wait',
+          'next_attempt_at':
+              (settlement.nextAttemptAt ?? DateTime.parse(settledAt))
+                  .toUtc()
+                  .toIso8601String(),
+          'sync_error': settlement.failureMessage,
+          'failed_at': null,
+        });
+        break;
+      case HymnSettlementKind.needsAttention:
+        values.addAll({
+          'sync_state': 'needs_attention',
+          'next_attempt_at': null,
+          'sync_error': settlement.failureMessage,
+          'failed_at': settledAt,
+        });
+        break;
+      case HymnSettlementKind.pausedAuthentication:
+        values.addAll({
+          'sync_state': 'paused_auth',
+          'next_attempt_at': null,
+          'sync_error': settlement.failureMessage,
+          'failed_at': null,
+        });
+        break;
+      case HymnSettlementKind.pausedAuthorizationScope:
+        values.addAll({
+          'sync_state': 'paused_scope',
+          'next_attempt_at': null,
+          'sync_error': settlement.failureMessage,
+          'failed_at': null,
+        });
+        break;
+      case HymnSettlementKind.resolvedConflict:
+        values.addAll({
+          'sync_state': 'resolved_conflict',
+          'next_attempt_at': null,
+          'sync_error': settlement.failureMessage,
+          'failed_at': settledAt,
+        });
+        break;
+      case HymnSettlementKind.blockedDependency:
+        values.addAll({
+          'sync_state': 'blocked_dependency',
+          'next_attempt_at': null,
+          'sync_error': settlement.failureMessage,
+          'failed_at': null,
+        });
+        break;
+    }
+    final affected = await db.transaction((txn) async {
+      final sessionMatches = await activeSessionMatches(
+        runtimeGeneration: currentRuntimeGeneration,
+        executor: txn,
+      );
+      if (!sessionMatches) return -1;
+      return txn.update(
         'pending_hymn_ops',
-        {'synced': 1, 'synced_at': DateTime.now().toIso8601String(), 'sync_error': null},
-        where: 'id = ?',
-        whereArgs: [id]);
-  }
-
-  Future<void> failHymnOp(int id, String error) async {
-    final db = await database;
-    await db.update('pending_hymn_ops', {'sync_error': error},
-        where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<void> dropHymnOp(int id) async {
-    final db = await database;
-    await db.delete('pending_hymn_ops', where: 'id = ?', whereArgs: [id]);
+        values,
+        where: "id = ? AND synced = 0 AND sync_state = 'in_flight' "
+            'AND client_op_id = ? AND last_attempt_at = ?',
+        whereArgs: [
+          claim.rowId,
+          claim.clientOpId,
+          claim.claimedAt.toUtc().toIso8601String(),
+        ],
+      );
+    });
+    if (affected < 0) return HymnSettlementResult.supersededSession;
+    return affected == 1
+        ? HymnSettlementResult.applied
+        : HymnSettlementResult.supersededLocal;
   }
 
   /// Queued hymn_save ops for one LOCAL row id (negative placeholders).
   /// Lets a re-save collapse into a single server create — without this,
   /// create + edit while offline would post two hymns.
+  /// Deliberately replaces unsent edits for one optimistic hymn placeholder.
+  /// An HTTP-owned in-flight row is immutable; a fresh dependent generation is
+  /// inserted behind it instead of mutating the bytes under that request.
+  Future<bool> replacePendingHymnSaveForLocalId(
+    int localId,
+    Map<String, dynamic> payload,
+  ) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'pending_hymn_ops',
+        where: "op = 'hymn_save' AND synced = 0",
+        orderBy: 'id',
+      );
+      final matching = <Map<String, Object?>>[];
+      for (final row in rows) {
+        try {
+          final decoded = jsonDecode('${row['payload_json'] ?? ''}');
+          if (decoded is Map && _asIntLocal(decoded['id']) == localId) {
+            matching.add(row);
+          }
+        } catch (_) {}
+      }
+      if (matching.isEmpty) return false;
+
+      final inFlight = matching
+          .where((row) => '${row['sync_state']}' == 'in_flight')
+          .toList(growable: false);
+      final replaceableIds = matching
+          .where((row) => '${row['sync_state']}' != 'in_flight')
+          .map((row) => _asIntLocal(row['id']))
+          .where((id) => id > 0)
+          .toList(growable: false);
+      if (replaceableIds.isNotEmpty) {
+        final marks = List.filled(replaceableIds.length, '?').join(',');
+        await txn.delete(
+          'pending_hymn_ops',
+          where: 'id IN ($marks)',
+          whereArgs: replaceableIds,
+        );
+      }
+
+      final binding = await requireActiveOwnerBinding(txn);
+      final freshId = newClientOpId();
+      final freshPayload = Map<String, dynamic>.from(payload)
+        ..['client_op_id'] = freshId;
+      final entityKey = _hymnEntityKey('hymn_save', freshPayload);
+      final dependency = inFlight.isNotEmpty
+          ? inFlight.map((row) => _asIntLocal(row['id'])).reduce(
+                (a, b) => a > b ? a : b,
+              )
+          : await _hymnDependencyFor(
+              txn,
+              'hymn_save',
+              freshPayload,
+              entityKey,
+            );
+      await txn.insert('pending_hymn_ops', {
+        'op': 'hymn_save',
+        'payload_json': jsonEncode(freshPayload),
+        'client_op_id': freshId,
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'sync_state': 'pending',
+        'entity_key': entityKey,
+        'depends_on': dependency,
+        'created_by_user_id': binding['owner_user_id'],
+        'created_authorization_version':
+            binding['created_authorization_version'],
+      });
+      payload['client_op_id'] = freshId;
+      return true;
+    });
+  }
+
+  /// After a placeholder create is accepted, rebase any newer dependent edit
+  /// onto the real server id while preserving its optimistic cached contents.
+  Future<bool> rebasePendingHymnPlaceholder(
+    int localId,
+    int completedRowId,
+    Map<String, dynamic> canonical,
+  ) async {
+    if (localId >= 0) return false;
+    final serverId = _asIntLocal(canonical['id']);
+    if (serverId <= 0) return false;
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'pending_hymn_ops',
+        where: "id > ? AND op = 'hymn_save' AND synced = 0 "
+            "AND sync_state <> 'in_flight'",
+        whereArgs: [completedRowId],
+        orderBy: 'id',
+      );
+      var rebased = false;
+      for (final row in rows) {
+        try {
+          final decoded = jsonDecode('${row['payload_json'] ?? ''}');
+          if (decoded is! Map || _asIntLocal(decoded['id']) != localId) {
+            continue;
+          }
+          final payload = Map<String, dynamic>.from(decoded)
+            ..['id'] = serverId
+            ..['base_revision'] = _asIntLocal(canonical['revision']);
+          await txn.update(
+            'pending_hymn_ops',
+            {
+              'payload_json': jsonEncode(payload),
+              'entity_key': 'hymn:$serverId',
+            },
+            where: 'id = ? AND synced = 0',
+            whereArgs: [row['id']],
+          );
+          rebased = true;
+        } catch (_) {}
+      }
+      if (!rebased) return false;
+
+      final localRows = await txn.query(
+        'cached_hymns',
+        where: 'id = ?',
+        whereArgs: [localId],
+        limit: 1,
+      );
+      if (localRows.isEmpty) return false;
+      for (final spec in const [
+        ('cached_hymn_categories', 'category_id'),
+        ('cached_hymn_zemarians', 'zemarian_id'),
+      ]) {
+        await txn.rawDelete(
+          'DELETE FROM ${spec.$1} WHERE hymn_id = ? AND ${spec.$2} IN '
+          '(SELECT ${spec.$2} FROM ${spec.$1} WHERE hymn_id = ?)',
+          [localId, serverId],
+        );
+        await txn.update(
+          spec.$1,
+          {'hymn_id': serverId},
+          where: 'hymn_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      await txn.delete(
+        'cached_hymns',
+        where: 'id = ?',
+        whereArgs: [serverId],
+      );
+      await txn.update(
+        'cached_hymns',
+        {
+          'id': serverId,
+          'revision': _asIntLocal(canonical['revision']),
+          'server_updated_at': canonical['updated_at']?.toString(),
+        },
+        where: 'id = ?',
+        whereArgs: [localId],
+      );
+      return true;
+    });
+  }
+
+  Future<bool> rebaseNewerPendingHymnRevision(
+    int hymnId,
+    int completedRowId,
+    Map<String, dynamic> canonical,
+  ) async {
+    if (hymnId <= 0) return false;
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'pending_hymn_ops',
+        where: "id > ? AND op = 'hymn_save' AND synced = 0 "
+            "AND sync_state IN ('pending', 'retry_wait')",
+        whereArgs: [completedRowId],
+        orderBy: 'id',
+      );
+      var rebased = false;
+      for (final row in rows) {
+        try {
+          final decoded = jsonDecode('${row['payload_json'] ?? ''}');
+          if (decoded is! Map || _asIntLocal(decoded['id']) != hymnId) {
+            continue;
+          }
+          final payload = Map<String, dynamic>.from(decoded)
+            ..['base_revision'] = _asIntLocal(canonical['revision']);
+          await txn.update(
+            'pending_hymn_ops',
+            {'payload_json': jsonEncode(payload)},
+            where: 'id = ? AND synced = 0',
+            whereArgs: [row['id']],
+          );
+          rebased = true;
+        } catch (_) {}
+      }
+      return rebased;
+    });
+  }
+
   Future<List<Map<String, dynamic>>> getPendingHymnSavesForLocalId(
       int localId) async {
     final db = await database;
@@ -4957,12 +5643,6 @@ class LocalDb {
       } catch (_) {}
     }
     return out;
-  }
-
-  Future<void> updateHymnOpPayload(int id, Map<String, dynamic> payload) async {
-    final db = await database;
-    await db.update('pending_hymn_ops', {'payload_json': jsonEncode(payload)},
-        where: 'id = ?', whereArgs: [id]);
   }
 
   // ── delta-sync cursor ───────────────────────────────────────
@@ -4986,6 +5666,52 @@ class LocalDb {
   // ============================================================
   // SESSION OWNERSHIP + PRIVATE-DATA INVENTORY (v34)
   // ============================================================
+
+  Future<bool> activeSessionMatches({
+    required int runtimeGeneration,
+    int? ownerUserId,
+    int? authorizationVersion,
+    DatabaseExecutor? executor,
+  }) async {
+    final db = executor ?? await database;
+    final rows = await db.query(
+      'local_session_state',
+      columns: [
+        'state',
+        'generation',
+        'owner_user_id',
+        'owner_authorization_version',
+      ],
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+    if (rows.isEmpty || rows.first['state'] != 'active') return false;
+    final row = rows.first;
+    if (_asIntLocal(row['generation']) != runtimeGeneration) return false;
+    if (ownerUserId != null &&
+        _nullablePositiveInt(row['owner_user_id']) != ownerUserId) {
+      return false;
+    }
+    if (authorizationVersion != null &&
+        _nullableNonNegativeInt(row['owner_authorization_version']) !=
+            authorizationVersion) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<int> _activeRuntimeGeneration(DatabaseExecutor executor) async {
+    final rows = await executor.query(
+      'local_session_state',
+      columns: ['generation'],
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('Active session generation is missing.');
+    return _asIntLocal(rows.first['generation']);
+  }
 
   Future<Map<String, int>> requireActiveOwnerBinding(
       [DatabaseExecutor? executor]) async {
@@ -5119,6 +5845,170 @@ class LocalDb {
     });
   }
 
+  /// Whether another bounded legacy drain pass has immediately due work for
+  /// the active owner/scope. Shared hymn and communication rows are excluded;
+  /// their own workers provide the corresponding bounded-rescan guarantees.
+  Future<bool> hasDueLegacyOutbox({DateTime? now}) async {
+    final db = await database;
+    final nowText = (now ?? DateTime.now()).toUtc().toIso8601String();
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      for (final spec in legacyOutboxTableSpecs) {
+        final rows = await txn.rawQuery(
+          'SELECT 1 FROM ${spec.table} '
+          "WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait') "
+          'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '
+          'AND owner_user_id = ? '
+          'AND created_authorization_version = ? LIMIT 1',
+          [
+            nowText,
+            binding['owner_user_id'],
+            binding['created_authorization_version'],
+          ],
+        );
+        if (rows.isNotEmpty) return true;
+      }
+      return false;
+    });
+  }
+
+  /// One state-separated snapshot for schedulers and status UI. Counts are
+  /// operations (not legacy child rows), and terminal review states never
+  /// masquerade as network-retry work. Private rows are limited to the active
+  /// owner/scope; shared hymn operations remain global by design.
+  Future<OutboxInventory> getOutboxInventory({DateTime? now}) async {
+    final db = await database;
+    final nowText = (now ?? DateTime.now()).toUtc().toIso8601String();
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final ownerUserId = binding['owner_user_id']!;
+      final authorizationVersion = binding['created_authorization_version']!;
+
+      Future<int> scalar(String sql, [List<Object?>? args]) async {
+        final rows = await txn.rawQuery(sql, args);
+        return rows.isEmpty ? 0 : _asIntLocal(rows.first.values.first);
+      }
+
+      Future<int> legacyState(String predicate,
+          [List<Object?> args = const []]) async {
+        var total = 0;
+        for (final spec in legacyOutboxTableSpecs) {
+          total += await scalar(
+            'SELECT COUNT(DISTINCT client_op_id) FROM ${spec.table} '
+            'WHERE synced = 0 AND ($predicate) '
+            'AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+            [...args, ownerUserId, authorizationVersion],
+          );
+        }
+        return total;
+      }
+
+      Future<int> allState(
+        String legacyPredicate,
+        String hymnPredicate,
+        String commPredicate, {
+        List<Object?> legacyArgs = const [],
+        List<Object?> hymnArgs = const [],
+        List<Object?> commArgs = const [],
+      }) async {
+        return await legacyState(legacyPredicate, legacyArgs) +
+            await scalar(
+              'SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops '
+              'WHERE synced = 0 AND ($hymnPredicate)',
+              hymnArgs,
+            ) +
+            await scalar(
+              'SELECT COUNT(*) FROM comm_outbox WHERE ($commPredicate) '
+              'AND owner_user_id = ? '
+              'AND created_authorization_version = ?',
+              [...commArgs, ownerUserId, authorizationVersion],
+            );
+      }
+
+      final due = await allState(
+        "sync_state IN ('pending', 'retry_wait') AND "
+            '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
+        "sync_state IN ('pending', 'retry_wait') AND "
+            '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
+        "state IN ('pending', 'retry_wait') AND "
+            '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
+        legacyArgs: [nowText],
+        hymnArgs: [nowText],
+        commArgs: [nowText],
+      );
+      final waiting = await allState(
+        "sync_state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
+        "sync_state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
+        "state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
+        legacyArgs: [nowText],
+        hymnArgs: [nowText],
+        commArgs: [nowText],
+      );
+      final inFlight = await allState(
+        "sync_state = 'in_flight'",
+        "sync_state = 'in_flight'",
+        "state = 'in_flight'",
+      );
+      final attention = await allState(
+        "sync_state = 'needs_attention'",
+        "sync_state = 'needs_attention'",
+        "state IN ('needs_attention', 'failed')",
+      );
+      final pausedAuth = await allState(
+        "sync_state = 'paused_auth'",
+        "sync_state = 'paused_auth'",
+        "state = 'paused_auth'",
+      );
+      final pausedScope = await allState(
+        "sync_state = 'paused_scope'",
+        "sync_state = 'paused_scope'",
+        "state = 'paused_scope'",
+      );
+      final blocked = await allState(
+        "sync_state = 'blocked_dependency'",
+        "sync_state = 'blocked_dependency'",
+        "state = 'blocked_dependency'",
+      );
+      final conflicts = await allState(
+        "sync_state = 'resolved_conflict'",
+        "sync_state = 'resolved_conflict'",
+        "state = 'resolved_conflict'",
+      );
+      final privateUnresolved =
+          await legacyState('1 = 1') +
+              await scalar(
+                "SELECT COUNT(*) FROM comm_outbox WHERE state <> 'synced' "
+                'AND owner_user_id = ? '
+                'AND created_authorization_version = ?',
+                [ownerUserId, authorizationVersion],
+              );
+      final sharedHymns = await scalar(
+        'SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops '
+        'WHERE synced = 0',
+      );
+      final drafts = await scalar(
+        "SELECT COUNT(*) FROM comm_drafts WHERE TRIM(body) <> '' "
+        'AND owner_user_id = ? '
+        'AND created_authorization_version = ?',
+        [ownerUserId, authorizationVersion],
+      );
+      return OutboxInventory(
+        retryableDue: due,
+        retryableWaiting: waiting,
+        inFlight: inFlight,
+        needsAttention: attention,
+        pausedAuth: pausedAuth,
+        pausedScope: pausedScope,
+        blockedDependency: blocked,
+        resolvedConflict: conflicts,
+        privateUnresolvedTotal: privateUnresolved,
+        sharedHymnUnresolvedTotal: sharedHymns,
+        communicationDraftCount: drafts,
+      );
+    });
+  }
+
   /// One SQLite snapshot used by logout, forgot-PIN and owner activation.
   /// Legacy domains count operations/batches, not member rows. Paused and
   /// attention counts are reported separately and intentionally overlap the
@@ -5142,10 +6032,12 @@ class LocalDb {
       final mezmur = await operationCount('pending_mezmur');
       final hr = await operationCount('pending_hr');
       final commPending = await scalar(
-        "SELECT COUNT(*) FROM comm_outbox WHERE state IN ('pending', 'in_flight')",
+        "SELECT COUNT(*) FROM comm_outbox WHERE state NOT IN "
+        "('synced', 'failed', 'needs_attention', 'resolved_conflict')",
       );
       final commFailed = await scalar(
-        "SELECT COUNT(*) FROM comm_outbox WHERE state = 'failed'",
+        "SELECT COUNT(*) FROM comm_outbox WHERE state IN "
+        "('failed', 'needs_attention', 'resolved_conflict')",
       );
       final drafts = await scalar(
         "SELECT COUNT(*) FROM comm_drafts WHERE TRIM(body) <> ''",
@@ -5159,18 +6051,22 @@ class LocalDb {
           (SELECT COUNT(DISTINCT client_op_id) FROM pending_mezmur
              WHERE synced = 0 AND sync_state = 'needs_attention') +
           (SELECT COUNT(DISTINCT client_op_id) FROM pending_hr
-             WHERE synced = 0 AND sync_state = 'needs_attention')
+             WHERE synced = 0 AND sync_state = 'needs_attention') +
+          (SELECT COUNT(*) FROM comm_outbox
+             WHERE state IN ('needs_attention', 'failed'))
       ''');
       final paused = await scalar('''
         SELECT
           (SELECT COUNT(DISTINCT client_op_id) FROM pending_attendance
-             WHERE synced = 0 AND sync_state = 'paused_auth') +
+             WHERE synced = 0 AND sync_state IN ('paused_auth', 'paused_scope')) +
           (SELECT COUNT(DISTINCT client_op_id) FROM pending_grades
-             WHERE synced = 0 AND sync_state = 'paused_auth') +
+             WHERE synced = 0 AND sync_state IN ('paused_auth', 'paused_scope')) +
           (SELECT COUNT(DISTINCT client_op_id) FROM pending_mezmur
-             WHERE synced = 0 AND sync_state = 'paused_auth') +
+             WHERE synced = 0 AND sync_state IN ('paused_auth', 'paused_scope')) +
           (SELECT COUNT(DISTINCT client_op_id) FROM pending_hr
-             WHERE synced = 0 AND sync_state = 'paused_auth')
+             WHERE synced = 0 AND sync_state IN ('paused_auth', 'paused_scope')) +
+          (SELECT COUNT(*) FROM comm_outbox
+             WHERE state IN ('paused_auth', 'paused_scope'))
       ''');
       final sharedHymns = await scalar(
         'SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops '

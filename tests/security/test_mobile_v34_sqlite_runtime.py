@@ -348,7 +348,7 @@ def recover_in_flight(connection: sqlite3.Connection, now: str) -> None:
             (now,),
         )
         connection.execute(
-            "UPDATE comm_outbox SET state='pending', next_attempt_at=? "
+            "UPDATE comm_outbox SET state='retry_wait', next_attempt_at=? "
             "WHERE state='in_flight'",
             (now,),
         )
@@ -436,6 +436,7 @@ def claim_packet(
             "key": tuple(snapshot[0][column] for column in keys),
             "owner": owner,
             "authorization_version": authorization_version,
+            "claimed_at": now,
             "rows": [dict(row) for row in snapshot],
         }
 
@@ -454,10 +455,17 @@ def settle_packet(
     table = claim["table"]
     keys = LEGACY_KEYS[table]
     key_where = " AND ".join(f"{column}=?" for column in keys)
-    args = [claim["op_id"], claim["owner"], claim["authorization_version"], *claim["key"]]
+    args = [
+        claim["op_id"],
+        claim["claimed_at"],
+        claim["owner"],
+        claim["authorization_version"],
+        *claim["key"],
+    ]
     exact = (
         "client_op_id=? AND synced=0 AND sync_state='in_flight' "
-        "AND owner_user_id=? AND created_authorization_version=? AND " + key_where
+        "AND last_attempt_at=? AND owner_user_id=? "
+        "AND created_authorization_version=? AND " + key_where
     )
     with connection:
         count = connection.execute(
@@ -776,6 +784,36 @@ def test_claim_replace_then_accept_or_reject_cannot_mutate_replacement(
     ("pending_mezmur", ("2026-09-24", "choir")),
     ("pending_hr", ("2026-09-24", "staff")),
 ])
+def test_stale_claim_cannot_settle_same_operation_after_recovery_and_reclaim(
+    table: str, key: tuple[Any, ...]
+) -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    insert_packet(connection, table, key, "stable-operation", ("one", "two"))
+    stale = claim_packet(connection, table, 17, 4, "2026-09-24T00:00:01Z")
+    assert stale
+    recover_in_flight(connection, "2026-09-24T00:00:02Z")
+    current = claim_packet(connection, table, 17, 4, "2026-09-24T00:00:03Z")
+    assert current and current["op_id"] == stale["op_id"]
+    assert current["claimed_at"] != stale["claimed_at"]
+
+    assert settle_packet(connection, stale, "synced") == "supersededLocal"
+    rows = connection.execute(
+        f"SELECT sync_state,synced,last_attempt_at FROM {table} ORDER BY id"
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("in_flight", 0, "2026-09-24T00:00:03Z"),
+        ("in_flight", 0, "2026-09-24T00:00:03Z"),
+    ]
+    assert settle_packet(connection, current, "synced") == "applied"
+
+
+@pytest.mark.parametrize("table,key", [
+    ("pending_attendance", (4, "2026-09-24")),
+    ("pending_grades", (8,)),
+    ("pending_mezmur", ("2026-09-24", "choir")),
+    ("pending_hr", ("2026-09-24", "staff")),
+])
 def test_exact_claim_snapshot_and_settlement_for_each_legacy_outbox(
     table: str, key: tuple[Any, ...]
 ) -> None:
@@ -833,7 +871,7 @@ def test_wrong_owner_scope_state_and_crash_recovery_preserve_identity() -> None:
     ).fetchone()
     assert tuple(comm) == (
         "comm-stable",
-        "pending",
+        "retry_wait",
         2,
         "2026-09-24T00:02:00Z",
     )
@@ -1047,3 +1085,114 @@ def test_risk9_purging_resume_is_idempotent_and_preserves_shared_hymns() -> None
     assert tuple(connection.execute(
         "SELECT state,owner_user_id,generation FROM local_session_state WHERE id=1"
     ).fetchone()) == ("anonymous_clean", None, 9)
+
+
+def test_hymn_dependency_failure_blocks_child_without_deleting_payload() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    parent = connection.execute(
+        "INSERT INTO pending_hymn_ops"
+        "(op,payload_json,client_op_id,created_at,sync_state,failure_code,entity_key) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (
+            "category_save", '{"id":-1,"name":"Parent"}', "parent-op",
+            "2026-09-24T00:00:00Z", "needs_attention", "VALIDATION_FAILED",
+            "category:-1",
+        ),
+    ).lastrowid
+    connection.execute(
+        "INSERT INTO pending_hymn_ops"
+        "(op,payload_json,client_op_id,created_at,sync_state,entity_key,depends_on) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (
+            "hymn_save", '{"id":-2,"title":"Child"}', "child-op",
+            "2026-09-24T00:00:01Z", "pending", "hymn:-2", parent,
+        ),
+    )
+    with connection:
+        connection.execute(
+            """
+            UPDATE pending_hymn_ops
+               SET sync_state='blocked_dependency',
+                   failure_code='DEPENDENCY_UNRESOLVED',
+                   next_attempt_at=NULL
+             WHERE synced=0 AND sync_state IN ('pending','retry_wait')
+               AND depends_on IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM pending_hymn_ops dependency
+                  WHERE dependency.id=pending_hymn_ops.depends_on
+                    AND dependency.synced=0
+                    AND dependency.sync_state IN
+                      ('needs_attention','paused_scope','resolved_conflict','blocked_dependency')
+               )
+            """
+        )
+    child = connection.execute(
+        "SELECT payload_json,sync_state,failure_code,depends_on "
+        "FROM pending_hymn_ops WHERE client_op_id='child-op'"
+    ).fetchone()
+    assert tuple(child) == (
+        '{"id":-2,"title":"Child"}',
+        "blocked_dependency",
+        "DEPENDENCY_UNRESOLVED",
+        parent,
+    )
+    assert connection.execute("SELECT COUNT(*) FROM pending_hymn_ops").fetchone()[0] == 2
+
+
+def test_communication_fifo_skips_blocked_thread_and_lease_prevents_stale_settlement() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    connection.executemany(
+        "INSERT INTO comm_outbox"
+        "(client_tag,thread_id,body,state,attempts,next_attempt_at,created_at,"
+        "owner_user_id,created_authorization_version) VALUES(?,?,?,?,?,?,?,?,?)",
+        [
+            ("t1-head", 1, "wait", "retry_wait", 1,
+             "2026-09-24T00:10:00Z", "2026-09-24T00:00:00Z", 17, 4),
+            ("t1-later", 1, "must not overtake", "pending", 0, None,
+             "2026-09-24T00:00:01Z", 17, 4),
+            ("t2-head", 2, "independent", "pending", 0, None,
+             "2026-09-24T00:00:02Z", 17, 4),
+        ],
+    )
+    candidate = connection.execute(
+        """
+        SELECT c.client_tag FROM comm_outbox c
+         WHERE c.owner_user_id=17 AND c.created_authorization_version=4
+           AND c.state IN ('pending','retry_wait')
+           AND (c.next_attempt_at IS NULL OR c.next_attempt_at<='2026-09-24T00:00:03Z')
+           AND NOT EXISTS (
+             SELECT 1 FROM comm_outbox prior
+              WHERE prior.thread_id=c.thread_id
+                AND prior.owner_user_id=c.owner_user_id
+                AND prior.created_authorization_version=c.created_authorization_version
+                AND (prior.created_at<c.created_at OR
+                     (prior.created_at=c.created_at AND prior.client_tag<c.client_tag))
+           )
+         ORDER BY c.created_at,c.client_tag LIMIT 1
+        """
+    ).fetchone()[0]
+    assert candidate == "t2-head"
+
+    connection.execute(
+        "UPDATE comm_outbox SET state='in_flight',attempts=1,last_attempt_at=? "
+        "WHERE client_tag='t2-head' AND state='pending'",
+        ("2026-09-24T00:00:03Z",),
+    )
+    recover_in_flight(connection, "2026-09-24T00:00:04Z")
+    connection.execute(
+        "UPDATE comm_outbox SET state='in_flight',attempts=2,last_attempt_at=?,"
+        "next_attempt_at=NULL WHERE client_tag='t2-head' AND state='retry_wait'",
+        ("2026-09-24T00:00:05Z",),
+    )
+    stale_delete = connection.execute(
+        "DELETE FROM comm_outbox WHERE client_tag='t2-head' AND state='in_flight' "
+        "AND last_attempt_at='2026-09-24T00:00:03Z' "
+        "AND owner_user_id=17 AND created_authorization_version=4"
+    ).rowcount
+    assert stale_delete == 0
+    assert tuple(connection.execute(
+        "SELECT state,attempts,last_attempt_at FROM comm_outbox "
+        "WHERE client_tag='t2-head'"
+    ).fetchone()) == ("in_flight", 2, "2026-09-24T00:00:05Z")

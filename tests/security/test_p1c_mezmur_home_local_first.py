@@ -18,6 +18,7 @@ LDB = os.path.join(APP, 'lib', 'services', 'local_db.dart')
 HOME = os.path.join(APP, 'lib', 'screens', 'mezmur', 'mezmur_home.dart')
 ATTEND = os.path.join(APP, 'lib', 'screens', 'mezmur', 'mezmur_attendance.dart')
 SYNC = os.path.join(APP, 'lib', 'services', 'sync_service.dart')
+POLICY = os.path.join(APP, 'lib', 'services', 'outbox_policy.dart')
 CONFIG = os.path.join(APP, 'lib', 'utils', 'config.dart')
 APISVC = os.path.join(APP, 'lib', 'services', 'api_service.dart')
 MEZMUR_PHP = os.path.join(ROOT, 'api', 'v1', 'routes', 'mezmur.php')
@@ -225,6 +226,7 @@ class P1CDoNotTouch(unittest.TestCase):
     def setUp(self):
         self.ldb = read(LDB)
         self.sync = read(SYNC)
+        self.policy = read(POLICY)
 
     def test_f8_drop_paths_unchanged(self):
         self.assertEqual(self.ldb.count('sync_error IS NULL'), 4)
@@ -242,8 +244,11 @@ class P1CDoNotTouch(unittest.TestCase):
     def test_f8_classification_unchanged(self):
         for token in ('ALREADY_SUBMITTED', 'WORKFLOW_REJECTED',
                       'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_IN_PROGRESS'):
-            self.assertIn(token, self.sync)
-        self.assertIn('if (batch[\'rejected\'] == 1) continue;', self.sync)
+            self.assertIn(token, self.policy)
+        self.assertIn('classifyOutboxResponse(', self.sync)
+        claim = self.ldb[self.ldb.find('claimNextLegacyOperation'):
+                         self.ldb.find('claimNextLegacyOperation') + 2600]
+        self.assertIn("sync_state IN ('pending', 'retry_wait')", claim)
 
     def test_pending_mezmur_untouched_by_read_cache(self):
         # The read cache never interacts with the outbox.

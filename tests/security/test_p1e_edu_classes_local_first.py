@@ -24,6 +24,7 @@ LDB = os.path.join(APP, 'lib', 'services', 'local_db.dart')
 EDU = os.path.join(APP, 'lib', 'screens', 'edu_dept',
                    'edu_classes_screen.dart')
 SYNC = os.path.join(APP, 'lib', 'services', 'sync_service.dart')
+POLICY = os.path.join(APP, 'lib', 'services', 'outbox_policy.dart')
 CATALOG = os.path.join(APP, 'lib', 'services', 'catalog_service.dart')
 WARM = os.path.join(APP, 'lib', 'services', 'warm_store.dart')
 ATTEND = os.path.join(APP, 'lib', 'screens', 'attendance',
@@ -525,10 +526,10 @@ class P1EDoNotTouch(unittest.TestCase):
                      'dropPendingMezmur', 'dropPendingHr'):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
-        sync = read(SYNC)
+        sync = read(SYNC) + read(POLICY)
         for token in ('ALREADY_SUBMITTED', 'WORKFLOW_REJECTED',
                       'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_IN_PROGRESS',
-                      'classifyDrainResponse'):
+                      'classifyOutboxResponse'):
             self.assertIn(token, sync)
         # The education cache has no relationship to the outbox.
         for token in ('pending_mezmur', 'pending_attendance',

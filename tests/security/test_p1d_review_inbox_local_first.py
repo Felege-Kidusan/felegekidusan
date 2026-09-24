@@ -18,6 +18,7 @@ LDB = os.path.join(APP, 'lib', 'services', 'local_db.dart')
 REVIEWS = os.path.join(APP, 'lib', 'screens', 'reviews',
                        'review_inbox_screen.dart')
 SYNC = os.path.join(APP, 'lib', 'services', 'sync_service.dart')
+POLICY = os.path.join(APP, 'lib', 'services', 'outbox_policy.dart')
 MEZMUR_ATTEND = os.path.join(APP, 'lib', 'screens', 'mezmur',
                              'mezmur_attendance.dart')
 MEZMUR_HOME = os.path.join(APP, 'lib', 'screens', 'mezmur', 'mezmur_home.dart')
@@ -277,7 +278,7 @@ class P1DOnlineOnlyActions(unittest.TestCase):
         for token in ('pending_review', 'pending_reviews',
                       'review_outbox'):
             self.assertNotIn(token, ldb)
-        sync = read(SYNC)
+        sync = read(SYNC) + read(POLICY)
         for token in ('cached_review', 'cacheReviewPackets',
                       'reviewSubmission'):
             self.assertNotIn(token, sync)
@@ -345,13 +346,13 @@ class P1DDoNotTouch(unittest.TestCase):
                      'dropPendingMezmur', 'dropPendingHr'):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
-        sync = read(SYNC)
+        sync = read(SYNC) + read(POLICY)
         for token in ('ALREADY_SUBMITTED', 'WORKFLOW_REJECTED',
                       'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_IN_PROGRESS',
-                      'classifyDrainResponse'):
+                      'classifyOutboxResponse'):
             self.assertIn(token, sync)
-        for token in ('rejectMezmur', 'discardRejectedMezmur'):
-            self.assertIn(token, self.ldb)
+        self.assertNotIn('Future<void> rejectMezmur(', self.ldb)
+        self.assertIn('discardRejectedMezmur', self.ldb)
         # The review cache has no relationship to the outbox.
         for token in ('pending_mezmur', 'pending_attendance',
                       'pending_grades', 'pending_hr'):

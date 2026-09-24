@@ -512,12 +512,10 @@ class TaxonomySyncTests(unittest.TestCase):
 
     def test_mobile_joins_repointed_before_placeholder_drop(self):
         self.assertIn("Future<void> _repointJoin(", self.store)
-        self.assertIn(
-            "_repointJoin('cached_hymn_categories', 'category_id',", self.store
-        )
-        self.assertIn(
-            "_repointJoin('cached_hymn_zemarians', 'zemarian_id',", self.store
-        )
+        self.assertIn("'cached_hymn_categories'", self.store)
+        self.assertIn("'category_id'", self.store)
+        self.assertIn("'cached_hymn_zemarians'", self.store)
+        self.assertIn("'zemarian_id'", self.store)
         # duplicate (hymn_id, real_id) pairs removed first — PK is that pair
         self.assertIn("DELETE FROM $table WHERE $col = ? AND hymn_id IN", self.store)
 
@@ -1354,7 +1352,8 @@ class TokenizerRegressionTests(unittest.TestCase):
     def test_mezmur_root_payload_parsing(self):
         # Mezmur endpoints return items at the root (no data envelope);
         # without the ?? json fallback every list parsed as null.
-        self.assertIn("json['data'] ?? json", self.api)
+        self.assertIn("final data = json['data'];", self.api)
+        self.assertIn("data ?? json", self.api)
 
     def test_sparse_index_full_scan_fallback(self):
         # The word index only finds PREFIX hits — a typo can never match
@@ -2325,7 +2324,8 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertIn("_db.enqueueHymnOp('hymn_save'", save_block)
 
     def test_store_conflict_policy_server_copy_wins(self):
-        self.assertIn("res.statusCode == 409", self.store)
+        self.assertIn("OutboxDecision.resolvedConflict", self.store)
+        self.assertIn("claim.operation == 'hymn_save' && canonical != null", self.store)
         self.assertIn("conflict — server copy kept", self.store)
 
     def test_store_protects_pending_rows_from_deltas(self):
@@ -2333,8 +2333,9 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertIn("upsertHymns(items, protectIds: protect)", self.store)
 
     def test_store_coalesces_offline_edits_into_one_create(self):
-        self.assertIn("getPendingHymnSavesForLocalId", self.store)
-        self.assertIn("updateHymnOpPayload", self.store)
+        self.assertIn("replacePendingHymnSaveForLocalId", self.store)
+        self.assertIn("row['sync_state']}' == 'in_flight'", self.db)
+        self.assertIn("'depends_on': dependency", self.db)
 
     def test_delta_cursor_persisted_locally(self):
         self.assertIn("getHymnSyncCursor", self.store)
@@ -2367,7 +2368,7 @@ class MezmurOfflineHymnTests(unittest.TestCase):
         self.assertNotIn("'pending_hymn_ops',", wipe)
         self.assertNotIn("'hymn_sync_meta',", wipe)
         # Queued hymn edits push only for curators (identity-safe).
-        self.assertIn("if (!canEdit) return 0;", self.store)
+        self.assertIn("if (!canEdit ||", self.store)
 
     # ── UI: instant search, curation actions, offline notes ──
     def test_library_screen_local_first(self):

@@ -141,6 +141,38 @@ class LoginActivationResult {
   bool get activated => state == LoginActivationState.activated;
 }
 
+class OutboxInventory {
+  const OutboxInventory({
+    this.retryableDue = 0,
+    this.retryableWaiting = 0,
+    this.inFlight = 0,
+    this.needsAttention = 0,
+    this.pausedAuth = 0,
+    this.pausedScope = 0,
+    this.blockedDependency = 0,
+    this.resolvedConflict = 0,
+    this.privateUnresolvedTotal = 0,
+    this.sharedHymnUnresolvedTotal = 0,
+    this.communicationDraftCount = 0,
+  });
+
+  final int retryableDue;
+  final int retryableWaiting;
+  final int inFlight;
+  final int needsAttention;
+  final int pausedAuth;
+  final int pausedScope;
+  final int blockedDependency;
+  final int resolvedConflict;
+  final int privateUnresolvedTotal;
+  final int sharedHymnUnresolvedTotal;
+  final int communicationDraftCount;
+
+  int get paused => pausedAuth + pausedScope;
+  int get terminalReview =>
+      needsAttention + blockedDependency + resolvedConflict;
+}
+
 class LocalDataInventory {
   const LocalDataInventory({
     this.attendanceOperations = 0,

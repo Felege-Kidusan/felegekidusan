@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:math';
+
 import 'api_service.dart';
 import 'catalog_service.dart';
 import 'connectivity_service.dart';
 import 'mezmur_download_manager.dart';
 import 'hymn_store.dart';
+import 'legacy_outbox_models.dart';
 import 'local_db.dart';
+import 'outbox_policy.dart';
 
 /// Outbox worker — Gmail / WhatsApp / Drive pattern.
 /// UI writes SQLite only. One worker sends. Retries wait on the in-flight
@@ -17,6 +21,7 @@ class SyncService {
 
   final _api = ApiService();
   final _db = LocalDb();
+  final _random = Random();
   Timer? _retryTimer;
   StreamSubscription<bool>? _radioSub;
   bool _started = false;
@@ -24,7 +29,6 @@ class SyncService {
   int? _inflightGeneration;
   bool _queued = false;
   bool _forceNext = false;
-  int _failStreak = 0;
   bool Function()? activeSessionGate;
   int Function()? sessionGenerationProvider;
 
@@ -43,8 +47,6 @@ class SyncService {
       syncing: false);
   SyncStatus get lastStatus => _lastStatus;
   String lastError = '';
-
-  static const _backoff = <int>[2, 5, 12, 30, 60];
 
   void startAutoSync() {
     if (activeSessionGate?.call() == false) return;
@@ -68,7 +70,6 @@ class SyncService {
     _started = false;
     _queued = false;
     _forceNext = false;
-    _failStreak = 0;
   }
 
   void nudge({Duration delay = const Duration(milliseconds: 300)}) {
@@ -105,11 +106,8 @@ class SyncService {
             failed: 0,
             message: 'Sync paused until this account is active again.');
       }
-      if (_inflight == null) {
-        final left = await _db.getTotalPendingCount();
-        if (left > 0) {
-          return _syncAllForGeneration(generation, force: force);
-        }
+      if (!sameGeneration && _inflight == null) {
+        return _syncAllForGeneration(generation, force: force);
       }
       return r;
     }
@@ -154,418 +152,79 @@ class SyncService {
 
   Future<SyncResult> _drain(
       {required int generation, required bool force}) async {
-    // User tap (force) always tries the school. The OS radio is only a
-    // banner — Tecno phones often report "none" while 4G is working.
+    if (!_ownsGeneration(generation)) return _pausedResult();
 
-    if (!_ownsGeneration(generation)) {
-      return SyncResult(
-        synced: 0,
-        failed: 0,
-        message: 'Sync paused until this account is active again.',
-      );
-    }
     await _emitStatus(syncing: true);
-    int synced = 0;
-    int failed = 0;
-    var loops = 0;
+    var synced = 0;
+    var failed = 0;
+    var supersededLocal = false;
 
-    do {
+    for (final kind in LegacyOperationKind.values) {
+      final result = await _drainLegacyKind(kind, generation);
+      synced += result.synced;
+      failed += result.failed;
+      supersededLocal = supersededLocal || result.supersededLocal;
+      if (!_ownsGeneration(generation) || result.supersededSession) {
+        return _pausedResult(synced: synced, failed: failed);
+      }
+      if (result.paused) {
+        await _emitStatus();
+        return _pausedResult(synced: synced, failed: failed);
+      }
+    }
+
+    // Shared hymn operations use the same typed classifier and durable state,
+    // but remain deliberately outside private-owner inventory and purge.
+    try {
+      final hymnStore = HymnStore();
+      final pushed = await hymnStore.pushPending();
       if (!_ownsGeneration(generation)) {
-        return SyncResult(
-          synced: synced,
-          failed: failed,
-          message: 'Sync paused until this account is active again.',
-        );
+        return _pausedResult(synced: synced, failed: failed);
       }
-      loops++;
-      var didWork = false;
-
-      final pendingAtt = await _db.getPendingAttendance();
-      for (final batch in pendingAtt) {
+      if (pushed > 0) synced++;
+      if (ConnectivityService().hasLink) {
+        await hymnStore.pullChanges();
         if (!_ownsGeneration(generation)) {
-          return SyncResult(
-            synced: synced,
-            failed: failed,
-            message: 'Sync paused until this account is active again.',
-          );
+          return _pausedResult(synced: synced, failed: failed);
         }
-        // F8: already refused by the school's workflow — kept on this
-        // phone until the user reviews or discards it. Never re-sent.
-        if (batch['rejected'] == 1) continue;
-        final classId = _asInt(batch['class_id']);
-        final date = '${batch['date'] ?? ''}';
-        if (classId <= 0 || date.isEmpty) continue;
-        final kind = '${batch['packet_kind'] ?? 'draft'}';
-        final opId = '${batch['client_op_id'] ?? ''}';
-        try {
-          final records = await _db.getPendingAttendanceRecords(classId, date);
-          if (records.isEmpty) continue;
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final apiRecords = records
-              .map((r) => {
-                    'member_id': r['member_id'],
-                    'status': r['status'],
-                    'notes': r['notes'] ?? r['note'] ?? '',
-                  })
-              .toList();
-          final res = kind == 'submitted'
-              ? await _api.submitAttendance(classId, date, apiRecords,
-                  clientOpId: opId)
-              : await _api.saveAttendance(classId, date, apiRecords,
-                  clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final outcome = classifyDrainResponse(res);
-          if (outcome == DrainOutcome.accepted) {
-            await _db.markAttendanceSynced(classId, date);
-            synced++;
-            didWork = true;
-            lastError = '';
-          } else if (outcome == DrainOutcome.rejected) {
-            await _db.rejectAttendance(
-                classId, date, res.message ?? 'Rejected by the server');
-            lastError = res.message ?? 'Attendance was not accepted';
-            await _db.logSync('attendance', lastError, 'rejected');
-          } else {
-            failed++;
-            lastError = res.message ?? 'Attendance did not save.';
-            await _db.logSync('attendance', lastError, 'error');
-          }
-        } catch (e) {
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          failed++;
-          await _db.logSync('attendance', e.toString(), 'error');
-        }
+        await MezmurDownloadManager.instance.syncPins();
       }
-
-      final pendingGrades = await _db.getPendingGrades();
-      for (final batch in pendingGrades) {
-        if (!_ownsGeneration(generation)) {
-          return SyncResult(
-            synced: synced,
-            failed: failed,
-            message: 'Sync paused until this account is active again.',
-          );
-        }
-        // F8: refused by the school's workflow — kept for review.
-        if (batch['rejected'] == 1) continue;
-        final assessmentId = batch['assessment_id'] as int;
-        final kind = '${batch['packet_kind'] ?? 'draft'}';
-        final opId = '${batch['client_op_id'] ?? ''}';
-        try {
-          final records = await _db.getPendingGradeRecords(assessmentId);
-          if (records.isEmpty) continue;
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final apiGrades = records.map((r) {
-            return <String, dynamic>{
-              'member_id': r['member_id'],
-              'score': r['score'],
-              'remark': r['remark'] ?? '',
-              'record_id': r['record_id'],
-            };
-          }).toList();
-          final res = kind == 'submitted'
-              ? await _api.submitGrades(assessmentId, apiGrades,
-                  clientOpId: opId)
-              : await _api.saveGrades(assessmentId, apiGrades, clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final outcome = classifyDrainResponse(res);
-          if (outcome == DrainOutcome.accepted) {
-            await _db.markGradesSynced(assessmentId);
-            synced++;
-            didWork = true;
-            lastError = '';
-          } else if (outcome == DrainOutcome.rejected) {
-            await _db.rejectGrades(
-                assessmentId, res.message ?? 'Rejected by the server');
-            lastError = res.message ?? 'Grades were not accepted';
-            await _db.logSync('grades', lastError, 'rejected');
-          } else {
-            failed++;
-            lastError = res.message ?? 'Grades did not save.';
-            await _db.logSync('grades', lastError, 'error');
-          }
-        } catch (e) {
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          failed++;
-          await _db.logSync('grades', e.toString(), 'error');
-        }
+    } catch (error) {
+      if (!_ownsGeneration(generation)) {
+        return _pausedResult(synced: synced, failed: failed);
       }
-
-      final pendingMez = await _db.getPendingMezmur();
-      for (final batch in pendingMez) {
-        if (!_ownsGeneration(generation)) {
-          return SyncResult(
-            synced: synced,
-            failed: failed,
-            message: 'Sync paused until this account is active again.',
-          );
-        }
-        // F8: refused by the school's workflow — kept for review.
-        if (batch['rejected'] == 1) continue;
-        final date = '${batch['date'] ?? ''}';
-        if (date.isEmpty) continue;
-        final section = '${batch['section'] ?? ''}';
-        final kind = '${batch['packet_kind'] ?? 'draft'}';
-        final opId = '${batch['client_op_id'] ?? ''}';
-        try {
-          final records = await _db.getPendingMezmurRecords(date, section);
-          if (records.isEmpty) continue;
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final apiRecords = records
-              .map((r) => {
-                    'member_id': r['member_id'],
-                    'status': r['status'],
-                    'notes': '${r['notes'] ?? ''}',
-                  })
-              .toList();
-          // Section-scoped packets (phase 5) carry kind + notes; legacy
-          // date-only packets keep working through the old endpoint shape.
-          final res = section.isNotEmpty
-              ? await _api.saveMezmurSheet(date, apiRecords,
-                  section: section, kind: kind, clientOpId: opId)
-              : await _api.saveMezmurSheet(date, apiRecords,
-                  clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final outcome = classifyDrainResponse(res);
-          if (outcome == DrainOutcome.accepted) {
-            await _db.markMezmurSynced(date, section);
-            synced++;
-            didWork = true;
-            lastError = '';
-          } else if (outcome == DrainOutcome.rejected) {
-            await _db.rejectMezmur(date, section,
-                res.message ?? 'Rejected by the server');
-            lastError = res.message ?? 'Mezmur attendance was not accepted';
-            await _db.logSync('mezmur', lastError, 'rejected');
-          } else {
-            failed++;
-            lastError = res.message ?? 'Mezmur attendance did not save.';
-            await _db.logSync('mezmur', lastError, 'error');
-          }
-        } catch (e) {
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          failed++;
-          await _db.logSync('mezmur', e.toString(), 'error');
-        }
-      }
-
-      // HR department attendance outbox — HR's OWN section-based
-      // domain (/hr/sheet). Same packet model as mezmur; the data
-      // streams never cross.
-      final pendingHr = await _db.getPendingHr();
-      for (final batch in pendingHr) {
-        if (!_ownsGeneration(generation)) {
-          return SyncResult(
-            synced: synced,
-            failed: failed,
-            message: 'Sync paused until this account is active again.',
-          );
-        }
-        // F8: refused by the school's workflow — kept for review.
-        if (batch['rejected'] == 1) continue;
-        final date = '${batch['date'] ?? ''}';
-        if (date.isEmpty) continue;
-        final section = '${batch['section'] ?? ''}';
-        final kind = '${batch['packet_kind'] ?? 'draft'}';
-        final opId = '${batch['client_op_id'] ?? ''}';
-        try {
-          final records = await _db.getPendingHrRecords(date, section);
-          if (records.isEmpty) continue;
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final apiRecords = records
-              .map((r) => {
-                    'member_id': r['member_id'],
-                    'status': r['status'],
-                    'notes': '${r['notes'] ?? ''}',
-                  })
-              .toList();
-          final res = await _api.saveHrSheet(date, apiRecords,
-              section: section, kind: kind, clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final outcome = classifyDrainResponse(res);
-          if (outcome == DrainOutcome.accepted) {
-            await _db.markHrSynced(date, section);
-            synced++;
-            didWork = true;
-            lastError = '';
-          } else if (outcome == DrainOutcome.rejected) {
-            await _db.rejectHr(date, section,
-                res.message ?? 'Rejected by the server');
-            lastError = res.message ?? 'HR attendance was not accepted';
-            await _db.logSync('hr_attendance', lastError, 'rejected');
-          } else {
-            failed++;
-            lastError = res.message ?? 'HR attendance did not save.';
-            await _db.logSync('hr_attendance', lastError, 'error');
-          }
-        } catch (e) {
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          failed++;
-          await _db.logSync('hr_attendance', e.toString(), 'error');
-        }
-      }
-
-      // Hymn library outbox (offline-first edits) + delta pull.
-      // The store owns idempotency/conflict policy; here we count
-      // outcomes and refresh the change-token cursor.
-      try {
-        final hymnStore = HymnStore();
-        final before = await _db.getPendingHymnOpsCount();
-        if (!_ownsGeneration(generation)) {
-          return SyncResult(
-            synced: synced,
-            failed: failed,
-            message: 'Sync paused until this account is active again.',
-          );
-        }
-        if (before > 0) {
-          final pushed = await hymnStore.pushPending();
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          final after = await _db.getPendingHymnOpsCount();
-          if (pushed > 0 || after < before) {
-            if (pushed > 0) synced++;
-            didWork = true;
-          } else {
-            failed++;
-            lastError = 'Hymn changes are still waiting to send.';
-          }
-        }
-        if (ConnectivityService().hasLink && _ownsGeneration(generation)) {
-          await hymnStore.pullChanges();
-          if (!_ownsGeneration(generation)) {
-            return SyncResult(
-              synced: synced,
-              failed: failed,
-              message: 'Sync paused until this account is active again.',
-            );
-          }
-          // P33: a delta may have added hymns to a pinned category or
-          // replaced an audio object — top up / refresh offline copies.
-          await MezmurDownloadManager.instance.syncPins();
-        }
-      } catch (e) {
-        if (!_ownsGeneration(generation)) {
-          return SyncResult(
-            synced: synced,
-            failed: failed,
-            message: 'Sync paused until this account is active again.',
-          );
-        }
-        await _db.logSync('hymns', e.toString(), 'error');
-      }
-
-      if (!didWork) break;
-    } while (loops < 4);
+      failed++;
+      await _db.logSync('hymns', '$error', 'error');
+    }
 
     if (!_ownsGeneration(generation)) {
-      return SyncResult(
-        synced: synced,
-        failed: failed,
-        message: 'Sync paused until this account is active again.',
-      );
+      return _pausedResult(synced: synced, failed: failed);
     }
+    // Each legacy kind is deliberately bounded to 100 claims per pass. Queue
+    // another pass for larger due backlogs instead of leaving row 101 for an
+    // unrelated lifecycle event.
+    final hasMoreDueLegacy = await _db.hasDueLegacyOutbox();
+    if (!_ownsGeneration(generation)) {
+      return _pausedResult(synced: synced, failed: failed);
+    }
+    if (hasMoreDueLegacy) _queued = true;
+
     await _db.cleanupSynced();
     if (!_ownsGeneration(generation)) {
-      return SyncResult(
-        synced: synced,
-        failed: failed,
-        message: 'Sync paused until this account is active again.',
-      );
+      return _pausedResult(synced: synced, failed: failed);
     }
     await _emitStatus();
 
-    final pendingLeft = await _db.getTotalPendingCount();
+    final nextAttempt = await _db.nextOutboxAttemptAt(
+      ownerUserId: _api.userId,
+      authorizationVersion: _api.authorizationVersion,
+    );
     if (!_ownsGeneration(generation)) {
-      return SyncResult(
-        synced: synced,
-        failed: failed,
-        message: 'Sync paused until this account is active again.',
-      );
+      return _pausedResult(synced: synced, failed: failed);
     }
-    final stillWaiting = failed > 0 || pendingLeft > 0;
-    if (stillWaiting && (force || ConnectivityService().hasLink)) {
-      _failStreak = (_failStreak + 1).clamp(1, _backoff.length);
-      nudge(delay: Duration(seconds: _backoff[_failStreak - 1]));
-    } else if (failed == 0) {
-      _failStreak = 0;
+    if (nextAttempt != null && (force || ConnectivityService().hasLink)) {
+      final wait = nextAttempt.difference(DateTime.now().toUtc());
+      nudge(delay: wait <= Duration.zero ? Duration.zero : wait);
     }
 
     return SyncResult(
@@ -577,11 +236,234 @@ class SyncService {
               : 'Sent to Education')
           : failed > 0
               ? 'Could not send yet. Will retry on its own.'
-              : pendingLeft > 0
-                  ? 'Still waiting to send'
+              : supersededLocal
+                  ? 'Local work changed while sending. Checking the new copy.'
                   : 'Nothing waiting to send',
     );
   }
+
+  Future<_LegacyDrainStats> _drainLegacyKind(
+      LegacyOperationKind kind, int generation) async {
+    var synced = 0;
+    var failed = 0;
+    var supersededLocal = false;
+
+    for (var guard = 0; guard < 100; guard++) {
+      if (!_ownsGeneration(generation)) {
+        return _LegacyDrainStats(
+          synced: synced,
+          failed: failed,
+          supersededLocal: supersededLocal,
+          supersededSession: true,
+        );
+      }
+      final claim = await _db.claimNextLegacyOperation(
+        kind: kind,
+        ownerUserId: _api.userId,
+        authorizationVersion: _api.authorizationVersion,
+        runtimeGeneration: generation,
+      );
+      if (!_ownsGeneration(generation)) {
+        return _LegacyDrainStats(
+          synced: synced,
+          failed: failed,
+          supersededLocal: supersededLocal,
+          supersededSession: true,
+        );
+      }
+      if (claim == null) break;
+
+      final response = await _sendLegacyClaim(claim);
+      if (!_ownsGeneration(generation) || response.sessionSuperseded) {
+        return _LegacyDrainStats(
+          synced: synced,
+          failed: failed,
+          supersededLocal: supersededLocal,
+          supersededSession: true,
+        );
+      }
+      final decision = classifyOutboxResponse(
+        response.toOutboxEvidence(
+          automaticAttemptCount: claim.attemptCount,
+        ),
+      );
+      if (decision == OutboxDecision.supersededSession) {
+        return _LegacyDrainStats(
+          synced: synced,
+          failed: failed,
+          supersededLocal: supersededLocal,
+          supersededSession: true,
+        );
+      }
+      if (decision == OutboxDecision.supersededLocal) {
+        supersededLocal = true;
+        continue;
+      }
+
+      final settlement = _legacySettlement(decision, response, claim);
+      final result = await _db.settleLegacyOperation(
+        claim: claim,
+        settlement: settlement,
+        currentOwnerUserId: _api.userId,
+        currentAuthorizationVersion: _api.authorizationVersion,
+        currentRuntimeGeneration: generation,
+      );
+      if (result == LegacySettlementResult.supersededSession) {
+        return _LegacyDrainStats(
+          synced: synced,
+          failed: failed,
+          supersededLocal: supersededLocal,
+          supersededSession: true,
+        );
+      }
+      if (result == LegacySettlementResult.supersededLocal) {
+        supersededLocal = true;
+        continue;
+      }
+      if (result != LegacySettlementResult.applied) continue;
+      if (decision == OutboxDecision.pauseForAuthentication ||
+          decision == OutboxDecision.pauseForAuthorizationScope) {
+        return _LegacyDrainStats(
+          synced: synced,
+          failed: failed,
+          supersededLocal: supersededLocal,
+          supersededSession: false,
+          paused: true,
+        );
+      }
+      if (decision == OutboxDecision.accepted) {
+        synced++;
+        lastError = '';
+      } else if (decision == OutboxDecision.retryable) {
+        failed++;
+        lastError = response.message ?? 'Could not send yet.';
+      } else if (decision == OutboxDecision.needsAttention ||
+          decision == OutboxDecision.resolvedConflict) {
+        failed++;
+        lastError = response.message ?? 'The school did not accept this work.';
+      }
+    }
+
+    return _LegacyDrainStats(
+      synced: synced,
+      failed: failed,
+      supersededLocal: supersededLocal,
+      supersededSession: false,
+    );
+  }
+
+  Future<ApiResponse> _sendLegacyClaim(LegacyClaimSnapshot claim) {
+    final operation = claim.operation;
+    final rows = claim.records
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
+    switch (operation.kind) {
+      case LegacyOperationKind.attendance:
+        final classId = _asInt(operation.naturalKey['class_id']);
+        final date = '${operation.naturalKey['date'] ?? ''}';
+        final records = rows
+            .map((row) => <String, dynamic>{
+                  'member_id': row['member_id'],
+                  'status': row['status'],
+                  'notes': row['notes'] ?? row['note'] ?? '',
+                })
+            .toList(growable: false);
+        return operation.packetKind == LegacyPacketKind.submitted
+            ? _api.submitAttendance(classId, date, records,
+                clientOpId: operation.clientOpId)
+            : _api.saveAttendance(classId, date, records,
+                clientOpId: operation.clientOpId);
+      case LegacyOperationKind.grades:
+        final assessmentId = _asInt(operation.naturalKey['assessment_id']);
+        final grades = rows
+            .map((row) => <String, dynamic>{
+                  'member_id': row['member_id'],
+                  'score': row['score'],
+                  'remark': row['remark'] ?? '',
+                  'record_id': row['record_id'],
+                })
+            .toList(growable: false);
+        return operation.packetKind == LegacyPacketKind.submitted
+            ? _api.submitGrades(assessmentId, grades,
+                clientOpId: operation.clientOpId)
+            : _api.saveGrades(assessmentId, grades,
+                clientOpId: operation.clientOpId);
+      case LegacyOperationKind.mezmur:
+        final date = '${operation.naturalKey['date'] ?? ''}';
+        final section = '${operation.naturalKey['section'] ?? ''}';
+        final records = rows
+            .map((row) => <String, dynamic>{
+                  'member_id': row['member_id'],
+                  'status': row['status'],
+                  'notes': row['notes'] ?? '',
+                })
+            .toList(growable: false);
+        return _api.saveMezmurSheet(
+          date,
+          records,
+          section: section,
+          kind: operation.packetKind == LegacyPacketKind.submitted
+              ? 'submitted'
+              : 'draft',
+          clientOpId: operation.clientOpId,
+        );
+      case LegacyOperationKind.hr:
+        final date = '${operation.naturalKey['date'] ?? ''}';
+        final section = '${operation.naturalKey['section'] ?? ''}';
+        final records = rows
+            .map((row) => <String, dynamic>{
+                  'member_id': row['member_id'],
+                  'status': row['status'],
+                  'notes': row['notes'] ?? '',
+                })
+            .toList(growable: false);
+        return _api.saveHrSheet(
+          date,
+          records,
+          section: section,
+          kind: operation.packetKind == LegacyPacketKind.submitted
+              ? 'submitted'
+              : 'draft',
+          clientOpId: operation.clientOpId,
+        );
+    }
+  }
+
+  LegacySettlement _legacySettlement(OutboxDecision decision,
+      ApiResponse response, LegacyClaimSnapshot claim) {
+    final message = response.message ?? 'Could not send this work.';
+    final kind = switch (decision) {
+      OutboxDecision.accepted => LegacySettlementKind.accepted,
+      OutboxDecision.retryable => LegacySettlementKind.retryable,
+      OutboxDecision.needsAttention => LegacySettlementKind.needsAttention,
+      OutboxDecision.pauseForAuthentication =>
+        LegacySettlementKind.pausedAuthentication,
+      OutboxDecision.pauseForAuthorizationScope =>
+        LegacySettlementKind.pausedAuthorizationScope,
+      OutboxDecision.resolvedConflict => LegacySettlementKind.resolvedConflict,
+      OutboxDecision.supersededSession || OutboxDecision.supersededLocal =>
+        throw StateError('Superseded work must not be settled.'),
+    };
+    return LegacySettlement(
+      kind: kind,
+      failureCode: response.errorCode,
+      failureHttpStatus: response.statusCode == 0 ? null : response.statusCode,
+      failureMessage: decision == OutboxDecision.accepted ? null : message,
+      nextAttemptAt: decision == OutboxDecision.retryable
+          ? nextOutboxAttemptAt(
+              attemptCount: claim.attemptCount,
+              retryAfterSeconds: response.retryAfterSeconds,
+              randomUnit: _random.nextDouble(),
+            )
+          : null,
+    );
+  }
+
+  SyncResult _pausedResult({int synced = 0, int failed = 0}) => SyncResult(
+        synced: synced,
+        failed: failed,
+        message: 'Sync paused until this account is active again.',
+      );
 
   Future<void> cacheForOffline() async {
     final generation = sessionGenerationProvider?.call() ?? 0;
@@ -607,14 +489,24 @@ class SyncService {
     final pm = await _db.getPendingMezmurCount();
     final phr = await _db.getPendingHrCount();
     final ph = await _db.getPendingHymnOpsCount();
-    final rejectedBatches = await _db.getRejectedBatches();
+    final inventory = await _db.getOutboxInventory();
     _lastStatus = SyncStatus(
         pendingAttendance: pa,
         pendingGrades: pg,
         pendingMezmur: pm,
         pendingHr: phr,
         pendingHymns: ph,
-        rejected: rejectedBatches.length,
+        rejected: inventory.needsAttention,
+        retryableDue: inventory.retryableDue,
+        retryableWaiting: inventory.retryableWaiting,
+        inFlight: inventory.inFlight,
+        pausedAuth: inventory.pausedAuth,
+        pausedScope: inventory.pausedScope,
+        blockedDependency: inventory.blockedDependency,
+        resolvedConflict: inventory.resolvedConflict,
+        privateUnresolvedTotal: inventory.privateUnresolvedTotal,
+        sharedHymnUnresolvedTotal: inventory.sharedHymnUnresolvedTotal,
+        communicationDraftCount: inventory.communicationDraftCount,
         syncing: syncing ?? (_inflight != null));
     _syncController.add(_lastStatus);
   }
@@ -627,12 +519,38 @@ class SyncService {
   }
 }
 
+final class _LegacyDrainStats {
+  const _LegacyDrainStats({
+    required this.synced,
+    required this.failed,
+    required this.supersededLocal,
+    required this.supersededSession,
+    this.paused = false,
+  });
+
+  final int synced;
+  final int failed;
+  final bool supersededLocal;
+  final bool supersededSession;
+  final bool paused;
+}
+
 class SyncStatus {
   final int pendingAttendance;
   final int pendingGrades;
   final int pendingMezmur;
   final int pendingHr;
   final int pendingHymns;
+  final int retryableDue;
+  final int retryableWaiting;
+  final int inFlight;
+  final int pausedAuth;
+  final int pausedScope;
+  final int blockedDependency;
+  final int resolvedConflict;
+  final int privateUnresolvedTotal;
+  final int sharedHymnUnresolvedTotal;
+  final int communicationDraftCount;
   final bool syncing;
 
   /// F8: batches the school's workflow refused (kept on this phone
@@ -679,6 +597,16 @@ class SyncStatus {
       this.pendingHr = 0,
       this.pendingHymns = 0,
       this.rejected = 0,
+      this.retryableDue = 0,
+      this.retryableWaiting = 0,
+      this.inFlight = 0,
+      this.pausedAuth = 0,
+      this.pausedScope = 0,
+      this.blockedDependency = 0,
+      this.resolvedConflict = 0,
+      this.privateUnresolvedTotal = 0,
+      this.sharedHymnUnresolvedTotal = 0,
+      this.communicationDraftCount = 0,
       required this.syncing});
 }
 
@@ -688,68 +616,4 @@ class SyncResult {
   final String message;
   SyncResult(
       {required this.synced, required this.failed, required this.message});
-}
-
-/// F8 — how a legacy-outbox drain response must be treated.
-enum DrainOutcome {
-  /// The server applied the packet, or validly replayed it (a true
-  /// idempotent replay returns the ORIGINAL 200 + body, so it lands
-  /// in `res.success` — response-loss retries stay safe).
-  accepted,
-
-  /// The school's workflow refused the packet for good: the day/test
-  /// was already submitted by another role, a business rule blocked
-  /// it, or the idempotency key was misused. The data was NOT
-  /// applied and resending the same bytes can never succeed — mark
-  /// the batch rejected, keep it on this phone, surface it honestly.
-  rejected,
-
-  /// Network error / auth hiccup / timeout / rate limit / server
-  /// error / request still processing. Retry later, exactly like a
-  /// plain failure. Never destroys data, never reports success.
-  transient,
-}
-
-/// Classifies a drain response for the four legacy outboxes
-/// (attendance, grades, mezmur, HR). Pure function — pinned by
-/// test/drain_outcome_test.dart.
-///
-/// Evidence (api/v1/core/middleware.php): apiIdempotencyBegin runs
-/// BEFORE every workflow-lock check, and a replay returns the
-/// original 200 + `Idempotency-Replayed: true` — so a 409 from these
-/// routes is never a replay. Outbox-reachable 409s carry a
-/// machine-readable `code` (merged into the body by err()'s $extra):
-///   ALREADY_SUBMITTED / WORKFLOW_REJECTED / IDEMPOTENCY_CONFLICT
-///     → rejected (server state or rule refuses the packet)
-///   IDEMPOTENCY_IN_PROGRESS (+ Retry-After) → transient
-///
-/// A 409 WITHOUT a known code (old server before this deploy)
-/// → transient: retry like a failure. The invariant of this fix is
-/// that a 409 must never be treated as SUCCESS; refusing to guess
-/// beyond that keeps old-server behavior unchanged (retry, no data
-/// loss, no false success) instead of risking a wrong verdict.
-DrainOutcome classifyDrainResponse(ApiResponse res) {
-  if (res.success) return DrainOutcome.accepted;
-  if (res.isNetworkError) return DrainOutcome.transient;
-  final code =
-      res.data is Map ? '${(res.data as Map)['code'] ?? ''}' : '';
-  final status = res.statusCode;
-  if (status == 409) {
-    if (code == 'IDEMPOTENCY_IN_PROGRESS') return DrainOutcome.transient;
-    if (code == 'ALREADY_SUBMITTED' ||
-        code == 'WORKFLOW_REJECTED' ||
-        code == 'IDEMPOTENCY_CONFLICT') {
-      return DrainOutcome.rejected;
-    }
-    return DrainOutcome.transient; // unknown 409 — never guess
-  }
-  if (status == 401 || status == 408 || status == 429 || status >= 500) {
-    return DrainOutcome.transient;
-  }
-  // Definite protocol refusals of this exact packet: retrying the
-  // same bytes can never succeed (minimal F9 touch, F8 directive §9).
-  if (status == 400 || status == 403 || status == 404 || status == 422) {
-    return DrainOutcome.rejected;
-  }
-  return DrainOutcome.transient; // unknown shape — never destroy data
 }

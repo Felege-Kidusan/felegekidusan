@@ -149,8 +149,12 @@ def test_owner_and_scope_are_stamped_at_every_private_creation_boundary() -> Non
     assert "requireActiveOwnerBinding" in DB
     for save in ("saveAttendanceLocal", "saveGradesLocal", "saveMezmurLocal", "saveHrLocal"):
         body = DB.split(f"{save}(", 1)[1].split("\n  Future<", 1)[0]
-        assert "requireActiveOwnerBinding" in body
-        assert "...ownerBinding" in body
+        assert "_replaceLegacyOperation(" in body
+    replacement = DB.split("_replaceLegacyOperation({", 1)[1].split(
+        "// ============================================================\n  // PENDING ATTENDANCE", 1
+    )[0]
+    assert "requireActiveOwnerBinding" in replacement
+    assert "...binding" in replacement
     comm = (APP / "services" / "comm_store.dart").read_text(encoding="utf-8")
     enqueue = comm.split("enqueueOutbox(", 1)[1].split("/// All pending entries", 1)[0]
     draft = comm.split("saveDraft(", 1)[1].split("// ── Meta", 1)[0]
@@ -185,9 +189,10 @@ def test_generation_supersedes_late_http_and_whole_worker_chains() -> None:
 
     assert "_syncAllForGeneration(generation)" in SYNC
     assert "_drain(generation: generation" in SYNC
-    assert "res.sessionSuperseded || !_ownsGeneration(generation)" in SYNC
+    assert "response.sessionSuperseded" in SYNC
+    assert "!_ownsGeneration(generation)" in SYNC
     assert "_drainOnce(generation)" in COMM_OUTBOX
-    assert "res.sessionSuperseded || !_ownsGeneration(generation)" in COMM_OUTBOX
+    assert "response.sessionSuperseded || !_ownsGeneration(generation)" in COMM_OUTBOX
     assert "_restoreCachedSummary(generation)" in NOTIFICATIONS
     assert "res.sessionSuperseded" in NOTIFICATIONS
     assert "_doFetch(generation)" in CATALOG
@@ -195,7 +200,7 @@ def test_generation_supersedes_late_http_and_whole_worker_chains() -> None:
     assert "final generation = sessionGenerationProvider?.call() ?? 0" in HYMNS
     assert "await hymnStore.pushPending()" in SYNC
     assert "await hymnStore.pullChanges()" in SYNC
-    assert "res.sessionSuperseded || !_ownsGeneration(generation)" in HYMNS
+    assert "response.sessionSuperseded || !_ownsGeneration(generation)" in HYMNS
 
 
 def test_logout_and_forgot_pin_use_explicit_central_destructive_policy() -> None:

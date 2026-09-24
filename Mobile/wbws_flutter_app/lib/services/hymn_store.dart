@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import 'api_service.dart';
 import 'connectivity_service.dart';
+import 'hymn_outbox_models.dart';
 import 'local_db.dart';
+import 'outbox_policy.dart';
 import 'lyrics_search.dart';
 import 'amharic_text.dart' as amharic;
 import 'taxonomy_names.dart';
@@ -29,6 +32,8 @@ class HymnStore extends ChangeNotifier {
   final _db = LocalDb();
 
   bool _pulling = false;
+  bool _pushing = false;
+  bool _pushAgain = false;
   int? _pullingGeneration;
   Completer<void>? _pullInflight;
   bool get pulling => _pulling;
@@ -490,17 +495,13 @@ class HymnStore extends ChangeNotifier {
     final localId = _localId(hymn);
     opPayload['id'] = localId;
 
-    // Coalesce: re-saving an unsynced row replaces its queued create
-    // instead of stacking a second one (offline create + offline edit).
+    // Coalesce deliberate local edits, but never mutate an immutable claim
+    // that already crossed the HTTP boundary. The database inserts a fresh
+    // dependent generation when the prior create is in flight.
     if (localId < 0) {
-      final prior = await _db.getPendingHymnSavesForLocalId(localId);
-      if (prior.isNotEmpty) {
-        final oldest = prior.first;
-        for (final dup in prior.skip(1)) {
-          await _db.dropHymnOp(_asInt(dup['id']));
-        }
-        opPayload['client_op_id'] = '${oldest['client_op_id'] ?? ''}';
-        await _db.updateHymnOpPayload(_asInt(oldest['id']), opPayload);
+      final replaced =
+          await _db.replacePendingHymnSaveForLocalId(localId, opPayload);
+      if (replaced) {
         await _db.upsertHymns([
           {
             'id': localId,
@@ -562,7 +563,7 @@ class HymnStore extends ChangeNotifier {
           final payload = Map<String, dynamic>.from(
               jsonDecode('${saves.first['payload_json'] ?? '{}'}'));
           payload['status'] = status;
-          await _db.updateHymnOpPayload(_asInt(saves.first['id']), payload);
+          await _db.replacePendingHymnSaveForLocalId(id, payload);
         } catch (_) {}
       }
     } else {
@@ -867,9 +868,6 @@ class HymnStore extends ChangeNotifier {
 
   // ── outbox drain (Gmail pattern: one worker, ordered push) ──
 
-  Completer<int>? _pushInflight;
-  int? _pushInflightGeneration;
-
   /// P46: save timed (LRC) lyrics, offline-first.
   ///
   /// Writes to the local row immediately so the player shows the new
@@ -894,310 +892,409 @@ class HymnStore extends ChangeNotifier {
   }
 
   Future<int> pushPending() async {
+    if (!canEdit ||
+        !_api.isLoggedIn ||
+        !ConnectivityService().hasLink) {
+      return 0;
+    }
+    if (_pushing) {
+      _pushAgain = true;
+      return 0;
+    }
     final generation = sessionGenerationProvider?.call() ?? 0;
     if (!_ownsGeneration(generation)) return 0;
-    if (_pushInflight != null) {
-      if (_pushInflightGeneration == generation) return _pushInflight!.future;
-      await _pushInflight!.future;
-      if (!_ownsGeneration(generation)) return 0;
-      return pushPending();
-    }
-    // Queued hymn edits survive logout by design; they wait here until
-    // a curator (mezmur_dept/admin) signs in. Non-curators never push
-    // them, so nothing can be posted under the wrong identity.
-    if (!canEdit) return 0;
-    final c = Completer<int>();
-    _pushInflight = c;
-    _pushInflightGeneration = generation;
+    _pushing = true;
+    notifyListeners();
+    var pushed = 0;
+    var scans = 0;
     try {
-      var pushed = 0;
-      for (var guard = 0;
-          guard < 50 && _ownsGeneration(generation);
-          guard++) {
-        final ops = await _db.getPendingHymnOps();
-        if (!_ownsGeneration(generation) || ops.isEmpty) break;
-        var progress = false;
-        for (final op in ops) {
+      while (_ownsGeneration(generation) && scans < 100) {
+        scans++;
+        final claim = await _db.claimNextHymnOperation(
+          runtimeGeneration: generation,
+          ownerUserId: _api.userId,
+          authorizationVersion: _api.authorizationVersion,
+        );
+        if (!_ownsGeneration(generation)) break;
+        if (claim == null) {
+          if (_pushAgain) {
+            _pushAgain = false;
+            continue;
+          }
+          break;
+        }
+
+        Map<String, dynamic> payload;
+        try {
+          final decoded = jsonDecode(claim.payloadJson);
+          if (decoded is! Map) throw const FormatException('not an object');
+          payload = Map<String, dynamic>.from(decoded);
+        } catch (_) {
+          final settled = await _db.settleHymnOperation(
+            claim: claim,
+            settlement: const HymnSettlement(
+              kind: HymnSettlementKind.needsAttention,
+              failureCode: 'MALFORMED_LOCAL_PAYLOAD',
+              failureMessage:
+                  'This saved change is unreadable and needs attention.',
+            ),
+            currentRuntimeGeneration: generation,
+          );
+          if (settled == HymnSettlementResult.supersededSession) break;
+          continue;
+        }
+
+        ApiResponse response;
+        try {
+          response = await _sendHymnOperation(claim, payload, generation);
+        } catch (_) {
           if (!_ownsGeneration(generation)) break;
-          final done = await _pushOne(op, generation);
-          if (done) {
-            pushed++;
-            progress = true;
+          response = ApiResponse.error(
+            'The request could not be completed.',
+            0,
+            true,
+            ApiFailureKind.transport,
+          );
+        }
+        if (response.sessionSuperseded || !_ownsGeneration(generation)) break;
+
+        final canonical = _itemFrom(response.data);
+        final decision = classifyOutboxResponse(
+          response.toOutboxEvidence(
+            automaticAttemptCount: claim.attemptCount,
+            hasCanonicalConflictItem:
+                claim.operation == 'hymn_save' && canonical != null,
+          ),
+        );
+        if (decision == OutboxDecision.supersededSession) break;
+        if (decision == OutboxDecision.supersededLocal) continue;
+
+        // Apply canonical/rebase effects before durable success settlement.
+        // If local application fails, retain the exact operation for an
+        // idempotent replay; never strand a synced row with an unreconciled
+        // negative placeholder or newer dependent edit.
+        if (decision == OutboxDecision.accepted ||
+            decision == OutboxDecision.resolvedConflict) {
+          try {
+            if (decision == OutboxDecision.accepted) {
+              await _applyAcceptedHymnOperation(claim, payload, response);
+            } else {
+              await _applyResolvedHymnConflict(claim, payload, canonical!);
+            }
+          } catch (_) {
+            final retained = await _db.settleHymnOperation(
+              claim: claim,
+              settlement: HymnSettlement(
+                kind: HymnSettlementKind.retryable,
+                nextAttemptAt: nextOutboxAttemptAt(
+                  attemptCount: claim.attemptCount,
+                  randomUnit: Random.secure().nextDouble(),
+                ),
+                failureCode: 'LOCAL_RECONCILIATION_PENDING',
+                failureMessage:
+                    'Server result saved; local reconciliation will retry.',
+              ),
+              currentRuntimeGeneration: generation,
+            );
+            if (retained == HymnSettlementResult.supersededSession) break;
+            continue;
           }
         }
-        if (!progress) break;
+
+        final settlement = _hymnSettlement(decision, response, claim);
+        final result = await _db.settleHymnOperation(
+          claim: claim,
+          settlement: settlement,
+          currentRuntimeGeneration: generation,
+        );
+        if (result == HymnSettlementResult.supersededSession) break;
+        if (result == HymnSettlementResult.supersededLocal) continue;
+
+        if (decision == OutboxDecision.accepted) {
+          pushed++;
+        } else if (decision == OutboxDecision.needsAttention) {
+          await _db.logSync(
+            claim.operation,
+            response.message ?? 'The server rejected this saved change.',
+            'error',
+          );
+        } else if (decision == OutboxDecision.pauseForAuthentication ||
+            decision == OutboxDecision.pauseForAuthorizationScope) {
+          break;
+        }
       }
-      if (!c.isCompleted) c.complete(pushed);
+      if (scans >= 100 && _ownsGeneration(generation)) _pushAgain = true;
       return pushed;
-    } catch (_) {
-      if (!c.isCompleted) c.complete(0);
-      rethrow;
     } finally {
-      if (identical(_pushInflight, c)) {
-        _pushInflight = null;
-        _pushInflightGeneration = null;
+      final rerun = _pushAgain;
+      _pushAgain = false;
+      _pushing = false;
+      if (_ownsGeneration(generation)) {
+        notifyListeners();
+        if (rerun) unawaited(pushPending().then<void>((_) {}));
       }
-      notifyListeners();
     }
   }
 
-  Future<bool> _pushOne(Map<String, dynamic> op, int generation) async {
-    if (!_ownsGeneration(generation)) return false;
-    final id = _asInt(op['id']);
-    final kind = '${op['op'] ?? ''}';
-    Map<String, dynamic> payload;
-    try {
-      final decoded = jsonDecode('${op['payload_json'] ?? '{}'}');
-      payload = decoded is Map ? Map<String, dynamic>.from(decoded) : {};
-    } catch (_) {
-      await _db.dropHymnOp(id); // unreadable payload: drop, never loop
-      return false;
+  HymnSettlement _hymnSettlement(
+    OutboxDecision decision,
+    ApiResponse response,
+    HymnOutboxClaim claim,
+  ) {
+    final code = response.errorCode;
+    final message = response.message;
+    switch (decision) {
+      case OutboxDecision.accepted:
+        return const HymnSettlement(kind: HymnSettlementKind.accepted);
+      case OutboxDecision.retryable:
+        return HymnSettlement(
+          kind: HymnSettlementKind.retryable,
+          nextAttemptAt: nextOutboxAttemptAt(
+            attemptCount: claim.attemptCount,
+            retryAfterSeconds: response.retryAfterSeconds,
+            randomUnit: Random.secure().nextDouble(),
+          ),
+          failureCode: code ?? 'RETRYABLE_TRANSPORT',
+          failureHttpStatus: response.statusCode,
+          failureMessage: message ?? 'Retry scheduled.',
+        );
+      case OutboxDecision.needsAttention:
+        return HymnSettlement(
+          kind: HymnSettlementKind.needsAttention,
+          failureCode: code ?? 'SERVER_REJECTED',
+          failureHttpStatus: response.statusCode,
+          failureMessage: message ?? 'This saved change needs attention.',
+        );
+      case OutboxDecision.pauseForAuthentication:
+        return HymnSettlement(
+          kind: HymnSettlementKind.pausedAuthentication,
+          failureCode: code ?? 'AUTHENTICATION_REQUIRED',
+          failureHttpStatus: response.statusCode,
+          failureMessage: message ?? 'Sign in to continue.',
+        );
+      case OutboxDecision.pauseForAuthorizationScope:
+        return HymnSettlement(
+          kind: HymnSettlementKind.pausedAuthorizationScope,
+          failureCode: code ?? 'AUTHORIZATION_SCOPE_CHANGED',
+          failureHttpStatus: response.statusCode,
+          failureMessage: message ?? 'Access changed; review this item.',
+        );
+      case OutboxDecision.resolvedConflict:
+        return HymnSettlement(
+          kind: HymnSettlementKind.resolvedConflict,
+          failureCode: code ?? 'REVISION_CONFLICT',
+          failureHttpStatus: response.statusCode,
+          failureMessage: message ?? 'The newer server copy was kept.',
+        );
+      case OutboxDecision.supersededSession:
+      case OutboxDecision.supersededLocal:
+        throw StateError('Supersession is not a durable hymn settlement.');
     }
-    final opId = '${payload['client_op_id'] ?? op['client_op_id'] ?? ''}';
+  }
 
-    try {
-      switch (kind) {
-        case 'hymn_save':
-          final baseRevision = payload['base_revision'] is int
-              ? payload['base_revision'] as int
-              : int.tryParse('${payload['base_revision'] ?? ''}');
+  Future<ApiResponse> _sendHymnOperation(
+    HymnOutboxClaim claim,
+    Map<String, dynamic> payload,
+    int generation,
+  ) async {
+    if (!_ownsGeneration(generation)) return ApiResponse.superseded(generation);
+    final opId = claim.clientOpId;
+    switch (claim.operation) {
+      case 'hymn_save':
+        final baseRevision = payload['base_revision'] is int
+            ? payload['base_revision'] as int
+            : int.tryParse('${payload['base_revision'] ?? ''}');
+        await _rewritePlaceholderRefs(payload);
+        if (!_ownsGeneration(generation)) {
+          return ApiResponse.superseded(generation);
+        }
+        return _api.saveMezmurHymn(
+          payload,
+          clientOpId: opId,
+          baseRevision:
+              baseRevision != null && baseRevision > 0 ? baseRevision : null,
+        );
+      case 'hymn_status':
+        final hymnId = _asInt(payload['id']);
+        if (hymnId <= 0) return _invalidHymnOperation('INVALID_HYMN_ID');
+        return _api.setMezmurHymnStatus(
+          hymnId,
+          '${payload['status'] ?? ''}',
+          clientOpId: opId,
+        );
+      case 'category_save':
+        final localId = _asInt(payload['id']);
+        final body = Map<String, dynamic>.from(payload);
+        if (localId < 0) body['id'] = 0;
+        return _api.saveMezmurCategory(body, clientOpId: opId);
+      case 'category_status':
+        var categoryId = _asInt(payload['id']);
+        if (categoryId < 0) {
+          categoryId = _localIdByName(
+            await _db.getLocalCategories(activeOnly: false),
+            '${payload['name'] ?? ''}',
+          );
+        }
+        if (categoryId <= 0) {
+          return _invalidHymnOperation('UNRESOLVED_CATEGORY_ID');
+        }
+        if (!_ownsGeneration(generation)) {
+          return ApiResponse.superseded(generation);
+        }
+        return _api.setMezmurCategoryStatus(
+          categoryId,
+          payload['active'] == true,
+          clientOpId: opId,
+        );
+      case 'zemarian_save':
+        final localId = _asInt(payload['id']);
+        final body = Map<String, dynamic>.from(payload);
+        if (localId < 0) body['id'] = 0;
+        return _api.saveMezmurZemarian(body, clientOpId: opId);
+      case 'zemarian_status':
+        var zemarianId = _asInt(payload['id']);
+        if (zemarianId < 0) {
+          zemarianId = _localIdByName(
+            await _db.getLocalZemarians(activeOnly: false),
+            '${payload['name'] ?? ''}',
+          );
+        }
+        if (zemarianId <= 0) {
+          return _invalidHymnOperation('UNRESOLVED_ZEMARIAN_ID');
+        }
+        if (!_ownsGeneration(generation)) {
+          return ApiResponse.superseded(generation);
+        }
+        return _api.setMezmurZemarianStatus(
+          zemarianId,
+          payload['active'] == true,
+          clientOpId: opId,
+        );
+      case 'lyrics_synced':
+        final hymnId = _asInt(payload['id']);
+        if (hymnId <= 0) return _invalidHymnOperation('INVALID_HYMN_ID');
+        return _api.saveMezmurSyncedLyrics(
+          hymnId,
+          '${payload['lrc'] ?? ''}',
+          clientOpId: opId,
+        );
+      default:
+        return _invalidHymnOperation('UNKNOWN_HYMN_OPERATION');
+    }
+  }
+
+  ApiResponse _invalidHymnOperation(String code) => ApiResponse(
+        success: false,
+        statusCode: 422,
+        errorCode: code,
+        message: 'This saved change cannot be sent automatically.',
+        failureKind: ApiFailureKind.http,
+      );
+
+  Future<void> _applyAcceptedHymnOperation(
+    HymnOutboxClaim claim,
+    Map<String, dynamic> payload,
+    ApiResponse response,
+  ) async {
+    final item = _itemFrom(response.data);
+    switch (claim.operation) {
+      case 'hymn_save':
+        if (item != null) {
           final localId = _asInt(payload['id']);
-          // P23: swap placeholder refs for synced twin ids when possible.
-          await _rewritePlaceholderRefs(payload);
-          if (!_ownsGeneration(generation)) return false;
-          final res = await _api.saveMezmurHymn(payload,
-              clientOpId: opId,
-              baseRevision:
-                  baseRevision != null && baseRevision > 0 ? baseRevision : null);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success) {
-            final item = _itemFrom(res.data);
-            if (item != null) {
-              await _db.upsertHymns([item]);
-              await _dropLocalPlaceholder(localId);
-            }
-            await _db.markHymnOpSynced(id);
-            await _db.logSync('hymn_save', '${payload['title'] ?? ''}', 'ok');
-            return true;
-          }
-          if (res.statusCode == 409) {
-            // Server moved on while we were offline: server copy wins.
-            final item = _itemFrom(res.data);
-            if (item != null) await _db.upsertHymns([item]);
+          final rebased = localId < 0
+              ? await _db.rebasePendingHymnPlaceholder(
+                  localId,
+                  claim.rowId,
+                  item,
+                )
+              : await _db.rebaseNewerPendingHymnRevision(
+                  localId,
+                  claim.rowId,
+                  item,
+                );
+          if (!rebased) {
+            await _db.upsertHymns([item]);
             await _dropLocalPlaceholder(localId);
-            await _db.dropHymnOp(id);
-            await _db.logSync('hymn_save',
-                'conflict — server copy kept: ${payload['title'] ?? ''}',
-                'conflict');
-            return true;
           }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false;
-          }
-          // Permanent validation failure (duplicate title, too long…).
-          await _db.logSync('hymn_save',
-              '${res.message ?? 'Rejected'}: ${payload['title'] ?? ''}',
-              'error');
-          await _db.dropHymnOp(id);
-          return false;
-        case 'hymn_status':
-          if (_asInt(payload['id']) <= 0) {
-            await _db.dropHymnOp(id); // never reached the server: nothing to flip
-            return true;
-          }
-          if (!_ownsGeneration(generation)) return false;
-          final res = await _api.setMezmurHymnStatus(
-              _asInt(payload['id']), '${payload['status'] ?? ''}',
-              clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success || res.statusCode == 409) {
-            final item = _itemFrom(res.data);
-            if (item != null) await _db.upsertHymns([item]);
-            await _db.markHymnOpSynced(id);
-            return true;
-          }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false;
-          }
-          await _db.logSync('hymn_status', res.message ?? 'Rejected', 'error');
-          await _db.dropHymnOp(id);
-          return false;
-        case 'category_save':
-          final catLocalId = _asInt(payload['id']);
-          // P35: the payload carries our negative placeholder so the
-          // cleanup below can retire it, but the server must see a
-          // create (id 0), never a negative row id.
-          final catBody = Map<String, dynamic>.from(payload);
-          if (catLocalId < 0) catBody['id'] = 0;
-          if (!_ownsGeneration(generation)) return false;
-          final res =
-              await _api.saveMezmurCategory(catBody, clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success) {
-            final item = _itemFrom(res.data);
-            if (item != null) await _db.upsertCategoryLocal(item);
-            if (catLocalId < 0) {
-              // P23: repoint hymn joins at the real server id BEFORE
-              // dropping the placeholder — they used to be orphaned, so
-              // the hymn silently lost its category on-device.
-              if (item != null) {
-                await _repointJoin('cached_hymn_categories', 'category_id',
-                    catLocalId, _asInt(item['id']));
-              }
-              final db = await _db.database;
-              await db.delete('cached_mezmur_categories',
-                  where: 'id = ?', whereArgs: [catLocalId]);
-            }
-            await _db.markHymnOpSynced(id);
-            return true;
-          }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false;
-          }
-          await _db.logSync('category_save', res.message ?? 'Rejected', 'error');
-          await _db.dropHymnOp(id);
-          return false;
-        case 'category_status':
-          // P23: the op may reference a placeholder id; resolve it to the
-          // synced twin's id by NAME (the placeholder row is already gone).
-          var catId = _asInt(payload['id']);
-          if (catId < 0) {
-            catId = _localIdByName(await _db.getLocalCategories(activeOnly: false),
-                '${payload['name'] ?? ''}');
-            if (catId <= 0) {
-              await _db.dropHymnOp(id); // never synced: nothing to flip
-              return true;
-            }
-          }
-          if (!_ownsGeneration(generation)) return false;
-          final res = await _api.setMezmurCategoryStatus(
-              catId, payload['active'] == true, clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success || res.statusCode == 409) {
-            await _db.markHymnOpSynced(id);
-            return true;
-          }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false;
-          }
-          await _db.logSync(
-              'category_status', res.message ?? 'Rejected', 'error');
-          await _db.dropHymnOp(id);
-          return false;
-        case 'zemarian_save':
-          final zLocalId = _asInt(payload['id']);
-          // P35: see category_save — placeholder stays local, the wire
-          // payload is a clean create.
-          final zBody = Map<String, dynamic>.from(payload);
-          if (zLocalId < 0) zBody['id'] = 0;
-          if (!_ownsGeneration(generation)) return false;
-          final res = await _api.saveMezmurZemarian(zBody, clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success) {
-            final item = _itemFrom(res.data);
-            if (item != null) await _db.upsertZemarianLocal(item);
-            if (zLocalId < 0) {
-              // P23: repoint hymn joins first (see category_save).
-              if (item != null) {
-                await _repointJoin('cached_hymn_zemarians', 'zemarian_id',
-                    zLocalId, _asInt(item['id']));
-              }
-              final db = await _db.database;
-              await db.delete('cached_mezmur_zemarians',
-                  where: 'id = ?', whereArgs: [zLocalId]);
-            }
-            await _db.markHymnOpSynced(id);
-            return true;
-          }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false;
-          }
-          await _db.logSync('zemarian_save', res.message ?? 'Rejected', 'error');
-          await _db.dropHymnOp(id);
-          return false;
-        case 'lyrics_synced':
-          // P46: timed-lyric edits ride the SAME durable queue as every
-          // other hymn write — offline capture, retry, and idempotency
-          // come for free rather than being reimplemented.
-          final lyricHymnId = _asInt(payload['id']);
-          if (lyricHymnId <= 0) {
-            await _db.dropHymnOp(id); // nothing addressable to update
-            return true;
-          }
-          if (!_ownsGeneration(generation)) return false;
-          final res = await _api.saveMezmurSyncedLyrics(
-              lyricHymnId, '${payload['lrc'] ?? ''}',
-              clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success || res.statusCode == 409) {
-            await _db.markHymnOpSynced(id);
-            return true;
-          }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false; // stays queued; retried on the next push
-          }
-          // A server rejection (bad LRC, missing schema, no permission)
-          // cannot be fixed by retrying — log it and stop looping.
-          await _db.logSync(
-              'lyrics_synced', res.message ?? 'Rejected', 'error');
-          await _db.dropHymnOp(id);
-          return true;
-
-        case 'zemarian_status':
-          var zemId = _asInt(payload['id']);
-          if (zemId < 0) {
-            zemId = _localIdByName(await _db.getLocalZemarians(activeOnly: false),
-                '${payload['name'] ?? ''}');
-            if (zemId <= 0) {
-              await _db.dropHymnOp(id); // never synced: nothing to flip
-              return true;
-            }
-          }
-          if (!_ownsGeneration(generation)) return false;
-          final res = await _api.setMezmurZemarianStatus(
-              zemId, payload['active'] == true, clientOpId: opId);
-          if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-            return false;
-          }
-          if (res.success || res.statusCode == 409) {
-            await _db.markHymnOpSynced(id);
-            return true;
-          }
-          if (res.isNetworkError) {
-            await _db.failHymnOp(id, 'network');
-            return false;
-          }
-          await _db.logSync(
-              'zemarian_status', res.message ?? 'Rejected', 'error');
-          await _db.dropHymnOp(id);
-          return false;
-        default:
-          await _db.dropHymnOp(id);
-          return false;
-      }
-    } catch (_) {
-      if (!_ownsGeneration(generation)) return false;
-      await _db.failHymnOp(id, 'network');
-      return false;
+        }
+        await _db.logSync(
+          'hymn_save',
+          '${payload['title'] ?? ''}',
+          'ok',
+        );
+        break;
+      case 'hymn_status':
+        if (item != null) await _db.upsertHymns([item]);
+        break;
+      case 'category_save':
+        if (item != null) await _db.upsertCategoryLocal(item);
+        final localId = _asInt(payload['id']);
+        if (localId < 0 && item != null) {
+          await _repointJoin(
+            'cached_hymn_categories',
+            'category_id',
+            localId,
+            _asInt(item['id']),
+          );
+          final db = await _db.database;
+          await db.delete(
+            'cached_mezmur_categories',
+            where: 'id = ?',
+            whereArgs: [localId],
+          );
+        }
+        break;
+      case 'zemarian_save':
+        if (item != null) await _db.upsertZemarianLocal(item);
+        final localId = _asInt(payload['id']);
+        if (localId < 0 && item != null) {
+          await _repointJoin(
+            'cached_hymn_zemarians',
+            'zemarian_id',
+            localId,
+            _asInt(item['id']),
+          );
+          final db = await _db.database;
+          await db.delete(
+            'cached_mezmur_zemarians',
+            where: 'id = ?',
+            whereArgs: [localId],
+          );
+        }
+        break;
+      case 'category_status':
+      case 'zemarian_status':
+      case 'lyrics_synced':
+        break;
     }
+  }
+
+  Future<void> _applyResolvedHymnConflict(
+    HymnOutboxClaim claim,
+    Map<String, dynamic> payload,
+    Map<String, dynamic> canonical,
+  ) async {
+    final localId = _asInt(payload['id']);
+    final rebased = localId < 0
+        ? await _db.rebasePendingHymnPlaceholder(
+            localId,
+            claim.rowId,
+            canonical,
+          )
+        : await _db.rebaseNewerPendingHymnRevision(
+            localId,
+            claim.rowId,
+            canonical,
+          );
+    if (!rebased) {
+      await _db.upsertHymns([canonical]);
+      await _dropLocalPlaceholder(localId);
+    }
+    await _db.logSync(
+      'hymn_save',
+      'conflict — server copy kept: ${payload['title'] ?? ''}',
+      'conflict',
+    );
   }
 
   Map<String, dynamic>? _itemFrom(dynamic data) {

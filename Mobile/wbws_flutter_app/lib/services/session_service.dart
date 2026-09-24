@@ -371,6 +371,10 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       authorizationVersion: candidate.authorizationVersion,
     );
     await _persistActive(candidate);
+    await _db.resumeLegacyPausedAuthentication(
+      ownerUserId: candidate.userId,
+      authorizationVersion: candidate.authorizationVersion,
+    );
     _credentialState = CredentialLoadState.complete;
     _root = SessionRoot.active;
     _startPrivateServices();
@@ -407,19 +411,27 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     _publish();
     try {
       final user = _api.userData;
+      final ownerUserId = _record.ownerUserId ?? _api.userId;
+      final authorizationVersion =
+          _record.authorizationVersion ?? _api.authorizationVersion;
       await _persistRecovery(
         state: SessionState.reauthRequired,
         reason: reason,
-        ownerUserId: _record.ownerUserId ?? _api.userId,
+        ownerUserId: ownerUserId,
         ownerRole: _record.ownerRole ?? _api.userRole,
         ownerUsername:
             _record.ownerUsername ?? user?['username']?.toString(),
         ownerDisplayName:
             _record.ownerDisplayName ?? user?['full_name']?.toString(),
-        authorizationVersion:
-            _record.authorizationVersion ?? _api.authorizationVersion,
+        authorizationVersion: authorizationVersion,
         generationAlreadyAdvanced: true,
       );
+      if (ownerUserId > 0) {
+        await _db.pauseLegacyInFlightForAuthentication(
+          ownerUserId: ownerUserId,
+          authorizationVersion: authorizationVersion,
+        );
+      }
       if (revokeCurrentSession) {
         await _api.logout();
       } else {

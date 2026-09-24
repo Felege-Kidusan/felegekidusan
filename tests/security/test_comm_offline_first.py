@@ -115,7 +115,7 @@ class OfflineFirstClientTests(unittest.TestCase):
 
     def test_client_tag_rides_the_send_payload(self):
         self.assertIn("'client_tag': clientTag", self.api)
-        self.assertIn("clientTag: tag", self.worker)
+        self.assertIn("clientTag: claim.clientTag", self.worker)
 
     def test_local_history_is_trimmed_with_hysteresis(self):
         self.assertIn("_trimKeep = 500", self.store)

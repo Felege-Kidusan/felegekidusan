@@ -883,21 +883,21 @@ class _ConversationScreenState extends State<_ConversationScreen>
     _syncOutboxTail();
   }
 
-  void _retryLocal(Map<String, dynamic> m) {
-    // O3: retry is the outbox's, not the screen's — flip the row back
-    // to pending (fresh ladder) and let the worker run.
+  Future<void> _retryLocal(Map<String, dynamic> m) async {
+    // O3: retry is the outbox's, not the screen's — flip the exact terminal
+    // row back to pending (fresh ladder) and let the worker run.
     final clientTag = m[kClientTag]?.toString();
     if (clientTag == null || clientTag.isEmpty) return;
-    CommStore.instance.retryOutbox(clientTag);
-    _syncOutboxTail();
+    await CommStore.instance.retryOutbox(clientTag);
+    await _syncOutboxTail();
     CommOutboxService.instance.kick();
   }
 
-  void _discardLocal(Map<String, dynamic> m) {
+  Future<void> _discardLocal(Map<String, dynamic> m) async {
     final clientTag = m[kClientTag]?.toString();
     if (clientTag == null || clientTag.isEmpty) return;
-    CommStore.instance.deleteOutbox(clientTag);
-    _syncOutboxTail();
+    await CommStore.instance.deleteOutbox(clientTag);
+    await _syncOutboxTail();
   }
 
   /// P1 audit B1 — tappable links open externally (browser for

@@ -6,6 +6,7 @@ import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
@@ -560,6 +561,10 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   int _rejectedCount = 0;
   StreamSubscription<bool>? _netSub;
   StreamSubscription<dynamic>? _syncSub;
+  Timer? _autosaveTimer;
+  Future<void> _autosaveTail = Future<void>.value();
+  bool _commitInProgress = false;
+  LegacyOperationRef? _submittedUndoRef;
 
   @override
   void initState() {
@@ -591,6 +596,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   void dispose() {
     _netSub?.cancel();
     _syncSub?.cancel();
+    _autosaveTimer?.cancel();
     _dirty.dispose();
     _scoreCtrl.values.forEach((c) => c.dispose());
     _remarkCtrl.values.forEach((c) => c.dispose());
@@ -787,33 +793,43 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (n != _gradedCount) setState(() => _gradedCount = n);
   }
 
-  Future<void> _persistLocal() async {
-    final grades = <Map<String, dynamic>>[];
-    for (final s in _students) {
-      final mid = RosterParse.asInt(s['member_id']);
-      if (mid == null) continue;
-      final text = _scoreCtrl[mid]?.text.trim() ?? '';
-      if (text.isEmpty) continue;
-      final score = double.tryParse(text);
-      if (score == null) continue;
-      grades.add({
-        'member_id': mid,
-        'score': score,
-        'remark': _remarkCtrl[mid]?.text.trim() ?? '',
-        'record_id': s['record_id'],
-        'student_name': s['student_name'],
-      });
-    }
+  Future<void> _persistDraftSnapshot() async {
+    if (_commitInProgress || _locked) return;
+    final grades = _collectGrades();
     if (grades.isEmpty) return;
     await _db.saveGradesLocal(
       widget.assessmentId, widget.assessmentName,
       widget.classId, widget.className,
       widget.subjectId, widget.subjectName,
       widget.maxScore, grades,
+      packetKind: 'draft',
     );
   }
 
-  bool get _locked => PacketLock.isLocked(_packetStatus, flagged: widget.initialLocked && _packetStatus.isEmpty);
+  void _scheduleAutosave() {
+    if (_commitInProgress || _locked) return;
+    _autosaveTimer?.cancel();
+    _autosaveTimer = Timer(const Duration(milliseconds: 450), () {
+      _autosaveTail = _autosaveTail
+          .catchError((_) {})
+          .then((_) => _persistDraftSnapshot());
+    });
+  }
+
+  Future<void> _beginOrderedCommit() async {
+    if (mounted) setState(() => _commitInProgress = true);
+    _autosaveTimer?.cancel();
+    _autosaveTimer = null;
+    await _autosaveTail.catchError((_) {});
+  }
+
+  void _endOrderedCommit() {
+    if (mounted) setState(() => _commitInProgress = false);
+  }
+
+  bool get _locked => _commitInProgress ||
+      PacketLock.isLocked(_packetStatus,
+          flagged: widget.initialLocked && _packetStatus.isEmpty);
 
   /// Valid score rows currently on the form. Shared by Save, Submit, Undo.
   List<Map<String, dynamic>> _collectGrades() {
@@ -852,6 +868,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       return;
     }
 
+    await _beginOrderedCommit();
     try {
       await _db.saveGradesLocal(
         widget.assessmentId, widget.assessmentName,
@@ -861,9 +878,12 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         packetKind: 'draft',
       );
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Phone storage refused the save'),
-          backgroundColor: AppTheme.danger));
+      _endOrderedCommit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Phone storage refused the save'),
+            backgroundColor: AppTheme.danger));
+      }
       return;
     }
     if (!mounted) return;
@@ -871,6 +891,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     showQuickConfirm(context, 'Saved');
     _dirty.value = false;
     setState(() {
+      _commitInProgress = false;
       _packetStatus = _packetStatus.isEmpty ? 'draft' : _packetStatus;
       if (_packetStatus == 'draft') _returnNote = null;
     });
@@ -893,24 +914,30 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
           content: Text('Enter at least one valid score first'), backgroundColor: AppTheme.warning));
       return;
     }
+    await _beginOrderedCommit();
     try {
-      await _db.saveGradesLocal(
+      _submittedUndoRef = await _db.saveGradesLocal(
         widget.assessmentId, widget.assessmentName,
         widget.classId, widget.className,
         widget.subjectId, widget.subjectName,
         widget.maxScore, grades,
         packetKind: 'submitted',
+        notBefore: DateTime.now().add(const Duration(seconds: 5)),
       );
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Phone storage refused the save'),
-          backgroundColor: AppTheme.danger));
+      _endOrderedCommit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Phone storage refused the save'),
+            backgroundColor: AppTheme.danger));
+      }
       return;
     }
     if (!mounted) return;
     HapticFeedback.mediumImpact();
     _dirty.value = false;
     setState(() {
+      _commitInProgress = false;
       _packetStatus = 'submitted';
       _returnNote = null;
     });
@@ -922,34 +949,39 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   }
 
   Future<void> _undoSubmit() async {
-    final stillOnPhone = await _db.gradesPacketPending(widget.assessmentId);
+    final operation = _submittedUndoRef;
+    if (operation == null) return;
+    final result = await _db.undoSubmittedLegacyOperation(operation);
     if (!mounted) return;
-    if (!stillOnPhone) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
-        content: Text('Already sent to Education'),
-      ));
-      return;
+    switch (result) {
+      case SubmitUndoResult.applied:
+        _submittedUndoRef = null;
+        setState(() {
+          _packetStatus = 'draft';
+          _returnNote = null;
+        });
+        _dirty.value = false;
+        showQuickConfirm(context, 'Submission undone');
+        break;
+      case SubmitUndoResult.alreadyClaimed:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Already being sent to Education'),
+        ));
+        break;
+      case SubmitUndoResult.supersededLocal:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('This submission changed and cannot be undone.'),
+        ));
+        break;
+      case SubmitUndoResult.supersededSession:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Sign in again before changing this submission.'),
+        ));
+        break;
     }
-    final grades = _collectGrades();
-    if (grades.isEmpty) return;
-    try {
-      await _db.saveGradesLocal(
-        widget.assessmentId, widget.assessmentName,
-        widget.classId, widget.className,
-        widget.subjectId, widget.subjectName,
-        widget.maxScore, grades,
-        packetKind: 'draft',
-      );
-    } catch (_) {
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _packetStatus = 'draft';
-      _returnNote = null;
-    });
-    _dirty.value = false;
   }
 
   @override
@@ -1073,7 +1105,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                   onChanged: (_) {
                     _dirty.value = true;
                     _recountGraded();
-                    _persistLocal();
+                    _scheduleAutosave();
                   },
                 ),
               ),
@@ -1095,7 +1127,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
               ),
               onChanged: (_) {
                 _dirty.value = true;
-                _persistLocal();
+                _scheduleAutosave();
               },
             ),
           ],

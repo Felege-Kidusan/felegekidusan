@@ -22,6 +22,7 @@ GRA = f'{ROOT}/api/v1/routes/grades.php'
 MEZ = f'{ROOT}/api/v1/routes/mezmur.php'
 HR = f'{ROOT}/api/v1/routes/hr.php'
 SYNC = (f'{ROOT}/Mobile/wbws_flutter_app/lib/services/sync_service.dart')
+POLICY = (f'{ROOT}/Mobile/wbws_flutter_app/lib/services/outbox_policy.dart')
 LDB = (f'{ROOT}/Mobile/wbws_flutter_app/lib/services/local_db.dart')
 BANNER = (f'{ROOT}/Mobile/wbws_flutter_app/lib/widgets/sync_attention.dart')
 SCREENS = {
@@ -118,6 +119,7 @@ class F8ClientClassifier(unittest.TestCase):
 
     def setUp(self):
         self.s = read(SYNC)
+        self.policy = read(POLICY)
 
     def test_the_bug_is_dead(self):
         self.assertNotIn('bool _accepted(', self.s)
@@ -125,68 +127,63 @@ class F8ClientClassifier(unittest.TestCase):
         self.assertNotIn("m.contains('already submitted')", self.s)
 
     def test_classifier_exists_and_is_pure(self):
-        self.assertIn('enum DrainOutcome {', self.s)
-        self.assertIn('DrainOutcome classifyDrainResponse(ApiResponse res) {',
-                      self.s)
+        self.assertIn('enum OutboxDecision {', self.policy)
+        self.assertIn('OutboxDecision classifyOutboxResponse(', self.policy)
+        self.assertNotIn('ApiService', self.policy)
 
     def test_replay_invariant_is_success_only(self):
-        # accepted == res.success — the only path that can mark synced.
-        # A true replay returns the original 200, so it lands here.
-        self.assertIn('if (res.success) return DrainOutcome.accepted;',
-                      self.s)
+        accepted = self.policy[self.policy.find('if (evidence.success'):
+                               self.policy.find('if (evidence.success') + 350]
+        self.assertIn('return OutboxDecision.accepted;', accepted)
+        self.assertIn('status >= 200 && status < 300', accepted)
 
     def test_409_taxonomy(self):
-        # definitive codes → rejected; in-progress → transient;
-        # unknown 409 → transient (never guessed, never success)
         for code in ('ALREADY_SUBMITTED', 'WORKFLOW_REJECTED',
-                     'IDEMPOTENCY_CONFLICT'):
-            self.assertIn(f"code == '{code}'", self.s)
-        self.assertRegex(
-            self.s,
-            r"code == 'IDEMPOTENCY_IN_PROGRESS'\)"
-            r"[^;]*;[\s\S]*?DrainOutcome\.transient")
-        self.assertRegex(
-            self.s, r"return DrainOutcome\.transient; // unknown 409")
+                     'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_IN_PROGRESS'):
+            self.assertIn(code, self.policy)
+        conflict = self.policy[self.policy.find('if (status == 409)'):
+                               self.policy.find('if (status == 409)') + 950]
+        self.assertIn('OutboxDecision.retryable', conflict)
+        self.assertIn('OutboxDecision.needsAttention', conflict)
+        self.assertIn('_boundedUnknown', conflict)
 
     def test_transient_statuses(self):
-        self.assertRegex(
-            self.s,
-            r'status == 401 \|\| status == 408 \|\| status == 429'
-            r' \|\| status >= 500')
+        for status in ('status == 408', 'status == 425', 'status == 429',
+                       'status >= 500'):
+            self.assertIn(status, self.policy)
 
     def test_definite_protocol_refusals_are_rejected(self):
-        # minimal F9 touch (§9): 400/403/404/422 must not retry forever
-        self.assertRegex(
-            self.s,
-            r'status == 400 \|\| status == 403 \|\| status == 404'
-            r' \|\| status == 422')
+        for status in ('status == 400', 'status == 403', 'status == 404',
+                       'status == 422'):
+            self.assertIn(status, self.policy)
 
-    def test_all_four_drains_classify_instead_of_accept(self):
-        self.assertEqual(self.s.count('classifyDrainResponse(res)'), 4)
-        self.assertEqual(self.s.count('DrainOutcome.accepted'), 5,
-                         '4 loops + the classifier return')
+    def test_all_four_drains_use_one_typed_classifier(self):
+        self.assertIn('for (final kind in LegacyOperationKind.values)', self.s)
+        self.assertIn('classifyOutboxResponse(', self.s)
+        self.assertIn('response.toOutboxEvidence(', self.s)
+        self.assertNotIn('classifyDrainResponse(res)', self.s)
 
-    def test_all_four_drains_skip_rejected_batches(self):
-        self.assertEqual(self.s.count("batch['rejected'] == 1"), 4)
+    def test_all_four_drains_skip_terminal_attention_batches(self):
+        db = read(LDB)
+        claim = db[db.find('claimNextLegacyOperation'):
+                   db.find('claimNextLegacyOperation') + 2600]
+        self.assertIn("sync_state IN ('pending', 'retry_wait')", claim)
+        self.assertNotIn("sync_state = 'needs_attention'", claim)
 
-    def test_all_four_drains_mark_rejected_with_reason(self):
-        for call in ('rejectAttendance(', 'rejectGrades(', 'rejectMezmur(',
-                     'rejectHr('):
-            self.assertIn(call, self.s)
-        # the engine records the verdict distinctly from errors
-        self.assertEqual(self.s.count(", 'rejected');"), 4)
+    def test_all_four_drains_settle_rejections_with_reason(self):
+        self.assertIn('LegacySettlementKind.needsAttention', self.s)
+        self.assertIn('failureCode: response.errorCode', self.s)
+        self.assertIn('failureMessage:', self.s)
+        self.assertIn('settleLegacyOperation(', self.s)
 
-    def test_synced_only_on_accepted(self):
-        # Each mark*Synced call sits inside its loop's accepted arm.
-        s = self.s
-        self.assertEqual(s.count('DrainOutcome.accepted) {'), 4)
-        for call in ('markAttendanceSynced', 'markGradesSynced',
-                     'markMezmurSynced', 'markHrSynced'):
-            i = s.find(f'await _db.{call}(')
-            self.assertGreater(i, -1, call)
-            window = s[max(0, i - 400):i]
-            self.assertIn('DrainOutcome.accepted', window,
-                          f'{call} must run only in the accepted arm')
+    def test_synced_progress_only_after_exact_accepted_settlement(self):
+        body = self.s[self.s.find('settleLegacyOperation('):
+                      self.s.find('settleLegacyOperation(') + 1500]
+        self.assertIn('result != LegacySettlementResult.applied', body)
+        self.assertIn('decision == OutboxDecision.accepted', body)
+        guard = body.find('result != LegacySettlementResult.applied')
+        increment = body.find('synced++')
+        self.assertGreater(increment, guard)
 
 
 class F8LocalOutbox(unittest.TestCase):
@@ -221,14 +218,18 @@ class F8LocalOutbox(unittest.TestCase):
             self.assertNotIn('sync_error IS NULL', body,
                              f'{feed} must not filter rejected rows')
 
-    def test_reject_methods_set_reason_on_unsynced_only(self):
+    def test_rejection_uses_exact_claim_settlement_only(self):
         for call in ('rejectAttendance', 'rejectGrades', 'rejectMezmur',
-                     'rejectHr'):
-            body = self.db[self.db.find(f'Future<void> {call}('):
-                           self.db.find(f'Future<void> {call}(') + 420]
-            self.assertIn("{'sync_error': reason}", body)
-            self.assertIn('synced = 0', body)
-            self.assertNotIn('synced = 1', body)
+                     'rejectHr', 'markAttendanceSynced', 'markGradesSynced',
+                     'markMezmurSynced', 'markHrSynced'):
+            self.assertNotIn(f'Future<void> {call}(', self.db)
+        settle = self.db[self.db.find('settleLegacyOperation'):
+                         self.db.find('settleLegacyOperation') + 5200]
+        self.assertIn('LegacySettlementKind.needsAttention', settle)
+        self.assertIn("sync_state': 'needs_attention'", settle)
+        exact = self.db[self.db.find('_legacyExactWhere'):
+                        self.db.find('_legacyExactWhere') + 1100]
+        self.assertIn("sync_state = 'in_flight'", exact)
 
     def test_discard_requires_explicit_user_action(self):
         # discard* deletes ONLY unsynced rows and is only reachable
@@ -320,15 +321,24 @@ class F8DropPendingReconciliation(unittest.TestCase):
             self.assertNotIn('sync_error IS NULL', body, name)
 
     def test_resave_replacement_still_replaces_rejected(self):
-        # Recovery: a user re-save must keep replacing the WHOLE
-        # unsynced batch (rejected rows included) with a fresh op id —
-        # that is the designed resave path, not a deletion path.
+        # All four public saves delegate to one serialized transaction that
+        # deletes the whole unsynced natural-key generation (including a prior
+        # rejection) before inserting one fresh operation id.
         for name in ('saveAttendanceLocal', 'saveGradesLocal',
                      'saveMezmurLocal', 'saveHrLocal'):
-            body = self._method(name)
-            self.assertIn("newClientOpId()", body, name)
-            self.assertIn('synced = 0', body, name)
-            self.assertNotIn('sync_error IS NULL', body, name)
+            body = self.db[self.db.find(f'Future<LegacyOperationRef> {name}('):
+                           self.db.find(f'Future<LegacyOperationRef> {name}(') + 2200]
+            self.assertIn('_replaceLegacyOperation(', body, name)
+        replacement = self.db[self.db.find('_replaceLegacyOperation({'):
+                              self.db.find('_replaceLegacyOperation({') + 3200]
+        self.assertIn('final opId = newClientOpId();', replacement)
+        self.assertIn("where: '$naturalKeyWhere AND synced = 0 '", replacement)
+        self.assertIn("'AND owner_user_id = ? '", replacement)
+        self.assertIn("'AND created_authorization_version = ?'", replacement)
+        self.assertIn('...naturalKeyArgs', replacement)
+        self.assertIn("binding['owner_user_id']", replacement)
+        self.assertIn("binding['created_authorization_version']", replacement)
+        self.assertNotIn('sync_error IS NULL', replacement)
 
     def test_needs_attention_pipeline_unaffected(self):
         # Case 4: the review system still reads the spared rows
@@ -365,7 +375,8 @@ class F8HonestUi(unittest.TestCase):
         self.assertIn('final int rejected;', s)
         self.assertIn("bool get needsAttention => rejected > 0;", s)
         self.assertIn("'$rejected need", s)  # breakdown callout
-        self.assertIn('rejected: rejectedBatches.length,', s)
+        self.assertIn('rejected: inventory.needsAttention,', s)
+        self.assertIn('final inventory = await _db.getOutboxInventory();', s)
 
     def test_all_four_screens_wire_the_banner(self):
         for name, path in SCREENS.items():

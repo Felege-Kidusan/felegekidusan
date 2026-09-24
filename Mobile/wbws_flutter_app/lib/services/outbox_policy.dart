@@ -24,6 +24,43 @@ enum OutboxDecision {
   supersededLocal,
 }
 
+const outboxRetryLadderSeconds = <int>[2, 5, 12, 30, 60, 120, 300, 900];
+
+/// Durable full-jitter retry time. Server Retry-After is mandatory and
+/// clamped by ApiResponse to 1–3600 seconds; it is never shortened by jitter.
+DateTime nextOutboxAttemptAt({
+  required int attemptCount,
+  required double randomUnit,
+  int? retryAfterSeconds,
+  DateTime? now,
+}) {
+  final base = (now ?? DateTime.now()).toUtc();
+  if (retryAfterSeconds != null) {
+    final seconds = retryAfterSeconds < 1
+        ? 1
+        : retryAfterSeconds > 3600
+            ? 3600
+            : retryAfterSeconds;
+    return base.add(Duration(seconds: seconds));
+  }
+  var index = attemptCount <= 1 ? 0 : attemptCount - 1;
+  if (index >= outboxRetryLadderSeconds.length) {
+    index = outboxRetryLadderSeconds.length - 1;
+  }
+  final cap = outboxRetryLadderSeconds[index];
+  final unit = randomUnit.isNaN
+      ? 1.0
+      : randomUnit < 0
+          ? 0.0
+          : randomUnit > 1
+              ? 1.0
+              : randomUnit;
+  var milliseconds = (cap * 1000 * unit).ceil();
+  if (milliseconds < 1) milliseconds = 1;
+  if (milliseconds > cap * 1000) milliseconds = cap * 1000;
+  return base.add(Duration(milliseconds: milliseconds));
+}
+
 enum OutboxState {
   pending('pending'),
   inFlight('in_flight'),

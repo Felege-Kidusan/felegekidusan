@@ -180,10 +180,11 @@ class HrMobileContracts(unittest.TestCase):
         # both the historical migration path and fresh-install schema.
         self.assertIn("version: localDatabaseSchemaVersion", self.localdb)
         self.assertIn("CREATE TABLE pending_hr", self.localdb)
-        # sync flushes HR packets through /hr/sheet with idempotency
-        self.assertIn("getPendingHr", self.sync)
+        # The generic immutable legacy drain flushes HR packets through
+        # /hr/sheet and settles only the exact claimed operation.
+        self.assertIn("LegacyOperationKind.hr", self.sync)
         self.assertIn("saveHrSheet", self.sync)
-        self.assertIn("markHrSynced", self.sync)
+        self.assertIn("settleLegacyOperation", self.sync)
         self.assertIn("pendingHr", self.sync)
 
     def test_api_client_and_navigation(self):

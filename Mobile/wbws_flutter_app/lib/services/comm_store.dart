@@ -4,6 +4,31 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'local_db.dart';
+import 'outbox_policy.dart';
+
+final class CommOutboxClaim {
+  const CommOutboxClaim({
+    required this.clientTag,
+    required this.threadId,
+    required this.body,
+    required this.ownerUserId,
+    required this.authorizationVersion,
+    required this.runtimeGeneration,
+    required this.attemptCount,
+    required this.claimedAt,
+  });
+
+  final String clientTag;
+  final int threadId;
+  final String body;
+  final int ownerUserId;
+  final int authorizationVersion;
+  final int runtimeGeneration;
+  final int attemptCount;
+  final DateTime claimedAt;
+}
+
+enum CommSettlementResult { applied, supersededLocal, supersededSession }
 
 /// O1 (offline-first architecture) — the communication store.
 ///
@@ -138,9 +163,9 @@ class CommStore extends ChangeNotifier {
 
   /// Queue a send — ONE durable row; from this moment the message is
   /// the worker's responsibility and survives process death and
-  /// airplane mode. state stays 'pending'/'failed' in the DB only:
-  /// in-flight is a worker-memory flag, so a crash mid-POST re-drains
-  /// the row instead of stranding it (exactly-once closes with 046).
+  /// airplane mode. A short durable `in_flight` lease arbitrates the HTTP
+  /// snapshot; startup recovery returns an orphaned lease to retryable work
+  /// with the same immutable client tag.
   Future<void> enqueueOutbox(
       int threadId, String clientTag, String body) async {
     final db = await _db;
@@ -159,57 +184,258 @@ class CommStore extends ChangeNotifier {
     });
   }
 
-  /// All pending entries, global FIFO by created_at (preserves each
-  /// thread's order too). The worker's drain feed.
-  Future<List<Map<String, dynamic>>> pendingOutbox() async {
+  /// Atomically claims the due head of one thread. Any earlier unresolved row
+  /// (retry wait, needs attention, pause, or in-flight) blocks later messages
+  /// in that thread, while other threads remain independently drainable.
+  Future<CommOutboxClaim?> claimNextDueHead({
+    required int ownerUserId,
+    required int authorizationVersion,
+    required int runtimeGeneration,
+    DateTime? now,
+  }) async {
     final db = await _db;
-    return db.query('comm_outbox',
-        where: "state = 'pending'",
-        orderBy: 'created_at ASC, client_tag ASC');
+    final due = (now ?? DateTime.now()).toUtc().toIso8601String();
+    return db.transaction((txn) async {
+      final sessionMatches = await LocalDb().activeSessionMatches(
+        runtimeGeneration: runtimeGeneration,
+        ownerUserId: ownerUserId,
+        authorizationVersion: authorizationVersion,
+        executor: txn,
+      );
+      if (!sessionMatches) return null;
+      final rows = await txn.rawQuery('''
+        SELECT c.* FROM comm_outbox c
+        WHERE c.owner_user_id = ?
+          AND c.created_authorization_version = ?
+          AND c.state IN ('pending', 'retry_wait')
+          AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM comm_outbox prior
+            WHERE prior.thread_id = c.thread_id
+              AND prior.owner_user_id = c.owner_user_id
+              AND prior.created_authorization_version = c.created_authorization_version
+              AND prior.state <> 'synced'
+              AND (prior.created_at < c.created_at OR
+                   (prior.created_at = c.created_at AND
+                    prior.client_tag < c.client_tag))
+          )
+        ORDER BY c.created_at, c.client_tag
+        LIMIT 1
+      ''', [ownerUserId, authorizationVersion, due]);
+      if (rows.isEmpty) return null;
+      final row = rows.first;
+      final tag = '${row['client_tag'] ?? ''}'.trim();
+      if (tag.isEmpty) return null;
+      final state = '${row['state']}';
+      final affected = await txn.update(
+        'comm_outbox',
+        {
+          'state': 'in_flight',
+          'attempts': _toInt(row['attempts']) + 1,
+          'last_attempt_at': due,
+          'next_attempt_at': null,
+        },
+        where: 'client_tag = ? AND state = ? AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [tag, state, ownerUserId, authorizationVersion],
+      );
+      if (affected != 1) return null;
+      return CommOutboxClaim(
+        clientTag: tag,
+        threadId: _toInt(row['thread_id']),
+        body: '${row['body'] ?? ''}',
+        ownerUserId: ownerUserId,
+        authorizationVersion: authorizationVersion,
+        runtimeGeneration: runtimeGeneration,
+        attemptCount: _toInt(row['attempts']) + 1,
+        claimedAt: DateTime.parse(due),
+      );
+    });
   }
 
-  /// Unfinished entries (pending + failed) of one thread, FIFO — the
-  /// conversation screen renders these as the local bubble tail.
+  Future<CommSettlementResult> settleClaim({
+    required CommOutboxClaim claim,
+    required OutboxDecision decision,
+    required int currentOwnerUserId,
+    required int currentAuthorizationVersion,
+    required int currentRuntimeGeneration,
+    String? failureCode,
+    int? failureHttpStatus,
+    String? failureMessage,
+    DateTime? nextAttemptAt,
+  }) async {
+    if (claim.runtimeGeneration != currentRuntimeGeneration ||
+        claim.ownerUserId != currentOwnerUserId ||
+        claim.authorizationVersion != currentAuthorizationVersion) {
+      return CommSettlementResult.supersededSession;
+    }
+    if (decision == OutboxDecision.supersededSession ||
+        decision == OutboxDecision.supersededLocal) {
+      return decision == OutboxDecision.supersededSession
+          ? CommSettlementResult.supersededSession
+          : CommSettlementResult.supersededLocal;
+    }
+    final db = await _db;
+    return db.transaction((txn) async {
+      final sessionMatches = await LocalDb().activeSessionMatches(
+        runtimeGeneration: currentRuntimeGeneration,
+        ownerUserId: currentOwnerUserId,
+        authorizationVersion: currentAuthorizationVersion,
+        executor: txn,
+      );
+      if (!sessionMatches) return CommSettlementResult.supersededSession;
+      final exactWhere = 'client_tag = ? AND state = ? AND last_attempt_at = ? '
+          'AND owner_user_id = ? AND created_authorization_version = ?';
+      final exactArgs = [
+        claim.clientTag,
+        'in_flight',
+        claim.claimedAt.toUtc().toIso8601String(),
+        claim.ownerUserId,
+        claim.authorizationVersion,
+      ];
+      final existing = await txn.query(
+        'comm_outbox',
+        columns: ['client_tag'],
+        where: exactWhere,
+        whereArgs: exactArgs,
+        limit: 1,
+      );
+      if (existing.isEmpty) return CommSettlementResult.supersededLocal;
+      if (decision == OutboxDecision.accepted) {
+        final deleted = await txn.delete(
+          'comm_outbox',
+          where: exactWhere,
+          whereArgs: exactArgs,
+        );
+        return deleted == 1
+            ? CommSettlementResult.applied
+            : CommSettlementResult.supersededLocal;
+      }
+      final state = switch (decision) {
+        OutboxDecision.retryable => 'retry_wait',
+        OutboxDecision.needsAttention => 'needs_attention',
+        OutboxDecision.pauseForAuthentication => 'paused_auth',
+        OutboxDecision.pauseForAuthorizationScope => 'paused_scope',
+        OutboxDecision.resolvedConflict => 'resolved_conflict',
+        OutboxDecision.accepted ||
+        OutboxDecision.supersededSession ||
+        OutboxDecision.supersededLocal =>
+          throw StateError('Invalid communication settlement.'),
+      };
+      final affected = await txn.update(
+        'comm_outbox',
+        {
+          'state': state,
+          'next_attempt_at': nextAttemptAt?.toUtc().toIso8601String(),
+          'fail_reason': failureMessage,
+          'failure_code': failureCode,
+          'failure_http_status': failureHttpStatus,
+          'failed_at': decision == OutboxDecision.needsAttention
+              ? DateTime.now().toUtc().toIso8601String()
+              : null,
+        },
+        where: exactWhere,
+        whereArgs: exactArgs,
+      );
+      return affected == 1
+          ? CommSettlementResult.applied
+          : CommSettlementResult.supersededLocal;
+    });
+  }
+
+  /// Unfinished entries of one thread, FIFO — the conversation screen maps
+  /// terminal attention states to its existing failed-bubble treatment.
   Future<List<Map<String, dynamic>>> outboxForThread(int threadId) async {
     final db = await _db;
-    return db.query('comm_outbox',
-        where: "thread_id = ? AND state IN ('pending', 'failed')",
-        whereArgs: [threadId],
-        orderBy: 'created_at ASC, client_tag ASC');
+    final rows = await db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      return txn.query(
+        'comm_outbox',
+        where: "thread_id = ? AND state <> 'synced' "
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          threadId,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+        orderBy: 'created_at ASC, client_tag ASC',
+      );
+    });
+    return rows
+        .map((row) => <String, dynamic>{
+              ...row,
+              if (const {
+                'needs_attention',
+                'resolved_conflict',
+                'failed',
+              }.contains('${row['state']}'))
+                'state': 'failed',
+            })
+        .toList(growable: false);
   }
 
-  /// Partial state-machine update (attempts/next_attempt_at/fail_reason).
-  Future<void> updateOutbox(
-      String clientTag, Map<String, dynamic> fields) async {
-    final db = await _db;
-    await db.update('comm_outbox', fields,
-        where: 'client_tag = ?', whereArgs: [clientTag]);
-  }
-
-  /// Entry delivered — the row's whole purpose is fulfilled.
+  /// Explicitly discard a terminal failed/conflict entry for the active scope.
+  /// Accepted delivery is deleted only by exact claim settlement.
   Future<void> deleteOutbox(String clientTag) async {
     final db = await _db;
-    await db.delete('comm_outbox', where: 'client_tag = ?', whereArgs: [clientTag]);
+    await db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      await txn.delete(
+        'comm_outbox',
+        where: "client_tag = ? AND state IN "
+            "('failed', 'needs_attention', 'resolved_conflict') "
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          clientTag,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   /// Manual retry of a permanently-failed entry: fresh ladder, the
   /// reason clears, the worker picks it up on the next kick.
   Future<void> retryOutbox(String clientTag) async {
-    await updateOutbox(clientTag, {
-      'state': 'pending',
-      'attempts': 0,
-      'next_attempt_at': null,
-      'fail_reason': null,
+    final db = await _db;
+    await db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      await txn.update(
+        'comm_outbox',
+        {
+          'state': 'pending',
+          'attempts': 0,
+          'next_attempt_at': null,
+          'fail_reason': null,
+          'failure_code': null,
+          'failure_http_status': null,
+          'failed_at': null,
+        },
+        where: "client_tag = ? AND state IN "
+            "('failed', 'needs_attention', 'resolved_conflict') "
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          clientTag,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
     });
   }
 
   /// Earliest scheduled retry (ISO string) among pending entries, or
   /// null when nothing waits — the worker's timer anchor.
-  Future<String?> outboxNextDue() async {
+  Future<String?> outboxNextDue({
+    required int ownerUserId,
+    required int authorizationVersion,
+  }) async {
     final db = await _db;
     final rows = await db.rawQuery(
-        "SELECT MIN(next_attempt_at) m FROM comm_outbox "
-        "WHERE state = 'pending' AND next_attempt_at IS NOT NULL");
+      "SELECT MIN(next_attempt_at) m FROM comm_outbox "
+      "WHERE state = 'retry_wait' AND next_attempt_at IS NOT NULL "
+      'AND owner_user_id = ? AND created_authorization_version = ?',
+      [ownerUserId, authorizationVersion],
+    );
     if (rows.isEmpty) return null;
     return rows.first['m']?.toString();
   }
@@ -221,10 +447,22 @@ class CommStore extends ChangeNotifier {
   /// half-written replies the same way).
   Future<String> draftFor(int threadId) async {
     final db = await _db;
-    final rows = await db.query('comm_drafts',
-        where: 'thread_id = ?', whereArgs: [threadId], limit: 1);
-    if (rows.isEmpty) return '';
-    return rows.first['body']?.toString() ?? '';
+    return db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      final rows = await txn.query(
+        'comm_drafts',
+        where: 'thread_id = ? AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [
+          threadId,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+        limit: 1,
+      );
+      if (rows.isEmpty) return '';
+      return rows.first['body']?.toString() ?? '';
+    });
   }
 
   /// Persist (or clear, when [body] is empty) a draft. Debounced by
@@ -236,8 +474,13 @@ class CommStore extends ChangeNotifier {
       if (body.isEmpty) {
         await txn.delete(
           'comm_drafts',
-          where: 'thread_id = ? AND owner_user_id = ?',
-          whereArgs: [threadId, binding['owner_user_id']],
+          where: 'thread_id = ? AND owner_user_id = ? '
+              'AND created_authorization_version = ?',
+          whereArgs: [
+            threadId,
+            binding['owner_user_id'],
+            binding['created_authorization_version'],
+          ],
         );
         return;
       }

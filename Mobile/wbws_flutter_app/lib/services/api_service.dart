@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../utils/config.dart';
 import 'connectivity_service.dart';
+import 'outbox_policy.dart';
 import 'session_models.dart';
 
 /// API response wrapper
@@ -17,6 +18,13 @@ class ApiResponse {
   final int statusCode;
   final bool isNetworkError;
   final bool isAuthError;
+
+  /// Structured transport/protocol evidence used by durable outboxes. Callers
+  /// classify this evidence separately from exact local settlement.
+  final String? errorCode;
+  final int? retryAfterSeconds;
+  final bool idempotencyReplayed;
+  final ApiFailureKind failureKind;
 
   /// The coordinator generation captured before this request left the
   /// process. A response from an older generation is never allowed to drive
@@ -39,32 +47,52 @@ class ApiResponse {
     this.statusCode = 200,
     this.isNetworkError = false,
     this.isAuthError = false,
+    this.errorCode,
+    this.retryAfterSeconds,
+    this.idempotencyReplayed = false,
+    this.failureKind = ApiFailureKind.none,
     this.requestGeneration = 0,
     this.sessionSuperseded = false,
     this.etag,
   });
 
   factory ApiResponse.fromJson(Map<String, dynamic> json, int code,
-      {String? etag}) {
+      {Map<String, String> headers = const {}, String? etag}) {
+    final data = json['data'];
+    final nestedCode = data is Map ? data['code'] : null;
+    final errorCode = '${json['code'] ?? nestedCode ?? ''}'.trim();
+    final success = json['status'] == 'success';
+    final failureKind = success
+        ? ApiFailureKind.none
+        : _failureKindForHttp(code, errorCode);
     return ApiResponse(
-      success: json['status'] == 'success',
+      success: success,
       message: json['message'],
       // Some endpoints wrap their payload in `data`, while the Mezmur
       // contract returns fields such as `items` at the response root.
-      data: json['data'] ?? json,
+      data: data ?? json,
       statusCode: code,
       isAuthError: code == 401 || code == 403,
+      errorCode: errorCode.isEmpty ? null : errorCode,
+      retryAfterSeconds: _retryAfterSeconds(headers['retry-after']),
+      idempotencyReplayed:
+          headers['idempotency-replayed']?.toLowerCase() == 'true',
+      failureKind: failureKind,
       etag: etag,
     );
   }
 
-  factory ApiResponse.error(String msg, [int code = 0, bool network = false]) {
+  factory ApiResponse.error(String msg,
+      [int code = 0,
+      bool network = false,
+      ApiFailureKind failureKind = ApiFailureKind.unknown]) {
     return ApiResponse(
       success: false,
       message: msg,
       statusCode: code,
       isNetworkError: network,
       isAuthError: code == 401 || code == 403,
+      failureKind: failureKind,
     );
   }
 
@@ -82,10 +110,60 @@ class ApiResponse {
         statusCode: statusCode,
         isNetworkError: isNetworkError,
         isAuthError: isAuthError,
+        errorCode: errorCode,
+        retryAfterSeconds: retryAfterSeconds,
+        idempotencyReplayed: idempotencyReplayed,
+        failureKind: failureKind,
         requestGeneration: generation,
         sessionSuperseded: sessionSuperseded,
         etag: etag,
       );
+
+  OutboxResponseEvidence toOutboxEvidence({
+    required int automaticAttemptCount,
+    bool hasCanonicalConflictItem = false,
+  }) =>
+      OutboxResponseEvidence(
+        success: success,
+        statusCode: statusCode,
+        errorCode: errorCode,
+        idempotencyReplayed: idempotencyReplayed,
+        hasCanonicalConflictItem: hasCanonicalConflictItem,
+        failureKind: sessionSuperseded
+            ? ApiFailureKind.unknown
+            : failureKind,
+        refreshOutcome:
+            sessionSuperseded ? AuthRefreshOutcome.superseded : null,
+        automaticAttemptCount: automaticAttemptCount,
+      );
+
+  static ApiFailureKind _failureKindForHttp(int status, String code) {
+    if (const {
+      'AUTH_SCOPE_CHANGED',
+      'AUTH_SCOPE_REFRESH_REQUIRED',
+    }.contains(code)) {
+      return ApiFailureKind.authorizationScope;
+    }
+    if (status == 401 || const {
+      'INVALID_REFRESH_TOKEN',
+      'REFRESH_EXPIRED',
+      'REFRESH_REUSED',
+      'REFRESH_REVOKED',
+      'ACCOUNT_DISABLED',
+      'ACCOUNT_REMOVED',
+    }.contains(code)) {
+      return ApiFailureKind.authentication;
+    }
+    return ApiFailureKind.http;
+  }
+
+  static int? _retryAfterSeconds(String? value) {
+    final seconds = int.tryParse('${value ?? ''}'.trim());
+    if (seconds == null) return null;
+    if (seconds < 1) return 1;
+    if (seconds > 3600) return 3600;
+    return seconds;
+  }
 }
 
 /// Core API client — singleton
@@ -559,13 +637,26 @@ class ApiService {
     try {
       final json = _decodeJson(response.body);
       if (json is Map<String, dynamic>) {
-        return ApiResponse.fromJson(json, response.statusCode);
+        return ApiResponse.fromJson(json, response.statusCode,
+            headers: response.headers);
       }
-      return ApiResponse.error(
-          _httpErrorLabel(response.statusCode), response.statusCode);
+      return ApiResponse(
+        success: false,
+        message: _httpErrorLabel(response.statusCode),
+        statusCode: response.statusCode,
+        retryAfterSeconds:
+            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
+        failureKind: ApiFailureKind.protocol,
+      );
     } catch (e) {
-      return ApiResponse.error(
-          _httpErrorLabel(response.statusCode), response.statusCode);
+      return ApiResponse(
+        success: false,
+        message: _httpErrorLabel(response.statusCode),
+        statusCode: response.statusCode,
+        retryAfterSeconds:
+            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
+        failureKind: ApiFailureKind.protocol,
+      );
     }
   }
 
@@ -592,13 +683,27 @@ class ApiService {
           : _decodeJson(body);
       if (json is Map<String, dynamic>) {
         return ApiResponse.fromJson(json, response.statusCode,
-            etag: response.headers['etag']);
+            headers: response.headers, etag: response.headers['etag']);
       }
-      return ApiResponse.error(
-          _httpErrorLabel(response.statusCode), response.statusCode);
+      return ApiResponse(
+        success: false,
+        message: _httpErrorLabel(response.statusCode),
+        statusCode: response.statusCode,
+        retryAfterSeconds:
+            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
+        failureKind: ApiFailureKind.protocol,
+        etag: response.headers['etag'],
+      );
     } catch (_) {
-      return ApiResponse.error(
-          _httpErrorLabel(response.statusCode), response.statusCode);
+      return ApiResponse(
+        success: false,
+        message: _httpErrorLabel(response.statusCode),
+        statusCode: response.statusCode,
+        retryAfterSeconds:
+            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
+        failureKind: ApiFailureKind.protocol,
+        etag: response.headers['etag'],
+      );
     }
   }
 
@@ -650,7 +755,10 @@ class ApiService {
     final msg = error.toString();
     if (msg.contains('TimeoutException')) {
       return ApiResponse.error(
-          'The school is taking longer than usual. Try again.');
+          'The school is taking longer than usual. Try again.',
+          0,
+          false,
+          ApiFailureKind.timeout);
     }
     if (msg.contains('SocketException') ||
         msg.contains('HandshakeException') ||
@@ -662,6 +770,7 @@ class ApiService {
             : 'Could not reach the school right now. Your work is still on this phone.',
         0,
         noRadio,
+        ApiFailureKind.transport,
       );
     }
     return ApiResponse.error('Could not finish this request. Please try again.');

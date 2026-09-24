@@ -6,7 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'api_service.dart';
 import 'comm_store.dart';
 import 'connectivity_service.dart';
-import 'messaging_view_model.dart';
+import 'outbox_policy.dart';
 
 /// O3 (offline-first architecture) — the comm outbox worker.
 ///
@@ -45,10 +45,6 @@ class CommOutboxService extends ChangeNotifier
   bool _ownsGeneration(int generation) =>
       activeSessionGate?.call() != false &&
       generation == (sessionGenerationProvider?.call() ?? generation);
-
-  /// SyncService's ladder, extended: a queued chat message can wait
-  /// longer than an attendance batch. Full jitter rides on top.
-  static const _backoff = <int>[2, 5, 12, 30, 60, 120, 300];
 
   void start() {
     if (activeSessionGate?.call() == false) return;
@@ -125,55 +121,68 @@ class CommOutboxService extends ChangeNotifier
   /// One FIFO pass over the due pending entries. Not-due entries are
   /// left alone (their timer is rescheduled from the DB afterwards).
   Future<void> _drainOnce(int generation) async {
-    final pending = await CommStore.instance.pendingOutbox();
-    if (!_ownsGeneration(generation)) return;
-    for (final e in pending) {
-      if (!_started ||
-          !_api.isLoggedIn ||
-          !_ownsGeneration(generation)) {
-        return; // stopped or superseded mid-pass
+    for (var guard = 0; guard < 100; guard++) {
+      if (!_started || !_api.isLoggedIn || !_ownsGeneration(generation)) {
+        return;
       }
-      final tag = e['client_tag']?.toString() ?? '';
-      final threadId = (e['thread_id'] as num?)?.toInt() ?? 0;
-      final body = e['body']?.toString() ?? '';
-      if (tag.isEmpty || threadId <= 0 || body.isEmpty) continue;
+      final claim = await CommStore.instance.claimNextDueHead(
+        ownerUserId: _api.userId,
+        authorizationVersion: _api.authorizationVersion,
+        runtimeGeneration: generation,
+      );
+      if (!_ownsGeneration(generation) || claim == null) return;
 
-      final waitUntil =
-          DateTime.tryParse(e['next_attempt_at']?.toString() ?? '');
-      if (waitUntil != null && DateTime.now().isBefore(waitUntil)) {
-        continue; // not due yet — backoff owns it
+      final response = await _api.sendMessage(
+        claim.threadId,
+        claim.body,
+        clientTag: claim.clientTag,
+      );
+      if (response.sessionSuperseded || !_ownsGeneration(generation)) return;
+      final decision = classifyOutboxResponse(
+        response.toOutboxEvidence(
+          automaticAttemptCount: claim.attemptCount,
+        ),
+      );
+      if (decision == OutboxDecision.supersededSession) return;
+      final nextAttempt = decision == OutboxDecision.retryable
+          ? nextOutboxAttemptAt(
+              attemptCount: claim.attemptCount,
+              retryAfterSeconds: response.retryAfterSeconds,
+              randomUnit: _random.nextDouble(),
+            )
+          : null;
+      final settlement = await CommStore.instance.settleClaim(
+        claim: claim,
+        decision: decision,
+        currentOwnerUserId: _api.userId,
+        currentAuthorizationVersion: _api.authorizationVersion,
+        currentRuntimeGeneration: generation,
+        failureCode: response.errorCode,
+        failureHttpStatus:
+            response.statusCode == 0 ? null : response.statusCode,
+        failureMessage:
+            decision == OutboxDecision.accepted ? null : response.message,
+        nextAttemptAt: nextAttempt,
+      );
+      if (settlement == CommSettlementResult.supersededSession) return;
+      if (settlement == CommSettlementResult.supersededLocal) {
+        _queued = true;
+        continue;
       }
-
-      final res =
-          await _api.sendMessage(threadId, body, clientTag: tag);
-      if (res.sessionSuperseded || !_ownsGeneration(generation)) {
-        return; // a newer coordinator generation owns all settlement
+      if (decision == OutboxDecision.pauseForAuthentication ||
+          decision == OutboxDecision.pauseForAuthorizationScope) {
+        return;
       }
-      if (res.success) {
-        await CommStore.instance.deleteOutbox(tag);
-        notifyListeners(); // screens drop the bubble + poll
-      } else if (isTransientSendFailure(
-          res.isNetworkError, res.statusCode)) {
-        final attempts = ((e['attempts'] as num?)?.toInt() ?? 0) + 1;
-        final rung = _backoff[attempts.clamp(1, _backoff.length) - 1];
-        // Full jitter: uniform in (0, rung] — desynchronizes a whole
-        // school's phones retrying after the same outage.
-        final jitter = rung * (_random.nextDouble() * 0.9 + 0.1);
-        await CommStore.instance.updateOutbox(tag, {
-          'attempts': attempts,
-          'next_attempt_at':
-              DateTime.now().add(Duration(seconds: jitter.ceil())).toIso8601String(),
-        });
-        // No notify: the bubble stays "pending" (clock) — WhatsApp
-        // shows the clock the whole time the message is queued.
-      } else {
-        await CommStore.instance.updateOutbox(tag, {
-          'state': 'failed',
-          'fail_reason': res.message ?? 'Could not send.',
-        });
-        notifyListeners(); // bubble flips to failed + tap-to-retry
+      if (decision == OutboxDecision.accepted ||
+          decision == OutboxDecision.needsAttention ||
+          decision == OutboxDecision.resolvedConflict) {
+        notifyListeners();
       }
+      // A retry/attention head blocks only its own thread. The next claim query
+      // can still select the due head of another thread in this same pass.
     }
+    // The pass limit is a yield point, not a reason to strand row 101.
+    if (_ownsGeneration(generation)) _queued = true;
   }
 
   /// Anchor the retry timer on the earliest due entry in the DB (or
@@ -182,7 +191,12 @@ class CommOutboxService extends ChangeNotifier
   void _scheduleNextRetry(int generation) {
     _retryTimer?.cancel();
     _retryTimer = null;
-    CommStore.instance.outboxNextDue().then((due) {
+    CommStore.instance
+        .outboxNextDue(
+          ownerUserId: _api.userId,
+          authorizationVersion: _api.authorizationVersion,
+        )
+        .then((due) {
       if (!_started || !_ownsGeneration(generation) || due == null) return;
       final at = DateTime.tryParse(due);
       if (at == null) return;

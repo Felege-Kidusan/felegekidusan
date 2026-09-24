@@ -171,7 +171,7 @@ class AppLockSecurityTests(unittest.TestCase):
             self.assertIn(sensitive, wipe)
         for kept in ("'cached_hymns',", "'pending_hymn_ops',", "'hymn_sync_meta',"):
             self.assertNotIn(kept, wipe)
-        self.assertIn("if (!canEdit) return 0;", self.store)
+        self.assertIn("if (!canEdit ||", self.store)
         self.assertIn("shared hymn operation", self.logout_dialog)
         self.assertIn("will be kept", self.logout_dialog)
 
