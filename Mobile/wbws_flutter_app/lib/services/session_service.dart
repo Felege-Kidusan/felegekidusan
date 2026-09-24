@@ -190,7 +190,13 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       }
       await _bootstrapWithoutCredentials();
     } catch (error, stack) {
-      _enterProtectionFailure('$error\n$stack');
+      // Credential-store failures are converted to typed load states above.
+      // Anything reaching this catch is an unexpected database/bootstrap
+      // failure, not evidence that Android protected storage is unavailable.
+      // Let runBootstrap record the real stack and show its storage-recovery
+      // screen instead of mislabelling every startup defect as a key-store
+      // problem (which hid the missing-table defect fixed in this release).
+      Error.throwWithStackTrace(error, stack);
     } finally {
       _busy = false;
       _bootstrapped = true;

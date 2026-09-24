@@ -55,6 +55,27 @@ def test_credential_bootstrap_is_typed_and_read_failure_is_not_absence() -> None
     assert "_secureStorage.delete" not in load
 
 
+def test_bootstrap_only_labels_typed_credential_failures_as_protected_storage() -> None:
+    bootstrap = method(
+        SESSION,
+        "Future<void> bootstrap()",
+        "Future<void> _finishInterruptedAuthorizationScopeChange",
+    )
+    assert "CredentialLoadState.unreadable" in bootstrap
+    assert "CredentialLoadState.storageUnavailable" in bootstrap
+    assert "_enterProtectionFailure(" in bootstrap
+    assert bootstrap.index("_inventory = await _loadInventory()") < bootstrap.index(
+        "_api.loadCredentials()"
+    )
+    # Database/schema and other unexpected startup failures must reach
+    # runBootstrap's durable diagnostic log instead of being misreported as an
+    # Android KeyStore problem by the session recovery screen.
+    assert "Error.throwWithStackTrace(error, stack)" in bootstrap
+    catch_tail = bootstrap.rsplit("} catch (error, stack) {", 1)[1]
+    assert "_enterProtectionFailure('$error\\n$stack')" not in catch_tail
+    assert "_writeBootstrapLog(error, stack)" in MAIN
+
+
 def test_login_is_two_phase_and_only_coordinator_activates_candidate() -> None:
     assert "class SessionCoordinator" in SESSION
     login = method(API, "Future<ApiResponse> login", "/// Rotate the refresh token")
@@ -150,6 +171,43 @@ def test_inventory_covers_every_private_domain_and_reports_shared_work_separatel
     assert "withAdditionalPrivateCacheRows(1)" in load_inventory
     purge = method(SESSION, "Future<void> _finishPurging", "Future<void> _persistRecovery")
     assert "NotificationService.instance.clearPersistedState()" in purge
+
+
+def test_v10_staging_table_is_never_used_as_a_current_runtime_table() -> None:
+    # Schema v10 copied the old one-column-key sheet into a staging table and
+    # immediately renamed that table to the canonical name. The `_v2` name
+    # therefore exists during that migration only; it exists in neither a
+    # fresh v34 database nor a successfully migrated database.
+    migration = DB.split("if (oldVersion < 10)", 1)[1].split(
+        "if (oldVersion < 11)", 1
+    )[0]
+    assert migration.count("cached_mezmur_sheet_v2") == 3
+    assert "ALTER TABLE cached_mezmur_sheet_v2 RENAME TO cached_mezmur_sheet" in migration
+    assert DB.count("cached_mezmur_sheet_v2") == migration.count(
+        "cached_mezmur_sheet_v2"
+    )
+
+    registry = DB.split(
+        "static const List<String> _privateReadCacheTables = [", 1
+    )[1].split("];", 1)[0]
+    assert "cached_mezmur_sheet" in registry
+    assert "cached_mezmur_sheet_v2" not in registry
+
+    inventory = method(
+        DB,
+        "Future<LocalDataInventory> getLocalDataInventory()",
+        "static int? _nullablePositiveInt",
+    )
+    scope_purge = method(
+        DB,
+        "Future<void> clearAuthorizationScopedReadCaches()",
+        "Future<LocalSessionRecord> getLocalSession",
+    )
+    logout_purge = method(DB, "Future<void> clearAllUserData()", "\n}")
+    for registry_consumer in (inventory, scope_purge):
+        assert "_privateReadCacheTables" in registry_consumer
+    for runtime_path in (inventory, scope_purge, logout_purge):
+        assert "cached_mezmur_sheet_v2" not in runtime_path
 
 
 def test_owner_and_scope_are_stamped_at_every_private_creation_boundary() -> None:
