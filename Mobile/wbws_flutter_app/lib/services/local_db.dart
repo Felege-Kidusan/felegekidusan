@@ -4866,7 +4866,8 @@ class LocalDb {
   // HYMN LIBRARY (offline-first: local store + outbox + cursor)
   // ============================================================
 
-  int _asIntLocal(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
+  static int _asIntLocal(dynamic v) =>
+      v is int ? v : int.tryParse('$v') ?? 0;
 
   List<int> _asIntList(dynamic v) {
     if (v is List) {
