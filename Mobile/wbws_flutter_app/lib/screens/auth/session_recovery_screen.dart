@@ -237,6 +237,24 @@ class OrphanedDataRecoveryScreen extends StatelessWidget {
   }
 }
 
+class ScopeReconciliationScreen extends StatelessWidget {
+  const ScopeReconciliationScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 18),
+              Text('Updating access and rebuilding your workspace…'),
+            ],
+          ),
+        ),
+      );
+}
+
 class PurgingSessionScreen extends StatelessWidget {
   const PurgingSessionScreen({super.key});
 

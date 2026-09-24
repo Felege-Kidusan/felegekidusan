@@ -26,6 +26,12 @@ class ApiResponse {
   final bool idempotencyReplayed;
   final ApiFailureKind failureKind;
 
+  /// Typed result of the one refresh attempt made for this response. Durable
+  /// workers must distinguish a rejected credential, a transient refresh
+  /// failure and an authorization-scope transition instead of flattening all
+  /// three into another 401.
+  final AuthRefreshOutcome? refreshOutcome;
+
   /// The coordinator generation captured before this request left the
   /// process. A response from an older generation is never allowed to drive
   /// state or persist server data.
@@ -51,6 +57,7 @@ class ApiResponse {
     this.retryAfterSeconds,
     this.idempotencyReplayed = false,
     this.failureKind = ApiFailureKind.none,
+    this.refreshOutcome,
     this.requestGeneration = 0,
     this.sessionSuperseded = false,
     this.etag,
@@ -119,6 +126,7 @@ class ApiResponse {
   factory ApiResponse.superseded(int generation) => ApiResponse(
         success: false,
         message: 'This request belongs to an older signed-in session.',
+        refreshOutcome: AuthRefreshOutcome.superseded,
         requestGeneration: generation,
         sessionSuperseded: true,
       );
@@ -134,7 +142,25 @@ class ApiResponse {
         retryAfterSeconds: retryAfterSeconds,
         idempotencyReplayed: idempotencyReplayed,
         failureKind: failureKind,
+        refreshOutcome: refreshOutcome,
         requestGeneration: generation,
+        sessionSuperseded: sessionSuperseded,
+        etag: etag,
+      );
+
+  ApiResponse withRefreshOutcome(AuthRefreshOutcome? outcome) => ApiResponse(
+        success: success,
+        message: message,
+        data: data,
+        statusCode: statusCode,
+        isNetworkError: isNetworkError,
+        isAuthError: isAuthError,
+        errorCode: errorCode,
+        retryAfterSeconds: retryAfterSeconds,
+        idempotencyReplayed: idempotencyReplayed,
+        failureKind: failureKind,
+        refreshOutcome: outcome,
+        requestGeneration: requestGeneration,
         sessionSuperseded: sessionSuperseded,
         etag: etag,
       );
@@ -152,8 +178,9 @@ class ApiResponse {
         failureKind: sessionSuperseded
             ? ApiFailureKind.unknown
             : failureKind,
-        refreshOutcome:
-            sessionSuperseded ? AuthRefreshOutcome.superseded : null,
+        refreshOutcome: sessionSuperseded
+            ? AuthRefreshOutcome.superseded
+            : refreshOutcome,
         automaticAttemptCount: automaticAttemptCount,
       );
 
@@ -200,7 +227,7 @@ class ApiService {
   String? _token;
   String? _refreshToken;
   Map<String, dynamic>? _userData;
-  Future<bool>? _refreshInFlight;
+  Future<AuthRefreshOutcome>? _refreshInFlight;
   int? _refreshInFlightGeneration;
   Future<void> _credentialMutationTail = Future<void>.value();
   bool _refreshWasRejected = false;
@@ -210,6 +237,12 @@ class ApiService {
   /// root or destroys local data; it reports definitive credential loss to the
   /// one coordinator which owns that transition.
   Future<void> Function(String reason)? onAuthExpired;
+
+  /// The coordinator owns scope transitions because they cross secure storage,
+  /// SQLite, workers and navigation. Returning false means it failed closed;
+  /// the original request is still never retried under the new token.
+  Future<bool> Function(AuthBundle candidate, int sourceGeneration)?
+      onAuthorizationScopeChanged;
   int Function()? sessionGenerationProvider;
 
   // Getters
@@ -323,7 +356,12 @@ class ApiService {
 
   AuthBundle? bundleFromLoginResponse(ApiResponse response) {
     if (!response.success || response.data is! Map) return null;
-    final data = Map<String, dynamic>.from(response.data as Map);
+    return _bundleFromAuthData(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  AuthBundle? _bundleFromAuthData(Map<String, dynamic> data) {
     final token = data['token'];
     final refreshToken = data['refresh_token'];
     final rawUser = data['user'];
@@ -514,26 +552,29 @@ class ApiService {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
+      AuthRefreshOutcome? refreshOutcome;
       if (response.statusCode == 401 && auth) {
-        final refreshed = (_token != null && _token != sentToken) ||
-            await refreshAccessToken();
-        if (!_generationIsCurrent(generation)) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            refreshOutcome == AuthRefreshOutcome.scopeChanged ||
+            refreshOutcome == AuthRefreshOutcome.superseded) {
           return ApiResponse.superseded(generation);
         }
-        if (refreshed) {
+        if (refreshOutcome == AuthRefreshOutcome.sameScope) {
           final retryHeaders = _headers(withAuth: true);
           if (extraHeaders != null) retryHeaders.addAll(extraHeaders);
           response = await _http
               .get(uri, headers: retryHeaders)
               .timeout(Duration(seconds: AppConfig.connectionTimeout));
-        } else {
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
           await _notifyIfRefreshRejected();
         }
       }
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
-      final handled = await _handleResponseAsync(response);
+      final handled =
+          (await _handleResponseAsync(response)).withRefreshOutcome(refreshOutcome);
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
@@ -571,13 +612,15 @@ class ApiService {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
+      AuthRefreshOutcome? refreshOutcome;
       if (response.statusCode == 401 && auth) {
-        final refreshed = (_token != null && _token != sentToken) ||
-            await refreshAccessToken();
-        if (!_generationIsCurrent(generation)) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            refreshOutcome == AuthRefreshOutcome.scopeChanged ||
+            refreshOutcome == AuthRefreshOutcome.superseded) {
           return ApiResponse.superseded(generation);
         }
-        if (refreshed) {
+        if (refreshOutcome == AuthRefreshOutcome.sameScope) {
           headers = _headers(withAuth: true);
           if (key.isNotEmpty) headers['Idempotency-Key'] = key;
           response = await _http
@@ -587,14 +630,16 @@ class ApiService {
                 body: body != null ? jsonEncode(body) : null,
               )
               .timeout(Duration(seconds: AppConfig.postTimeout));
-        } else {
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
           await _notifyIfRefreshRejected();
         }
       }
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
-      return _handleResponse(response).withGeneration(generation);
+      return _handleResponse(response)
+          .withRefreshOutcome(refreshOutcome)
+          .withGeneration(generation);
     } catch (e) {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
@@ -619,13 +664,15 @@ class ApiService {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
+      AuthRefreshOutcome? refreshOutcome;
       if (response.statusCode == 401) {
-        final refreshed = (_token != null && _token != sentToken) ||
-            await refreshAccessToken();
-        if (!_generationIsCurrent(generation)) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            refreshOutcome == AuthRefreshOutcome.scopeChanged ||
+            refreshOutcome == AuthRefreshOutcome.superseded) {
           return ApiResponse.superseded(generation);
         }
-        if (refreshed) {
+        if (refreshOutcome == AuthRefreshOutcome.sameScope) {
           response = await _http
               .put(
                 uri,
@@ -633,14 +680,16 @@ class ApiService {
                 body: body != null ? jsonEncode(body) : null,
               )
               .timeout(Duration(seconds: AppConfig.postTimeout));
-        } else {
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
           await _notifyIfRefreshRejected();
         }
       }
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
-      return _handleResponse(response).withGeneration(generation);
+      return _handleResponse(response)
+          .withRefreshOutcome(refreshOutcome)
+          .withGeneration(generation);
     } catch (e) {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
@@ -804,9 +853,21 @@ class ApiService {
         'password': password,
       }, auth: false);
 
+  Future<AuthRefreshOutcome> _refreshAfterUnauthorized(
+      String? sentAccessToken) async {
+    // Another request may already have completed a same-generation refresh.
+    // A scope transition advances the generation before installing its token,
+    // so it can never be mistaken for this fast path.
+    if (_token != null && _token != sentAccessToken) {
+      return AuthRefreshOutcome.sameScope;
+    }
+    return refreshAccessToken();
+  }
+
   /// Rotate the refresh token exactly once even when several requests receive
-  /// a 401 together. This prevents a legitimate app from looking like a replay.
-  Future<bool> refreshAccessToken() async {
+  /// a 401 together. The typed result prevents scope changes, rejections and
+  /// temporary network failures from sharing the old boolean retry path.
+  Future<AuthRefreshOutcome> refreshAccessToken() async {
     final generation = _requestGeneration;
     final existing = _refreshInFlight;
     if (existing != null && _refreshInFlightGeneration == generation) {
@@ -829,11 +890,13 @@ class ApiService {
     }
   }
 
-  Future<bool> _performRefreshAccessToken() async {
+  Future<AuthRefreshOutcome> _performRefreshAccessToken() async {
     final generation = _requestGeneration;
     final presentedRefreshToken = _refreshToken;
     _refreshWasRejected = presentedRefreshToken == null;
-    if (presentedRefreshToken == null) return false;
+    if (presentedRefreshToken == null) {
+      return AuthRefreshOutcome.rejected;
+    }
 
     try {
       final response = await _http
@@ -845,52 +908,91 @@ class ApiService {
           .timeout(Duration(seconds: AppConfig.postTimeout));
       if (!_generationIsCurrent(generation) ||
           _refreshToken != presentedRefreshToken) {
-        return false;
+        return AuthRefreshOutcome.superseded;
       }
       _connectivity.markOnline();
-      _refreshWasRejected =
-          response.statusCode == 401 || response.statusCode == 403;
+
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        _refreshWasRejected = true;
+        return AuthRefreshOutcome.rejected;
+      }
+      _refreshWasRejected = false;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return AuthRefreshOutcome.transientFailure;
+      }
 
       final decoded = _decodeJson(response.body);
-      if (response.statusCode < 200 ||
-          response.statusCode >= 300 ||
-          decoded is! Map<String, dynamic> ||
+      if (decoded is! Map<String, dynamic> ||
           decoded['status'] != 'success' ||
-          decoded['data'] is! Map<String, dynamic>) {
-        return false;
+          decoded['data'] is! Map) {
+        return AuthRefreshOutcome.transientFailure;
+      }
+      final candidate = _bundleFromAuthData(
+        Map<String, dynamic>.from(decoded['data'] as Map),
+      );
+      if (candidate == null) return AuthRefreshOutcome.transientFailure;
+      if (candidate.userId != userId) {
+        // A refresh token is bound to one user. A different subject is a
+        // definitive credential failure, never an account switch.
+        _refreshWasRejected = true;
+        return AuthRefreshOutcome.rejected;
       }
 
-      final data = decoded['data'] as Map<String, dynamic>;
-      final nextToken = data['token'];
-      final nextRefreshToken = data['refresh_token'];
-      if (nextToken is! String ||
-          nextToken.isEmpty ||
-          nextRefreshToken is! String ||
-          nextRefreshToken.isEmpty) {
-        return false;
+      final scopeChanged = candidate.role != userRole ||
+          candidate.authorizationVersion != authorizationVersion;
+      if (scopeChanged) {
+        final apply = onAuthorizationScopeChanged;
+        if (apply == null) return AuthRefreshOutcome.transientFailure;
+        final accepted = await apply(candidate, generation);
+        if (!_generationIsCurrent(generation)) {
+          return AuthRefreshOutcome.scopeChanged;
+        }
+        // The coordinator must advance generation before reporting success.
+        // Fail closed if it declined the candidate or violated that fence.
+        return accepted
+            ? AuthRefreshOutcome.superseded
+            : AuthRefreshOutcome.transientFailure;
       }
 
-      return _serializeCredentialMutation(() async {
+      final persisted = await _serializeCredentialMutation(() async {
         if (!_generationIsCurrent(generation) ||
             _refreshToken != presentedRefreshToken) {
           return false;
         }
-        // Persist the one-time refresh token first. If the process stops
-        // between writes, bootstrap reports incomplete credentials and keeps
-        // private SQLite state behind recovery rather than guessing.
+        final user = jsonDecode(candidate.userJson);
+        if (user is! Map<String, dynamic>) return false;
+        // Profile first and access token last: the token remains the secure
+        // commit marker for one complete same-scope credential bundle.
         await _secureStorage.write(
-            key: AppConfig.refreshTokenKey, value: nextRefreshToken);
-        await _secureStorage.write(key: AppConfig.tokenKey, value: nextToken);
-        _refreshToken = nextRefreshToken;
-        _token = nextToken;
+          key: AppConfig.userDataKey,
+          value: candidate.userJson,
+        );
+        await _secureStorage.write(
+          key: AppConfig.refreshTokenKey,
+          value: candidate.refreshToken,
+        );
+        await _secureStorage.write(
+          key: AppConfig.tokenKey,
+          value: candidate.accessToken,
+        );
+        _userData = Map<String, dynamic>.from(user);
+        _refreshToken = candidate.refreshToken;
+        _token = candidate.accessToken;
         _refreshWasRejected = false;
         _authExpiryNotified = false;
         return true;
       });
-    } catch (error) {
-      // Network and 5xx failures keep the local session and offline data. Only
-      // an explicit server rejection asks AppShell to sign the user out.
-      return false;
+      return persisted
+          ? AuthRefreshOutcome.sameScope
+          : AuthRefreshOutcome.superseded;
+    } catch (_) {
+      if (!_generationIsCurrent(generation) ||
+          _refreshToken != presentedRefreshToken) {
+        return AuthRefreshOutcome.superseded;
+      }
+      // Network, timeout, protocol and storage failures preserve the current
+      // session. Only an explicit 401/403 is definitive credential loss.
+      return AuthRefreshOutcome.transientFailure;
     }
   }
 
@@ -1172,6 +1274,7 @@ class ApiService {
   Future<ApiResponse> _uploadTaxonomyImage(
       String path, int id, String filePath) async {
     final generation = _requestGeneration;
+    final sentToken = _token;
     try {
       Future<http.Response> send() async {
         final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
@@ -1193,21 +1296,26 @@ class ApiService {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
+      AuthRefreshOutcome? refreshOutcome;
       if (response.statusCode == 401) {
-        final refreshed = await refreshAccessToken();
-        if (!_generationIsCurrent(generation)) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            refreshOutcome == AuthRefreshOutcome.scopeChanged ||
+            refreshOutcome == AuthRefreshOutcome.superseded) {
           return ApiResponse.superseded(generation);
         }
-        if (refreshed) {
+        if (refreshOutcome == AuthRefreshOutcome.sameScope) {
           response = await send();
-        } else {
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
           await _notifyIfRefreshRejected();
         }
       }
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
-      return _handleResponse(response).withGeneration(generation);
+      return _handleResponse(response)
+          .withRefreshOutcome(refreshOutcome)
+          .withGeneration(generation);
     } catch (e) {
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);

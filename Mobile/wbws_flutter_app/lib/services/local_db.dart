@@ -3195,6 +3195,7 @@ class LocalDb {
   Future<void> resumeLegacyPausedAuthentication({
     required int ownerUserId,
     required int authorizationVersion,
+    bool resumeSharedHymnOperations = true,
   }) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -3214,17 +3215,19 @@ class LocalDb {
           whereArgs: [ownerUserId, authorizationVersion],
         );
       }
-      await txn.update(
-        'pending_hymn_ops',
-        {
-          'sync_state': 'pending',
-          'next_attempt_at': null,
-          'failure_code': null,
-          'failure_http_status': null,
-          'sync_error': null,
-        },
-        where: "synced = 0 AND sync_state = 'paused_auth'",
-      );
+      if (resumeSharedHymnOperations) {
+        await txn.update(
+          'pending_hymn_ops',
+          {
+            'sync_state': 'pending',
+            'next_attempt_at': null,
+            'failure_code': null,
+            'failure_http_status': null,
+            'sync_error': null,
+          },
+          where: "synced = 0 AND sync_state = 'paused_auth'",
+        );
+      }
       await txn.update(
         'comm_outbox',
         {
@@ -5918,6 +5921,97 @@ class LocalDb {
       'owner_user_id': owner,
       'created_authorization_version': version,
     };
+  }
+
+  /// Quarantine private writes created under any earlier authorization scope.
+  /// Payloads and operation ids are retained for the recovery UI; none are
+  /// rebound merely because the same user received a new role/version.
+  Future<void> pausePrivateOperationsOutsideAuthorizationScope({
+    required int ownerUserId,
+    required int authorizationVersion,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final spec in legacyOutboxTableSpecs) {
+        await txn.update(
+          spec.table,
+          {
+            'sync_state': 'paused_scope',
+            'next_attempt_at': null,
+            'sync_error':
+                'Authorization changed before this saved operation was sent.',
+            'failure_code': 'AUTH_SCOPE_CHANGED',
+            'failure_http_status': null,
+          },
+          where: 'synced = 0 AND owner_user_id = ? AND '
+              '(created_authorization_version IS NULL OR '
+              'created_authorization_version <> ?)',
+          whereArgs: [ownerUserId, authorizationVersion],
+        );
+      }
+      await txn.update(
+        'comm_outbox',
+        {
+          'state': 'paused_scope',
+          'next_attempt_at': null,
+          'fail_reason':
+              'Authorization changed before this saved message was sent.',
+          'failure_code': 'AUTH_SCOPE_CHANGED',
+          'failure_http_status': null,
+        },
+        where: "state <> 'synced' AND owner_user_id = ? AND "
+            '(created_authorization_version IS NULL OR '
+            'created_authorization_version <> ?)',
+        whereArgs: [ownerUserId, authorizationVersion],
+      );
+    });
+  }
+
+  /// Purge server-derived reads whose visibility depends on the current role.
+  /// Durable private writes/drafts and every shared hymn table are preserved.
+  Future<void> clearAuthorizationScopedReadCaches() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final table in const [
+        'cached_classes',
+        'cached_students',
+        'cached_subjects',
+        'cached_assessments',
+        'cached_dashboard',
+        'cached_members',
+        'cached_attendance',
+        'cached_grade_sheets',
+        'cached_mezmur_sheet',
+        'cached_mezmur_sheet_v2',
+        'cached_mezmur_sections',
+        'cached_mezmur_days',
+        'cached_mezmur_analytics_last',
+        'cached_review_packets',
+        'cached_review_packet_details',
+        'cached_review_stats',
+        'cached_edu_classes',
+        'cached_edu_class_rosters',
+        'cached_edu_subjects',
+        'cached_edu_teacher_snapshot',
+        'cached_edu_teachers',
+        'cached_edu_teacher_details',
+        'cached_hr_sheet',
+        'cached_hr_sections',
+        'comm_threads',
+        'comm_messages',
+        'comm_meta',
+        'cached_notifications',
+        'cached_announcements',
+        'sync_log',
+      ]) {
+        await txn.delete(table);
+      }
+    });
+    // Remove deleted role-scoped pages from the WAL without the much heavier
+    // VACUUM used by an explicit destructive account purge.
+    try {
+      await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {}
   }
 
   Future<LocalSessionRecord> getLocalSession() async {

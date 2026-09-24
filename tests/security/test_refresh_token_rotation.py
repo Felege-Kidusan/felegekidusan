@@ -1,5 +1,6 @@
 """Regression checks for rotating mobile refresh sessions."""
 from pathlib import Path
+import re
 import unittest
 
 
@@ -22,6 +23,9 @@ class RefreshTokenRotationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         cls.mobile_config = (
             ROOT / "Mobile/wbws_flutter_app/lib/utils/config.dart"
+        ).read_text(encoding="utf-8")
+        cls.mobile_pubspec = (
+            ROOT / "Mobile/wbws_flutter_app/pubspec.yaml"
         ).read_text(encoding="utf-8")
 
     def test_access_tokens_are_short_lived_and_refresh_tokens_have_session_ids(self):
@@ -49,15 +53,27 @@ class RefreshTokenRotationTests(unittest.TestCase):
         self.assertIn("revokePresented", self.auth_route)
         self.assertIn("/auth/logout", self.mobile)
 
-    def test_mobile_refresh_is_single_flight_and_persists_rotated_token_first(self):
-        self.assertIn("Future<bool>? _refreshInFlight", self.mobile)
+    def test_mobile_refresh_is_single_flight_and_persists_one_complete_bundle(self):
+        self.assertIn("Future<AuthRefreshOutcome>? _refreshInFlight", self.mobile)
         self.assertIn("final existing = _refreshInFlight", self.mobile)
-        refresh_write = self.mobile.index("key: AppConfig.refreshTokenKey, value: nextRefreshToken")
-        access_write = self.mobile.index("key: AppConfig.tokenKey, value: nextToken")
+        refresh = self.mobile.split(
+            "Future<AuthRefreshOutcome> _performRefreshAccessToken", 1
+        )[1].split("// ============================================================\n  // DASHBOARD", 1)[0]
+        profile_write = refresh.index("key: AppConfig.userDataKey")
+        refresh_write = refresh.index("key: AppConfig.refreshTokenKey")
+        access_write = refresh.index("key: AppConfig.tokenKey")
+        self.assertLess(profile_write, refresh_write)
         self.assertLess(refresh_write, access_write)
         self.assertIn("_notifyIfRefreshRejected", self.mobile)
         self.assertIn("'X-App-Build': '${AppConfig.appBuild}'", self.mobile)
-        self.assertIn("appBuild = 17", self.mobile_config)
+
+        # Keep the config header synchronized with pubspec; do not pin another
+        # stale historical build number in this rotation test.
+        config_build = re.search(r"appBuild\s*=\s*(\d+)", self.mobile_config)
+        pubspec_build = re.search(r"^version:\s*[^+]+\+(\d+)", self.mobile_pubspec, re.M)
+        self.assertIsNotNone(config_build)
+        self.assertIsNotNone(pubspec_build)
+        self.assertEqual(config_build.group(1), pubspec_build.group(1))
 
     def test_schema_is_deployment_managed(self):
         self.assertIn("CREATE TABLE IF NOT EXISTS `api_refresh_sessions`", self.migration)

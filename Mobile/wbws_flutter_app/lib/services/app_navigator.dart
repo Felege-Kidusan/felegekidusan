@@ -25,4 +25,11 @@ class AppNavigator {
     if (nav == null) return null;
     return nav.push<T>(route);
   }
+
+  /// Remove nested pages opened under an obsolete authorization scope. The
+  /// coordinator also replaces the root shell, so its opened-tab widget cache
+  /// is discarded rather than reused under the new role.
+  static void popToRootForAuthorizationScope() {
+    state?.popUntil((route) => route.isFirst);
+  }
 }

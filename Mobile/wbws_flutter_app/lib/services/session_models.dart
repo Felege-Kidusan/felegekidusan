@@ -4,6 +4,7 @@
 enum SessionState {
   anonymousClean('anonymous_clean'),
   active('active'),
+  scopeReconciling('scope_reconciling'),
   reauthRequired('reauth_required'),
   orphanedLocalData('orphaned_local_data'),
   purging('purging');
@@ -37,6 +38,7 @@ enum AuthRefreshOutcome {
 
 enum SessionRoot {
   active,
+  scopeReconciling,
   reauthentication,
   orphanRecovery,
   purging,

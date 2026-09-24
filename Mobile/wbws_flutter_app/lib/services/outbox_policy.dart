@@ -131,6 +131,11 @@ OutboxDecision classifyOutboxResponse(
     return OutboxDecision.supersededSession;
   }
   if (evidence.supersededLocal) return OutboxDecision.supersededLocal;
+  // A failed refresh transport/protocol attempt is not evidence that either
+  // the credential or its authorization scope was definitively rejected.
+  if (evidence.refreshOutcome == AuthRefreshOutcome.transientFailure) {
+    return OutboxDecision.retryable;
+  }
   if (evidence.refreshOutcome == AuthRefreshOutcome.scopeChanged ||
       evidence.failureKind == ApiFailureKind.authorizationScope ||
       _scopeCodes.contains(evidence.errorCode)) {

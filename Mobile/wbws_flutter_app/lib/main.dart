@@ -228,13 +228,16 @@ class _FKSSAppState extends State<FKSSApp> {
     } else {
       switch (_session.root) {
         case SessionRoot.active:
-          home = const AppShell();
+          home = AppShell(key: ValueKey(_session.generation));
           break;
         case SessionRoot.reauthentication:
           home = const SessionRecoveryScreen();
           break;
         case SessionRoot.orphanRecovery:
           home = const OrphanedDataRecoveryScreen();
+          break;
+        case SessionRoot.scopeReconciling:
+          home = const ScopeReconciliationScreen();
           break;
         case SessionRoot.purging:
           home = const PurgingSessionScreen();

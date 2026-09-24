@@ -136,6 +136,15 @@ void main() {
     expect(
       classifyOutboxResponse(response(
         401,
+        refreshOutcome: AuthRefreshOutcome.transientFailure,
+        failureKind: ApiFailureKind.authorizationScope,
+        code: 'AUTH_SCOPE_CHANGED',
+      )),
+      OutboxDecision.retryable,
+    );
+    expect(
+      classifyOutboxResponse(response(
+        401,
         refreshOutcome: AuthRefreshOutcome.scopeChanged,
       )),
       OutboxDecision.pauseForAuthorizationScope,

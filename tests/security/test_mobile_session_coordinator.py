@@ -61,12 +61,18 @@ def test_login_is_two_phase_and_only_coordinator_activates_candidate() -> None:
     assert "post('/auth/login'" in login
     assert "activateCredentials" not in login
     assert "_secureStorage.write" not in login
-    assert "bundleFromLoginResponse" in SESSION
-    assert "canActivateCandidate" in SESSION
-    assert "await _api.activateCredentials(candidate);" in SESSION
-    assert SESSION.index("canActivateCandidate") < SESSION.index(
-        "await _api.activateCredentials(candidate);"
+    coordinator_login = method(
+        SESSION,
+        "Future<LoginActivationResult> login",
+        "Future<void> _activateScopeChangedLoginCandidate",
     )
+    assert "bundleFromLoginResponse" in coordinator_login
+    assert "canActivateCandidate" in coordinator_login
+    assert "_activateCandidate(candidate)" in coordinator_login
+    assert coordinator_login.index("canActivateCandidate") < coordinator_login.index(
+        "_activateCandidate(candidate)"
+    )
+    assert "await _api.activateCredentials(candidate);" in SESSION
     assert "SessionCoordinator().login" in LOGIN
     assert "Navigator.of(context).pushAndRemoveUntil" not in LOGIN
     assert "startAutoSync" not in LOGIN
@@ -76,6 +82,7 @@ def test_root_and_app_lock_are_driven_by_coordinator_state() -> None:
     assert "switch (_session.root)" in MAIN
     for root in (
         "SessionRoot.active",
+        "SessionRoot.scopeReconciling",
         "SessionRoot.reauthentication",
         "SessionRoot.orphanRecovery",
         "SessionRoot.purging",
@@ -168,7 +175,11 @@ def test_generation_supersedes_late_http_and_whole_worker_chains() -> None:
     assert "sessionGenerationProvider" in API
     assert "ApiResponse.superseded" in API
     assert "_generationIsCurrent" in API
-    refresh = method(API, "Future<bool> _performRefreshAccessToken", "// ============================================================\n  // DASHBOARD")
+    refresh = method(
+        API,
+        "Future<AuthRefreshOutcome> _performRefreshAccessToken",
+        "// ============================================================\n  // DASHBOARD",
+    )
     assert "_refreshToken != presentedRefreshToken" in refresh
     assert "_serializeCredentialMutation" in refresh
 

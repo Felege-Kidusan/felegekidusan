@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 
 import 'api_service.dart';
 import 'app_lock_service.dart';
+import 'app_nav.dart';
+import 'app_navigator.dart';
 import 'catalog_service.dart';
 import 'comm_outbox_service.dart';
 import 'hymn_store.dart';
@@ -24,6 +26,7 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
   SessionCoordinator._() {
     _api.sessionGenerationProvider = () => _generation;
     _api.onAuthExpired = (reason) => enterReauthentication(reason: reason);
+    _api.onAuthorizationScopeChanged = applyAuthorizationScopeChange;
     SyncService().activeSessionGate = () => isActive;
     SyncService().sessionGenerationProvider = () => _generation;
     CommOutboxService.instance.activeSessionGate = () => isActive;
@@ -68,6 +71,7 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
   bool get isActive => _root == SessionRoot.active;
   bool get protectsPrivateState =>
       _root == SessionRoot.active ||
+      _root == SessionRoot.scopeReconciling ||
       _root == SessionRoot.reauthentication ||
       _root == SessionRoot.orphanRecovery ||
       (_root == SessionRoot.protectionFailure && _inventory.hasPrivateData);
@@ -86,6 +90,25 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     return _inventory.privateOwnerUserIds.length == 1
         ? _inventory.privateOwnerUserIds.single
         : null;
+  }
+
+  String _scopeMarkerReason(String source, int previousVersion) => jsonEncode({
+        'kind': source,
+        'previous_authorization_version': previousVersion,
+      });
+
+  int? _scopeMarkerPreviousVersion(String? reason) {
+    if (reason == null || reason.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(reason);
+      if (decoded is! Map) return null;
+      final value = decoded['previous_authorization_version'];
+      if (value is int && value >= 0) return value;
+      final parsed = int.tryParse('$value');
+      return parsed != null && parsed >= 0 ? parsed : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<LocalDataInventory> _loadInventory() async {
@@ -126,6 +149,15 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
+      // The marker contains the target owner/role/version. Finish cache and
+      // outbox reconciliation before any private shell can be rendered. A
+      // crash before the rotated credential bundle was fully persisted falls
+      // back to same-owner reauthentication after the safe local transition.
+      if (_record.state == SessionState.scopeReconciling) {
+        await _finishInterruptedAuthorizationScopeChange(credentials);
+        return;
+      }
+
       // A crash after persisting recovery/orphan state must not reactivate a
       // stale token pair merely because secure storage still contains it.
       if (_record.state == SessionState.reauthRequired ||
@@ -157,6 +189,110 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       _bootstrapped = true;
       _publish();
     }
+  }
+
+  Future<void> _finishInterruptedAuthorizationScopeChange(
+      CredentialLoadResult credentials) async {
+    _root = SessionRoot.scopeReconciling;
+    _publish();
+    final ownerUserId = _record.ownerUserId;
+    final authorizationVersion = _record.authorizationVersion;
+    final ownerRole = _record.ownerRole?.trim() ?? '';
+    if (ownerUserId == null ||
+        ownerUserId <= 0 ||
+        authorizationVersion == null ||
+        authorizationVersion < 0 ||
+        ownerRole.isEmpty) {
+      throw StateError('The authorization-scope marker is incomplete.');
+    }
+
+    await _reconcileAuthorizationScopedLocalState(
+      ownerUserId: ownerUserId,
+      authorizationVersion: authorizationVersion,
+      previousAuthorizationVersion:
+          _scopeMarkerPreviousVersion(_record.reauthReason),
+    );
+    if (_hasOwnerMetadataConflict) {
+      await _persistRecovery(
+        state: SessionState.orphanedLocalData,
+        reason: 'conflicting_private_owner_metadata_during_scope_change',
+        ownerUserId: null,
+        authorizationVersion: null,
+        ownerRole: null,
+        ownerUsername: null,
+        ownerDisplayName: null,
+      );
+      await _api.clearCredentials();
+      _credentialState = CredentialLoadState.absent;
+      _record = await _db.getLocalSession();
+      _inventory = await _loadInventory();
+      _root = SessionRoot.orphanRecovery;
+      return;
+    }
+
+    final bundle = credentials.bundle;
+    final credentialsMatchTarget =
+        credentials.state == CredentialLoadState.complete &&
+            bundle != null &&
+            bundle.userId == ownerUserId &&
+            bundle.authorizationVersion == authorizationVersion &&
+            bundle.role == ownerRole;
+    if (credentialsMatchTarget) {
+      final targetBundle = bundle!;
+      _api.adoptLoadedCredentials(targetBundle);
+      _credentialState = CredentialLoadState.complete;
+      await _persistActive(targetBundle);
+      await _resumeCompatibleOperations(targetBundle);
+      _startPrivateServices();
+      return;
+    }
+
+    // Rotation may have been interrupted between the SQLite marker and secure
+    // writes. The local scope transition is complete, but private UI remains
+    // blocked until the same owner authenticates again.
+    await _persistRecovery(
+      state: SessionState.reauthRequired,
+      reason: 'scope_change_credentials_incomplete',
+      ownerUserId: ownerUserId,
+      authorizationVersion: authorizationVersion,
+      ownerRole: ownerRole,
+      ownerUsername: _record.ownerUsername,
+      ownerDisplayName: _record.ownerDisplayName,
+    );
+    await _api.clearCredentials();
+    _credentialState = CredentialLoadState.absent;
+    _record = await _db.getLocalSession();
+    _inventory = await _loadInventory();
+    _root = SessionRoot.reauthentication;
+  }
+
+  Future<void> _reconcileAuthorizationScopedLocalState({
+    required int ownerUserId,
+    required int authorizationVersion,
+    int? previousAuthorizationVersion,
+  }) async {
+    // A complete credential/marker binding may encounter ownerless rows from
+    // the v34 upgrade. Bind them to the previous scope, never the new one, so
+    // the quarantine below cannot accidentally authorize legacy work.
+    if (previousAuthorizationVersion != null) {
+      await _db.backfillOwnerlessRows(
+        ownerUserId: ownerUserId,
+        authorizationVersion: previousAuthorizationVersion,
+      );
+    }
+    // Advancing the generation makes every prior in-flight HTTP settlement
+    // stale. Recover those durable claims before quarantining private rows.
+    await _db.recoverOrphanedInFlightOperations();
+    await _db.pausePrivateOperationsOutsideAuthorizationScope(
+      ownerUserId: ownerUserId,
+      authorizationVersion: authorizationVersion,
+    );
+    await _db.clearAuthorizationScopedReadCaches();
+    await NotificationService.instance.clearPersistedState();
+    CatalogService().clear();
+    AppNav().resetForAuthorizationScope();
+    AppNavigator.popToRootForAuthorizationScope();
+    _inventory = await _loadInventory();
   }
 
   Future<void> _bootstrapComplete(AuthBundle bundle) async {
@@ -215,6 +351,7 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       authorizationVersion: bundle.authorizationVersion,
     );
     await _persistActive(bundle);
+    await _resumeCompatibleOperations(bundle);
     _startPrivateServices();
   }
 
@@ -258,6 +395,113 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     _root = next == SessionState.orphanedLocalData
         ? SessionRoot.orphanRecovery
         : SessionRoot.reauthentication;
+  }
+
+  /// Apply a refresh-time role/version change as one coordinator-owned state
+  /// machine. The SQLite marker is durable before generation or credentials
+  /// change, and it remains in place on any interrupted reconciliation.
+  Future<bool> applyAuthorizationScopeChange(
+    AuthBundle candidate,
+    int sourceGeneration,
+  ) async {
+    if (_busy ||
+        _root != SessionRoot.active ||
+        sourceGeneration != _generation ||
+        candidate.userId != _api.userId) {
+      return false;
+    }
+    _busy = true;
+    _diagnostic = null;
+    final targetGeneration = _generation + 1;
+    final previousRecord = _record;
+    final previousAuthorizationVersion =
+        previousRecord.authorizationVersion ?? _api.authorizationVersion;
+    var markerPersisted = false;
+    // Remove private UI and close every service gate immediately on detection.
+    // The durable marker still precedes the generation/credential transition.
+    _root = SessionRoot.scopeReconciling;
+    _publish();
+    try {
+      // Marker first. Its owner fields are the target scope so bootstrap can
+      // finish the transition without trusting stale profile data.
+      await _db.persistLocalSession(
+        state: SessionState.scopeReconciling,
+        generation: targetGeneration,
+        ownerUserId: candidate.userId,
+        authorizationVersion: candidate.authorizationVersion,
+        ownerRole: candidate.role,
+        ownerUsername: candidate.username,
+        ownerDisplayName: candidate.displayName,
+        reason: _scopeMarkerReason(
+          'authorization_scope_changed',
+          previousAuthorizationVersion,
+        ),
+      );
+      _record = await _db.getLocalSession();
+      markerPersisted = true;
+
+      _generation = targetGeneration;
+
+      // Persist the refreshed profile/token bundle before stopping schedulers,
+      // matching the approved transition ordering. The generation gate already
+      // prevents every old worker from claiming or settling more work.
+      await _api.activateCredentials(candidate);
+      _credentialState = CredentialLoadState.complete;
+      _stopPrivateServices();
+      await _reconcileAuthorizationScopedLocalState(
+        ownerUserId: candidate.userId,
+        authorizationVersion: candidate.authorizationVersion,
+        previousAuthorizationVersion: previousAuthorizationVersion,
+      );
+      if (_hasOwnerMetadataConflict) {
+        throw StateError(
+          'Private rows contain conflicting owners during scope change.',
+        );
+      }
+      await _persistActive(candidate);
+      await _resumeCompatibleOperations(candidate);
+      _startPrivateServices();
+      return true;
+    } catch (error, stack) {
+      // Even if persisting the initial marker itself failed, stop this process
+      // from continuing to display or settle under a known-stale scope. A
+      // best-effort reauth marker prevents a restart from reopening that scope.
+      if (_generation == sourceGeneration) _generation = targetGeneration;
+      _stopPrivateServices();
+      if (!markerPersisted) {
+        try {
+          await _db.persistLocalSession(
+            state: SessionState.reauthRequired,
+            generation: _generation,
+            ownerUserId: previousRecord.ownerUserId ?? _api.userId,
+            authorizationVersion: previousAuthorizationVersion,
+            ownerRole: previousRecord.ownerRole ?? _api.userRole,
+            ownerUsername: previousRecord.ownerUsername ??
+                _api.userData?['username']?.toString(),
+            ownerDisplayName: previousRecord.ownerDisplayName ??
+                _api.userData?['full_name']?.toString(),
+            reason: 'scope_marker_persist_failed',
+          );
+          _record = await _db.getLocalSession();
+          await _api.clearCredentials();
+          _credentialState = CredentialLoadState.absent;
+          _inventory = await _loadInventory();
+          _diagnostic = '$error';
+          _root = SessionRoot.reauthentication;
+          return false;
+        } catch (recoveryError, recoveryStack) {
+          _enterProtectionFailure(
+            '$error\n$stack\n$recoveryError\n$recoveryStack',
+          );
+          return false;
+        }
+      }
+      _enterProtectionFailure('$error\n$stack');
+      return false;
+    } finally {
+      _busy = false;
+      _publish();
+    }
   }
 
   Future<LoginActivationResult> login(
@@ -349,7 +593,16 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      await _activateCandidate(candidate);
+      final sameKnownOwnerNewScope = reconciledOwner == candidate.userId &&
+          _record.authorizationVersion != null &&
+          (_record.authorizationVersion != candidate.authorizationVersion ||
+              (_record.ownerRole?.isNotEmpty == true &&
+                  _record.ownerRole != candidate.role));
+      if (sameKnownOwnerNewScope) {
+        await _activateScopeChangedLoginCandidate(candidate);
+      } else {
+        await _activateCandidate(candidate);
+      }
       return const LoginActivationResult(LoginActivationState.activated);
     } catch (error, stack) {
       _enterProtectionFailure('$error\n$stack');
@@ -363,6 +616,45 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _activateScopeChangedLoginCandidate(
+      AuthBundle candidate) async {
+    final targetGeneration = _generation + 1;
+    final previousAuthorizationVersion = _record.authorizationVersion!;
+    await _db.persistLocalSession(
+      state: SessionState.scopeReconciling,
+      generation: targetGeneration,
+      ownerUserId: candidate.userId,
+      authorizationVersion: candidate.authorizationVersion,
+      ownerRole: candidate.role,
+      ownerUsername: candidate.username,
+      ownerDisplayName: candidate.displayName,
+      reason: _scopeMarkerReason(
+        'authorization_scope_changed_during_reauthentication',
+        previousAuthorizationVersion,
+      ),
+    );
+    _record = await _db.getLocalSession();
+    _generation = targetGeneration;
+    _root = SessionRoot.scopeReconciling;
+    _publish();
+    await _api.activateCredentials(candidate);
+    _credentialState = CredentialLoadState.complete;
+    _stopPrivateServices();
+    await _reconcileAuthorizationScopedLocalState(
+      ownerUserId: candidate.userId,
+      authorizationVersion: candidate.authorizationVersion,
+      previousAuthorizationVersion: previousAuthorizationVersion,
+    );
+    if (_hasOwnerMetadataConflict) {
+      throw StateError(
+        'Private rows contain conflicting owners during scope change.',
+      );
+    }
+    await _persistActive(candidate);
+    await _resumeCompatibleOperations(candidate);
+    _startPrivateServices();
+  }
+
   Future<void> _activateCandidate(AuthBundle candidate) async {
     _generation += 1;
     await _api.activateCredentials(candidate);
@@ -371,13 +663,19 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       authorizationVersion: candidate.authorizationVersion,
     );
     await _persistActive(candidate);
-    await _db.resumeLegacyPausedAuthentication(
-      ownerUserId: candidate.userId,
-      authorizationVersion: candidate.authorizationVersion,
-    );
+    await _resumeCompatibleOperations(candidate);
     _credentialState = CredentialLoadState.complete;
     _root = SessionRoot.active;
     _startPrivateServices();
+  }
+
+  Future<void> _resumeCompatibleOperations(AuthBundle bundle) async {
+    await _db.resumeLegacyPausedAuthentication(
+      ownerUserId: bundle.userId,
+      authorizationVersion: bundle.authorizationVersion,
+      resumeSharedHymnOperations: HymnStore().canEdit,
+    );
+    _inventory = await _loadInventory();
   }
 
   Future<void> _persistActive(AuthBundle bundle) async {

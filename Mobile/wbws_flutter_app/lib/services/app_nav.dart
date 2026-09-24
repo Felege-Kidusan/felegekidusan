@@ -25,6 +25,15 @@ class AppNav {
   void markAttendanceLoaded() => _lastAttendanceLoad = DateTime.now();
   void markGradesLoaded() => _lastGradesLoad = DateTime.now();
 
+  /// Drop every shell-local navigation hint before a new authorization scope
+  /// builds its own tabs. No old class id or freshness timestamp may influence
+  /// the replacement shell.
+  void resetForAuthorizationScope() {
+    attendanceClassId = null;
+    _lastGradesLoad = null;
+    _lastAttendanceLoad = null;
+  }
+
   bool shouldReload(String tab, {Duration freshFor = const Duration(seconds: 90)}) {
     final last = tab == 'grades' ? _lastGradesLoad : _lastAttendanceLoad;
     if (last == null) return true;
