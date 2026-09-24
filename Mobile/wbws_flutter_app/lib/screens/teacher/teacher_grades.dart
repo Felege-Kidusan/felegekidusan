@@ -899,7 +899,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     unawaited(SyncService().syncAll(force: true));
   }
 
-  /// Instant submit with a 4-second UNDO window instead of a confirmation
+  /// Instant submit with a 5-second UNDO window instead of a confirmation
   /// dialog. Undo refuses honestly once the outbox has delivered.
   Future<void> _submitGrades() async {
     if (_locked) {

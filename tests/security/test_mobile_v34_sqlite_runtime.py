@@ -784,6 +784,38 @@ def test_claim_replace_then_accept_or_reject_cannot_mutate_replacement(
     ("pending_mezmur", ("2026-09-24", "choir")),
     ("pending_hr", ("2026-09-24", "staff")),
 ])
+def test_replacement_is_scoped_and_preserves_other_authorization_generation(
+    table: str, key: tuple[Any, ...]
+) -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    insert_packet(
+        connection, table, key, "old-scope-operation", ("old",),
+        authorization_version=3,
+    )
+    key_where = " AND ".join(f"{column}=?" for column in LEGACY_KEYS[table])
+    connection.execute(
+        f"DELETE FROM {table} WHERE {key_where} AND synced=0 "
+        "AND owner_user_id=? AND created_authorization_version=?",
+        (*key, 17, 4),
+    )
+    insert_packet(connection, table, key, "active-scope-operation", ("new",))
+    rows = connection.execute(
+        f"SELECT client_op_id,created_authorization_version,payload_text "
+        f"FROM {table} ORDER BY created_authorization_version"
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("old-scope-operation", 3, "old"),
+        ("active-scope-operation", 4, "new"),
+    ]
+
+
+@pytest.mark.parametrize("table,key", [
+    ("pending_attendance", (4, "2026-09-24")),
+    ("pending_grades", (8,)),
+    ("pending_mezmur", ("2026-09-24", "choir")),
+    ("pending_hr", ("2026-09-24", "staff")),
+])
 def test_stale_claim_cannot_settle_same_operation_after_recovery_and_reclaim(
     table: str, key: tuple[Any, ...]
 ) -> None:
@@ -829,6 +861,68 @@ def test_exact_claim_snapshot_and_settlement_for_each_legacy_outbox(
     assert connection.execute(
         f"SELECT COUNT(*) FROM {table} WHERE synced=1 AND sync_state='synced'"
     ).fetchone()[0] == 2
+
+
+def test_replacement_survives_stale_session_settlement_and_seven_day_cleanup() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    table = "pending_attendance"
+    key = (4, "2026-09-24")
+    insert_packet(connection, table, key, "operation-a", ("old",))
+    claim = claim_packet(connection, table, 17, 4, "2026-09-24T00:00:01Z")
+    assert claim is not None
+    connection.execute(
+        f"DELETE FROM {table} WHERE class_id=? AND date=? AND synced=0 "
+        "AND owner_user_id=? AND created_authorization_version=?",
+        (*key, 17, 4),
+    )
+    insert_packet(connection, table, key, "operation-b", ("new",))
+
+    # Scope/session CAS wins before local lease settlement; either ordering
+    # leaves the replacement untouched.
+    assert settle_packet(
+        connection, claim, "synced", current_authorization_version=5
+    ) == "supersededSession"
+    connection.execute(
+        f"DELETE FROM {table} WHERE synced=1 AND synced_at<?",
+        ("2026-10-01T00:00:00Z",),
+    )
+    row = connection.execute(
+        f"SELECT client_op_id,sync_state,synced,payload_text FROM {table}"
+    ).fetchone()
+    assert tuple(row) == ("operation-b", "pending", 0, "new")
+
+
+def test_stale_manual_discard_cannot_delete_replacement_operation() -> None:
+    connection = _connection()
+    apply_v34_migration(connection)
+    table = "pending_grades"
+    insert_packet(connection, table, (8,), "terminal-operation", ("old",))
+    connection.execute(
+        f"UPDATE {table} SET sync_state='needs_attention', "
+        "sync_error='SERVER_REJECTED' WHERE client_op_id='terminal-operation'"
+    )
+
+    # A later user save atomically supersedes that natural-key generation
+    # while an already-open review dialog still holds its old operation id.
+    connection.execute(
+        f"DELETE FROM {table} WHERE assessment_id=? AND synced=0", (8,)
+    )
+    insert_packet(connection, table, (8,), "replacement-operation", ("new",))
+
+    stale_discard = connection.execute(
+        f"DELETE FROM {table} WHERE client_op_id=? AND synced=0 "
+        "AND sync_state IN ('needs_attention','resolved_conflict') "
+        "AND owner_user_id=? AND created_authorization_version=?",
+        ("terminal-operation", 17, 4),
+    )
+    assert stale_discard.rowcount == 0
+    remaining = connection.execute(
+        f"SELECT client_op_id,sync_state,payload_text FROM {table}"
+    ).fetchall()
+    assert [tuple(row) for row in remaining] == [
+        ("replacement-operation", "pending", "new")
+    ]
 
 
 def test_wrong_owner_scope_state_and_crash_recovery_preserve_identity() -> None:

@@ -352,7 +352,11 @@ class P1DDoNotTouch(unittest.TestCase):
                       'classifyOutboxResponse'):
             self.assertIn(token, sync)
         self.assertNotIn('Future<void> rejectMezmur(', self.ldb)
-        self.assertIn('discardRejectedMezmur', self.ldb)
+        self.assertIn('discardRejectedOperation', self.ldb)
+        discard = method_body(
+            self.ldb, 'Future<void> discardRejectedOperation(')
+        self.assertIn('client_op_id = ?', discard)
+        self.assertIn('owner_user_id = ?', discard)
         # The review cache has no relationship to the outbox.
         for token in ('pending_mezmur', 'pending_attendance',
                       'pending_grades', 'pending_hr'):

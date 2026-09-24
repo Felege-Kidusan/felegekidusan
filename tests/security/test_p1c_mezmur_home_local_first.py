@@ -235,11 +235,9 @@ class P1CDoNotTouch(unittest.TestCase):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
             self.assertIn("sync_state IN ('pending', 'retry_wait')", body, name)
-        # F8 reasons and v34 terminal/paused states are both protected.
-        self.assertIn(
-            "'date = ? AND section = ? AND synced = 0'\n"
-            "            \" AND sync_state IN ('pending', 'retry_wait')\"\n"
-            "            ' AND sync_error IS NULL'", self.ldb)
+            self.assertIn('owner_user_id = ?', body, name)
+            self.assertIn('created_authorization_version = ?', body, name)
+        # F8 terminal/paused rows and every other owner/scope stay protected.
 
     def test_f8_classification_unchanged(self):
         for token in ('ALREADY_SUBMITTED', 'WORKFLOW_REJECTED',

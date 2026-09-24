@@ -96,6 +96,26 @@ class ApiResponse {
     );
   }
 
+  factory ApiResponse.protocolError(
+    String message,
+    int code, {
+    Map<String, String> headers = const {},
+    String? etag,
+  }) =>
+      ApiResponse(
+        success: false,
+        message: message,
+        statusCode: code,
+        isAuthError: code == 401 || code == 403,
+        retryAfterSeconds: _retryAfterSeconds(headers['retry-after']),
+        idempotencyReplayed:
+            headers['idempotency-replayed']?.toLowerCase() == 'true',
+        failureKind: code == 401
+            ? ApiFailureKind.authentication
+            : ApiFailureKind.protocol,
+        etag: etag,
+      );
+
   factory ApiResponse.superseded(int generation) => ApiResponse(
         success: false,
         message: 'This request belongs to an older signed-in session.',
@@ -640,22 +660,16 @@ class ApiService {
         return ApiResponse.fromJson(json, response.statusCode,
             headers: response.headers);
       }
-      return ApiResponse(
-        success: false,
-        message: _httpErrorLabel(response.statusCode),
-        statusCode: response.statusCode,
-        retryAfterSeconds:
-            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
-        failureKind: ApiFailureKind.protocol,
+      return ApiResponse.protocolError(
+        _httpErrorLabel(response.statusCode),
+        response.statusCode,
+        headers: response.headers,
       );
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        message: _httpErrorLabel(response.statusCode),
-        statusCode: response.statusCode,
-        retryAfterSeconds:
-            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
-        failureKind: ApiFailureKind.protocol,
+      return ApiResponse.protocolError(
+        _httpErrorLabel(response.statusCode),
+        response.statusCode,
+        headers: response.headers,
       );
     }
   }
@@ -685,23 +699,17 @@ class ApiService {
         return ApiResponse.fromJson(json, response.statusCode,
             headers: response.headers, etag: response.headers['etag']);
       }
-      return ApiResponse(
-        success: false,
-        message: _httpErrorLabel(response.statusCode),
-        statusCode: response.statusCode,
-        retryAfterSeconds:
-            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
-        failureKind: ApiFailureKind.protocol,
+      return ApiResponse.protocolError(
+        _httpErrorLabel(response.statusCode),
+        response.statusCode,
+        headers: response.headers,
         etag: response.headers['etag'],
       );
     } catch (_) {
-      return ApiResponse(
-        success: false,
-        message: _httpErrorLabel(response.statusCode),
-        statusCode: response.statusCode,
-        retryAfterSeconds:
-            ApiResponse._retryAfterSeconds(response.headers['retry-after']),
-        failureKind: ApiFailureKind.protocol,
+      return ApiResponse.protocolError(
+        _httpErrorLabel(response.statusCode),
+        response.statusCode,
+        headers: response.headers,
         etag: response.headers['etag'],
       );
     }

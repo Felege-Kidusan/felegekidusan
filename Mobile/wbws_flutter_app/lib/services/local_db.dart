@@ -3699,26 +3699,44 @@ class LocalDb {
 
   Future<List<Map<String, dynamic>>> getPendingAttendance() async {
     final db = await database;
-    return await db.rawQuery('''
-      SELECT class_id, class_name, date,
-             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
-                  THEN 'submitted' ELSE 'draft' END as packet_kind,
-             CASE WHEN COUNT(DISTINCT client_op_id) = 1
-                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
-             COUNT(*) as student_count, MIN(created_at) as created_at,
-             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_attendance
-      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
-      GROUP BY class_id, date ORDER BY date DESC
-    ''');
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.rawQuery('''
+        SELECT class_id, class_name, date,
+               CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                    THEN 'submitted' ELSE 'draft' END as packet_kind,
+               CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                    THEN MIN(client_op_id) ELSE NULL END as client_op_id,
+               COUNT(*) as student_count, MIN(created_at) as created_at,
+               MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
+        FROM pending_attendance
+        WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY class_id, date ORDER BY date DESC
+      ''', [
+        binding['owner_user_id'],
+        binding['created_authorization_version'],
+      ]);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPendingAttendanceRecords(
       int classId, String date) async {
     final db = await database;
-    return await db.query('pending_attendance',
-        where: 'class_id = ? AND date = ? AND synced = 0',
-        whereArgs: [classId, date]);
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.query(
+        'pending_attendance',
+        where: 'class_id = ? AND date = ? AND synced = 0 '
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          classId,
+          date,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   /// Phase 8 QR scan: offline resolve of a scanned member code. Used to
@@ -3795,34 +3813,43 @@ class LocalDb {
 
   Future<List<Map<String, dynamic>>> getPendingGrades() async {
     final db = await database;
-    return await db.rawQuery('''
-      SELECT assessment_id, assessment_name, class_name, subject_name,
-             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
-                  THEN 'submitted' ELSE 'draft' END as packet_kind,
-             CASE WHEN COUNT(DISTINCT client_op_id) = 1
-                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
-             COUNT(*) as grade_count, MIN(created_at) as created_at,
-             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_grades
-      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
-      GROUP BY assessment_id ORDER BY created_at DESC
-    ''');
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.rawQuery('''
+        SELECT assessment_id, assessment_name, class_name, subject_name,
+               CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                    THEN 'submitted' ELSE 'draft' END as packet_kind,
+               CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                    THEN MIN(client_op_id) ELSE NULL END as client_op_id,
+               COUNT(*) as grade_count, MIN(created_at) as created_at,
+               MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
+        FROM pending_grades
+        WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY assessment_id ORDER BY created_at DESC
+      ''', [
+        binding['owner_user_id'],
+        binding['created_authorization_version'],
+      ]);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPendingGradeRecords(
       int assessmentId) async {
     final db = await database;
-    return await db.query('pending_grades',
-        where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
-  }
-
-
-
-  /// Truth check for the Submit-Undo window: is the packet still only on
-  /// this phone? If the outbox already delivered it, undo must refuse.
-  Future<bool> gradesPacketPending(int assessmentId) async {
-    final rows = await getPendingGradeRecords(assessmentId);
-    return rows.isNotEmpty;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.query(
+        'pending_grades',
+        where: 'assessment_id = ? AND synced = 0 '
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          assessmentId,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   // ============================================================
@@ -3934,24 +3961,45 @@ class LocalDb {
 
   Future<void> dropPendingAttendance(int classId, String date) async {
     final db = await database;
-    await db.delete('pending_attendance',
+    await db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      await txn.delete(
+        'pending_attendance',
         // F8: never delete workflow-rejected rows here (they stay for
         // the Needs Attention review / explicit Discard) — only stale
         // never-rejected drafts for a day the server has since locked.
-        where: 'class_id = ? AND date = ? AND synced = 0'
-            " AND sync_state IN ('pending', 'retry_wait')"
-            ' AND sync_error IS NULL',
-        whereArgs: [classId, date]);
+        where: 'class_id = ? AND date = ? AND synced = 0 '
+            "AND sync_state IN ('pending', 'retry_wait') "
+            'AND sync_error IS NULL AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [
+          classId,
+          date,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   Future<void> dropPendingGrades(int assessmentId) async {
     final db = await database;
-    await db.delete('pending_grades',
+    await db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      await txn.delete(
+        'pending_grades',
         // F8: spare workflow-rejected rows (see dropPendingAttendance).
         where: "assessment_id = ? AND synced = 0 "
             "AND sync_state IN ('pending', 'retry_wait') "
-            'AND sync_error IS NULL',
-        whereArgs: [assessmentId]);
+            'AND sync_error IS NULL AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [
+          assessmentId,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   // ============================================================
@@ -4004,45 +4052,84 @@ class LocalDb {
   /// Pending packets grouped by (date, section).
   Future<List<Map<String, dynamic>>> getPendingMezmur() async {
     final db = await database;
-    return await db.rawQuery('''
-      SELECT date, section,
-             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
-                  THEN 'submitted' ELSE 'draft' END as packet_kind,
-             CASE WHEN COUNT(DISTINCT client_op_id) = 1
-                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
-             COUNT(*) as member_count, MIN(created_at) as created_at,
-             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_mezmur
-      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
-      GROUP BY date, section ORDER BY date DESC
-    ''');
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.rawQuery('''
+        SELECT date, section,
+               CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                    THEN 'submitted' ELSE 'draft' END as packet_kind,
+               CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                    THEN MIN(client_op_id) ELSE NULL END as client_op_id,
+               COUNT(*) as member_count, MIN(created_at) as created_at,
+               MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
+        FROM pending_mezmur
+        WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY date, section ORDER BY date DESC
+      ''', [
+        binding['owner_user_id'],
+        binding['created_authorization_version'],
+      ]);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPendingMezmurRecords(
       String date, String section) async {
     final db = await database;
-    return await db.query('pending_mezmur',
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.query(
+        'pending_mezmur',
+        where: 'date = ? AND section = ? AND synced = 0 '
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          date,
+          section,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
 
 
   Future<void> dropPendingMezmur(String date, String section) async {
     final db = await database;
-    await db.delete('pending_mezmur',
+    await db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      await txn.delete(
+        'pending_mezmur',
         // F8: spare workflow-rejected rows (see dropPendingAttendance).
-        where: 'date = ? AND section = ? AND synced = 0'
-            " AND sync_state IN ('pending', 'retry_wait')"
-            ' AND sync_error IS NULL',
-        whereArgs: [date, section]);
+        where: 'date = ? AND section = ? AND synced = 0 '
+            "AND sync_state IN ('pending', 'retry_wait') "
+            'AND sync_error IS NULL AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [
+          date,
+          section,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   Future<int> getPendingMezmurCount() async {
     final db = await database;
-    final r = await db.rawQuery(
-        "SELECT COUNT(DISTINCT date || '|' || IFNULL(section,'')) as cnt FROM pending_mezmur WHERE synced = 0");
-    return r.first['cnt'] as int? ?? 0;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final rows = await txn.rawQuery(
+        'SELECT COUNT(DISTINCT client_op_id) AS cnt FROM pending_mezmur '
+        'WHERE synced = 0 AND owner_user_id = ? '
+        'AND created_authorization_version = ?',
+        [
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+      return rows.first['cnt'] as int? ?? 0;
+    });
   }
 
   Future<void> cacheMezmurSheet(
@@ -4110,16 +4197,36 @@ class LocalDb {
 
   Future<int> getPendingAttendanceCount() async {
     final db = await database;
-    final r = await db.rawQuery(
-        "SELECT COUNT(DISTINCT class_id || '|' || date) as cnt FROM pending_attendance WHERE synced = 0");
-    return r.first['cnt'] as int? ?? 0;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final rows = await txn.rawQuery(
+        'SELECT COUNT(DISTINCT client_op_id) AS cnt FROM pending_attendance '
+        'WHERE synced = 0 AND owner_user_id = ? '
+        'AND created_authorization_version = ?',
+        [
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+      return rows.first['cnt'] as int? ?? 0;
+    });
   }
 
   Future<int> getPendingGradesCount() async {
     final db = await database;
-    final r = await db.rawQuery(
-        'SELECT COUNT(DISTINCT assessment_id) as cnt FROM pending_grades WHERE synced = 0');
-    return r.first['cnt'] as int? ?? 0;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final rows = await txn.rawQuery(
+        'SELECT COUNT(DISTINCT client_op_id) AS cnt FROM pending_grades '
+        'WHERE synced = 0 AND owner_user_id = ? '
+        'AND created_authorization_version = ?',
+        [
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+      return rows.first['cnt'] as int? ?? 0;
+    });
   }
 
   Future<DateTime?> nextOutboxAttemptAt({
@@ -4204,26 +4311,44 @@ class LocalDb {
   /// Pending HR packets grouped by (date, section).
   Future<List<Map<String, dynamic>>> getPendingHr() async {
     final db = await database;
-    return await db.rawQuery('''
-      SELECT date, section,
-             CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
-                  THEN 'submitted' ELSE 'draft' END as packet_kind,
-             CASE WHEN COUNT(DISTINCT client_op_id) = 1
-                  THEN MIN(client_op_id) ELSE NULL END as client_op_id,
-             COUNT(*) as member_count, MIN(created_at) as created_at,
-             MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
-      FROM pending_hr
-      WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
-      GROUP BY date, section ORDER BY date DESC
-    ''');
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.rawQuery('''
+        SELECT date, section,
+               CASE WHEN SUM(CASE WHEN IFNULL(packet_kind,'draft') = 'submitted' THEN 1 ELSE 0 END) > 0
+                    THEN 'submitted' ELSE 'draft' END as packet_kind,
+               CASE WHEN COUNT(DISTINCT client_op_id) = 1
+                    THEN MIN(client_op_id) ELSE NULL END as client_op_id,
+               COUNT(*) as member_count, MIN(created_at) as created_at,
+               MAX(CASE WHEN sync_error IS NOT NULL THEN 1 ELSE 0 END) as rejected
+        FROM pending_hr
+        WHERE synced = 0 AND sync_state IN ('pending', 'retry_wait')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY date, section ORDER BY date DESC
+      ''', [
+        binding['owner_user_id'],
+        binding['created_authorization_version'],
+      ]);
+    });
   }
 
   Future<List<Map<String, dynamic>>> getPendingHrRecords(
       String date, String section) async {
     final db = await database;
-    return await db.query('pending_hr',
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      return txn.query(
+        'pending_hr',
+        where: 'date = ? AND section = ? AND synced = 0 '
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          date,
+          section,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
 
@@ -4246,83 +4371,121 @@ class LocalDb {
 
 
 
-  /// Explicit, user-consented destruction of a rejected batch (the
-  /// review sheet's Discard). Never called by the sync engine.
-  Future<void> discardRejectedAttendance(int classId, String date) async {
+  /// Explicit, user-consented destruction of the exact terminal operation
+  /// shown by the review sheet. A stale dialog can never delete a replacement
+  /// save that reused the same natural key.
+  Future<void> discardRejectedOperation(
+      String kind, String clientOpId) async {
+    final table = switch (kind) {
+      'attendance' => 'pending_attendance',
+      'grades' => 'pending_grades',
+      'mezmur' => 'pending_mezmur',
+      'hr' => 'pending_hr',
+      _ => throw ArgumentError.value(kind, 'kind', 'Unknown outbox kind'),
+    };
     final db = await database;
-    await db.delete('pending_attendance',
-        where: 'class_id = ? AND date = ? AND synced = 0',
-        whereArgs: [classId, date]);
-  }
-
-  Future<void> discardRejectedGrades(int assessmentId) async {
-    final db = await database;
-    await db.delete('pending_grades',
-        where: 'assessment_id = ? AND synced = 0', whereArgs: [assessmentId]);
-  }
-
-  Future<void> discardRejectedMezmur(String date, String section) async {
-    final db = await database;
-    await db.delete('pending_mezmur',
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
-  }
-
-  Future<void> discardRejectedHr(String date, String section) async {
-    final db = await database;
-    await db.delete('pending_hr',
-        where: 'date = ? AND section = ? AND synced = 0',
-        whereArgs: [date, section]);
+    await db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      await txn.delete(
+        table,
+        where: 'client_op_id = ? AND synced = 0 '
+            "AND sync_state IN ('needs_attention', 'resolved_conflict') "
+            'AND owner_user_id = ? AND created_authorization_version = ?',
+        whereArgs: [
+          clientOpId,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   /// All rejected batches across the four legacy outboxes, for the
-  /// review sheet and the SyncStatus count. Fields: kind, label,
-  /// detail, reason (all PII-light: names/dates, never member rows).
+  /// review sheet and the SyncStatus count. Fields: kind, label, detail,
+  /// client_op_id and reason (PII-light: names/dates, never member rows).
   Future<List<Map<String, dynamic>>> getRejectedBatches() async {
     final db = await database;
-    return await db.rawQuery('''
-      SELECT 'attendance' AS kind, class_name AS label, date AS detail,
-             class_id AS key1, date AS key2, MAX(sync_error) AS reason
-      FROM pending_attendance WHERE synced = 0 AND sync_error IS NOT NULL
-      GROUP BY class_id, date
-      UNION ALL
-      SELECT 'grades' AS kind, assessment_name AS label,
-             COALESCE(class_name, '') AS detail,
-             assessment_id AS key1, '' AS key2, MAX(sync_error) AS reason
-      FROM pending_grades WHERE synced = 0 AND sync_error IS NOT NULL
-      GROUP BY assessment_id
-      UNION ALL
-      SELECT 'mezmur' AS kind, 'Mezmur attendance' AS label,
-             date || ' · ' || section AS detail,
-             date AS key1, section AS key2, MAX(sync_error) AS reason
-      FROM pending_mezmur WHERE synced = 0 AND sync_error IS NOT NULL
-      GROUP BY date, section
-      UNION ALL
-      SELECT 'hr' AS kind, 'HR attendance' AS label,
-             date || ' · ' || section AS detail,
-             date AS key1, section AS key2, MAX(sync_error) AS reason
-      FROM pending_hr WHERE synced = 0 AND sync_error IS NOT NULL
-      GROUP BY date, section
-      ORDER BY kind, detail
-    ''');
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final owner = binding['owner_user_id'];
+      final scope = binding['created_authorization_version'];
+      return txn.rawQuery('''
+        SELECT 'attendance' AS kind, class_name AS label, date AS detail,
+               client_op_id, MAX(sync_error) AS reason
+        FROM pending_attendance
+        WHERE synced = 0
+          AND sync_state IN ('needs_attention', 'resolved_conflict')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY client_op_id, class_id, date
+        UNION ALL
+        SELECT 'grades' AS kind, assessment_name AS label,
+               COALESCE(class_name, '') AS detail,
+               client_op_id, MAX(sync_error) AS reason
+        FROM pending_grades
+        WHERE synced = 0
+          AND sync_state IN ('needs_attention', 'resolved_conflict')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY client_op_id, assessment_id
+        UNION ALL
+        SELECT 'mezmur' AS kind, 'Mezmur attendance' AS label,
+               date || ' · ' || section AS detail,
+               client_op_id, MAX(sync_error) AS reason
+        FROM pending_mezmur
+        WHERE synced = 0
+          AND sync_state IN ('needs_attention', 'resolved_conflict')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY client_op_id, date, section
+        UNION ALL
+        SELECT 'hr' AS kind, 'HR attendance' AS label,
+               date || ' · ' || section AS detail,
+               client_op_id, MAX(sync_error) AS reason
+        FROM pending_hr
+        WHERE synced = 0
+          AND sync_state IN ('needs_attention', 'resolved_conflict')
+          AND owner_user_id = ? AND created_authorization_version = ?
+        GROUP BY client_op_id, date, section
+        ORDER BY kind, detail
+      ''', [owner, scope, owner, scope, owner, scope, owner, scope]);
+    });
   }
 
 
   Future<void> dropPendingHr(String date, String section) async {
     final db = await database;
-    await db.delete('pending_hr',
+    await db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      await txn.delete(
+        'pending_hr',
         // F8: spare workflow-rejected rows (see dropPendingAttendance).
-        where: 'date = ? AND section = ? AND synced = 0'
-            " AND sync_state IN ('pending', 'retry_wait')"
-            ' AND sync_error IS NULL',
-        whereArgs: [date, section]);
+        where: 'date = ? AND section = ? AND synced = 0 '
+            "AND sync_state IN ('pending', 'retry_wait') "
+            'AND sync_error IS NULL AND owner_user_id = ? '
+            'AND created_authorization_version = ?',
+        whereArgs: [
+          date,
+          section,
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+    });
   }
 
   Future<int> getPendingHrCount() async {
     final db = await database;
-    final r = await db.rawQuery(
-        "SELECT COUNT(DISTINCT date || '|' || IFNULL(section,'')) as cnt FROM pending_hr WHERE synced = 0");
-    return r.first['cnt'] as int? ?? 0;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final rows = await txn.rawQuery(
+        'SELECT COUNT(DISTINCT client_op_id) AS cnt FROM pending_hr '
+        'WHERE synced = 0 AND owner_user_id = ? '
+        'AND created_authorization_version = ?',
+        [
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+      return rows.first['cnt'] as int? ?? 0;
+    });
   }
 
   Future<void> cacheHrSheet(
@@ -5292,6 +5455,7 @@ class LocalDb {
              SELECT 1 FROM pending_hymn_ops earlier
               WHERE earlier.id < candidate.id
                 AND earlier.synced = 0
+                AND earlier.sync_state <> 'resolved_conflict'
                 AND (
                   earlier.entity_key IS NULL
                   OR TRIM(earlier.entity_key) = ''
@@ -5523,7 +5687,7 @@ class LocalDb {
       final rows = await txn.query(
         'pending_hymn_ops',
         where: "id > ? AND op = 'hymn_save' AND synced = 0 "
-            "AND sync_state <> 'in_flight'",
+            "AND sync_state IN ('pending', 'retry_wait', 'blocked_dependency')",
         whereArgs: [completedRowId],
         orderBy: 'id',
       );
@@ -5542,8 +5706,14 @@ class LocalDb {
             {
               'payload_json': jsonEncode(payload),
               'entity_key': 'hymn:$serverId',
+              'depends_on': null,
+              if ('${row['sync_state']}' == 'blocked_dependency') ...{
+                'sync_state': 'pending',
+                'failure_code': null,
+                'sync_error': null,
+              },
             },
-            where: 'id = ? AND synced = 0',
+            where: "id = ? AND synced = 0 AND sync_state <> 'in_flight'",
             whereArgs: [row['id']],
           );
           rebased = true;
@@ -5604,7 +5774,7 @@ class LocalDb {
       final rows = await txn.query(
         'pending_hymn_ops',
         where: "id > ? AND op = 'hymn_save' AND synced = 0 "
-            "AND sync_state IN ('pending', 'retry_wait')",
+            "AND sync_state IN ('pending', 'retry_wait', 'blocked_dependency')",
         whereArgs: [completedRowId],
         orderBy: 'id',
       );
@@ -5619,8 +5789,16 @@ class LocalDb {
             ..['base_revision'] = _asIntLocal(canonical['revision']);
           await txn.update(
             'pending_hymn_ops',
-            {'payload_json': jsonEncode(payload)},
-            where: 'id = ? AND synced = 0',
+            {
+              'payload_json': jsonEncode(payload),
+              'depends_on': null,
+              if ('${row['sync_state']}' == 'blocked_dependency') ...{
+                'sync_state': 'pending',
+                'failure_code': null,
+                'sync_error': null,
+              },
+            },
+            where: "id = ? AND synced = 0 AND sync_state <> 'in_flight'",
             whereArgs: [row['id']],
           );
           rebased = true;
@@ -5930,7 +6108,11 @@ class LocalDb {
         "sync_state IN ('pending', 'retry_wait') AND "
             '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
         "sync_state IN ('pending', 'retry_wait') AND "
-            '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
+            '(next_attempt_at IS NULL OR next_attempt_at <= ?) AND '
+            '(depends_on IS NULL OR EXISTS ('
+            'SELECT 1 FROM pending_hymn_ops dependency '
+            'WHERE dependency.id = pending_hymn_ops.depends_on '
+            'AND dependency.synced = 1))',
         "state IN ('pending', 'retry_wait') AND "
             '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
         legacyArgs: [nowText],
@@ -5939,7 +6121,12 @@ class LocalDb {
       );
       final waiting = await allState(
         "sync_state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
-        "sync_state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
+        "(sync_state IN ('pending', 'retry_wait') AND next_attempt_at > ?) "
+            "OR (sync_state IN ('pending', 'retry_wait') "
+            'AND depends_on IS NOT NULL AND EXISTS ('
+            'SELECT 1 FROM pending_hymn_ops dependency '
+            'WHERE dependency.id = pending_hymn_ops.depends_on '
+            'AND dependency.synced = 0))',
         "state IN ('pending', 'retry_wait') AND next_attempt_at > ?",
         legacyArgs: [nowText],
         hymnArgs: [nowText],

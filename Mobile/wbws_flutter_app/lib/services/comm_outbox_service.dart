@@ -206,6 +206,9 @@ class CommOutboxService extends ChangeNotifier
               ? const Duration(milliseconds: 50)
               : wait + const Duration(milliseconds: 50),
           () => _drain(generation));
+    }).catchError((Object _, StackTrace __) {
+      // Session deactivation can win the race with this read; the next active
+      // generation owns scheduling and this worker must stay silent.
     });
   }
 }

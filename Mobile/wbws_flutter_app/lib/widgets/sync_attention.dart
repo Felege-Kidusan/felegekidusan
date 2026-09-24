@@ -116,22 +116,9 @@ class _SyncRejectedSheetState extends State<_SyncRejectedSheet> {
     );
     if (confirmed != true) return;
     final kind = '${batch['kind']}';
-    final key1 = batch['key1'];
-    final key2 = '${batch['key2'] ?? ''}';
-    switch (kind) {
-      case 'attendance':
-        await _db.discardRejectedAttendance(key1 as int, key2);
-        break;
-      case 'grades':
-        await _db.discardRejectedGrades(key1 as int);
-        break;
-      case 'mezmur':
-        await _db.discardRejectedMezmur('$key1', key2);
-        break;
-      case 'hr':
-        await _db.discardRejectedHr('$key1', key2);
-        break;
-    }
+    final clientOpId = '${batch['client_op_id'] ?? ''}'.trim();
+    if (clientOpId.isEmpty) return;
+    await _db.discardRejectedOperation(kind, clientOpId);
     await _reload();
     await SyncService().emitCurrentStatus();
   }

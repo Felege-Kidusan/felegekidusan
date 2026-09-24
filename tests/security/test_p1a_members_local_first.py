@@ -185,10 +185,12 @@ class P1ADoNotTouch(unittest.TestCase):
                      'dropPendingMezmur', 'dropPendingHr'):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
-        for name in ('discardRejectedAttendance', 'discardRejectedGrades',
-                     'discardRejectedMezmur', 'discardRejectedHr'):
-            body = method_body(self.ldb, f'Future<void> {name}(')
-            self.assertNotIn('sync_error IS NULL', body, name)
+        body = method_body(
+            self.ldb, 'Future<void> discardRejectedOperation(')
+        self.assertNotIn('sync_error IS NULL', body)
+        self.assertIn('client_op_id = ?', body)
+        self.assertIn('owner_user_id = ?', body)
+        self.assertIn('created_authorization_version = ?', body)
 
     def test_no_members_sync_worker(self):
         sync = read(SYNC)

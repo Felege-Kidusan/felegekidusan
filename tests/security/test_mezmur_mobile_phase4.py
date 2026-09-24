@@ -90,8 +90,12 @@ class MobilePhase4Tests(unittest.TestCase):
         self.assertIn("const validStatuses = {'present', 'absent', 'late', 'excused'};", self.db)
         self.assertIn("(await getPendingMezmurCount())", self.db)
         self.assertIn("(await getPendingHymnOpsCount());", self.db)
-        # phase 5: outbox is keyed by (date, section)
-        self.assertIn("where: 'date = ? AND section = ? AND synced = 0'", self.db)
+        # Phase 5 natural key plus active owner/scope isolation.
+        pending = self.db[self.db.find('getPendingMezmurRecords'):
+                          self.db.find('getPendingMezmurRecords') + 1000]
+        self.assertIn("'date = ? AND section = ? AND synced = 0 '", pending)
+        self.assertIn('owner_user_id = ?', pending)
+        self.assertIn('created_authorization_version = ?', pending)
 
     def test_sync_drains_mezmur_outbox(self):
         self.assertIn("claimNextLegacyOperation", self.sync)

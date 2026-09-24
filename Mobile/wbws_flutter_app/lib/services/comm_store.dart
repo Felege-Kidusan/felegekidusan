@@ -347,9 +347,9 @@ class CommStore extends ChangeNotifier {
   /// terminal attention states to its existing failed-bubble treatment.
   Future<List<Map<String, dynamic>>> outboxForThread(int threadId) async {
     final db = await _db;
-    final rows = await db.transaction((txn) async {
+    return db.transaction((txn) async {
       final binding = await LocalDb().requireActiveOwnerBinding(txn);
-      return txn.query(
+      final rows = await txn.query(
         'comm_outbox',
         where: "thread_id = ? AND state <> 'synced' "
             'AND owner_user_id = ? AND created_authorization_version = ?',
@@ -360,18 +360,18 @@ class CommStore extends ChangeNotifier {
         ],
         orderBy: 'created_at ASC, client_tag ASC',
       );
+      return rows
+          .map((row) => <String, dynamic>{
+                ...row,
+                if (const {
+                  'needs_attention',
+                  'resolved_conflict',
+                  'failed',
+                }.contains('${row['state']}'))
+                  'state': 'failed',
+              })
+          .toList(growable: false);
     });
-    return rows
-        .map((row) => <String, dynamic>{
-              ...row,
-              if (const {
-                'needs_attention',
-                'resolved_conflict',
-                'failed',
-              }.contains('${row['state']}'))
-                'state': 'failed',
-            })
-        .toList(growable: false);
   }
 
   /// Explicitly discard a terminal failed/conflict entry for the active scope.
@@ -425,19 +425,22 @@ class CommStore extends ChangeNotifier {
 
   /// Earliest scheduled retry (ISO string) among pending entries, or
   /// null when nothing waits — the worker's timer anchor.
-  Future<String?> outboxNextDue({
-    required int ownerUserId,
-    required int authorizationVersion,
-  }) async {
+  Future<String?> outboxNextDue() async {
     final db = await _db;
-    final rows = await db.rawQuery(
-      "SELECT MIN(next_attempt_at) m FROM comm_outbox "
-      "WHERE state = 'retry_wait' AND next_attempt_at IS NOT NULL "
-      'AND owner_user_id = ? AND created_authorization_version = ?',
-      [ownerUserId, authorizationVersion],
-    );
-    if (rows.isEmpty) return null;
-    return rows.first['m']?.toString();
+    return db.transaction((txn) async {
+      final binding = await LocalDb().requireActiveOwnerBinding(txn);
+      final rows = await txn.rawQuery(
+        "SELECT MIN(next_attempt_at) m FROM comm_outbox "
+        "WHERE state = 'retry_wait' AND next_attempt_at IS NOT NULL "
+        'AND owner_user_id = ? AND created_authorization_version = ?',
+        [
+          binding['owner_user_id'],
+          binding['created_authorization_version'],
+        ],
+      );
+      if (rows.isEmpty) return null;
+      return rows.first['m']?.toString();
+    });
   }
 
   // ── Drafts (O3) ──────────────────────────────────────────────────

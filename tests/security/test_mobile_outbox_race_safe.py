@@ -43,6 +43,23 @@ def test_communication_claim_is_per_thread_fifo_and_lease_bound() -> None:
     assert "created_authorization_version = ?" in settle
 
 
+def test_manual_legacy_discard_is_exact_and_cannot_delete_a_replacement() -> None:
+    db = source(SERVICES / "local_db.dart")
+    widget = source(
+        ROOT / "Mobile" / "wbws_flutter_app" / "lib" / "widgets" /
+        "sync_attention.dart"
+    )
+    discard = db[db.index("discardRejectedOperation"):
+                 db.index("getRejectedBatches")]
+    assert "client_op_id = ?" in discard
+    assert "needs_attention" in discard
+    assert "resolved_conflict" in discard
+    assert "owner_user_id = ?" in discard
+    assert "created_authorization_version = ?" in discard
+    assert "discardRejectedOperation(kind, clientOpId)" in widget
+    assert "discardRejectedAttendance" not in widget
+
+
 def test_hymn_failures_are_retained_and_exactly_settled() -> None:
     hymn = source(SERVICES / "hymn_store.dart")
     db = source(SERVICES / "local_db.dart")
@@ -81,12 +98,16 @@ def test_hymn_dependency_and_terminal_head_policy_is_durable() -> None:
     assert "blocked_dependency" in claim
     assert "DEPENDENCY_UNRESOLVED" in claim
     assert "dependency.synced = 1" in claim
+    assert "earlier.sync_state <> 'resolved_conflict'" in claim
     placeholder_rebase = db[db.index("rebasePendingHymnPlaceholder"):
                             db.index("rebaseNewerPendingHymnRevision")]
     revision_rebase = db[db.index("rebaseNewerPendingHymnRevision"):
                          db.index("getPendingHymnSavesForLocalId")]
-    assert "sync_state <> 'in_flight'" in placeholder_rebase
-    assert "'in_flight'" not in revision_rebase
+    for rebase in (placeholder_rebase, revision_rebase):
+        assert "'depends_on': null" in rebase
+        assert "sync_state <> 'in_flight'" in rebase
+        query = rebase[rebase.index("final rows ="):rebase.index("var rebased")]
+        assert "'in_flight'" not in query
 
 
 def test_inventory_separates_due_waiting_inflight_attention_and_pauses() -> None:

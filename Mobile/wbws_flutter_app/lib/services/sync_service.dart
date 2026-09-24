@@ -116,8 +116,10 @@ class SyncService {
     _inflightGeneration = generation;
     try {
       var r = SyncResult(synced: 0, failed: 0, message: 'Nothing waiting to send');
+      var pass = 0;
       do {
         _queued = false;
+        pass++;
         final useForce = force || _forceNext;
         _forceNext = false;
         final next = await _drain(generation: generation, force: useForce);
@@ -126,14 +128,25 @@ class SyncService {
           failed: next.failed,
           message: next.message,
         );
-      } while (_queued && _ownsGeneration(generation));
+      } while (_queued && _ownsGeneration(generation) && pass < 10);
+      if (_queued && _ownsGeneration(generation)) {
+        // Yield after the bounded immediate rescans, then continue from the DB.
+        nudge(delay: const Duration(milliseconds: 50));
+      }
       if (!c.isCompleted) c.complete(r);
       return r;
     } catch (e) {
-      final r = SyncResult(
-          synced: 0,
-          failed: 1,
-          message: 'Could not send yet. Will retry on its own.');
+      final r = !_ownsGeneration(generation)
+          ? SyncResult(
+              synced: 0,
+              failed: 0,
+              message: 'Sync paused until this account is active again.',
+            )
+          : SyncResult(
+              synced: 0,
+              failed: 1,
+              message: 'Could not send yet. Will retry on its own.',
+            );
       if (!c.isCompleted) c.complete(r);
       return r;
     } finally {
@@ -181,7 +194,7 @@ class SyncService {
       if (!_ownsGeneration(generation)) {
         return _pausedResult(synced: synced, failed: failed);
       }
-      if (pushed > 0) synced++;
+      if (pushed > 0) synced += pushed;
       if (ConnectivityService().hasLink) {
         await hymnStore.pullChanges();
         if (!_ownsGeneration(generation)) {

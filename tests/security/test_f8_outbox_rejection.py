@@ -232,11 +232,17 @@ class F8LocalOutbox(unittest.TestCase):
         self.assertIn("sync_state = 'in_flight'", exact)
 
     def test_discard_requires_explicit_user_action(self):
-        # discard* deletes ONLY unsynced rows and is only reachable
-        # from the review sheet's confirmation dialog.
-        for call in ('discardRejectedAttendance', 'discardRejectedGrades',
-                     'discardRejectedMezmur', 'discardRejectedHr'):
-            self.assertIn(f'Future<void> {call}(', self.db)
+        # The confirmation dialog carries the immutable operation id. Exact,
+        # owner/scope-bound deletion cannot remove a replacement save.
+        self.assertIn('Future<void> discardRejectedOperation(', self.db)
+        discard = self.db[self.db.find('discardRejectedOperation'):
+                          self.db.find('getRejectedBatches')]
+        self.assertIn('client_op_id = ?', discard)
+        self.assertIn("sync_state IN ('needs_attention', 'resolved_conflict')", discard)
+        self.assertIn('owner_user_id = ?', discard)
+        self.assertIn('created_authorization_version = ?', discard)
+        self.assertIn('discardRejectedOperation(kind, clientOpId)',
+                      read(BANNER))
         # the sync engine must never discard
         self.assertNotIn('discardRejected', read(SYNC))
 
@@ -252,11 +258,14 @@ class F8LocalOutbox(unittest.TestCase):
 
     def test_get_rejected_batches_covers_all_four_outboxes(self):
         body = self.db[self.db.find('getRejectedBatches'):
-                       self.db.find('getRejectedBatches') + 1600]
+                       self.db.find('getRejectedBatches') + 2600]
         for table in ('pending_attendance', 'pending_grades',
                       'pending_mezmur', 'pending_hr'):
             self.assertIn(table, body)
-            self.assertIn('sync_error IS NOT NULL', body)
+        self.assertIn("sync_state IN ('needs_attention', 'resolved_conflict')", body)
+        self.assertIn('client_op_id', body)
+        self.assertIn('owner_user_id = ?', body)
+        self.assertIn('created_authorization_version = ?', body)
         self.assertIn('UNION ALL', body)
 
     def test_grades_outbox_now_has_an_idempotency_key(self):
@@ -302,28 +311,29 @@ class F8DropPendingReconciliation(unittest.TestCase):
                           f'{name} must never delete F8-rejected rows')
 
     def test_stale_pending_cleanup_behavior_unchanged(self):
-        # Case 1: the guard is strictly additive — ordinary stale
-        # pending rows (sync_error NULL) are still cleaned, still
-        # scoped to synced=0 only.
+        # Case 1: ordinary stale pending rows are still cleaned, but only for
+        # the active owner/scope and never by a stale cross-session action.
         for name in ('dropPendingAttendance', 'dropPendingGrades',
                      'dropPendingMezmur', 'dropPendingHr'):
             body = self._method(name)
             self.assertNotIn('synced = 1', body, name)
-            self.assertIn("db.delete('pending_", body, name)
+            self.assertIn("txn.delete(", body, name)
+            self.assertIn('owner_user_id = ?', body, name)
+            self.assertIn('created_authorization_version = ?', body, name)
 
-    def test_explicit_discard_still_deletes_rejected(self):
-        # Case 3: the review sheet's Discard remains the deliberate
-        # deleter of rejected rows — NO sync_error-IS-NULL guard there.
-        for name in ('discardRejectedAttendance', 'discardRejectedGrades',
-                     'discardRejectedMezmur', 'discardRejectedHr'):
-            body = self._method(name)
-            self.assertIn('synced = 0', body, name)
-            self.assertNotIn('sync_error IS NULL', body, name)
+    def test_explicit_discard_still_deletes_rejected_exactly(self):
+        # Case 3: Discard targets only the immutable terminal operation shown
+        # by the review sheet; a stale dialog cannot delete its replacement.
+        body = self._method('discardRejectedOperation')
+        self.assertIn('client_op_id = ?', body)
+        self.assertIn('synced = 0', body)
+        self.assertIn('needs_attention', body)
+        self.assertNotIn('sync_error IS NULL', body)
 
     def test_resave_replacement_still_replaces_rejected(self):
         # All four public saves delegate to one serialized transaction that
-        # deletes the whole unsynced natural-key generation (including a prior
-        # rejection) before inserting one fresh operation id.
+        # replaces the active owner/scope's natural-key generation (including
+        # a prior rejection) before inserting one fresh operation id.
         for name in ('saveAttendanceLocal', 'saveGradesLocal',
                      'saveMezmurLocal', 'saveHrLocal'):
             body = self.db[self.db.find(f'Future<LegacyOperationRef> {name}('):
@@ -333,11 +343,8 @@ class F8DropPendingReconciliation(unittest.TestCase):
                               self.db.find('_replaceLegacyOperation({') + 3200]
         self.assertIn('final opId = newClientOpId();', replacement)
         self.assertIn("where: '$naturalKeyWhere AND synced = 0 '", replacement)
-        self.assertIn("'AND owner_user_id = ? '", replacement)
-        self.assertIn("'AND created_authorization_version = ?'", replacement)
-        self.assertIn('...naturalKeyArgs', replacement)
-        self.assertIn("binding['owner_user_id']", replacement)
-        self.assertIn("binding['created_authorization_version']", replacement)
+        self.assertIn('owner_user_id = ?', replacement)
+        self.assertIn('created_authorization_version = ?', replacement)
         self.assertNotIn('sync_error IS NULL', replacement)
 
     def test_needs_attention_pipeline_unaffected(self):
