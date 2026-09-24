@@ -25,6 +25,8 @@ SYNC = (f'{ROOT}/Mobile/wbws_flutter_app/lib/services/sync_service.dart')
 POLICY = (f'{ROOT}/Mobile/wbws_flutter_app/lib/services/outbox_policy.dart')
 LDB = (f'{ROOT}/Mobile/wbws_flutter_app/lib/services/local_db.dart')
 BANNER = (f'{ROOT}/Mobile/wbws_flutter_app/lib/widgets/sync_attention.dart')
+CENTER = (f'{ROOT}/Mobile/wbws_flutter_app/lib/screens/profile/'
+          'sync_center_screen.dart')
 SCREENS = {
     'attendance': (f'{ROOT}/Mobile/wbws_flutter_app/lib/screens/attendance/'
                    'attendance_screen.dart'),
@@ -234,15 +236,19 @@ class F8LocalOutbox(unittest.TestCase):
     def test_discard_requires_explicit_user_action(self):
         # The confirmation dialog carries the immutable operation id. Exact,
         # owner/scope-bound deletion cannot remove a replacement save.
-        self.assertIn('Future<void> discardRejectedOperation(', self.db)
+        self.assertIn(
+            'Future<SyncRecoveryActionResult> discardRejectedOperation(',
+            self.db)
         discard = self.db[self.db.find('discardRejectedOperation'):
                           self.db.find('getRejectedBatches')]
         self.assertIn('client_op_id = ?', discard)
-        self.assertIn("sync_state IN ('needs_attention', 'resolved_conflict')", discard)
+        self.assertIn('needs_attention', discard)
+        self.assertIn('resolved_conflict', discard)
+        self.assertIn('expectedState', discard)
         self.assertIn('owner_user_id = ?', discard)
         self.assertIn('created_authorization_version = ?', discard)
-        self.assertIn('discardRejectedOperation(kind, clientOpId)',
-                      read(BANNER))
+        self.assertIn('discardRejectedOperation(', read(CENTER))
+        self.assertIn('expectedState: item.state', read(CENTER))
         # the sync engine must never discard
         self.assertNotIn('discardRejected', read(SYNC))
 
@@ -295,10 +301,11 @@ class F8DropPendingReconciliation(unittest.TestCase):
         self.db = read(LDB)
 
     def _method(self, name):
-        i = self.db.find(f'Future<void> {name}(')
+        i = self.db.find(name)
         self.assertGreater(i, -1, name)
-        j = self.db.find('\n  }', i)
-        return self.db[i:j]
+        i = self.db.rfind('Future<', 0, i + 1)
+        j = self.db.find('\n  Future<', i + 8)
+        return self.db[i:j if j > i else None]
 
     def test_locked_day_cleanup_spares_rejected_rows(self):
         # Case 2: synced=0 + sync_error NOT NULL must survive the
@@ -371,11 +378,15 @@ class F8HonestUi(unittest.TestCase):
         self.assertIn('showSyncRejectedSheet', self.banner)
 
     def test_discard_is_gated_by_confirmation(self):
-        self.assertIn("'Discard this sheet?'", self.banner)
-        self.assertIn('showDialog<bool>', self.banner)
+        center = read(CENTER)
+        self.assertIn("'Discard saved operation?'", center)
+        self.assertIn('showDialog<bool>', center)
+        self.assertIn('_confirmDiscard(item)', center)
 
-    def test_sheet_says_data_is_not_on_the_server(self):
-        self.assertIn('NOT on the server', self.banner)
+    def test_center_does_not_claim_discard_deletes_server_data(self):
+        center = read(CENTER)
+        self.assertIn('does not delete an accepted server record', center)
+        self.assertIn('Why this needs attention', center)
 
     def test_status_counts_rejected_honestly(self):
         s = read(SYNC)

@@ -33,8 +33,12 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
   void refresh() { _load(); _loadPending(); }
 
   Future<void> _loadPending() async {
-    final c = await _db.getTotalPendingCount();
-    if (mounted) setState(() => _pendingCount = c);
+    await _sync.emitCurrentStatus();
+    final status = _sync.lastStatus;
+    final count = status.privateUnresolvedTotal +
+        status.sharedHymnUnresolvedTotal +
+        status.communicationDraftCount;
+    if (mounted) setState(() => _pendingCount = count);
   }
 
   Future<void> _load() async {
@@ -96,9 +100,10 @@ class AttTakerHomeScreenState extends State<AttTakerHomeScreen> {
                 const NotificationBellButton(color: Colors.white),
                 if (_pendingCount > 0)
                   IconButton(
+                    tooltip: 'Sync Center',
                     onPressed: () async {
-                      final r = await _sync.syncAll();
-                      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.message))); _loadPending(); }
+                      await Navigator.of(context).pushNamed('/sync-center');
+                      _loadPending();
                     },
                     icon: Badge(label: Text('$_pendingCount', style: const TextStyle(fontSize: 9)), backgroundColor: AppTheme.warning, child: const Icon(Icons.sync, size: 22)),
                   ),

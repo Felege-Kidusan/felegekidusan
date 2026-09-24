@@ -12,6 +12,7 @@ import 'outbox_policy.dart';
 import 'lyrics_search.dart';
 import 'amharic_text.dart' as amharic;
 import 'taxonomy_names.dart';
+import 'sync_recovery_models.dart';
 
 /// Local-first hymn library (Telegram / Google Drive model).
 ///
@@ -47,6 +48,27 @@ class HymnStore extends ChangeNotifier {
   /// Roles that curate the library (the server re-checks every write).
   static const _writeRoles = {'mezmur_dept', 'school_admin', 'super_admin'};
   bool get canEdit => _writeRoles.contains(_api.userRole);
+
+  /// Manual recovery remains authorization-gated at execution time, not only
+  /// when the Sync Center list was built. A live downgrade therefore turns a
+  /// stale button into a no-op before it can mutate shared queued work.
+  Future<SyncRecoveryActionResult> retryRecoveryOperation(
+    int rowId,
+    String clientOpId,
+    String expectedState,
+  ) {
+    if (!canEdit) return Future.value(SyncRecoveryActionResult.stale);
+    return _db.retryHymnRecoveryOperation(rowId, clientOpId, expectedState);
+  }
+
+  Future<SyncRecoveryActionResult> discardRecoveryOperation(
+    int rowId,
+    String clientOpId,
+    String expectedState,
+  ) {
+    if (!canEdit) return Future.value(SyncRecoveryActionResult.stale);
+    return _db.discardHymnRecoveryOperation(rowId, clientOpId, expectedState);
+  }
 
   // ── local reads (never touch the network) ───────────────────
 

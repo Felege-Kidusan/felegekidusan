@@ -19,6 +19,10 @@ class AppNav {
     _tab.add('attendance');
   }
 
+  /// Request an already-authorized shell tab by id. AppShell ignores ids that
+  /// are absent from the current role/feature scope.
+  void openTab(String id) => _tab.add(id);
+
   /// Switch to the HR department's own attendance tab (section sheets).
   void openHrAttendance() => _tab.add('hr_attendance');
 

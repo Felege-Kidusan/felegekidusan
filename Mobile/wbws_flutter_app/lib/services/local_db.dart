@@ -14,6 +14,7 @@ import 'hymn_outbox_models.dart';
 import 'legacy_outbox_models.dart';
 import 'local_schema_v34.dart';
 import 'session_models.dart';
+import 'sync_recovery_models.dart';
 
 String newClientOpId() {
   final r = Random.secure();
@@ -3662,7 +3663,7 @@ class LocalDb {
 
   Future<LegacyOperationRef> saveAttendanceLocal(int classId, String className, String date,
       List<Map<String, dynamic>> records,
-      {String packetKind = 'draft'}) async {
+      {String packetKind = 'draft', DateTime? notBefore}) async {
     const validStatuses = {'present', 'absent', 'late', 'excused'};
     if (records.isEmpty) {
       throw ArgumentError('Attendance records are required.');
@@ -3684,6 +3685,7 @@ class LocalDb {
       naturalKeyArgs: [classId, date],
       naturalKey: {'class_id': classId, 'date': date},
       packetKind: packetKind,
+      notBefore: notBefore,
       rows: records
           .map((r) => <String, Object?>{
                 'class_id': classId,
@@ -4015,7 +4017,7 @@ class LocalDb {
 
   Future<LegacyOperationRef> saveMezmurLocal(String date, String section,
       List<Map<String, dynamic>> records,
-      {String packetKind = 'draft'}) async {
+      {String packetKind = 'draft', DateTime? notBefore}) async {
     // Teacher parity: present / absent / late / excused.
     const validStatuses = {'present', 'absent', 'late', 'excused'};
     if (records.isEmpty) {
@@ -4038,6 +4040,7 @@ class LocalDb {
       naturalKeyArgs: [date, section],
       naturalKey: {'date': date, 'section': section},
       packetKind: packetKind,
+      notBefore: notBefore,
       rows: records.map((r) {
         final note = '${r['notes'] ?? r['note'] ?? ''}'.trim();
         return <String, Object?>{
@@ -4276,7 +4279,7 @@ class LocalDb {
 
   Future<LegacyOperationRef> saveHrLocal(String date, String section,
       List<Map<String, dynamic>> records,
-      {String packetKind = 'draft'}) async {
+      {String packetKind = 'draft', DateTime? notBefore}) async {
     const validStatuses = {'present', 'absent', 'late', 'excused'};
     if (records.isEmpty) {
       throw ArgumentError('HR attendance records are required.');
@@ -4298,6 +4301,7 @@ class LocalDb {
       naturalKeyArgs: [date, section],
       naturalKey: {'date': date, 'section': section},
       packetKind: packetKind,
+      notBefore: notBefore,
       rows: records.map((r) {
         final note = '${r['notes'] ?? r['note'] ?? ''}'.trim();
         return <String, Object?>{
@@ -4377,29 +4381,139 @@ class LocalDb {
   /// Explicit, user-consented destruction of the exact terminal operation
   /// shown by the review sheet. A stale dialog can never delete a replacement
   /// save that reused the same natural key.
-  Future<void> discardRejectedOperation(
-      String kind, String clientOpId) async {
-    final table = switch (kind) {
-      'attendance' => 'pending_attendance',
-      'grades' => 'pending_grades',
-      'mezmur' => 'pending_mezmur',
-      'hr' => 'pending_hr',
-      _ => throw ArgumentError.value(kind, 'kind', 'Unknown outbox kind'),
-    };
+  LegacyOutboxTableSpec _legacyRecoverySpec(String kind) =>
+      _legacySpecFor(switch (kind) {
+        'attendance' => LegacyOperationKind.attendance,
+        'grades' => LegacyOperationKind.grades,
+        'mezmur' => LegacyOperationKind.mezmur,
+        'hr' => LegacyOperationKind.hr,
+        _ => throw ArgumentError.value(kind, 'kind', 'Unknown outbox kind'),
+      });
+
+  /// Compare-and-set retry of one exact terminal generation. A stale handle
+  /// never falls back to the packet's natural key and therefore changes
+  /// nothing if a save, worker claim, or scope transition won the race.
+  Future<SyncRecoveryActionResult> retryRejectedOperation(
+    String kind,
+    String clientOpId,
+    String expectedState,
+  ) async {
+    if (!const {'needs_attention', 'blocked_dependency', 'failed'}
+        .contains(expectedState)) {
+      return SyncRecoveryActionResult.stale;
+    }
+    final spec = _legacyRecoverySpec(kind);
     final db = await database;
-    await db.transaction((txn) async {
+    return db.transaction((txn) async {
       final binding = await requireActiveOwnerBinding(txn);
-      await txn.delete(
-        table,
-        where: 'client_op_id = ? AND synced = 0 '
-            "AND sync_state IN ('needs_attention', 'resolved_conflict') "
-            'AND owner_user_id = ? AND created_authorization_version = ?',
-        whereArgs: [
-          clientOpId,
-          binding['owner_user_id'],
-          binding['created_authorization_version'],
-        ],
+      final baseWhere = 'client_op_id = ? AND synced = 0 '
+          'AND owner_user_id = ? AND created_authorization_version = ?';
+      final args = <Object?>[
+        clientOpId,
+        binding['owner_user_id'],
+        binding['created_authorization_version'],
+      ];
+      final rows = await txn.query(spec.table,
+          columns: ['sync_state', ...spec.businessKeyColumns],
+          where: baseWhere,
+          whereArgs: args);
+      if (rows.isEmpty ||
+          rows.any((row) => '${row['sync_state']}' != expectedState)) {
+        return SyncRecoveryActionResult.stale;
+      }
+      final naturalKey = _legacyNaturalKey(spec, rows.first);
+      if (rows.any((row) => spec.businessKeyColumns.any(
+          (column) => row[column] != naturalKey[column]))) {
+        return SyncRecoveryActionResult.stale;
+      }
+      final keyWhere = spec.businessKeyColumns
+          .map((column) => '$column = ?')
+          .join(' AND ');
+      final keyArgs = spec.businessKeyColumns
+          .map((column) => naturalKey[column])
+          .toList(growable: false);
+      final affected = await txn.update(
+        spec.table,
+        {
+          'sync_state': 'pending',
+          'attempt_count': 0,
+          'next_attempt_at': null,
+          'last_attempt_at': null,
+          'failure_code': null,
+          'failure_http_status': null,
+          'failed_at': null,
+          'sync_error': null,
+        },
+        where: '$baseWhere AND $keyWhere AND sync_state = ?',
+        whereArgs: [...args, ...keyArgs, expectedState],
       );
+      return affected == rows.length
+          ? SyncRecoveryActionResult.applied
+          : SyncRecoveryActionResult.stale;
+    });
+  }
+
+  /// Confirmed compare-and-set deletion of one exact terminal generation.
+  Future<SyncRecoveryActionResult> discardRejectedOperation(
+    String kind,
+    String clientOpId, {
+    String? expectedState,
+  }) async {
+    const terminal = {
+      'needs_attention',
+      'blocked_dependency',
+      'failed',
+      'resolved_conflict',
+    };
+    if (expectedState != null && !terminal.contains(expectedState)) {
+      return SyncRecoveryActionResult.stale;
+    }
+    final spec = _legacyRecoverySpec(kind);
+    final db = await database;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final baseWhere = 'client_op_id = ? AND synced = 0 '
+          'AND owner_user_id = ? AND created_authorization_version = ?';
+      final args = <Object?>[
+        clientOpId,
+        binding['owner_user_id'],
+        binding['created_authorization_version'],
+      ];
+      final rows = await txn.query(spec.table,
+          columns: ['sync_state', ...spec.businessKeyColumns],
+          where: baseWhere,
+          whereArgs: args);
+      if (rows.isEmpty || rows.any((row) {
+        final state = '${row['sync_state']}';
+        return !terminal.contains(state) ||
+            (expectedState != null && state != expectedState);
+      })) {
+        return SyncRecoveryActionResult.stale;
+      }
+      final naturalKey = _legacyNaturalKey(spec, rows.first);
+      if (rows.any((row) => spec.businessKeyColumns.any(
+          (column) => row[column] != naturalKey[column]))) {
+        return SyncRecoveryActionResult.stale;
+      }
+      final keyWhere = spec.businessKeyColumns
+          .map((column) => '$column = ?')
+          .join(' AND ');
+      final keyArgs = spec.businessKeyColumns
+          .map((column) => naturalKey[column])
+          .toList(growable: false);
+      final affected = await txn.delete(
+        spec.table,
+        where: expectedState == null
+            ? "$baseWhere AND $keyWhere AND sync_state IN ('needs_attention', "
+                "'blocked_dependency', 'failed', 'resolved_conflict')"
+            : '$baseWhere AND $keyWhere AND sync_state = ?',
+        whereArgs: expectedState == null
+            ? [...args, ...keyArgs]
+            : [...args, ...keyArgs, expectedState],
+      );
+      return affected == rows.length
+          ? SyncRecoveryActionResult.applied
+          : SyncRecoveryActionResult.stale;
     });
   }
 
@@ -4452,6 +4566,195 @@ class LocalDb {
     });
   }
 
+
+  /// Current-scope detail rows for the Sync Recovery Center. The owner and
+  /// authorization predicates are part of every private query. Older-scope
+  /// work is intentionally absent here and is surfaced only as a safe count
+  /// from [getOutboxInventory]. Shared hymn metadata is returned only when
+  /// the current role is allowed to curate the shared library.
+  Future<List<SyncRecoveryItem>> getSyncRecoveryItems({
+    required bool includeSharedHymns,
+  }) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final binding = await requireActiveOwnerBinding(txn);
+      final owner = binding['owner_user_id'];
+      final scope = binding['created_authorization_version'];
+      final rows = await txn.rawQuery('''
+        SELECT 'attendance' AS domain, client_op_id AS operation_id,
+               NULL AS row_id, sync_state AS state,
+               COALESCE(NULLIF(class_name, ''), 'Attendance') AS title,
+               date AS detail, MAX(sync_error) AS reason,
+               MAX(next_attempt_at) AS next_attempt_at
+          FROM pending_attendance
+         WHERE synced = 0 AND owner_user_id = ?
+           AND created_authorization_version = ?
+         GROUP BY client_op_id, sync_state, class_id, class_name, date
+        UNION ALL
+        SELECT 'grades', client_op_id, NULL, sync_state,
+               COALESCE(NULLIF(assessment_name, ''), 'Grades'),
+               COALESCE(NULLIF(class_name, ''), 'Grade sheet'),
+               MAX(sync_error), MAX(next_attempt_at)
+          FROM pending_grades
+         WHERE synced = 0 AND owner_user_id = ?
+           AND created_authorization_version = ?
+         GROUP BY client_op_id, sync_state, assessment_id,
+                  assessment_name, class_name
+        UNION ALL
+        SELECT 'mezmur', client_op_id, NULL, sync_state,
+               'Mezmur attendance', date || ' · ' || section,
+               MAX(sync_error), MAX(next_attempt_at)
+          FROM pending_mezmur
+         WHERE synced = 0 AND owner_user_id = ?
+           AND created_authorization_version = ?
+         GROUP BY client_op_id, sync_state, date, section
+        UNION ALL
+        SELECT 'hr', client_op_id, NULL, sync_state,
+               'HR attendance', date || ' · ' || section,
+               MAX(sync_error), MAX(next_attempt_at)
+          FROM pending_hr
+         WHERE synced = 0 AND owner_user_id = ?
+           AND created_authorization_version = ?
+         GROUP BY client_op_id, sync_state, date, section
+        UNION ALL
+        SELECT 'communication', client_tag, NULL, state,
+               'Message', 'Conversation #' || thread_id,
+               fail_reason, next_attempt_at
+          FROM comm_outbox
+         WHERE state <> 'synced' AND owner_user_id = ?
+           AND created_authorization_version = ?
+        ORDER BY next_attempt_at, domain, detail
+      ''', [
+        owner, scope,
+        owner, scope,
+        owner, scope,
+        owner, scope,
+        owner, scope,
+      ]);
+
+      final result = <SyncRecoveryItem>[];
+      for (final row in rows) {
+        final domain = switch ('${row['domain']}') {
+          'attendance' => SyncRecoveryDomain.attendance,
+          'grades' => SyncRecoveryDomain.grades,
+          'mezmur' => SyncRecoveryDomain.mezmur,
+          'hr' => SyncRecoveryDomain.hr,
+          _ => SyncRecoveryDomain.communication,
+        };
+        result.add(SyncRecoveryItem(
+          domain: domain,
+          operationId: '${row['operation_id']}',
+          rowId: row['row_id'] == null ? null : _asIntLocal(row['row_id']),
+          state: '${row['state']}',
+          title: '${row['title']}',
+          detail: '${row['detail']}',
+          reason: row['reason']?.toString(),
+          nextAttemptAt: DateTime.tryParse('${row['next_attempt_at'] ?? ''}')
+              ?.toLocal(),
+        ));
+      }
+
+      if (includeSharedHymns) {
+        final hymnRows = await txn.query(
+          'pending_hymn_ops',
+          columns: [
+            'id',
+            'client_op_id',
+            'op',
+            'sync_state',
+            'sync_error',
+            'next_attempt_at',
+          ],
+          where: 'synced = 0',
+          orderBy: 'id',
+        );
+        for (final row in hymnRows) {
+          final op = '${row['op']}';
+          final title = switch (op) {
+            'hymn_save' => 'Hymn change',
+            'hymn_delete' => 'Hymn archive',
+            'category_save' => 'Hymn category change',
+            'category_delete' => 'Hymn category removal',
+            'zemarian_save' => 'Singer change',
+            'zemarian_delete' => 'Singer removal',
+            'lyrics_synced' => 'Timed lyrics change',
+            _ => 'Shared hymn library change',
+          };
+          result.add(SyncRecoveryItem(
+            domain: SyncRecoveryDomain.hymn,
+            operationId: '${row['client_op_id']}',
+            rowId: _asIntLocal(row['id']),
+            state: '${row['sync_state']}',
+            title: title,
+            detail: 'Shared library operation',
+            reason: row['sync_error']?.toString(),
+            nextAttemptAt:
+                DateTime.tryParse('${row['next_attempt_at'] ?? ''}')
+                    ?.toLocal(),
+          ));
+        }
+      }
+      return List<SyncRecoveryItem>.unmodifiable(result);
+    });
+  }
+
+  /// Exact compare-and-set retry for one shared hymn operation.
+  Future<SyncRecoveryActionResult> retryHymnRecoveryOperation(
+    int rowId,
+    String clientOpId,
+    String expectedState,
+  ) async {
+    if (!const {'needs_attention', 'blocked_dependency', 'failed'}
+        .contains(expectedState)) {
+      return SyncRecoveryActionResult.stale;
+    }
+    final db = await database;
+    final affected = await db.update(
+      'pending_hymn_ops',
+      {
+        'sync_state': 'pending',
+        'attempt_count': 0,
+        'next_attempt_at': null,
+        'last_attempt_at': null,
+        'failure_code': null,
+        'failure_http_status': null,
+        'failed_at': null,
+        'sync_error': null,
+      },
+      where: 'id = ? AND client_op_id = ? AND synced = 0 '
+          'AND sync_state = ?',
+      whereArgs: [rowId, clientOpId, expectedState],
+    );
+    return affected == 1
+        ? SyncRecoveryActionResult.applied
+        : SyncRecoveryActionResult.stale;
+  }
+
+  /// Exact terminal discard/acknowledgement for one shared operation.
+  Future<SyncRecoveryActionResult> discardHymnRecoveryOperation(
+    int rowId,
+    String clientOpId,
+    String expectedState,
+  ) async {
+    if (!const {
+      'needs_attention',
+      'blocked_dependency',
+      'failed',
+      'resolved_conflict',
+    }.contains(expectedState)) {
+      return SyncRecoveryActionResult.stale;
+    }
+    final db = await database;
+    final affected = await db.delete(
+      'pending_hymn_ops',
+      where: 'id = ? AND client_op_id = ? AND synced = 0 '
+          'AND sync_state = ?',
+      whereArgs: [rowId, clientOpId, expectedState],
+    );
+    return affected == 1
+        ? SyncRecoveryActionResult.applied
+        : SyncRecoveryActionResult.stale;
+  }
 
   Future<void> dropPendingHr(String date, String section) async {
     final db = await database;
@@ -6146,8 +6449,9 @@ class LocalDb {
 
   /// One state-separated snapshot for schedulers and status UI. Counts are
   /// operations (not legacy child rows), and terminal review states never
-  /// masquerade as network-retry work. Private rows are limited to the active
-  /// owner/scope; shared hymn operations remain global by design.
+  /// masquerade as network-retry work. Actionable private state counts use
+  /// the active owner/scope; older-scope private work contributes only to the
+  /// safe paused/total counts. Shared hymn operations remain global by design.
   Future<OutboxInventory> getOutboxInventory({DateTime? now}) async {
     final db = await database;
     final nowText = (now ?? DateTime.now()).toUtc().toIso8601String();
@@ -6171,6 +6475,19 @@ class LocalDb {
             'AND owner_user_id = ? '
             'AND created_authorization_version = ?',
             [...args, ownerUserId, authorizationVersion],
+          );
+        }
+        return total;
+      }
+
+      Future<int> legacyOwnerState(String predicate,
+          [List<Object?> args = const []]) async {
+        var total = 0;
+        for (final spec in legacyOutboxTableSpecs) {
+          total += await scalar(
+            'SELECT COUNT(DISTINCT client_op_id) FROM ${spec.table} '
+            'WHERE synced = 0 AND ($predicate) AND owner_user_id = ?',
+            [...args, ownerUserId],
           );
         }
         return total;
@@ -6241,11 +6558,25 @@ class LocalDb {
         "sync_state = 'paused_auth'",
         "state = 'paused_auth'",
       );
-      final pausedScope = await allState(
+      final currentScopePaused = await allState(
         "sync_state = 'paused_scope'",
         "sync_state = 'paused_scope'",
         "state = 'paused_scope'",
       );
+      // Older authorization versions are deliberately count-only. Include
+      // every unresolved private row so even an interrupted reconciliation
+      // cannot hide saved work or expose its roster/message payload.
+      final oldScopePrivate = await legacyOwnerState(
+            'created_authorization_version <> ?',
+            [authorizationVersion],
+          ) +
+          await scalar(
+            "SELECT COUNT(*) FROM comm_outbox WHERE state <> 'synced' "
+            'AND owner_user_id = ? '
+            'AND created_authorization_version <> ?',
+            [ownerUserId, authorizationVersion],
+          );
+      final pausedScope = currentScopePaused + oldScopePrivate;
       final blocked = await allState(
         "sync_state = 'blocked_dependency'",
         "sync_state = 'blocked_dependency'",
@@ -6257,12 +6588,11 @@ class LocalDb {
         "state = 'resolved_conflict'",
       );
       final privateUnresolved =
-          await legacyState('1 = 1') +
+          await legacyOwnerState('1 = 1') +
               await scalar(
                 "SELECT COUNT(*) FROM comm_outbox WHERE state <> 'synced' "
-                'AND owner_user_id = ? '
-                'AND created_authorization_version = ?',
-                [ownerUserId, authorizationVersion],
+                'AND owner_user_id = ?',
+                [ownerUserId],
               );
       final sharedHymns = await scalar(
         'SELECT COUNT(DISTINCT client_op_id) FROM pending_hymn_ops '
@@ -6270,9 +6600,8 @@ class LocalDb {
       );
       final drafts = await scalar(
         "SELECT COUNT(*) FROM comm_drafts WHERE TRIM(body) <> '' "
-        'AND owner_user_id = ? '
-        'AND created_authorization_version = ?',
-        [ownerUserId, authorizationVersion],
+        'AND owner_user_id = ?',
+        [ownerUserId],
       );
       return OutboxInventory(
         retryableDue: due,

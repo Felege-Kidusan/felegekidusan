@@ -6,6 +6,7 @@ import '../../services/api_service.dart';
 import '../../services/app_nav.dart';
 import '../../services/catalog_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
@@ -64,6 +65,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   // Phase 8: instant autosave (every mutation → durable local draft).
   final Debounce _autoSave = Debounce();
   DateTime _lastSyncPush = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _submitting = false;
+  LegacyOperationRef? _submittedUndoRef;
 
   static const Set<String> _validStatuses = {
     'present',
@@ -342,7 +345,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  bool get _locked => PacketLock.isLocked(_packetStatus);
+  bool get _locked => _submitting || PacketLock.isLocked(_packetStatus);
 
   bool _requireCompleteSheet() {
     final unmarked = _students.where((student) => _statusOf(student['status']).isEmpty).length;
@@ -362,6 +365,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) return;
     if (!_requireCompleteSheet()) return;
+    _autoSave.cancel();
 
     final records = _records();
     try {
@@ -403,13 +407,23 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) return;
     if (!_requireCompleteSheet()) return;
+    // Cancel a delayed draft before creating the submitted generation. If an
+    // autosave already entered LocalDb, its serialized write completes first.
+    _autoSave.cancel();
+    _submitting = true;
 
     final records = _records();
     try {
-      await _db.saveAttendanceLocal(_selectedClassId!, _selectedClassName ?? '',
-          _selectedDate, records,
-          packetKind: 'submitted');
+      _submittedUndoRef = await _db.saveAttendanceLocal(
+        _selectedClassId!,
+        _selectedClassName ?? '',
+        _selectedDate,
+        records,
+        packetKind: 'submitted',
+        notBefore: DateTime.now().add(const Duration(seconds: 5)),
+      );
     } catch (_) {
+      _submitting = false;
       if (mounted) {
         setState(() {
           _error =
@@ -419,6 +433,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
       }
       return;
     }
+    _submitting = false;
     if (!mounted) return;
     HapticFeedback.mediumImpact();
     _dirty.value = false;
@@ -434,28 +449,36 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _undoSubmit() async {
-    final classId = _selectedClassId;
-    if (classId == null) return;
-    final stillOnPhone =
-        await _db.getPendingAttendanceRecords(classId, _selectedDate);
+    final operation = _submittedUndoRef;
+    if (operation == null) return;
+    final result = await _db.undoSubmittedLegacyOperation(operation);
     if (!mounted) return;
-    if (stillOnPhone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
-        content: Text('Already sent to Education'),
-      ));
-      return;
+    switch (result) {
+      case SubmitUndoResult.applied:
+        _submittedUndoRef = null;
+        setState(() => _packetStatus = 'draft');
+        _dirty.value = false;
+        showQuickConfirm(context, 'Submission undone');
+        break;
+      case SubmitUndoResult.alreadyClaimed:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Already being sent to Education'),
+        ));
+        break;
+      case SubmitUndoResult.supersededLocal:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('This submission changed and cannot be undone.'),
+        ));
+        break;
+      case SubmitUndoResult.supersededSession:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Sign in again before changing this submission.'),
+        ));
+        break;
     }
-    try {
-      await _db.saveAttendanceLocal(classId, _selectedClassName ?? '',
-          _selectedDate, _records(),
-          packetKind: 'draft');
-    } catch (_) {
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _packetStatus = 'draft');
-    _dirty.value = false;
   }
 
   List<Map<String, dynamic>> _records() {

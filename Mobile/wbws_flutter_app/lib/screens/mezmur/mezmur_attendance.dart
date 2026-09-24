@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
 import '../../services/connectivity_service.dart';
+import '../../services/legacy_outbox_models.dart';
 import '../../services/local_db.dart';
 import '../../widgets/sync_attention.dart';
 import '../../services/sync_service.dart';
@@ -58,6 +59,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   bool _loading = true;
 
   bool _submitting = false;
+  LegacyOperationRef? _submittedUndoRef;
   bool _rosterReady = false;
   bool _loadFailed = false;
   bool _isOffline = false;
@@ -93,7 +95,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     return '';
   }
 
-  bool get _locked => PacketLock.isLocked(_packetStatus);
+  bool get _locked => _submitting || PacketLock.isLocked(_packetStatus);
 
   int get _unmarked =>
       _members.where((m) => _statusOf(m['status']).isEmpty).length;
@@ -452,6 +454,7 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     final section = _selectedSection;
     if (section == null || _members.isEmpty || _locked) return;
     if (!_requireCompleteSheet()) return;
+    _autoSave.cancel();
     try {
       await _db.saveMezmurLocal(_selectedDate, section, _records(),
           packetKind: 'draft');
@@ -477,15 +480,17 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   Future<void> _submit() async {
     final section = _selectedSection;
     if (section == null || _members.isEmpty || _locked) return;
-    // P36: in-flight guard, matching the hymn editor. The write itself is
-    // keyed by (date, section) and idempotent, but an unguarded double
-    // tap fired two forced syncs and stacked two toasts.
-    if (_submitting) return;
     if (!_requireCompleteSheet()) return;
+    _autoSave.cancel();
     _submitting = true;
     try {
-      await _db.saveMezmurLocal(_selectedDate, section, _records(),
-          packetKind: 'submitted');
+      _submittedUndoRef = await _db.saveMezmurLocal(
+        _selectedDate,
+        section,
+        _records(),
+        packetKind: 'submitted',
+        notBefore: DateTime.now().add(const Duration(seconds: 5)),
+      );
     } catch (_) {
       _submitting = false;
       if (mounted) {
@@ -507,27 +512,36 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   }
 
   Future<void> _undoSubmit() async {
-    final section = _selectedSection;
-    if (section == null) return;
-    final stillOnPhone =
-        await _db.getPendingMezmurRecords(_selectedDate, section);
+    final operation = _submittedUndoRef;
+    if (operation == null) return;
+    final result = await _db.undoSubmittedLegacyOperation(operation);
     if (!mounted) return;
-    if (stillOnPhone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
-        content: Text('Already sent to the Mezmur department'),
-      ));
-      return;
+    switch (result) {
+      case SubmitUndoResult.applied:
+        _submittedUndoRef = null;
+        setState(() => _packetStatus = 'draft');
+        _dirty.value = false;
+        showQuickConfirm(context, 'Submission undone');
+        break;
+      case SubmitUndoResult.alreadyClaimed:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Already being sent to the Mezmur department'),
+        ));
+        break;
+      case SubmitUndoResult.supersededLocal:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('This submission changed and cannot be undone.'),
+        ));
+        break;
+      case SubmitUndoResult.supersededSession:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          duration: Duration(seconds: 2),
+          content: Text('Sign in again before changing this submission.'),
+        ));
+        break;
     }
-    try {
-      await _db.saveMezmurLocal(_selectedDate, section, _records(),
-          packetKind: 'draft');
-    } catch (_) {
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _packetStatus = 'draft');
-    _dirty.value = false;
   }
 
   void _setMark(int id, String status) {

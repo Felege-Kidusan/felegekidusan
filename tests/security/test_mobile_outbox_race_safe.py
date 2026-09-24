@@ -45,9 +45,9 @@ def test_communication_claim_is_per_thread_fifo_and_lease_bound() -> None:
 
 def test_manual_legacy_discard_is_exact_and_cannot_delete_a_replacement() -> None:
     db = source(SERVICES / "local_db.dart")
-    widget = source(
-        ROOT / "Mobile" / "wbws_flutter_app" / "lib" / "widgets" /
-        "sync_attention.dart"
+    center = source(
+        ROOT / "Mobile" / "wbws_flutter_app" / "lib" / "screens" /
+        "profile" / "sync_center_screen.dart"
     )
     discard = db[db.index("discardRejectedOperation"):
                  db.index("getRejectedBatches")]
@@ -56,8 +56,11 @@ def test_manual_legacy_discard_is_exact_and_cannot_delete_a_replacement() -> Non
     assert "resolved_conflict" in discard
     assert "owner_user_id = ?" in discard
     assert "created_authorization_version = ?" in discard
-    assert "discardRejectedOperation(kind, clientOpId)" in widget
-    assert "discardRejectedAttendance" not in widget
+    assert "expectedState" in discard
+    assert "SyncRecoveryActionResult.stale" in discard
+    assert "discardRejectedOperation(" in center
+    assert "expectedState: item.state" in center
+    assert "discardRejectedAttendance" not in center
 
 
 def test_hymn_failures_are_retained_and_exactly_settled() -> None:

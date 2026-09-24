@@ -354,7 +354,8 @@ class P1DDoNotTouch(unittest.TestCase):
         self.assertNotIn('Future<void> rejectMezmur(', self.ldb)
         self.assertIn('discardRejectedOperation', self.ldb)
         discard = method_body(
-            self.ldb, 'Future<void> discardRejectedOperation(')
+            self.ldb,
+            'Future<SyncRecoveryActionResult> discardRejectedOperation(')
         self.assertIn('client_op_id = ?', discard)
         self.assertIn('owner_user_id = ?', discard)
         # The review cache has no relationship to the outbox.

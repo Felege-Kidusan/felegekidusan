@@ -118,5 +118,10 @@ class Debounce {
     _t = Timer(after, fn);
   }
 
-  void dispose() => _t?.cancel();
+  void cancel() {
+    _t?.cancel();
+    _t = null;
+  }
+
+  void dispose() => cancel();
 }

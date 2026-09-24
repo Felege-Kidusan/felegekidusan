@@ -793,10 +793,9 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (n != _gradedCount) setState(() => _gradedCount = n);
   }
 
-  Future<void> _persistDraftSnapshot() async {
-    if (_commitInProgress || _locked) return;
-    final grades = _collectGrades();
-    if (grades.isEmpty) return;
+  Future<void> _persistDraftSnapshot(
+      List<Map<String, dynamic>> grades) async {
+    if (_commitInProgress || _locked || grades.isEmpty) return;
     await _db.saveGradesLocal(
       widget.assessmentId, widget.assessmentName,
       widget.classId, widget.className,
@@ -808,11 +807,20 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
 
   void _scheduleAutosave() {
     if (_commitInProgress || _locked) return;
+    // Capture the typed values now. A delayed timer must never read a newer
+    // submitted generation from live controllers and relabel it as a draft.
+    final snapshot = List<Map<String, dynamic>>.unmodifiable(
+      _collectGrades().map(
+        (row) => Map<String, dynamic>.unmodifiable(
+          Map<String, dynamic>.from(row),
+        ),
+      ),
+    );
     _autosaveTimer?.cancel();
     _autosaveTimer = Timer(const Duration(milliseconds: 450), () {
       _autosaveTail = _autosaveTail
           .catchError((_) {})
-          .then((_) => _persistDraftSnapshot());
+          .then((_) => _persistDraftSnapshot(snapshot));
     });
   }
 

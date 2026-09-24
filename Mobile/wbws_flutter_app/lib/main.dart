@@ -23,6 +23,7 @@ import 'screens/auth/session_recovery_screen.dart';
 import 'screens/shell/app_shell.dart';
 import 'screens/update/update_screen.dart';
 import 'screens/mezmur/mezmur_mini_player_host.dart';
+import 'screens/profile/sync_center_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -267,6 +268,9 @@ class _FKSSAppState extends State<FKSSApp> {
       // layout height (never covers FABs or save bars).
       builder: (context, navigator) =>
           MezmurMiniPlayerHost(child: navigator ?? const SizedBox.shrink()),
+      routes: {
+        '/sync-center': (_) => const SyncCenterScreen(),
+      },
       home: home,
     );
   }

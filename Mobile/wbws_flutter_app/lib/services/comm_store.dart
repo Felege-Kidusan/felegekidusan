@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'local_db.dart';
 import 'outbox_policy.dart';
+import 'sync_recovery_models.dart';
 
 final class CommOutboxClaim {
   const CommOutboxClaim({
@@ -376,31 +377,54 @@ class CommStore extends ChangeNotifier {
 
   /// Explicitly discard a terminal failed/conflict entry for the active scope.
   /// Accepted delivery is deleted only by exact claim settlement.
-  Future<void> deleteOutbox(String clientTag) async {
+  Future<SyncRecoveryActionResult> deleteOutbox(
+    String clientTag, {
+    String? expectedState,
+  }) async {
+    const terminal = {'failed', 'needs_attention', 'resolved_conflict'};
+    if (expectedState != null && !terminal.contains(expectedState)) {
+      return SyncRecoveryActionResult.stale;
+    }
     final db = await _db;
-    await db.transaction((txn) async {
+    return db.transaction((txn) async {
       final binding = await LocalDb().requireActiveOwnerBinding(txn);
-      await txn.delete(
+      final stateClause = expectedState == null
+          ? "state IN ('failed', 'needs_attention', 'resolved_conflict')"
+          : 'state = ?';
+      final affected = await txn.delete(
         'comm_outbox',
-        where: "client_tag = ? AND state IN "
-            "('failed', 'needs_attention', 'resolved_conflict') "
+        where: 'client_tag = ? AND $stateClause '
             'AND owner_user_id = ? AND created_authorization_version = ?',
         whereArgs: [
           clientTag,
+          if (expectedState != null) expectedState,
           binding['owner_user_id'],
           binding['created_authorization_version'],
         ],
       );
+      return affected == 1
+          ? SyncRecoveryActionResult.applied
+          : SyncRecoveryActionResult.stale;
     });
   }
 
-  /// Manual retry of a permanently-failed entry: fresh ladder, the
-  /// reason clears, the worker picks it up on the next kick.
-  Future<void> retryOutbox(String clientTag) async {
+  /// Manual compare-and-set retry of a permanently-failed entry: fresh
+  /// ladder, reason cleared, and no natural-key fallback for a stale handle.
+  Future<SyncRecoveryActionResult> retryOutbox(
+    String clientTag, {
+    String? expectedState,
+  }) async {
+    const terminal = {'failed', 'needs_attention', 'resolved_conflict'};
+    if (expectedState != null && !terminal.contains(expectedState)) {
+      return SyncRecoveryActionResult.stale;
+    }
     final db = await _db;
-    await db.transaction((txn) async {
+    return db.transaction((txn) async {
       final binding = await LocalDb().requireActiveOwnerBinding(txn);
-      await txn.update(
+      final stateClause = expectedState == null
+          ? "state IN ('failed', 'needs_attention', 'resolved_conflict')"
+          : 'state = ?';
+      final affected = await txn.update(
         'comm_outbox',
         {
           'state': 'pending',
@@ -411,15 +435,18 @@ class CommStore extends ChangeNotifier {
           'failure_http_status': null,
           'failed_at': null,
         },
-        where: "client_tag = ? AND state IN "
-            "('failed', 'needs_attention', 'resolved_conflict') "
+        where: 'client_tag = ? AND $stateClause '
             'AND owner_user_id = ? AND created_authorization_version = ?',
         whereArgs: [
           clientTag,
+          if (expectedState != null) expectedState,
           binding['owner_user_id'],
           binding['created_authorization_version'],
         ],
       );
+      return affected == 1
+          ? SyncRecoveryActionResult.applied
+          : SyncRecoveryActionResult.stale;
     });
   }
 

@@ -186,7 +186,8 @@ class P1ADoNotTouch(unittest.TestCase):
             body = method_body(self.ldb, f'Future<void> {name}(')
             self.assertIn('sync_error IS NULL', body, name)
         body = method_body(
-            self.ldb, 'Future<void> discardRejectedOperation(')
+            self.ldb,
+            'Future<SyncRecoveryActionResult> discardRejectedOperation(')
         self.assertNotIn('sync_error IS NULL', body)
         self.assertIn('client_op_id = ?', body)
         self.assertIn('owner_user_id = ?', body)

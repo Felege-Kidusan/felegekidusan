@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/connectivity_service.dart';
-import '../services/local_db.dart';
 import '../services/sync_service.dart';
 import '../utils/theme.dart';
 
@@ -19,7 +18,6 @@ class _OfflineBannerState extends State<OfflineBanner>
     with SingleTickerProviderStateMixin {
   final _connectivity = ConnectivityService();
   final _sync = SyncService();
-  final _db = LocalDb();
 
   late AnimationController _animCtrl;
   late Animation<double> _slideAnim;
@@ -70,7 +68,9 @@ class _OfflineBannerState extends State<OfflineBanner>
     _syncSub = _sync.syncStream.listen((status) {
       if (mounted) {
         setState(() {
-          _pendingCount = status.totalPending;
+          _pendingCount = status.retryableDue +
+              status.retryableWaiting +
+              status.inFlight;
           _syncing = status.syncing;
         });
       }
@@ -80,8 +80,16 @@ class _OfflineBannerState extends State<OfflineBanner>
   }
 
   Future<void> _loadPendingCount() async {
-    final count = await _db.getTotalPendingCount();
-    if (mounted) setState(() => _pendingCount = count);
+    await _sync.emitCurrentStatus();
+    final status = _sync.lastStatus;
+    if (mounted) {
+      setState(() {
+        _pendingCount = status.retryableDue +
+            status.retryableWaiting +
+            status.inFlight;
+        _syncing = status.syncing;
+      });
+    }
   }
 
   @override
@@ -142,12 +150,8 @@ class _OfflineBannerState extends State<OfflineBanner>
               ),
               if (!_justCameOnline && _pendingCount > 0)
                 GestureDetector(
-                  onTap: _syncing
-                      ? null
-                      : () async {
-                          await _sync.syncAll();
-                          _loadPendingCount();
-                        },
+                  onTap: () =>
+                      Navigator.of(context).pushNamed('/sync-center'),
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -156,7 +160,7 @@ class _OfflineBannerState extends State<OfflineBanner>
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
-                      _syncing ? 'Sending...' : 'Retry',
+                      _syncing ? 'Sending…' : 'Details',
                       style: TextStyle(
                         fontSize: 10,
                         color: AppTheme.warning,

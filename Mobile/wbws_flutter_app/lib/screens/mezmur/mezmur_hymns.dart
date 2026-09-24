@@ -7,6 +7,7 @@ import '../../services/hymn_store.dart';
 import '../../utils/config.dart';
 import '../../utils/cover_palette.dart';
 import '../../services/sync_service.dart';
+import '../../services/sync_recovery_models.dart';
 import '../../utils/scrolling.dart';
 import '../../utils/theme.dart';
 import '../../widgets/highlighted_text.dart';
@@ -523,25 +524,35 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
             ),
           if (_pending > 0)
             Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: 8),
               child: Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
+                child: Tooltip(
+                  message: 'Open Sync Center',
+                  child: InkWell(
                     borderRadius: BorderRadius.circular(12),
+                    onTap: () => Navigator.of(context).pushNamed(
+                      '/sync-center',
+                      arguments: SyncRecoveryDomain.hymn,
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.cloud_upload_outlined,
+                            size: 13, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text('$_pending',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700)),
+                      ]),
+                    ),
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.cloud_upload_outlined,
-                        size: 13, color: Colors.white),
-                    const SizedBox(width: 4),
-                    Text('$_pending',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700)),
-                  ]),
                 ),
               ),
             ),

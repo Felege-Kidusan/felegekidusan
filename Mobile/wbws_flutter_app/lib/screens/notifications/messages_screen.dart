@@ -12,6 +12,7 @@ import '../../services/inbox_view_model.dart';
 import '../../services/local_db.dart' show newClientOpId;
 import '../../services/messaging_view_model.dart';
 import '../../services/notification_service.dart';
+import '../../services/sync_recovery_models.dart';
 import '../../utils/theme.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
@@ -115,6 +116,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
         title: const Text('Messages',
             style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_rounded, size: 21),
+            tooltip: 'Sync Center',
+            onPressed: () => Navigator.of(context).pushNamed(
+              '/sync-center',
+              arguments: SyncRecoveryDomain.communication,
+            ),
+          ),
           if (_canMessage)
             IconButton(
               icon: const Icon(Icons.add_comment_rounded, size: 22),
@@ -888,16 +897,25 @@ class _ConversationScreenState extends State<_ConversationScreen>
     // row back to pending (fresh ladder) and let the worker run.
     final clientTag = m[kClientTag]?.toString();
     if (clientTag == null || clientTag.isEmpty) return;
-    await CommStore.instance.retryOutbox(clientTag);
+    final result = await CommStore.instance.retryOutbox(clientTag);
     await _syncOutboxTail();
-    CommOutboxService.instance.kick();
+    if (result == SyncRecoveryActionResult.applied) {
+      CommOutboxService.instance.kick();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This message changed. The list was reloaded.')));
+    }
   }
 
   Future<void> _discardLocal(Map<String, dynamic> m) async {
     final clientTag = m[kClientTag]?.toString();
     if (clientTag == null || clientTag.isEmpty) return;
-    await CommStore.instance.deleteOutbox(clientTag);
+    final result = await CommStore.instance.deleteOutbox(clientTag);
     await _syncOutboxTail();
+    if (result == SyncRecoveryActionResult.stale && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This message changed. The list was reloaded.')));
+    }
   }
 
   /// P1 audit B1 — tappable links open externally (browser for
@@ -1125,6 +1143,16 @@ class _ConversationScreenState extends State<_ConversationScreen>
         foregroundColor: Colors.white,
         title: Text(widget.subject,
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_rounded, size: 21),
+            tooltip: 'Sync Center',
+            onPressed: () => Navigator.of(context).pushNamed(
+              '/sync-center',
+              arguments: SyncRecoveryDomain.communication,
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [

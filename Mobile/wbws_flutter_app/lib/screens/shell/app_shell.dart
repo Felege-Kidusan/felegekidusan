@@ -8,6 +8,7 @@ import '../../services/app_update_service.dart';
 import '../../utils/config.dart';
 import '../../utils/theme.dart';
 import '../../widgets/offline_banner.dart';
+import '../../widgets/sync_attention.dart';
 import '../update/update_banner.dart';
 // Role home screens
 import '../teacher/teacher_home.dart';
@@ -381,8 +382,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // needs a Stack to overlay it.
       body: Column(
         children: [
-          // Global offline banner — appears at top when offline
+          // Global offline banner — appears at top when offline.
           const OfflineBanner(),
+          // Owner-safe entry for attention/paused/conflict recovery.
+          const SyncRecoveryBanner(),
           // P65: optional-update band (forced updates take over at the
           // root instead). Hidden until the server check reports a newer
           // non-mandatory version; rebuilds itself via the service's

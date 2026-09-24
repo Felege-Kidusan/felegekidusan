@@ -22,7 +22,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _api = ApiService();
   final _sync = SyncService();
   final _appLock = AppLockService();
-  int _pendingSync = 0;
+  SyncStatus? _syncStatus;
   bool _lockConfigured = false;
   int _autoLockSecs = 300;
   bool _biometricOn = false;
@@ -36,9 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _refreshLockState();
     _syncSub = _sync.syncStream.listen((s) {
       if (!mounted) return;
-      setState(() {
-        _pendingSync = s.totalPending;
-      });
+      setState(() => _syncStatus = s);
     });
   }
 
@@ -64,11 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadPendingCount() async {
     await _sync.emitCurrentStatus();
     final s = _sync.lastStatus;
-    if (mounted) {
-      setState(() {
-        _pendingSync = s.totalPending;
-      });
-    }
+    if (mounted) setState(() => _syncStatus = s);
   }
 
   Future<void> _logout() => showSessionLogoutDialog(context);
@@ -261,39 +255,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ]),
           const SizedBox(height: 12),
 
-          // Sync status
-          _buildSection('Sync Status', [
-            _infoTile(
-              _pendingSync > 0 ? Icons.sync_problem : Icons.cloud_done,
-              'Pending Sync',
-              _pendingSync > 0
-                  ? '${_sync.lastStatus.breakdown} waiting'
-                  : 'All synced',
-            ),
-            if (_pendingSync > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final result = await _sync.syncAll();
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(result.message)),
-                        );
-                        _loadPendingCount();
-                      }
-                    },
-                    icon: const Icon(Icons.sync, size: 16),
-                    label: const Text('Sync Now'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.primary,
-                    ),
-                  ),
-                ),
-              ),
-          ]),
+          // Owner-safe recovery inventory (not the old aggregate pending sum).
+          _buildSyncSection(),
           const SizedBox(height: 12),
 
           // App lock (Telegram-style passcode gate)
@@ -546,6 +509,79 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Widget _buildSyncSection() {
+    final status = _syncStatus ?? _sync.lastStatus;
+    final syncing = status.syncing;
+    final unresolved = status.privateUnresolvedTotal +
+        status.sharedHymnUnresolvedTotal +
+        status.communicationDraftCount;
+    final attention =
+        status.rejected + status.blockedDependency + status.resolvedConflict;
+    final subtitle = unresolved == 0
+        ? 'Everything is up to date'
+        : [
+            '${status.retryableDue + status.retryableWaiting + status.inFlight} waiting',
+            if (attention > 0) '$attention need attention',
+            if (status.pausedAuth + status.pausedScope > 0)
+              '${status.pausedAuth + status.pausedScope} paused',
+          ].join(' · ');
+    return _buildSection('Sync Status', [
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        onTap: () => Navigator.of(context).pushNamed('/sync-center'),
+        leading: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(.08),
+              borderRadius: BorderRadius.circular(12)),
+          child: syncing
+              ? const Padding(
+                  padding: EdgeInsets.all(11),
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(
+                  unresolved > 0
+                      ? Icons.sync_problem_rounded
+                      : Icons.cloud_done_rounded,
+                  color: unresolved > 0
+                      ? AppTheme.warning
+                      : AppTheme.success,
+                  size: 22,
+                ),
+        ),
+        title: const Text('Sync Center',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+        subtitle: Text(subtitle,
+            style: TextStyle(
+                fontSize: 12,
+                color: unresolved > 0
+                    ? AppTheme.warning
+                    : AppTheme.success)),
+        trailing: const Icon(Icons.chevron_right_rounded),
+      ),
+      const SizedBox(height: 6),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: syncing
+              ? null
+              : () async {
+                  final result = await _sync.syncAll(force: true);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(result.message)),
+                    );
+                    _loadPendingCount();
+                  }
+                },
+          icon: const Icon(Icons.sync, size: 16),
+          label: const Text('Sync Now'),
+          style: OutlinedButton.styleFrom(foregroundColor: AppTheme.primary),
+        ),
+      ),
+    ]);
   }
 
   Widget _buildProfileHeader(Map<String, dynamic> user) {
