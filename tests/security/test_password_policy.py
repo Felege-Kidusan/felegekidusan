@@ -20,6 +20,9 @@ class PasswordPolicyTests(unittest.TestCase):
         cls.teachers = (ROOT / "admin/api_teachers.php").read_text(encoding="utf-8")
         cls.user_save = (ROOT / "admin/backend/user-save.php").read_text(encoding="utf-8")
         cls.mobile_api = (ROOT / "api/v1/routes/users.php").read_text(encoding="utf-8")
+        cls.credentials = (
+            ROOT / "admin/backend/services/AccountCredentialService.php"
+        ).read_text(encoding="utf-8")
         cls.school_ui = (
             ROOT / "admin/dashboards/school_admin.php"
         ).read_text(encoding="utf-8")
@@ -61,17 +64,22 @@ class PasswordPolicyTests(unittest.TestCase):
     def test_every_password_write_uses_the_shared_policy(self):
         self.assertIn("validatePassword($password)", self.user_save)
         self.assertGreaterEqual(self.teachers.count("validatePassword("), 3)
-        self.assertIn("validatePassword($newPwd)", self.settings)
-        self.assertIn("validatePassword($newPassword)", self.mobile_api)
+        self.assertIn("AccountCredentialService", self.settings)
+        self.assertIn("changeOwnPassword", self.settings)
+        self.assertIn("AccountCredentialService", self.mobile_api)
+        self.assertIn("changeOwnPassword", self.mobile_api)
+        self.assertIn("PasswordPolicy::errors", self.credentials)
         for source in (self.settings, self.teachers, self.mobile_api):
             self.assertNotIn("at least 4 characters", source)
             self.assertNotIn("at least 6 characters", source)
 
     def test_mobile_password_change_revokes_refresh_sessions(self):
-        self.assertIn("UPDATE api_refresh_sessions", self.mobile_api)
-        self.assertIn("revoked_at = COALESCE", self.mobile_api)
-        self.assertIn("PASSWORD_DEFAULT", self.mobile_api)
-        self.assertNotIn("PASSWORD_BCRYPT", self.mobile_api)
+        self.assertIn("MysqliCredentialRepository", self.mobile_api)
+        self.assertIn("changeOwnPassword", self.mobile_api)
+        self.assertIn("UPDATE api_refresh_sessions", self.credentials)
+        self.assertIn("revoked_at = COALESCE", self.credentials)
+        self.assertIn("PASSWORD_DEFAULT", self.credentials)
+        self.assertNotIn("PASSWORD_BCRYPT", self.mobile_api + self.credentials)
 
     def test_browser_and_flutter_clients_explain_the_same_minimum(self):
         self.assertIn("pw.length<12", self.school_ui)

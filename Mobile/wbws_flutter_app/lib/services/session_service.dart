@@ -13,6 +13,7 @@ import 'comm_outbox_service.dart';
 import 'hymn_store.dart';
 import 'local_db.dart';
 import 'notification_service.dart';
+import 'profile_cache.dart';
 import 'session_models.dart';
 import 'sync_service.dart';
 import 'warm_store.dart';
@@ -66,6 +67,11 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
   bool _busy = false;
   bool _bootstrapped = false;
   String? _diagnostic;
+  Future<AuthRefreshOutcome>? _profileClaimsReconciliation;
+
+  /// Installed by the profile feature to drop process-memory profile bytes at
+  /// the same fail-closed boundary that clears protected credentials.
+  VoidCallback? onProfileSessionCleared;
 
   SessionRoot get root => _root;
   LocalSessionRecord get record => _record;
@@ -707,6 +713,69 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
     _root = SessionRoot.active;
   }
 
+  /// Refresh stale username/full-name claims through the existing rotating
+  /// refresh session, then mirror the same immutable-owner metadata into the
+  /// coordinator's durable session record. This does not change authorization
+  /// scope or create a second session authority.
+  Future<AuthRefreshOutcome> reconcileProfileClaims() async {
+    final existing = _profileClaimsReconciliation;
+    if (existing != null) return existing;
+    final attempt = _performProfileClaimsReconciliation();
+    _profileClaimsReconciliation = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (identical(_profileClaimsReconciliation, attempt)) {
+        _profileClaimsReconciliation = null;
+      }
+    }
+  }
+
+  Future<AuthRefreshOutcome> _performProfileClaimsReconciliation() async {
+    if (_root != SessionRoot.active || _busy) {
+      return AuthRefreshOutcome.superseded;
+    }
+    final generation = _generation;
+    final expectedOwner = _record.ownerUserId ?? _api.userId;
+    final outcome = await _api.refreshAccessToken();
+    if (_generation != generation || _root != SessionRoot.active) {
+      return AuthRefreshOutcome.superseded;
+    }
+    if (outcome == AuthRefreshOutcome.rejected) {
+      await enterReauthentication(reason: 'profile_claim_refresh_rejected');
+      return outcome;
+    }
+    if (outcome != AuthRefreshOutcome.sameScope) return outcome;
+
+    final user = _api.userData;
+    if (user == null ||
+        _api.userId != expectedOwner ||
+        _api.userRole != (_record.ownerRole ?? _api.userRole) ||
+        _api.authorizationVersion !=
+            (_record.authorizationVersion ?? _api.authorizationVersion)) {
+      return AuthRefreshOutcome.transientFailure;
+    }
+    try {
+      await _db.persistLocalSession(
+        state: SessionState.active,
+        generation: generation,
+        ownerUserId: expectedOwner,
+        authorizationVersion: _api.authorizationVersion,
+        ownerRole: _api.userRole,
+        ownerUsername: user['username']?.toString(),
+        ownerDisplayName: user['full_name']?.toString(),
+      );
+      _record = await _db.getLocalSession();
+      _publish();
+      return AuthRefreshOutcome.sameScope;
+    } catch (_) {
+      // The rotated secure bundle remains valid. Bootstrap repairs the SQLite
+      // metadata from that complete bundle; this call reports reconciliation
+      // incomplete so the profile UI does not claim success prematurely.
+      return AuthRefreshOutcome.transientFailure;
+    }
+  }
+
   /// Definitive credential loss preserves private SQLite work and the app PIN.
   /// Persisting the recovery marker and advancing generation happens before
   /// credentials are cleared, so a crash cannot silently reopen the shell.
@@ -742,7 +811,11 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
           ownerUserId: ownerUserId,
           authorizationVersion: authorizationVersion,
         );
+        await ProfileImageCache.instance.clearOwner(ownerUserId);
+      } else {
+        await ProfileImageCache.instance.clearAll();
       }
+      onProfileSessionCleared?.call();
       if (revokeCurrentSession) {
         await _api.logout();
       } else {
@@ -824,6 +897,8 @@ class SessionCoordinator extends ChangeNotifier with WidgetsBindingObserver {
       // purging marker and fail closed rather than later auto-activating a
       // credential whose private rows were already destroyed.
       await _api.logout();
+      await ProfileImageCache.instance.clearAll();
+      onProfileSessionCleared?.call();
       await NotificationService.instance.clearPersistedState();
       await _db.clearAllUserData();
       await AppLockService().clearPin();

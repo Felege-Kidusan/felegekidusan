@@ -58,6 +58,13 @@ $theme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
     (function() {
         var btn = document.getElementById('loginBtn');
         var err = document.getElementById('loginError');
+        if (typeof window.BroadcastChannel === 'function') {
+            try {
+                var signedOutChannel = new window.BroadcastChannel('ssms-profile-auth-context');
+                signedOutChannel.postMessage({ type: 'session-ended' });
+                signedOutChannel.close();
+            } catch (ignored) {}
+        }
         
         function doLogin() {
             var un = document.getElementById('username').value.trim();
@@ -77,6 +84,13 @@ $theme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     if (d.status === 'success' || d.success) {
+                        if (typeof window.BroadcastChannel === 'function') {
+                            try {
+                                var authChannel = new window.BroadcastChannel('ssms-profile-auth-context');
+                                authChannel.postMessage({ type: 'auth-changed' });
+                                authChannel.close();
+                            } catch (ignored) {}
+                        }
                         window.location.href = d.redirect || '/admin/dashboard.php';
                     } else {
                         showErr(d.message || 'Invalid credentials');

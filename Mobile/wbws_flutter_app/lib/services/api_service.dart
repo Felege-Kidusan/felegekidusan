@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -373,7 +374,73 @@ class ApiService {
       return null;
     }
     final user = Map<String, dynamic>.from(rawUser);
+    final current = _userData;
+    if (current != null &&
+        _positiveInt(current['id']) == _positiveInt(user['id']) &&
+        current['profile_version'] is String) {
+      for (final field in const [
+        'email',
+        'is_active',
+        'member_id',
+        'profile_image',
+        'profile_version',
+        'created_at',
+        'last_login',
+        'assignments',
+      ]) {
+        if (current.containsKey(field) && !user.containsKey(field)) {
+          user[field] = current[field];
+        }
+      }
+    }
     return _bundleFromValues(token, refreshToken, jsonEncode(user));
+  }
+
+  /// Persist canonical self-profile fields inside the existing protected
+  /// session profile. Tokens and authorization metadata are never accepted
+  /// from the profile payload, and the immutable authenticated owner must match.
+  Future<void> cacheCanonicalProfile(Map<String, dynamic> profile) async {
+    final ownerUserId = _positiveInt(profile['id']);
+    final generation = _requestGeneration;
+    if (ownerUserId == null || ownerUserId != userId) {
+      throw StateError('Canonical profile owner does not match the session.');
+    }
+    final profileRole = profile['role']?.toString() ?? '';
+    if (profileRole.isEmpty || profileRole != userRole) {
+      throw StateError('Canonical profile role does not match the session.');
+    }
+
+    await _serializeCredentialMutation(() async {
+      if (!_generationIsCurrent(generation) ||
+          ownerUserId != userId ||
+          _token == null ||
+          _refreshToken == null ||
+          _userData == null) {
+        throw StateError('The authenticated session changed.');
+      }
+      final merged = Map<String, dynamic>.from(_userData!);
+      for (final field in const [
+        'id',
+        'username',
+        'email',
+        'full_name',
+        'role',
+        'is_active',
+        'member_id',
+        'profile_image',
+        'profile_version',
+        'created_at',
+        'last_login',
+        'assignments',
+      ]) {
+        if (profile.containsKey(field)) merged[field] = profile[field];
+      }
+      // Preserve authorization_version from the authenticated bundle; it is
+      // deliberately absent from the self-profile contract.
+      final encoded = jsonEncode(merged);
+      await _secureStorage.write(key: AppConfig.userDataKey, value: encoded);
+      _userData = merged;
+    });
   }
 
   /// Phase two of login. SessionCoordinator calls this only after owner and local
@@ -993,6 +1060,204 @@ class ApiService {
       // Network, timeout, protocol and storage failures preserve the current
       // session. Only an explicit 401/403 is definitive credential loss.
       return AuthRefreshOutcome.transientFailure;
+    }
+  }
+
+  // ============================================================
+  // SELF-SERVICE PROFILE (online-only; never routed through an outbox)
+  // ============================================================
+
+  Future<ApiResponse> getOwnProfile() => get('/users/me');
+
+  Future<ApiResponse> updateOwnProfile(Map<String, dynamic> fields) =>
+      _profileJsonMutation('PATCH', '/users/me', fields);
+
+  Future<ApiResponse> changeOwnPassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmation,
+  }) =>
+      post('/users/change-password', body: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+        'confirm_password': confirmation,
+      });
+
+  Future<ApiResponse> removeOwnProfileImage(String profileVersion) =>
+      _profileJsonMutation('DELETE', '/users/me/profile-image', {
+        'profile_version': profileVersion,
+      });
+
+  Future<ApiResponse> _profileJsonMutation(
+    String method,
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final generation = _requestGeneration;
+    final sentToken = _token;
+    try {
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
+      Future<http.Response> send() {
+        final headers = _headers();
+        final encoded = jsonEncode(body);
+        if (method == 'PATCH') {
+          return _http
+              .patch(uri, headers: headers, body: encoded)
+              .timeout(Duration(seconds: AppConfig.postTimeout));
+        }
+        return _http
+            .delete(uri, headers: headers, body: encoded)
+            .timeout(Duration(seconds: AppConfig.postTimeout));
+      }
+
+      var response = await send();
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      AuthRefreshOutcome? refreshOutcome;
+      if (response.statusCode == 401) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            const {
+              AuthRefreshOutcome.scopeChanged,
+              AuthRefreshOutcome.superseded,
+            }.contains(refreshOutcome)) {
+          return ApiResponse.superseded(generation);
+        }
+        if (const {AuthRefreshOutcome.sameScope}.contains(refreshOutcome)) {
+          response = await send();
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
+          await _notifyIfRefreshRejected();
+        }
+      }
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleResponse(response)
+          .withRefreshOutcome(refreshOutcome)
+          .withGeneration(generation);
+    } catch (error) {
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(error).withGeneration(generation);
+    }
+  }
+
+  Future<ApiResponse> uploadOwnProfileImage({
+    required String filePath,
+    required String profileVersion,
+  }) async {
+    final generation = _requestGeneration;
+    final sentToken = _token;
+    try {
+      Future<http.Response> send() async {
+        final request = http.MultipartRequest(
+          'POST',
+          Uri.parse('${AppConfig.apiBaseUrl}/users/me/profile-image'),
+        )
+          ..fields['profile_version'] = profileVersion
+          ..files.add(await http.MultipartFile.fromPath('image', filePath));
+        final headers = _headers();
+        headers.remove('Content-Type');
+        request.headers.addAll(headers);
+        final streamed = await _http
+            .send(request)
+            .timeout(const Duration(seconds: 60));
+        return http.Response.fromStream(streamed);
+      }
+
+      var response = await send();
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      AuthRefreshOutcome? refreshOutcome;
+      if (response.statusCode == 401) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            const {
+              AuthRefreshOutcome.scopeChanged,
+              AuthRefreshOutcome.superseded,
+            }.contains(refreshOutcome)) {
+          return ApiResponse.superseded(generation);
+        }
+        if (const {AuthRefreshOutcome.sameScope}.contains(refreshOutcome)) {
+          response = await send();
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
+          await _notifyIfRefreshRejected();
+        }
+      }
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleResponse(response)
+          .withRefreshOutcome(refreshOutcome)
+          .withGeneration(generation);
+    } catch (error) {
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(error).withGeneration(generation);
+    }
+  }
+
+  Future<ApiResponse> downloadOwnProfileImage() async {
+    final generation = _requestGeneration;
+    final sentToken = _token;
+    try {
+      final uri =
+          Uri.parse('${AppConfig.apiBaseUrl}/users/me/profile-image');
+      Future<http.Response> send() => _http
+          .get(uri, headers: _headers())
+          .timeout(Duration(seconds: AppConfig.connectionTimeout));
+
+      var response = await send();
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      AuthRefreshOutcome? refreshOutcome;
+      if (response.statusCode == 401) {
+        refreshOutcome = await _refreshAfterUnauthorized(sentToken);
+        if (!_generationIsCurrent(generation) ||
+            const {
+              AuthRefreshOutcome.scopeChanged,
+              AuthRefreshOutcome.superseded,
+            }.contains(refreshOutcome)) {
+          return ApiResponse.superseded(generation);
+        }
+        if (const {AuthRefreshOutcome.sameScope}.contains(refreshOutcome)) {
+          response = await send();
+        } else if (refreshOutcome == AuthRefreshOutcome.rejected) {
+          await _notifyIfRefreshRejected();
+        }
+      }
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+
+      final contentType = response.headers['content-type']?.toLowerCase() ?? '';
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          contentType.startsWith('image/jpeg') &&
+          response.bodyBytes.isNotEmpty) {
+        _connectivity.markOnline();
+        return ApiResponse(
+          success: true,
+          data: Uint8List.fromList(response.bodyBytes),
+          statusCode: response.statusCode,
+          etag: response.headers['etag'],
+          refreshOutcome: refreshOutcome,
+          requestGeneration: generation,
+        );
+      }
+      return _handleResponse(response)
+          .withRefreshOutcome(refreshOutcome)
+          .withGeneration(generation);
+    } catch (error) {
+      if (!_generationIsCurrent(generation)) {
+        return ApiResponse.superseded(generation);
+      }
+      return _handleError(error).withGeneration(generation);
     }
   }
 

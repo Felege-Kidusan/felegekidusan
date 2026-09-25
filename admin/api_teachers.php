@@ -16,6 +16,10 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/member_sync.php';
 require_once __DIR__ . '/backend/services/AssignmentService.php';
+require_once __DIR__ . '/backend/services/ProfileService.php';
+require_once __DIR__ . '/backend/services/AccountCredentialService.php';
+require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 
 use App\Services\AssignmentService;
 
@@ -51,6 +55,77 @@ requirePostActions($action, ['create_teacher', 'update_teacher', 'toggle_status'
 // Migration-backed compatibility helper; avoids per-request schema inspection.
 function _teacherSafeColExists($conn, $table, $col) {
     return $table === 'users' && in_array($col, ['member_id', 'last_login'], true);
+}
+
+/** Consume reset buckets before any existing-account profile fields change. */
+function _teacherEnforcePasswordResetRateLimit(): void
+{
+    global $pdo;
+    $limiter = new \App\Services\SecurityRateLimiter(
+        $pdo instanceof \PDO ? $pdo : null,
+        ROOT_PATH . '/admin/uploads/cache'
+    );
+    $actorId = (int)($_SESSION['admin_id'] ?? 0);
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $rules = [
+        ['action' => 'web-admin-password-reset-user', 'subject' => 'user:' . $actorId],
+        ['action' => 'web-admin-password-reset-ip', 'subject' => 'ip:' . $ip],
+    ];
+    $retryAfter = 1;
+    $blocked = false;
+    foreach ($rules as $rule) {
+        $rate = $limiter->consume($rule['action'], $rule['subject'], 10, 3600);
+        if (!$rate['allowed']) {
+            $blocked = true;
+            $retryAfter = max($retryAfter, (int)$rate['retry_after']);
+        }
+    }
+    if ($blocked) {
+        http_response_code(429);
+        header('Retry-After: ' . $retryAfter);
+        echo json_encode([
+            'status' => 'error',
+            'code' => 'RATE_LIMITED',
+            'message' => 'Too many password reset attempts. Please try again later.',
+            'retry_after' => $retryAfter,
+        ]);
+        exit;
+    }
+}
+
+/**
+ * Existing-account reset boundary. Creation branches deliberately do not call
+ * this helper because no refresh families can exist before an account exists.
+ */
+function _teacherResetExistingPassword(mysqli $conn, int $teacherId, string $password): void
+{
+    $actorId = (int)($_SESSION['admin_id'] ?? 0);
+    $administrator = \App\Services\AuthorizedAdministratorIdentity::fromTrustedAuthorization(
+        $actorId
+    );
+    $service = new \App\Services\AccountCredentialService(
+        new \App\Services\MysqliCredentialRepository($conn)
+    );
+    $result = $service->resetPasswordByAdministrator(
+        $administrator,
+        $teacherId,
+        $password,
+        $password
+    );
+    $actor = \App\Services\SecurityAuditActor::fromAuthenticatedContext(
+        $actorId,
+        (string)($_SESSION['admin_username'] ?? ''),
+        'web',
+        $_SERVER
+    );
+    \App\Services\SecurityAuditService::recordTrusted(
+        $conn,
+        $actor,
+        'ADMIN_PASSWORD_RESET',
+        $result->auditContext(),
+        'user',
+        $teacherId
+    );
 }
 
 // Effective academic year — single source of truth (resolver, time-travel aware)
@@ -364,15 +439,26 @@ switch ($action) {
                 echo json_encode(['status' => 'error', 'message' => implode(' ', $passwordErrors)]);
                 exit;
             }
-            $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
-            $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ?, password_hash = ? WHERE id = ?");
-            $stmt->bind_param("sssisi", $fullName, $username, $emailDb, $memberId, $passwordHash, $teacherId);
-        } else {
-            $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ? WHERE id = ?");
-            $stmt->bind_param("sssii", $fullName, $username, $emailDb, $memberId, $teacherId);
+            _teacherEnforcePasswordResetRateLimit();
         }
+        $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ? WHERE id = ?");
+        $stmt->bind_param("sssii", $fullName, $username, $emailDb, $memberId, $teacherId);
         
-        if ($stmt->execute()) {
+        $teacherUpdated = $stmt->execute();
+        $stmt->close();
+        if ($teacherUpdated) {
+            if (!empty($newPassword)) {
+                try {
+                    _teacherResetExistingPassword($conn, $teacherId, $newPassword);
+                } catch (\App\Services\CredentialDomainException $error) {
+                    echo json_encode([
+                        'status' => 'error',
+                        'code' => $error->reason(),
+                        'message' => 'Password reset request was rejected.',
+                    ]);
+                    exit;
+                }
+            }
             // Update member is_teacher flags AND sync member_type
             $oldMemberId = $currentTeacher['member_id'];
             
@@ -878,6 +964,9 @@ switch ($action) {
                 exit;
             }
         }
+        if ($teacherId > 0 && $password !== '') {
+            _teacherEnforcePasswordResetRateLimit();
+        }
 
         if ($memberId) {
             $mchk = $conn->prepare("SELECT id, student_name, status FROM members WHERE id = ? LIMIT 1");
@@ -930,19 +1019,25 @@ switch ($action) {
                 echo json_encode(['status' => 'error', 'message' => 'Teacher not found.']);
                 exit;
             }
-            if ($password !== '') {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ?, password_hash = ? WHERE id = ?");
-                $stmt->bind_param('sssisi', $fullName, $username, $emailDb, $memberId, $hash, $teacherId);
-            } else {
-                $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ? WHERE id = ?");
-                $stmt->bind_param('sssii', $fullName, $username, $emailDb, $memberId, $teacherId);
-            }
+            $stmt = $conn->prepare("UPDATE users SET full_name = ?, username = ?, email = ?, member_id = ? WHERE id = ?");
+            $stmt->bind_param('sssii', $fullName, $username, $emailDb, $memberId, $teacherId);
             if (!$stmt->execute()) {
                 echo json_encode(['status' => 'error', 'message' => 'Could not update teacher login.']);
                 exit;
             }
             $stmt->close();
+            if ($password !== '') {
+                try {
+                    _teacherResetExistingPassword($conn, $teacherId, $password);
+                } catch (\App\Services\CredentialDomainException $error) {
+                    echo json_encode([
+                        'status' => 'error',
+                        'code' => $error->reason(),
+                        'message' => 'Password reset request was rejected.',
+                    ]);
+                    exit;
+                }
+            }
             $oldMid = (int)($current['member_id'] ?? 0);
             if ($oldMid && $oldMid !== (int)$memberId) {
                 syncMemberTeacherFlag($conn, $oldMid, false);

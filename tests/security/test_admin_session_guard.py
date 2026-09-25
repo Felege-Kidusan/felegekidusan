@@ -38,10 +38,12 @@ class AdminSessionGuardTests(unittest.TestCase):
         self.assertIn("AUTH_PASSWORD_VERSION", self.login)
 
     def test_password_change_keeps_current_session_and_revokes_mobile_sessions(self):
-        self.assertIn("$_SESSION['AUTH_PASSWORD_VERSION'] = hash('sha256', $newHash)", self.settings)
-        self.assertIn("UPDATE api_refresh_sessions SET revoked_at", self.settings)
+        self.assertIn("AccountCredentialService", self.settings)
+        self.assertIn("changeOwnPassword", self.settings)
+        self.assertIn("$_SESSION['AUTH_PASSWORD_VERSION'] = $result->passwordVersion()", self.settings)
+        self.assertIn("$_SESSION['AUTH_REVALIDATED_AT'] = time()", self.settings)
         self.assertIn("session_regenerate_id(true)", self.settings)
-        self.assertIn("$log->bind_param", self.settings)
+        self.assertIn("SecurityAuditService::recordTrusted", self.settings)
         self.assertNotIn("VALUES ($adminId, '{$_SESSION", self.settings)
 
     def test_privileged_routes_fail_closed_but_public_pages_can_continue_anonymously(self):

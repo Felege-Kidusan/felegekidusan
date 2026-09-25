@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/services/ProfileService.php';
+require_once __DIR__ . '/services/AccountCredentialService.php';
+require_once __DIR__ . '/services/SecurityAuditService.php';
+require_once __DIR__ . '/services/SecurityRateLimiter.php';
 
 // Detect if this is an AJAX request or a regular form submission
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
@@ -165,13 +169,38 @@ if ($password !== '') {
     }
 }
 
-if ($password !== '' && $confirmPassword !== '' && $password !== $confirmPassword) {
+if ($password !== '' && !hash_equals($password, $confirmPassword)) {
     respond('error', 'Passwords do not match.');
 }
 
 
 // Email: empty -> NULL
 $emailDb = $email !== '' ? $email : null;
+
+// Consume administrator-reset buckets before any profile fields are written.
+if (!$isCreating && $password !== '') {
+    $limiter = new \App\Services\SecurityRateLimiter(
+        $pdo instanceof \PDO ? $pdo : null,
+        ROOT_PATH . '/admin/uploads/cache'
+    );
+    $actorId = (int)($_SESSION['admin_id'] ?? 0);
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $rateResults = [
+        $limiter->consume('web-admin-password-reset-user', 'user:' . $actorId, 10, 3600),
+        $limiter->consume('web-admin-password-reset-ip', 'ip:' . $ip, 10, 3600),
+    ];
+    foreach ($rateResults as $rate) {
+        if (!$rate['allowed']) {
+            if (!headers_sent()) {
+                header('Retry-After: ' . max(1, (int)$rate['retry_after']));
+            }
+            respond('error', 'Too many password reset attempts. Please try again later.', [
+                'code' => 'RATE_LIMITED',
+                'retry_after' => max(1, (int)$rate['retry_after']),
+            ]);
+        }
+    }
+}
 
 try {
     // Check uniqueness of username/email
@@ -254,14 +283,64 @@ try {
             ':id'        => $userId,
         ];
 
-        if ($password !== '') {
-            $fieldsSql .= ", password_hash = :password_hash";
-            $params[':password_hash'] = password_hash($password, PASSWORD_DEFAULT);
-        }
-
         $sql = "UPDATE users SET {$fieldsSql} WHERE id = :id";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
+
+        $isCurrentAdministrator = (int)$userId === (int)($_SESSION['admin_id'] ?? 0);
+        $currentUsernameChanged = $isCurrentAdministrator
+            && !hash_equals((string)($_SESSION['admin_username'] ?? ''), $username);
+        if ($isCurrentAdministrator) {
+            $_SESSION['admin_username'] = $username;
+            $_SESSION['admin_full_name'] = $fullName;
+            $_SESSION['AUTH_REVALIDATED_AT'] = time();
+            if ($currentUsernameChanged && $password === '') {
+                session_regenerate_id(true);
+            }
+        }
+
+        // Existing-account password resets use the shared mandatory
+        // password+refresh-revocation transaction. Account creation above is a
+        // separate boundary and intentionally retains its creation-time hash.
+        if ($password !== '') {
+            try {
+                $administrator = \App\Services\AuthorizedAdministratorIdentity::fromTrustedAuthorization(
+                    (int)($_SESSION['admin_id'] ?? 0)
+                );
+                $credentialService = new \App\Services\AccountCredentialService(
+                    new \App\Services\MysqliCredentialRepository($conn)
+                );
+                $credentialResult = $credentialService->resetPasswordByAdministrator(
+                    $administrator,
+                    (int)$userId,
+                    $password,
+                    $confirmPassword
+                );
+                if ((int)$userId === $administrator->actorUserId()) {
+                    $_SESSION['AUTH_PASSWORD_VERSION'] = $credentialResult->passwordVersion();
+                    $_SESSION['AUTH_REVALIDATED_AT'] = time();
+                    session_regenerate_id(true);
+                }
+                $actor = \App\Services\SecurityAuditActor::fromAuthenticatedContext(
+                    $administrator->actorUserId(),
+                    (string)($_SESSION['admin_username'] ?? ''),
+                    'web',
+                    $_SERVER
+                );
+                \App\Services\SecurityAuditService::recordTrusted(
+                    $conn,
+                    $actor,
+                    'ADMIN_PASSWORD_RESET',
+                    $credentialResult->auditContext(),
+                    'user',
+                    (int)$userId
+                );
+            } catch (\App\Services\CredentialDomainException $error) {
+                respond('error', 'Password reset request was rejected.', [
+                    'code' => $error->reason(),
+                ]);
+            }
+        }
 
         // Teacher lifecycle: activating a suspended teacher restores exactly
         // the assignments that were paused with the account; deactivating

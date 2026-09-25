@@ -35,7 +35,7 @@ function handleCors() {
     // If Origin is set but NOT in our list → no CORS header = browser blocks it
     
     header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-App-Version, X-App-Build');
-    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     header('X-Content-Type-Options: nosniff');
     header('X-API-Version: 1.0');
     
@@ -128,7 +128,11 @@ function apiIdempotencyRequestHash(string $method, string $scope): string {
     return hash('sha256', $method . "\0" . $scope . "\0" . $canonical);
 }
 
-function apiIdempotencyBegin(int $userId, ?string $fromBody = null): void {
+function apiIdempotencyBegin(
+    int $userId,
+    ?string $fromBody = null,
+    ?string $explicitRequestHash = null
+): void {
     $bodyKey = trim((string)$fromBody);
     if ($bodyKey !== '' && empty($_SERVER['HTTP_IDEMPOTENCY_KEY'])) {
         $_SERVER['HTTP_IDEMPOTENCY_KEY'] = $bodyKey;
@@ -151,7 +155,12 @@ function apiIdempotencyBegin(int $userId, ?string $fromBody = null): void {
         $route = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? '/api/v1'), PHP_URL_PATH) ?: '/api/v1');
     }
     $scope = substr(strtoupper($method) . ' ' . $route, 0, 255);
-    $requestHash = apiIdempotencyRequestHash(strtoupper($method), $scope);
+    if ($explicitRequestHash !== null
+        && !preg_match('/^[a-f0-9]{64}$/D', $explicitRequestHash)) {
+        err('Invalid explicit idempotency request hash.', 500);
+    }
+    $requestHash = $explicitRequestHash
+        ?? apiIdempotencyRequestHash(strtoupper($method), $scope);
     $service = apiIdempotencyService();
     $result = $service->begin($userId, $key, $scope, $requestHash);
 
@@ -201,15 +210,8 @@ function apiIdempotencyStore(string $json, int $code): void {
     $pack['service']->complete($pack['reservation'], $json, $code);
 }
 
-/**
- * Atomic API rate limiting per client address + endpoint.
- *
- * Idempotency keys never bypass throttling: they are caller-controlled and are
- * only a replay-safety mechanism. The shared database backend supports multiple
- * API instances; SecurityRateLimiter provides a locked compatibility fallback
- * while migration 008 is rolled out.
- */
-function isApiRateLimited($endpoint, $maxPerMinute = 60) {
+/** Shared multi-instance limiter used by every API boundary. */
+function apiSecurityRateLimiter(): \App\Services\SecurityRateLimiter {
     static $rateLimiter = null;
     global $pdo;
 
@@ -220,11 +222,74 @@ function isApiRateLimited($endpoint, $maxPerMinute = 60) {
             ROOT_PATH . '/admin/uploads/cache'
         );
     }
+    return $rateLimiter;
+}
 
+/** @return array{allowed:bool,retry_after:int} */
+function apiConsumeRateLimit(
+    string $action,
+    string $subject,
+    int $limit,
+    int $windowSeconds
+): array {
+    $safeAction = preg_replace('/[^A-Za-z0-9._:-]/', '_', $action);
+    return apiSecurityRateLimiter()->consume(
+        'api:' . substr((string)$safeAction, 0, 59),
+        $subject !== '' ? $subject : 'unknown',
+        max(1, min($limit, 1000)),
+        max(1, min($windowSeconds, 86400))
+    );
+}
+
+/**
+ * Enforce several user/IP buckets on one HTTP operation. Every bucket is
+ * consumed so alternating identities cannot bypass the companion limit.
+ *
+ * @param array<int,array{action:string,subject:string,limit:int,window:int}> $rules
+ */
+function apiEnforceRateLimits(array $rules): void {
+    $blocked = false;
+    $retryAfter = 1;
+    $publishedLimit = 1;
+    foreach ($rules as $rule) {
+        $limit = max(1, min((int)($rule['limit'] ?? 1), 1000));
+        $result = apiConsumeRateLimit(
+            (string)($rule['action'] ?? 'request'),
+            (string)($rule['subject'] ?? 'unknown'),
+            $limit,
+            (int)($rule['window'] ?? 60)
+        );
+        if (!$result['allowed']) {
+            $blocked = true;
+            $retryAfter = max($retryAfter, (int)$result['retry_after']);
+            $publishedLimit = $limit;
+        }
+    }
+    if (!$blocked) {
+        return;
+    }
+    if (!headers_sent()) {
+        header('Retry-After: ' . max(1, $retryAfter));
+        header('X-RateLimit-Limit: ' . $publishedLimit);
+    }
+    err('Too many requests. Please try again later.', 429, [
+        'code' => 'RATE_LIMITED',
+        'retry_after' => max(1, $retryAfter),
+    ]);
+}
+
+/**
+ * Atomic API rate limiting per client address + endpoint.
+ *
+ * Idempotency keys never bypass throttling: they are caller-controlled and are
+ * only a replay-safety mechanism. Existing login/authentication limits retain
+ * their one-minute convention.
+ */
+function isApiRateLimited($endpoint, $maxPerMinute = 60) {
     $safeEndpoint = preg_replace('/[^A-Za-z0-9._:-]/', '_', (string)$endpoint);
     $limit = max(1, min((int)$maxPerMinute, 1000));
-    $result = $rateLimiter->consume(
-        'api:' . substr($safeEndpoint, 0, 59),
+    $result = apiConsumeRateLimit(
+        (string)$safeEndpoint,
         (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
         $limit,
         60

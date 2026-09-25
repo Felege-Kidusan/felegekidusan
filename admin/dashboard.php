@@ -19,6 +19,15 @@ $role = $_SESSION['admin_role'] ?? '';
 $fullName = $_SESSION['admin_full_name'] ?? $_SESSION['admin_username'] ?? 'User';
 $username = $_SESSION['admin_username'] ?? '';
 
+// Every legacy role dashboard receives the same account-page launcher. The two
+// separated dashboard shells expose the same destination in their sidebars.
+register_shutdown_function(static function (): void {
+    $accountLink = __DIR__ . '/components/account_link.php';
+    if (is_file($accountLink)) {
+        include $accountLink;
+    }
+});
+
 $roleFeature = \App\Services\FeatureGate::forRoleDashboard($role);
 if ($roleFeature !== null && !\App\Services\FeatureGate::isEnabled($roleFeature)) {
     http_response_code(403);

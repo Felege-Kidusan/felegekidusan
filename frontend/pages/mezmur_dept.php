@@ -52,6 +52,7 @@ ob_start();
                 <li><button class="school-nav-link" data-section="analytics"><i class="fa-solid fa-chart-column"></i> Analytics</button></li>
                 <li><button class="school-nav-link" data-section="takers"><i class="fa-solid fa-user-shield"></i> Attendance Takers</button></li>
                 <li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
+                <li><a class="school-nav-link" href="<?= e(ssms_app_url('admin/account.php')) ?>"><i class="fa-solid fa-user-shield"></i> My Profile</a></li>
             </ul>
         </nav>
 
@@ -967,6 +968,7 @@ ob_start();
         <button class="school-bottom-nav-btn" data-section="attendance" aria-label="Attendance"><i class="fa-solid fa-calendar-check"></i><span>Attend</span></button>
         <button class="school-bottom-nav-btn" data-section="analytics" aria-label="Analytics"><i class="fa-solid fa-chart-column"></i><span>Analyze</span></button>
         <button class="school-bottom-nav-btn" data-section="takers" aria-label="Attendance takers"><i class="fa-solid fa-user-shield"></i><span>Takers</span></button>
+        <a class="school-bottom-account-link" href="<?= e(ssms_app_url('admin/account.php')) ?>" aria-label="My profile"><i class="fa-solid fa-user"></i><span>Profile</span></a>
     </div>
 </nav>
 
