@@ -315,7 +315,9 @@ $csrfToken = generateCsrfToken();
       }
       ?>
 
-      <form class="login-form" action="backend/login.php" method="POST">
+      <div class="alert alert-error" id="loginRuntimeError" role="alert" hidden><i class="fa-solid fa-circle-exclamation"></i><span id="loginRuntimeErrorText"></span></div>
+
+      <form class="login-form" id="adminLoginForm" action="backend/login.php" method="POST">
         <?= csrfField() ?>
         <div class="form-group">
           <label for="username">Username / Email</label>
@@ -341,8 +343,8 @@ $csrfToken = generateCsrfToken();
           <a href="#" class="small-link">Forgot password?</a>
         </div>
 
-        <button type="submit" class="btn-primary">
-          <i class="fa-solid fa-right-to-bracket" style="margin-right:0.4rem"></i> Sign In
+        <button type="submit" class="btn-primary" id="adminLoginButton">
+          <i class="fa-solid fa-right-to-bracket" style="margin-right:0.4rem"></i> <span id="adminLoginButtonText">Sign In</span>
         </button>
       </form>
 
@@ -355,6 +357,48 @@ $csrfToken = generateCsrfToken();
 
   <script>
     document.getElementById('year').textContent = '<?php require_once __DIR__ . "/backend/ethiopian_date.php"; echo ethio_date_format(new DateTime('now', new DateTimeZone('Africa/Addis_Ababa')), "Y"); ?>';
+    function publishAuthSignal(type) {
+      if (typeof window.BroadcastChannel !== 'function') return;
+      try {
+        const authChannel = new window.BroadcastChannel('ssms-profile-auth-context');
+        authChannel.postMessage({type:type});
+        authChannel.close();
+      } catch (ignored) {}
+    }
+    publishAuthSignal('session-ended');
+
+    const adminLoginForm = document.getElementById('adminLoginForm');
+    adminLoginForm.addEventListener('submit', async function(event) {
+      if (typeof window.fetch !== 'function' || typeof window.FormData !== 'function') return;
+      event.preventDefault();
+      const loginButton = document.getElementById('adminLoginButton');
+      const loginButtonText = document.getElementById('adminLoginButtonText');
+      const runtimeError = document.getElementById('loginRuntimeError');
+      const runtimeErrorText = document.getElementById('loginRuntimeErrorText');
+      loginButton.disabled = true;
+      loginButtonText.textContent = 'Signing in…';
+      runtimeError.hidden = true;
+      runtimeErrorText.textContent = '';
+      try {
+        const response = await fetch(adminLoginForm.action, {
+          method: 'POST',
+          body: new FormData(adminLoginForm),
+          credentials: 'same-origin',
+          headers: {'Accept':'application/json'}
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.status !== 'success') {
+          throw new Error(typeof payload.message === 'string' ? payload.message : 'Sign in failed.');
+        }
+        publishAuthSignal('auth-changed');
+        window.location.href = payload.redirect || 'dashboard.php';
+      } catch (error) {
+        runtimeErrorText.textContent = error && error.message ? error.message : 'Connection error. Please try again.';
+        runtimeError.hidden = false;
+        loginButton.disabled = false;
+        loginButtonText.textContent = 'Sign In';
+      }
+    });
   </script>
 </body>
 </html>

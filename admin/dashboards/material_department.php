@@ -243,4 +243,5 @@ document.addEventListener('DOMContentLoaded',()=>{loadDash();loadMatCats();loadI
     const t=new Date().toISOString().slice(0,10);['inDate','outDate'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=t;});
 });
 </script>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body></html>

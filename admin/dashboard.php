@@ -525,6 +525,7 @@ function showDashboardNotReady($role, $fullName, $username) {
             }
         }, 1000);
     </script>
+    <?php include __DIR__ . '/components/account_link.php'; ?>
 </body>
 </html>
 <?php

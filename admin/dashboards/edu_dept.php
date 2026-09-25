@@ -2483,4 +2483,5 @@ document.addEventListener('click',e=>{
 });
 });
 </script>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body></html>

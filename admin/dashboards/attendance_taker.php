@@ -674,5 +674,6 @@ require __DIR__ . '/../components/bottom_nav.php';
 ?>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body>
 </html>

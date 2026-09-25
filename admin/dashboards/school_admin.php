@@ -1323,4 +1323,5 @@ document.addEventListener('DOMContentLoaded',()=>{
 document.querySelectorAll('.mo').forEach(mo=>{mo.addEventListener('click',function(e){if(e.target===this)this.classList.remove('show');});});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));});
 </script>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body></html>

@@ -1727,5 +1727,6 @@ require __DIR__ . '/../components/bottom_nav.php';
             }
         }
     </script>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body>
 </html>

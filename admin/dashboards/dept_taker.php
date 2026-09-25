@@ -94,5 +94,6 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
     </div>
 </main>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body>
 </html>

@@ -1282,5 +1282,6 @@ require __DIR__ . '/../components/bottom_nav.php';
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body>
 </html>

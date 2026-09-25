@@ -2294,70 +2294,17 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                     <button onclick="showSettingsTab(this,'stSystem')" class="stab"><i class="fa-solid fa-server mr-1"></i>System</button>
                 </div>
 
-                <!-- ===== MY PROFILE ===== -->
+                <!-- ===== COMMON ACCOUNT PAGE ===== -->
                 <div id="stProfile" class="settings-pane">
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        <!-- Profile Card -->
-                        <div class="panel p-5 text-center">
-                            <div class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center mx-auto mb-3 shadow-lg">
-                                <span class="text-3xl font-bold text-white" id="spAvatar"><?= strtoupper(substr($userName, 0, 1)) ?></span>
-                            </div>
-                            <h3 class="font-bold text-slate-800 text-lg" id="spName"><?= e($userName) ?></h3>
-                            <p class="text-xs text-slate-500 mb-1" id="spUsername">@<?= e($username) ?></p>
-                            <span class="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 uppercase"><?= e($userRole) ?></span>
-                            <div class="mt-4 space-y-2 text-xs text-slate-500 text-left">
-                                <div class="flex justify-between"><span>Email</span><span class="font-medium text-slate-700" id="spEmail">Loading...</span></div>
-                                <div class="flex justify-between"><span>Member Since</span><span class="font-medium text-slate-700" id="spCreated">—</span></div>
-                                <div class="flex justify-between"><span>Last Login</span><span class="font-medium text-slate-700" id="spLastLogin">—</span></div>
-                                <div class="flex justify-between"><span>Total Logins</span><span class="font-medium text-slate-700" id="spLogins">—</span></div>
-                            </div>
+                    <div class="panel p-6 text-center">
+                        <div class="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
+                            <i class="fa-solid fa-user-shield text-2xl text-white" aria-hidden="true"></i>
                         </div>
-
-                        <!-- Edit Profile Form -->
-                        <div class="panel p-5 lg:col-span-2">
-                            <h4 class="font-semibold text-slate-700 mb-4 flex items-center gap-2"><i class="fa-solid fa-pen-to-square text-emerald-500"></i> Edit Profile</h4>
-                            <div class="space-y-4">
-                                <div>
-                                    <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Username</label>
-                                    <input type="text" id="profUsername" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-500 cursor-not-allowed" disabled>
-                                    <p class="text-[10px] text-slate-400 mt-1">Username cannot be changed</p>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Full Name <span class="text-red-400">*</span></label>
-                                    <input type="text" id="profName" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400" placeholder="Your full name">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Email</label>
-                                    <input type="email" id="profEmail" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400" placeholder="your@email.com">
-                                </div>
-                                <button onclick="saveProfile()" class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition flex items-center gap-2">
-                                    <i class="fa-solid fa-check"></i> Save Changes
-                                </button>
-                            </div>
-
-                            <hr class="my-6 border-slate-100">
-
-                            <h4 class="font-semibold text-slate-700 mb-4 flex items-center gap-2"><i class="fa-solid fa-lock text-amber-500"></i> Change Password</h4>
-                            <div class="space-y-3">
-                                <div>
-                                    <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Current Password</label>
-                                    <input type="password" id="pwdCurrent" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Enter current password">
-                                </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">New Password</label>
-                                        <input type="password" id="pwdNew" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Min 12 characters">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-semibold text-slate-500 mb-1 uppercase">Confirm New Password</label>
-                                        <input type="password" id="pwdConfirm" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400" placeholder="Repeat new password">
-                                    </div>
-                                </div>
-                                <button onclick="changePassword()" class="px-5 py-2.5 bg-amber-500 text-white rounded-xl text-xs font-semibold hover:bg-amber-600 transition flex items-center gap-2">
-                                    <i class="fa-solid fa-key"></i> Change Password
-                                </button>
-                            </div>
-                        </div>
+                        <h3 class="font-bold text-slate-800 text-lg mb-2">Profile &amp; account security</h3>
+                        <p class="text-sm text-slate-500 max-w-xl mx-auto mb-5">Manage your name, email, username, private profile image, and password in the shared account center.</p>
+                        <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 transition focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2">
+                            <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Open My Profile
+                        </a>
                     </div>
                 </div>
 
@@ -4240,7 +4187,6 @@ function showSettingsTab(btn, id) {
     document.querySelectorAll('.stab').forEach(b => b.classList.remove('stab-on'));
     document.getElementById(id).style.display = 'block';
     btn.classList.add('stab-on');
-    if (id === 'stProfile' && !document.getElementById('profName').value) loadProfile();
     if (id === 'stDept' && !document.getElementById('deptNameEn').value) loadDeptSettings();
     if (id === 'stPrefs' && !document.getElementById('codeDigits')._loaded) loadPreferences();
     if (id === 'stSystem') loadSystemInfo();
@@ -4263,48 +4209,6 @@ function sApiPost(action, data) {
 }
 function sApiGet(action) {
     return fetch('/admin/api_settings.php?action=' + action, { credentials: 'same-origin' }).then(r => r.json());
-}
-
-// --- Profile ---
-function loadProfile() {
-    sApiGet('profile_get').then(d => {
-        if (d.status !== 'success') return;
-        const u = d.user;
-        document.getElementById('profUsername').value = u.username || '';
-        document.getElementById('profName').value = u.full_name || '';
-        document.getElementById('profEmail').value = u.email || '';
-        document.getElementById('spEmail').textContent = u.email || '—';
-        document.getElementById('spCreated').textContent = u.created_at ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.created_at,'medium'):new Date(u.created_at).toLocaleDateString()) : '—';
-        document.getElementById('spLastLogin').textContent = u.last_login ? (typeof WBWSCalendar!=='undefined'?WBWSCalendar.formatDate(u.last_login,'medium'):new Date(u.last_login).toLocaleDateString()) : 'Never';
-        document.getElementById('spLogins').textContent = d.login_count || '0';
-    });
-}
-
-function saveProfile() {
-    const name = document.getElementById('profName').value.trim();
-    const email = document.getElementById('profEmail').value.trim();
-    if (!name) { settingsToast('Name is required', false); return; }
-    sApiPost('profile_update', { full_name: name, email: email }).then(d => {
-        settingsToast(d.message, d.status === 'success');
-        if (d.status === 'success') {
-            document.getElementById('spName').textContent = name;
-            document.getElementById('spEmail').textContent = email || '—';
-            document.getElementById('spAvatar').textContent = name.charAt(0).toUpperCase();
-        }
-    }).catch(() => settingsToast('Network error', false));
-}
-
-function changePassword() {
-    const cur = document.getElementById('pwdCurrent').value;
-    const nw = document.getElementById('pwdNew').value;
-    const cf = document.getElementById('pwdConfirm').value;
-    if (!cur || !nw || !cf) { settingsToast('All password fields required', false); return; }
-    if (nw !== cf) { settingsToast('New passwords do not match', false); return; }
-    if (nw.length < 12) { settingsToast('Min 12 characters required', false); return; }
-    sApiPost('password_change', { current_password: cur, new_password: nw, confirm_password: cf }).then(d => {
-        settingsToast(d.message, d.status === 'success');
-        if (d.status === 'success') { document.getElementById('pwdCurrent').value = ''; document.getElementById('pwdNew').value = ''; document.getElementById('pwdConfirm').value = ''; }
-    }).catch(() => settingsToast('Network error', false));
 }
 
 // --- Department ---
@@ -4676,10 +4580,8 @@ const InfoReports = (function () {
     return { toggleFields: toggleFields, download: download };
 })();
 
-// Auto-load profile when settings section first opens
+// Keep the settings preference preview reactive.
 (function() {
-    var sb = document.querySelector('[data-section="settings"]');
-    if (sb) sb.addEventListener('click', function() { setTimeout(function() { if (document.getElementById('profName') && !document.getElementById('profName').value) loadProfile(); }, 200); });
     if (document.getElementById('codePrefix')) document.getElementById('codePrefix').addEventListener('input', updateCodePreview);
     if (document.getElementById('codeDigits')) document.getElementById('codeDigits').addEventListener('change', updateCodePreview);
 })();

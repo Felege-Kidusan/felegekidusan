@@ -95,6 +95,9 @@ try {
     $_SESSION['AUTH_STARTED_AT'] = time();
     $_SESSION['AUTH_REVALIDATED_AT'] = time();
     $_SESSION['AUTH_PASSWORD_VERSION'] = hash('sha256', (string)$user['password_hash']);
+    // Random per-login browser context used only to reject stale account pages.
+    // It never selects or authorizes an account; admin_id remains authoritative.
+    $_SESSION['PROFILE_ACCOUNT_CONTEXT'] = bin2hex(random_bytes(32));
     generateCsrfToken();
 
     try {

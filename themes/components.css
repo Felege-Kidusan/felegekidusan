@@ -7,6 +7,30 @@
    Reusable by every department dashboard (finance, mezmur, edu…).
    ═══════════════════════════════════════════════════════════════ */
 
+/* Shared mobile account destination. It is intentionally not a section
+ * switch button, so department tab controllers ignore it and normal link
+ * navigation remains keyboard- and browser-native. */
+.school-bottom-account-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .1rem;
+    padding: .35rem .5rem;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--school-text-dim);
+    font-family: var(--school-font-body);
+    font-size: .58rem;
+    text-decoration: none;
+}
+.school-bottom-account-link i { font-size: 1rem; }
+.school-bottom-account-link:hover { color: var(--school-text-bright); }
+.school-bottom-account-link:focus-visible {
+    outline: 2px solid var(--school-accent);
+    outline-offset: 2px;
+}
+
 /* P42: visually hidden but announced by screen readers. The standard
  * clip-rect pattern — `display:none` would remove it from the
  * accessibility tree entirely, defeating the purpose. */

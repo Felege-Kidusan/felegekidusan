@@ -294,5 +294,6 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 
 <script src="/admin/js/content_editor.js?v=<?= (int) filemtime(__DIR__ . '/../js/content_editor.js') ?>"></script>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 </body>
 </html>

@@ -59,6 +59,7 @@ ob_start();
                 <li><button class="school-nav-link" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button></li>
                 <li><button class="school-nav-link" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports</button></li>
                 <li><button class="school-nav-link" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button></li>
+                <li><a class="school-nav-link" href="<?= e(ssms_app_url('admin/account.php')) ?>"><i class="fa-solid fa-user-shield"></i> My Profile</a></li>
             </ul>
         </nav>
 
@@ -338,6 +339,7 @@ ob_start();
         <button class="school-bottom-nav-btn" data-section="fees"><i class="fa-solid fa-hand-holding-dollar"></i><span>Fees</span></button>
         <button class="school-bottom-nav-btn" data-section="categories"><i class="fa-solid fa-tags"></i><span>Cats</span></button>
         <button class="school-bottom-nav-btn" data-section="reports"><i class="fa-solid fa-chart-line"></i><span>Reports</span></button>
+        <a class="school-bottom-account-link" href="<?= e(ssms_app_url('admin/account.php')) ?>" aria-label="My profile"><i class="fa-solid fa-user"></i><span>Profile</span></a>
     </div>
 </nav>
 

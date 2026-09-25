@@ -16,6 +16,11 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/backend/services/ProfileService.php';
+require_once __DIR__ . '/backend/services/AccountCredentialService.php';
+require_once __DIR__ . '/backend/services/ProfileImageService.php';
+require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+require_once __DIR__ . '/backend/services/SecurityRateLimiter.php';
 
 if (empty($_SESSION['admin_logged_in'])) {
     http_response_code(401);
@@ -25,10 +30,257 @@ if (empty($_SESSION['admin_logged_in'])) {
 
 $adminId = (int)($_SESSION['admin_id'] ?? 0);
 $adminRole = $_SESSION['admin_role'] ?? '';
-$action = $_REQUEST['action'] ?? '';
+$action = is_string($_REQUEST['action'] ?? null) ? (string)$_REQUEST['action'] : '';
+
+// Opaque per-login context. This is a stale-page precondition only: ownership
+// always remains derived from the authenticated PHP session.
+$settingsAccountContext = $_SESSION['PROFILE_ACCOUNT_CONTEXT'] ?? '';
+if (!is_string($settingsAccountContext)
+    || preg_match('/^[a-f0-9]{64}$/D', $settingsAccountContext) !== 1) {
+    $settingsAccountContext = bin2hex(random_bytes(32));
+    $_SESSION['PROFILE_ACCOUNT_CONTEXT'] = $settingsAccountContext;
+}
+
+// Reject a mutation dispatched by a page from an older login before evaluating
+// that page's now-stale CSRF token. The context cannot select an account.
+$profileMutationActions = [
+    'profile_update', 'password_change', 'profile_image_upload', 'profile_image_remove',
+];
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST'
+    && in_array($action, $profileMutationActions, true)) {
+    $submittedContext = $_SERVER['HTTP_X_ACCOUNT_CONTEXT'] ?? '';
+    if (!is_string($submittedContext)
+        || !hash_equals($settingsAccountContext, $submittedContext)) {
+        http_response_code(409);
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'The authenticated account context changed. Reload account data.',
+            'code' => 'ACCOUNT_CONTEXT_CHANGED',
+        ]);
+        exit;
+    }
+}
 
 // CSRF protection for all POST requests
 requireCsrfForPost();
+
+$settingsIdentity = \App\Services\AuthenticatedProfileIdentity::fromTrustedUserId($adminId);
+$settingsImageSchemaReady = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
+$settingsProfileService = new \App\Services\ProfileService(
+    new \App\Services\MysqliProfileRepository($conn, $settingsImageSchemaReady)
+);
+$settingsAuditActor = \App\Services\SecurityAuditActor::fromAuthenticatedContext(
+    $adminId,
+    (string)($_SESSION['admin_username'] ?? ''),
+    'web',
+    $_SERVER
+);
+
+/** @return array<string,mixed> */
+function settingsJsonBody(): array
+{
+    $decoded = json_decode((string)file_get_contents('php://input'), true);
+    return is_array($decoded) ? $decoded : $_POST;
+}
+
+/** @param array<string,mixed> $profile @return array<string,mixed> */
+function settingsDecorateProfile(array $profile): array
+{
+    if (!empty($profile['profile_image']['present'])) {
+        $profile['profile_image']['url'] = function_exists('ssms_app_url')
+            ? ssms_app_url('admin/profile_image.php')
+            : '/admin/profile_image.php';
+    }
+    return $profile;
+}
+
+function settingsFail(string $message, int $status, string $code, array $extra = []): void
+{
+    http_response_code($status);
+    echo json_encode(array_merge([
+        'status' => 'error',
+        'message' => $message,
+        'code' => $code,
+    ], $extra), JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+/** @param array<string,mixed> $input */
+function settingsRequireProfileVersion(array $input): string
+{
+    try {
+        return \App\Services\ProfileService::requireProfileVersion(
+            $input['profile_version'] ?? null
+        );
+    } catch (\App\Services\ProfileDomainException $error) {
+        settingsFail(
+            'A valid profile version is required. Reload account data and try again.',
+            422,
+            'PROFILE_VERSION_REQUIRED',
+            ['reason' => $error->reason()]
+        );
+    }
+}
+
+/** @param array<int,array{action:string,subject:string,limit:int,window:int}> $rules */
+function settingsEnforceRateLimits(array $rules): void
+{
+    global $pdo;
+    $limiter = new \App\Services\SecurityRateLimiter(
+        $pdo instanceof \PDO ? $pdo : null,
+        ROOT_PATH . '/admin/uploads/cache'
+    );
+    $blocked = false;
+    $retryAfter = 1;
+    foreach ($rules as $rule) {
+        $result = $limiter->consume(
+            $rule['action'],
+            $rule['subject'],
+            $rule['limit'],
+            $rule['window']
+        );
+        if (!$result['allowed']) {
+            $blocked = true;
+            $retryAfter = max($retryAfter, (int)$result['retry_after']);
+        }
+    }
+    if ($blocked) {
+        header('Retry-After: ' . $retryAfter);
+        settingsFail('Too many requests. Please try again later.', 429, 'RATE_LIMITED', [
+            'retry_after' => $retryAfter,
+        ]);
+    }
+}
+
+/** @param array<string,mixed> $before @param array<string,mixed> $after */
+function settingsAuditProfileChanges(
+    \mysqli $conn,
+    \App\Services\SecurityAuditActor $actor,
+    int $userId,
+    array $before,
+    array $after
+): void {
+    if (!hash_equals((string)$before['username'], (string)$after['username'])) {
+        \App\Services\SecurityAuditService::recordTrusted(
+            $conn,
+            $actor,
+            'PROFILE_USERNAME_CHANGED',
+            [
+                'old_username' => (string)$before['username'],
+                'new_username' => (string)$after['username'],
+            ],
+            'user',
+            $userId
+        );
+    }
+    if (($before['email'] ?? null) !== ($after['email'] ?? null)) {
+        \App\Services\SecurityAuditService::recordTrusted(
+            $conn,
+            $actor,
+            'PROFILE_EMAIL_CHANGED',
+            ['operation' => 'email_changed'],
+            'user',
+            $userId
+        );
+    }
+    if (!hash_equals((string)$before['full_name'], (string)$after['full_name'])) {
+        \App\Services\SecurityAuditService::recordTrusted(
+            $conn,
+            $actor,
+            'PROFILE_FULL_NAME_CHANGED',
+            ['operation' => 'full_name_changed'],
+            'user',
+            $userId
+        );
+    }
+}
+
+function settingsProfileError(\Throwable $error): void
+{
+    if ($error instanceof \App\Services\ProfileDomainException) {
+        $reason = $error->reason();
+        $status = in_array($reason, ['PROFILE_CONFLICT', 'USERNAME_TAKEN', 'EMAIL_TAKEN', 'PROFILE_DUPLICATE'], true)
+            ? 409
+            : ($reason === 'USER_NOT_FOUND' ? 404 : 422);
+        $code = in_array($reason, ['PROFILE_CONFLICT', 'USERNAME_TAKEN', 'EMAIL_TAKEN', 'CURRENT_PASSWORD_INCORRECT'], true)
+            ? $reason
+            : 'VALIDATION_FAILED';
+        $messages = [
+            'PROFILE_CONFLICT' => 'The profile changed. Reload and try again.',
+            'USERNAME_TAKEN' => 'That username is already in use.',
+            'EMAIL_TAKEN' => 'That email address is already in use.',
+            'CURRENT_PASSWORD_INCORRECT' => 'Current password is incorrect.',
+            'USER_NOT_FOUND' => 'User not found.',
+        ];
+        settingsFail(
+            $messages[$reason] ?? 'Profile input was rejected.',
+            $status,
+            $code,
+            ['reason' => $reason]
+        );
+    }
+    reportInternalError('Web profile operation failed', $error);
+    settingsFail('Profile service is temporarily unavailable.', 503, 'PROFILE_SERVICE_UNAVAILABLE');
+}
+
+function settingsCredentialError(\Throwable $error): void
+{
+    if ($error instanceof \App\Services\CredentialDomainException) {
+        $reason = $error->reason();
+        $extra = $reason === 'PASSWORD_POLICY_FAILED'
+            ? ['errors' => $error->policyErrors()]
+            : [];
+        $messages = [
+            'CURRENT_PASSWORD_INCORRECT' => 'Current password is incorrect.',
+            'PASSWORD_CONFIRMATION_MISMATCH' => 'New passwords do not match.',
+            'NEW_PASSWORD_MUST_DIFFER' => 'New password must be different from the current password.',
+            'PASSWORD_POLICY_FAILED' => 'The new password does not meet the password policy.',
+            'USER_NOT_FOUND' => 'User not found.',
+        ];
+        settingsFail(
+            $messages[$reason] ?? 'Password input was rejected.',
+            422,
+            $reason,
+            $extra
+        );
+    }
+    reportInternalError('Web credential operation failed', $error);
+    settingsFail('Password could not be changed. Please try again.', 503, 'CREDENTIAL_UPDATE_UNAVAILABLE');
+}
+
+function settingsImageError(\Throwable $error): void
+{
+    if ($error instanceof \App\Services\ProfileImageDomainException) {
+        $reason = $error->reason();
+        $map = [
+            'IMAGE_SIZE_INVALID' => [413, 'IMAGE_TOO_LARGE', 'Image exceeds the allowed size.'],
+            'IMAGE_TYPE_INVALID' => [415, 'UNSUPPORTED_IMAGE', 'Image type is not supported.'],
+            'PROFILE_CONFLICT' => [409, 'PROFILE_CONFLICT', 'The profile changed. Reload and try again.'],
+            'PROFILE_IMAGE_NOT_SET' => [404, 'PROFILE_IMAGE_NOT_SET', 'No profile image is set.'],
+        ];
+        [$status, $code, $message] = $map[$reason]
+            ?? [422, 'INVALID_IMAGE', 'Image input was rejected.'];
+        settingsFail(
+            $message,
+            $status,
+            $code,
+            $reason === 'PROFILE_CONFLICT' ? ['reload_required' => true] : []
+        );
+    }
+    reportInternalError('Web profile image operation failed', $error);
+    settingsFail('Profile image storage is temporarily unavailable.', 503, 'STORAGE_UNAVAILABLE');
+}
+
+function settingsImageService(\mysqli $conn, bool $schemaReady): \App\Services\ProfileImageService
+{
+    if (!$schemaReady) {
+        settingsFail('Profile image storage is not available yet.', 503, 'STORAGE_UNAVAILABLE');
+    }
+    return new \App\Services\ProfileImageService(
+        new \App\Services\MysqliProfileImageRepository($conn),
+        \App\Services\PrivateProfileImageStorage::configured()
+    );
+}
 
 // Settings schema is deployment-managed by migration 013.
 
@@ -38,18 +290,15 @@ try {
         // ============================================================
         case 'profile_get':
         // ============================================================
-            $stmt = $conn->prepare("SELECT id, username, email, full_name, role, is_active, created_at, last_login FROM users WHERE id = ?");
-            $stmt->bind_param('i', $adminId);
-            $stmt->execute();
-            $user = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-
-            if (!$user) {
-                echo json_encode(['status' => 'error', 'message' => 'User not found']);
-                break;
+            try {
+                $user = settingsDecorateProfile(
+                    $settingsProfileService->getOwnProfile($settingsIdentity)
+                );
+            } catch (\Throwable $error) {
+                settingsProfileError($error);
             }
 
-            // Get login count from activity_logs
+            // Preserve the established settings response extension.
             $loginCount = 0;
             try {
                 $logStmt = $conn->prepare("SELECT COUNT(*) as cnt FROM activity_logs WHERE user_id = ? AND action = 'Login'");
@@ -62,147 +311,234 @@ try {
                 }
             } catch (Exception $e) {}
 
-            echo json_encode(['status' => 'success', 'user' => $user, 'login_count' => $loginCount]);
+            echo json_encode([
+                'status' => 'success',
+                'user' => $user,
+                'login_count' => $loginCount,
+                'account_context' => $settingsAccountContext,
+                'csrf_token' => generateCsrfToken(),
+            ], JSON_UNESCAPED_UNICODE);
             break;
 
         // ============================================================
         case 'profile_update':
         // ============================================================
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                echo json_encode(['status' => 'error', 'message' => 'POST required']);
-                break;
+                settingsFail('POST required', 405, 'METHOD_NOT_ALLOWED');
             }
-
-            $input = json_decode(file_get_contents('php://input'), true);
-            $fullName = trim($input['full_name'] ?? '');
-            $email = trim($input['email'] ?? '');
-
-            if (empty($fullName)) {
-                echo json_encode(['status' => 'error', 'message' => 'Full name is required']);
-                break;
+            $input = settingsJsonBody();
+            $expectedVersion = settingsRequireProfileVersion($input);
+            $profileIp = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+            settingsEnforceRateLimits([
+                ['action' => 'web-profile-update-user', 'subject' => 'user:' . $adminId, 'limit' => 20, 'window' => 900],
+                ['action' => 'web-profile-update-ip', 'subject' => 'ip:' . $profileIp, 'limit' => 60, 'window' => 900],
+            ]);
+            if (array_key_exists('username', $input)) {
+                settingsEnforceRateLimits([
+                    ['action' => 'web-profile-username-user', 'subject' => 'user:' . $adminId, 'limit' => 5, 'window' => 86400],
+                    ['action' => 'web-profile-username-ip', 'subject' => 'ip:' . $profileIp, 'limit' => 20, 'window' => 86400],
+                ]);
             }
-
-            if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                echo json_encode(['status' => 'error', 'message' => 'Invalid email format']);
-                break;
-            }
-
-            // Check email uniqueness (if changed)
-            if (!empty($email)) {
-                $chk = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
-                $chk->bind_param('si', $email, $adminId);
-                $chk->execute();
-                if ($chk->get_result()->num_rows > 0) {
-                    echo json_encode(['status' => 'error', 'message' => 'Email already in use by another account']);
-                    $chk->close();
-                    break;
+            try {
+                $before = $settingsProfileService->getOwnProfile($settingsIdentity);
+                $updated = $settingsProfileService->updateOwnProfile(
+                    $settingsIdentity,
+                    $input,
+                    $expectedVersion
+                );
+                settingsAuditProfileChanges(
+                    $conn,
+                    $settingsAuditActor,
+                    $adminId,
+                    $before,
+                    $updated
+                );
+                $usernameChanged = !hash_equals(
+                    (string)$before['username'],
+                    (string)$updated['username']
+                );
+                $_SESSION['admin_username'] = (string)$updated['username'];
+                $_SESSION['admin_full_name'] = (string)$updated['full_name'];
+                $_SESSION['AUTH_REVALIDATED_AT'] = time();
+                if ($usernameChanged) {
+                    session_regenerate_id(true);
                 }
-                $chk->close();
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Profile updated successfully',
+                    'user' => settingsDecorateProfile($updated),
+                    'claims_refresh_required' => false,
+                    'account_context' => $settingsAccountContext,
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (\Throwable $error) {
+                settingsProfileError($error);
             }
-
-            $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ? WHERE id = ?");
-            $emailVal = !empty($email) ? $email : null;
-            $stmt->bind_param('ssi', $fullName, $emailVal, $adminId);
-            
-            if ($stmt->execute()) {
-                $_SESSION['admin_full_name'] = $fullName;
-                echo json_encode(['status' => 'success', 'message' => 'Profile updated successfully']);
-            } else {
-                echo json_encode(['status' => 'error', 'message' => 'Failed to update profile']);
-            }
-            $stmt->close();
             break;
 
         // ============================================================
         case 'password_change':
         // ============================================================
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                echo json_encode(['status' => 'error', 'message' => 'POST required']);
-                break;
+                settingsFail('POST required', 405, 'METHOD_NOT_ALLOWED');
             }
-
-            $input = json_decode(file_get_contents('php://input'), true);
-            $currentPwd = $input['current_password'] ?? '';
-            $newPwd = $input['new_password'] ?? '';
-            $confirmPwd = $input['confirm_password'] ?? '';
-
-            if (empty($currentPwd) || empty($newPwd) || empty($confirmPwd)) {
-                echo json_encode(['status' => 'error', 'message' => 'All password fields are required']);
-                break;
+            $input = settingsJsonBody();
+            foreach (['current_password', 'new_password', 'confirm_password'] as $field) {
+                if (!is_string($input[$field] ?? null)) {
+                    settingsFail('Invalid password input', 422, 'VALIDATION_FAILED');
+                }
             }
-
-            if ($newPwd !== $confirmPwd) {
-                echo json_encode(['status' => 'error', 'message' => 'New passwords do not match']);
-                break;
-            }
-
-            if (!is_string($currentPwd) || !is_string($newPwd) || !is_string($confirmPwd)
-                || strlen($currentPwd) > 4096) {
-                echo json_encode(['status' => 'error', 'message' => 'Invalid password input']);
-                break;
-            }
-
-            $passwordErrors = validatePassword($newPwd);
-            if ($passwordErrors !== []) {
-                echo json_encode(['status' => 'error', 'message' => implode(' ', $passwordErrors)]);
-                break;
-            }
-
-            if ($currentPwd === $newPwd) {
-                echo json_encode(['status' => 'error', 'message' => 'New password must be different from current']);
-                break;
-            }
-
-            // Verify current password
-            $stmt = $conn->prepare("SELECT password_hash FROM users WHERE id = ?");
-            $stmt->bind_param('i', $adminId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-
-            if (!$row || !password_verify($currentPwd, $row['password_hash'])) {
-                echo json_encode(['status' => 'error', 'message' => 'Current password is incorrect']);
-                break;
-            }
-
-            $newHash = password_hash($newPwd, PASSWORD_DEFAULT);
-            $stmt = $conn->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
-            $stmt->bind_param('si', $newHash, $adminId);
-            
-            if ($stmt->execute()) {
-                $_SESSION['AUTH_PASSWORD_VERSION'] = hash('sha256', $newHash);
+            settingsEnforceRateLimits([
+                ['action' => 'web-profile-password-user', 'subject' => 'user:' . $adminId, 'limit' => 5, 'window' => 900],
+                [
+                    'action' => 'web-profile-password-ip',
+                    'subject' => 'ip:' . (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                    'limit' => 5,
+                    'window' => 900,
+                ],
+            ]);
+            try {
+                $credentialService = new \App\Services\AccountCredentialService(
+                    new \App\Services\MysqliCredentialRepository($conn)
+                );
+                $result = $credentialService->changeOwnPassword(
+                    $settingsIdentity,
+                    $input['current_password'],
+                    $input['new_password'],
+                    $input['confirm_password']
+                );
+                $_SESSION['AUTH_PASSWORD_VERSION'] = $result->passwordVersion();
                 $_SESSION['AUTH_REVALIDATED_AT'] = time();
                 session_regenerate_id(true);
-
-                // Password changes revoke every mobile refresh family for this
-                // account. Migration 010 may not be present during rollout.
-                try {
-                    $revoke = $conn->prepare(
-                        'UPDATE api_refresh_sessions SET revoked_at=COALESCE(revoked_at, CURRENT_TIMESTAMP) WHERE user_id=?'
-                    );
-                    $revoke->bind_param('i', $adminId);
-                    $revoke->execute();
-                    $revoke->close();
-                } catch (Throwable $error) {
-                }
-
-                try {
-                    $log = $conn->prepare(
-                        "INSERT INTO activity_logs (user_id, username, action, details, ip_address)
-                         VALUES (?, ?, 'Password Change', 'Password changed via settings', ?)"
-                    );
-                    $username = (string)($_SESSION['admin_username'] ?? '');
-                    $ipAddress = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
-                    $log->bind_param('iss', $adminId, $username, $ipAddress);
-                    $log->execute();
-                    $log->close();
-                } catch (Throwable $error) {
-                }
-                echo json_encode(['status' => 'success', 'message' => 'Password changed successfully']);
-            } else {
-                echo json_encode(['status' => 'error', 'message' => 'Failed to change password']);
+                \App\Services\SecurityAuditService::recordTrusted(
+                    $conn,
+                    $settingsAuditActor,
+                    'PASSWORD_CHANGED',
+                    ['operation' => 'self_service_password_change'],
+                    'user',
+                    $adminId
+                );
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Password changed successfully',
+                    'account_context' => $settingsAccountContext,
+                ]);
+            } catch (\Throwable $error) {
+                settingsCredentialError($error);
             }
-            $stmt->close();
+            break;
+
+        // ============================================================
+        case 'profile_image_upload':
+        // ============================================================
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                settingsFail('POST required', 405, 'METHOD_NOT_ALLOWED');
+            }
+            foreach (['user_id', 'id', 'owner_id', 'username'] as $ownerField) {
+                if (array_key_exists($ownerField, $_REQUEST)) {
+                    settingsFail('User ownership is derived from the session.', 422, 'VALIDATION_FAILED');
+                }
+            }
+            foreach (array_keys($_POST) as $field) {
+                if (!in_array($field, ['action', 'csrf_token', 'profile_version'], true)) {
+                    settingsFail('Unsupported image-upload field.', 422, 'VALIDATION_FAILED');
+                }
+            }
+            $profileVersion = settingsRequireProfileVersion($_POST);
+            settingsEnforceRateLimits([
+                ['action' => 'web-profile-image-user', 'subject' => 'user:' . $adminId, 'limit' => 10, 'window' => 3600],
+                [
+                    'action' => 'web-profile-image-ip',
+                    'subject' => 'ip:' . (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                    'limit' => 30,
+                    'window' => 3600,
+                ],
+            ]);
+            if (!isset($_FILES['image']) || !is_array($_FILES['image'])) {
+                settingsFail('Image is required.', 422, 'INVALID_IMAGE');
+            }
+            try {
+                $imageService = settingsImageService($conn, $settingsImageSchemaReady);
+                $artifact = \App\Services\ProfileImageService::prepareRequestUpload($_FILES['image']);
+                $result = $imageService->replaceOwnImage(
+                    $settingsIdentity,
+                    $artifact,
+                    $profileVersion
+                );
+                $event = ($result['audit_action'] ?? '') === 'Profile Image Uploaded'
+                    ? 'PROFILE_IMAGE_UPLOADED'
+                    : 'PROFILE_IMAGE_REPLACED';
+                \App\Services\SecurityAuditService::recordTrusted(
+                    $conn,
+                    $settingsAuditActor,
+                    $event,
+                    ['operation' => strtolower(substr($event, strlen('PROFILE_IMAGE_')))],
+                    'user',
+                    $adminId
+                );
+                $result['profile_image']['url'] = function_exists('ssms_app_url')
+                    ? ssms_app_url('admin/profile_image.php')
+                    : '/admin/profile_image.php';
+                unset($result['audit_action'], $result['actor_user_id'], $result['target_user_id']);
+                echo json_encode([
+                    'status' => 'success',
+                    'data' => $result,
+                    'account_context' => $settingsAccountContext,
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (\Throwable $error) {
+                settingsImageError($error);
+            }
+            break;
+
+        // ============================================================
+        case 'profile_image_remove':
+        // ============================================================
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                settingsFail('POST required', 405, 'METHOD_NOT_ALLOWED');
+            }
+            $input = settingsJsonBody();
+            foreach (['user_id', 'id', 'owner_id', 'username'] as $ownerField) {
+                if (array_key_exists($ownerField, $input)) {
+                    settingsFail('User ownership is derived from the session.', 422, 'VALIDATION_FAILED');
+                }
+            }
+            foreach (array_keys($input) as $field) {
+                if (!in_array($field, ['action', 'csrf_token', 'profile_version'], true)) {
+                    settingsFail('Unsupported image-removal field.', 422, 'VALIDATION_FAILED');
+                }
+            }
+            $profileVersion = settingsRequireProfileVersion($input);
+            settingsEnforceRateLimits([
+                ['action' => 'web-profile-image-user', 'subject' => 'user:' . $adminId, 'limit' => 10, 'window' => 3600],
+                [
+                    'action' => 'web-profile-image-ip',
+                    'subject' => 'ip:' . (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                    'limit' => 30,
+                    'window' => 3600,
+                ],
+            ]);
+            try {
+                $imageService = settingsImageService($conn, $settingsImageSchemaReady);
+                $result = $imageService->removeOwnImage(
+                    $settingsIdentity,
+                    $profileVersion
+                );
+                \App\Services\SecurityAuditService::recordTrusted(
+                    $conn,
+                    $settingsAuditActor,
+                    'PROFILE_IMAGE_REMOVED',
+                    ['operation' => 'removed'],
+                    'user',
+                    $adminId
+                );
+                unset($result['audit_action'], $result['actor_user_id'], $result['target_user_id']);
+                echo json_encode([
+                    'status' => 'success',
+                    'data' => $result,
+                    'account_context' => $settingsAccountContext,
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (\Throwable $error) {
+                settingsImageError($error);
+            }
             break;
 
         // ============================================================
