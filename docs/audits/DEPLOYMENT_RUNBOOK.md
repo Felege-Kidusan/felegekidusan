@@ -157,6 +157,180 @@ chmod 755 admin/uploads admin/uploads/members admin/uploads/members/photos \
          Preserve BACKUP_KEY securely: without it encrypted backups cannot be restored.
 ```
 
+### Profile Image Orphan Cleanup
+
+The profile-image service writes normalized JPEGs to private atomic storage and
+stores only logical `private://profiles/...` references in the database. A
+failed process or post-commit deletion can leave an unreferenced final image or
+a staging file behind. `admin/backend/profile_image_cleanup.php` is the
+CLI-only maintenance command that reclaims those artifacts after the fixed
+24-hour grace period.
+
+#### Private storage and execution boundary
+
+The cleanup uses the same configured private root as profile-image operations,
+in this order:
+
+1. `PROFILE_PRIVATE_STORAGE_PATH`, when configured;
+2. `MEMBER_PRIVATE_STORAGE_PATH/profiles`, when configured; or
+3. the fallback `ssms_private/profiles` directory beside the project/web root.
+
+For this production installation the application root is
+`/home/arkeonet/felegekidusan.arkeonethiopia.com`, so the unoverridden fallback
+resolves to `/home/arkeonet/ssms_private/profiles`. If either trusted server
+constant overrides that location, verify the configured absolute path instead.
+The root must remain outside the public web root and writable only by the
+application/maintenance account. The command refuses web execution and must
+never be invoked with `curl`, a query-string key, or an HTTP scheduler. It
+accepts no client path, filename, user ID, or storage-root argument.
+
+Create or verify the private directory as the application/maintenance account,
+never from a web request:
+
+```bash
+umask 077
+install -d -m 0700 /home/arkeonet/ssms_private
+install -d -m 0700 /home/arkeonet/ssms_private/profiles
+stat -c '%a %U %G %n' /home/arkeonet/ssms_private /home/arkeonet/ssms_private/profiles
+find /home/arkeonet/ssms_private/profiles -maxdepth 1 -type f -printf '%m %f\n'
+```
+
+Both directories must be mode `700` and owned by the deployment account.
+Normalized JPEGs, staging files, and `.profile-cleanup.lock` must be mode `600`;
+the service applies that file mode when it creates them. Correct ownership as a
+hosting operation if needed, but never use `chmod 777` or make the root
+web-readable.
+
+Before scanning storage, the command verifies the migrated nullable
+`users.profile_image_path` column and enumerates every non-empty value from that
+authoritative column. A missing schema, database error, or failed reference
+query exits with code `1` before cleanup; never bypass that fail-closed gate.
+
+The repository provides the CLI reaper but cannot install or prove a cPanel or
+hosting cron. Until the following cron is installed and observed on the actual
+host, cleanup is deployment-dependent and is **not runtime-verified**.
+
+#### Required daily cron
+
+First obtain the actual CLI PHP binary on that hosting account:
+
+```bash
+command -v php
+php -v
+```
+
+`/usr/local/bin/php` below is only the common cPanel value. It **must** be
+replaced with the exact path printed by `command -v php` when they differ.
+Install this daily entry in cPanel → Cron Jobs:
+
+```cron
+17 3 * * * umask 077 && /usr/local/bin/php "/home/arkeonet/felegekidusan.arkeonethiopia.com/admin/backend/profile_image_cleanup.php" >> "/home/arkeonet/profile_image_cleanup.log" 2>&1
+```
+
+The log deliberately lives at `/home/arkeonet/profile_image_cleanup.log`,
+outside the application and public web root. Do not redirect it into the
+repository, `admin/uploads`, or any other web-served directory. Configure
+host-level log rotation/retention for this file if required.
+
+#### Manual pre-cron verification
+
+Run from the actual deployed project root:
+
+```bash
+cd "/home/arkeonet/felegekidusan.arkeonethiopia.com"
+command -v php
+php -v
+php -m | grep -Fx mysqli
+php admin/backend/profile_image_cleanup.php
+echo $?
+```
+
+Replace the three `php` invocations with the absolute path returned by
+`command -v php` if the cron will use that absolute binary. A successful,
+lock-owning run must:
+
+- print one valid aggregate JSON object;
+- exit with code `0`;
+- report `"lock_acquired":true`; and
+- expose no private path, image filename, user ID, credentials, token, or image
+  contents.
+
+Expected output shape (counts will vary):
+
+```json
+{"lock_acquired":true,"deleted_orphans":0,"deleted_temporaries":0,"skipped_referenced":0,"skipped_fresh":0}
+```
+
+`lock_acquired:false` with exit code `0` means another cleanup process owns the
+lock. It is safe, but it does not prove that this invocation scanned storage;
+wait for the other process to finish and retry once.
+
+#### Verify the first scheduled execution
+
+After the first 03:17 run, execute:
+
+```bash
+stat "/home/arkeonet/profile_image_cleanup.log"
+tail -n 1 "/home/arkeonet/profile_image_cleanup.log"
+grep -c '^Profile-image cleanup failed\.$' "/home/arkeonet/profile_image_cleanup.log"
+```
+
+Confirm all of the following:
+
+1. the log modification time is later than the cron installation time and
+   matches the expected scheduled window;
+2. the final line is valid aggregate JSON with `lock_acquired:true`;
+3. only the five documented fields are present;
+4. the log remains outside
+   `/home/arkeonet/felegekidusan.arkeonethiopia.com`; and
+5. the failure count did not increase for that run.
+
+The final log line plus the log modification time is the authoritative status
+for the latest scheduled run. When that line is valid JSON, its modification
+time is the latest successful execution time and the object provides the run
+result, deleted-final count, deleted-temporary count, skipped-referenced count,
+and skipped-fresh count. A generic failure line instead marks the latest run as
+failed, and the `grep` result provides a retained failure count. The command
+does not maintain a separate historical last-success registry; use the
+outside-web-root log and the hosting cron history when investigating an older
+run. No public status endpoint or web-readable status file is required or
+permitted.
+
+#### Failure response
+
+A failure prints the generic line `Profile-image cleanup failed.` to stderr and
+exits with code `1`. If that occurs:
+
+1. disable only this cron entry to stop repeated failures;
+2. run the manual sequence above as the same hosting user;
+3. verify database connectivity and that the profile-image migration is
+   present;
+4. verify the configured private root exists and is readable/writable by that
+   user;
+5. verify the selected binary is CLI PHP and has the required mysqli support;
+6. check the server's private PHP error log for the detailed operator error;
+7. correct permissions/configuration without using `chmod 777`; and
+8. rerun manually until exit `0` and valid aggregate JSON are observed, then
+   re-enable the cron.
+
+Do not bypass a reference-enumeration failure, lower the 24-hour grace period,
+remove the cleanup lock, follow symlinks, or point the script at a
+client-supplied directory.
+
+#### Security and rollback
+
+The scheduled user should be the normal application/maintenance account, not a
+public web request and not an unnecessarily privileged system user. Keep the
+private root and cleanup log inaccessible over HTTP. The cron command must not
+contain database credentials, tokens, backup keys, image names, or user IDs.
+
+To roll back the scheduled operation, remove or disable only the cron entry.
+Do **not** delete the private storage root or run a broad filesystem deletion.
+Existing database references and image files remain valid when the cron is
+disabled. Retain or securely remove the outside-web-root operational log under
+the hosting retention policy. Reinstall the same cron after the operational
+issue is resolved.
+
 ---
 
 ## STAGE 6 — Security spot-checks (10 min)
@@ -210,6 +384,8 @@ Use the **ROLE-BY-ROLE TEST CHECKLIST** in `FOUNDATION_VERIFICATION.md` (Section
 - Stages 1–7 are all ticked.
 - The health check is green.
 - A backup file exists and the daily cron is set.
+- The Profile Image Orphan Cleanup cron is installed and its first scheduled
+  aggregate JSON result is verified from the outside-web-root log.
 - Every role passed its test checklist.
 
 ## Still open (safe to launch, handle after) — from the audits
