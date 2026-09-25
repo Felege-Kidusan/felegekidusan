@@ -198,7 +198,8 @@ function apiRevalidateAuthorizationScope(array $payload): array {
             throw new RuntimeException('API database connection is unavailable.');
         }
         $statement = $conn->prepare(
-            'SELECT role, is_active, authorization_version FROM users WHERE id=? LIMIT 1'
+            'SELECT role, is_active, authorization_version, username, full_name
+               FROM users WHERE id=? LIMIT 1'
         );
         if (!$statement) {
             throw new RuntimeException('Could not prepare authorization revalidation.');
@@ -243,6 +244,20 @@ function apiRevalidateAuthorizationScope(array $payload): array {
         || $currentVersion !== (int)$payload['av']) {
         err('Your access changed. Refresh your session before continuing.', 401,
             ['code' => 'AUTH_SCOPE_CHANGED']);
+    }
+
+    // Profile identity claims are display metadata, not authorization. Capable
+    // clients receive a non-authorization conflict and rotate through the
+    // existing refresh-session mechanism. Legacy clients outside the rollout
+    // cohort retain their established token-window behavior above.
+    $currentUsername = (string)($current['username'] ?? '');
+    $currentFullName = (string)($current['full_name'] ?? '');
+    if (!hash_equals($currentUsername, (string)($payload['usr'] ?? ''))
+        || !hash_equals($currentFullName, (string)($payload['nam'] ?? ''))) {
+        err('Your profile changed. Refresh your session before continuing.', 409, [
+            'code' => 'PROFILE_CLAIMS_CHANGED',
+            'claims_refresh_required' => true,
+        ]);
     }
 
     return $payload;

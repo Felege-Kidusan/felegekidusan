@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/services/ProfileService.php';
+require_once __DIR__ . '/services/AccountCredentialService.php';
+require_once __DIR__ . '/services/SecurityAuditService.php';
+require_once __DIR__ . '/services/SecurityRateLimiter.php';
 
 // Detect if this is an AJAX request or a regular form submission
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
@@ -165,13 +169,38 @@ if ($password !== '') {
     }
 }
 
-if ($password !== '' && $confirmPassword !== '' && $password !== $confirmPassword) {
+if ($password !== '' && !hash_equals($password, $confirmPassword)) {
     respond('error', 'Passwords do not match.');
 }
 
 
 // Email: empty -> NULL
 $emailDb = $email !== '' ? $email : null;
+
+// Consume administrator-reset buckets before any profile fields are written.
+if (!$isCreating && $password !== '') {
+    $limiter = new \App\Services\SecurityRateLimiter(
+        $pdo instanceof \PDO ? $pdo : null,
+        ROOT_PATH . '/admin/uploads/cache'
+    );
+    $actorId = (int)($_SESSION['admin_id'] ?? 0);
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $rateResults = [
+        $limiter->consume('web-admin-password-reset-user', 'user:' . $actorId, 10, 3600),
+        $limiter->consume('web-admin-password-reset-ip', 'ip:' . $ip, 10, 3600),
+    ];
+    foreach ($rateResults as $rate) {
+        if (!$rate['allowed']) {
+            if (!headers_sent()) {
+                header('Retry-After: ' . max(1, (int)$rate['retry_after']));
+            }
+            respond('error', 'Too many password reset attempts. Please try again later.', [
+                'code' => 'RATE_LIMITED',
+                'retry_after' => max(1, (int)$rate['retry_after']),
+            ]);
+        }
+    }
+}
 
 try {
     // Check uniqueness of username/email
@@ -235,46 +264,134 @@ try {
         $prevRow = $prev->fetch();
         if (!$prevRow) respond('error', 'User not found.');
 
-        $fieldsSql = "
-            full_name = :full_name,
-            username  = :username,
-            email     = :email,
-            role      = :role,
-            is_active = :is_active,
-            member_id = :member_id
-        ";
+        // One account mutation shared by the ordinary update path and the
+        // credential service's transaction-aware administrator reset path.
+        // Every statement here uses the same mysqli connection as the
+        // credential repository and throws before that transaction can commit.
+        $applyAccountMutation = static function () use (
+            $conn,
+            $fullName,
+            $username,
+            $emailDb,
+            $role,
+            $isActive,
+            $memberId,
+            $userId
+        ): void {
+            $statement = $conn->prepare(
+                'UPDATE users
+                    SET full_name = ?, username = ?, email = ?, role = ?,
+                        is_active = ?, member_id = ?
+                  WHERE id = ?'
+            );
+            if (!$statement) {
+                throw new \App\Services\CredentialPersistenceException(
+                    'Could not prepare account update.'
+                );
+            }
+            $statement->bind_param(
+                'ssssiii',
+                $fullName,
+                $username,
+                $emailDb,
+                $role,
+                $isActive,
+                $memberId,
+                $userId
+            );
+            $updated = $statement->execute();
+            $statement->close();
+            if (!$updated) {
+                throw new \App\Services\CredentialPersistenceException(
+                    'Could not update account.'
+                );
+            }
+        };
 
-        $params = [
-            ':full_name' => $fullName,
-            ':username'  => $username,
-            ':email'     => $emailDb,
-            ':role'      => $role,
-            ':is_active' => $isActive,
-            ':member_id' => $memberId,
-            ':id'        => $userId,
-        ];
-
+        $administrator = null;
+        $credentialResult = null;
         if ($password !== '') {
-            $fieldsSql .= ", password_hash = :password_hash";
-            $params[':password_hash'] = password_hash($password, PASSWORD_DEFAULT);
+            try {
+                $administrator = \App\Services\AuthorizedAdministratorIdentity::fromTrustedAuthorization(
+                    (int)($_SESSION['admin_id'] ?? 0)
+                );
+                $credentialService = new \App\Services\AccountCredentialService(
+                    new \App\Services\MysqliCredentialRepository($conn)
+                );
+                $credentialResult = $credentialService
+                    ->resetPasswordByAdministratorWithAccountMutation(
+                        $administrator,
+                        (int)$userId,
+                        $password,
+                        $confirmPassword,
+                        $applyAccountMutation
+                    );
+            } catch (\App\Services\CredentialDomainException $error) {
+                if ($error->reason() === 'USER_NOT_FOUND') {
+                    respond('error', 'User not found.');
+                }
+                respond('error', 'Password reset request was rejected.', [
+                    'code' => $error->reason(),
+                ]);
+            }
+        } else {
+            $applyAccountMutation();
         }
 
-        $sql = "UPDATE users SET {$fieldsSql} WHERE id = :id";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        // Browser-session state changes only after the database transaction has
+        // committed, so rollback cannot leave the session ahead of the account.
+        $isCurrentAdministrator = (int)$userId === (int)($_SESSION['admin_id'] ?? 0);
+        $currentUsernameChanged = $isCurrentAdministrator
+            && !hash_equals((string)($_SESSION['admin_username'] ?? ''), $username);
+        if ($isCurrentAdministrator) {
+            $_SESSION['admin_username'] = $username;
+            $_SESSION['admin_full_name'] = $fullName;
+            $_SESSION['AUTH_REVALIDATED_AT'] = time();
+            if ($credentialResult instanceof \App\Services\CredentialMutationResult) {
+                $_SESSION['AUTH_PASSWORD_VERSION'] = $credentialResult->passwordVersion();
+            }
+            if ($currentUsernameChanged || $credentialResult !== null) {
+                session_regenerate_id(true);
+            }
+        }
 
-        // Teacher lifecycle: activating a suspended teacher restores exactly
-        // the assignments that were paused with the account; deactivating
-        // pauses them (snapshotted). Implemented against the shared mysqli
-        // handle from config.php — one source of truth for both screens.
+        // Audit only safe result metadata after commit. Passwords, hashes,
+        // tokens, and session identifiers never enter the event.
+        if ($credentialResult instanceof \App\Services\CredentialMutationResult
+            && $administrator instanceof \App\Services\AuthorizedAdministratorIdentity) {
+            $actor = \App\Services\SecurityAuditActor::fromAuthenticatedContext(
+                $administrator->actorUserId(),
+                (string)($_SESSION['admin_username'] ?? ''),
+                'web',
+                $_SERVER
+            );
+            \App\Services\SecurityAuditService::recordTrusted(
+                $conn,
+                $actor,
+                'ADMIN_PASSWORD_RESET',
+                $credentialResult->auditContext(),
+                'user',
+                (int)$userId
+            );
+        }
+
+        // Preserve the established teacher/member convergence after the atomic
+        // account+credential commit. syncMemberTeacherFlag may invoke its own
+        // transaction, so it must not run inside the credential transaction.
         $wasActive = (int)($prevRow['is_active'] ?? 1) === 1;
         if ($role === 'teacher' && isset($conn) && ($conn instanceof mysqli)) {
             require_once __DIR__ . '/services/AssignmentService.php';
-            require_once __DIR__ . '/services/SecurityAuditService.php';
             require_once __DIR__ . '/member_sync.php';
             if ($isActive === 1 && !$wasActive) {
-                $ids = \App\Services\AssignmentService::latestSuspensionSnapshot($conn, (int)$userId);
-                $restored = \App\Services\AssignmentService::restoreTeacherAssignments($conn, (int)$userId, $ids);
+                $ids = \App\Services\AssignmentService::latestSuspensionSnapshot(
+                    $conn,
+                    (int)$userId
+                );
+                $restored = \App\Services\AssignmentService::restoreTeacherAssignments(
+                    $conn,
+                    (int)$userId,
+                    $ids
+                );
                 \App\Services\SecurityAuditService::record(
                     $conn,
                     'Teacher Reactivated',
@@ -286,7 +403,10 @@ try {
                     syncMemberTeacherFlag($conn, (int)$memberId, true);
                 }
             } elseif ($isActive === 0 && $wasActive) {
-                $ids = \App\Services\AssignmentService::suspendTeacherAssignments($conn, (int)$userId);
+                $ids = \App\Services\AssignmentService::suspendTeacherAssignments(
+                    $conn,
+                    (int)$userId
+                );
                 \App\Services\SecurityAuditService::record(
                     $conn,
                     'Teacher Suspended',
