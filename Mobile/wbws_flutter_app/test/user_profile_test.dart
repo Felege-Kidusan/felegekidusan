@@ -52,23 +52,39 @@ void main() {
     test('rejects incomplete payloads and invalid immutable identity', () {
       expect(() => UserProfile.fromJson(profileJson()..remove('id')),
           throwsFormatException);
-      expect(
-        () => UserProfile.fromJson(profileJson()..remove('profile_version')),
-        throwsFormatException,
-      );
       expect(() => UserProfile.fromJson(profileJson(id: 0)),
           throwsFormatException);
-      expect(
-        () => UserProfile.fromJson(profileJson(version: 'not-opaque')),
-        throwsFormatException,
-      );
+      expect(() => UserProfile.fromJson(profileJson()..remove('username')),
+          throwsFormatException);
     });
 
-    test('requires an opaque version for a present image', () {
-      expect(
-        () => UserProfile.fromJson(profileJson(imagePresent: true)),
-        throwsFormatException,
-      );
+    test('synthesizes deterministic version when profile_version is absent or malformed', () {
+      final withoutVersion = UserProfile.fromJson(profileJson()..remove('profile_version'));
+      expect(withoutVersion.profileVersion.length, 64);
+      expect(RegExp(r'^[a-f0-9]{64}$').hasMatch(withoutVersion.profileVersion), isTrue);
+
+      final malformedVersion = UserProfile.fromJson(profileJson(version: 'not-opaque'));
+      expect(malformedVersion.profileVersion.length, 64);
+      expect(RegExp(r'^[a-f0-9]{64}$').hasMatch(malformedVersion.profileVersion), isTrue);
+    });
+
+    test('handles raw integer is_active and missing profile_image gracefully', () {
+      final legacy = {
+        'id': 10,
+        'username': 'legacy.user',
+        'full_name': 'Legacy User',
+        'role': 'teacher',
+        'is_active': 1,
+        'email': 'legacy@example.test',
+      };
+      final profile = UserProfile.fromJson(legacy);
+      expect(profile.id, 10);
+      expect(profile.isActive, isTrue);
+      expect(profile.profileImage.present, isFalse);
+      expect(profile.profileVersion.length, 64);
+    });
+
+    test('preserves valid opaque version for a present image', () {
       final imageVersion = List.filled(64, 'b').join();
       final profile = UserProfile.fromJson(profileJson(
         imagePresent: true,

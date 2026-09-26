@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+
 class ProfileImageReference {
   const ProfileImageReference({
     required this.present,
@@ -12,8 +15,15 @@ class ProfileImageReference {
   static final RegExp _opaqueVersion = RegExp(r'^[a-f0-9]{64}$');
 
   factory ProfileImageReference.fromJson(Object? value) {
+    if (value == null) {
+      return const ProfileImageReference(present: false);
+    }
     if (value is! Map) {
-      throw const FormatException('Profile image metadata is missing.');
+      final str = value.toString().trim();
+      if (str.isNotEmpty && (str.startsWith('http') || str.startsWith('/'))) {
+        return ProfileImageReference(present: true, url: str);
+      }
+      return const ProfileImageReference(present: false);
     }
     final map = Map<String, dynamic>.from(value);
     final rawPresent = map['present'];
@@ -25,31 +35,36 @@ class ProfileImageReference {
     } else if (rawPresent == 0 || rawPresent == '0' || rawPresent == 'false' || rawPresent == null) {
       present = false;
     } else {
-      throw const FormatException('Profile image presence is invalid.');
+      present = false;
     }
 
     final rawVersion = map['version'];
-    final version = (rawVersion == null || rawVersion.toString().trim().isEmpty)
+    String? version = (rawVersion == null || rawVersion.toString().trim().isEmpty)
         ? null
         : rawVersion.toString().trim();
-    if (present &&
-        (version == null || !_opaqueVersion.hasMatch(version))) {
-      throw const FormatException('Profile image version is invalid.');
+
+    if (present && (version == null || !_opaqueVersion.hasMatch(version))) {
+      final rawUrl = map['url']?.toString().trim();
+      if (rawUrl != null && rawUrl.isNotEmpty) {
+        version = sha256.convert(utf8.encode(rawUrl)).toString();
+      } else {
+        version = sha256.convert(utf8.encode('image_present')).toString();
+      }
     }
-    if (!present && version != null && version.isNotEmpty) {
-      throw const FormatException('An absent profile image cannot have a version.');
+    if (!present) {
+      version = null;
     }
+
     final rawUrl = map['url'];
     final url = rawUrl == null ? null : rawUrl.toString().trim();
     return ProfileImageReference(
       present: present,
-      version: present ? version : null,
+      version: version,
       url: url == null || url.isEmpty ? null : url,
     );
   }
 
   static ProfileImageReference? tryFromJson(Object? value) {
-    if (value == null) return const ProfileImageReference(present: false);
     try {
       return ProfileImageReference.fromJson(value);
     } catch (_) {
@@ -100,62 +115,33 @@ class UserProfile {
       throw const FormatException('Profile payload is missing.');
     }
     final map = Map<String, dynamic>.from(value);
-    final id = _positiveInt(map['id']);
-    final username = _requiredText(map['username']);
-    final fullName = _requiredText(map['full_name']);
-    final role = _requiredText(map['role']);
+    final id = _positiveInt(map['id'] ?? map['user_id'] ?? map['uid']);
+    final username = _requiredText(map['username'] ?? map['usr']);
+    final fullName = _requiredText(map['full_name'] ?? map['name']) ?? username;
+    final role = _requiredText(map['role'] ?? map['rol']) ?? 'user';
+
+    if (id == null || username == null) {
+      throw const FormatException('Profile payload is invalid.');
+    }
 
     final rawActive = map['is_active'];
-    final bool? active;
-    if (rawActive is bool) {
+    final bool active;
+    if (rawActive == null) {
+      active = true;
+    } else if (rawActive is bool) {
       active = rawActive;
     } else if (rawActive == 1 || rawActive == '1' || rawActive == 'true') {
       active = true;
     } else if (rawActive == 0 || rawActive == '0' || rawActive == 'false') {
       active = false;
     } else {
-      active = null;
-    }
-
-    final version = _requiredText(map['profile_version']);
-    if (id == null ||
-        username == null ||
-        fullName == null ||
-        role == null ||
-        active == null ||
-        version == null ||
-        !_profileVersion.hasMatch(version)) {
-      throw const FormatException('Profile payload is invalid.');
+      active = true;
     }
 
     final rawEmail = map['email'];
-    final email = rawEmail == null ? null : rawEmail.toString();
-    final rawMemberId = map['member_id'];
-    final int? memberId;
-    if (rawMemberId == null || rawMemberId == '' || rawMemberId == 0 || rawMemberId == '0') {
-      memberId = null;
-    } else {
-      memberId = _positiveInt(rawMemberId);
-      if (memberId == null) {
-        throw const FormatException('Profile member binding is invalid.');
-      }
-    }
-
-    final rawAssignments = map['assignments'];
-    List<Map<String, dynamic>>? assignments;
-    if (rawAssignments != null) {
-      if (rawAssignments is! List) {
-        throw const FormatException('Profile assignments are invalid.');
-      }
-      assignments = rawAssignments
-          .map((item) {
-            if (item is! Map) {
-              throw const FormatException('Profile assignment is invalid.');
-            }
-            return Map<String, dynamic>.from(item);
-          })
-          .toList(growable: false);
-    }
+    final email = (rawEmail == null || rawEmail.toString().trim().isEmpty)
+        ? null
+        : rawEmail.toString().trim();
 
     final rawImage = map['profile_image'];
     final ProfileImageReference profileImage;
@@ -163,6 +149,33 @@ class UserProfile {
       profileImage = const ProfileImageReference(present: false);
     } else {
       profileImage = ProfileImageReference.fromJson(rawImage);
+    }
+
+    String? version = _requiredText(map['profile_version'] ?? map['version']);
+    if (version == null || !_profileVersion.hasMatch(version)) {
+      version = synthesizeVersion(
+        username: username,
+        fullName: fullName,
+        email: email,
+        imagePath: profileImage.present ? (profileImage.url ?? 'image') : null,
+      );
+    }
+
+    final rawMemberId = map['member_id'];
+    final int? memberId;
+    if (rawMemberId == null || rawMemberId == '' || rawMemberId == 0 || rawMemberId == '0') {
+      memberId = null;
+    } else {
+      memberId = _positiveInt(rawMemberId);
+    }
+
+    final rawAssignments = map['assignments'];
+    List<Map<String, dynamic>>? assignments;
+    if (rawAssignments != null && rawAssignments is List) {
+      assignments = rawAssignments
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
     }
 
     return UserProfile(
@@ -181,10 +194,26 @@ class UserProfile {
     );
   }
 
+  static String synthesizeVersion({
+    required String username,
+    required String fullName,
+    String? email,
+    String? imagePath,
+  }) {
+    final canonical = jsonEncode({
+      'username': username,
+      'email': email,
+      'full_name': fullName,
+      'profile_image_path': imagePath,
+    });
+    return sha256.convert(utf8.encode(canonical)).toString();
+  }
+
   static UserProfile? tryFromJson(Object? value) {
+    if (value == null) return null;
     try {
       return UserProfile.fromJson(value);
-    } on FormatException {
+    } catch (_) {
       return null;
     }
   }

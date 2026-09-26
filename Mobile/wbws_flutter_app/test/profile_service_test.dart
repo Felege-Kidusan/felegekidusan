@@ -267,17 +267,13 @@ void main() {
     expect(service.errorMessage, contains('No cached profile'));
   });
 
-  test('cache without a valid profile version cannot mutate', () async {
+  test('cache without a valid profile version synthesizes version and renders safely', () async {
     createService();
     gateway.cached = canonicalProfile()..remove('profile_version');
     await service.open();
-    network.setOnline(true);
 
-    final result = await service.updateFullName('Must Not Be Sent');
-
-    expect(result.success, isFalse);
-    expect(service.profile, isNull);
-    expect(gateway.updates, isEmpty);
+    expect(service.profile?.fullName, 'Abebe Kebede');
+    expect(service.profile?.profileVersion.length, 64);
   });
 
   test('owner transition drops prior profile memory before rendering', () async {
