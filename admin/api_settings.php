@@ -271,8 +271,21 @@ function settingsImageError(\Throwable $error): void
     settingsFail('Profile image storage is temporarily unavailable.', 503, 'STORAGE_UNAVAILABLE');
 }
 
+function settingsEnsureProfileImageStorage(): void
+{
+    $dir = defined('ROOT_PATH') ? ROOT_PATH . '/admin/uploads/profiles' : __DIR__ . '/uploads/profiles';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+}
+
 function settingsImageService(\mysqli $conn, bool $schemaReady): \App\Services\ProfileImageService
 {
+    settingsEnsureProfileImageStorage();
+    if (!$schemaReady) {
+        @$conn->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_path VARCHAR(255) NULL DEFAULT NULL AFTER full_name");
+        $schemaReady = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
+    }
     if (!$schemaReady) {
         settingsFail('Profile image storage is not available yet.', 503, 'STORAGE_UNAVAILABLE');
     }

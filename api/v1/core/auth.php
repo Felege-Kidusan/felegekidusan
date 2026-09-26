@@ -4,6 +4,8 @@
  * Token-based auth for mobile app and API clients
  */
 
+require_once __DIR__ . '/../../../admin/backend/services/ProfileService.php';
+
 define('API_TOKEN_SECRET', defined('JWT_SECRET') ? JWT_SECRET : EXPORT_PREFIX . '_api_v1_' . DB_NAME . '_' . md5(DB_PASS));
 define('API_TOKEN_EXPIRY', 900);              // 15-minute access token
 define('API_REFRESH_EXPIRY', 86400 * 90);     // 90-day rotating refresh session
