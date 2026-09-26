@@ -1415,6 +1415,321 @@ class ReportCardService
     }
 
     /**
+     * Advanced student performance filtering by Grade % and Attendance % ranges across classes.
+     *
+     * @param array<string,mixed> $filters
+     * @return array<string,mixed>
+     */
+    public static function filterStudentsPerformance(\mysqli $conn, array $filters = []): array
+    {
+        $classFilter = $filters['class_id'] ?? 'all';
+        $preferredYear = !empty($filters['year_id']) ? (int)$filters['year_id'] : (int)(self::currentYearId($conn));
+        $termId = !empty($filters['term_id']) ? (int)$filters['term_id'] : 0;
+        
+        $classesToQuery = [];
+        if ($classFilter !== 'all' && $classFilter !== '' && (int)$classFilter > 0) {
+            $stmt = $conn->prepare("SELECT id, class_name, class_name_en FROM classes WHERE id = ? AND is_active = 1 LIMIT 1");
+            if ($stmt) {
+                $cid = (int)$classFilter;
+                $stmt->bind_param('i', $cid);
+                $stmt->execute();
+                $c = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if ($c) $classesToQuery[] = $c;
+            }
+        } else {
+            $res = $conn->query("SELECT id, class_name, class_name_en FROM classes WHERE is_active = 1 ORDER BY level_order, id");
+            if ($res) {
+                while ($c = $res->fetch_assoc()) {
+                    $classesToQuery[] = $c;
+                }
+            }
+        }
+
+        if (empty($classesToQuery)) {
+            return [
+                'status' => 'success',
+                'students' => [],
+                'count' => 0,
+                'stats' => [
+                    'total' => 0,
+                    'avg_grade' => 0,
+                    'avg_attendance' => 0,
+                    'high_achievers' => 0,
+                    'at_risk_grade' => 0,
+                    'at_risk_att' => 0,
+                    'grade_distribution' => ['A' => 0, 'B' => 0, 'C' => 0, 'D' => 0, 'F' => 0],
+                    'graded_count' => 0,
+                ],
+                'filters_applied' => $filters,
+            ];
+        }
+
+        $minGrade = (isset($filters['min_grade']) && $filters['min_grade'] !== '') ? (float)$filters['min_grade'] : null;
+        $maxGrade = (isset($filters['max_grade']) && $filters['max_grade'] !== '') ? (float)$filters['max_grade'] : null;
+        $minAtt = (isset($filters['min_attendance']) && $filters['min_attendance'] !== '') ? (float)$filters['min_attendance'] : null;
+        $maxAtt = (isset($filters['max_attendance']) && $filters['max_attendance'] !== '') ? (float)$filters['max_attendance'] : null;
+        $gender = (!empty($filters['gender']) && $filters['gender'] !== 'all') ? strtolower(trim((string)$filters['gender'])) : null;
+        $gradeLetter = (!empty($filters['grade_letter']) && $filters['grade_letter'] !== 'all') ? strtoupper(trim((string)$filters['grade_letter'])) : null;
+        $search = !empty($filters['search']) ? strtolower(trim((string)$filters['search'])) : null;
+        $sort = (string)($filters['sort'] ?? 'grade_desc');
+
+        $allMatching = [];
+        $gradePcts = [];
+        $attRates = [];
+        $gradeDist = ['A' => 0, 'B' => 0, 'C' => 0, 'D' => 0, 'F' => 0];
+        $highAchievers = 0;
+        $atRiskGrade = 0;
+        $atRiskAtt = 0;
+
+        foreach ($classesToQuery as $cls) {
+            $cid = (int)$cls['id'];
+            $pack = self::buildRankedClass($conn, $cid, $preferredYear, $termId);
+            if (($pack['status'] ?? '') !== 'success' || empty($pack['students'])) {
+                continue;
+            }
+
+            foreach ($pack['students'] as $st) {
+                $stAvg = $st['overall_average'];
+                $stAtt = (float)($st['attendance_rate'] ?? 0);
+                $stGender = strtolower((string)($st['gender'] ?? ''));
+                $stLetter = (string)($st['grade_letter'] ?? 'F');
+                $stName = (string)($st['student_name'] ?? '');
+                $stFather = (string)($st['father_name'] ?? '');
+                $stCode = (string)($st['member_code'] ?? '');
+                $stChristian = (string)($st['christian_name'] ?? '');
+
+                if ($gender !== null && $stGender !== $gender) {
+                    continue;
+                }
+                if ($gradeLetter !== null && $stLetter !== $gradeLetter) {
+                    continue;
+                }
+                if ($minGrade !== null) {
+                    if ($stAvg === null || (float)$stAvg < $minGrade) {
+                        continue;
+                    }
+                }
+                if ($maxGrade !== null) {
+                    if ($stAvg === null || (float)$stAvg > $maxGrade) {
+                        continue;
+                    }
+                }
+                if ($minAtt !== null) {
+                    if ($stAtt < $minAtt) {
+                        continue;
+                    }
+                }
+                if ($maxAtt !== null) {
+                    if ($stAtt > $maxAtt) {
+                        continue;
+                    }
+                }
+                if ($search !== null) {
+                    $haystack = strtolower($stName . ' ' . $stFather . ' ' . $stCode . ' ' . $stChristian);
+                    if (strpos($haystack, $search) === false) {
+                        continue;
+                    }
+                }
+
+                $st['class_id'] = $cid;
+                $st['class_name'] = $cls['class_name'];
+                $st['class_name_en'] = $cls['class_name_en'] ?? '';
+
+                $allMatching[] = $st;
+
+                if ($stAvg !== null) {
+                    $gradePcts[] = (float)$stAvg;
+                    if (isset($gradeDist[$stLetter])) {
+                        $gradeDist[$stLetter]++;
+                    }
+                    if ((float)$stAvg < 50.0) {
+                        $atRiskGrade++;
+                    }
+                    if ((float)$stAvg >= 85.0 && $stAtt >= 80.0) {
+                        $highAchievers++;
+                    }
+                }
+                $attRates[] = $stAtt;
+                if ($stAtt < 60.0 && ($st['total_days'] ?? 0) > 0) {
+                    $atRiskAtt++;
+                }
+            }
+        }
+
+        usort($allMatching, static function ($a, $b) use ($sort) {
+            $aAvg = $a['overall_average'];
+            $bAvg = $b['overall_average'];
+            $aAtt = (float)($a['attendance_rate'] ?? 0);
+            $bAtt = (float)($b['attendance_rate'] ?? 0);
+            $aName = (string)($a['student_name'] ?? '');
+            $bName = (string)($b['student_name'] ?? '');
+            $aClass = (string)($a['class_name'] ?? '');
+            $bClass = (string)($b['class_name'] ?? '');
+
+            switch ($sort) {
+                case 'grade_asc':
+                    if ($aAvg === null && $bAvg === null) return strcasecmp($aName, $bName);
+                    if ($aAvg === null) return 1;
+                    if ($bAvg === null) return -1;
+                    return ($aAvg < $bAvg) ? -1 : 1;
+
+                case 'att_desc':
+                    if (abs($aAtt - $bAtt) > 0.01) return ($aAtt < $bAtt) ? 1 : -1;
+                    if ($aAvg !== null && $bAvg !== null && abs($aAvg - $bAvg) > 0.01) return ($aAvg < $bAvg) ? 1 : -1;
+                    return strcasecmp($aName, $bName);
+
+                case 'att_asc':
+                    if (abs($aAtt - $bAtt) > 0.01) return ($aAtt < $bAtt) ? -1 : 1;
+                    return strcasecmp($aName, $bName);
+
+                case 'name_asc':
+                    return strcasecmp($aName, $bName);
+
+                case 'class_asc':
+                    $cc = strcasecmp($aClass, $bClass);
+                    if ($cc !== 0) return $cc;
+                    if ($aAvg !== null && $bAvg !== null && abs($aAvg - $bAvg) > 0.01) return ($aAvg < $bAvg) ? 1 : -1;
+                    return strcasecmp($aName, $bName);
+
+                case 'grade_desc':
+                default:
+                    if ($aAvg === null && $bAvg === null) return strcasecmp($aName, $bName);
+                    if ($aAvg === null) return 1;
+                    if ($bAvg === null) return -1;
+                    if (abs($aAvg - $bAvg) > 0.01) return ($aAvg < $bAvg) ? 1 : -1;
+                    return ($aAtt < $bAtt) ? 1 : -1;
+            }
+        });
+
+        $idx = 1;
+        foreach ($allMatching as &$row) {
+            $row['filter_rank'] = $idx++;
+        }
+        unset($row);
+
+        $totCount = count($allMatching);
+        $avgG = !empty($gradePcts) ? round(array_sum($gradePcts) / count($gradePcts), 1) : 0;
+        $avgA = !empty($attRates) ? round(array_sum($attRates) / count($attRates), 1) : 0;
+
+        return [
+            'status' => 'success',
+            'students' => $allMatching,
+            'count' => $totCount,
+            'stats' => [
+                'total' => $totCount,
+                'avg_grade' => $avgG,
+                'avg_attendance' => $avgA,
+                'high_achievers' => $highAchievers,
+                'at_risk_grade' => $atRiskGrade,
+                'at_risk_att' => $atRiskAtt,
+                'grade_distribution' => $gradeDist,
+                'graded_count' => count($gradePcts),
+            ],
+            'filters_applied' => [
+                'class_id' => $classFilter,
+                'min_grade' => $minGrade,
+                'max_grade' => $maxGrade,
+                'min_attendance' => $minAtt,
+                'max_attendance' => $maxAtt,
+                'gender' => $gender,
+                'grade_letter' => $gradeLetter,
+                'search' => $search,
+                'sort' => $sort,
+            ]
+        ];
+    }
+
+    /**
+     * Export filtered students to Excel file download.
+     *
+     * @param array<string,mixed> $filters
+     */
+    public static function streamFilteredExcel(\mysqli $conn, array $filters = []): void
+    {
+        $res = self::filterStudentsPerformance($conn, $filters);
+        if (($res['status'] ?? '') !== 'success') {
+            throw new \RuntimeException('Failed to generate report.');
+        }
+
+        $students = $res['students'] ?? [];
+        $stats = $res['stats'] ?? [];
+        $brand = self::brand();
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Filtered Performance');
+
+        $headers = [
+            '#', 'Student Name', 'Father Name', 'Baptismal Name', 'Member Code',
+            'Class', 'Gender', 'Grade Average (%)', 'Letter Grade',
+            'Total Obtained', 'Total Max', 'Assessments Count',
+            'Attendance Rate (%)', 'Present Days', 'Absent Days', 'Late Days', 'Total Days'
+        ];
+
+        // Format Title & Banner
+        $sheet->setCellValue('A1', ($brand['school_am'] ?? 'FKSS') . ' — ' . ($brand['school_en'] ?? ''));
+        $sheet->setCellValue('A2', 'Filtered Student Performance & Attendance Report');
+        $sheet->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Avg Grade: ' . ($stats['avg_grade'] ?? 0) . '% | Avg Attendance: ' . ($stats['avg_attendance'] ?? 0) . '% | Exported: ' . date('Y-m-d H:i'));
+
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11);
+        $sheet->getStyle('A3')->getFont()->setItalic(true)->setSize(9);
+
+        // Header row
+        $headerRow = 5;
+        foreach ($headers as $colIdx => $h) {
+            $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($colIdx + 1);
+            $sheet->setCellValue($colLetter . $headerRow, $h);
+        }
+
+        $headerStyle = $sheet->getStyle("A{$headerRow}:Q{$headerRow}");
+        $headerStyle->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+        $headerStyle->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('5B21B6');
+
+        $rIdx = $headerRow + 1;
+        foreach ($students as $st) {
+            $sheet->setCellValue('A' . $rIdx, $st['filter_rank'] ?? ($rIdx - $headerRow));
+            $sheet->setCellValue('B' . $rIdx, $st['student_name'] ?? '');
+            $sheet->setCellValue('C' . $rIdx, $st['father_name'] ?? '');
+            $sheet->setCellValue('D' . $rIdx, $st['christian_name'] ?? '');
+            $sheet->setCellValue('E' . $rIdx, $st['member_code'] ?? '');
+            $sheet->setCellValue('F' . $rIdx, $st['class_name'] ?? '');
+            $sheet->setCellValue('G' . $rIdx, ucfirst((string)($st['gender'] ?? '')));
+            $sheet->setCellValue('H' . $rIdx, $st['overall_average'] !== null ? $st['overall_average'] . '%' : '—');
+            $sheet->setCellValue('I' . $rIdx, $st['grade_letter'] ?? '—');
+            $sheet->setCellValue('J' . $rIdx, $st['total_obtained'] ?? 0);
+            $sheet->setCellValue('K' . $rIdx, $st['total_max'] ?? 0);
+            $sheet->setCellValue('L' . $rIdx, $st['assessments_count'] ?? 0);
+            $sheet->setCellValue('M' . $rIdx, ($st['attendance_rate'] !== null ? $st['attendance_rate'] : 0) . '%');
+            $sheet->setCellValue('N' . $rIdx, $st['present_days'] ?? 0);
+            $sheet->setCellValue('O' . $rIdx, $st['absent_days'] ?? 0);
+            $sheet->setCellValue('P' . $rIdx, $st['late_days'] ?? 0);
+            $sheet->setCellValue('Q' . $rIdx, $st['total_days'] ?? 0);
+            $rIdx++;
+        }
+
+        foreach (range(1, 17) as $col) {
+            $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
+            $sheet->getColumnDimension($colLetter)->setAutoSize(true);
+        }
+
+        $minG = $filters['min_grade'] ?? '';
+        $minA = $filters['min_attendance'] ?? '';
+        $filterTag = ($minG !== '' ? 'G' . $minG : '') . ($minA !== '' ? '_A' . $minA : '');
+        $filename = 'Students_Performance_' . ($filterTag ? $filterTag . '_' : '') . date('Ymd_His') . '.xlsx';
+
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $writer->save('php://output');
+        exit;
+    }
+
+    /**
      * @return array<string,string>
      */
     public static function brand(): array

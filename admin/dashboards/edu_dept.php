@@ -482,6 +482,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="nl" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i> Enrollment</button>
 <button class="nl" data-sec="grades"><i class="fa-solid fa-star"></i> Grades</button>
 <button class="nl" data-sec="assessments"><i class="fa-solid fa-clipboard-list"></i> Assessments</button>
+<button class="nl" data-sec="filter"><i class="fa-solid fa-filter"></i> Performance Filter</button>
 <button class="nl" data-sec="settings"><i class="fa-solid fa-cog"></i> Academic Year</button>
 </div>
 <div>
@@ -747,6 +748,127 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="reviewModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-check"></i> Review Submission</h3><button onclick="closeModal('reviewModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div id="reviewModalContent" style="padding:1.25rem"><p style="text-align:center;color:#94a3b8">Loading...</p></div>
 </div></div>
+
+<!-- ═══ ADVANCED PERFORMANCE & ATTENDANCE FILTER ═══ -->
+<div id="sec-filter" class="sec">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+<div>
+<h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-filter" style="color:#7c3aed"></i> Advanced Student Performance &amp; Attendance Filter</h2>
+<p style="font-size:.75rem;color:#64748b" class="amharic">የተማሪዎች የውጤት እና የክትትል አማካኝ ማጣሪያ — Filter students by combined score range and attendance percentage with Excel export</p>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap">
+<button class="btn btn-s" type="button" style="background:#059669;color:#fff;border:none" onclick="exportFilteredPerformance()"><i class="fa-solid fa-file-excel"></i> Export Excel (.xlsx)</button>
+<button class="btn btn-o" type="button" onclick="printFilteredList()"><i class="fa-solid fa-print"></i> Print Filtered List</button>
+</div>
+</div>
+
+<!-- QUICK PRESET CHIPS -->
+<div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.85rem;background:#f8fafc;border:1px solid #e2e8f0;padding:.5rem .75rem;border-radius:10px">
+<span style="font-size:.75rem;font-weight:700;color:#64748b;margin-right:.25rem"><i class="fa-solid fa-bolt" style="color:#f59e0b"></i> Quick Presets:</span>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(89,100,50,100,'all')">🌟 Score ≥89% &amp; Att ≥50%</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(85,100,80,100,'all')">🏆 Top Achievers (≥85% &amp; Att ≥80%)</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(80,100,0,59.9,'all')">📈 High Grade / Low Att (&lt;60%)</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(0,49.9,0,100,'all')">⚠️ Academic Support (&lt;50%)</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setQuickFilterPreset(0,100,0,59.9,'all')">⏰ Attendance Alert (&lt;60%)</button>
+<button type="button" class="btn btn-o btn-xs" onclick="resetPerformanceFilter()">🔄 All Students (Reset)</button>
+</div>
+
+<!-- FILTER CONTROLS CARD -->
+<div class="crd no-print" style="padding:1rem;margin-bottom:1rem">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.65rem;margin-bottom:.75rem">
+<div style="background:#faf5ff;padding:.5rem;border-radius:8px;border:1px solid #e9d5ff">
+<label class="lbl" style="color:#5b21b6;font-weight:700"><i class="fa-solid fa-graduation-cap"></i> Min Grade (%)</label>
+<input type="number" id="pfMinGrade" class="inp" min="0" max="100" step="1" placeholder="e.g. 89" onchange="applyPerformanceFilter()">
+</div>
+<div style="background:#faf5ff;padding:.5rem;border-radius:8px;border:1px solid #e9d5ff">
+<label class="lbl" style="color:#5b21b6;font-weight:700"><i class="fa-solid fa-graduation-cap"></i> Max Grade (%)</label>
+<input type="number" id="pfMaxGrade" class="inp" min="0" max="100" step="1" placeholder="e.g. 100" onchange="applyPerformanceFilter()">
+</div>
+<div style="background:#ecfdf5;padding:.5rem;border-radius:8px;border:1px solid #a7f3d0">
+<label class="lbl" style="color:#065f46;font-weight:700"><i class="fa-solid fa-calendar-check"></i> Min Attendance (%)</label>
+<input type="number" id="pfMinAtt" class="inp" min="0" max="100" step="1" placeholder="e.g. 50" onchange="applyPerformanceFilter()">
+</div>
+<div style="background:#ecfdf5;padding:.5rem;border-radius:8px;border:1px solid #a7f3d0">
+<label class="lbl" style="color:#065f46;font-weight:700"><i class="fa-solid fa-calendar-check"></i> Max Attendance (%)</label>
+<input type="number" id="pfMaxAtt" class="inp" min="0" max="100" step="1" placeholder="e.g. 100" onchange="applyPerformanceFilter()">
+</div>
+<div>
+<label class="lbl">Grade Letter</label>
+<select id="pfGradeLetter" class="inp" onchange="applyPerformanceFilter()"><option value="all">All Grades (A-F)</option><option value="A">Grade A (90-100%)</option><option value="B">Grade B (80-89%)</option><option value="C">Grade C (70-79%)</option><option value="D">Grade D (60-69%)</option><option value="F">Grade F (&lt;60%)</option></select>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.65rem;align-items:end">
+<div>
+<label class="lbl">Class Scope</label>
+<select id="pfClass" class="inp" onchange="applyPerformanceFilter()"><option value="all">All Classes (Entire School)</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select>
+</div>
+<div>
+<label class="lbl">Gender</label>
+<select id="pfGender" class="inp" onchange="applyPerformanceFilter()"><option value="all">All Genders</option><option value="male">Male (♂)</option><option value="female">Female (♀)</option></select>
+</div>
+<div>
+<label class="lbl">Academic Year</label>
+<select id="pfYear" class="inp" onchange="applyPerformanceFilter()"><option value="">Current Year</option><?php foreach ($years as $y): ?><option value="<?= (int)$y['id'] ?>"<?= !empty($y['is_current'])?' selected':''; ?>><?= e($y['year_name']) ?></option><?php endforeach; ?></select>
+</div>
+<div>
+<label class="lbl">Semester / Term</label>
+<select id="pfTerm" class="inp" onchange="applyPerformanceFilter()"><option value="0">All / Current Semesters</option><?php foreach ($terms as $tm): ?><option value="<?= (int)$tm['id'] ?>"><?= e($tm['term_name']) ?></option><?php endforeach; ?></select>
+</div>
+<div>
+<label class="lbl">Sort Order</label>
+<select id="pfSort" class="inp" onchange="applyPerformanceFilter()"><option value="grade_desc">Score: Highest First</option><option value="grade_asc">Score: Lowest First</option><option value="att_desc">Attendance: Highest First</option><option value="att_asc">Attendance: Lowest First</option><option value="name_asc">Name: A to Z</option><option value="class_asc">By Class Name</option></select>
+</div>
+</div>
+
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.75rem">
+<input autocomplete="off" type="text" id="pfSearch" class="inp" style="flex:1;min-width:200px" placeholder="Search by student name, father name, or member code…" oninput="applyPerformanceFilter()">
+<button class="btn btn-p" type="button" onclick="applyPerformanceFilter()"><i class="fa-solid fa-filter"></i> Apply Filter</button>
+<button class="btn btn-o" type="button" onclick="resetPerformanceFilter()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+</div>
+</div>
+
+<!-- LIVE SUMMARY STATS ROW -->
+<div id="pfStatsArea" style="display:none;margin-bottom:1rem">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem">
+<div class="crd" style="padding:.75rem;border-left:4px solid #7c3aed">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Matching Students</div>
+<div id="pfStatCount" style="font-size:1.4rem;font-weight:700;color:#1e293b">0</div>
+<div style="font-size:.65rem;color:#7c3aed">Filtered group size</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #0284c7">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Avg Grade Score</div>
+<div id="pfStatGrade" style="font-size:1.4rem;font-weight:700;color:#0284c7">0%</div>
+<div style="font-size:.65rem;color:#64748b">Academic mean</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #059669">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Avg Attendance</div>
+<div id="pfStatAtt" style="font-size:1.4rem;font-weight:700;color:#059669">0%</div>
+<div style="font-size:.65rem;color:#64748b">Attendance mean</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #f59e0b">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">High Achievers</div>
+<div id="pfStatHigh" style="font-size:1.4rem;font-weight:700;color:#d97706">0</div>
+<div style="font-size:.65rem;color:#64748b">≥85% score &amp; ≥80% att</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #dc2626">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Attendance Alert</div>
+<div id="pfStatAttAlert" style="font-size:1.4rem;font-weight:700;color:#dc2626">0</div>
+<div style="font-size:.65rem;color:#64748b">&lt;60% attendance</div>
+</div>
+</div>
+</div>
+
+<!-- RESULTS TABLE -->
+<div id="pfTableArea" class="crd" style="display:none">
+<div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+<div style="font-weight:700;font-size:.9rem;color:#1e293b"><i class="fa-solid fa-list-check" style="color:#7c3aed"></i> Filtered Student Records (<span id="pfTableCountBadge">0</span>)</div>
+<div style="font-size:.72rem;color:#64748b">Showing students matching the active filter criteria</div>
+</div>
+<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Class</th><th>Gender</th><th>Grade Average</th><th>Attendance</th><th class="no-print">Actions</th></tr></thead><tbody id="pfTableBody"></tbody></table></div>
+</div>
+<div id="pfEmptyMsg" class="crd" style="padding:2.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-filter" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>Configure filter ranges above or click "Apply Filter" to retrieve student records.</div>
+</div>
 
 <!-- ═══ REPORT CARDS ═══ -->
 <div id="sec-reportcards" class="sec">
@@ -2990,9 +3112,261 @@ async function generateBulkReports(){
     }catch(e){ toast(friendlyNetError(e),'err'); }
 }
 
+// ═══ ADVANCED PERFORMANCE & ATTENDANCE FILTER ═══
+let pfData = [], pfStats = {};
+
+function setQuickFilterPreset(minG, maxG, minA, maxA, letter){
+    const minGEl = document.getElementById('pfMinGrade');
+    const maxGEl = document.getElementById('pfMaxGrade');
+    const minAEl = document.getElementById('pfMinAtt');
+    const maxAEl = document.getElementById('pfMaxAtt');
+    const lEl = document.getElementById('pfGradeLetter');
+    if(minGEl) minGEl.value = (minG !== 0 && minG !== null) ? minG : '';
+    if(maxGEl) maxGEl.value = (maxG !== 100 && maxG !== null) ? maxG : '';
+    if(minAEl) minAEl.value = (minA !== 0 && minA !== null) ? minA : '';
+    if(maxAEl) maxAEl.value = (maxA !== 100 && maxA !== null) ? maxA : '';
+    if(lEl) lEl.value = letter || 'all';
+    applyPerformanceFilter();
+}
+
+function resetPerformanceFilter(){
+    const minGEl = document.getElementById('pfMinGrade');
+    const maxGEl = document.getElementById('pfMaxGrade');
+    const minAEl = document.getElementById('pfMinAtt');
+    const maxAEl = document.getElementById('pfMaxAtt');
+    const lEl = document.getElementById('pfGradeLetter');
+    const cEl = document.getElementById('pfClass');
+    const gEl = document.getElementById('pfGender');
+    const sEl = document.getElementById('pfSearch');
+    const sortEl = document.getElementById('pfSort');
+    if(minGEl) minGEl.value = '';
+    if(maxGEl) maxGEl.value = '';
+    if(minAEl) minAEl.value = '';
+    if(maxAEl) maxAEl.value = '';
+    if(lEl) lEl.value = 'all';
+    if(cEl) cEl.value = 'all';
+    if(gEl) gEl.value = 'all';
+    if(sEl) sEl.value = '';
+    if(sortEl) sortEl.value = 'grade_desc';
+    applyPerformanceFilter();
+}
+
+function pfQs(){
+    const minG = document.getElementById('pfMinGrade')?.value || '';
+    const maxG = document.getElementById('pfMaxGrade')?.value || '';
+    const minA = document.getElementById('pfMinAtt')?.value || '';
+    const maxA = document.getElementById('pfMaxAtt')?.value || '';
+    const letter = document.getElementById('pfGradeLetter')?.value || 'all';
+    const cid = document.getElementById('pfClass')?.value || 'all';
+    const gender = document.getElementById('pfGender')?.value || 'all';
+    const year = document.getElementById('pfYear')?.value || '';
+    const term = document.getElementById('pfTerm')?.value || '0';
+    const sort = document.getElementById('pfSort')?.value || 'grade_desc';
+    const search = document.getElementById('pfSearch')?.value || '';
+
+    let q = `&class_id=${encodeURIComponent(cid)}&sort=${encodeURIComponent(sort)}`;
+    if(minG !== '') q += `&min_grade=${encodeURIComponent(minG)}`;
+    if(maxG !== '') q += `&max_grade=${encodeURIComponent(maxG)}`;
+    if(minA !== '') q += `&min_attendance=${encodeURIComponent(minA)}`;
+    if(maxA !== '') q += `&max_attendance=${encodeURIComponent(maxA)}`;
+    if(letter !== 'all') q += `&grade_letter=${encodeURIComponent(letter)}`;
+    if(gender !== 'all') q += `&gender=${encodeURIComponent(gender)}`;
+    if(year !== '') q += `&year_id=${encodeURIComponent(year)}`;
+    if(term !== '0') q += `&term_id=${encodeURIComponent(term)}`;
+    if(search.trim() !== '') q += `&search=${encodeURIComponent(search.trim())}`;
+    return q;
+}
+
+async function applyPerformanceFilter(){
+    const tableArea = document.getElementById('pfTableArea');
+    const emptyMsg = document.getElementById('pfEmptyMsg');
+    const statsArea = document.getElementById('pfStatsArea');
+    const tbody = document.getElementById('pfTableBody');
+
+    if(tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Filtering students…</td></tr>';
+    if(tableArea) tableArea.style.display = 'block';
+    if(emptyMsg) emptyMsg.style.display = 'none';
+
+    try{
+        const d = await getAPI(`/admin/api_education.php?action=filter_students_performance${pfQs()}`);
+        if(d.status !== 'success'){
+            if(tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:#dc2626">${esc(d.message || 'Could not filter students.')}</td></tr>`;
+            return;
+        }
+
+        pfData = d.students || [];
+        pfStats = d.stats || {};
+
+        // Update stats cards
+        if(statsArea) statsArea.style.display = 'block';
+        const cntEl = document.getElementById('pfStatCount');
+        const gEl = document.getElementById('pfStatGrade');
+        const aEl = document.getElementById('pfStatAtt');
+        const hEl = document.getElementById('pfStatHigh');
+        const alertEl = document.getElementById('pfStatAttAlert');
+        const badgeEl = document.getElementById('pfTableCountBadge');
+
+        if(cntEl) cntEl.textContent = pfStats.total || 0;
+        if(gEl) gEl.textContent = (pfStats.avg_grade != null ? pfStats.avg_grade : 0) + '%';
+        if(aEl) aEl.textContent = (pfStats.avg_attendance != null ? pfStats.avg_attendance : 0) + '%';
+        if(hEl) hEl.textContent = pfStats.high_achievers || 0;
+        if(alertEl) alertEl.textContent = pfStats.at_risk_att || 0;
+        if(badgeEl) badgeEl.textContent = pfData.length;
+
+        renderFilterTable();
+    }catch(e){
+        if(tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:#dc2626">${esc(friendlyNetError(e))}</td></tr>`;
+        toast('Error filtering students', 'err');
+    }
+}
+
+function renderFilterTable(){
+    const tbody = document.getElementById('pfTableBody');
+    if(!tbody) return;
+
+    if(!pfData.length){
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-user-slash" style="font-size:1.5rem;margin-bottom:.5rem;display:block"></i>No students match the selected score and attendance criteria.</td></tr>';
+        return;
+    }
+
+    const gc = { A: '#047857', B: '#0369a1', C: '#b45309', D: '#c2410c', F: '#b91c1c' };
+    tbody.innerHTML = pfData.map(s => {
+        const pct = s.overall_average ?? s.avg_percentage;
+        const attR = s.attendance_rate || 0;
+        const obt = (s.total_obtained != null && s.total_max != null) ? `${s.total_obtained} / ${s.total_max} pts` : '—';
+        const pDays = s.present_days || 0;
+        const aDays = s.absent_days || 0;
+        const lDays = s.late_days || 0;
+        const isMale = (s.gender === 'male');
+
+        return `<tr>
+            <td style="font-weight:700;color:#64748b">${s.filter_rank || '—'}</td>
+            <td style="font-weight:600;font-size:.82rem">
+                <div>${esc(s.student_name || '')} ${esc(s.father_name || '')}</div>
+                ${s.christian_name ? `<div style="font-size:.65rem;color:#94a3b8"><i class="fa-solid fa-cross" style="font-size:.55rem"></i> ${esc(s.christian_name)}</div>` : ''}
+            </td>
+            <td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(s.member_code || '—')}</code></td>
+            <td><span class="amharic" style="font-weight:600;font-size:.78rem">${esc(s.class_name || '—')}</span></td>
+            <td><span class="chip ${isMale ? 'chip-info' : 'chip-success'}" style="font-size:.65rem">${isMale ? 'M' : 'F'}</span></td>
+            <td>
+                <div style="display:flex;align-items:center;gap:.4rem">
+                    <span style="font-weight:700;font-size:.88rem;color:#1e293b">${pct != null ? Number(pct).toFixed(1) + '%' : '—'}</span>
+                    <span style="display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.62rem;color:#fff;background:${gc[s.grade_letter] || '#94a3b8'}">${s.grade_letter || '—'}</span>
+                </div>
+                <div style="font-size:.65rem;color:#94a3b8;margin-top:1px">${esc(obt)}</div>
+            </td>
+            <td style="min-width:140px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+                    <span style="font-weight:700;font-size:.8rem;color:${attR >= 80 ? '#047857' : (attR >= 60 ? '#d97706' : '#b91c1c')}">${attR}%</span>
+                    <span style="font-size:.65rem;color:#64748b">${pDays}P · ${aDays}A · ${lDays}L</span>
+                </div>
+                <div style="height:5px;background:#e2e8f0;border-radius:99px;overflow:hidden">
+                    <div style="height:100%;border-radius:99px;background:${attR >= 80 ? '#047857' : (attR >= 60 ? '#d97706' : '#b91c1c')};width:${Math.min(100, attR)}%"></div>
+                </div>
+            </td>
+            <td class="no-print">
+                <button class="btn btn-o btn-xs" type="button" onclick="viewStudentReportFromFilter(${s.id}, ${s.class_id})"><i class="fa-solid fa-file-lines"></i> Report Card</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function viewStudentReportFromFilter(memberId, classId){
+    const y = document.getElementById('pfYear')?.value || '';
+    const t = document.getElementById('pfTerm')?.value || '';
+    let q = '';
+    if(y) q += `&year_id=${encodeURIComponent(y)}`;
+    if(t && t !== '0') q += `&term_id=${encodeURIComponent(t)}`;
+
+    document.getElementById('rcModal').classList.add('show');
+    document.getElementById('rcModalBody').innerHTML = '<p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report card…</p>';
+    getAPI(`/admin/api_communication.php?action=get_report_card&member_id=${memberId}&class_id=${classId}${q}`)
+        .then(d => {
+            if(d.status !== 'success'){
+                document.getElementById('rcModalBody').innerHTML = `<p style="text-align:center;color:#ef4444;padding:2rem">${esc(d.message || 'Could not open report card.')}</p>`;
+                return;
+            }
+            if(window.FKSSReportCard) FKSSReportCard.fillModal(document.getElementById('rcModalBody'), d);
+            else document.getElementById('rcModalBody').innerHTML = '<p style="text-align:center;color:#ef4444;padding:2rem">Report card view failed to load.</p>';
+        })
+        .catch(e => {
+            document.getElementById('rcModalBody').innerHTML = `<p style="color:#ef4444;text-align:center;padding:2rem">${esc(friendlyNetError(e))}</p>`;
+        });
+}
+
+function exportFilteredPerformance(){
+    if(!pfData.length){
+        return toast('No filtered students to export. Apply a filter first.', 'err');
+    }
+
+    try{
+        if(typeof XLSX !== 'undefined' && XLSX.utils){
+            const headers = [
+                '#', 'Student Name', 'Father Name', 'Baptismal Name', 'Member Code',
+                'Class', 'Gender', 'Grade Average (%)', 'Letter Grade',
+                'Total Obtained (pts)', 'Total Max (pts)', 'Assessments Count',
+                'Attendance Rate (%)', 'Present Days', 'Absent Days', 'Late Days', 'Total Days'
+            ];
+
+            const rows = pfData.map(s => [
+                s.filter_rank || '',
+                s.student_name || '',
+                s.father_name || '',
+                s.christian_name || '',
+                s.member_code || '',
+                s.class_name || '',
+                (s.gender || '').toUpperCase(),
+                s.overall_average != null ? Number(s.overall_average).toFixed(1) : '',
+                s.grade_letter || '',
+                s.total_obtained != null ? s.total_obtained : '',
+                s.total_max != null ? s.total_max : '',
+                s.assessments_count != null ? s.assessments_count : '',
+                s.attendance_rate != null ? s.attendance_rate : 0,
+                s.present_days || 0,
+                s.absent_days || 0,
+                s.late_days || 0,
+                s.total_days || 0
+            ]);
+
+            const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Filtered Students');
+
+            const minG = document.getElementById('pfMinGrade')?.value || '';
+            const minA = document.getElementById('pfMinAtt')?.value || '';
+            const tag = (minG ? 'G' + minG : '') + (minA ? '_A' + minA : '');
+            const filename = 'Students_Filtered_' + (tag ? tag + '_' : '') + new Date().toISOString().slice(0, 10) + '.xlsx';
+
+            XLSX.writeFile(wb, filename);
+            toast('Excel file downloaded successfully!', 'ok');
+            return;
+        }
+    }catch(err){
+        console.warn('Client XLSX export error, using backend download:', err);
+    }
+    // Fallback or direct server stream
+    window.location = '/admin/export_filtered_students.php?' + pfQs().replace(/^&/, '');
+}
+
+function printFilteredList(){
+    if(!pfData.length) return toast('Filter students first to print.','err');
+    const fab = document.getElementById('ai-fab');
+    const win = document.getElementById('ai-win');
+    if(fab) fab.style.display = 'none';
+    if(win) win.style.display = 'none';
+    window.print();
+    if(fab) fab.style.display = '';
+    if(win) win.style.display = '';
+}
+
 // ═══ NAV EXTENSION ═══
 const _origNav=nav;
-nav=function(n){try{_origNav(n);}catch(e){console.error(e);}try{if(n==='submissions')loadSubmissions();}catch(e){console.error(e);}try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}};
+nav=function(n){
+    try{_origNav(n);}catch(e){console.error(e);}
+    try{if(n==='submissions')loadSubmissions();}catch(e){console.error(e);}
+    try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}
+    try{if(n==='filter'&&!pfData.length)applyPerformanceFilter();}catch(e){console.error(e);}
+};
 try{
     const _sp=new URLSearchParams(window.location.search).get('section');
     if(_sp) nav(_sp);

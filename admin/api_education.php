@@ -1526,6 +1526,28 @@ switch ($action) {
         ], JSON_UNESCAPED_UNICODE);
         break;
 
+    // ============================================================
+    // ADVANCED PERFORMANCE & ATTENDANCE FILTER
+    // ============================================================
+    case 'filter_students_performance':
+        require_once __DIR__ . '/backend/services/ReportCardService.php';
+        $filters = [
+            'class_id' => $_GET['class_id'] ?? 'all',
+            'year_id' => !empty($_GET['year_id']) ? (int)$_GET['year_id'] : ($currentYear['id'] ?? 0),
+            'term_id' => !empty($_GET['term_id']) ? (int)$_GET['term_id'] : 0,
+            'gender' => $_GET['gender'] ?? 'all',
+            'min_grade' => (isset($_GET['min_grade']) && $_GET['min_grade'] !== '') ? (float)$_GET['min_grade'] : null,
+            'max_grade' => (isset($_GET['max_grade']) && $_GET['max_grade'] !== '') ? (float)$_GET['max_grade'] : null,
+            'grade_letter' => $_GET['grade_letter'] ?? 'all',
+            'min_attendance' => (isset($_GET['min_attendance']) && $_GET['min_attendance'] !== '') ? (float)$_GET['min_attendance'] : null,
+            'max_attendance' => (isset($_GET['max_attendance']) && $_GET['max_attendance'] !== '') ? (float)$_GET['max_attendance'] : null,
+            'search' => $_GET['search'] ?? null,
+            'sort' => $_GET['sort'] ?? 'grade_desc',
+        ];
+        $res = \App\Services\ReportCardService::filterStudentsPerformance($conn, $filters);
+        echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        break;
+
     default:
         echo json_encode(['status' => 'error', 'message' => 'Unknown action']);
 }
