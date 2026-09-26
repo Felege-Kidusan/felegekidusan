@@ -1527,6 +1527,51 @@ switch ($action) {
         break;
 
     // ============================================================
+    // ASSESSMENT TYPES MANAGEMENT
+    // ============================================================
+    case 'get_assessment_types':
+        require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
+        $activeOnly = isset($_GET['active_only']) && ($_GET['active_only'] === '1' || $_GET['active_only'] === 'true');
+        $types = \App\Services\AssessmentTypeService::getAll($conn, $activeOnly);
+        echo json_encode(['status' => 'success', 'types' => $types, 'count' => count($types)], JSON_UNESCAPED_UNICODE);
+        break;
+
+    case 'save_assessment_type':
+        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+            respondApiError('Only Education Department and administrators can manage assessment types.', 403);
+        }
+        require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
+        $res = \App\Services\AssessmentTypeService::save($conn, $_POST, $userId);
+        echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        break;
+
+    case 'toggle_assessment_type':
+        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+            respondApiError('Only Education Department and administrators can manage assessment types.', 403);
+        }
+        require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            respondApiError('Invalid assessment type ID.', 422);
+        }
+        $res = \App\Services\AssessmentTypeService::toggleActive($conn, $id);
+        echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        break;
+
+    case 'delete_assessment_type':
+        if (!in_array($userRole, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+            respondApiError('Only Education Department and administrators can manage assessment types.', 403);
+        }
+        require_once __DIR__ . '/backend/services/AssessmentTypeService.php';
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            respondApiError('Invalid assessment type ID.', 422);
+        }
+        $res = \App\Services\AssessmentTypeService::delete($conn, $id);
+        echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        break;
+
+    // ============================================================
     // ADVANCED PERFORMANCE & ATTENDANCE FILTER
     // ============================================================
     case 'filter_students_performance':

@@ -217,6 +217,15 @@ if ($action === 'bootstrap' && $method === 'GET') {
 }
 
 // ============================================================
+// GET /grades/assessment-types
+// ============================================================
+if (($action === 'assessment-types' || $action === 'types') && $method === 'GET') {
+    require_once dirname(__DIR__, 3) . '/admin/backend/services/AssessmentTypeService.php';
+    $types = \App\Services\AssessmentTypeService::getAll($conn, true);
+    ok(['types' => $types, 'count' => count($types)]);
+}
+
+// ============================================================
 // GET /grades/subjects?class_id=X
 // ============================================================
 if ($action === 'subjects' && $method === 'GET') {

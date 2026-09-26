@@ -691,6 +691,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
 <div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-clipboard-list" style="color:#7c3aed"></i> Assessment &amp; Evaluation Setup</h2><p style="font-size:.75rem;color:#64748b">Education department defines all assessments (e.g. Test 10%, Exam 40%). Teachers then fill in student marks.</p></div>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+<button class="btn btn-o btn-sm" type="button" onclick="openAssessmentTypesModal()"><i class="fa-solid fa-tags" style="color:#7c3aed"></i> Manage Assessment Types</button>
 <button class="btn btn-o btn-sm" type="button" onclick="openTemplateModal()"><i class="fa-solid fa-wand-magic-sparkles"></i> Apply Standard Scheme</button>
 <button class="btn btn-p btn-sm" type="button" onclick="openAssessmentModal()"><i class="fa-solid fa-plus"></i> Add Assessment</button>
 </div>
@@ -996,6 +997,75 @@ renderProfileTabSection('sec-profile', 'sec');
 <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem"><button class="btn btn-o" onclick="closeModal('classModal')">Cancel</button><button class="btn btn-p" onclick="saveClass()"><i class="fa-solid fa-save"></i> Save</button></div>
 </div></div></div>
 
+<!-- ═══ ASSESSMENT TYPES MANAGEMENT MODAL ═══ -->
+<div class="mo" id="assessmentTypesModal"><div class="mc" style="max-width:760px">
+<div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center">
+<div>
+<h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-tags"></i> Assessment Types Management</h3>
+<p style="font-size:.72rem;color:rgba(255,255,255,.8);margin:2px 0 0" class="amharic">የምዘና ዓይነቶች አስተዳደር — Create and customize evaluation types for the department</p>
+</div>
+<button onclick="closeModal('assessmentTypesModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button>
+</div>
+<div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+<div style="font-size:.8rem;color:#64748b">Assessment types defined here become immediately available when adding assessments or evaluation schemes.</div>
+<button class="btn btn-p btn-sm" onclick="openCreateAssessmentType()"><i class="fa-solid fa-plus"></i> Add New Type</button>
+</div>
+<div class="tw"><table class="dt"><thead><tr><th>Order</th><th>Name (Amharic)</th><th>English Translation</th><th>Code / Key</th><th>Default Max</th><th>Default Weight</th><th>Status</th><th>Actions</th></tr></thead><tbody id="asmtTypesTableBody"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading assessment types…</td></tr></tbody></table></div>
+<div style="display:flex;justify-content:flex-end;margin-top:.5rem">
+<button class="btn btn-o btn-sm" onclick="closeModal('assessmentTypesModal')">Close</button>
+</div>
+</div></div></div>
+
+<!-- ═══ CREATE / EDIT ASSESSMENT TYPE MODAL ═══ -->
+<div class="mo" id="assessmentTypeEditModal"><div class="mc" style="max-width:480px">
+<div style="background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center">
+<h3 id="asmtTypeEditModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-tag"></i> New Assessment Type</h3>
+<button onclick="closeModal('assessmentTypeEditModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button>
+</div>
+<div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
+<input type="hidden" id="asmtTypeId" value="0">
+<div>
+<label class="lbl">Type Name (Amharic) *</label>
+<input id="asmtTypeName" class="inp" placeholder="e.g. ፈተና, የቃል ፈተና, የዜማ ጥናት, የቡድን ስራ">
+</div>
+<div>
+<label class="lbl">English Name (Optional)</label>
+<input id="asmtTypeNameEn" class="inp" placeholder="e.g. Oral Exam, Hymn Memorization, Class Project" oninput="autoSuggestAsmtTypeKey()">
+</div>
+<div>
+<label class="lbl">Type Code / Key *</label>
+<input id="asmtTypeKey" class="inp" placeholder="e.g. oral_exam, hymn_memorization (lowercase alphanumeric)">
+<span style="font-size:.68rem;color:#94a3b8">Used internally in database queries and reports.</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+<div>
+<label class="lbl">Default Max Score</label>
+<input type="number" id="asmtTypeDefaultMax" class="inp" value="10" min="1" max="1000">
+</div>
+<div>
+<label class="lbl">Default Weight (%)</label>
+<input type="number" id="asmtTypeDefaultWeight" class="inp" value="10" min="1" max="100">
+</div>
+</div>
+<div>
+<label class="lbl">Sort Order</label>
+<input type="number" id="asmtTypeSort" class="inp" value="10" min="0" max="100">
+</div>
+<div>
+<label class="lbl">Description / Guidelines (Optional)</label>
+<textarea id="asmtTypeDesc" class="inp" rows="2" placeholder="e.g. Guidelines for grading this assessment type..."></textarea>
+</div>
+<div style="display:flex;align-items:center;gap:.4rem">
+<input type="checkbox" id="asmtTypeIsActive" checked>
+<label for="asmtTypeIsActive" style="font-size:.8rem;font-weight:600;color:#1e293b;cursor:pointer">Active (available in assessment creation)</label>
+</div>
+<div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.5rem">
+<button class="btn btn-o" onclick="closeModal('assessmentTypeEditModal')">Cancel</button>
+<button class="btn btn-p" onclick="saveAssessmentType()"><i class="fa-solid fa-save"></i> Save Type</button>
+</div>
+</div></div></div>
+
 <!-- ASSESSMENT MODAL -->
 <div class="mo" id="assessmentModal"><div class="mc" style="max-width:540px">
 <div style="background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="asmtModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-list"></i> New Assessment</h3><button onclick="closeModal('assessmentModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
@@ -1003,7 +1073,13 @@ renderProfileTabSection('sec-profile', 'sec');
 <input type="hidden" id="asmtEditId" value="0">
 <div><label class="lbl">Assessment Name *</label><input id="asmtName" class="inp" placeholder="e.g. Test 1, Midterm Exam, Final Project"></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
-<div><label class="lbl">Assessment Type</label><select id="asmtType" class="inp"><option value="test">Test / ፈተና</option><option value="midterm">Midterm / አጋማሽ ፈተና</option><option value="final">Final Exam / የማጠቃለያ ፈተና</option><option value="quiz">Quiz / አጭር ፈተና</option><option value="assignment">Assignment / የቤት ስራ</option><option value="project">Project / ተግባራዊ ስራ</option><option value="participation">Participation / ተሳትፎ</option></select></div>
+<div>
+<div style="display:flex;justify-content:space-between;align-items:center">
+<label class="lbl">Assessment Type</label>
+<a href="javascript:void(0)" onclick="openAssessmentTypesModal()" style="font-size:.68rem;color:#7c3aed;text-decoration:none"><i class="fa-solid fa-gear"></i> Manage</a>
+</div>
+<select id="asmtType" class="inp" onchange="onAsmtTypeSelectChange()"></select>
+</div>
 <div><label class="lbl">Max Score (Points)</label><input type="number" id="asmtMax" class="inp" value="10" min="1" max="1000"></div>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
@@ -2253,14 +2329,216 @@ function toggleAsmtMultiClass(){
 function setAllCheckboxes(clsName,checked){
     document.querySelectorAll('.'+clsName).forEach(cb=>{ cb.checked=checked; });
 }
+// ═══ DYNAMIC ASSESSMENT TYPES MANAGEMENT ═══
+let allAssessmentTypes = [];
+
+async function loadAssessmentTypes(){
+    try{
+        const d = await getAPI('/admin/api_subjects.php?action=get_assessment_types');
+        if(d.status === 'success'){
+            allAssessmentTypes = d.types || [];
+            populateAsmtTypeDropdown();
+            renderAssessmentTypesTable();
+        }
+    }catch(e){
+        console.error('Failed to load assessment types:', e);
+    }
+}
+
+function populateAsmtTypeDropdown(){
+    const sel = document.getElementById('asmtType');
+    if(!sel) return;
+    const curVal = sel.value;
+    const active = allAssessmentTypes.filter(t => t.is_active);
+    if(!active.length){
+        sel.innerHTML = '<option value="test">Test / ፈተና</option>';
+        return;
+    }
+    sel.innerHTML = active.map(t => {
+        const en = t.type_name_en ? ` (${esc(t.type_name_en)})` : '';
+        return `<option value="${esc(t.type_key)}" data-weight="${t.default_weight ?? ''}" data-max="${t.default_max_score ?? 10}">${esc(t.type_name)}${en}</option>`;
+    }).join('');
+    if(curVal && active.some(t => t.type_key === curVal)){
+        sel.value = curVal;
+    } else if(active.length > 0){
+        sel.value = active[0].type_key;
+    }
+}
+
+function onAsmtTypeSelectChange(){
+    const sel = document.getElementById('asmtType');
+    if(!sel) return;
+    const opt = sel.selectedOptions[0];
+    if(opt){
+        const w = opt.dataset.weight;
+        const m = opt.dataset.max;
+        const editId = document.getElementById('asmtEditId')?.value;
+        if(w !== undefined && w !== '' && (!editId || editId === '0')){
+            const wInput = document.getElementById('asmtWeight');
+            if(wInput && parseFloat(w) > 0) wInput.value = w;
+        }
+        if(m !== undefined && m !== '' && (!editId || editId === '0')){
+            const mInput = document.getElementById('asmtMax');
+            if(mInput && parseFloat(m) > 0) mInput.value = m;
+        }
+    }
+}
+
+function renderAssessmentTypesTable(){
+    const tbody = document.getElementById('asmtTypesTableBody');
+    if(!tbody) return;
+    if(!allAssessmentTypes.length){
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No assessment types configured yet. Click "Add New Type" to create one.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = allAssessmentTypes.map((t, idx) => `
+        <tr>
+            <td><span style="font-weight:700;color:#64748b">${t.sort_order || (idx + 1)}</span></td>
+            <td style="font-weight:600" class="amharic">${esc(t.type_name)}</td>
+            <td style="color:#475569">${esc(t.type_name_en || '—')}</td>
+            <td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(t.type_key)}</code></td>
+            <td><strong>${t.default_max_score || 100}</strong> pts</td>
+            <td><span class="ch ch-p">${t.default_weight != null ? t.default_weight + '%' : '—'}</span></td>
+            <td>
+                <span class="chip ${t.is_active ? 'chip-success' : 'chip-danger'}" style="cursor:pointer;font-size:.68rem" onclick="toggleAssessmentType(${t.id})" title="Click to toggle active status">
+                    ${t.is_active ? 'Active' : 'Inactive'}
+                </span>
+            </td>
+            <td>
+                <div style="display:flex;gap:.3rem">
+                    <button class="ab" style="background:#ede9fe;color:#7c3aed" onclick="openEditAssessmentType(${t.id})" title="Edit Type"><i class="fa-solid fa-pen"></i></button>
+                    <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteAssessmentType(${t.id})" title="Delete Type"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openAssessmentTypesModal(){
+    document.getElementById('assessmentTypesModal').classList.add('show');
+    loadAssessmentTypes();
+}
+
+function openCreateAssessmentType(){
+    document.getElementById('asmtTypeId').value = '0';
+    document.getElementById('asmtTypeName').value = '';
+    document.getElementById('asmtTypeNameEn').value = '';
+    document.getElementById('asmtTypeKey').value = '';
+    document.getElementById('asmtTypeDefaultMax').value = '10';
+    document.getElementById('asmtTypeDefaultWeight').value = '10';
+    document.getElementById('asmtTypeSort').value = (allAssessmentTypes.length + 1);
+    document.getElementById('asmtTypeDesc').value = '';
+    document.getElementById('asmtTypeIsActive').checked = true;
+    document.getElementById('asmtTypeEditModalTitle').innerHTML = '<i class="fa-solid fa-tag"></i> New Assessment Type';
+    document.getElementById('assessmentTypeEditModal').classList.add('show');
+}
+
+function openEditAssessmentType(id){
+    const t = allAssessmentTypes.find(x => x.id === id);
+    if(!t) return;
+    document.getElementById('asmtTypeId').value = t.id;
+    document.getElementById('asmtTypeName').value = t.type_name || '';
+    document.getElementById('asmtTypeNameEn').value = t.type_name_en || '';
+    document.getElementById('asmtTypeKey').value = t.type_key || '';
+    document.getElementById('asmtTypeDefaultMax').value = t.default_max_score || 10;
+    document.getElementById('asmtTypeDefaultWeight').value = t.default_weight || 10;
+    document.getElementById('asmtTypeSort').value = t.sort_order || 0;
+    document.getElementById('asmtTypeDesc').value = t.description || '';
+    document.getElementById('asmtTypeIsActive').checked = !!t.is_active;
+    document.getElementById('asmtTypeEditModalTitle').innerHTML = '<i class="fa-solid fa-pen"></i> Edit Assessment Type';
+    document.getElementById('assessmentTypeEditModal').classList.add('show');
+}
+
+function autoSuggestAsmtTypeKey(){
+    const id = document.getElementById('asmtTypeId').value;
+    if(id !== '0') return;
+    const en = document.getElementById('asmtTypeNameEn').value.trim();
+    if(en){
+        const slug = en.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+        document.getElementById('asmtTypeKey').value = slug;
+    }
+}
+
+async function saveAssessmentType(){
+    const id = document.getElementById('asmtTypeId').value;
+    const name = document.getElementById('asmtTypeName').value.trim();
+    const nameEn = document.getElementById('asmtTypeNameEn').value.trim();
+    const key = document.getElementById('asmtTypeKey').value.trim();
+    const defMax = document.getElementById('asmtTypeDefaultMax').value;
+    const defWeight = document.getElementById('asmtTypeDefaultWeight').value;
+    const sort = document.getElementById('asmtTypeSort').value;
+    const desc = document.getElementById('asmtTypeDesc').value.trim();
+    const isActive = document.getElementById('asmtTypeIsActive').checked ? 1 : 0;
+
+    if(!name){
+        return toast('Assessment Type Name is required', 'err');
+    }
+
+    const fd = new FormData();
+    fd.append('action', 'save_assessment_type');
+    fd.append('id', id);
+    fd.append('type_name', name);
+    fd.append('type_name_en', nameEn);
+    fd.append('type_key', key);
+    fd.append('default_max_score', defMax);
+    fd.append('default_weight', defWeight);
+    fd.append('sort_order', sort);
+    fd.append('description', desc);
+    fd.append('is_active', isActive);
+
+    try{
+        const d = await postAPI('/admin/api_subjects.php', fd);
+        if(d.status === 'success'){
+            toast(d.message || 'Saved successfully!', 'ok');
+            closeModal('assessmentTypeEditModal');
+            loadAssessmentTypes();
+        } else {
+            toast(d.message || 'Failed to save', 'err');
+        }
+    }catch(e){
+        toast('Error saving assessment type', 'err');
+    }
+}
+
+async function toggleAssessmentType(id){
+    const fd = new FormData();
+    fd.append('action', 'toggle_assessment_type');
+    fd.append('id', id);
+    try{
+        const d = await postAPI('/admin/api_subjects.php', fd);
+        if(d.status === 'success'){
+            toast(d.message || 'Status updated', 'ok');
+            loadAssessmentTypes();
+        } else {
+            toast(d.message || 'Error', 'err');
+        }
+    }catch(e){
+        toast('Error toggling status', 'err');
+    }
+}
+
+async function deleteAssessmentType(id){
+    if(!confirm('Are you sure you want to delete or deactivate this assessment type?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete_assessment_type');
+    fd.append('id', id);
+    try{
+        const d = await postAPI('/admin/api_subjects.php', fd);
+        toast(d.message, d.status === 'success' ? 'ok' : 'err');
+        loadAssessmentTypes();
+    }catch(e){
+        toast('Error deleting assessment type', 'err');
+    }
+}
+
 function openAssessmentModal(){
     const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;
     if(cid)document.getElementById('asmtModalClass').value=cid;
     if(sid)document.getElementById('asmtModalSubject').value=sid;
+    document.getElementById('asmtEditId').value='0';
     document.getElementById('asmtName').value='';
-    document.getElementById('asmtType').value='test';
-    document.getElementById('asmtMax').value='10';
-    document.getElementById('asmtWeight').value='10';
+    populateAsmtTypeDropdown();
+    onAsmtTypeSelectChange();
     document.getElementById('asmtDesc').value='';
     document.getElementById('asmtMultiClass').checked=false;
     toggleAsmtMultiClass();
@@ -2411,16 +2689,15 @@ function renderSchemeItemsPreview(){
     container.innerHTML=customSchemeItems.map((it,idx)=>{
         tot += (parseFloat(it.weight) || 0);
         if(isCustom){
+            const typeOpts = allAssessmentTypes.length 
+                ? allAssessmentTypes.filter(t=>t.is_active).map(t => `<option value="${esc(t.type_key)}" ${it.type===t.type_key?'selected':''}>${esc(t.type_name)}${t.type_name_en?' ('+esc(t.type_name_en)+')':''}</option>`).join('')
+                : `<option value="test" ${it.type==='test'?'selected':''}>Test</option><option value="midterm" ${it.type==='midterm'?'selected':''}>Midterm</option><option value="final" ${it.type==='final'?'selected':''}>Final</option><option value="quiz" ${it.type==='quiz'?'selected':''}>Quiz</option><option value="assignment" ${it.type==='assignment'?'selected':''}>Assignment</option><option value="project" ${it.type==='project'?'selected':''}>Project</option>`;
+
             return `
                 <div style="display:flex;gap:.35rem;align-items:center;background:#fff;padding:.35rem .5rem;border-radius:6px;border:1px solid #e2e8f0;font-size:.75rem">
                     <input type="text" class="inp" style="flex:2;padding:.25rem .4rem;font-size:.75rem" value="${esc(it.name)}" onchange="updateCustomItem(${idx},'name',this.value)" placeholder="Name">
-                    <select class="inp" style="flex:1.2;padding:.25rem .4rem;font-size:.75rem" onchange="updateCustomItem(${idx},'type',this.value)">
-                        <option value="test" ${it.type==='test'?'selected':''}>Test</option>
-                        <option value="midterm" ${it.type==='midterm'?'selected':''}>Midterm</option>
-                        <option value="final" ${it.type==='final'?'selected':''}>Final</option>
-                        <option value="quiz" ${it.type==='quiz'?'selected':''}>Quiz</option>
-                        <option value="assignment" ${it.type==='assignment'?'selected':''}>Assignment</option>
-                        <option value="project" ${it.type==='project'?'selected':''}>Project</option>
+                    <select class="inp" style="flex:1.4;padding:.25rem .4rem;font-size:.75rem" onchange="updateCustomItem(${idx},'type',this.value)">
+                        ${typeOpts}
                     </select>
                     <input type="number" class="inp" style="width:55px;padding:.25rem .3rem;font-size:.75rem" min="1" max="1000" value="${it.max_score}" onchange="updateCustomItem(${idx},'max_score',this.value)" title="Max Score">
                     <span style="font-size:.7rem;color:#64748b">pts</span>
@@ -3366,6 +3643,7 @@ nav=function(n){
     try{if(n==='submissions')loadSubmissions();}catch(e){console.error(e);}
     try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}
     try{if(n==='filter'&&!pfData.length)applyPerformanceFilter();}catch(e){console.error(e);}
+    try{if(n==='assessments'&&!allAssessmentTypes.length)loadAssessmentTypes();}catch(e){console.error(e);}
 };
 try{
     const _sp=new URLSearchParams(window.location.search).get('section');
@@ -3377,7 +3655,7 @@ if(!document.querySelector('.sec.act')){
 }
 
 // ═══ INIT ═══
-document.addEventListener('DOMContentLoaded',()=>{loadTeachers();try{filterRcTerms();}catch(e){}
+document.addEventListener('DOMContentLoaded',()=>{loadTeachers();loadAssessmentTypes();try{filterRcTerms();}catch(e){}
 document.addEventListener('click',e=>{
     const sr=document.getElementById('enrollSearchResults');
     if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
