@@ -89,7 +89,7 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 </div>
 <?php
 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#059669,#10b981)', 'profile');
+renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#059669,#10b981)');
 ?>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>

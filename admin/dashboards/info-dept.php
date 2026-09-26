@@ -564,7 +564,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         <div class="mt-5 space-y-2">
             <?php
             require_once __DIR__ . '/../components/sidebar_profile_item.php';
-            renderSidebarUserCard($userName, 'Info Dept', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#059669,#10b981)', 'profile');
+            renderSidebarUserCard($userName, 'Info Dept', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#059669,#10b981)');
             ?>
             <a href="/admin/logout.php"
                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-red-500/95 text-white text-xs font-semibold shadow hover:bg-red-600 transition">

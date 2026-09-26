@@ -496,7 +496,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 <?php
 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#7c3aed,#6366f1)', 'profile');
+renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#7c3aed,#6366f1)');
 ?>
 <a href="/admin/logout.php" class="nl" style="color:#fca5a5"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -510,10 +510,10 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
     <?= renderNotificationCenter() ?>
-    <a href="javascript:void(0)" onclick="if(typeof nav==='function')nav('profile')" class="mob-avatar" style="text-decoration:none;position:relative;overflow:hidden" title="My Profile">
+    <div class="mob-avatar" style="position:relative;overflow:hidden">
         <img src="<?= e(ssms_app_url('admin/profile_image.php')) ?>" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;background:#7c3aed;color:#fff;font-weight:700"><?= $initials ?></span>
-    </a>
+    </div>
 </div>
 <?php if (!$tablesExist): ?>
 <div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:#7c3aed;margin-bottom:1rem"></i><h2 style="margin-bottom:.5rem">Setup Required</h2><p style="color:#64748b;margin-bottom:1.5rem">Education tables need to be created first.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>

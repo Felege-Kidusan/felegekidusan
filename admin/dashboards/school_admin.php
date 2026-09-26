@@ -283,7 +283,7 @@ select.inp{cursor:pointer}
 <button type="button" class="np" data-section="profile" style="margin-top:.2rem;color:var(--bright)"><i class="fa-solid fa-user-gear" style="color:#38bdf8"></i> My Profile</button>
 <?php
 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'linear-gradient(135deg,#0284c7,#38bdf8)', 'profile');
+renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'linear-gradient(135deg,#0284c7,#38bdf8)');
 ?>
 <a href="/admin/logout.php" class="np" style="color:var(--bad);margin-top:.2rem"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>

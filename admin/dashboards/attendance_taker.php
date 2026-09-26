@@ -138,7 +138,7 @@ $csrfToken = generateCsrfToken();
             <div class="mt-auto pt-4 border-t border-white/10 space-y-2">
                 <?php
                 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-                renderSidebarUserCard($userName, 'Attendance Taker', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#d97706,#f59e0b)', 'profile');
+                renderSidebarUserCard($userName, 'Attendance Taker', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#d97706,#f59e0b)');
                 ?>
                 <a href="/admin/logout.php" class="nav-link text-red-200 hover:bg-red-500/20">
                     <i class="fa-solid fa-power-off w-5"></i> Logout
@@ -676,7 +676,7 @@ $navItems = [
         ['icon' => 'fa-solid fa-arrow-left', 'label' => 'Back', 'href' => '/admin/dashboard.php'],
         ['icon' => 'fa-solid fa-clipboard-check', 'label' => 'Attendance', 'active' => true],
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
-        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'href' => '/admin/account.php'],
+        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'attrs' => "data-sec=\"profile\" onclick=\"showSection('profile')\""],
         ['icon' => 'fa-solid fa-power-off', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];

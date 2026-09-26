@@ -23,9 +23,10 @@ if (!function_exists('renderProfileTabSection')) {
         $csrfToken = function_exists('generateCsrfToken') ? generateCsrfToken() : ($_SESSION['csrf_token'] ?? '');
         $safeTag = ($tagName === 'div') ? 'div' : 'section';
         ?>
-        <<?= $safeTag ?> id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?> wbws-profile-container"<?= $isActive ? '' : ' hidden style="display:none"' ?>>
+        <<?= $safeTag ?> id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?> wbws-profile-container"<?= $isActive ? '' : ' hidden style="display:none!important"' ?>>
             <style>
                 .wbws-profile-container {
+                    display: none;
                     width: 100%;
                     box-sizing: border-box;
                     --pt-card-bg: var(--card, var(--surface, #ffffff));

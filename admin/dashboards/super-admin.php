@@ -657,14 +657,18 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
             </ul>
         </nav>
         
+        <nav class="nav-sec">
+            <div class="nav-title">Account</div>
+            <ul class="nav-list">
+                <li><button type="button" class="nav-link <?= $activeSection === 'profile' ? 'active' : '' ?>" data-section="profile"><i class="fa-solid fa-user-gear"></i> My Profile</button></li>
+            </ul>
+        </nav>
+        
         <div class="sb-footer">
             <?php
             require_once __DIR__ . '/../components/sidebar_profile_item.php';
-            renderSidebarUserCard($fullName, 'Super Admin', $todayFormatted, strtoupper(substr($fullName, 0, 1)), 'linear-gradient(135deg,#0284c7,#0369a1)', 'profile');
+            renderSidebarUserCard($fullName, 'Super Admin', $todayFormatted, strtoupper(substr($fullName, 0, 1)), 'linear-gradient(135deg,#0284c7,#0369a1)');
             ?>
-            <button type="button" class="nav-link" data-section="profile" onclick="if(typeof switchSection==='function'){switchSection('profile');}else{window.location.href='/admin/account.php';}" style="margin-bottom:6px;border-radius:8px;padding:.5rem .8rem;display:flex;align-items:center;gap:.6rem;color:#e2e8f0;background:rgba(255,255,255,.05);font-size:.78rem;font-weight:600;width:100%;text-align:left;border:none;cursor:pointer">
-                <i class="fa-solid fa-user-gear" style="color:#38bdf8"></i> My Profile
-            </button>
             <a href="/admin/logout.php" class="logout-btn"><i class="fa-solid fa-power-off"></i> Logout</a>
         </div>
     </aside>
