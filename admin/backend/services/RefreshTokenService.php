@@ -8,6 +8,8 @@
  */
 namespace App\Services;
 
+require_once __DIR__ . '/ProfileService.php';
+
 final class RefreshTokenService
 {
     private \mysqli $database;
@@ -287,14 +289,15 @@ final class RefreshTokenService
     }
 
     /**
-     * @return array{state:string,user?:array{id:int,username:string,full_name:string,role:string,authorization_version:int}}
+     * @return array{state:string,user?:array<string,mixed>}
      */
     private function findUserForUpdate(int $userId): array
     {
-        $statement = $this->database->prepare(
-            'SELECT id, username, full_name, role, is_active, authorization_version FROM users
-             WHERE id=? LIMIT 1 FOR UPDATE'
-        );
+        $profileImageColumnExists = MysqliProfileRepository::profileImageColumnAvailable($this->database);
+        $selectSql = 'SELECT id, username, email, full_name, role, is_active, authorization_version'
+            . ($profileImageColumnExists ? ', profile_image_path' : '')
+            . ' FROM users WHERE id=? LIMIT 1 FOR UPDATE';
+        $statement = $this->database->prepare($selectSql);
         $statement->bind_param('i', $userId);
         $statement->execute();
         $user = $statement->get_result()->fetch_assoc();
@@ -310,8 +313,11 @@ final class RefreshTokenService
             'user' => [
                 'id' => (int)$user['id'],
                 'username' => (string)$user['username'],
+                'email' => isset($user['email']) ? (string)$user['email'] : null,
                 'full_name' => (string)($user['full_name'] ?? ''),
                 'role' => (string)$user['role'],
+                'is_active' => (int)($user['is_active'] ?? 0) === 1,
+                'profile_image_path' => $user['profile_image_path'] ?? null,
                 'authorization_version' => max(1, (int)$user['authorization_version']),
             ],
         ];

@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/../../../admin/backend/services/RefreshTokenService.php';
+require_once __DIR__ . '/../../../admin/backend/services/ProfileService.php';
 
 $action = $ROUTE['id'] ?? '';
 $refreshService = new \App\Services\RefreshTokenService(
@@ -59,10 +60,11 @@ if ($action === 'login' && $method === 'POST') {
         err('Invalid username or password.', 401);
     }
     
-    $stmt = $conn->prepare(
-        "SELECT id, username, email, full_name, role, password_hash, is_active, authorization_version
-         FROM users WHERE (username = ? OR email = ?) LIMIT 1"
-    );
+    $profileImageColumnExists = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
+    $selectSql = "SELECT id, username, email, full_name, role, password_hash, is_active, authorization_version"
+        . ($profileImageColumnExists ? ", profile_image_path" : "")
+        . " FROM users WHERE (username = ? OR email = ?) LIMIT 1";
+    $stmt = $conn->prepare($selectSql);
     if (!$stmt) err('Database error', 500);
     $stmt->bind_param('ss', $username, $username);
     $stmt->execute();
@@ -88,6 +90,12 @@ if ($action === 'login' && $method === 'POST') {
     $conn->query("UPDATE users SET last_login = NOW() WHERE id = " . (int)$user['id']);
     logApiAction($user['id'], $user['username'], 'API Login', 'REST API v1');
     
+    $hasImage = !empty($user['profile_image_path']);
+    $profileVersion = \App\Services\ProfileService::profileVersion($user);
+    $imageUrl = $hasImage
+        ? (function_exists('ssms_app_url') ? ssms_app_url('api/v1/users/me/profile-image') : '/api/v1/users/me/profile-image')
+        : null;
+
     ok([
         'token' => createToken(
             $user['id'],
@@ -103,8 +111,15 @@ if ($action === 'login' && $method === 'POST') {
             'id' => (int)$user['id'],
             'username' => $user['username'],
             'full_name' => $user['full_name'],
-            'email' => $user['email'] ?? '',
+            'email' => isset($user['email']) ? (string)$user['email'] : null,
             'role' => $user['role'],
+            'is_active' => (int)($user['is_active'] ?? 0) === 1,
+            'profile_image' => [
+                'present' => $hasImage,
+                'version' => $hasImage ? hash('sha256', (string)$user['profile_image_path']) : null,
+                'url' => $imageUrl,
+            ],
+            'profile_version' => $profileVersion,
             'authorization_version' => max(1, (int)$user['authorization_version'])
         ]
     ]);
@@ -176,6 +191,12 @@ if ($action === 'refresh-token' && $method === 'POST') {
     }
 
     $user = $rotation['user'];
+    $hasImage = !empty($user['profile_image_path']);
+    $profileVersion = \App\Services\ProfileService::profileVersion($user);
+    $imageUrl = $hasImage
+        ? (function_exists('ssms_app_url') ? ssms_app_url('api/v1/users/me/profile-image') : '/api/v1/users/me/profile-image')
+        : null;
+
     ok([
         'token' => createToken(
             $user['id'],
@@ -191,7 +212,15 @@ if ($action === 'refresh-token' && $method === 'POST') {
             'id' => (int)$user['id'],
             'username' => $user['username'],
             'full_name' => $user['full_name'],
+            'email' => isset($user['email']) ? (string)$user['email'] : null,
             'role' => $user['role'],
+            'is_active' => (int)($user['is_active'] ?? 0) === 1,
+            'profile_image' => [
+                'present' => $hasImage,
+                'version' => $hasImage ? hash('sha256', (string)$user['profile_image_path']) : null,
+                'url' => $imageUrl,
+            ],
+            'profile_version' => $profileVersion,
             'authorization_version' => max(1, (int)$user['authorization_version']),
         ],
     ]);

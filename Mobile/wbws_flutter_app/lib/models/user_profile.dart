@@ -16,26 +16,45 @@ class ProfileImageReference {
       throw const FormatException('Profile image metadata is missing.');
     }
     final map = Map<String, dynamic>.from(value);
-    final present = map['present'];
-    if (present is! bool) {
+    final rawPresent = map['present'];
+    final bool present;
+    if (rawPresent is bool) {
+      present = rawPresent;
+    } else if (rawPresent == 1 || rawPresent == '1' || rawPresent == 'true') {
+      present = true;
+    } else if (rawPresent == 0 || rawPresent == '0' || rawPresent == 'false' || rawPresent == null) {
+      present = false;
+    } else {
       throw const FormatException('Profile image presence is invalid.');
     }
+
     final rawVersion = map['version'];
-    final version = rawVersion == null ? null : rawVersion.toString().trim();
+    final version = (rawVersion == null || rawVersion.toString().trim().isEmpty)
+        ? null
+        : rawVersion.toString().trim();
     if (present &&
         (version == null || !_opaqueVersion.hasMatch(version))) {
       throw const FormatException('Profile image version is invalid.');
     }
-    if (!present && version != null) {
+    if (!present && version != null && version.isNotEmpty) {
       throw const FormatException('An absent profile image cannot have a version.');
     }
     final rawUrl = map['url'];
     final url = rawUrl == null ? null : rawUrl.toString().trim();
     return ProfileImageReference(
       present: present,
-      version: version,
+      version: present ? version : null,
       url: url == null || url.isEmpty ? null : url,
     );
+  }
+
+  static ProfileImageReference? tryFromJson(Object? value) {
+    if (value == null) return const ProfileImageReference(present: false);
+    try {
+      return ProfileImageReference.fromJson(value);
+    } catch (_) {
+      return const ProfileImageReference(present: false);
+    }
   }
 
   Map<String, dynamic> toJson() => {
@@ -85,13 +104,25 @@ class UserProfile {
     final username = _requiredText(map['username']);
     final fullName = _requiredText(map['full_name']);
     final role = _requiredText(map['role']);
-    final active = map['is_active'];
+
+    final rawActive = map['is_active'];
+    final bool? active;
+    if (rawActive is bool) {
+      active = rawActive;
+    } else if (rawActive == 1 || rawActive == '1' || rawActive == 'true') {
+      active = true;
+    } else if (rawActive == 0 || rawActive == '0' || rawActive == 'false') {
+      active = false;
+    } else {
+      active = null;
+    }
+
     final version = _requiredText(map['profile_version']);
     if (id == null ||
         username == null ||
         fullName == null ||
         role == null ||
-        active is! bool ||
+        active == null ||
         version == null ||
         !_profileVersion.hasMatch(version)) {
       throw const FormatException('Profile payload is invalid.');
@@ -100,10 +131,16 @@ class UserProfile {
     final rawEmail = map['email'];
     final email = rawEmail == null ? null : rawEmail.toString();
     final rawMemberId = map['member_id'];
-    final memberId = rawMemberId == null ? null : _positiveInt(rawMemberId);
-    if (rawMemberId != null && memberId == null) {
-      throw const FormatException('Profile member binding is invalid.');
+    final int? memberId;
+    if (rawMemberId == null || rawMemberId == '' || rawMemberId == 0 || rawMemberId == '0') {
+      memberId = null;
+    } else {
+      memberId = _positiveInt(rawMemberId);
+      if (memberId == null) {
+        throw const FormatException('Profile member binding is invalid.');
+      }
     }
+
     final rawAssignments = map['assignments'];
     List<Map<String, dynamic>>? assignments;
     if (rawAssignments != null) {
@@ -120,6 +157,14 @@ class UserProfile {
           .toList(growable: false);
     }
 
+    final rawImage = map['profile_image'];
+    final ProfileImageReference profileImage;
+    if (rawImage == null) {
+      profileImage = const ProfileImageReference(present: false);
+    } else {
+      profileImage = ProfileImageReference.fromJson(rawImage);
+    }
+
     return UserProfile(
       id: id,
       username: username,
@@ -128,7 +173,7 @@ class UserProfile {
       role: role,
       isActive: active,
       memberId: memberId,
-      profileImage: ProfileImageReference.fromJson(map['profile_image']),
+      profileImage: profileImage,
       profileVersion: version,
       createdAt: _nullableText(map['created_at']),
       lastLogin: _nullableText(map['last_login']),
