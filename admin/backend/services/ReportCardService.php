@@ -172,7 +172,9 @@ class ReportCardService
                 'present_days' => $computed['attendance']['present'],
                 'absent_days' => $computed['attendance']['absent'],
                 'late_days' => $computed['attendance']['late'],
+                'excused_days' => $computed['attendance']['excused'] ?? 0,
                 'total_days' => $computed['attendance']['total'],
+                'has_attendance' => ((int)($computed['attendance']['total'] ?? 0) > 0),
                 'strongest_subject' => self::highlightName($computed['highlights'], 'strongest'),
                 'weakest_subject' => self::highlightName($computed['highlights'], 'weakest'),
                 'subjects' => self::slimSubjects($computed['subjects']),
@@ -1499,6 +1501,8 @@ class ReportCardService
                 $stCode = (string)($st['member_code'] ?? '');
                 $stChristian = (string)($st['christian_name'] ?? '');
 
+                $stTotDays = (int)($st['total_days'] ?? 0);
+
                 if ($gender !== null && $stGender !== $gender) {
                     continue;
                 }
@@ -1516,12 +1520,12 @@ class ReportCardService
                     }
                 }
                 if ($minAtt !== null) {
-                    if ($stAtt < $minAtt) {
+                    if ($stTotDays === 0 || $stAtt < $minAtt) {
                         continue;
                     }
                 }
-                if ($maxAtt !== null) {
-                    if ($stAtt > $maxAtt) {
+                if ($maxAtt !== null && $maxAtt < 100.0) {
+                    if ($stTotDays === 0 || $stAtt > $maxAtt) {
                         continue;
                     }
                 }
@@ -1546,13 +1550,15 @@ class ReportCardService
                     if ((float)$stAvg < 50.0) {
                         $atRiskGrade++;
                     }
-                    if ((float)$stAvg >= 85.0 && $stAtt >= 80.0) {
+                    if ((float)$stAvg >= 85.0 && $stTotDays > 0 && $stAtt >= 80.0) {
                         $highAchievers++;
                     }
                 }
-                $attRates[] = $stAtt;
-                if ($stAtt < 60.0 && ($st['total_days'] ?? 0) > 0) {
-                    $atRiskAtt++;
+                if ($stTotDays > 0) {
+                    $attRates[] = $stAtt;
+                    if ($stAtt < 60.0) {
+                        $atRiskAtt++;
+                    }
                 }
             }
         }
@@ -1620,6 +1626,8 @@ class ReportCardService
                 'total' => $totCount,
                 'avg_grade' => $avgG,
                 'avg_attendance' => $avgA,
+                'recorded_att_students' => count($attRates),
+                'unrecorded_att_students' => $totCount - count($attRates),
                 'high_achievers' => $highAchievers,
                 'at_risk_grade' => $atRiskGrade,
                 'at_risk_att' => $atRiskAtt,
@@ -1664,13 +1672,13 @@ class ReportCardService
             '#', 'Student Name', 'Father Name', 'Baptismal Name', 'Member Code',
             'Class', 'Gender', 'Grade Average (%)', 'Letter Grade',
             'Total Obtained', 'Total Max', 'Assessments Count',
-            'Attendance Rate (%)', 'Present Days', 'Absent Days', 'Late Days', 'Total Days'
+            'Attendance Rate (%)', 'Attendance Breakdown', 'Present Days', 'Absent Days', 'Late Days', 'Excused Days', 'Total Sessions'
         ];
 
         // Format Title & Banner
         $sheet->setCellValue('A1', ($brand['school_am'] ?? 'FKSS') . ' — ' . ($brand['school_en'] ?? ''));
         $sheet->setCellValue('A2', 'Filtered Student Performance & Attendance Report');
-        $sheet->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Avg Grade: ' . ($stats['avg_grade'] ?? 0) . '% | Avg Attendance: ' . ($stats['avg_attendance'] ?? 0) . '% | Exported: ' . date('Y-m-d H:i'));
+        $sheet->setCellValue('A3', 'Total Students: ' . ($stats['total'] ?? 0) . ' | Avg Grade: ' . ($stats['avg_grade'] ?? 0) . '% | Avg Attendance (recorded): ' . ($stats['avg_attendance'] ?? 0) . '% | Exported: ' . date('Y-m-d H:i'));
 
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11);
@@ -1683,13 +1691,21 @@ class ReportCardService
             $sheet->setCellValue($colLetter . $headerRow, $h);
         }
 
-        $headerStyle = $sheet->getStyle("A{$headerRow}:Q{$headerRow}");
+        $headerStyle = $sheet->getStyle("A{$headerRow}:S{$headerRow}");
         $headerStyle->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
         $headerStyle->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
             ->getStartColor()->setRGB('5B21B6');
 
         $rIdx = $headerRow + 1;
         foreach ($students as $st) {
+            $totDays = (int)($st['total_days'] ?? 0);
+            $pDays = (int)($st['present_days'] ?? 0);
+            $aDays = (int)($st['absent_days'] ?? 0);
+            $lDays = (int)($st['late_days'] ?? 0);
+            $eDays = (int)($st['excused_days'] ?? 0);
+            $attRateStr = ($totDays > 0 && $st['attendance_rate'] !== null) ? ($st['attendance_rate'] . '%') : '—';
+            $breakdownStr = ($totDays > 0) ? "{$pDays}P · {$aDays}A" . ($lDays > 0 ? " · {$lDays}L" : "") . ($eDays > 0 ? " · {$eDays}E" : "") . " ({$totDays} days)" : 'No records';
+
             $sheet->setCellValue('A' . $rIdx, $st['filter_rank'] ?? ($rIdx - $headerRow));
             $sheet->setCellValue('B' . $rIdx, $st['student_name'] ?? '');
             $sheet->setCellValue('C' . $rIdx, $st['father_name'] ?? '');
@@ -1702,15 +1718,17 @@ class ReportCardService
             $sheet->setCellValue('J' . $rIdx, $st['total_obtained'] ?? 0);
             $sheet->setCellValue('K' . $rIdx, $st['total_max'] ?? 0);
             $sheet->setCellValue('L' . $rIdx, $st['assessments_count'] ?? 0);
-            $sheet->setCellValue('M' . $rIdx, ($st['attendance_rate'] !== null ? $st['attendance_rate'] : 0) . '%');
-            $sheet->setCellValue('N' . $rIdx, $st['present_days'] ?? 0);
-            $sheet->setCellValue('O' . $rIdx, $st['absent_days'] ?? 0);
-            $sheet->setCellValue('P' . $rIdx, $st['late_days'] ?? 0);
-            $sheet->setCellValue('Q' . $rIdx, $st['total_days'] ?? 0);
+            $sheet->setCellValue('M' . $rIdx, $attRateStr);
+            $sheet->setCellValue('N' . $rIdx, $breakdownStr);
+            $sheet->setCellValue('O' . $rIdx, $pDays);
+            $sheet->setCellValue('P' . $rIdx, $aDays);
+            $sheet->setCellValue('Q' . $rIdx, $lDays);
+            $sheet->setCellValue('R' . $rIdx, $eDays);
+            $sheet->setCellValue('S' . $rIdx, $totDays);
             $rIdx++;
         }
 
-        foreach (range(1, 17) as $col) {
+        foreach (range(1, 19) as $col) {
             $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
             $sheet->getColumnDimension($colLetter)->setAutoSize(true);
         }

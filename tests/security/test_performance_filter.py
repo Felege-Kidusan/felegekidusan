@@ -67,6 +67,20 @@ class PerformanceFilterUnitAndSecurityTests(unittest.TestCase):
         self.assertIn('id="pfTableBody"', self.edu_dashboard)
         self.assertIn('XLSX.utils.aoa_to_sheet', self.edu_dashboard)
 
+    def test_attendance_refinements_and_unrecorded_handling(self):
+        """Verify the 3 attendance adjustments: explicit breakdown, unrecorded handling, and average calculation."""
+        # 1. ReportCardService checks
+        self.assertIn('excused_days', self.report_service)
+        self.assertIn('has_attendance', self.report_service)
+        self.assertIn('recorded_att_students', self.report_service)
+        self.assertIn('unrecorded_att_students', self.report_service)
+        self.assertIn('Attendance Breakdown', self.report_service)
+
+        # 2. edu_dept.php UI breakdown & unrecorded checks
+        self.assertIn('No attendance taken', self.edu_dashboard)
+        self.assertIn('Attendance Breakdown', self.edu_dashboard)
+        self.assertIn('attendedDays', self.edu_dashboard)
+
 
 if __name__ == "__main__":
     unittest.main()
