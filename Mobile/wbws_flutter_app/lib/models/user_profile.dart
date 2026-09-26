@@ -117,12 +117,15 @@ class UserProfile {
     final map = Map<String, dynamic>.from(value);
     final id = _positiveInt(map['id'] ?? map['user_id'] ?? map['uid']);
     final username = _requiredText(map['username'] ?? map['usr']);
-    final fullName = _requiredText(map['full_name'] ?? map['name']) ?? username;
-    final role = _requiredText(map['role'] ?? map['rol']) ?? 'user';
 
     if (id == null || username == null) {
       throw const FormatException('Profile payload is invalid.');
     }
+
+    final String fullName =
+        _requiredText(map['full_name'] ?? map['name']) ?? username;
+    final String role =
+        _requiredText(map['role'] ?? map['rol']) ?? 'user';
 
     final rawActive = map['is_active'];
     final bool active;
