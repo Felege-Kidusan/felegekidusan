@@ -5,7 +5,7 @@
  * Renders an in-dashboard profile view & editor styled strictly with the official
  * SSMS Brand Design System: White background, Deep Maroon accents (#800000), and Warm Gold/Yellow (#f59e0b).
  *
- * Can be embedded directly inside any dashboard (<main>) as a first-class tab.
+ * Embedded directly inside any dashboard (<main>) as a first-class tab.
  */
 
 if (!function_exists('renderProfileTabSection')) {
@@ -19,13 +19,13 @@ if (!function_exists('renderProfileTabSection')) {
         $apiUrl = function_exists('ssms_app_url') ? ssms_app_url('admin/api_settings.php') : '/admin/api_settings.php';
         $imageUrl = function_exists('ssms_app_url') ? ssms_app_url('admin/profile_image.php') : '/admin/profile_image.php';
         ?>
-        <div id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?>">
+        <div id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?>" style="width:100%;box-sizing:border-box">
             <!-- Header -->
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem">
                 <div>
                     <span style="font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#d97706;display:block;margin-bottom:.2rem">Self-Service Account</span>
                     <h2 style="font-size:1.35rem;font-weight:700;color:#1e293b;margin:0;display:flex;align-items:center;gap:.5rem">
-                        <i class="fa-solid fa-user-gear" style="color:#d97706"></i> My Profile
+                        <i class="fa-solid fa-user-gear" style="color:#800000"></i> My Profile
                     </h2>
                     <p style="font-size:.78rem;color:#64748b;margin-top:.2rem">Manage your personal information, live profile photo, and security credentials.</p>
                 </div>
@@ -66,11 +66,11 @@ if (!function_exists('renderProfileTabSection')) {
                     </div>
 
                     <div style="display:flex;justify-content:center;gap:.5rem;flex-wrap:wrap">
-                        <button type="button" id="tabProfileChooseBtn" class="btn" style="background:#fffbeb;color:#b45309;border:1px solid #fde68a;font-size:.75rem;padding:.45rem .85rem;border-radius:8px">
+                        <button type="button" id="tabProfileChooseBtn" class="btn" style="background:#fffbeb;color:#b45309;border:1px solid #fde68a;font-size:.75rem;padding:.45rem .85rem;border-radius:8px;cursor:pointer">
                             <i class="fa-solid fa-camera"></i> Change Photo
                         </button>
                         <input type="file" id="tabProfileFileInput" accept="image/jpeg,image/png,image/webp" style="display:none">
-                        <button type="button" id="tabProfileRemoveBtn" class="btn" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;font-size:.75rem;padding:.45rem .85rem;border-radius:8px" disabled>
+                        <button type="button" id="tabProfileRemoveBtn" class="btn" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;font-size:.75rem;padding:.45rem .85rem;border-radius:8px;cursor:pointer" disabled>
                             <i class="fa-solid fa-trash-can"></i> Remove
                         </button>
                     </div>
@@ -105,101 +105,94 @@ if (!function_exists('renderProfileTabSection')) {
                                 </div>
                                 <div>
                                     <label class="lbl" for="tabProfileEmail" style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">Email Address</label>
-                                    <input type="email" id="tabProfileEmail" name="email" class="inp" maxlength="100" style="width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:.6rem .85rem;font-size:.85rem;outline:none" placeholder="Optional">
+                                    <input type="email" id="tabProfileEmail" name="email" class="inp" maxlength="100" placeholder="Optional" style="width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:.6rem .85rem;font-size:.85rem;outline:none">
                                     <p id="tabProfileEmailErr" style="font-size:.7rem;color:#dc2626;margin-top:.25rem;display:none"></p>
                                 </div>
                             </div>
 
-                            <div id="tabProfileCurrentPasswordWrap" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:.85rem;margin-bottom:1rem">
-                                <label class="lbl" for="tabProfileCurrentPassword" style="display:block;font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.3rem">Current Password <span style="color:#dc2626">* (Required to change username or email)</span></label>
-                                <input type="password" id="tabProfileCurrentPassword" name="current_password" class="inp" maxlength="4096" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:.55rem .75rem;font-size:.85rem;background:#fff" placeholder="Enter current password">
+                            <div id="tabProfilePasswordConfirmWrap" style="display:none;margin-bottom:1rem;background:#fef2f2;border:1px solid #fecaca;padding:.85rem;border-radius:10px">
+                                <label class="lbl" for="tabProfileCurrentPassword" style="display:block;font-size:.75rem;font-weight:600;color:#991b1b;margin-bottom:.3rem">
+                                    <i class="fa-solid fa-lock"></i> Current Password <span style="color:#dc2626">*</span>
+                                </label>
+                                <p style="font-size:.7rem;color:#7f1d1d;margin:0 0 .4rem">Changing username or email requires verifying your current password.</p>
+                                <input type="password" id="tabProfileCurrentPassword" name="current_password" class="inp" style="width:100%;border:1px solid #f87171;border-radius:8px;padding:.5rem .75rem;font-size:.85rem;outline:none" autocomplete="current-password">
                                 <p id="tabProfileCurrentPasswordErr" style="font-size:.7rem;color:#dc2626;margin-top:.25rem;display:none"></p>
                             </div>
 
-                            <div style="display:flex;justify-content:flex-end;align-items:center;gap:.65rem;margin-top:1.25rem">
-                                <button type="button" id="tabProfileDiscardBtn" class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;padding:.55rem 1rem;border-radius:10px;font-size:.8rem;font-weight:500" disabled>Discard</button>
-                                <button type="submit" id="tabProfileSaveBtn" class="btn" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;font-weight:600;padding:.55rem 1.25rem;border-radius:10px;font-size:.82rem;box-shadow:0 2px 8px rgba(245,158,11,.35);border:none;cursor:pointer" disabled>
+                            <div style="display:flex;justify-content:flex-end;gap:.5rem;align-items:center;margin-top:1.25rem">
+                                <button type="button" id="tabProfileDiscardBtn" class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;padding:.5rem 1rem;font-size:.8rem;border-radius:8px;cursor:pointer" disabled>Discard</button>
+                                <button type="submit" id="tabProfileSaveBtn" class="btn" style="background:linear-gradient(135deg,#d97706,#b45309);color:#fff;border:none;padding:.5rem 1.25rem;font-size:.8rem;font-weight:600;border-radius:8px;box-shadow:0 2px 6px rgba(217,119,6,.25);cursor:pointer">
                                     <i class="fa-solid fa-check"></i> Save Profile
                                 </button>
                             </div>
                         </form>
                     </div>
 
-                    <!-- Security & Password Card -->
+                    <!-- Security & Credentials Card -->
                     <div class="crd" style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,.05)">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem">
                             <div>
-                                <span style="font-size:.68rem;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.08em;display:block">Security &amp; Credentials</span>
+                                <span style="font-size:.68rem;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.08em;display:block">Security & Credentials</span>
                                 <h3 style="font-size:1.1rem;font-weight:700;color:#1e293b;margin:0">Account Password</h3>
                             </div>
-                            <i class="fa-solid fa-shield-halved" style="color:#d97706;font-size:1.4rem"></i>
+                            <i class="fa-solid fa-shield-halved" style="color:#d97706;font-size:1.25rem"></i>
                         </div>
-                        <p style="font-size:.8rem;color:#64748b;margin:0 0 1rem;line-height:1.5">Use a strong, unique password with at least 12 characters to keep your account safe.</p>
-                        <button type="button" id="tabProfileOpenPasswordBtn" class="btn" style="background:#f8fafc;color:#334155;border:1px solid #cbd5e1;padding:.55rem 1.15rem;border-radius:10px;font-size:.8rem;font-weight:600">
+                        <p style="font-size:.78rem;color:#64748b;margin:0 0 1rem;line-height:1.4">Use a strong, unique password with at least 12 characters to keep your account safe.</p>
+                        <button type="button" id="tabProfileOpenPasswordBtn" class="btn" style="background:#fff;color:#1e293b;border:1px solid #cbd5e1;padding:.5rem 1rem;font-size:.8rem;font-weight:600;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.05);cursor:pointer">
                             <i class="fa-solid fa-key" style="color:#d97706"></i> Change Password
                         </button>
                     </div>
 
                 </div>
+
             </div>
-        </div>
 
-        <!-- Password Modal -->
-        <div class="mo" id="tabProfilePasswordModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:1rem">
-            <div class="mc" style="background:#fff;border-radius:18px;max-width:480px;width:100%;box-shadow:0 25px 60px rgba(0,0,0,.3);overflow:hidden">
-                <div style="background:linear-gradient(135deg,#800000,#5c0606);color:#fff;padding:1.15rem 1.4rem;display:flex;justify-content:space-between;align-items:center">
-                    <h3 style="font-weight:700;font-size:1.05rem;margin:0"><i class="fa-solid fa-shield-halved" style="color:#fbbf24"></i> Change Password</h3>
-                    <button type="button" onclick="document.getElementById('tabProfilePasswordModal').style.display='none'" style="background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1">&times;</button>
-                </div>
-                <form id="tabProfilePasswordForm" style="padding:1.4rem" novalidate>
-                    <div id="tabProfilePasswordAlert" style="display:none;padding:.65rem .85rem;border-radius:8px;font-size:.78rem;margin-bottom:1rem"></div>
-
-                    <div style="margin-bottom:1rem">
-                        <label style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">Current Password</label>
-                        <input type="password" id="tabPwdCurrent" required class="inp" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:.55rem .75rem;font-size:.85rem">
-                        <p id="tabPwdCurrentErr" style="font-size:.7rem;color:#dc2626;margin-top:.25rem;display:none"></p>
+            <!-- Image Crop / Confirm Modal -->
+            <div id="tabProfileImageModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:1rem">
+                <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:1.5rem;box-shadow:0 20px 25px -5px rgba(0,0,0,.1)">
+                    <h3 style="font-size:1.1rem;font-weight:700;color:#1e293b;margin:0 0 1rem">Confirm Profile Photo</h3>
+                    <div style="width:160px;height:160px;margin:0 auto 1.25rem;border-radius:50%;overflow:hidden;border:4px solid #fde68a;background:#f8fafc">
+                        <img id="tabProfileImagePreview" src="" alt="Preview" style="width:100%;height:100%;object-fit:cover">
                     </div>
+                    <div style="display:flex;justify-content:flex-end;gap:.5rem">
+                        <button type="button" onclick="document.getElementById('tabProfileImageModal').style.display='none'" class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;padding:.5rem 1rem;border-radius:8px;font-size:.8rem;cursor:pointer">Cancel</button>
+                        <button type="button" id="tabProfileConfirmUploadBtn" class="btn" style="background:#d97706;color:#fff;border:none;padding:.5rem 1.25rem;border-radius:8px;font-size:.8rem;font-weight:600;cursor:pointer">Upload & Save</button>
+                    </div>
+                </div>
+            </div>
 
-                    <div style="margin-bottom:1rem">
-                        <label style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">New Password (Min. 12 characters)</label>
-                        <input type="password" id="tabPwdNew" required class="inp" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:.55rem .75rem;font-size:.85rem">
-                        <div style="display:flex;justify-content:space-between;font-size:.68rem;color:#64748b;margin-top:.3rem">
-                            <span id="tabPwdLen">0 characters</span>
-                            <span id="tabPwdBytes">0 / 72 bytes</span>
+            <!-- Password Change Modal -->
+            <div id="tabProfilePasswordModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:1rem">
+                <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:1.5rem;box-shadow:0 20px 25px -5px rgba(0,0,0,.1)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.15rem;border-bottom:1px solid #f1f5f9;padding-bottom:.75rem">
+                        <h3 style="font-size:1.1rem;font-weight:700;color:#1e293b;margin:0;display:flex;align-items:center;gap:.5rem">
+                            <i class="fa-solid fa-key" style="color:#d97706"></i> Change Password
+                        </h3>
+                        <button type="button" onclick="document.getElementById('tabProfilePasswordModal').style.display='none'" style="background:none;border:none;color:#94a3b8;font-size:1.25rem;cursor:pointer">&times;</button>
+                    </div>
+                    <form id="tabProfilePasswordForm" novalidate>
+                        <div id="tabProfilePasswordAlert" style="display:none;padding:.6rem .85rem;border-radius:8px;font-size:.78rem;margin-bottom:1rem"></div>
+                        <div style="margin-bottom:1rem">
+                            <label class="lbl" for="tabPwdCurrent" style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">Current Password <span style="color:#dc2626">*</span></label>
+                            <input type="password" id="tabPwdCurrent" class="inp" required style="width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:.55rem .85rem;font-size:.85rem;outline:none" autocomplete="current-password">
                         </div>
-                        <p id="tabPwdNewErr" style="font-size:.7rem;color:#dc2626;margin-top:.25rem;display:none"></p>
-                    </div>
-
-                    <div style="margin-bottom:1.25rem">
-                        <label style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">Confirm New Password</label>
-                        <input type="password" id="tabPwdConfirm" required class="inp" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:.55rem .75rem;font-size:.85rem">
-                        <p id="tabPwdConfirmErr" style="font-size:.7rem;color:#dc2626;margin-top:.25rem;display:none"></p>
-                    </div>
-
-                    <div style="display:flex;justify-content:flex-end;gap:.6rem">
-                        <button type="button" onclick="document.getElementById('tabProfilePasswordModal').style.display='none'" class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem .95rem;font-size:.8rem">Cancel</button>
-                        <button type="submit" id="tabPwdSubmitBtn" class="btn" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;padding:.5rem 1.15rem;font-size:.8rem;font-weight:600;cursor:pointer">Change Password</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Image Upload Preview Modal -->
-        <div class="mo" id="tabProfileImageModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.65);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:1rem">
-            <div class="mc" style="background:#fff;border-radius:18px;max-width:400px;width:100%;box-shadow:0 25px 60px rgba(0,0,0,.3);overflow:hidden">
-                <div style="background:linear-gradient(135deg,#800000,#5c0606);color:#fff;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
-                    <h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-camera" style="color:#fbbf24"></i> Profile Photo Preview</h3>
-                    <button type="button" onclick="document.getElementById('tabProfileImageModal').style.display='none'" style="background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1">&times;</button>
-                </div>
-                <div style="padding:1.4rem;text-align:center">
-                    <img id="tabProfileImagePreview" src="" alt="Preview" style="width:10rem;height:10rem;border-radius:50%;object-fit:cover;margin:0 auto 1.25rem;border:3px solid #f59e0b;box-shadow:0 6px 18px rgba(0,0,0,.15);display:block">
-                    <p style="font-size:.78rem;color:#64748b;margin:0 0 1.25rem">Set this photo as your profile avatar?</p>
-                    <div style="display:flex;justify-content:center;gap:.6rem">
-                        <button type="button" onclick="document.getElementById('tabProfileImageModal').style.display='none'" class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem .95rem;font-size:.8rem">Cancel</button>
-                        <button type="button" id="tabProfileConfirmUploadBtn" class="btn" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;padding:.5rem 1.15rem;font-size:.8rem;font-weight:600;cursor:pointer">
-                            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Photo
-                        </button>
-                    </div>
+                        <div style="margin-bottom:1rem">
+                            <label class="lbl" for="tabPwdNew" style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">New Password <span style="color:#dc2626">*</span></label>
+                            <input type="password" id="tabPwdNew" class="inp" minlength="12" maxlength="72" required style="width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:.55rem .85rem;font-size:.85rem;outline:none" autocomplete="new-password">
+                            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:#64748b;margin-top:.25rem">
+                                <span id="tabPwdLen">0 characters</span>
+                                <span id="tabPwdBytes">0 / 72 bytes</span>
+                            </div>
+                        </div>
+                        <div style="margin-bottom:1.25rem">
+                            <label class="lbl" for="tabPwdConfirm" style="display:block;font-size:.75rem;font-weight:600;color:#475569;margin-bottom:.3rem">Confirm New Password <span style="color:#dc2626">*</span></label>
+                            <input type="password" id="tabPwdConfirm" class="inp" minlength="12" maxlength="72" required style="width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:.55rem .85rem;font-size:.85rem;outline:none" autocomplete="new-password">
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:.5rem">
+                            <button type="button" onclick="document.getElementById('tabProfilePasswordModal').style.display='none'" class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;padding:.5rem 1rem;border-radius:8px;font-size:.8rem;cursor:pointer">Cancel</button>
+                            <button type="submit" id="tabPwdSubmitBtn" class="btn" style="background:linear-gradient(135deg,#d97706,#b45309);color:#fff;border:none;padding:.5rem 1.25rem;border-radius:8px;font-size:.8rem;font-weight:600;cursor:pointer">Change Password</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -207,47 +200,102 @@ if (!function_exists('renderProfileTabSection')) {
         <script>
         (function() {
             let _profData = null;
+            let _accountContext = null;
             let _pendingImageFile = null;
 
             function getCsrf() {
-                if (typeof CSRF_TOKEN !== 'undefined' && CSRF_TOKEN) return CSRF_TOKEN;
-                const m = document.querySelector('meta[name="csrf-token"]');
-                return m ? m.getAttribute('content') || '' : '';
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                return (meta && meta.getAttribute('content')) || (window.APP && window.APP.csrf) || '';
             }
 
-            function showAlert(msg, kind) {
-                const el = document.getElementById('tabProfileGlobalAlert');
-                if (!el) return;
-                if (!msg) { el.style.display = 'none'; return; }
-                el.textContent = msg;
-                el.style.display = 'block';
-                if (kind === 'success') {
-                    el.style.background = '#ecfdf5';
-                    el.style.color = '#065f46';
-                    el.style.border = '1px solid #a7f3d0';
+            function setCsrf(token) {
+                if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return;
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                if (meta) meta.setAttribute('content', token);
+                if (window.APP) window.APP.csrf = token;
+            }
+
+            function showAlert(msg, type) {
+                const a = document.getElementById('tabProfileGlobalAlert');
+                if (!a) return;
+                if (!msg) { a.style.display = 'none'; return; }
+                a.style.display = 'block';
+                a.textContent = msg;
+                if (type === 'success') {
+                    a.style.background = '#d1fae5'; a.style.color = '#065f46'; a.style.border = '1px solid #a7f3d0';
                 } else {
-                    el.style.background = '#fef2f2';
-                    el.style.color = '#991b1b';
-                    el.style.border = '1px solid #fecaca';
+                    a.style.background = '#fef2f2'; a.style.color = '#991b1b'; a.style.border = '1px solid #fecaca';
                 }
             }
 
-            function toastMsg(msg, kind) {
-                if (typeof toast === 'function') {
-                    toast(msg, kind === 'success' ? 'ok' : 'err');
-                } else {
-                    showAlert(msg, kind);
-                }
+            function toastMsg(msg, type) {
+                showAlert(msg, type);
+                setTimeout(() => { showAlert('', ''); }, 4000);
             }
 
-            function updateInitials(name) {
-                let init = '';
-                const parts = (name || '').trim().split(/\s+/);
-                for (const p of parts) { if (p) init += p.charAt(0); }
-                init = (init.substring(0, 2) || 'U').toUpperCase();
-                const iniEl = document.getElementById('tabProfileAvatarInitials');
-                if (iniEl) iniEl.textContent = init;
-                return init;
+            function getInitials(name) {
+                if (!name) return 'U';
+                const parts = name.trim().split(/\s+/);
+                if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+                return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+            }
+
+            function updateGlobalUserIdentity(u) {
+                if (!u) return;
+                const fullName = u.full_name || u.name || '';
+                const username = u.username || '';
+                const inits = getInitials(fullName);
+
+                // Update sidebar user card
+                document.querySelectorAll('.ssms-card-name, .school-user-name').forEach(el => { el.textContent = fullName; });
+                document.querySelectorAll('.ssms-card-avatar-initials, [data-user-initials]').forEach(el => { el.textContent = inits; });
+                
+                // Update header badge
+                const hb = document.getElementById('tabProfileHeaderName');
+                if (hb) hb.textContent = fullName;
+            }
+
+            function renderProfile(u) {
+                if (!u) return;
+                const inits = getInitials(u.full_name);
+                
+                // Left Column elements
+                document.getElementById('tabProfileDisplayName').textContent = u.full_name || 'User';
+                document.getElementById('tabProfileDisplayUsername').textContent = '@' + (u.username || '');
+                document.getElementById('tabProfileRoleBadge').textContent = (u.role || 'user').replace('_', ' ');
+                document.getElementById('tabProfileStatusBadge').textContent = u.status || 'Active';
+                document.getElementById('tabProfileFactEmail').textContent = u.email || '—';
+                document.getElementById('tabProfileFactCreated').textContent = u.created_at || '—';
+                document.getElementById('tabProfileFactLogin').textContent = u.last_login_at || '—';
+
+                // Avatar
+                const img = document.getElementById('tabProfileAvatarImg');
+                const ini = document.getElementById('tabProfileAvatarInitials');
+                const remBtn = document.getElementById('tabProfileRemoveBtn');
+                ini.textContent = inits;
+
+                if (u.profile_image && u.profile_image.present) {
+                    const cacheBust = u.profile_image.version ? '?v=' + encodeURIComponent(u.profile_image.version) : '?t=' + Date.now();
+                    img.src = '<?= htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') ?>' + cacheBust;
+                    img.style.display = 'block';
+                    ini.style.display = 'none';
+                    if (remBtn) remBtn.disabled = false;
+                } else {
+                    img.style.display = 'none';
+                    ini.style.display = 'flex';
+                    if (remBtn) remBtn.disabled = true;
+                }
+
+                // Header Badge
+                document.getElementById('tabProfileHeaderName').textContent = u.full_name || 'User';
+
+                // Form Inputs
+                document.getElementById('tabProfileFullName').value = u.full_name || '';
+                document.getElementById('tabProfileUsername').value = u.username || '';
+                document.getElementById('tabProfileEmail').value = u.email || '';
+                
+                checkDirty();
+                updateGlobalUserIdentity(u);
             }
 
             async function loadTabProfile() {
@@ -259,62 +307,16 @@ if (!function_exists('renderProfileTabSection')) {
                     const d = await r.json();
                     if (d.status === 'success' && d.user) {
                         _profData = d.user;
+                        if (d.account_context) _accountContext = d.account_context;
+                        if (d.csrf_token) setCsrf(d.csrf_token);
                         renderProfile(d.user);
                     } else {
                         showAlert(d.message || 'Could not load profile data.', 'error');
                     }
-                } catch (e) {
-                    console.error('Profile load error:', e);
-                    showAlert('Network error loading profile. Please try again.', 'error');
+                } catch (err) {
+                    console.error('Profile load error:', err);
+                    showAlert('Unable to reach profile service.', 'error');
                 }
-            }
-
-            function renderProfile(u) {
-                const name = u.full_name || u.username || 'User';
-                const nameEl = document.getElementById('tabProfileDisplayName');
-                if (nameEl) nameEl.textContent = name;
-                const usrEl = document.getElementById('tabProfileDisplayUsername');
-                if (usrEl) usrEl.textContent = '@' + (u.username || '');
-                const hdrName = document.getElementById('tabProfileHeaderName');
-                if (hdrName) hdrName.textContent = name;
-
-                const fnInput = document.getElementById('tabProfileFullName');
-                if (fnInput) fnInput.value = u.full_name || '';
-                const unInput = document.getElementById('tabProfileUsername');
-                if (unInput) unInput.value = u.username || '';
-                const emInput = document.getElementById('tabProfileEmail');
-                if (emInput) emInput.value = u.email || '';
-
-                const emailFact = document.getElementById('tabProfileFactEmail');
-                if (emailFact) emailFact.textContent = u.email || '—';
-                const createdFact = document.getElementById('tabProfileFactCreated');
-                if (createdFact) createdFact.textContent = (u.created_at || '').split('T')[0] || (u.created_at || '—');
-                const loginFact = document.getElementById('tabProfileFactLogin');
-                if (loginFact) loginFact.textContent = (u.last_login || '').split('T')[0] || (u.last_login || '—');
-
-                const roleBadge = document.getElementById('tabProfileRoleBadge');
-                if (roleBadge) roleBadge.textContent = (u.role || 'user').replace(/_/g, ' ');
-
-                const imgEl = document.getElementById('tabProfileAvatarImg');
-                const iniEl = document.getElementById('tabProfileAvatarInitials');
-                const remBtn = document.getElementById('tabProfileRemoveBtn');
-
-                updateInitials(name);
-
-                if (u.profile_image && u.profile_image.present && u.profile_image.url) {
-                    if (imgEl) {
-                        imgEl.src = u.profile_image.url + '?t=' + Date.now();
-                        imgEl.style.display = 'block';
-                    }
-                    if (iniEl) iniEl.style.display = 'none';
-                    if (remBtn) remBtn.disabled = false;
-                } else {
-                    if (imgEl) imgEl.style.display = 'none';
-                    if (iniEl) iniEl.style.display = 'flex';
-                    if (remBtn) remBtn.disabled = true;
-                }
-
-                checkDirty();
             }
 
             function checkDirty() {
@@ -323,37 +325,40 @@ if (!function_exists('renderProfileTabSection')) {
                 const un = (document.getElementById('tabProfileUsername')?.value || '').trim();
                 const em = (document.getElementById('tabProfileEmail')?.value || '').trim();
 
-                const isDirty = fn !== (_profData.full_name || '')
-                    || un !== (_profData.username || '')
-                    || em !== (_profData.email || '');
+                const isDirty = fn !== (_profData.full_name || '') ||
+                                un !== (_profData.username || '') ||
+                                em !== (_profData.email || '');
 
-                const identityChanged = un !== (_profData.username || '') || em !== (_profData.email || '');
-                const pwdWrap = document.getElementById('tabProfileCurrentPasswordWrap');
-                if (pwdWrap) pwdWrap.style.display = identityChanged ? 'block' : 'none';
-
-                const saveBtn = document.getElementById('tabProfileSaveBtn');
-                if (saveBtn) saveBtn.disabled = !isDirty;
-                const discBtn = document.getElementById('tabProfileDiscardBtn');
-                if (discBtn) discBtn.disabled = !isDirty;
+                const identityChanged = un !== (_profData.username || '') ||
+                                        em !== (_profData.email || '');
 
                 const draftState = document.getElementById('tabProfileDraftState');
                 if (draftState) {
                     draftState.textContent = isDirty ? 'Unsaved changes' : 'Synced';
                     draftState.style.color = isDirty ? '#d97706' : '#94a3b8';
                 }
+
+                const discardBtn = document.getElementById('tabProfileDiscardBtn');
+                if (discardBtn) discardBtn.disabled = !isDirty;
+
+                const pwdConfirmWrap = document.getElementById('tabProfilePasswordConfirmWrap');
+                if (pwdConfirmWrap) {
+                    pwdConfirmWrap.style.display = identityChanged ? 'block' : 'none';
+                }
             }
 
-            // Input handlers
             ['tabProfileFullName', 'tabProfileUsername', 'tabProfileEmail'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.addEventListener('input', checkDirty);
+                document.getElementById(id)?.addEventListener('input', checkDirty);
             });
 
             document.getElementById('tabProfileDiscardBtn')?.addEventListener('click', () => {
                 if (_profData) renderProfile(_profData);
+                const pwdInput = document.getElementById('tabProfileCurrentPassword');
+                if (pwdInput) pwdInput.value = '';
+                checkDirty();
             });
 
-            // Save profile form
+            // Submit Profile Form
             document.getElementById('tabProfileForm')?.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 if (!_profData) return;
@@ -365,11 +370,11 @@ if (!function_exists('renderProfileTabSection')) {
                 const cp = (document.getElementById('tabProfileCurrentPassword')?.value || '').trim();
 
                 if (!fn) { showAlert('Full name is required.', 'error'); return; }
-                if (!un) { showAlert('Username is required.', 'error'); return; }
+                if (!un || un.length < 3) { showAlert('Username must be at least 3 characters.', 'error'); return; }
 
                 const identityChanged = un !== (_profData.username || '') || em !== (_profData.email || '');
                 if (identityChanged && !cp) {
-                    showAlert('Current password is required to change username or email.', 'error');
+                    showAlert('Please enter your current password to confirm username or email changes.', 'error');
                     return;
                 }
 
@@ -384,23 +389,34 @@ if (!function_exists('renderProfileTabSection')) {
                 const saveBtn = document.getElementById('tabProfileSaveBtn');
                 if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…'; }
 
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': getCsrf()
+                };
+                if (_accountContext) {
+                    headers['X-Account-Context'] = _accountContext;
+                }
+
                 try {
                     const r = await fetch('<?= htmlspecialchars($apiUrl, ENT_QUOTES, 'UTF-8') ?>?action=profile_update', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': getCsrf()
-                        },
+                        headers: headers,
                         body: JSON.stringify(payload),
                         credentials: 'same-origin'
                     });
                     const d = await r.json();
                     if (d.status === 'success' && d.user) {
                         _profData = d.user;
+                        if (d.account_context) _accountContext = d.account_context;
+                        if (d.csrf_token) setCsrf(d.csrf_token);
                         renderProfile(d.user);
                         const pwdInput = document.getElementById('tabProfileCurrentPassword');
                         if (pwdInput) pwdInput.value = '';
                         toastMsg('Profile updated successfully!', 'success');
+                    } else if (d.code === 'ACCOUNT_CONTEXT_CHANGED' || d.code === 'PROFILE_CONFLICT') {
+                        // Resync fresh context and retry once
+                        await loadTabProfile();
+                        showAlert(d.message || 'Account context synchronized. Please try saving again.', 'error');
                     } else {
                         showAlert(d.message || 'Could not update profile.', 'error');
                     }
@@ -445,14 +461,24 @@ if (!function_exists('renderProfileTabSection')) {
                 fd.append('profile_version', _profData.profile_version);
                 fd.append('csrf_token', getCsrf());
 
+                const headers = {
+                    'X-CSRF-TOKEN': getCsrf()
+                };
+                if (_accountContext) {
+                    headers['X-Account-Context'] = _accountContext;
+                }
+
                 try {
-                    const r = await fetch('<?= htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') ?>', {
+                    const r = await fetch('<?= htmlspecialchars($apiUrl, ENT_QUOTES, 'UTF-8') ?>?action=profile_image_upload', {
                         method: 'POST',
+                        headers: headers,
                         body: fd,
                         credentials: 'same-origin'
                     });
                     const d = await r.json();
                     if (d.status === 'success') {
+                        if (d.account_context) _accountContext = d.account_context;
+                        if (d.csrf_token) setCsrf(d.csrf_token);
                         if (modal) modal.style.display = 'none';
                         toastMsg('Profile image updated!', 'success');
                         loadTabProfile();
@@ -466,18 +492,25 @@ if (!function_exists('renderProfileTabSection')) {
 
             document.getElementById('tabProfileRemoveBtn')?.addEventListener('click', async () => {
                 if (!_profData || !confirm('Remove your profile photo?')) return;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': getCsrf()
+                };
+                if (_accountContext) {
+                    headers['X-Account-Context'] = _accountContext;
+                }
+
                 try {
                     const r = await fetch('<?= htmlspecialchars($apiUrl, ENT_QUOTES, 'UTF-8') ?>?action=profile_image_remove', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': getCsrf()
-                        },
+                        headers: headers,
                         body: JSON.stringify({ profile_version: _profData.profile_version }),
                         credentials: 'same-origin'
                     });
                     const d = await r.json();
                     if (d.status === 'success') {
+                        if (d.account_context) _accountContext = d.account_context;
+                        if (d.csrf_token) setCsrf(d.csrf_token);
                         toastMsg('Profile image removed.', 'success');
                         loadTabProfile();
                     } else {
@@ -540,13 +573,18 @@ if (!function_exists('renderProfileTabSection')) {
                 const btn = document.getElementById('tabPwdSubmitBtn');
                 if (btn) { btn.disabled = true; btn.textContent = 'Changing…'; }
 
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': getCsrf()
+                };
+                if (_accountContext) {
+                    headers['X-Account-Context'] = _accountContext;
+                }
+
                 try {
                     const r = await fetch('<?= htmlspecialchars($apiUrl, ENT_QUOTES, 'UTF-8') ?>?action=password_change', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': getCsrf()
-                        },
+                        headers: headers,
                         body: JSON.stringify({
                             current_password: cur,
                             new_password: np,
@@ -556,6 +594,8 @@ if (!function_exists('renderProfileTabSection')) {
                     });
                     const d = await r.json();
                     if (d.status === 'success') {
+                        if (d.account_context) _accountContext = d.account_context;
+                        if (d.csrf_token) setCsrf(d.csrf_token);
                         document.getElementById('tabProfilePasswordModal').style.display = 'none';
                         toastMsg('Password changed successfully!', 'success');
                     } else {

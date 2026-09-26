@@ -490,6 +490,12 @@ renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'li
 </div></div>
 </div>
 
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('section-profile', 'cs');
+?>
+
 </main>
 
 <!-- MODALS -->
@@ -539,13 +545,6 @@ renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'li
 <div id="memberDetail"></div>
 </div></div>
 <div class="mo" id="addUserModal"><div class="md"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem"><h3 style="margin:0"><i class="fa-solid fa-user-plus" style="color:var(--ok)"></i> Add User</h3><button onclick="document.getElementById('addUserModal').classList.remove('show')" style="background:none;border:none;color:var(--dim);font-size:1.1rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button></div><div style="display:flex;flex-direction:column;gap:.55rem"><div><label class="flbl">Full Name</label><input id="nuName" class="inp" style="width:100%" autocomplete="off"></div><div><label class="flbl">Username</label><input id="nuUser" class="inp" style="width:100%" autocomplete="off"></div><div><label class="flbl">Password</label><input id="nuPass" type="password" class="inp" style="width:100%" minlength="12" maxlength="72" autocomplete="new-password"></div><div><label class="flbl">Role</label><select id="nuRole" class="inp" style="width:100%"><option value="school_admin">School Admin</option><option value="hr_dept">HR Dept</option><option value="info_dept">Info Dept</option><option value="edu_dept">Edu Dept</option><option value="finance_dept">Finance Dept</option><option value="material_dept">Material Dept</option><option value="mezmur_dept">Mezmur Dept</option><option value="teacher">Teacher</option><option value="attendance_taker">Attendance Taker</option></select></div><button class="btn bp" onclick="saveNewUser()"><i class="fa-solid fa-save"></i> Create</button></div></div></div>
-
-
-<!-- ═══ PROFILE TAB ═══ -->
-<?php
-require_once __DIR__ . '/../components/profile_tab_section.php';
-renderProfileTabSection('section-profile', 'cs');
-?>
 
 <!-- BOTTOM NAV -->
 <?php

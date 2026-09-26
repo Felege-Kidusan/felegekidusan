@@ -154,6 +154,12 @@ renderSidebarUserCard($fullName, 'Material Dept', $todayFormatted, $initials, 'l
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><h2 style="font-size:1.2rem;font-weight:700;color:#f1f5f9"><i class="fa-solid fa-tags" style="color:var(--ac)"></i> Categories</h2><button class="btn bp bs" onclick="openMatCatModal()"><i class="fa-solid fa-plus"></i> Add</button></div>
 <div class="crd"><div id="matCatList"></div></div>
 </div>
+
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('section-profile', 'cs');
+?>
 <?php endif; ?>
 </main>
 <!-- ADD ITEM MODAL -->
@@ -183,11 +189,6 @@ renderSidebarUserCard($fullName, 'Material Dept', $todayFormatted, $initials, 'l
 <div><label style="font-size:.7rem;color:var(--dm)">Description</label><input id="mcDesc" class="inp" style="width:100%"></div>
 <button class="btn bp" onclick="saveMatCat()"><i class="fa-solid fa-save"></i> Save</button>
 </div></div></div>
-<!-- ═══ PROFILE TAB ═══ -->
-<?php
-require_once __DIR__ . '/../components/profile_tab_section.php';
-renderProfileTabSection('section-profile', 'cs');
-?>
 
 <!-- BOTTOM NAV -->
 <?php

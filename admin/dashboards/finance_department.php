@@ -148,6 +148,12 @@ renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'li
 <div class="sg" id="rptStats"></div>
 <div class="crd" id="rptDetail" style="display:none"><div class="crt">By Category</div><div class="tw"><table><thead><tr><th>Category</th><th>Type</th><th>Total (ETB)</th><th>Count</th></tr></thead><tbody id="rptBody"></tbody></table></div></div>
 </div>
+
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('section-profile', 'cs');
+?>
 <?php endif; ?>
 </main>
 <!-- ADD TRANSACTION MODAL -->
@@ -182,11 +188,6 @@ renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'li
 <div><label style="font-size:.7rem;color:var(--dm)">Description</label><input id="catDesc" class="inp" style="width:100%"></div>
 <button class="btn bp" onclick="saveCat()"><i class="fa-solid fa-save"></i> Save</button>
 </div></div></div>
-<!-- ═══ PROFILE TAB ═══ -->
-<?php
-require_once __DIR__ . '/../components/profile_tab_section.php';
-renderProfileTabSection('section-profile', 'cs');
-?>
 
 <!-- BOTTOM NAV -->
 <?php

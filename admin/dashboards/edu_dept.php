@@ -777,6 +777,12 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 </div></div>
 </div>
 
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('sec-profile', 'sec');
+?>
+
 <?php endif; ?>
 </main>
 </div>
@@ -940,12 +946,6 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div style="margin-bottom:.75rem"><label class="lbl">Reason (Optional)</label><input id="transferReason" class="inp" placeholder="e.g. Age advancement, parent request..."></div>
 <button class="btn btn-p" style="width:100%;justify-content:center" onclick="executeTransfer()"><i class="fa-solid fa-exchange-alt"></i> Transfer Now</button>
 </div></div></div>
-
-<!-- ═══ PROFILE TAB ═══ -->
-<?php
-require_once __DIR__ . '/../components/profile_tab_section.php';
-renderProfileTabSection('sec-profile', 'sec');
-?>
 
 <!-- BOTTOM NAV -->
 <?php
