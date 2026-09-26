@@ -845,7 +845,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div class="crd" style="padding:.75rem;border-left:4px solid #059669">
 <div style="font-size:.7rem;color:#64748b;font-weight:600">Avg Attendance</div>
 <div id="pfStatAtt" style="font-size:1.4rem;font-weight:700;color:#059669">0%</div>
-<div style="font-size:.65rem;color:#64748b">Attendance mean</div>
+<div id="pfStatAttSub" style="font-size:.65rem;color:#64748b">Recorded students mean</div>
 </div>
 <div class="crd" style="padding:.75rem;border-left:4px solid #f59e0b">
 <div style="font-size:.7rem;color:#64748b;font-weight:600">High Achievers</div>
@@ -3321,6 +3321,7 @@ function renderRcTable(){
     const gc={A:'#047857',B:'#0369a1',C:'#b45309',D:'#c2410c',F:'#b91c1c'};
     document.getElementById('rcTableBody').innerHTML=list.length?list.map(s=>{
         const pct=s.overall_average??s.avg_percentage;
+        const tDays=Number(s.total_days)||0;
         const attR=s.attendance_rate||0;
         const obt=(s.total_obtained!=null&&s.total_max!=null)?(`${s.total_obtained} / ${s.total_max}`):'—';
         return `<tr>
@@ -3330,7 +3331,7 @@ function renderRcTable(){
             <td style="font-size:.8rem">${esc(obt)}</td>
             <td style="font-weight:700;font-size:.9rem">${pct!=null?Number(pct).toFixed(1)+'%':'—'}</td>
             <td><span style="display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;background:${gc[s.grade_letter]||'#94a3b8'}">${s.grade_letter||'—'}</span></td>
-            <td><div style="display:flex;align-items:center;gap:.4rem"><div style="width:50px;height:6px;background:#e2e8f0;border-radius:99px"><div style="height:100%;border-radius:99px;background:${attR>=80?'#047857':attR>=60?'#d97706':'#b91c1c'};width:${Math.min(100,attR)}%"></div></div><span style="font-size:.7rem;color:#64748b">${attR}%</span></div></td>
+            <td>${tDays>0 ? `<div style="display:flex;align-items:center;gap:.4rem"><div style="width:50px;height:6px;background:#e2e8f0;border-radius:99px"><div style="height:100%;border-radius:99px;background:${attR>=80?'#047857':attR>=60?'#d97706':'#b91c1c'};width:${Math.min(100,attR)}%"></div></div><span style="font-size:.7rem;color:#64748b">${attR}%</span></div>` : '<span style="font-size:.7rem;color:#94a3b8">—</span>'}</td>
             <td class="no-print"><button class="btn btn-o btn-xs" type="button" onclick="viewStudentReport(${s.id})"><i class="fa-solid fa-file-lines"></i> Report</button></td></tr>`;
     }).join(''):'<tr><td colspan="8" style="text-align:center;padding:2rem;color:#94a3b8">No matching students</td></tr>';
 }
@@ -3482,10 +3483,16 @@ async function applyPerformanceFilter(){
         const hEl = document.getElementById('pfStatHigh');
         const alertEl = document.getElementById('pfStatAttAlert');
         const badgeEl = document.getElementById('pfTableCountBadge');
+        const aSubEl = document.getElementById('pfStatAttSub');
 
         if(cntEl) cntEl.textContent = pfStats.total || 0;
         if(gEl) gEl.textContent = (pfStats.avg_grade != null ? pfStats.avg_grade : 0) + '%';
         if(aEl) aEl.textContent = (pfStats.avg_attendance != null ? pfStats.avg_attendance : 0) + '%';
+        if(aSubEl) {
+            const recN = pfStats.recorded_att_students != null ? pfStats.recorded_att_students : pfData.filter(x => (x.total_days || 0) > 0).length;
+            const unrecN = pfStats.unrecorded_att_students != null ? pfStats.unrecorded_att_students : (pfData.length - recN);
+            aSubEl.textContent = recN > 0 ? `Mean of ${recN} tracked student${recN===1?'':'s'}${unrecN>0?' ('+unrecN+' untracked)':''}` : 'No attendance recorded';
+        }
         if(hEl) hEl.textContent = pfStats.high_achievers || 0;
         if(alertEl) alertEl.textContent = pfStats.at_risk_att || 0;
         if(badgeEl) badgeEl.textContent = pfData.length;
@@ -3509,11 +3516,15 @@ function renderFilterTable(){
     const gc = { A: '#047857', B: '#0369a1', C: '#b45309', D: '#c2410c', F: '#b91c1c' };
     tbody.innerHTML = pfData.map(s => {
         const pct = s.overall_average ?? s.avg_percentage;
-        const attR = s.attendance_rate || 0;
+        const attR = s.attendance_rate != null ? Number(s.attendance_rate) : 0;
         const obt = (s.total_obtained != null && s.total_max != null) ? `${s.total_obtained} / ${s.total_max} pts` : '—';
-        const pDays = s.present_days || 0;
-        const aDays = s.absent_days || 0;
-        const lDays = s.late_days || 0;
+        const tDays = Number(s.total_days) || 0;
+        const pDays = Number(s.present_days) || 0;
+        const aDays = Number(s.absent_days) || 0;
+        const lDays = Number(s.late_days) || 0;
+        const eDays = Number(s.excused_days) || 0;
+        const hasAtt = tDays > 0;
+        const attendedDays = pDays + lDays;
         const isMale = (s.gender === 'male');
 
         return `<tr>
@@ -3532,14 +3543,25 @@ function renderFilterTable(){
                 </div>
                 <div style="font-size:.65rem;color:#94a3b8;margin-top:1px">${esc(obt)}</div>
             </td>
-            <td style="min-width:140px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-                    <span style="font-weight:700;font-size:.8rem;color:${attR >= 80 ? '#047857' : (attR >= 60 ? '#d97706' : '#b91c1c')}">${attR}%</span>
-                    <span style="font-size:.65rem;color:#64748b">${pDays}P · ${aDays}A · ${lDays}L</span>
-                </div>
-                <div style="height:5px;background:#e2e8f0;border-radius:99px;overflow:hidden">
-                    <div style="height:100%;border-radius:99px;background:${attR >= 80 ? '#047857' : (attR >= 60 ? '#d97706' : '#b91c1c')};width:${Math.min(100, attR)}%"></div>
-                </div>
+            <td style="min-width:160px">
+                ${hasAtt ? `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+                        <span style="font-weight:700;font-size:.82rem;color:${attR >= 80 ? '#047857' : (attR >= 60 ? '#d97706' : '#b91c1c')}">${attR}%</span>
+                        <span style="font-size:.7rem;font-weight:600;color:#1e293b">${attendedDays}/${tDays} days</span>
+                    </div>
+                    <div style="height:5px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin-bottom:3px">
+                        <div style="height:100%;border-radius:99px;background:${attR >= 80 ? '#047857' : (attR >= 60 ? '#d97706' : '#b91c1c')};width:${Math.min(100, attR)}%"></div>
+                    </div>
+                    <div style="font-size:.65rem;color:#64748b;line-height:1.2">
+                        ${pDays}P · ${aDays}A${lDays > 0 ? ' · ' + lDays + 'L' : ''}${eDays > 0 ? ' · ' + eDays + 'E' : ''}
+                    </div>
+                ` : `
+                    <div style="display:flex;align-items:center;gap:.35rem">
+                        <span style="font-size:.78rem;font-weight:600;color:#94a3b8">—</span>
+                        <span style="font-size:.65rem;color:#94a3b8;background:#f1f5f9;padding:2px 6px;border-radius:4px">No attendance taken</span>
+                    </div>
+                    <div style="height:5px;background:#f1f5f9;border-radius:99px;margin-top:4px"></div>
+                `}
             </td>
             <td class="no-print">
                 <button class="btn btn-o btn-xs" type="button" onclick="viewStudentReportFromFilter(${s.id}, ${s.class_id})"><i class="fa-solid fa-file-lines"></i> Report Card</button>
@@ -3582,28 +3604,41 @@ function exportFilteredPerformance(){
                 '#', 'Student Name', 'Father Name', 'Baptismal Name', 'Member Code',
                 'Class', 'Gender', 'Grade Average (%)', 'Letter Grade',
                 'Total Obtained (pts)', 'Total Max (pts)', 'Assessments Count',
-                'Attendance Rate (%)', 'Present Days', 'Absent Days', 'Late Days', 'Total Days'
+                'Attendance Rate (%)', 'Attendance Breakdown', 'Present Days', 'Absent Days', 'Late Days', 'Excused Days', 'Total Sessions'
             ];
 
-            const rows = pfData.map(s => [
-                s.filter_rank || '',
-                s.student_name || '',
-                s.father_name || '',
-                s.christian_name || '',
-                s.member_code || '',
-                s.class_name || '',
-                (s.gender || '').toUpperCase(),
-                s.overall_average != null ? Number(s.overall_average).toFixed(1) : '',
-                s.grade_letter || '',
-                s.total_obtained != null ? s.total_obtained : '',
-                s.total_max != null ? s.total_max : '',
-                s.assessments_count != null ? s.assessments_count : '',
-                s.attendance_rate != null ? s.attendance_rate : 0,
-                s.present_days || 0,
-                s.absent_days || 0,
-                s.late_days || 0,
-                s.total_days || 0
-            ]);
+            const rows = pfData.map(s => {
+                const tDays = Number(s.total_days) || 0;
+                const pDays = Number(s.present_days) || 0;
+                const aDays = Number(s.absent_days) || 0;
+                const lDays = Number(s.late_days) || 0;
+                const eDays = Number(s.excused_days) || 0;
+                const hasAtt = tDays > 0;
+                const attR = s.attendance_rate != null ? Number(s.attendance_rate) : 0;
+                const attendedDays = pDays + lDays;
+
+                return [
+                    s.filter_rank || '',
+                    s.student_name || '',
+                    s.father_name || '',
+                    s.christian_name || '',
+                    s.member_code || '',
+                    s.class_name || '',
+                    (s.gender || '').toUpperCase(),
+                    s.overall_average != null ? Number(s.overall_average).toFixed(1) : '',
+                    s.grade_letter || '',
+                    s.total_obtained != null ? s.total_obtained : '',
+                    s.total_max != null ? s.total_max : '',
+                    s.assessments_count != null ? s.assessments_count : '',
+                    hasAtt ? attR + '%' : '—',
+                    hasAtt ? `${attendedDays}/${tDays} days (${pDays}P · ${aDays}A${lDays > 0 ? ' · ' + lDays + 'L' : ''}${eDays > 0 ? ' · ' + eDays + 'E' : ''})` : 'No records',
+                    pDays,
+                    aDays,
+                    lDays,
+                    eDays,
+                    tDays
+                ];
+            });
 
             const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
             const wb = XLSX.utils.book_new();
