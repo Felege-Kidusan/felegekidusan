@@ -295,7 +295,7 @@ function usersApiImageError(\Throwable $error): void
 }
 
 // ============================================================
-// /users/me/profile-image or /users/profile-image
+// /users/me/profile-image
 // ============================================================
 if (($action === 'me' && $subAction === 'profile-image')
     || ($action === 'profile-image' && $subAction === '')) {
@@ -305,6 +305,14 @@ if (($action === 'me' && $subAction === 'profile-image')
     if ($method === 'GET') {
         try {
             $image = $imageService->readOwnImage($identity);
+            $etag = '"' . $image->opaqueVersion() . '"';
+            $ifNoneMatch = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+            if ($ifNoneMatch !== '' && (trim($ifNoneMatch) === $etag || trim($ifNoneMatch, '"') === $image->opaqueVersion())) {
+                http_response_code(304);
+                header('ETag: ' . $etag);
+                header('Cache-Control: private, no-store, max-age=0');
+                exit;
+            }
             $bytes = $image->jpegBytes();
             while (ob_get_level() > 0) {
                 @ob_end_clean();
@@ -313,7 +321,7 @@ if (($action === 'me' && $subAction === 'profile-image')
             header('X-Content-Type-Options: nosniff');
             header('Cache-Control: private, no-store, max-age=0');
             header('Pragma: no-cache');
-            header('ETag: "' . $image->opaqueVersion() . '"');
+            header('ETag: ' . $etag);
             echo $bytes;
             exit;
         } catch (\Throwable $error) {
@@ -401,10 +409,10 @@ if ($action === 'me' && $subAction === '' && $method === 'GET') {
 }
 
 // ============================================================
-// PATCH / PUT / POST /users/me — optimistic self-service profile mutation.
+// PATCH /users/me — optimistic self-service profile mutation.
 // ============================================================
 if ((($action === 'me' && $subAction === '') || $action === 'profile-update' || $action === 'update')
-    && in_array($method, ['PATCH', 'PUT', 'POST'], true)) {
+    && ($method === 'PATCH' || $method === 'PUT' || $method === 'POST')) {
     $body = getBody();
     $profileVersion = usersApiRequireProfileVersion($body);
     $profileIp = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');

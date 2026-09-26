@@ -280,8 +280,11 @@ select.inp{cursor:pointer}
 <button class="np" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports & Export</button>
 <button class="np" data-section="system"><i class="fa-solid fa-server"></i> System Health</button>
 <button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button>
-<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="uc" style="text-decoration:none;color:inherit;cursor:pointer" title="View & Edit Profile"><div class="ua"><?=$initials?></div><div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-size:.75rem;font-weight:600;color:var(--bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?=e($fullName)?></span><span style="font-size:.57rem;color:var(--dim)">School Admin • <?=$todayFormatted?></span></div><i class="fa-solid fa-gear" style="color:var(--dim);font-size:.75rem;margin-left:auto"></i></a>
 <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="np" style="text-decoration:none;margin-top:.2rem;color:var(--bright)"><i class="fa-solid fa-user-gear" style="color:#38bdf8"></i> My Profile</a>
+<?php
+require_once __DIR__ . '/../components/sidebar_profile_item.php';
+renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'linear-gradient(135deg,#0284c7,#38bdf8)');
+?>
 <a href="/admin/logout.php" class="np" style="color:var(--bad);margin-top:.2rem"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
 

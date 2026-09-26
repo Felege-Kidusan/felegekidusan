@@ -490,8 +490,14 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <button class="nl" data-sec="submissions"><i class="fa-solid fa-inbox"></i> Submissions</button>
 <button class="nl" data-sec="reportcards"><i class="fa-solid fa-file-lines"></i> Report Cards</button>
 </div>
-<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="uc" style="text-decoration:none;color:inherit;cursor:pointer;display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:12px;background:rgba(255,255,255,.1);margin-top:auto" title="View & Edit Profile"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6366f1);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem"><?= $initials ?></div><div style="flex:1;min-width:0"><span style="font-size:.75rem;font-weight:600;color:#fff"><?= e($userName) ?></span><br><span style="font-size:.6rem;color:rgba(255,255,255,.6)"><?= $todayFormatted ?></span></div><i class="fa-solid fa-gear" style="color:rgba(255,255,255,.6);font-size:.75rem;margin-left:auto"></i></a>
+<div>
+<div class="nt">Account</div>
 <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nl" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
+</div>
+<?php
+require_once __DIR__ . '/../components/sidebar_profile_item.php';
+renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#7c3aed,#6366f1)');
+?>
 <a href="/admin/logout.php" class="nl" style="color:#fca5a5"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
 
@@ -504,7 +510,10 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
     <?= renderNotificationCenter() ?>
-    <div class="mob-avatar"><?= $initials ?></div>
+    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="mob-avatar" style="text-decoration:none;position:relative;overflow:hidden" title="My Profile">
+        <img src="<?= e(ssms_app_url('admin/profile_image.php')) ?>" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;background:#7c3aed;color:#fff;font-weight:700"><?= $initials ?></span>
+    </a>
 </div>
 <?php if (!$tablesExist): ?>
 <div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:#7c3aed;margin-bottom:1rem"></i><h2 style="margin-bottom:.5rem">Setup Required</h2><p style="color:#64748b;margin-bottom:1.5rem">Education tables need to be created first.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>

@@ -223,30 +223,23 @@ final class PrivateProfileImageStorage
     }
 
     /**
-     * Resolve configuration with robust directory fallback.
+     * Resolve configuration without creating directories. Deployment and
+     * permissions remain a later, explicit concern.
      */
     public static function configured(): self
     {
         if (defined('PROFILE_PRIVATE_STORAGE_PATH') && PROFILE_PRIVATE_STORAGE_PATH !== '') {
-            $path = (string)PROFILE_PRIVATE_STORAGE_PATH;
-            if (!is_dir($path)) @mkdir($path, 0750, true);
-            return new self($path);
+            return new self((string)PROFILE_PRIVATE_STORAGE_PATH);
         }
         if (defined('MEMBER_PRIVATE_STORAGE_PATH') && MEMBER_PRIVATE_STORAGE_PATH !== '') {
-            $path = rtrim((string)MEMBER_PRIVATE_STORAGE_PATH, '/\\') . '/profiles';
-            if (!is_dir($path)) @mkdir($path, 0750, true);
-            return new self($path);
+            return new self(rtrim((string)MEMBER_PRIVATE_STORAGE_PATH, '/\\') . '/profiles');
         }
         $projectRoot = defined('ROOT_PATH') ? (string)ROOT_PATH : dirname(__DIR__, 3);
         $primary = dirname($projectRoot) . '/ssms_private/profiles';
-        if (@is_dir($primary) || @mkdir($primary, 0750, true)) {
+        if (is_dir($primary)) {
             return new self($primary);
         }
-        $fallback = $projectRoot . '/admin/uploads/profiles';
-        if (!is_dir($fallback)) {
-            @mkdir($fallback, 0750, true);
-        }
-        return new self($fallback);
+        return new self($projectRoot . '/admin/uploads/profiles');
     }
 
     public function stage(ProfileImageArtifact $artifact): StoredProfileImage

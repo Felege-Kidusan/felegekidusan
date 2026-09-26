@@ -140,13 +140,14 @@ if (isset($conn)) {
             <a href="info-dept.php" class="nav-link"><i class="fa-solid fa-arrow-left"></i> Back to Info Dept</a>
             <button class="nav-link active" onclick="showTab('list')"><i class="fa-solid fa-list"></i> All Groups</button>
             <button class="nav-link" onclick="openGroupModal()"><i class="fa-solid fa-plus"></i> Register Group</button>
+            <a href="/admin/account.php" class="nav-link" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
         </nav>
         
         <div class="mt-auto pt-4 border-t border-white/20">
-            <div class="flex items-center gap-2 text-sm">
-                <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold"><?= strtoupper(substr($fullName, 0, 1)) ?></div>
-                <div class="truncate"><?= e($fullName) ?></div>
-            </div>
+            <?php
+            require_once __DIR__ . '/../components/sidebar_profile_item.php';
+            renderSidebarUserCard($fullName, 'Groups Admin', $todayFormatted ?? '', strtoupper(substr($fullName, 0, 1)), 'linear-gradient(135deg,#047857,#0f766e)');
+            ?>
         </div>
     </aside>
 

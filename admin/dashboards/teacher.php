@@ -190,22 +190,16 @@ $csrfToken = generateCsrfToken();
                 <div class="nav-link" data-comm-open="inbox">
                     <i class="fa-solid fa-comments w-5"></i> Communication
                 </div>
+                <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nav-link text-white hover:bg-white/10" style="text-decoration:none">
+                    <i class="fa-solid fa-user-gear w-5"></i> My Profile
+                </a>
             </nav>
             
             <div class="mt-auto pt-4 border-t border-white/10 space-y-2">
-                <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-white/10 transition text-decoration-none" title="View & Edit Profile">
-                    <div class="w-9 h-9 rounded-full bg-white flex items-center justify-center text-sm font-bold text-sky-700">
-                        <?= strtoupper(substr($userName, 0, 1)) ?>
-                    </div>
-                    <div class="text-xs flex-1 min-w-0">
-                        <div class="text-white font-medium truncate max-w-[130px]"><?= e($userName) ?></div>
-                        <div class="text-sky-200 text-[10px] uppercase">Teacher</div>
-                    </div>
-                    <i class="fa-solid fa-gear text-sky-200 text-xs"></i>
-                </a>
-                <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nav-link text-sky-100 hover:bg-white/10" style="text-decoration:none">
-                    <i class="fa-solid fa-user-gear w-5"></i> My Profile
-                </a>
+                <?php
+                require_once __DIR__ . '/../components/sidebar_profile_item.php';
+                renderSidebarUserCard($userName, 'Teacher', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#0284c7,#38bdf8)');
+                ?>
                 <a href="/admin/logout.php" class="nav-link text-red-300 hover:bg-red-500/20">
                     <i class="fa-solid fa-power-off w-5"></i> Logout
                 </a>

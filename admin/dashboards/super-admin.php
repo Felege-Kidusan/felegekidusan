@@ -652,11 +652,10 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
         </nav>
         
         <div class="sb-footer">
-            <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="user-card" style="text-decoration:none;color:inherit;cursor:pointer" title="View & Edit Profile">
-                <div class="user-av"><?= strtoupper(substr($fullName, 0, 1)) ?></div>
-                <div style="flex:1;min-width:0"><div class="user-name"><?= e($fullName) ?></div><div class="user-role">Super Admin</div></div>
-                <i class="fa-solid fa-gear" style="color:var(--text-dim,#94a3b8);font-size:0.75rem;margin-left:auto"></i>
-            </a>
+            <?php
+            require_once __DIR__ . '/../components/sidebar_profile_item.php';
+            renderSidebarUserCard($fullName, 'Super Admin', $todayFormatted, strtoupper(substr($fullName, 0, 1)), 'linear-gradient(135deg,#0284c7,#0369a1)');
+            ?>
             <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nav-link" style="text-decoration:none;margin-bottom:6px;border-radius:8px;padding:.5rem .8rem;display:flex;align-items:center;gap:.6rem;color:#e2e8f0;background:rgba(255,255,255,.05);font-size:.78rem;font-weight:600">
                 <i class="fa-solid fa-user-gear" style="color:#38bdf8"></i> My Profile
             </a>

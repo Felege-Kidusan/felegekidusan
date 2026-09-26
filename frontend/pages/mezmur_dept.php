@@ -66,13 +66,17 @@ ob_start();
             </button>
 
             <div class="school-bell-slot"><?php include __DIR__ . '/../../admin/components/notification_center.php'; ?><?= renderNotificationCenter() ?></div>
-            <div class="school-user-card">
-                <div class="school-user-avatar" data-user-initials></div>
-                <div>
+            <a href="/admin/account.php" class="school-user-card" style="text-decoration:none;color:inherit;cursor:pointer" title="View & Edit Profile">
+                <div class="school-user-avatar" style="overflow:hidden;position:relative">
+                    <img src="/admin/profile_image.php" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                    <span data-user-initials style="display:flex;width:100%;height:100%;align-items:center;justify-content:center"></span>
+                </div>
+                <div style="flex:1;min-width:0">
                     <div class="school-user-name" data-user-name></div>
                     <div class="school-user-role">Mezmur • <span data-today></span></div>
                 </div>
-            </div>
+                <i class="fa-solid fa-gear" style="color:var(--text-dim,#94a3b8);font-size:.75rem;margin-left:auto"></i>
+            </a>
             <a href="/backend/auth/logout.php" class="school-logout-btn">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>

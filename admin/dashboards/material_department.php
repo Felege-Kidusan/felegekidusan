@@ -78,9 +78,12 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="np" data-section="requests"><i class="fa-solid fa-clipboard-list"></i> Requests</button>
 <button class="np" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button>
 <button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button>
-</div>
-<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="uc" style="text-decoration:none;color:inherit;cursor:pointer" title="View & Edit Profile"><div class="ua"><?= $initials ?></div><div style="flex:1;min-width:0"><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Material • <?= $todayFormatted ?></span></div><i class="fa-solid fa-gear" style="color:var(--dm);font-size:.75rem;margin-left:auto"></i></a>
 <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="np" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
+</div>
+<?php
+require_once __DIR__ . '/../components/sidebar_profile_item.php';
+renderSidebarUserCard($fullName, 'Material Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#059669,#10b981)');
+?>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
 <main>
@@ -92,7 +95,10 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
     <?= renderNotificationCenter() ?>
-    <div class="mob-avatar"><?= $initials ?></div>
+    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="mob-avatar" style="text-decoration:none;position:relative;overflow:hidden" title="My Profile">
+        <img src="<?= e(ssms_app_url('admin/profile_image.php')) ?>" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;background:#059669;color:#fff;font-weight:700"><?= $initials ?></span>
+    </a>
 </div>
 <?php if (!$matReady): ?>
 <div class="crd" style="text-align:center;padding:3rem"><i class="fa-solid fa-database" style="font-size:3rem;color:var(--ac);margin-bottom:1rem"></i><h2 style="color:#f1f5f9;margin-bottom:.5rem">Setup Required</h2><p style="color:var(--dm);margin-bottom:1.5rem">Material tables need to be created.</p><span class="bg bg-w">Ask the deployment administrator to apply the versioned SQL migrations.</span></div>

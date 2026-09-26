@@ -592,6 +592,11 @@ class MobileProfileService extends ChangeNotifier {
         if (_operationIsCurrent(operationEpoch, operationOwner)) {
           _profile = updated;
           notifyListeners();
+          await _loadCanonicalImage(
+            updated,
+            operationEpoch,
+            forceDownload: true,
+          );
         }
       }
       return const ProfileActionResult.ok('Profile image updated.');

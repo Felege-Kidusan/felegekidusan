@@ -550,24 +550,21 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                 <span class="font-semibold">Communication</span>
             </button>
 
+            <a href="/admin/account.php"
+               class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-decoration-none">
+                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                    <i class="fa-solid fa-user-gear text-sm"></i>
+                </span>
+                <span class="font-semibold">My Profile</span>
+            </a>
+
         </nav>
 
         <div class="mt-5 space-y-2">
-            <a href="/admin/account.php" class="flex items-center gap-2 p-1.5 rounded-xl bg-white/10 hover:bg-white/15 transition text-white text-decoration-none" title="View & Edit Profile">
-                <div class="w-9 h-9 rounded-full bg-white/90 flex items-center justify-center text-xs font-bold text-emerald-700">
-                    <?= strtoupper(substr($userName, 0, 1)) ?>
-                </div>
-                <div class="text-[11px] leading-tight flex-1 min-w-0">
-                    <div class="font-semibold truncate max-w-[130px]"><?= e($userName) ?></div>
-                    <div class="uppercase text-[10px] text-emerald-100"><?= e($userRole) ?></div>
-                </div>
-                <i class="fa-solid fa-gear text-xs text-emerald-200 mr-1"></i>
-            </a>
-            <a href="/admin/account.php"
-               class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/15 text-white text-xs font-semibold hover:bg-white/20 transition text-decoration-none">
-                <i class="fa-solid fa-user-gear text-xs text-emerald-200"></i>
-                <span>My Profile</span>
-            </a>
+            <?php
+            require_once __DIR__ . '/../components/sidebar_profile_item.php';
+            renderSidebarUserCard($userName, 'Info Dept', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#059669,#10b981)');
+            ?>
             <a href="/admin/logout.php"
                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-red-500/95 text-white text-xs font-semibold shadow hover:bg-red-600 transition">
                 <span>Logout</span>

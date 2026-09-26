@@ -186,8 +186,11 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
   <div class="topbar-right">
     <button type="button" data-comm-open="inbox" style="color:#fff;font-size:0.8rem;padding:0.4rem 0.8rem;border:1px solid rgba(255,255,255,0.3);border-radius:0.5rem;background:transparent;cursor:pointer;font-family:inherit;font-weight:600"><i class="fa-solid fa-comments" style="margin-right:0.4rem"></i>Communication</button>
     <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
-    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="user-chip" style="text-decoration:none;color:inherit" title="View & Edit Profile">
-      <div class="user-avatar"><?= e($initials) ?></div>
+    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="user-chip" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:8px" title="View & Edit Profile">
+      <div class="user-avatar" style="position:relative;overflow:hidden;width:32px;height:32px;border-radius:50%">
+        <img src="<?= e(ssms_app_url('admin/profile_image.php')) ?>" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <span style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;background:rgba(255,255,255,0.2)"><?= e($initials) ?></span>
+      </div>
       <span><?= e($fullName) ?></span>
     </a>
     <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="btn-exit" style="background:rgba(255,255,255,0.15)"><i class="fa-solid fa-user-gear"></i> My Profile</a>

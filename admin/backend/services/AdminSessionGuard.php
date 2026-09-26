@@ -99,8 +99,6 @@ final class AdminSessionGuard
 
             $session['admin_username'] = (string)$user['username'];
             $session['admin_full_name'] = (string)($user['full_name'] ?? '');
-            // Base role refreshed from the database; the assumed role is
-            // intentionally preserved.
             $session['original_admin_role'] = (string)$user['role'];
             $session['AUTH_PASSWORD_VERSION'] = $passwordVersion;
             $session['AUTH_REVALIDATED_AT'] = $now;

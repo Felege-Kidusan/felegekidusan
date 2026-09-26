@@ -50,6 +50,15 @@ try {
         \App\Services\PrivateProfileImageStorage::configured()
     );
     $image = $service->readOwnImage($identity);
+    $etag = '"' . $image->opaqueVersion() . '"';
+    $ifNoneMatch = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+    if ($ifNoneMatch !== '' && (trim($ifNoneMatch) === $etag || trim($ifNoneMatch, '"') === $image->opaqueVersion())) {
+        http_response_code(304);
+        header('ETag: ' . $etag);
+        header('Cache-Control: private, max-age=300, must-revalidate');
+        exit;
+    }
+
     $bytes = $image->jpegBytes();
 
     while (ob_get_level() > 0) {
@@ -59,7 +68,7 @@ try {
     header('X-Content-Type-Options: nosniff');
     header('Cache-Control: private, no-store, max-age=0');
     header('Pragma: no-cache');
-    header('ETag: "' . $image->opaqueVersion() . '"');
+    header('ETag: ' . $etag);
     echo $bytes;
     exit;
 } catch (\App\Services\ProfileImageDomainException $error) {

@@ -111,16 +111,10 @@ final class MysqliProfileRepository implements ProfileRepository
         $this->profileImageColumnAvailable = $profileImageColumnAvailable;
     }
 
-    /** Read-only rolling-deployment probe; auto-probes column availability. */
+    /** Read-only rolling-deployment probe; checks column availability without dynamic DDL. */
     public static function profileImageColumnAvailable(\mysqli $database): bool
     {
         try {
-            $result = $database->query("SHOW COLUMNS FROM users LIKE 'profile_image_path'");
-            if ($result && $result->num_rows > 0) {
-                $result->close();
-                return true;
-            }
-            @$database->query("ALTER TABLE users ADD COLUMN profile_image_path VARCHAR(255) NULL AFTER role");
             $result = $database->query("SHOW COLUMNS FROM users LIKE 'profile_image_path'");
             $exists = $result && $result->num_rows > 0;
             if ($result) {
