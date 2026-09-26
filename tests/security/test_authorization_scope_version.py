@@ -150,10 +150,12 @@ class AuthorizationScopeVersionTests(unittest.TestCase):
     def test_capable_requests_revalidate_authoritative_scope_by_primary_key(self):
         self.assertIn("function apiRevalidateAuthorizationScope", self.auth)
         self.assertIn(
-            "SELECT role, is_active, authorization_version FROM users WHERE id=? LIMIT 1",
+            "SELECT role, is_active, authorization_version, username, full_name",
             self.auth,
         )
         self.assertIn("return apiRevalidateAuthorizationScope($payload)", self.auth)
+        self.assertIn("PROFILE_CLAIMS_CHANGED", self.auth)
+        self.assertIn("claims_refresh_required", self.auth)
         self.assertIn("hash_equals($currentRole", self.auth)
         self.assertIn("$currentVersion !== (int)$payload['av']", self.auth)
         self.assertNotIn("$payload['rol'] = $currentRole", self.auth)

@@ -1,0 +1,620 @@
+<?php
+$root = rtrim($argv[1] ?? dirname(__DIR__, 2), '/\\');
+require_once $root . '/admin/backend/services/ProfileService.php';
+require_once $root . '/admin/backend/services/AccountCredentialService.php';
+require_once $root . '/admin/backend/services/ProfileImageService.php';
+
+use App\Services\AccountCredentialService;
+use App\Services\AuthenticatedProfileIdentity;
+use App\Services\AuthorizedAdministratorIdentity;
+use App\Services\CredentialDomainException;
+use App\Services\CredentialPersistenceException;
+use App\Services\CredentialRepository;
+use App\Services\PrivateProfileImageStorage;
+use App\Services\ProfileDomainException;
+use App\Services\ProfileImageDomainException;
+use App\Services\ProfileImagePersistenceException;
+use App\Services\ProfileImageRepository;
+use App\Services\ProfileImageService;
+use App\Services\ProfileRepository;
+use App\Services\ProfileService;
+
+function check($condition, string $message): void
+{
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
+function reason(callable $operation): string
+{
+    try {
+        $operation();
+    } catch (Throwable $error) {
+        if (method_exists($error, 'reason')) {
+            return (string)$error->reason();
+        }
+        return get_class($error);
+    }
+    return '';
+}
+
+function pngHeaderWithDimensions(int $width, int $height): string
+{
+    $data = pack('NNCCCCC', $width, $height, 8, 2, 0, 0, 0);
+    $chunk = 'IHDR' . $data;
+    return "\x89PNG\r\n\x1a\n" . pack('N', strlen($data)) . $chunk
+        . pack('N', crc32($chunk));
+}
+
+final class FakeProfileRepository implements ProfileRepository
+{
+    /** @var array<int,array<string,mixed>> */
+    public array $rows;
+    /** @var array<int,array<string,mixed>>|null */
+    private ?array $snapshot = null;
+    public bool $forceDuplicate = false;
+
+    /** @param array<int,array<string,mixed>> $rows */
+    public function __construct(array $rows)
+    {
+        $this->rows = $rows;
+    }
+
+    public function begin(): void
+    {
+        $this->snapshot = $this->rows;
+    }
+
+    public function commit(): void
+    {
+        $this->snapshot = null;
+    }
+
+    public function rollback(): void
+    {
+        if ($this->snapshot !== null) {
+            $this->rows = $this->snapshot;
+            $this->snapshot = null;
+        }
+    }
+
+    public function findById(int $userId, bool $forUpdate = false): ?array
+    {
+        return $this->rows[$userId] ?? null;
+    }
+
+    public function usernameExists(string $username, int $excludeUserId): bool
+    {
+        foreach ($this->rows as $id => $row) {
+            if ($id !== $excludeUserId && (string)$row['username'] === $username) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function emailExists(string $email, int $excludeUserId): bool
+    {
+        foreach ($this->rows as $id => $row) {
+            if ($id !== $excludeUserId && ($row['email'] ?? null) === $email) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function updateProfileFields(int $userId, array $fields): void
+    {
+        if ($this->forceDuplicate) {
+            throw new ProfileDomainException('USERNAME_TAKEN', 'Duplicate race.');
+        }
+        $this->rows[$userId] = array_merge($this->rows[$userId], $fields);
+    }
+}
+
+final class FakeCredentialRepository implements CredentialRepository
+{
+    /** @var array<int,string> */
+    public array $hashes;
+    /** @var array<int,array<int,bool>> */
+    public array $sessions;
+    /** @var array{hashes:array<int,string>,sessions:array<int,array<int,bool>>}|null */
+    private ?array $snapshot = null;
+    public bool $revokeFailure = false;
+
+    /** @param array<int,string> $hashes @param array<int,array<int,bool>> $sessions */
+    public function __construct(array $hashes, array $sessions)
+    {
+        $this->hashes = $hashes;
+        $this->sessions = $sessions;
+    }
+
+    public function begin(): void
+    {
+        $this->snapshot = ['hashes' => $this->hashes, 'sessions' => $this->sessions];
+    }
+
+    public function commit(): void
+    {
+        $this->snapshot = null;
+    }
+
+    public function rollback(): void
+    {
+        if ($this->snapshot !== null) {
+            $this->hashes = $this->snapshot['hashes'];
+            $this->sessions = $this->snapshot['sessions'];
+            $this->snapshot = null;
+        }
+    }
+
+    public function lockCredential(int $userId): ?array
+    {
+        if (!isset($this->hashes[$userId])) {
+            return null;
+        }
+        return ['id' => $userId, 'password_hash' => $this->hashes[$userId]];
+    }
+
+    public function updatePasswordHash(int $userId, string $passwordHash): void
+    {
+        $this->hashes[$userId] = $passwordHash;
+    }
+
+    public function revokeAllRefreshSessions(int $userId): void
+    {
+        if ($this->revokeFailure) {
+            throw new CredentialPersistenceException('Simulated revocation failure.');
+        }
+        foreach ($this->sessions[$userId] ?? [] as $index => $active) {
+            $this->sessions[$userId][$index] = false;
+        }
+    }
+}
+
+final class FakeProfileImageRepository implements ProfileImageRepository
+{
+    /** @var array<int,array<string,mixed>> */
+    public array $rows;
+    /** @var array<int,array<string,mixed>>|null */
+    private ?array $snapshot = null;
+    public bool $failUpdate = false;
+
+    /** @param array<int,array<string,mixed>> $rows */
+    public function __construct(array $rows)
+    {
+        $this->rows = $rows;
+    }
+
+    public function begin(): void
+    {
+        $this->snapshot = $this->rows;
+    }
+
+    public function commit(): void
+    {
+        $this->snapshot = null;
+    }
+
+    public function rollback(): void
+    {
+        if ($this->snapshot !== null) {
+            $this->rows = $this->snapshot;
+            $this->snapshot = null;
+        }
+    }
+
+    public function findProfileState(int $userId): ?array
+    {
+        return $this->rows[$userId] ?? null;
+    }
+
+    public function lockProfileState(int $userId): ?array
+    {
+        return $this->rows[$userId] ?? null;
+    }
+
+    public function updateImageReference(int $userId, ?string $logicalReference): void
+    {
+        if ($this->failUpdate) {
+            throw new ProfileImagePersistenceException('Simulated image reference failure.');
+        }
+        $this->rows[$userId]['profile_image_path'] = $logicalReference;
+    }
+}
+
+$current = 'current horse battery staple';
+$profileRows = [
+    1 => [
+        'id' => 1,
+        'username' => 'first.user',
+        'email' => 'first@example.test',
+        'full_name' => 'First ስም',
+        'role' => 'teacher',
+        'password_hash' => password_hash($current, PASSWORD_DEFAULT),
+        'is_active' => 1,
+        'authorization_version' => 4,
+        'member_id' => 41,
+        'profile_image_path' => null,
+        'created_at' => '2026-01-01 00:00:00',
+        'last_login' => null,
+    ],
+    2 => [
+        'id' => 2,
+        'username' => 'second.user',
+        'email' => 'second@example.test',
+        'full_name' => 'Second User',
+        'role' => 'school_admin',
+        'password_hash' => password_hash('another current password', PASSWORD_DEFAULT),
+        'is_active' => 1,
+        'authorization_version' => 2,
+        'member_id' => null,
+        'profile_image_path' => null,
+        'created_at' => '2026-01-02 00:00:00',
+        'last_login' => null,
+    ],
+];
+
+$profileRepository = new FakeProfileRepository($profileRows);
+$profileService = new ProfileService($profileRepository);
+$identity = AuthenticatedProfileIdentity::fromTrustedUserId(1);
+$initial = $profileService->getOwnProfile($identity);
+check(
+    ProfileService::requireProfileVersion($initial['profile_version']) === $initial['profile_version'],
+    'A valid current profile version was rejected.'
+);
+foreach ([null, '', [], str_repeat('a', 63), str_repeat('A', 64), str_repeat('g', 64)] as $invalidVersion) {
+    check(reason(static function () use ($invalidVersion): void {
+        ProfileService::requireProfileVersion($invalidVersion);
+    }) === 'PROFILE_VERSION_REQUIRED', 'A missing, empty, mistyped, or malformed profile version was accepted.');
+}
+check(!isset($initial['password_hash']), 'Canonical profile leaked a password hash.');
+check(!isset($initial['authorization_version']), 'Canonical profile leaked authorization version.');
+check($initial['id'] === 1 && $initial['username'] === 'first.user', 'Own-profile lookup used the wrong row.');
+check(ProfileService::normalizeUsername('  New.User_9  ') === 'new.user_9', 'Username normalization changed.');
+check(ProfileService::normalizeFullName('  ሰላም World  ') === 'ሰላም World', 'Unicode full-name normalization failed.');
+check(ProfileService::normalizeEmail('  CASE@Example.Test ') === 'case@example.test', 'Email normalization failed.');
+check(ProfileService::normalizeEmail('   ') === null, 'Blank email must normalize to null.');
+
+$badUsernameReasons = [];
+foreach ([
+    'ab', '.abcd', 'abcd.', 'ab cd', 'ab..cd', 'ab._cd', 'ab__cd', 'ADMIN', 'support', 'api', 'null', 'a-b',
+] as $badUsername) {
+    $badUsernameReasons[$badUsername] = reason(static function () use ($badUsername): void {
+        ProfileService::normalizeUsername($badUsername);
+    });
+    check($badUsernameReasons[$badUsername] !== '', 'Unsafe username accepted: ' . $badUsername);
+}
+check(reason(static function (): void {
+    ProfileService::normalizeFullName("Valid\nInjected");
+}) === 'FULL_NAME_INVALID', 'Control character in full name was accepted.');
+check(reason(static function (): void {
+    ProfileService::normalizeEmail('not-an-email');
+}) === 'EMAIL_INVALID', 'Invalid email was accepted.');
+
+$beforeOther = $profileRepository->rows[2];
+$forbiddenReason = reason(function () use ($profileService, $identity, $initial): void {
+    $profileService->updateOwnProfile($identity, [
+        'user_id' => 2,
+        'full_name' => 'Wrong Target',
+    ], $initial['profile_version']);
+});
+check($forbiddenReason === 'PROFILE_FIELD_NOT_ALLOWED', 'Client target id was not rejected.');
+check($profileRepository->rows[2] === $beforeOther, 'Another profile was modified.');
+$beforeInvalidVersion = $profileRepository->rows;
+check(reason(function () use ($profileService, $identity): void {
+    $profileService->updateOwnProfile($identity, ['full_name' => 'Must Not Persist'], 'malformed');
+}) === 'PROFILE_VERSION_REQUIRED', 'Malformed mutation profile version did not fail validation.');
+check($profileRepository->rows === $beforeInvalidVersion, 'Malformed profile version mutated repository state.');
+
+$updated = $profileService->updateOwnProfile($identity, [
+    'username' => 'updated.user',
+    'email' => '',
+    'full_name' => 'Updated ስም',
+    'current_password' => $current,
+    'profile_version' => $initial['profile_version'],
+], $initial['profile_version']);
+check($updated['username'] === 'updated.user' && $updated['email'] === null, 'Valid profile update failed.');
+check($profileRepository->rows[1]['role'] === 'teacher', 'Profile update changed role.');
+check($profileRepository->rows[1]['authorization_version'] === 4, 'Profile update changed authorization version.');
+check($profileRepository->rows[2] === $beforeOther, 'Self-service update crossed ownership boundary.');
+
+$conflictReason = reason(function () use ($profileService, $identity, $initial): void {
+    $profileService->updateOwnProfile($identity, [
+        'full_name' => 'Stale Write',
+        'profile_version' => $initial['profile_version'],
+    ], $initial['profile_version']);
+});
+check($conflictReason === 'PROFILE_CONFLICT', 'Stale profile update was not rejected.');
+$duplicateReason = reason(function () use ($profileService, $identity, $updated, $current): void {
+    $profileService->updateOwnProfile($identity, [
+        'username' => 'second.user',
+        'current_password' => $current,
+    ], $updated['profile_version']);
+});
+check($duplicateReason === 'USERNAME_TAKEN', 'Friendly uniqueness precheck failed.');
+$profileRepository->forceDuplicate = true;
+$raceReason = reason(function () use ($profileService, $identity, $updated, $current): void {
+    $profileService->updateOwnProfile($identity, [
+        'username' => 'race.user',
+        'current_password' => $current,
+    ], $updated['profile_version']);
+});
+$profileRepository->forceDuplicate = false;
+check($raceReason === 'USERNAME_TAKEN', 'Database duplicate race was not classified.');
+check(strlen($updated['profile_version']) === 64, 'Profile version is not opaque SHA-256 output.');
+check(strpos($updated['profile_version'], 'updated.user') === false, 'Profile version exposed profile data.');
+
+$admin = AuthorizedAdministratorIdentity::fromTrustedAuthorization(99);
+$rowOneBeforeAdmin = $profileRepository->rows[1];
+$adminUpdated = $profileService->updateProfileByAdministrator(
+    $admin,
+    2,
+    ['full_name' => 'Administrator Updated Target'],
+    ProfileService::profileVersion($profileRepository->rows[2])
+);
+check($adminUpdated['full_name'] === 'Administrator Updated Target', 'Explicit administrator profile update failed.');
+check($profileRepository->rows[1] === $rowOneBeforeAdmin, 'Administrator profile update changed the wrong target.');
+check(reason(function () use ($profileService, $admin, $profileRepository): void {
+    $profileService->updateProfileByAdministrator(
+        $admin,
+        2,
+        ['role' => 'super_admin'],
+        ProfileService::profileVersion($profileRepository->rows[2])
+    );
+}) === 'PROFILE_FIELD_NOT_ALLOWED', 'Administrator profile entry point accepted an authorization field.');
+
+$oldOneHash = password_hash($current, PASSWORD_DEFAULT);
+$oldTwoHash = password_hash('second old passphrase', PASSWORD_DEFAULT);
+$credentialRepository = new FakeCredentialRepository(
+    [1 => $oldOneHash, 2 => $oldTwoHash],
+    [1 => [true, true, true], 2 => [true, true]]
+);
+$credentialService = new AccountCredentialService($credentialRepository);
+$newPassword = 'new correct horse battery staple';
+$credentialResult = $credentialService->changeOwnPassword(
+    $identity,
+    $current,
+    $newPassword,
+    $newPassword
+);
+check(password_verify($newPassword, $credentialRepository->hashes[1]), 'Password hash was not updated.');
+check(!in_array(true, $credentialRepository->sessions[1], true), 'Not all target refresh sessions were revoked.');
+check(reason(function () use ($credentialService, $identity, $newPassword): void {
+    $credentialService->changeOwnPassword($identity, $newPassword, $newPassword, $newPassword);
+}) === 'NEW_PASSWORD_MUST_DIFFER', 'Self-service accepted the current password as the new password.');
+$serializedResult = json_encode($credentialResult->auditContext());
+check(strpos($serializedResult, $newPassword) === false, 'Password leaked into credential result.');
+check(strpos($serializedResult, $credentialRepository->hashes[1]) === false, 'Hash leaked into credential result.');
+check($credentialResult->passwordVersion() === hash('sha256', $credentialRepository->hashes[1]), 'Web session marker did not track the committed password hash.');
+
+$rollbackOldHash = $credentialRepository->hashes[1];
+$rollbackOldSessions = $credentialRepository->sessions[1];
+$credentialRepository->revokeFailure = true;
+$rollbackReason = reason(function () use ($credentialService, $identity, $newPassword): void {
+    $credentialService->changeOwnPassword(
+        $identity,
+        $newPassword,
+        'third correct horse battery staple',
+        'third correct horse battery staple'
+    );
+});
+$credentialRepository->revokeFailure = false;
+check($rollbackReason === CredentialPersistenceException::class, 'Revocation failure did not fail the transaction.');
+check($credentialRepository->hashes[1] === $rollbackOldHash, 'Hash was not rolled back after revocation failure.');
+check($credentialRepository->sessions[1] === $rollbackOldSessions, 'Sessions were not rolled back atomically.');
+
+$adminPassword = 'administrator reset passphrase';
+$adminResult = $credentialService->resetPasswordByAdministrator(
+    $admin,
+    2,
+    $adminPassword,
+    $adminPassword
+);
+check(password_verify($adminPassword, $credentialRepository->hashes[2]), 'Administrator reset failed.');
+check(!in_array(true, $credentialRepository->sessions[2], true), 'Admin reset did not revoke all target sessions.');
+$adminAuditContext = $adminResult->auditContext();
+$adminAudit = json_encode($adminAuditContext);
+check(strpos($adminAudit, $adminPassword) === false, 'Admin reset result leaked password.');
+check(strpos($adminAudit, $credentialRepository->hashes[2]) === false, 'Admin reset result leaked hash.');
+check(($adminAuditContext['actor_user_id'] ?? 0) === 99 && ($adminAuditContext['target_user_id'] ?? 0) === 2, 'Admin audit identity is incomplete.');
+
+$imageChecks = ['available' => false];
+if (extension_loaded('gd') && class_exists('finfo')) {
+    $imageChecks['available'] = true;
+    $makePng = static function (int $width, int $height): string {
+        $source = imagecreatetruecolor($width, $height);
+        $color = imagecolorallocate($source, 50, 120, 180);
+        imagefill($source, 0, 0, $color);
+        ob_start();
+        imagepng($source);
+        $bytes = (string)ob_get_clean();
+        imagedestroy($source);
+        return $bytes;
+    };
+    foreach ([[63, 64], [64, 63], [63, 63]] as [$width, $height]) {
+        check(reason(static function () use ($makePng, $width, $height): void {
+            ProfileImageService::prepareBytes($makePng($width, $height));
+        }) === 'IMAGE_DIMENSIONS_INVALID', "{$width}x{$height} image was accepted.");
+    }
+    foreach ([[64, 64], [64, 65], [128, 96]] as [$width, $height]) {
+        check(
+            ProfileImageService::prepareBytes($makePng($width, $height))->jpegBytes() !== '',
+            "{$width}x{$height} image was rejected."
+        );
+    }
+
+    $png = $makePng(80, 64);
+    $pngWithMetadata = $png . 'EXIF_GPS_SECRET';
+
+    $artifact = ProfileImageService::prepareBytes($pngWithMetadata);
+    $outputInfo = getimagesizefromstring($artifact->jpegBytes());
+    check((int)$outputInfo[0] === 512 && (int)$outputInfo[1] === 512, 'Image was not normalized to 512x512.');
+    check((int)$outputInfo[2] === IMAGETYPE_JPEG, 'Image was not newly encoded as JPEG.');
+    check(strpos($artifact->jpegBytes(), 'EXIF_GPS_SECRET') === false, 'Image metadata survived re-encoding.');
+    $jpegArtifact = ProfileImageService::prepareBytes($artifact->jpegBytes());
+    check($jpegArtifact->jpegBytes() !== '', 'Verified JPEG input was rejected.');
+    if (function_exists('imagewebp') && (imagetypes() & IMG_WEBP) === IMG_WEBP) {
+        $webpSource = imagecreatetruecolor(64, 64);
+        ob_start();
+        imagewebp($webpSource);
+        $webp = (string)ob_get_clean();
+        imagedestroy($webpSource);
+        check(ProfileImageService::prepareBytes($webp)->jpegBytes() !== '', 'Verified WebP input was rejected.');
+    }
+    check(reason(static function (): void {
+        ProfileImageService::prepareBytes('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+    }) === 'IMAGE_TYPE_INVALID', 'SVG payload was accepted.');
+    check(reason(static function (): void {
+        ProfileImageService::prepareBytes("\xff\xd8broken-jpeg");
+    }) !== '', 'Corrupt image was accepted.');
+    check(reason(static function (): void {
+        ProfileImageService::prepareBytes(str_repeat('x', ProfileImageService::MAX_UPLOAD_BYTES + 1));
+    }) === 'IMAGE_SIZE_INVALID', 'Oversized image was accepted.');
+    check(reason(static function (): void {
+        ProfileImageService::prepareBytes(pngHeaderWithDimensions(5000, 20));
+    }) === 'IMAGE_DIMENSIONS_INVALID', 'Excessive image dimensions were accepted.');
+    check(reason(static function (): void {
+        ProfileImageService::prepareBytes(pngHeaderWithDimensions(4000, 3000));
+    }) !== 'IMAGE_DIMENSIONS_INVALID', 'Exactly 12,000,000 source pixels were rejected by the dimension ceiling.');
+    check(reason(static function (): void {
+        ProfileImageService::prepareBytes(pngHeaderWithDimensions(4001, 3000));
+    }) === 'IMAGE_DIMENSIONS_INVALID', 'A source above 12,000,000 pixels was accepted.');
+
+    $storageRoot = sys_get_temp_dir() . '/ssms-profile-image-' . bin2hex(random_bytes(10));
+    check(mkdir($storageRoot, 0700), 'Could not create fixture storage.');
+    $storage = new PrivateProfileImageStorage($storageRoot);
+    $oldStored = $storage->stage($artifact);
+    $oldReference = $oldStored->logicalReference();
+    $imageRows = [
+        1 => [
+            'id' => 1,
+            'username' => 'updated.user',
+            'email' => null,
+            'full_name' => 'Updated ስም',
+            'profile_image_path' => $oldReference,
+        ],
+        2 => [
+            'id' => 2,
+            'username' => 'second.user',
+            'email' => 'second@example.test',
+            'full_name' => 'Second User',
+            'profile_image_path' => null,
+        ],
+    ];
+    $imageRepository = new FakeProfileImageRepository($imageRows);
+    $imageService = new ProfileImageService($imageRepository, $storage);
+    $imageVersion = ProfileService::profileVersion($imageRows[1]);
+    $rowTwoBefore = $imageRepository->rows[2];
+    $replacement = $imageService->replaceOwnImage($identity, $artifact, $imageVersion);
+    check($storage->resolve($oldReference) === null, 'Old image was not cleaned after commit.');
+    check($replacement['profile_image']['present'] === true, 'Replacement result is incomplete.');
+    check(!isset($replacement['path']) && !isset($replacement['profile_image_path']), 'Private path leaked in replacement result.');
+    check($imageRepository->rows[2] === $rowTwoBefore, 'Image replacement crossed the owner boundary.');
+    check((bool)preg_match('#^private://profiles/[a-f0-9]{64}\.jpg$#', (string)$imageRepository->rows[1]['profile_image_path']), 'Stored image name is not random/private.');
+    $privateRead = $imageService->readOwnImage($identity);
+    check($privateRead->jpegBytes() === $artifact->jpegBytes(), 'Private image retrieval returned different bytes.');
+    check((bool)preg_match('/^[a-f0-9]{64}$/D', $privateRead->opaqueVersion()), 'Private image ETag version is not opaque.');
+    $identityTwo = AuthenticatedProfileIdentity::fromTrustedUserId(2);
+    check(reason(function () use ($imageService, $identityTwo): void {
+        $imageService->readOwnImage($identityTwo);
+    }) === 'PROFILE_IMAGE_NOT_SET', 'Private image retrieval crossed the owner boundary.');
+
+    $preservedReference = (string)$imageRepository->rows[1]['profile_image_path'];
+    $preservedPath = $storage->resolve($preservedReference);
+    $fileCountBeforeFailure = count(glob($storageRoot . '/*.jpg') ?: []);
+    $imageRepository->failUpdate = true;
+    $failureReason = reason(function () use ($imageService, $identity, $artifact, $imageRepository): void {
+        $imageService->replaceOwnImage(
+            $identity,
+            $artifact,
+            ProfileService::profileVersion($imageRepository->rows[1])
+        );
+    });
+    $imageRepository->failUpdate = false;
+    check($failureReason === ProfileImagePersistenceException::class, 'Image DB failure was hidden.');
+    check($imageRepository->rows[1]['profile_image_path'] === $preservedReference, 'Failed replacement changed the DB reference.');
+    check($preservedPath !== null && is_file($preservedPath), 'Failed replacement removed the old image.');
+    check(count(glob($storageRoot . '/*.jpg') ?: []) === $fileCountBeforeFailure, 'Failed replacement left staged image bytes.');
+
+    $now = time();
+    $oldTime = $now - PrivateProfileImageStorage::REAP_MINIMUM_AGE_SECONDS - 60;
+    $orphanPath = $storageRoot . '/' . str_repeat('a', 64) . '.jpg';
+    $freshPath = $storageRoot . '/' . str_repeat('b', 64) . '.jpg';
+    $oldTemporaryPath = $storageRoot . '/.profile-' . str_repeat('c', 32) . '.tmp';
+    $freshTemporaryPath = $storageRoot . '/.profile-' . str_repeat('d', 32) . '.tmp';
+    $unrelatedPath = $storageRoot . '/do-not-delete.txt';
+    foreach ([$orphanPath, $freshPath, $oldTemporaryPath, $freshTemporaryPath, $unrelatedPath] as $path) {
+        check(file_put_contents($path, 'fixture') !== false, 'Could not create cleanup fixture.');
+    }
+    touch($orphanPath, $oldTime);
+    touch($oldTemporaryPath, $oldTime);
+    touch($unrelatedPath, $oldTime);
+    check($preservedPath !== null && touch($preservedPath, $oldTime), 'Could not age referenced fixture.');
+    $outsidePath = sys_get_temp_dir() . '/ssms-profile-outside-' . bin2hex(random_bytes(10));
+    check(file_put_contents($outsidePath, 'outside') !== false, 'Could not create outside-root fixture.');
+    touch($outsidePath, $oldTime);
+    $outsideLink = $storageRoot . '/' . str_repeat('e', 64) . '.jpg';
+    $outsideLinkCreated = function_exists('symlink') && @symlink($outsidePath, $outsideLink);
+
+    $lockHandle = fopen($storageRoot . '/.profile-cleanup.lock', 'c');
+    check($lockHandle !== false && flock($lockHandle, LOCK_EX | LOCK_NB), 'Could not hold cleanup fixture lock.');
+    $lockedResult = $storage->reapUnreferenced([$preservedReference], $now);
+    check($lockedResult['lock_acquired'] === false, 'Concurrent cleanup did not respect the exclusive lock.');
+    flock($lockHandle, LOCK_UN);
+    fclose($lockHandle);
+
+    $cleanupResult = $storage->reapUnreferenced([$preservedReference], $now);
+    check($cleanupResult['lock_acquired'] === true, 'Cleanup did not acquire its lock.');
+    check($cleanupResult['deleted_orphans'] === 1, 'Aged orphan final image was not deleted exactly once.');
+    check($cleanupResult['deleted_temporaries'] === 1, 'Aged staging image was not deleted exactly once.');
+    check(!is_file($orphanPath) && !is_file($oldTemporaryPath), 'Aged cleanup targets survived.');
+    check(is_file($freshPath) && is_file($freshTemporaryPath), 'Fresh image artifacts were deleted.');
+    check(is_file($unrelatedPath), 'Cleanup deleted an unrelated file.');
+    check($preservedPath !== null && is_file($preservedPath), 'Cleanup deleted a referenced image.');
+    check(is_file($outsidePath), 'Cleanup touched a file outside the private root.');
+    if ($outsideLinkCreated) {
+        check(is_link($outsideLink), 'Cleanup followed or removed an outside-root symlink.');
+    }
+    $repeatCleanup = $storage->reapUnreferenced([$preservedReference], $now);
+    check($repeatCleanup['deleted_orphans'] === 0 && $repeatCleanup['deleted_temporaries'] === 0, 'Cleanup was not idempotent.');
+
+    $removeVersion = ProfileService::profileVersion($imageRepository->rows[1]);
+    $removed = $imageService->removeOwnImage($identity, $removeVersion);
+    $removedAgain = $imageService->removeOwnImage($identity, $removeVersion);
+    check($removed['profile_image']['present'] === false && $removedAgain['profile_image']['present'] === false, 'Image removal was not idempotent.');
+    check($imageRepository->rows[1]['profile_image_path'] === null, 'Image reference was not cleared.');
+    check($storage->resolve($preservedReference) === null, 'Removed image file still exists.');
+    check($storage->resolve('private://profiles/../../outside.jpg') === null, 'Traversal reference resolved.');
+
+    foreach (new FilesystemIterator($storageRoot, FilesystemIterator::SKIP_DOTS) as $entry) {
+        @unlink($entry->getPathname());
+    }
+    @rmdir($storageRoot);
+    @unlink($outsidePath);
+    $imageChecks['normalized'] = true;
+    $imageChecks['minimum_dimensions'] = true;
+    $imageChecks['private_read'] = true;
+    $imageChecks['failure_safe'] = true;
+    $imageChecks['idempotent'] = true;
+    $imageChecks['orphan_reaper'] = true;
+}
+
+echo json_encode([
+    'profile' => [
+        'normalization' => true,
+        'validation' => true,
+        'authorization' => true,
+        'administrator_boundary' => true,
+        'versioning' => true,
+        'uniqueness' => true,
+    ],
+    'credential' => [
+        'transactional_revocation' => true,
+        'rollback' => true,
+        'admin_reset' => true,
+        'audit_secrecy' => true,
+    ],
+    'image' => $imageChecks,
+], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), PHP_EOL;
