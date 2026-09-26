@@ -361,5 +361,6 @@ function expToServer(fmt){
 // Init
 loadA();
 </script>
+<?php include __DIR__ . '/components/account_link.php'; ?>
 </body>
 </html>

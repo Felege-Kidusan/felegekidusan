@@ -65,6 +65,9 @@ body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background
         <div class="sub"><?= e($todayFormatted) ?></div>
     </div>
     <div style="display:flex;align-items:center;gap:10px">
+        <a href="<?= e(ssms_app_url('admin/account.php')) ?>" style="color:#fff;text-decoration:none;font-size:.8rem;border:1px solid rgba(255,255,255,.35);padding:7px 14px;border-radius:10px;background:rgba(255,255,255,.12);display:inline-flex;align-items:center;gap:6px;font-weight:600">
+            <i class="fa-solid fa-user-gear"></i> My Profile
+        </a>
         <button type="button" data-comm-open="inbox" style="color:#fff;text-decoration:none;font-size:.8rem;border:1px solid rgba(255,255,255,.35);padding:7px 14px;border-radius:10px;background:rgba(255,255,255,.08);cursor:pointer;font-family:inherit">
             <i class="fa-solid fa-comments" style="margin-right:6px"></i>Communication
         </button>

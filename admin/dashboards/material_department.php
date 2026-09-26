@@ -79,7 +79,8 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="np" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button>
 <button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button>
 </div>
-<div class="uc"><div class="ua"><?= $initials ?></div><div><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Material • <?= $todayFormatted ?></span></div></div>
+<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="uc" style="text-decoration:none;color:inherit;cursor:pointer" title="View & Edit Profile"><div class="ua"><?= $initials ?></div><div style="flex:1;min-width:0"><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Material • <?= $todayFormatted ?></span></div><i class="fa-solid fa-gear" style="color:var(--dm);font-size:.75rem;margin-left:auto"></i></a>
+<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="np" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
 <main>
@@ -189,8 +190,7 @@ $navItems = [
         ['icon' => 'fa-solid fa-clipboard-list', 'label' => 'Requests', 'attrs' => 'data-section="requests"'],
         ['icon' => 'fa-solid fa-tags', 'label' => 'Categories', 'attrs' => 'data-section="categories"'],
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
-    ],
-    [
+        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'href' => '/admin/account.php'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];

@@ -697,5 +697,6 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
             });
         });
     </script>
+    <?php include __DIR__ . '/components/account_link.php'; ?>
 </body>
 </html>

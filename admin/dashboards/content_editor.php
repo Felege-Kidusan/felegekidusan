@@ -186,10 +186,11 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
   <div class="topbar-right">
     <button type="button" data-comm-open="inbox" style="color:#fff;font-size:0.8rem;padding:0.4rem 0.8rem;border:1px solid rgba(255,255,255,0.3);border-radius:0.5rem;background:transparent;cursor:pointer;font-family:inherit;font-weight:600"><i class="fa-solid fa-comments" style="margin-right:0.4rem"></i>Communication</button>
     <?php include __DIR__ . '/../components/notification_center.php'; ?><?= renderNotificationCenter() ?>
-    <div class="user-chip">
+    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="user-chip" style="text-decoration:none;color:inherit" title="View & Edit Profile">
       <div class="user-avatar"><?= e($initials) ?></div>
       <span><?= e($fullName) ?></span>
-    </div>
+    </a>
+    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="btn-exit" style="background:rgba(255,255,255,0.15)"><i class="fa-solid fa-user-gear"></i> My Profile</a>
     <a href="<?= SITE_URL ?>" target="_blank" class="btn-exit"><i class="fa-solid fa-globe"></i> View Site</a>
     <?php if ($role !== 'content_editor'): ?>
     <a href="/admin/dashboard.php" class="btn-exit"><i class="fa-solid fa-arrow-left"></i> Dashboard</a>

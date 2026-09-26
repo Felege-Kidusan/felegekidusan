@@ -710,15 +710,21 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         </nav>
 
         <div class="mt-5 space-y-2">
-            <div class="flex items-center gap-2">
+            <a href="/admin/account.php" class="flex items-center gap-2 p-1.5 rounded-xl bg-white/10 hover:bg-white/15 transition text-white text-decoration-none" title="View & Edit Profile">
                 <div class="w-9 h-9 rounded-full bg-white/90 flex items-center justify-center text-xs font-bold text-emerald-700">
                     <?= strtoupper(substr($userName, 0, 1)) ?>
                 </div>
-                <div class="text-[11px] leading-tight">
-                    <div class="font-semibold truncate max-w-[150px]"><?= e($userName) ?></div>
+                <div class="text-[11px] leading-tight flex-1 min-w-0">
+                    <div class="font-semibold truncate max-w-[130px]"><?= e($userName) ?></div>
                     <div class="uppercase text-[10px] text-emerald-100"><?= e($userRole) ?></div>
                 </div>
-            </div>
+                <i class="fa-solid fa-gear text-xs text-emerald-200 mr-1"></i>
+            </a>
+            <a href="/admin/account.php"
+               class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/15 text-white text-xs font-semibold hover:bg-white/20 transition text-decoration-none">
+                <i class="fa-solid fa-user-gear text-xs text-emerald-200"></i>
+                <span>My Profile</span>
+            </a>
             <a href="/admin/logout.php"
                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-red-500/95 text-white text-xs font-semibold shadow hover:bg-red-600 transition">
                 <span>Logout</span>
@@ -1933,6 +1939,11 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-user-check text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Att. Takers</span>
                 </button>
+                <a href="/admin/account.php"
+                   class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80 text-white text-decoration-none">
+                    <i class="fa-solid fa-user-gear text-base mb-0.5"></i>
+                    <span class="text-[10px] whitespace-nowrap">Profile</span>
+                </a>
             </div>
         </nav>
     </div>

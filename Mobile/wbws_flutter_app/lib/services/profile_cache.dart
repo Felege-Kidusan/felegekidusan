@@ -189,7 +189,7 @@ class ProfileImageCache implements ProfileImageStore {
       }
       try {
         if (await ownerDirectory.exists() &&
-            !(await ownerDirectory.list(followLinks: false).isNotEmpty)) {
+            (await ownerDirectory.list(followLinks: false).isEmpty)) {
           await ownerDirectory.delete();
         }
       } catch (_) {}

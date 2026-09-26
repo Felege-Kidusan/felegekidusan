@@ -86,7 +86,8 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="np" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button>
 <button class="np" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports</button>
 </div>
-<div class="uc"><div class="ua"><?= $initials ?></div><div><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Finance • <?= $todayFormatted ?></span></div></div>
+<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="uc" style="text-decoration:none;color:inherit;cursor:pointer" title="View & Edit Profile"><div class="ua"><?= $initials ?></div><div style="flex:1;min-width:0"><span style="font-size:.8rem;font-weight:600;color:#f1f5f9"><?= e($fullName) ?></span><br><span style="font-size:.65rem;color:var(--dm)">Finance • <?= $todayFormatted ?></span></div><i class="fa-solid fa-gear" style="color:var(--dm);font-size:.75rem;margin-left:auto"></i></a>
+<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="np" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
 <main>
@@ -190,13 +191,13 @@ $navItems = [
     [
         ['icon' => 'fa-solid fa-tags', 'label' => 'Categories', 'attrs' => 'data-section="categories"'],
         ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => 'data-section="reports"'],
-    ],
-    [
+        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'href' => '/admin/account.php'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];
 require __DIR__ . '/../components/bottom_nav.php';
 ?>
+<?php include __DIR__ . '/../components/account_link.php'; ?>
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-section]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.section;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 <div class="toast" id="toast"></div>
 <script src="/frontend/js/member-picker.js"></script>
