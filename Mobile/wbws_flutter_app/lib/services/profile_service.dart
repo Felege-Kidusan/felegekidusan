@@ -383,27 +383,19 @@ class MobileProfileService extends ChangeNotifier {
         return _sessionChangedResult;
       }
       if (!response.success) {
-        // Rollback on rejection (e.g. wrong password, duplicate username)
-        if (response.errorCode == 'CURRENT_PASSWORD_INCORRECT' ||
-            response.errorCode == 'USERNAME_TAKEN' ||
-            response.errorCode == 'EMAIL_TAKEN' ||
-            response.errorCode == 'VALIDATION_FAILED') {
-          _profile = canonicalBefore;
-          await _gateway.cacheCanonicalProfile(canonicalBefore.toJson());
-          notifyListeners();
-          return _failure(response);
-        }
+        _profile = canonicalBefore;
+        await _gateway.cacheCanonicalProfile(canonicalBefore.toJson());
+        notifyListeners();
         if (response.errorCode == 'PROFILE_CONFLICT') {
           await refresh(allowDuringMutation: true);
-          return ProfileActionResult(
+          return const ProfileActionResult(
             success: false,
             code: 'PROFILE_CONFLICT',
             message: 'The server profile was reloaded. Review your change and save again.',
             conflict: true,
           );
         }
-        // If server had a transport/handler error, keep the local changes intact
-        return const ProfileActionResult.ok('Profile updated.');
+        return _failure(response);
       }
 
       final canonical = UserProfile.fromJson(response.data);
@@ -437,8 +429,13 @@ class MobileProfileService extends ChangeNotifier {
       }
       return const ProfileActionResult.ok('Profile updated.');
     } catch (_) {
-      // Preserve optimistic state
-      return const ProfileActionResult.ok('Profile updated.');
+      _profile = canonicalBefore;
+      await _gateway.cacheCanonicalProfile(canonicalBefore.toJson());
+      notifyListeners();
+      return const ProfileActionResult(
+        success: false,
+        message: 'The profile could not be saved to the server. Please try again.',
+      );
     } finally {
       if (_operationIsCurrent(operationEpoch, operationOwner)) {
         _mutating = false;
@@ -603,10 +600,18 @@ class MobileProfileService extends ChangeNotifier {
     } on FormatException catch (error) {
       _profile = canonical;
       _imageBytes = oldImageBytes;
+      await _gateway.cacheCanonicalProfile(canonical.toJson());
       notifyListeners();
       return ProfileActionResult(success: false, message: error.message);
     } catch (_) {
-      return const ProfileActionResult.ok('Profile image updated.');
+      _profile = canonical;
+      _imageBytes = oldImageBytes;
+      await _gateway.cacheCanonicalProfile(canonical.toJson());
+      notifyListeners();
+      return const ProfileActionResult(
+        success: false,
+        message: 'The image could not be uploaded. The previous image is unchanged.',
+      );
     } finally {
       if (staged != null) await _images.discardStagedUpload(staged);
       if (_operationIsCurrent(operationEpoch, operationOwner)) {
