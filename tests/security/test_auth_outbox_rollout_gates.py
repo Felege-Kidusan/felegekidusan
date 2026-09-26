@@ -76,6 +76,16 @@ class Build24ReleaseGateTest(unittest.TestCase):
             r"while \(_ownsGeneration\(generation\) && _drainsAllowed && scans < 100\)",
         )
 
+    def test_release_compile_contracts_match_worker_and_database_helpers(self):
+        local_db = (MOBILE / "lib/services/local_db.dart").read_text(encoding="utf-8")
+        self.assertIn("static int _asIntLocal(dynamic v)", local_db)
+        schedule = self.comm.split("void _scheduleNextRetry", 1)[1].split(
+            ".then((due)", 1
+        )[0]
+        self.assertIn("CommStore.instance.outboxNextDue()", schedule)
+        self.assertNotIn("ownerUserId:", schedule)
+        self.assertNotIn("authorizationVersion:", schedule)
+
     def test_session_switch_stops_only_outbound_workers(self):
         self.assertGreaterEqual(self.session.count("drainEnabledGate ="), 3)
         gate = self.session.split("void reconcileReleaseGates()", 1)[1].split(

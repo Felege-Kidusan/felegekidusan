@@ -202,12 +202,7 @@ class CommOutboxService extends ChangeNotifier
   void _scheduleNextRetry(int generation) {
     _retryTimer?.cancel();
     _retryTimer = null;
-    CommStore.instance
-        .outboxNextDue(
-          ownerUserId: _api.userId,
-          authorizationVersion: _api.authorizationVersion,
-        )
-        .then((due) {
+    CommStore.instance.outboxNextDue().then((due) {
       if (!_started ||
           !_ownsGeneration(generation) ||
           !_drainsAllowed ||

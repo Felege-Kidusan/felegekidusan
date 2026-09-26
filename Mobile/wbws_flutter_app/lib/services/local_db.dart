@@ -36,6 +36,44 @@ class LocalDb {
   Database? _db;
   Future<void> _legacySaveTail = Future<void>.value();
 
+  /// Canonical current-schema registry for authenticated read caches.
+  ///
+  /// Startup inventory and authorization-scope cleanup must traverse the same
+  /// physical tables. Keeping one registry prevents a migration-only staging
+  /// name from being copied into runtime SQL (the schema-v10 staging table is
+  /// renamed to `cached_mezmur_sheet` before that migration completes).
+  static const List<String> _privateReadCacheTables = [
+    'cached_classes',
+    'cached_students',
+    'cached_subjects',
+    'cached_assessments',
+    'cached_dashboard',
+    'cached_members',
+    'cached_attendance',
+    'cached_grade_sheets',
+    'cached_mezmur_sheet',
+    'cached_mezmur_sections',
+    'cached_mezmur_days',
+    'cached_mezmur_analytics_last',
+    'cached_review_packets',
+    'cached_review_packet_details',
+    'cached_review_stats',
+    'cached_edu_classes',
+    'cached_edu_class_rosters',
+    'cached_edu_subjects',
+    'cached_edu_teacher_snapshot',
+    'cached_edu_teachers',
+    'cached_edu_teacher_details',
+    'cached_hr_sheet',
+    'cached_hr_sections',
+    'comm_threads',
+    'comm_messages',
+    'comm_meta',
+    'cached_notifications',
+    'cached_announcements',
+    'sync_log',
+  ];
+
   /// Serializes packet replacement in invocation order. SQLite transactions
   /// make each replacement atomic; this chain also makes rapid same-key user
   /// intent deterministic instead of depending on platform scheduling.
@@ -4866,7 +4904,8 @@ class LocalDb {
   // HYMN LIBRARY (offline-first: local store + outbox + cursor)
   // ============================================================
 
-  int _asIntLocal(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
+  static int _asIntLocal(dynamic v) =>
+      v is int ? v : int.tryParse('$v') ?? 0;
 
   List<int> _asIntList(dynamic v) {
     if (v is List) {
@@ -6275,38 +6314,7 @@ class LocalDb {
   Future<void> clearAuthorizationScopedReadCaches() async {
     final db = await database;
     await db.transaction((txn) async {
-      for (final table in const [
-        'cached_classes',
-        'cached_students',
-        'cached_subjects',
-        'cached_assessments',
-        'cached_dashboard',
-        'cached_members',
-        'cached_attendance',
-        'cached_grade_sheets',
-        'cached_mezmur_sheet',
-        'cached_mezmur_sheet_v2',
-        'cached_mezmur_sections',
-        'cached_mezmur_days',
-        'cached_mezmur_analytics_last',
-        'cached_review_packets',
-        'cached_review_packet_details',
-        'cached_review_stats',
-        'cached_edu_classes',
-        'cached_edu_class_rosters',
-        'cached_edu_subjects',
-        'cached_edu_teacher_snapshot',
-        'cached_edu_teachers',
-        'cached_edu_teacher_details',
-        'cached_hr_sheet',
-        'cached_hr_sections',
-        'comm_threads',
-        'comm_messages',
-        'comm_meta',
-        'cached_notifications',
-        'cached_announcements',
-        'sync_log',
-      ]) {
+      for (final table in _privateReadCacheTables) {
         await txn.delete(table);
       }
     });
@@ -6703,38 +6711,7 @@ class LocalDb {
           .toList(growable: false);
 
       var cacheRows = 0;
-      for (final table in const [
-        'cached_classes',
-        'cached_students',
-        'cached_subjects',
-        'cached_assessments',
-        'cached_dashboard',
-        'cached_members',
-        'cached_attendance',
-        'cached_grade_sheets',
-        'cached_mezmur_sheet',
-        'cached_mezmur_sheet_v2',
-        'cached_mezmur_sections',
-        'cached_mezmur_days',
-        'cached_mezmur_analytics_last',
-        'cached_hr_sheet',
-        'cached_hr_sections',
-        'cached_review_packets',
-        'cached_review_packet_details',
-        'cached_review_stats',
-        'cached_edu_classes',
-        'cached_edu_class_rosters',
-        'cached_edu_subjects',
-        'cached_edu_teacher_snapshot',
-        'cached_edu_teachers',
-        'cached_edu_teacher_details',
-        'cached_notifications',
-        'cached_announcements',
-        'comm_threads',
-        'comm_messages',
-        'comm_meta',
-        'sync_log',
-      ]) {
+      for (final table in _privateReadCacheTables) {
         cacheRows += await scalar('SELECT COUNT(*) FROM $table');
       }
 
@@ -6848,7 +6825,6 @@ class LocalDb {
         'cached_attendance',
         'cached_grade_sheets',
         'cached_mezmur_sheet',
-        'cached_mezmur_sheet_v2',
         'cached_mezmur_sections',
         'cached_mezmur_days',
         // P1-H: member attendance analytics (names/codes/rates) is

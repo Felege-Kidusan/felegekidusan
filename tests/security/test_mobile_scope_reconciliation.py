@@ -128,7 +128,6 @@ def test_scope_reconciliation_purges_reads_but_preserves_durable_writes() -> Non
         "cached_attendance",
         "cached_grade_sheets",
         "cached_mezmur_sheet",
-        "cached_mezmur_sheet_v2",
         "cached_mezmur_sections",
         "cached_mezmur_days",
         "cached_mezmur_analytics_last",
@@ -150,8 +149,11 @@ def test_scope_reconciliation_purges_reads_but_preserves_durable_writes() -> Non
         "cached_announcements",
         "sync_log",
     }
-    table_list = purge.split("for (final table in const [", 1)[1].split("])", 1)[0]
-    assert set(re.findall(r"'([a-z0-9_]+)'", table_list)) == expected_read_tables
+    registry = db.split(
+        "static const List<String> _privateReadCacheTables = [", 1
+    )[1].split("];", 1)[0]
+    assert set(re.findall(r"'([a-z0-9_]+)'", registry)) == expected_read_tables
+    assert "for (final table in _privateReadCacheTables)" in purge
 
     assert "db.transaction((txn) async" in purge
     assert "PRAGMA wal_checkpoint(TRUNCATE)" in purge
