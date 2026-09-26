@@ -875,7 +875,7 @@ renderProfileTabSection('sec-profile', 'sec');
 </div></div></div>
 
 <!-- ASSESSMENT MODAL -->
-<div class="mo" id="assessmentModal"><div class="mc" style="max-width:480px">
+<div class="mo" id="assessmentModal"><div class="mc" style="max-width:540px">
 <div style="background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="asmtModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-list"></i> New Assessment</h3><button onclick="closeModal('assessmentModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
 <input type="hidden" id="asmtEditId" value="0">
@@ -888,29 +888,83 @@ renderProfileTabSection('sec-profile', 'sec');
 <div><label class="lbl">Weight (%)</label><input type="number" id="asmtWeight" class="inp" value="10" min="1" max="100"></div>
 <div><label class="lbl">Due / Exam Date</label><input type="date" id="asmtDueDate" class="inp"></div>
 </div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+
+<div id="asmtSingleTargetRow" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
 <div><label class="lbl">Class</label><select id="asmtModalClass" class="inp"><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Subject</label><select id="asmtModalSubject" class="inp"><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 </div>
+
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.65rem">
+<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;font-weight:600;color:#5b21b6;cursor:pointer"><input type="checkbox" id="asmtMultiClass" onchange="toggleAsmtMultiClass()"> <i class="fa-solid fa-layer-group"></i> Batch assign this assessment across multiple classes/subjects</label>
+<div id="asmtMultiClassArea" style="display:none;margin-top:.6rem;display:none;flex-direction:column;gap:.5rem">
+<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:.75rem;font-weight:600;color:#475569">Target Classes:</span><div style="display:flex;gap:.35rem"><button type="button" class="btn btn-o btn-xs" onclick="setAllCheckboxes('asmtClassCb',true)">Select All</button><button type="button" class="btn btn-o btn-xs" onclick="setAllCheckboxes('asmtClassCb',false)">Deselect All</button></div></div>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.35rem;max-height:110px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;padding:.4rem;background:#fff">
+<?php foreach ($classes as $c): ?><label style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;cursor:pointer"><input type="checkbox" class="asmtClassCb" value="<?= $c['id'] ?>"> <?= e($c['class_name']) ?></label><?php endforeach; ?>
+</div>
+<div><label class="lbl" style="font-size:.72rem">Subject Scope</label><select id="asmtMultiSubjectScope" class="inp" style="font-size:.78rem"><option value="current">Current Selected Subject Only</option><option value="all">All Subjects in Selected Classes</option></select></div>
+</div>
+</div>
+
 <div><label class="lbl">Description / Guidelines (Optional)</label><textarea id="asmtDesc" class="inp" rows="2" placeholder="e.g. Chapter 1 to 3, oral hymn evaluation..."></textarea></div>
 <button class="btn btn-p" id="asmtSaveBtn" onclick="saveAssessment()"><i class="fa-solid fa-save"></i> Save Assessment</button>
 </div></div></div>
 
-<!-- ASSESSMENT TEMPLATE / STANDARD SCHEME MODAL -->
-<div class="mo" id="templateModal"><div class="mc" style="max-width:560px">
-<div style="background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-wand-magic-sparkles"></i> Apply Standard Assessment Scheme</h3><button onclick="closeModal('templateModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
+<!-- ASSESSMENT TEMPLATE / BATCH SCHEME MODAL -->
+<div class="mo" id="templateModal"><div class="mc" style="max-width:680px">
+<div style="background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-wand-magic-sparkles"></i> Batch Assign Assessment Scheme</h3><button onclick="closeModal('templateModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
-<p style="font-size:.8rem;color:#64748b;margin:0">Configure standard tests and exam weights defined by the Education Department and apply them across subjects. Teachers will automatically receive this scheme to fill in student marks.</p>
-<div><label class="lbl">Preset Scheme</label><select id="tmplPreset" class="inp" onchange="applyPresetScheme()"><option value="standard_10_40_50">Standard: Test (10%) + Midterm (40%) + Final Exam (50%) = 100%</option><option value="continuous_10_10_30_50">Continuous: Quiz (10%) + Assignment (10%) + Midterm (30%) + Final Exam (50%) = 100%</option><option value="two_tests_20_20_60">Two Tests: Test 1 (20%) + Test 2 (20%) + Final Exam (60%) = 100%</option><option value="custom">Custom Template</option></select></div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
-<div><label class="lbl">Target Class *</label><select id="tmplClass" class="inp" onchange="loadTmplSubjects()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Target Subjects</label><select id="tmplSubject" class="inp"><option value="0">All Subjects in this Class</option></select></div>
+<p style="font-size:.8rem;color:#64748b;margin:0">Configure standard tests and exam weights defined by the Education Department and batch assign them across multiple classes and subjects at once. Teachers will automatically receive this scheme to enter student marks.</p>
+
+<div><label class="lbl">Preset Scheme</label><select id="tmplPreset" class="inp" onchange="applyPresetScheme()"><option value="standard_10_40_50">Standard: Test (10%) + Midterm (40%) + Final Exam (50%) = 100%</option><option value="continuous_10_10_30_50">Continuous: Quiz (10%) + Assignment (10%) + Midterm (30%) + Final Exam (50%) = 100%</option><option value="two_tests_20_20_60">Two Tests: Test 1 (20%) + Test 2 (20%) + Final Exam (60%) = 100%</option><option value="custom">Custom Template (Add/Edit Items)</option></select></div>
+
+<!-- TARGET CLASSES SELECTION -->
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.75rem">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
+<span style="font-weight:700;font-size:.8rem;color:#1e293b"><i class="fa-solid fa-school" style="color:#7c3aed"></i> Target Classes *</span>
+<div style="display:flex;gap:.35rem">
+<button type="button" class="btn btn-o btn-xs" onclick="setAllCheckboxes('tmplClassCb',true);updateBatchSummary()">Select All Classes</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setAllCheckboxes('tmplClassCb',false);updateBatchSummary()">Clear</button>
 </div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.4rem;max-height:120px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:.5rem" id="tmplClassesContainer">
+<?php foreach ($classes as $c): ?><label style="display:flex;align-items:center;gap:.35rem;font-size:.75rem;cursor:pointer"><input type="checkbox" class="tmplClassCb" value="<?= $c['id'] ?>" onchange="updateBatchSummary()" checked> <?= e($c['class_name']) ?></label><?php endforeach; ?>
+</div>
+</div>
+
+<!-- TARGET SUBJECTS SELECTION -->
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.75rem">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
+<span style="font-weight:700;font-size:.8rem;color:#1e293b"><i class="fa-solid fa-book-open" style="color:#7c3aed"></i> Target Subjects</span>
+<div style="display:flex;gap:.35rem">
+<button type="button" class="btn btn-o btn-xs" onclick="setSubjectScopeMode('all')">All Subjects</button>
+<button type="button" class="btn btn-o btn-xs" onclick="setSubjectScopeMode('custom')">Choose Specific</button>
+</div>
+</div>
+<div id="tmplSubjectModeNotice" style="font-size:.75rem;color:#64748b;margin-bottom:.3rem"><i class="fa-solid fa-check-circle" style="color:#16a34a"></i> Applying to <strong>all subjects</strong> associated with each selected class.</div>
+<div id="tmplSubjectsPicker" style="display:none;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.4rem;max-height:120px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:.5rem">
+<?php foreach ($subjects as $s): ?><label style="display:flex;align-items:center;gap:.35rem;font-size:.75rem;cursor:pointer"><input type="checkbox" class="tmplSubjCb" value="<?= $s['id'] ?>" onchange="updateBatchSummary()" checked> <?= e($s['subject_name']) ?></label><?php endforeach; ?>
+</div>
+</div>
+
+<!-- SCHEME ITEMS PREVIEW -->
 <div style="border:1px solid #e2e8f0;border-radius:8px;padding:.75rem;background:#faf5ff">
-<div style="font-weight:600;font-size:.8rem;color:#5b21b6;margin-bottom:.5rem;display:flex;justify-content:space-between"><span>Assessment Items Preview</span><span id="tmplTotalWeightBadge" class="ch ch-ok">Total: 100%</span></div>
+<div style="font-weight:600;font-size:.8rem;color:#5b21b6;margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center">
+<span><i class="fa-solid fa-list-check"></i> Assessment Items Preview</span>
+<div style="display:flex;align-items:center;gap:.5rem">
+<span id="tmplTotalWeightBadge" class="ch ch-ok">Total: 100%</span>
+<button type="button" id="tmplAddItemBtn" class="btn btn-o btn-xs" style="display:none" onclick="addCustomTemplateItem()"><i class="fa-solid fa-plus"></i> Add Item</button>
+</div>
+</div>
 <div id="tmplItemsList" style="display:flex;flex-direction:column;gap:.4rem"></div>
 </div>
-<button class="btn btn-p" onclick="submitAssessmentTemplate()"><i class="fa-solid fa-check"></i> Apply Scheme to Selected Subjects</button>
+
+<!-- BATCH SUMMARY BANNER -->
+<div id="batchSummaryBanner" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:.6rem .85rem;font-size:.75rem;color:#1e40af;display:flex;flex-direction:column;gap:.25rem">
+<div><i class="fa-solid fa-circle-info"></i> <strong id="batchSummaryText">Target: All classes selected.</strong></div>
+<div style="font-size:.7rem;color:#3b82f6"><i class="fa-solid fa-shield-halved"></i> Note: Any class-subject that already has recorded student grades will be safely protected and skipped.</div>
+</div>
+
+<button class="btn btn-p" id="batchSubmitBtn" onclick="submitAssessmentTemplate()"><i class="fa-solid fa-wand-magic-sparkles"></i> Apply Scheme Across Selected Classes &amp; Subjects</button>
 </div></div></div>
 
 <!-- YEAR MODAL (with Semester Support) -->
@@ -1917,12 +1971,94 @@ function exportEnrolled(){const rows=[];document.querySelectorAll('#enrollArea .
 
 // ═══ GRADES ═══
 async function loadGradeSubjects(){const cid=document.getElementById('gradeClass').value;const sel=document.getElementById('gradeSubject');const hint=document.getElementById('gradeSubjHint');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('gradeAssessment').innerHTML='<option value="">— Select —</option>';document.getElementById('gradeArea').innerHTML='';if(hint)hint.style.display='none';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success'){(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});subjHint(hint,d);}}catch(e){}}
-async function loadGradeAssessments(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value;const sel=document.getElementById('gradeAssessment');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('gradeArea').innerHTML='';if(!cid||!sid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);if(d.status==='success')(d.assessments||[]).forEach(a=>{sel.innerHTML+=`<option value="${a.id}" data-max="${a.max_score}">${esc(a.assessment_name)} (max: ${a.max_score})</option>`;});}catch(e){}}
-async function loadGradeStudents(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value,aid=document.getElementById('gradeAssessment').value;if(!cid||!sid||!aid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_students_for_grading&class_id=${cid}&subject_id=${sid}&assessment_id=${aid}`);if(d.status==='success'){const st=d.students||[],mx=document.getElementById('gradeAssessment').selectedOptions[0]?.dataset?.max||100;document.getElementById('gradeArea').innerHTML=st.length?`<div class="crd"><div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;font-weight:600;font-size:.9rem">Grade Entry — Max: ${mx}</div><div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${st.map((s,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(s.student_name)}</td><td>${esc(s.member_code||'')}</td><td><input type="number" class="inp grade-input" data-mid="${s.member_id||s.id}" data-rid="${s.record_id||''}" style="width:80px" min="0" max="${mx}" value="${s.score==null?'':s.score}"></td><td><input type="text" class="inp grade-remark" data-mid="${s.member_id||s.id}" style="width:120px" value="${esc(s.remark||'')}"></td></tr>`).join('')}</tbody></table></div><div style="padding:1rem;text-align:right"><button class="btn btn-p" onclick="saveAllGrades(${aid})"><i class="fa-solid fa-save"></i> Save All Grades</button></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8">No students found</div>';}}catch(e){toast('Error','err');}}
-async function saveAllGrades(aid){const grades=[];document.querySelectorAll('.grade-input').forEach(inp=>{const mid=inp.dataset.mid,score=inp.value,remark=document.querySelector(`.grade-remark[data-mid="${mid}"]`)?.value||'';if(score!=='')grades.push({member_id:mid,record_id:inp.dataset.rid||null,score:parseFloat(score),remark});});if(!grades.length)return toast('No grades entered','err');const fd=new FormData();fd.append('action','save_grades');fd.append('assessment_id',aid);fd.append('grades',JSON.stringify(grades));try{const d=await postAPI('/admin/api_subjects.php',fd);toast(d.message,d.status==='success'?'ok':'err');}catch(e){toast('Error','err');}}
+async function loadGradeAssessments(){const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value;const sel=document.getElementById('gradeAssessment');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('gradeArea').innerHTML='';if(!cid||!sid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);if(d.status==='success')(d.assessments||[]).forEach(a=>{const ge=a.grades_entered||a.graded_count||0,ts=a.total_students||a.student_count||0,pct=ts>0?Math.round((ge/ts)*100):0;const prog=ts>0?` [${ge}/${ts} Graded - ${pct}%]`:(ge>0?` [${ge} Graded]`:'');sel.innerHTML+=`<option value="${a.id}" data-max="${a.max_score}">${esc(a.assessment_name)} (max: ${a.max_score})${prog}</option>`;});}catch(e){}}
+async function loadGradeStudents(){
+    const cid=document.getElementById('gradeClass').value,sid=document.getElementById('gradeSubject').value,aid=document.getElementById('gradeAssessment').value;
+    if(!cid||!sid||!aid)return;
+    try{
+        const d=await getAPI(`/admin/api_subjects.php?action=get_students_for_grading&class_id=${cid}&subject_id=${sid}&assessment_id=${aid}`);
+        if(d.status==='success'){
+            const st=d.students||[],mx=document.getElementById('gradeAssessment').selectedOptions[0]?.dataset?.max||100;
+            const totalSt=st.length;
+            const gradedSt=st.filter(s=>s.score!==null&&s.score!==''&&s.score!==undefined).length;
+            const pendingSt=Math.max(0,totalSt-gradedSt);
+            const pctSt=totalSt>0?Math.round((gradedSt/totalSt)*100):0;
+            
+            document.getElementById('gradeArea').innerHTML=st.length?`
+                <div class="crd">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;padding:.75rem 1rem;background:#faf5ff;border-bottom:1px solid #e9d5ff;border-radius:12px 12px 0 0">
+                        <div>
+                            <div style="font-weight:700;font-size:.9rem;color:#5b21b6">Grade Entry — Max: ${mx} pts</div>
+                            <div style="font-size:.75rem;color:#7c3aed;margin-top:2px">Grading Progress: <strong id="gradeLiveGraded">${gradedSt}</strong> / ${totalSt} students graded (<span id="gradeLivePct">${pctSt}%</span>) • <span id="gradeLivePending">${pendingSt}</span> pending</div>
+                        </div>
+                        <div style="min-width:140px;flex:1;max-width:200px">
+                            <div style="height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden">
+                                <div id="gradeLiveBar" style="height:100%;width:${pctSt}%;background:${pctSt===100?'#16a34a':'#7c3aed'};border-radius:99px;transition:width .3s"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Score</th><th>Remark</th></tr></thead><tbody>${st.map((s,i)=>`<tr><td>${i+1}</td><td style="font-weight:600">${esc(s.student_name)}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(s.member_code||'—')}</code></td><td><input type="number" class="inp grade-input" oninput="updateLiveGradingProgress()" data-mid="${s.member_id||s.id}" data-rid="${s.record_id||''}" style="width:80px" min="0" max="${mx}" step="0.5" value="${s.score==null?'':s.score}"></td><td><input type="text" class="inp grade-remark" data-mid="${s.member_id||s.id}" style="width:140px" value="${esc(s.remark||s.remarks||'')}"></td></tr>`).join('')}</tbody></table></div>
+                    <div style="padding:1rem;display:flex;justify-content:space-between;align-items:center;background:#f8fafc;border-top:1px solid #e2e8f0">
+                        <span style="font-size:.75rem;color:#64748b"><i class="fa-solid fa-circle-info"></i> Enter scores for each student and click Save All Grades</span>
+                        <button class="btn btn-p" onclick="saveAllGrades(${aid})"><i class="fa-solid fa-save"></i> Save All Grades</button>
+                    </div>
+                </div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-user-xmark" style="font-size:2rem;margin-bottom:.5rem;color:#cbd5e1"></i><p>No students enrolled in this class.</p></div>';
+        }
+    }catch(e){toast('Error loading students','err');}
+}
+function updateLiveGradingProgress(){
+    const inputs=document.querySelectorAll('.grade-input');
+    const total=inputs.length;
+    let graded=0;
+    inputs.forEach(inp=>{ if(inp.value!==''&&inp.value!==null&&!isNaN(inp.value)) graded++; });
+    const pending=Math.max(0,total-graded);
+    const pct=total>0?Math.round((graded/total)*100):0;
+    const gEl=document.getElementById('gradeLiveGraded'),pEl=document.getElementById('gradeLivePct'),pendEl=document.getElementById('gradeLivePending'),barEl=document.getElementById('gradeLiveBar');
+    if(gEl)gEl.textContent=graded;
+    if(pEl)pEl.textContent=pct+'%';
+    if(pendEl)pendEl.textContent=pending;
+    if(barEl){
+        barEl.style.width=pct+'%';
+        barEl.style.background=pct===100?'#16a34a':'#7c3aed';
+    }
+}
+async function saveAllGrades(aid){
+    const grades=[];
+    document.querySelectorAll('.grade-input').forEach(inp=>{
+        const mid=inp.dataset.mid,score=inp.value,remark=document.querySelector(`.grade-remark[data-mid="${mid}"]`)?.value||'';
+        if(score!=='')grades.push({member_id:mid,record_id:inp.dataset.rid||null,score:parseFloat(score),remark});
+    });
+    if(!grades.length)return toast('No grades entered','err');
+    const fd=new FormData();
+    fd.append('action','save_grades');
+    fd.append('assessment_id',aid);
+    fd.append('grades',JSON.stringify(grades));
+    try{
+        const d=await postAPI('/admin/api_subjects.php',fd);
+        toast(d.message,d.status==='success'?'ok':'err');
+        if(d.status==='success')loadGradeStudents();
+    }catch(e){toast('Error saving grades','err');}
+}
 
 // ═══ ASSESSMENTS ═══
-async function loadAsmtSubjects(){const cid=document.getElementById('asmtClass').value;const sel=document.getElementById('asmtSubject');const hint=document.getElementById('asmtSubjHint');sel.innerHTML='<option value="">— Select Subject —</option>';document.getElementById('assessmentList').innerHTML='';const wt=document.getElementById('asmtWeightTracker');if(wt)wt.style.display='none';if(hint)hint.style.display='none';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success'){(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});subjHint(hint,d);}}catch(e){}}
+async function loadAsmtSubjects(){
+    const cid=document.getElementById('asmtClass').value;
+    const sel=document.getElementById('asmtSubject');
+    const hint=document.getElementById('asmtSubjHint');
+    sel.innerHTML='<option value="">— Select Subject —</option>';
+    document.getElementById('assessmentList').innerHTML='';
+    const wt=document.getElementById('asmtWeightTracker');
+    if(wt)wt.style.display='none';
+    if(hint)hint.style.display='none';
+    if(!cid)return;
+    try{
+        const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);
+        if(d.status==='success'){
+            (d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});
+            subjHint(hint,d);
+        }
+    }catch(e){}
+}
 function subjHint(el,d){if(!el)return;if(d.message){el.textContent=d.message;el.style.display='block';}}
 async function loadAssessments(){
     const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;
@@ -1951,9 +2087,49 @@ async function loadAssessments(){
                 `;
             }
 
-            document.getElementById('assessmentList').innerHTML=a.length?`<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Name</th><th>Max Score</th><th>Weight</th><th>Actions</th></tr></thead><tbody>${a.map(x=>`<tr><td style="font-weight:600"><div>${esc(x.assessment_name)} <span class="ch ch-i" style="font-size:.65rem;text-transform:capitalize">${esc(x.assessment_type||'test')}</span></div>${x.grades_entered>0?`<span style="font-size:.68rem;color:#16a34a"><i class="fa-solid fa-check"></i> ${x.grades_entered} grades entered</span>`:''}</td><td>${x.max_score} pts</td><td><span class="ch ch-p" style="font-weight:700">${x.weight_percentage||x.weight||100}%</span></td><td><button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteAssessment(${x.id})" title="Delete"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-clipboard-list" style="font-size:2rem;color:#cbd5e1;margin-bottom:.5rem"></i><p>No assessments configured yet for this subject.</p><p style="font-size:.75rem;color:#94a3b8;margin-top:.25rem">Click "Add Assessment" or "Apply Standard Scheme" to establish test/exam weights.</p></div>';
+            document.getElementById('assessmentList').innerHTML=a.length?`<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Assessment Name &amp; Type</th><th>Max Score</th><th>Weight</th><th>Grading Progress</th><th>Actions</th></tr></thead><tbody>${a.map(x=>{
+                const ge = x.grades_entered || x.graded_count || 0;
+                const ts = x.total_students || x.student_count || 0;
+                const pct = ts > 0 ? Math.round((ge / ts) * 100) : 0;
+                const isDone = ts > 0 && ge >= ts;
+                return `<tr>
+                    <td style="font-weight:600">
+                        <div>${esc(x.assessment_name)} <span class="ch ch-i" style="font-size:.65rem;text-transform:capitalize">${esc(x.assessment_type||'test')}</span></div>
+                    </td>
+                    <td><strong>${x.max_score}</strong> pts</td>
+                    <td><span class="ch ch-p" style="font-weight:700">${x.weight_percentage||x.weight||100}%</span></td>
+                    <td style="min-width:150px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+                            ${ts === 0 
+                                ? `<span class="ch ch-w" style="font-size:.68rem">0 Enrolled</span>`
+                                : (isDone 
+                                    ? `<span class="ch ch-ok" style="font-size:.68rem;font-weight:700"><i class="fa-solid fa-circle-check"></i> ${ge}/${ts} Graded (100%)</span>`
+                                    : (ge > 0 
+                                        ? `<span class="ch ch-i" style="font-size:.68rem;font-weight:600"><i class="fa-solid fa-pencil"></i> ${ge}/${ts} Graded (${pct}%)</span>`
+                                        : `<span class="ch ch-w" style="font-size:.68rem"><i class="fa-solid fa-clock"></i> 0/${ts} Graded (Pending)</span>`
+                                    )
+                                )
+                            }
+                        </div>
+                        ${ts > 0 ? `
+                        <div style="height:6px;background:#e2e8f0;border-radius:99px;overflow:hidden">
+                            <div style="height:100%;width:${Math.min(100, pct)}%;background:${isDone ? '#16a34a' : (ge > 0 ? '#7c3aed' : '#cbd5e1')};border-radius:99px"></div>
+                        </div>
+                        ` : ''}
+                    </td>
+                    <td><button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteAssessment(${x.id})" title="Delete"><i class="fa-solid fa-trash"></i></button></td>
+                </tr>`;
+            }).join('')}</tbody></table></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-clipboard-list" style="font-size:2rem;color:#cbd5e1;margin-bottom:.5rem"></i><p>No assessments configured yet for this subject.</p><p style="font-size:.75rem;color:#94a3b8;margin-top:.25rem">Click "Add Assessment" or "Batch Assign Scheme" to establish test/exam weights.</p></div>';
         }
     }catch(e){toast('Error loading assessments','err');}
+}
+function toggleAsmtMultiClass(){
+    const isMulti=document.getElementById('asmtMultiClass').checked;
+    document.getElementById('asmtMultiClassArea').style.display=isMulti?'flex':'none';
+    document.getElementById('asmtSingleTargetRow').style.opacity=isMulti?'0.4':'1';
+}
+function setAllCheckboxes(clsName,checked){
+    document.querySelectorAll('.'+clsName).forEach(cb=>{ cb.checked=checked; });
 }
 function openAssessmentModal(){
     const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;
@@ -1964,6 +2140,9 @@ function openAssessmentModal(){
     document.getElementById('asmtMax').value='10';
     document.getElementById('asmtWeight').value='10';
     document.getElementById('asmtDesc').value='';
+    document.getElementById('asmtMultiClass').checked=false;
+    toggleAsmtMultiClass();
+    setAllCheckboxes('asmtClassCb',true);
     document.getElementById('assessmentModal').classList.add('show');
 }
 async function saveAssessment(){
@@ -1971,13 +2150,12 @@ async function saveAssessment(){
     const type=document.getElementById('asmtType').value;
     const maxS=document.getElementById('asmtMax').value;
     const weight=document.getElementById('asmtWeight').value;
-    const cid=document.getElementById('asmtModalClass').value;
-    const sid=document.getElementById('asmtModalSubject').value;
     const desc=document.getElementById('asmtDesc').value;
     const dueDate=document.getElementById('asmtDueDate').value;
+    const isMulti=document.getElementById('asmtMultiClass').checked;
 
-    if(!name||!weight||!cid||!sid){
-        return toast('Please fill in Assessment Name, Class, Subject, and Weight','err');
+    if(!name||!weight){
+        return toast('Please fill in Assessment Name and Weight','err');
     }
 
     const fd=new FormData();
@@ -1987,18 +2165,35 @@ async function saveAssessment(){
     fd.append('max_score',maxS);
     fd.append('weight_percentage',weight);
     fd.append('weight',weight);
-    fd.append('class_id',cid);
-    fd.append('subject_id',sid);
     fd.append('description',desc);
     if(dueDate)fd.append('due_date',dueDate);
+
+    if(isMulti){
+        const selectedClasses=[];
+        document.querySelectorAll('.asmtClassCb:checked').forEach(cb=>selectedClasses.push(cb.value));
+        if(!selectedClasses.length) return toast('Please select at least one class for batch assignment','err');
+        fd.append('class_ids',JSON.stringify(selectedClasses));
+        const scope=document.getElementById('asmtMultiSubjectScope').value;
+        if(scope==='current'){
+            const sid=document.getElementById('asmtModalSubject').value;
+            if(!sid) return toast('Please select a subject','err');
+            fd.append('subject_ids',JSON.stringify([sid]));
+        } else {
+            fd.append('subject_ids','all');
+        }
+    } else {
+        const cid=document.getElementById('asmtModalClass').value;
+        const sid=document.getElementById('asmtModalSubject').value;
+        if(!cid||!sid) return toast('Please select Class and Subject','err');
+        fd.append('class_id',cid);
+        fd.append('subject_id',sid);
+    }
 
     try{
         const d=await postAPI('/admin/api_subjects.php',fd);
         if(d.status==='success'){
             toast(d.message||'Assessment created!');
             closeModal('assessmentModal');
-            document.getElementById('asmtClass').value=cid;
-            document.getElementById('asmtSubject').value=sid;
             loadAssessments();
         }else toast(d.message,'err');
     }catch(e){toast('Error saving assessment','err');}
@@ -2015,7 +2210,7 @@ async function deleteAssessment(id){
     }catch(e){toast('Error deleting assessment','err');}
 }
 
-// ═══ ASSESSMENT TEMPLATES & PRESETS ═══
+// ═══ BATCH ASSESSMENT TEMPLATES & PRESETS ═══
 const SCHEME_PRESETS = {
     standard_10_40_50: [
         { name: 'Class Test 1', type: 'test', max_score: 10, weight: 10 },
@@ -2032,80 +2227,186 @@ const SCHEME_PRESETS = {
         { name: 'Assessment Test 1', type: 'test', max_score: 20, weight: 20 },
         { name: 'Assessment Test 2', type: 'test', max_score: 20, weight: 20 },
         { name: 'Final Comprehensive Exam', type: 'final', max_score: 60, weight: 60 }
+    ],
+    custom: [
+        { name: 'Assessment Test 1', type: 'test', max_score: 15, weight: 15 },
+        { name: 'Midterm Exam', type: 'midterm', max_score: 35, weight: 35 },
+        { name: 'Final Exam', type: 'final', max_score: 50, weight: 50 }
     ]
 };
-function openTemplateModal(){
-    const cid=document.getElementById('asmtClass').value;
-    if(cid){
-        document.getElementById('tmplClass').value=cid;
-        loadTmplSubjects();
-    }
-    applyPresetScheme();
-    document.getElementById('templateModal').classList.add('show');
-}
-async function loadTmplSubjects(){
-    const cid=document.getElementById('tmplClass').value;
-    const sel=document.getElementById('tmplSubject');
-    sel.innerHTML='<option value="0">All Subjects in this Class</option>';
-    if(!cid)return;
-    try{
-        const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);
-        if(d.status==='success' && d.subjects){
-            d.subjects.forEach(s=>{
-                sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;
-            });
+let customSchemeItems = [...SCHEME_PRESETS.standard_10_40_50];
+let subjectScopeMode = 'all';
+
+function setSubjectScopeMode(mode){
+    subjectScopeMode = mode;
+    const picker = document.getElementById('tmplSubjectsPicker');
+    const notice = document.getElementById('tmplSubjectModeNotice');
+    if(mode === 'all'){
+        if(picker) picker.style.display = 'none';
+        if(notice) {
+            notice.style.display = 'block';
+            notice.innerHTML = '<i class="fa-solid fa-check-circle" style="color:#16a34a"></i> Applying to <strong>all subjects</strong> associated with each selected class.';
         }
-    }catch(e){}
+    } else {
+        if(picker) picker.style.display = 'grid';
+        if(notice) notice.style.display = 'none';
+    }
+    updateBatchSummary();
+}
+function openTemplateModal(){
+    applyPresetScheme();
+    setAllCheckboxes('tmplClassCb', true);
+    setSubjectScopeMode('all');
+    updateBatchSummary();
+    document.getElementById('templateModal').classList.add('show');
 }
 function applyPresetScheme(){
     const pKey=document.getElementById('tmplPreset').value;
+    const isCustom = (pKey === 'custom');
+    const addBtn = document.getElementById('tmplAddItemBtn');
+    if(addBtn) addBtn.style.display = isCustom ? 'inline-flex' : 'none';
+
+    if(!isCustom){
+        customSchemeItems = (SCHEME_PRESETS[pKey] || SCHEME_PRESETS.standard_10_40_50).map(x => ({...x}));
+    }
+    renderSchemeItemsPreview();
+    updateBatchSummary();
+}
+function renderSchemeItemsPreview(){
+    const pKey=document.getElementById('tmplPreset').value;
+    const isCustom = (pKey === 'custom');
     const container=document.getElementById('tmplItemsList');
     const badge=document.getElementById('tmplTotalWeightBadge');
-    const items=SCHEME_PRESETS[pKey]||SCHEME_PRESETS.standard_10_40_50;
-
     let tot=0;
-    container.innerHTML=items.map((it,idx)=>{
-        tot += it.weight;
-        return `
-            <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:.4rem .6rem;border-radius:6px;border:1px solid #e2e8f0;font-size:.78rem">
-                <div><strong>${esc(it.name)}</strong> <span class="ch ch-i" style="font-size:.65rem">${esc(it.type)}</span></div>
-                <div style="color:#64748b">Max: <strong>${it.max_score}</strong> | Weight: <strong style="color:#7c3aed">${it.weight}%</strong></div>
-            </div>
-        `;
-    }).join('');
-    badge.textContent=`Total: ${tot}%`;
-    badge.className=tot===100?'ch ch-ok':'ch ch-w';
-}
-async function submitAssessmentTemplate(){
-    const cid=document.getElementById('tmplClass').value;
-    const sid=document.getElementById('tmplSubject').value;
-    const pKey=document.getElementById('tmplPreset').value;
-    const items=SCHEME_PRESETS[pKey]||SCHEME_PRESETS.standard_10_40_50;
 
-    if(!cid){
-        return toast('Please select a target class','err');
-    }
-
-    if(!confirm(`Apply standard scheme (${items.map(x=>x.name+' '+x.weight+'%').join(', ')}) to ${sid==='0'?'ALL subjects in this class':'the selected subject'}?`)){
+    if(!customSchemeItems.length){
+        container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:.5rem;font-size:.75rem">No items. Click "Add Item" to configure.</div>';
+        badge.textContent = 'Total: 0%';
+        badge.className = 'ch ch-err';
         return;
     }
 
-    const fd=new FormData();
-    fd.append('action','apply_assessment_template');
-    fd.append('class_id',cid);
-    fd.append('subject_id',sid);
-    fd.append('items',JSON.stringify(items));
+    container.innerHTML=customSchemeItems.map((it,idx)=>{
+        tot += (parseFloat(it.weight) || 0);
+        if(isCustom){
+            return `
+                <div style="display:flex;gap:.35rem;align-items:center;background:#fff;padding:.35rem .5rem;border-radius:6px;border:1px solid #e2e8f0;font-size:.75rem">
+                    <input type="text" class="inp" style="flex:2;padding:.25rem .4rem;font-size:.75rem" value="${esc(it.name)}" onchange="updateCustomItem(${idx},'name',this.value)" placeholder="Name">
+                    <select class="inp" style="flex:1.2;padding:.25rem .4rem;font-size:.75rem" onchange="updateCustomItem(${idx},'type',this.value)">
+                        <option value="test" ${it.type==='test'?'selected':''}>Test</option>
+                        <option value="midterm" ${it.type==='midterm'?'selected':''}>Midterm</option>
+                        <option value="final" ${it.type==='final'?'selected':''}>Final</option>
+                        <option value="quiz" ${it.type==='quiz'?'selected':''}>Quiz</option>
+                        <option value="assignment" ${it.type==='assignment'?'selected':''}>Assignment</option>
+                        <option value="project" ${it.type==='project'?'selected':''}>Project</option>
+                    </select>
+                    <input type="number" class="inp" style="width:55px;padding:.25rem .3rem;font-size:.75rem" min="1" max="1000" value="${it.max_score}" onchange="updateCustomItem(${idx},'max_score',this.value)" title="Max Score">
+                    <span style="font-size:.7rem;color:#64748b">pts</span>
+                    <input type="number" class="inp" style="width:55px;padding:.25rem .3rem;font-size:.75rem" min="1" max="100" value="${it.weight}" onchange="updateCustomItem(${idx},'weight',this.value)" title="Weight %">
+                    <span style="font-size:.7rem;color:#64748b">%</span>
+                    <button type="button" class="ab" style="background:#fee2e2;color:#dc2626;padding:.25rem .4rem" onclick="deleteCustomTemplateItem(${idx})" title="Remove"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            `;
+        }
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:.4rem .6rem;border-radius:6px;border:1px solid #e2e8f0;font-size:.78rem">
+                <div><strong>${esc(it.name)}</strong> <span class="ch ch-i" style="font-size:.65rem;text-transform:capitalize">${esc(it.type)}</span></div>
+                <div style="color:#64748b">Max: <strong>${it.max_score} pts</strong> | Weight: <strong style="color:#7c3aed">${it.weight}%</strong></div>
+            </div>
+        `;
+    }).join('');
+
+    badge.textContent=`Total: ${tot}%`;
+    badge.className=tot===100?'ch ch-ok':'ch ch-w';
+}
+function updateCustomItem(idx, field, val){
+    if(customSchemeItems[idx]){
+        if(field === 'weight' || field === 'max_score') val = parseFloat(val) || 0;
+        customSchemeItems[idx][field] = val;
+        renderSchemeItemsPreview();
+    }
+}
+function addCustomTemplateItem(){
+    customSchemeItems.push({ name: 'New Assessment', type: 'test', max_score: 10, weight: 10 });
+    renderSchemeItemsPreview();
+}
+function deleteCustomTemplateItem(idx){
+    customSchemeItems.splice(idx, 1);
+    renderSchemeItemsPreview();
+}
+function updateBatchSummary(){
+    const checkedClasses = document.querySelectorAll('.tmplClassCb:checked');
+    const classCount = checkedClasses.length;
+    let subjText = '';
+    if(subjectScopeMode === 'all'){
+        subjText = 'all class subjects';
+    } else {
+        const checkedSubjs = document.querySelectorAll('.tmplSubjCb:checked');
+        subjText = `${checkedSubjs.length} chosen subject(s)`;
+    }
+    const summaryEl = document.getElementById('batchSummaryText');
+    if(summaryEl){
+        summaryEl.innerHTML = `Target: <strong>${classCount} class(es)</strong> × <strong>${subjText}</strong>.`;
+    }
+}
+async function submitAssessmentTemplate(){
+    const selectedClasses = [];
+    document.querySelectorAll('.tmplClassCb:checked').forEach(cb => selectedClasses.push(cb.value));
+    
+    if(!selectedClasses.length){
+        return toast('Please select at least one target class', 'err');
+    }
+
+    let totWeight = 0;
+    for(const it of customSchemeItems){
+        const w = parseFloat(it.weight) || 0;
+        const maxS = parseFloat(it.max_score) || 0;
+        const n = (it.name || '').trim();
+        if(!n || w <= 0 || maxS <= 0){
+            return toast('All assessment items must have a name, positive max score, and positive weight.', 'err');
+        }
+        totWeight += w;
+    }
+
+    if(totWeight > 100){
+        return toast(`Total weight is ${totWeight}%, which exceeds 100%. Please adjust.`, 'err');
+    }
+
+    let selectedSubjects = 'all';
+    if(subjectScopeMode !== 'all'){
+        const subList = [];
+        document.querySelectorAll('.tmplSubjCb:checked').forEach(cb => subList.push(cb.value));
+        if(!subList.length) return toast('Please select at least one target subject', 'err');
+        selectedSubjects = subList;
+    }
+
+    if(!confirm(`Apply this assessment scheme (${customSchemeItems.map(x=>x.name+' '+x.weight+'%').join(', ')}) across ${selectedClasses.length} selected class(es)?`)){
+        return;
+    }
+
+    const btn = document.getElementById('batchSubmitBtn');
+    if(btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Applying Scheme...'; }
+
+    const fd = new FormData();
+    fd.append('action', 'apply_assessment_template');
+    fd.append('class_ids', JSON.stringify(selectedClasses));
+    fd.append('subject_ids', typeof selectedSubjects === 'string' ? selectedSubjects : JSON.stringify(selectedSubjects));
+    fd.append('items', JSON.stringify(customSchemeItems));
 
     try{
-        const d=await postAPI('/admin/api_subjects.php',fd);
-        if(d.status==='success'){
-            toast(d.message||'Scheme applied successfully!');
+        const d = await postAPI('/admin/api_subjects.php', fd);
+        if(btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Apply Scheme Across Selected Classes &amp; Subjects'; }
+        if(d.status === 'success'){
+            toast(d.message || 'Assessment scheme applied successfully!');
             closeModal('templateModal');
-            document.getElementById('asmtClass').value=cid;
-            if(sid!=='0')document.getElementById('asmtSubject').value=sid;
             loadAssessments();
-        }else toast(d.message,'err');
-    }catch(e){toast('Error applying template','err');}
+        } else {
+            toast(d.message, 'err');
+        }
+    }catch(e){
+        if(btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Apply Scheme Across Selected Classes &amp; Subjects'; }
+        toast('Error applying template', 'err');
+    }
 }
 
 // ═══ ACADEMIC YEARS + SEMESTERS ═══
