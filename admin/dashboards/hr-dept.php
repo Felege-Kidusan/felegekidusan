@@ -707,20 +707,20 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 <span class="font-semibold">Communication</span>
             </button>
 
-            <a href="/admin/account.php"
-               class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-decoration-none">
+            <button onclick="switchTab('profile')"
+               class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-left w-full border-none cursor-pointer">
                 <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
                     <i class="fa-solid fa-user-gear text-sm"></i>
                 </span>
                 <span class="font-semibold">My Profile</span>
-            </a>
+            </button>
 
         </nav>
 
         <div class="mt-5 space-y-2">
             <?php
             require_once __DIR__ . '/../components/sidebar_profile_item.php';
-            renderSidebarUserCard($userName, 'HR Dept', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#059669,#10b981)');
+            renderSidebarUserCard($userName, 'HR Dept', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#059669,#10b981)', 'profile');
             ?>
             <a href="/admin/logout.php"
                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-red-500/95 text-white text-xs font-semibold shadow hover:bg-red-600 transition">
@@ -1881,6 +1881,12 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </div>
 
             </section>
+
+            <!-- ═══ PROFILE TAB ═══ -->
+            <?php
+            require_once __DIR__ . '/../components/profile_tab_section.php';
+            renderProfileTabSection('section-profile', 'content-section');
+            ?>
         </main>
 
         <!-- Bottom Nav (mobile) -->
@@ -1936,11 +1942,11 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-user-check text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Att. Takers</span>
                 </button>
-                <a href="/admin/account.php"
-                   class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80 text-white text-decoration-none">
+                <button data-section="profile"
+                        class="flex flex-col items-center min-w-[64px] px-2 py-1.5 rounded-xl mobile-touch-target opacity-80 text-white border-none bg-transparent cursor-pointer">
                     <i class="fa-solid fa-user-gear text-base mb-0.5"></i>
                     <span class="text-[10px] whitespace-nowrap">Profile</span>
-                </a>
+                </button>
             </div>
         </nav>
     </div>

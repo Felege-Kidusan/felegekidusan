@@ -126,6 +126,21 @@ final class MysqliProfileRepository implements ProfileRepository
         }
     }
 
+    /** Read-only probe for authorization_version column availability (migration 048). */
+    public static function authorizationVersionColumnAvailable(\mysqli $database): bool
+    {
+        try {
+            $result = $database->query("SHOW COLUMNS FROM users LIKE 'authorization_version'");
+            $exists = $result && $result->num_rows > 0;
+            if ($result) {
+                $result->close();
+            }
+            return $exists;
+        } catch (\Throwable $error) {
+            return false;
+        }
+    }
+
     public function begin(): void
     {
         if (!$this->database->begin_transaction()) {
@@ -153,8 +168,11 @@ final class MysqliProfileRepository implements ProfileRepository
         $image = $this->profileImageColumnAvailable
             ? 'profile_image_path'
             : 'NULL AS profile_image_path';
+        $authVersion = self::authorizationVersionColumnAvailable($this->database)
+            ? 'authorization_version'
+            : '1 AS authorization_version';
         $sql = "SELECT id, username, email, full_name, role, password_hash,
-                       is_active, authorization_version, member_id, created_at,
+                       is_active, {$authVersion}, member_id, created_at,
                        last_login, {$image}
                   FROM users WHERE id = ? LIMIT 1" . ($forUpdate ? ' FOR UPDATE' : '');
         $statement = $this->database->prepare($sql);

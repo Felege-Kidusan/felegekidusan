@@ -190,15 +190,15 @@ $csrfToken = generateCsrfToken();
                 <div class="nav-link" data-comm-open="inbox">
                     <i class="fa-solid fa-comments w-5"></i> Communication
                 </div>
-                <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nav-link text-white hover:bg-white/10" style="text-decoration:none">
+                <button type="button" onclick="showSection('profile')" class="nav-link text-white hover:bg-white/10 w-full text-left border-none bg-transparent cursor-pointer">
                     <i class="fa-solid fa-user-gear w-5"></i> My Profile
-                </a>
+                </button>
             </nav>
             
             <div class="mt-auto pt-4 border-t border-white/10 space-y-2">
                 <?php
                 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-                renderSidebarUserCard($userName, 'Teacher', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#0284c7,#38bdf8)');
+                renderSidebarUserCard($userName, 'Teacher', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#0284c7,#38bdf8)', 'profile');
                 ?>
                 <a href="/admin/logout.php" class="nav-link text-red-300 hover:bg-red-500/20">
                     <i class="fa-solid fa-power-off w-5"></i> Logout
@@ -641,6 +641,12 @@ $csrfToken = generateCsrfToken();
                 <div id="reportCardModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);backdrop-filter:blur(4px);z-index:100;overflow-y:auto;padding:1rem">
                     <div style="max-width:700px;width:100%;margin:1rem auto;background:#fff;border-radius:20px;overflow:hidden" id="reportCardContent"></div>
                 </div>
+
+                <!-- ═══ PROFILE TAB ═══ -->
+                <?php
+                require_once __DIR__ . '/../components/profile_tab_section.php';
+                renderProfileTabSection('sec-profile', 'section');
+                ?>
         </div>
     </div>
     

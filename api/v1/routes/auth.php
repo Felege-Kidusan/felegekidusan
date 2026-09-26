@@ -61,7 +61,10 @@ if ($action === 'login' && $method === 'POST') {
     }
     
     $profileImageColumnExists = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
-    $selectSql = "SELECT id, username, email, full_name, role, password_hash, is_active, authorization_version"
+    $authVersionExists = \App\Services\MysqliProfileRepository::authorizationVersionColumnAvailable($conn);
+    $authVersionSelect = $authVersionExists ? ", authorization_version" : ", 1 AS authorization_version";
+    $selectSql = "SELECT id, username, email, full_name, role, password_hash, is_active"
+        . $authVersionSelect
         . ($profileImageColumnExists ? ", profile_image_path" : "")
         . " FROM users WHERE (username = ? OR email = ?) LIMIT 1";
     $stmt = $conn->prepare($selectSql);
@@ -103,7 +106,7 @@ if ($action === 'login' && $method === 'POST') {
             $user['role'],
             $user['full_name'],
             $accessTokenExpiry,
-            $user['authorization_version']
+            max(1, (int)($user['authorization_version'] ?? 1))
         ),
         'refresh_token' => $refreshToken,
         'expires_in' => $accessTokenExpiry,
@@ -120,7 +123,7 @@ if ($action === 'login' && $method === 'POST') {
                 'url' => $imageUrl,
             ],
             'profile_version' => $profileVersion,
-            'authorization_version' => max(1, (int)$user['authorization_version'])
+            'authorization_version' => max(1, (int)($user['authorization_version'] ?? 1))
         ]
     ]);
 }
@@ -204,7 +207,7 @@ if ($action === 'refresh-token' && $method === 'POST') {
             $user['role'],
             $user['full_name'],
             $accessTokenExpiry,
-            $user['authorization_version']
+            max(1, (int)($user['authorization_version'] ?? 1))
         ),
         'refresh_token' => $rotation['token'],
         'expires_in' => $accessTokenExpiry,
@@ -221,7 +224,7 @@ if ($action === 'refresh-token' && $method === 'POST') {
                 'url' => $imageUrl,
             ],
             'profile_version' => $profileVersion,
-            'authorization_version' => max(1, (int)$user['authorization_version']),
+            'authorization_version' => max(1, (int)($user['authorization_version'] ?? 1)),
         ],
     ]);
 }

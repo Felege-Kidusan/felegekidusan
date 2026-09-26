@@ -197,10 +197,13 @@ function apiRevalidateAuthorizationScope(array $payload): array {
         if (!isset($conn) || !($conn instanceof mysqli)) {
             throw new RuntimeException('API database connection is unavailable.');
         }
-        $statement = $conn->prepare(
-            'SELECT role, is_active, authorization_version, username, full_name
+        $authVersionAvailable = \App\Services\MysqliProfileRepository::authorizationVersionColumnAvailable($conn);
+        $sql = $authVersionAvailable
+            ? 'SELECT role, is_active, authorization_version, username, full_name
                FROM users WHERE id=? LIMIT 1'
-        );
+            : 'SELECT role, is_active, 1 AS authorization_version, username, full_name
+               FROM users WHERE id=? LIMIT 1';
+        $statement = $conn->prepare($sql);
         if (!$statement) {
             throw new RuntimeException('Could not prepare authorization revalidation.');
         }

@@ -294,7 +294,10 @@ final class RefreshTokenService
     private function findUserForUpdate(int $userId): array
     {
         $profileImageColumnExists = MysqliProfileRepository::profileImageColumnAvailable($this->database);
-        $selectSql = 'SELECT id, username, email, full_name, role, is_active, authorization_version'
+        $authVersionColumnExists = MysqliProfileRepository::authorizationVersionColumnAvailable($this->database);
+        $authVersionSelect = $authVersionColumnExists ? ', authorization_version' : ', 1 AS authorization_version';
+        $selectSql = 'SELECT id, username, email, full_name, role, is_active'
+            . $authVersionSelect
             . ($profileImageColumnExists ? ', profile_image_path' : '')
             . ' FROM users WHERE id=? LIMIT 1 FOR UPDATE';
         $statement = $this->database->prepare($selectSql);

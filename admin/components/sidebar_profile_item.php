@@ -14,12 +14,23 @@ if (!function_exists('renderSidebarProfileNavItem')) {
      * @param string $buttonClass CSS class matching the dashboard's design system (e.g. 'nl', 'np', 'nav-link', 'school-nav-link')
      * @param bool $isActive Whether this page is the active profile page
      * @param string $extraStyles Inline styles if required
+     * @param string $secName The target tab/section name (default: 'profile')
      */
-    function renderSidebarProfileNavItem(string $buttonClass = 'nl', bool $isActive = false, string $extraStyles = ''): void {
+    function renderSidebarProfileNavItem(string $buttonClass = 'nl', bool $isActive = false, string $extraStyles = '', string $secName = 'profile'): void {
         $href = function_exists('ssms_app_url') ? ssms_app_url('admin/account.php') : '/admin/account.php';
         $activeClass = $isActive ? ' act active' : '';
         $styleAttr = $extraStyles !== '' ? ' style="' . htmlspecialchars($extraStyles, ENT_QUOTES, 'UTF-8') . '"' : '';
-        echo '<a href="' . htmlspecialchars($href, ENT_QUOTES, 'UTF-8') . '" class="' . htmlspecialchars($buttonClass . $activeClass, ENT_QUOTES, 'UTF-8') . '"' . $styleAttr . ' title="My Profile & Account Settings"><i class="fa-solid fa-user-gear"></i> <span>My Profile</span></a>';
+        ?>
+        <button type="button"
+                class="<?= htmlspecialchars($buttonClass . $activeClass, ENT_QUOTES, 'UTF-8') ?>"
+                data-sec="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
+                data-section="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
+                onclick="if(typeof nav==='function'){nav('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof switchTab==='function'){switchTab('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else{window.location.href='<?= htmlspecialchars($href, ENT_QUOTES, 'UTF-8') ?>';}"
+                <?= $styleAttr ?>
+                title="My Profile & Account Settings">
+            <i class="fa-solid fa-user-gear"></i> <span>My Profile</span>
+        </button>
+        <?php
     }
 }
 
@@ -32,13 +43,15 @@ if (!function_exists('renderSidebarUserCard')) {
      * @param string $subtitle Secondary info (e.g. date)
      * @param string $initials Fallback initials
      * @param string $gradient Background gradient for fallback avatar
+     * @param string $secName The target tab/section name (default: 'profile')
      */
     function renderSidebarUserCard(
         string $fullName,
         string $roleTitle = '',
         string $subtitle = '',
         string $initials = '',
-        string $gradient = 'linear-gradient(135deg,#7c3aed,#6366f1)'
+        string $gradient = 'linear-gradient(135deg,#7c3aed,#6366f1)',
+        string $secName = 'profile'
     ): void {
         $accountUrl = function_exists('ssms_app_url') ? ssms_app_url('admin/account.php') : '/admin/account.php';
         $imageUrl = function_exists('ssms_app_url') ? ssms_app_url('admin/profile_image.php') : '/admin/profile_image.php';
@@ -56,9 +69,11 @@ if (!function_exists('renderSidebarUserCard')) {
             $subText = $subText !== '' ? $subText . ' • ' . $subtitle : $subtitle;
         }
         ?>
-        <a href="<?= htmlspecialchars($accountUrl, ENT_QUOTES, 'UTF-8') ?>"
-           class="ssms-sidebar-user-card"
-           title="View & Edit Profile (<?= htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8') ?>)">
+        <div class="ssms-sidebar-user-card"
+             data-sec="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
+             data-section="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
+             onclick="if(typeof nav==='function'){nav('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof switchTab==='function'){switchTab('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else{window.location.href='<?= htmlspecialchars($accountUrl, ENT_QUOTES, 'UTF-8') ?>';}"
+             title="View & Edit Profile (<?= htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8') ?>)">
             <div class="ssms-card-avatar-wrap">
                 <img src="<?= htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') ?>"
                      alt=""
@@ -75,7 +90,7 @@ if (!function_exists('renderSidebarUserCard')) {
                 <?php endif; ?>
             </div>
             <i class="fa-solid fa-gear ssms-card-icon" aria-hidden="true"></i>
-        </a>
+        </div>
         <style>
         .ssms-sidebar-user-card {
             display: flex;

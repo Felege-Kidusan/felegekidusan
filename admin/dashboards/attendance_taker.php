@@ -130,15 +130,15 @@ $csrfToken = generateCsrfToken();
                 <div class="nav-link" onclick="showSection('history')">
                     <i class="fa-solid fa-clock-rotate-left w-5"></i> History
                 </div>
-                <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nav-link text-white hover:bg-white/10" style="text-decoration:none">
+                <button type="button" onclick="showSection('profile')" class="nav-link text-white hover:bg-white/10 w-full text-left border-none bg-transparent cursor-pointer">
                     <i class="fa-solid fa-user-gear w-5"></i> My Profile
-                </a>
+                </button>
             </nav>
             
             <div class="mt-auto pt-4 border-t border-white/10 space-y-2">
                 <?php
                 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-                renderSidebarUserCard($userName, 'Attendance Taker', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#d97706,#f59e0b)');
+                renderSidebarUserCard($userName, 'Attendance Taker', $todayFormatted ?? '', strtoupper(substr($userName, 0, 1)), 'linear-gradient(135deg,#d97706,#f59e0b)', 'profile');
                 ?>
                 <a href="/admin/logout.php" class="nav-link text-red-200 hover:bg-red-500/20">
                     <i class="fa-solid fa-power-off w-5"></i> Logout
@@ -370,6 +370,12 @@ $csrfToken = generateCsrfToken();
                         <p>Select a class to view history</p>
                     </div>
                 </section>
+                
+                <!-- ═══ PROFILE TAB ═══ -->
+                <?php
+                require_once __DIR__ . '/../components/profile_tab_section.php';
+                renderProfileTabSection('sec-profile', 'section');
+                ?>
                 
             </main>
         </div>

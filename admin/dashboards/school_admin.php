@@ -280,10 +280,10 @@ select.inp{cursor:pointer}
 <button class="np" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports & Export</button>
 <button class="np" data-section="system"><i class="fa-solid fa-server"></i> System Health</button>
 <button class="np" data-comm-open="inbox"><i class="fa-solid fa-comments"></i> Communication</button>
-<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="np" style="text-decoration:none;margin-top:.2rem;color:var(--bright)"><i class="fa-solid fa-user-gear" style="color:#38bdf8"></i> My Profile</a>
+<button type="button" class="np" data-section="profile" style="margin-top:.2rem;color:var(--bright)"><i class="fa-solid fa-user-gear" style="color:#38bdf8"></i> My Profile</button>
 <?php
 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'linear-gradient(135deg,#0284c7,#38bdf8)');
+renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'linear-gradient(135deg,#0284c7,#38bdf8)', 'profile');
 ?>
 <a href="/admin/logout.php" class="np" style="color:var(--bad);margin-top:.2rem"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -541,6 +541,12 @@ renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'li
 <div class="mo" id="addUserModal"><div class="md"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem"><h3 style="margin:0"><i class="fa-solid fa-user-plus" style="color:var(--ok)"></i> Add User</h3><button onclick="document.getElementById('addUserModal').classList.remove('show')" style="background:none;border:none;color:var(--dim);font-size:1.1rem;cursor:pointer"><i class="fa-solid fa-xmark"></i></button></div><div style="display:flex;flex-direction:column;gap:.55rem"><div><label class="flbl">Full Name</label><input id="nuName" class="inp" style="width:100%" autocomplete="off"></div><div><label class="flbl">Username</label><input id="nuUser" class="inp" style="width:100%" autocomplete="off"></div><div><label class="flbl">Password</label><input id="nuPass" type="password" class="inp" style="width:100%" minlength="12" maxlength="72" autocomplete="new-password"></div><div><label class="flbl">Role</label><select id="nuRole" class="inp" style="width:100%"><option value="school_admin">School Admin</option><option value="hr_dept">HR Dept</option><option value="info_dept">Info Dept</option><option value="edu_dept">Edu Dept</option><option value="finance_dept">Finance Dept</option><option value="material_dept">Material Dept</option><option value="mezmur_dept">Mezmur Dept</option><option value="teacher">Teacher</option><option value="attendance_taker">Attendance Taker</option></select></div><button class="btn bp" onclick="saveNewUser()"><i class="fa-solid fa-save"></i> Create</button></div></div></div>
 
 
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('section-profile', 'cs');
+?>
+
 <!-- BOTTOM NAV -->
 <?php
 $navItems = [
@@ -558,7 +564,7 @@ $navItems = [
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
     ],
     [
-        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'href' => '/admin/account.php'],
+        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'attrs' => 'data-section="profile"'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Exit', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];

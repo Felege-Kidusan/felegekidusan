@@ -85,11 +85,11 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 <button class="np" data-section="fees"><i class="fa-solid fa-hand-holding-dollar"></i> Member Fees</button>
 <button class="np" data-section="categories"><i class="fa-solid fa-tags"></i> Categories</button>
 <button class="np" data-section="reports"><i class="fa-solid fa-chart-line"></i> Reports</button>
-<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="np" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
+<button type="button" class="np" data-section="profile"><i class="fa-solid fa-user-gear"></i> My Profile</button>
 </div>
 <?php
 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#059669,#10b981)');
+renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#059669,#10b981)', 'profile');
 ?>
 <a href="/admin/logout.php" class="np" style="color:var(--bd)"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -182,6 +182,12 @@ renderSidebarUserCard($fullName, 'Finance Dept', $todayFormatted, $initials, 'li
 <div><label style="font-size:.7rem;color:var(--dm)">Description</label><input id="catDesc" class="inp" style="width:100%"></div>
 <button class="btn bp" onclick="saveCat()"><i class="fa-solid fa-save"></i> Save</button>
 </div></div></div>
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('section-profile', 'cs');
+?>
+
 <!-- BOTTOM NAV -->
 <?php
 $navItems = [
@@ -194,7 +200,7 @@ $navItems = [
     [
         ['icon' => 'fa-solid fa-tags', 'label' => 'Categories', 'attrs' => 'data-section="categories"'],
         ['icon' => 'fa-solid fa-chart-line', 'label' => 'Reports', 'attrs' => 'data-section="reports"'],
-        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'href' => '/admin/account.php'],
+        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'attrs' => 'data-section="profile"'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];

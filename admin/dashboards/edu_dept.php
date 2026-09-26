@@ -492,11 +492,11 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 <div>
 <div class="nt">Account</div>
-<a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="nl" style="text-decoration:none"><i class="fa-solid fa-user-gear"></i> My Profile</a>
+<button type="button" class="nl" data-sec="profile"><i class="fa-solid fa-user-gear"></i> My Profile</button>
 </div>
 <?php
 require_once __DIR__ . '/../components/sidebar_profile_item.php';
-renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#7c3aed,#6366f1)');
+renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, 'linear-gradient(135deg,#7c3aed,#6366f1)', 'profile');
 ?>
 <a href="/admin/logout.php" class="nl" style="color:#fca5a5"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </aside>
@@ -510,7 +510,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
         <p class="mob-sub"><?= $todayFormatted ?></p>
     </div>
     <?= renderNotificationCenter() ?>
-    <a href="<?= e(ssms_app_url('admin/account.php')) ?>" class="mob-avatar" style="text-decoration:none;position:relative;overflow:hidden" title="My Profile">
+    <a href="javascript:void(0)" onclick="if(typeof nav==='function')nav('profile')" class="mob-avatar" style="text-decoration:none;position:relative;overflow:hidden" title="My Profile">
         <img src="<?= e(ssms_app_url('admin/profile_image.php')) ?>" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
         <span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;background:#7c3aed;color:#fff;font-weight:700"><?= $initials ?></span>
     </a>
@@ -941,6 +941,12 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <button class="btn btn-p" style="width:100%;justify-content:center" onclick="executeTransfer()"><i class="fa-solid fa-exchange-alt"></i> Transfer Now</button>
 </div></div></div>
 
+<!-- ═══ PROFILE TAB ═══ -->
+<?php
+require_once __DIR__ . '/../components/profile_tab_section.php';
+renderProfileTabSection('sec-profile', 'sec');
+?>
+
 <!-- BOTTOM NAV -->
 <?php
 $navItems = [
@@ -959,7 +965,7 @@ $navItems = [
     [
         ['icon' => 'fa-solid fa-comments', 'label' => 'Comms', 'attrs' => 'data-comm-open="inbox"'],
         ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-sec="settings"'],
-        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'href' => '/admin/account.php'],
+        ['icon' => 'fa-solid fa-user-gear', 'label' => 'Profile', 'attrs' => 'data-sec="profile"'],
         ['icon' => 'fa-solid fa-right-from-bracket', 'label' => 'Logout', 'href' => '/admin/logout.php', 'exit' => true],
     ],
 ];
@@ -1000,6 +1006,7 @@ function nav(n){
         try{ if(n==='classes')loadClasses(); }catch(e){console.error(e);}
         try{ if(n==='settings')loadYears(); }catch(e){console.error(e);}
         try{ if(n==='enrollment')loadEnrollOverview(); }catch(e){console.error(e);}
+        try{ if(n==='profile'&&typeof window.loadTabProfile==='function')window.loadTabProfile(); }catch(e){console.error(e);}
         const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);
     }catch(e){
         console.error(e);
