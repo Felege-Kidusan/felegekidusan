@@ -687,12 +687,21 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 
 <!-- ═══ ASSESSMENTS ═══ -->
 <div id="sec-assessments" class="sec">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-clipboard-list" style="color:#7c3aed"></i> Assessment Management</h2><p style="font-size:.75rem;color:#64748b">Configure tests, exams, quizzes</p></div><button class="btn btn-p" onclick="openAssessmentModal()"><i class="fa-solid fa-plus"></i> Add Assessment</button></div>
-<div class="crd" style="padding:1rem"><div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-<div><label class="lbl">Class</label><select id="asmtClass" class="inp" onchange="loadAsmtSubjects()"><option value="">— Select —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
-<div><label class="lbl">Subject</label><select id="asmtSubject" class="inp" onchange="loadAssessments()"><option value="">— Select —</option></select></div>
-<div id="asmtSubjHint" style="display:none;font-size:.7rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:.35rem .5rem;margin-top:.35rem"></div>
-</div></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+<div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-clipboard-list" style="color:#7c3aed"></i> Assessment &amp; Evaluation Setup</h2><p style="font-size:.75rem;color:#64748b">Education department defines all assessments (e.g. Test 10%, Exam 40%). Teachers then fill in student marks.</p></div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap">
+<button class="btn btn-o btn-sm" type="button" onclick="openTemplateModal()"><i class="fa-solid fa-wand-magic-sparkles"></i> Apply Standard Scheme</button>
+<button class="btn btn-p btn-sm" type="button" onclick="openAssessmentModal()"><i class="fa-solid fa-plus"></i> Add Assessment</button>
+</div>
+</div>
+<div class="crd" style="padding:1rem">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+<div><label class="lbl">Class</label><select id="asmtClass" class="inp" onchange="loadAsmtSubjects()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Subject</label><select id="asmtSubject" class="inp" onchange="loadAssessments()"><option value="">— Select Subject —</option></select></div>
+</div>
+<div id="asmtSubjHint" style="display:none;font-size:.7rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:.35rem .5rem;margin-top:.5rem"></div>
+<div id="asmtWeightTracker" style="display:none;margin-top:.75rem;padding:.75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px"></div>
+</div>
 <div id="assessmentList" style="margin-top:.75rem"></div>
 </div>
 
@@ -867,18 +876,41 @@ renderProfileTabSection('sec-profile', 'sec');
 
 <!-- ASSESSMENT MODAL -->
 <div class="mo" id="assessmentModal"><div class="mc" style="max-width:480px">
-<div style="background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-list"></i> New Assessment</h3><button onclick="closeModal('assessmentModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
+<div style="background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="asmtModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-list"></i> New Assessment</h3><button onclick="closeModal('assessmentModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
-<div><label class="lbl">Assessment Name *</label><input id="asmtName" class="inp" placeholder="e.g. Midterm Exam"></div>
+<input type="hidden" id="asmtEditId" value="0">
+<div><label class="lbl">Assessment Name *</label><input id="asmtName" class="inp" placeholder="e.g. Test 1, Midterm Exam, Final Project"></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
-<div><label class="lbl">Max Score</label><input type="number" id="asmtMax" class="inp" value="100"></div>
-<div><label class="lbl">Weight (%)</label><input type="number" id="asmtWeight" class="inp" value="100"></div>
+<div><label class="lbl">Assessment Type</label><select id="asmtType" class="inp"><option value="test">Test / ፈተና</option><option value="midterm">Midterm / አጋማሽ ፈተና</option><option value="final">Final Exam / የማጠቃለያ ፈተና</option><option value="quiz">Quiz / አጭር ፈተና</option><option value="assignment">Assignment / የቤት ስራ</option><option value="project">Project / ተግባራዊ ስራ</option><option value="participation">Participation / ተሳትፎ</option></select></div>
+<div><label class="lbl">Max Score (Points)</label><input type="number" id="asmtMax" class="inp" value="10" min="1" max="1000"></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+<div><label class="lbl">Weight (%)</label><input type="number" id="asmtWeight" class="inp" value="10" min="1" max="100"></div>
+<div><label class="lbl">Due / Exam Date</label><input type="date" id="asmtDueDate" class="inp"></div>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
 <div><label class="lbl">Class</label><select id="asmtModalClass" class="inp"><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
 <div><label class="lbl">Subject</label><select id="asmtModalSubject" class="inp"><?php foreach ($subjects as $s): ?><option value="<?= $s['id'] ?>"><?= e($s['subject_name']) ?></option><?php endforeach; ?></select></div>
 </div>
-<button class="btn btn-p" onclick="saveAssessment()"><i class="fa-solid fa-save"></i> Create Assessment</button>
+<div><label class="lbl">Description / Guidelines (Optional)</label><textarea id="asmtDesc" class="inp" rows="2" placeholder="e.g. Chapter 1 to 3, oral hymn evaluation..."></textarea></div>
+<button class="btn btn-p" id="asmtSaveBtn" onclick="saveAssessment()"><i class="fa-solid fa-save"></i> Save Assessment</button>
+</div></div></div>
+
+<!-- ASSESSMENT TEMPLATE / STANDARD SCHEME MODAL -->
+<div class="mo" id="templateModal"><div class="mc" style="max-width:560px">
+<div style="background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-wand-magic-sparkles"></i> Apply Standard Assessment Scheme</h3><button onclick="closeModal('templateModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
+<div style="padding:1.25rem;display:flex;flex-direction:column;gap:.75rem">
+<p style="font-size:.8rem;color:#64748b;margin:0">Configure standard tests and exam weights defined by the Education Department and apply them across subjects. Teachers will automatically receive this scheme to fill in student marks.</p>
+<div><label class="lbl">Preset Scheme</label><select id="tmplPreset" class="inp" onchange="applyPresetScheme()"><option value="standard_10_40_50">Standard: Test (10%) + Midterm (40%) + Final Exam (50%) = 100%</option><option value="continuous_10_10_30_50">Continuous: Quiz (10%) + Assignment (10%) + Midterm (30%) + Final Exam (50%) = 100%</option><option value="two_tests_20_20_60">Two Tests: Test 1 (20%) + Test 2 (20%) + Final Exam (60%) = 100%</option><option value="custom">Custom Template</option></select></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+<div><label class="lbl">Target Class *</label><select id="tmplClass" class="inp" onchange="loadTmplSubjects()"><option value="">— Select Class —</option><?php foreach ($classes as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div><label class="lbl">Target Subjects</label><select id="tmplSubject" class="inp"><option value="0">All Subjects in this Class</option></select></div>
+</div>
+<div style="border:1px solid #e2e8f0;border-radius:8px;padding:.75rem;background:#faf5ff">
+<div style="font-weight:600;font-size:.8rem;color:#5b21b6;margin-bottom:.5rem;display:flex;justify-content:space-between"><span>Assessment Items Preview</span><span id="tmplTotalWeightBadge" class="ch ch-ok">Total: 100%</span></div>
+<div id="tmplItemsList" style="display:flex;flex-direction:column;gap:.4rem"></div>
+</div>
+<button class="btn btn-p" onclick="submitAssessmentTemplate()"><i class="fa-solid fa-check"></i> Apply Scheme to Selected Subjects</button>
 </div></div></div>
 
 <!-- YEAR MODAL (with Semester Support) -->
@@ -1890,13 +1922,191 @@ async function loadGradeStudents(){const cid=document.getElementById('gradeClass
 async function saveAllGrades(aid){const grades=[];document.querySelectorAll('.grade-input').forEach(inp=>{const mid=inp.dataset.mid,score=inp.value,remark=document.querySelector(`.grade-remark[data-mid="${mid}"]`)?.value||'';if(score!=='')grades.push({member_id:mid,record_id:inp.dataset.rid||null,score:parseFloat(score),remark});});if(!grades.length)return toast('No grades entered','err');const fd=new FormData();fd.append('action','save_grades');fd.append('assessment_id',aid);fd.append('grades',JSON.stringify(grades));try{const d=await postAPI('/admin/api_subjects.php',fd);toast(d.message,d.status==='success'?'ok':'err');}catch(e){toast('Error','err');}}
 
 // ═══ ASSESSMENTS ═══
-async function loadAsmtSubjects(){const cid=document.getElementById('asmtClass').value;const sel=document.getElementById('asmtSubject');const hint=document.getElementById('asmtSubjHint');sel.innerHTML='<option value="">— Select —</option>';document.getElementById('assessmentList').innerHTML='';if(hint)hint.style.display='none';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success'){(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});subjHint(hint,d);}}catch(e){}}
+async function loadAsmtSubjects(){const cid=document.getElementById('asmtClass').value;const sel=document.getElementById('asmtSubject');const hint=document.getElementById('asmtSubjHint');sel.innerHTML='<option value="">— Select Subject —</option>';document.getElementById('assessmentList').innerHTML='';const wt=document.getElementById('asmtWeightTracker');if(wt)wt.style.display='none';if(hint)hint.style.display='none';if(!cid)return;try{const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);if(d.status==='success'){(d.subjects||[]).forEach(s=>{sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;});subjHint(hint,d);}}catch(e){}}
 function subjHint(el,d){if(!el)return;if(d.message){el.textContent=d.message;el.style.display='block';}}
-async function loadAssessments(){const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;if(!cid||!sid){document.getElementById('assessmentList').innerHTML='';return;}
-try{const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);if(d.status==='success'){const a=d.assessments||[];document.getElementById('assessmentList').innerHTML=a.length?`<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Name</th><th>Max Score</th><th>Weight</th><th>Actions</th></tr></thead><tbody>${a.map(x=>`<tr><td style="font-weight:600">${esc(x.assessment_name)}</td><td>${x.max_score}</td><td>${x.weight||100}%</td><td><button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteAssessment(${x.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8">No assessments created yet</div>';}}catch(e){}}
-function openAssessmentModal(){document.getElementById('assessmentModal').classList.add('show');}
-async function saveAssessment(){const fd=new FormData();fd.append('action','create_assessment');fd.append('assessment_name',document.getElementById('asmtName').value);fd.append('max_score',document.getElementById('asmtMax').value);fd.append('weight',document.getElementById('asmtWeight').value);fd.append('class_id',document.getElementById('asmtModalClass').value);fd.append('subject_id',document.getElementById('asmtModalSubject').value);try{const d=await postAPI('/admin/api_subjects.php',fd);if(d.status==='success'){toast('Assessment created!');closeModal('assessmentModal');document.getElementById('asmtClass').value=document.getElementById('asmtModalClass').value;document.getElementById('asmtSubject').value=document.getElementById('asmtModalSubject').value;loadAssessments();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
-async function deleteAssessment(id){if(!confirm('Delete assessment?'))return;const fd=new FormData();fd.append('action','delete_assessment');fd.append('assessment_id',id);try{const d=await postAPI('/admin/api_subjects.php',fd);toast(d.message,d.status==='success'?'ok':'err');loadAssessments();}catch(e){toast('Error','err');}}
+async function loadAssessments(){
+    const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;
+    const wt=document.getElementById('asmtWeightTracker');
+    if(!cid||!sid){document.getElementById('assessmentList').innerHTML='';if(wt)wt.style.display='none';return;}
+    try{
+        const d=await getAPI(`/admin/api_subjects.php?action=get_assessments&class_id=${cid}&subject_id=${sid}`);
+        if(d.status==='success'){
+            const a=d.assessments||[];
+            let totalW=0;
+            a.forEach(x=>{ totalW += (parseFloat(x.weight_percentage)||parseFloat(x.weight)||0); });
+            
+            if(wt){
+                wt.style.display='block';
+                const isFull = totalW === 100;
+                const isOver = totalW > 100;
+                const rem = Math.max(0, 100 - totalW);
+                wt.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.35rem">
+                        <span style="font-weight:700;font-size:.8rem;color:${isOver?'#dc2626':(isFull?'#16a34a':'#475569')}"><i class="fa-solid fa-chart-pie"></i> Configured Weight: ${totalW}% / 100%</span>
+                        <span style="font-size:.75rem;color:#64748b">${isFull?'<span class="ch ch-ok">100% Balanced</span>':(isOver?'<span class="ch ch-err">Exceeds 100%</span>':`<span class="ch ch-w">${rem}% Remaining</span>`)}</span>
+                    </div>
+                    <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden">
+                        <div style="height:100%;width:${Math.min(100, totalW)}%;background:${isOver?'#dc2626':(isFull?'#16a34a':'#7c3aed')};border-radius:999px;transition:width .3s"></div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('assessmentList').innerHTML=a.length?`<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Name</th><th>Max Score</th><th>Weight</th><th>Actions</th></tr></thead><tbody>${a.map(x=>`<tr><td style="font-weight:600"><div>${esc(x.assessment_name)} <span class="ch ch-i" style="font-size:.65rem;text-transform:capitalize">${esc(x.assessment_type||'test')}</span></div>${x.grades_entered>0?`<span style="font-size:.68rem;color:#16a34a"><i class="fa-solid fa-check"></i> ${x.grades_entered} grades entered</span>`:''}</td><td>${x.max_score} pts</td><td><span class="ch ch-p" style="font-weight:700">${x.weight_percentage||x.weight||100}%</span></td><td><button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteAssessment(${x.id})" title="Delete"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div></div>`:'<div class="crd" style="padding:1.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-clipboard-list" style="font-size:2rem;color:#cbd5e1;margin-bottom:.5rem"></i><p>No assessments configured yet for this subject.</p><p style="font-size:.75rem;color:#94a3b8;margin-top:.25rem">Click "Add Assessment" or "Apply Standard Scheme" to establish test/exam weights.</p></div>';
+        }
+    }catch(e){toast('Error loading assessments','err');}
+}
+function openAssessmentModal(){
+    const cid=document.getElementById('asmtClass').value,sid=document.getElementById('asmtSubject').value;
+    if(cid)document.getElementById('asmtModalClass').value=cid;
+    if(sid)document.getElementById('asmtModalSubject').value=sid;
+    document.getElementById('asmtName').value='';
+    document.getElementById('asmtType').value='test';
+    document.getElementById('asmtMax').value='10';
+    document.getElementById('asmtWeight').value='10';
+    document.getElementById('asmtDesc').value='';
+    document.getElementById('assessmentModal').classList.add('show');
+}
+async function saveAssessment(){
+    const name=document.getElementById('asmtName').value.trim();
+    const type=document.getElementById('asmtType').value;
+    const maxS=document.getElementById('asmtMax').value;
+    const weight=document.getElementById('asmtWeight').value;
+    const cid=document.getElementById('asmtModalClass').value;
+    const sid=document.getElementById('asmtModalSubject').value;
+    const desc=document.getElementById('asmtDesc').value;
+    const dueDate=document.getElementById('asmtDueDate').value;
+
+    if(!name||!weight||!cid||!sid){
+        return toast('Please fill in Assessment Name, Class, Subject, and Weight','err');
+    }
+
+    const fd=new FormData();
+    fd.append('action','create_assessment');
+    fd.append('assessment_name',name);
+    fd.append('assessment_type',type);
+    fd.append('max_score',maxS);
+    fd.append('weight_percentage',weight);
+    fd.append('weight',weight);
+    fd.append('class_id',cid);
+    fd.append('subject_id',sid);
+    fd.append('description',desc);
+    if(dueDate)fd.append('due_date',dueDate);
+
+    try{
+        const d=await postAPI('/admin/api_subjects.php',fd);
+        if(d.status==='success'){
+            toast(d.message||'Assessment created!');
+            closeModal('assessmentModal');
+            document.getElementById('asmtClass').value=cid;
+            document.getElementById('asmtSubject').value=sid;
+            loadAssessments();
+        }else toast(d.message,'err');
+    }catch(e){toast('Error saving assessment','err');}
+}
+async function deleteAssessment(id){
+    if(!confirm('Delete this assessment?'))return;
+    const fd=new FormData();
+    fd.append('action','delete_assessment');
+    fd.append('assessment_id',id);
+    try{
+        const d=await postAPI('/admin/api_subjects.php',fd);
+        toast(d.message,d.status==='success'?'ok':'err');
+        loadAssessments();
+    }catch(e){toast('Error deleting assessment','err');}
+}
+
+// ═══ ASSESSMENT TEMPLATES & PRESETS ═══
+const SCHEME_PRESETS = {
+    standard_10_40_50: [
+        { name: 'Class Test 1', type: 'test', max_score: 10, weight: 10 },
+        { name: 'Midterm Exam', type: 'midterm', max_score: 40, weight: 40 },
+        { name: 'Final Exam', type: 'final', max_score: 50, weight: 50 }
+    ],
+    continuous_10_10_30_50: [
+        { name: 'Short Quiz', type: 'quiz', max_score: 10, weight: 10 },
+        { name: 'Assignment / Project', type: 'assignment', max_score: 10, weight: 10 },
+        { name: 'Midterm Exam', type: 'midterm', max_score: 30, weight: 30 },
+        { name: 'Final Exam', type: 'final', max_score: 50, weight: 50 }
+    ],
+    two_tests_20_20_60: [
+        { name: 'Assessment Test 1', type: 'test', max_score: 20, weight: 20 },
+        { name: 'Assessment Test 2', type: 'test', max_score: 20, weight: 20 },
+        { name: 'Final Comprehensive Exam', type: 'final', max_score: 60, weight: 60 }
+    ]
+};
+function openTemplateModal(){
+    const cid=document.getElementById('asmtClass').value;
+    if(cid){
+        document.getElementById('tmplClass').value=cid;
+        loadTmplSubjects();
+    }
+    applyPresetScheme();
+    document.getElementById('templateModal').classList.add('show');
+}
+async function loadTmplSubjects(){
+    const cid=document.getElementById('tmplClass').value;
+    const sel=document.getElementById('tmplSubject');
+    sel.innerHTML='<option value="0">All Subjects in this Class</option>';
+    if(!cid)return;
+    try{
+        const d=await getAPI(`/admin/api_subjects.php?action=get_class_subjects&class_id=${cid}`);
+        if(d.status==='success' && d.subjects){
+            d.subjects.forEach(s=>{
+                sel.innerHTML+=`<option value="${s.id}">${esc(s.subject_name)}</option>`;
+            });
+        }
+    }catch(e){}
+}
+function applyPresetScheme(){
+    const pKey=document.getElementById('tmplPreset').value;
+    const container=document.getElementById('tmplItemsList');
+    const badge=document.getElementById('tmplTotalWeightBadge');
+    const items=SCHEME_PRESETS[pKey]||SCHEME_PRESETS.standard_10_40_50;
+
+    let tot=0;
+    container.innerHTML=items.map((it,idx)=>{
+        tot += it.weight;
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:.4rem .6rem;border-radius:6px;border:1px solid #e2e8f0;font-size:.78rem">
+                <div><strong>${esc(it.name)}</strong> <span class="ch ch-i" style="font-size:.65rem">${esc(it.type)}</span></div>
+                <div style="color:#64748b">Max: <strong>${it.max_score}</strong> | Weight: <strong style="color:#7c3aed">${it.weight}%</strong></div>
+            </div>
+        `;
+    }).join('');
+    badge.textContent=`Total: ${tot}%`;
+    badge.className=tot===100?'ch ch-ok':'ch ch-w';
+}
+async function submitAssessmentTemplate(){
+    const cid=document.getElementById('tmplClass').value;
+    const sid=document.getElementById('tmplSubject').value;
+    const pKey=document.getElementById('tmplPreset').value;
+    const items=SCHEME_PRESETS[pKey]||SCHEME_PRESETS.standard_10_40_50;
+
+    if(!cid){
+        return toast('Please select a target class','err');
+    }
+
+    if(!confirm(`Apply standard scheme (${items.map(x=>x.name+' '+x.weight+'%').join(', ')}) to ${sid==='0'?'ALL subjects in this class':'the selected subject'}?`)){
+        return;
+    }
+
+    const fd=new FormData();
+    fd.append('action','apply_assessment_template');
+    fd.append('class_id',cid);
+    fd.append('subject_id',sid);
+    fd.append('items',JSON.stringify(items));
+
+    try{
+        const d=await postAPI('/admin/api_subjects.php',fd);
+        if(d.status==='success'){
+            toast(d.message||'Scheme applied successfully!');
+            closeModal('templateModal');
+            document.getElementById('asmtClass').value=cid;
+            if(sid!=='0')document.getElementById('asmtSubject').value=sid;
+            loadAssessments();
+        }else toast(d.message,'err');
+    }catch(e){toast('Error applying template','err');}
+}
 
 // ═══ ACADEMIC YEARS + SEMESTERS ═══
 function escAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}

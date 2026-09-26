@@ -1,0 +1,178 @@
+/**
+ * Felege Birhan Sunday School - Responsive & Adaptive Styles
+ */
+
+/* Desktop & Large Tablet */
+@media (max-width: 1024px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-8);
+  }
+
+  .hero-card {
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  .programs-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .schedule-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .faculty-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-8);
+  }
+}
+
+/* Tablet & Mobile */
+@media (max-width: 768px) {
+  :root {
+    --navbar-height: 64px;
+    --font-size-5xl: 2.25rem;
+    --font-size-4xl: 1.875rem;
+    --font-size-3xl: 1.5rem;
+  }
+
+  .topbar {
+    display: none; /* Hide topbar on small devices to prioritize screen real estate */
+  }
+
+  .hamburger-btn {
+    display: block;
+  }
+
+  .nav-menu {
+    position: fixed;
+    top: var(--navbar-height);
+    left: 0;
+    right: 0;
+    background-color: var(--color-white);
+    flex-direction: column;
+    padding: var(--spacing-6);
+    box-shadow: var(--shadow-lg);
+    border-bottom: 2px solid var(--accent-gold);
+    display: none;
+    z-index: var(--z-sticky);
+  }
+
+  .nav-menu.open {
+    display: flex;
+  }
+
+  .nav-link {
+    width: 100%;
+    padding: var(--spacing-3) 0;
+    font-size: var(--font-size-base);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .nav-link::after {
+    display: none;
+  }
+
+  .stats-card-wrap {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-6);
+    padding: var(--spacing-6);
+  }
+
+  .stat-item:nth-child(2)::after {
+    display: none;
+  }
+
+  .about-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-8);
+  }
+
+  .programs-grid,
+  .schedule-grid,
+  .gallery-grid,
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-bottom {
+    flex-direction: column;
+    gap: var(--spacing-4);
+    text-align: center;
+  }
+
+  .registration-card {
+    padding: var(--spacing-6);
+  }
+
+  .hero-section {
+    padding: var(--spacing-16) 0 var(--spacing-16) 0;
+  }
+}
+
+/* Small Mobile Phones */
+@media (max-width: 480px) {
+  .hero-cta-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .hero-cta-group .btn {
+    width: 100%;
+  }
+
+  .stats-card-wrap {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-item::after {
+    display: none !important;
+  }
+
+  .faculty-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-filter-bar {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: var(--spacing-2);
+  }
+}
+
+/* Print Stylesheet */
+@media print {
+  .topbar,
+  .header-navbar,
+  .hamburger-btn,
+  .btn,
+  .footer,
+  #toast-container,
+  .modal-backdrop,
+  .lightbox-modal {
+    display: none !important;
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #000000;
+  }
+
+  .card, .section {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+  }
+}

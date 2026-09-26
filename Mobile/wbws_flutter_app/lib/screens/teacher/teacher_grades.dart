@@ -357,14 +357,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Assessments', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          if (!_isOffline)
-            TextButton.icon(
-              onPressed: _showCreateAssessmentDialog,
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('New', style: TextStyle(fontSize: 12)),
-              style: TextButton.styleFrom(foregroundColor: AppTheme.primary, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
-            ),
+          const Text('Department Assessments', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
         ]),
         const SizedBox(height: 8),
         if (_assessments.isEmpty)
@@ -374,9 +367,10 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
             child: Column(children: [
               Icon(Icons.assignment_outlined, size: 36, color: AppTheme.textSecondary),
               const SizedBox(height: 10),
-              const Text('No assessments yet', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              const Text('No assessments configured yet', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
               const SizedBox(height: 4),
-              Text(_isOffline ? 'Go online to create assessments.' : 'Tap "New" to create a test, quiz, or assignment.',
+              Text('Assessments (tests, midterms, finals) are configured by the Education Department. Once set up, you can tap to enter student marks.',
+                  textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
             ]),
           )

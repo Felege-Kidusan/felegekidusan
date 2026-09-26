@@ -1,0 +1,37 @@
+{
+  "school_name": "FKSS School Management System",
+  "school_name_short": "FKSS",
+  "school_name_amharic": "ፈለገ ቅዱሳን ሰንበት ትምህርት ቤት",
+  "school_name_short_am": "ፈለገ ቅዱሳን",
+  "school_translation_en": "Spring of Saints",
+  "school_tagline": "Sunday School Management System",
+  "school_tagline_am": "የሰንበት ትምህርት ቤት አስተዳደር",
+  "school_type": "Sunday School",
+  "school_type_am": "ሰንበት ት/ቤት",
+  "parish_name_am": "የቦሌ ቡልቡላ ፍ/ሕ ቅድስት ድንግል ማርያም እና መ/መ/ ቅ/ዮሐንስ ቤ/ክ",
+  "parish_name_en": "Bole Bulbula St. Mary & St. John Holy Church",
+  "denomination_am": "የኢትዮጵያ ኦርቶዶክስ ተዋሕዶ ቤተ ክርስቲያን",
+  "denomination_en": "Ethiopian Orthodox Tewahdo Church",
+  "contact": {
+    "phone": "+251 91 100 0000",
+    "email": "info@felegekidusan.org",
+    "maps_url": "https://maps.app.goo.gl/iHSzmE5BphXrWo8Z8",
+    "office_hours": [
+      {
+        "day": "Sunday / እሁድ",
+        "time": "8:30 AM - 12:30 PM"
+      },
+      {
+        "day": "Wednesday / ረቡዕ",
+        "time": "5:30 PM - 8:00 PM"
+      }
+    ]
+  },
+  "theme_colors": {
+    "primary": "#600000",
+    "primary_light": "#8B2030",
+    "primary_dark": "#400000",
+    "accent": "#F0C000",
+    "accent_2": "#E0B020"
+  }
+}

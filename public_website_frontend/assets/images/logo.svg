@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F7D070" />
+      <stop offset="50%" stop-color="#D4AF37" />
+      <stop offset="100%" stop-color="#AA771C" />
+    </linearGradient>
+    <linearGradient id="maroonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#800000" />
+      <stop offset="100%" stop-color="#4A0000" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer Circle Maroon Base -->
+  <circle cx="60" cy="60" r="56" fill="url(#maroonGrad)" stroke="url(#goldGrad)" stroke-width="3" filter="url(#shadow)"/>
+  <circle cx="60" cy="60" r="51" fill="none" stroke="url(#goldGrad)" stroke-width="1" stroke-dasharray="3,3"/>
+  
+  <!-- Traditional Ethiopian Orthodox Cross Shape -->
+  <g fill="url(#goldGrad)">
+    <!-- Center Beam -->
+    <rect x="55" y="20" width="10" height="80" rx="2"/>
+    <!-- Cross Horizontal Beam -->
+    <rect x="25" y="42" width="70" height="10" rx="2"/>
+    
+    <!-- Top Decorative Finial -->
+    <circle cx="60" cy="18" r="5"/>
+    <path d="M 50 24 L 60 14 L 70 24 Z"/>
+    
+    <!-- Left & Right Arm Finials -->
+    <circle cx="23" cy="47" r="5"/>
+    <circle cx="97" cy="47" r="5"/>
+    <path d="M 27 37 L 17 47 L 27 57 Z"/>
+    <path d="M 93 37 L 103 47 L 93 57 Z"/>
+    
+    <!-- Bottom Finial -->
+    <circle cx="60" cy="102" r="5"/>
+    <path d="M 50 96 L 60 106 L 70 96 Z"/>
+    
+    <!-- Inner Cross Geometric Motifs -->
+    <rect x="42" y="29" width="36" height="36" fill="none" stroke="url(#goldGrad)" stroke-width="2.5" rx="4" transform="rotate(45 60 47)"/>
+    <circle cx="60" cy="47" r="4" fill="#800000" stroke="url(#goldGrad)" stroke-width="2"/>
+  </g>
+</svg>

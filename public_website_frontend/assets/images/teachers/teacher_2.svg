@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDF8F0" />
+      <stop offset="100%" stop-color="#F5E6CC" />
+    </linearGradient>
+    <linearGradient id="maroon2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#800000" />
+      <stop offset="100%" stop-color="#550000" />
+    </linearGradient>
+    <linearGradient id="gold2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E5C158" />
+      <stop offset="100%" stop-color="#C59B27" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg2)"/>
+  <circle cx="200" cy="200" r="160" fill="none" stroke="url(#gold2)" stroke-width="2" stroke-dasharray="6,4"/>
+  
+  <!-- Stylized Sister / Female Educator Avatar with traditional Netela/Scarf -->
+  <circle cx="200" cy="140" r="50" fill="#A67049"/>
+  <!-- Head Scarf (Traditional White Netela with Maroon Border) -->
+  <path d="M 135 145 Q 135 70 200 70 Q 265 70 265 145 Q 260 210 240 230 L 225 350 L 175 350 L 160 230 Q 140 210 135 145 Z" fill="#FFFFFF" stroke="#E5C158" stroke-width="1.5"/>
+  <circle cx="200" cy="145" r="42" fill="#A67049"/>
+  <!-- Eyes & Smile -->
+  <circle cx="186" cy="142" r="3.5" fill="#222"/>
+  <circle cx="214" cy="142" r="3.5" fill="#222"/>
+  <path d="M 192 162 Q 200 170 208 162" stroke="#222" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Dress & Netela Fold -->
+  <path d="M 110 350 L 120 250 Q 150 220 200 220 Q 250 220 280 250 L 290 350 Z" fill="#FDFBF7" stroke="#E5C158" stroke-width="2"/>
+  <path d="M 150 220 L 170 350 L 230 350 L 250 220" fill="url(#maroon2)"/>
+  <rect x="175" y="270" width="50" height="8" fill="url(#gold2)"/>
+  
+  <!-- Name Tag Badge -->
+  <rect x="80" y="320" width="240" height="42" rx="21" fill="#FFFFFF" stroke="url(#gold2)" stroke-width="2"/>
+  <text x="200" y="346" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="14" font-weight="700" fill="#800000">Sr. Selamawit Tadesse</text>
+</svg>

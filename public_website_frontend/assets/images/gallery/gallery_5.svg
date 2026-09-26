@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
+  <defs>
+    <linearGradient id="grad5" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#401B00" />
+      <stop offset="50%" stop-color="#703207" />
+      <stop offset="100%" stop-color="#281100" />
+    </linearGradient>
+    <linearGradient id="goldG5" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE590" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#grad5)"/>
+  
+  <!-- Sacred Art / Palette Motif -->
+  <g transform="translate(300, 150)">
+    <circle cx="0" cy="0" r="75" fill="rgba(212,175,55,0.15)"/>
+    <path d="M -40 -30 C 20 -60 60 -10 40 30 C 25 60 -25 50 -45 20 C -60 -5 -60 -15 -40 -30 Z" fill="#FFF8EB" stroke="url(#goldG5)" stroke-width="2.5"/>
+    <circle cx="-15" cy="-10" r="8" fill="#800000"/>
+    <circle cx="15" cy="-15" r="8" fill="#D4AF37"/>
+    <circle cx="20" cy="15" r="8" fill="#2E7D32"/>
+    <circle cx="-10" cy="20" r="8" fill="#1565C0"/>
+  </g>
+  
+  <!-- Banner -->
+  <rect x="50" y="310" width="500" height="60" rx="12" fill="rgba(0,0,0,0.6)" stroke="url(#goldG5)" stroke-width="1.5"/>
+  <text x="300" y="336" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Orthodox Art &amp; Craft Exhibition</text>
+  <text x="300" y="356" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="13" font-weight="400" fill="#E5C158">የስነ-ጥበብ እና የእጅ ስራ አውደ-ርዕይ</text>
+</svg>

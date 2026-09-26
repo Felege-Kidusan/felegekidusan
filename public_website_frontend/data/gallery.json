@@ -1,0 +1,110 @@
+{
+  "status": "success",
+  "albums": [
+    {
+      "id": 1,
+      "name": "Events & Celebrations",
+      "name_am": "በዓላትና ዝግጅቶች",
+      "photo_count": 2
+    },
+    {
+      "id": 2,
+      "name": "Choir & Sacred Music",
+      "name_am": "መዘምራንና ዝማሬ",
+      "photo_count": 2
+    },
+    {
+      "id": 3,
+      "name": "Classrooms & Workshops",
+      "name_am": "የክፍል ትምህርት",
+      "photo_count": 2
+    }
+  ],
+  "featured": [
+    {
+      "id": 1,
+      "album_id": 1,
+      "title": "Annual Graduation Ceremony",
+      "title_am": "ዓመታዊ የምረቃ በዓል",
+      "caption": "Celebration of student accomplishments and spiritual graduation with clergy blessings.",
+      "caption_am": "የተማሪዎች ዓመታዊ የምረቃ በዓል በካህናት ቡራኬ ሲከበር።",
+      "image_url": "assets/images/gallery/gallery_1.svg",
+      "thumb_url": "assets/images/gallery/gallery_1.svg"
+    },
+    {
+      "id": 2,
+      "album_id": 2,
+      "title": "Children's Choir Festival",
+      "title_am": "የህፃናት ዝማሬ ፌስቲቫል",
+      "caption": "Little Lambs and Young Disciples presenting hymns during Sunday feast.",
+      "caption_am": "የህፃናት እና ወጣቶች መዘምራን በበዓለ ንግስ ወቅት መዝሙር ሲያቀርቡ።",
+      "image_url": "assets/images/gallery/gallery_2.svg",
+      "thumb_url": "assets/images/gallery/gallery_2.svg"
+    }
+  ],
+  "items": [
+    {
+      "id": 1,
+      "album_id": 1,
+      "title": "Annual Graduation Ceremony",
+      "title_am": "ዓመታዊ የምረቃ በዓል",
+      "caption": "Celebration of student accomplishments and spiritual graduation with clergy blessings.",
+      "caption_am": "የተማሪዎች ዓመታዊ የምረቃ በዓል በካህናት ቡራኬ ሲከበር።",
+      "image_url": "assets/images/gallery/gallery_1.svg",
+      "thumb_url": "assets/images/gallery/gallery_1.svg"
+    },
+    {
+      "id": 2,
+      "album_id": 2,
+      "title": "Children's Choir Festival",
+      "title_am": "የህፃናት ዝማሬ ፌስቲቫል",
+      "caption": "Little Lambs and Young Disciples presenting hymns during Sunday feast.",
+      "caption_am": "የህፃናት እና ወጣቶች መዘምራን በበዓለ ንግስ ወቅት መዝሙር ሲያቀርቡ።",
+      "image_url": "assets/images/gallery/gallery_2.svg",
+      "thumb_url": "assets/images/gallery/gallery_2.svg"
+    },
+    {
+      "id": 3,
+      "album_id": 3,
+      "title": "Bible Study & Ge'ez Workshop",
+      "title_am": "የመጽሐፍ ቅዱስና የግዕዝ አውደ-ጥናት",
+      "caption": "Students actively participating in interactive Scripture reading and Ge'ez alphabet study.",
+      "caption_am": "ተማሪዎች በመጽሐፍ ቅዱስ እና በግዕዝ ቋንቋ ትምህርት በንቃት ሲሳተፉ።",
+      "image_url": "assets/images/gallery/gallery_3.svg",
+      "thumb_url": "assets/images/gallery/gallery_3.svg"
+    },
+    {
+      "id": 4,
+      "album_id": 1,
+      "title": "Youth Community Outreach",
+      "title_am": "የወጣቶች የማህበረሰብ አገልግሎት",
+      "caption": "Sunday school youth lending a helping hand to elder community members and church grounds.",
+      "caption_am": "የሰንበት ትምህርት ቤት ወጣቶች ለአረጋውያን ድጋፍና የጽዳት ዘመቻ ሲያደርጉ።",
+      "image_url": "assets/images/gallery/gallery_4.svg",
+      "thumb_url": "assets/images/gallery/gallery_4.svg"
+    },
+    {
+      "id": 5,
+      "album_id": 3,
+      "title": "Orthodox Art & Craft Exhibition",
+      "title_am": "የስነ-ጥበብ እና የእጅ ስራ አውደ-ርዕይ",
+      "caption": "Handmade religious artwork and cross crafting crafted by young students.",
+      "caption_am": "በተማሪዎች የተዘጋጁ ሃይማኖታዊ ስዕሎችና የእጅ ስራዎች።",
+      "image_url": "assets/images/gallery/gallery_5.svg",
+      "thumb_url": "assets/images/gallery/gallery_5.svg"
+    },
+    {
+      "id": 6,
+      "album_id": 2,
+      "title": "Spiritual Retreat & Camp",
+      "title_am": "የመንፈሳዊ ጉባኤና የአንድነት ካምፕ",
+      "caption": "Outdoor spiritual retreat bringing together teachers, students, and parents for prayer and fellowship.",
+      "caption_am": "የመምህራን፣ የተማሪዎች እና የወላጆች የጋራ ጸሎትና የመንፈሳዊ አንድነት ጉባኤ።",
+      "image_url": "assets/images/gallery/gallery_6.svg",
+      "thumb_url": "assets/images/gallery/gallery_6.svg"
+    }
+  ],
+  "has_more": false,
+  "total": 6,
+  "page": 1
+}

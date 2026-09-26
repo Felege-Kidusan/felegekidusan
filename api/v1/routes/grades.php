@@ -320,9 +320,9 @@ if ($action === 'assessments' && $method === 'POST') {
         err('class_id, subject_id, and assessment_name are required');
     }
     
-    // Teachers can only create assessments for their assigned subjects
+    // Assessments are managed exclusively by the Education department (super_admin, school_admin, edu_dept)
     if ($isRestricted) {
-        checkTeacherSubjectAccess($conn, $userId, $userRole, $classId, $subjectId, $yearId);
+        err('Only the Education department can create assessments. Teachers enter grades for assessments configured by the department.', 403);
     }
     
     // Validate max score

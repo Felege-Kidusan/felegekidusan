@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600">
+  <defs>
+    <linearGradient id="heroGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3A0808" />
+      <stop offset="50%" stop-color="#5A1212" />
+      <stop offset="100%" stop-color="#240505" />
+    </linearGradient>
+    <linearGradient id="goldH" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFEAA7" />
+      <stop offset="50%" stop-color="#D4AF37" />
+      <stop offset="100%" stop-color="#8E6516" />
+    </linearGradient>
+    <radialGradient id="sunburst" cx="80%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="rgba(212,175,55,0.25)" />
+      <stop offset="60%" stop-color="rgba(212,175,55,0.05)" />
+      <stop offset="100%" stop-color="rgba(212,175,55,0)" />
+    </radialGradient>
+  </defs>
+  
+  <rect width="1200" height="600" fill="url(#heroGrad)"/>
+  <rect width="1200" height="600" fill="url(#sunburst)"/>
+  
+  <!-- Traditional Ethiopian Decorative Pattern Motifs on top and bottom -->
+  <g fill="none" stroke="url(#goldH)" stroke-width="1.5" opacity="0.3">
+    <!-- Top Geometric Border -->
+    <path d="M 0 15 L 1200 15"/>
+    <path d="M 0 25 L 1200 25"/>
+    <!-- Repeating small crosses/diamonds -->
+    <path d="M 20 20 L 30 10 L 40 20 L 30 30 Z M 70 20 L 80 10 L 90 20 L 80 30 Z M 120 20 L 130 10 L 140 20 L 130 30 Z M 170 20 L 180 10 L 190 20 L 180 30 Z M 220 20 L 230 10 L 240 20 L 230 30 Z M 270 20 L 280 10 L 290 20 L 280 30 Z M 320 20 L 330 10 L 340 20 L 330 30 Z M 370 20 L 380 10 L 390 20 L 380 30 Z M 420 20 L 430 10 L 440 20 L 430 30 Z M 470 20 L 480 10 L 490 20 L 480 30 Z M 520 20 L 530 10 L 540 20 L 530 30 Z M 570 20 L 580 10 L 590 20 L 580 30 Z M 620 20 L 630 10 L 640 20 L 630 30 Z M 670 20 L 680 10 L 690 20 L 680 30 Z M 720 20 L 730 10 L 740 20 L 730 30 Z M 770 20 L 780 10 L 790 20 L 780 30 Z M 820 20 L 830 10 L 840 20 L 830 30 Z M 870 20 L 880 10 L 890 20 L 880 30 Z M 920 20 L 930 10 L 940 20 L 930 30 Z M 970 20 L 980 10 L 990 20 L 980 30 Z M 1020 20 L 1030 10 L 1040 20 L 1030 30 Z M 1070 20 L 1080 10 L 1090 20 L 1080 30 Z M 1120 20 L 1130 10 L 1140 20 L 1130 30 Z M 1170 20 L 1180 10 L 1190 20 L 1180 30 Z"/>
+  </g>
+  
+  <!-- Right Graphic: Large Orthodox Cross & Spiritual Silhouette -->
+  <g transform="translate(950, 300) scale(1.6)" opacity="0.85">
+    <circle cx="0" cy="0" r="110" fill="none" stroke="url(#goldH)" stroke-width="2" stroke-dasharray="8,6"/>
+    <circle cx="0" cy="0" r="85" fill="none" stroke="url(#goldH)" stroke-width="1.5"/>
+    
+    <!-- Central Ethiopian Cross -->
+    <rect x="-6" y="-70" width="12" height="140" fill="url(#goldH)" rx="3"/>
+    <rect x="-50" y="-30" width="100" height="12" fill="url(#goldH)" rx="3"/>
+    <rect x="-30" y="-50" width="60" height="60" fill="none" stroke="url(#goldH)" stroke-width="3" rx="6" transform="rotate(45)"/>
+  </g>
+</svg>

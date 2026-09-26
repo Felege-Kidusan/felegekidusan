@@ -1,0 +1,26 @@
+[
+  {
+    "platform": "telegram",
+    "name": "Telegram Channel",
+    "url": "https://t.me/felegebirhan_ss",
+    "icon": "fa-brands fa-telegram"
+  },
+  {
+    "platform": "youtube",
+    "name": "YouTube Channel",
+    "url": "https://youtube.com/@felegebirhansundayschool",
+    "icon": "fa-brands fa-youtube"
+  },
+  {
+    "platform": "facebook",
+    "name": "Facebook Page",
+    "url": "https://facebook.com/felegebirhansundayschool",
+    "icon": "fa-brands fa-facebook-f"
+  },
+  {
+    "platform": "instagram",
+    "name": "Instagram",
+    "url": "https://instagram.com/felegebirhansundayschool",
+    "icon": "fa-brands fa-instagram"
+  }
+]

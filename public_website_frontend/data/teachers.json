@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "name": "Abba Tekle",
+    "name_am": "አባ ተክለ",
+    "role_title": "Head Teacher",
+    "bio": "20+ years of dedicated service in spiritual guidance and liturgical teaching.",
+    "photo_path": "assets/images/teachers/teacher_1.svg",
+    "sort_order": 1,
+    "is_active": 1
+  },
+  {
+    "id": 2,
+    "name": "Memhir Dawit",
+    "name_am": "መምህር ዳዊት",
+    "role_title": "Ge'ez Teacher",
+    "bio": "Specialized in Biblical Languages, ancient Ge'ez manuscripts, and liturgy.",
+    "photo_path": "assets/images/teachers/teacher_3.svg",
+    "sort_order": 2,
+    "is_active": 1
+  },
+  {
+    "id": 3,
+    "name": "W/ro Marta",
+    "name_am": "ወ/ሮ ማርታ",
+    "role_title": "Children's Ministry",
+    "bio": "Ages 4-8 Coordinator specializing in early childhood faith development.",
+    "photo_path": "assets/images/teachers/teacher_2.svg",
+    "sort_order": 3,
+    "is_active": 1
+  },
+  {
+    "id": 4,
+    "name": "Gashe Solomon",
+    "name_am": "ጋሼ ሰለሞን",
+    "role_title": "Music Director",
+    "bio": "Instructor of Traditional Hymns (Zema), Kebero, and Tsenatsil liturgical arts.",
+    "photo_path": "assets/images/teachers/teacher_4.svg",
+    "sort_order": 4,
+    "is_active": 1
+  }
+]

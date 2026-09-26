@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
+  <defs>
+    <linearGradient id="grad6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2D1111" />
+      <stop offset="50%" stop-color="#551515" />
+      <stop offset="100%" stop-color="#1A0A0A" />
+    </linearGradient>
+    <linearGradient id="goldG6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE590" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#grad6)"/>
+  
+  <!-- Spiritual Retreat / Mountain & Cross Motif -->
+  <g transform="translate(300, 160)">
+    <circle cx="0" cy="-10" r="75" fill="rgba(212,175,55,0.15)"/>
+    <!-- Mountains -->
+    <polygon points="-70,40 -20,-20 30,40" fill="#4A1818" stroke="url(#goldG6)" stroke-width="1.5"/>
+    <polygon points="-10,40 40,-35 80,40" fill="#6A2222" stroke="url(#goldG6)" stroke-width="1.5"/>
+    <!-- Cross on Peak -->
+    <path d="M 40 -50 L 40 -25 M 33 -43 L 47 -43" stroke="url(#goldG6)" stroke-width="3" stroke-linecap="round"/>
+    <!-- Sun -->
+    <circle cx="-35" cy="-25" r="16" fill="url(#goldG6)"/>
+  </g>
+  
+  <!-- Banner -->
+  <rect x="50" y="310" width="500" height="60" rx="12" fill="rgba(0,0,0,0.6)" stroke="url(#goldG6)" stroke-width="1.5"/>
+  <text x="300" y="336" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Spiritual Retreat &amp; Camp</text>
+  <text x="300" y="356" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="13" font-weight="400" fill="#E5C158">የመንፈሳዊ ጉባኤና የአንድነት ካምፕ</text>
+</svg>

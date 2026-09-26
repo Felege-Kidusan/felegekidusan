@@ -726,11 +726,23 @@ $csrfToken = generateCsrfToken();
                 .then(data => {
                     if (data.status === 'success') {
                         if (data.assessments.length === 0) {
-                            select.innerHTML = '<option value="">No assessments configured</option>';
+                            select.innerHTML = '<option value="">-- No assessments configured by Edu Dept --</option>';
+                            document.getElementById('selectGradeMsg').innerHTML = `
+                                <div class="p-6 text-center text-amber-700 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <i class="fa-solid fa-circle-info text-2xl mb-2 text-amber-600"></i>
+                                    <p class="font-semibold text-base">No assessments configured by Education Department</p>
+                                    <p class="text-xs text-amber-600 mt-1 max-w-md mx-auto">Assessments (tests, midterms, finals) are established centrally by the Education Department. Once configured, you will be able to enter student marks here.</p>
+                                </div>
+                            `;
                         } else {
+                            select.innerHTML = '<option value="">-- Select Assessment --</option>';
                             data.assessments.forEach(a => {
-                                select.innerHTML += `<option value="${a.id}">${escapeHtml(a.assessment_name)} (${a.weight_percentage}%)</option>`;
+                                select.innerHTML += `<option value="${a.id}" data-max="${a.max_score}">${escapeHtml(a.assessment_name)} (Max: ${a.max_score} pts • ${a.weight_percentage}%)</option>`;
                             });
+                            document.getElementById('selectGradeMsg').innerHTML = `
+                                <i class="fa-solid fa-clipboard-list text-3xl mb-2"></i>
+                                <p>Select an assessment above to enter student marks.</p>
+                            `;
                         }
                     }
                 });

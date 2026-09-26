@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "title": "Little Lambs",
+    "title_am": "ትንንሽ በጎች",
+    "icon_class": "fa-solid fa-seedling",
+    "description": "Ages 4-6. Foundational spiritual introduction, stories, simple prayers, and sacred hymn beginnings.",
+    "features": "Basic Bible stories\nSimple prayers & hymns\nIntroduction to Ge'ez alphabet\nArts & crafts activities",
+    "sort_order": 1,
+    "is_active": 1
+  },
+  {
+    "id": 2,
+    "title": "Young Disciples",
+    "title_am": "ወጣት ደቀ መዛሙርት",
+    "icon_class": "fa-solid fa-book-bible",
+    "description": "Ages 7-12. Deepening biblical studies, Church history, Ge'ez language, and liturgical chants.",
+    "features": "In-depth Scripture study\nGe'ez language lessons\nChurch history & saints\nLiturgical music training",
+    "sort_order": 2,
+    "is_active": 1
+  },
+  {
+    "id": 3,
+    "title": "Teen Ministry",
+    "title_am": "የወጣቶች አገልግሎት",
+    "icon_class": "fa-solid fa-graduation-cap",
+    "description": "Ages 13-18. Orthodox theology, Christian ethics, leadership development, and youth retreats.",
+    "features": "Advanced theological studies\nLeadership development\nCommunity service projects\nYouth fellowship & retreats",
+    "sort_order": 3,
+    "is_active": 1
+  }
+]

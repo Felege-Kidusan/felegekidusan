@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
+  <defs>
+    <linearGradient id="grad4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3D1818" />
+      <stop offset="50%" stop-color="#6E2323" />
+      <stop offset="100%" stop-color="#240D0D" />
+    </linearGradient>
+    <linearGradient id="goldG4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE590" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#grad4)"/>
+  
+  <!-- Community Care / Heart Hands Icon -->
+  <g transform="translate(300, 150)">
+    <circle cx="0" cy="0" r="75" fill="rgba(212,175,55,0.15)"/>
+    <!-- Hands holding heart -->
+    <path d="M 0 -25 C 0 -45 -35 -45 -35 -15 C -35 10 0 35 0 35 C 0 35 35 10 35 -15 C 35 -45 0 -45 0 -25 Z" fill="url(#goldG4)"/>
+    <!-- Cross in heart -->
+    <path d="M -10 -15 L 10 -15 M 0 -25 L 0 -5" stroke="#800000" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Banner -->
+  <rect x="50" y="310" width="500" height="60" rx="12" fill="rgba(0,0,0,0.6)" stroke="url(#goldG4)" stroke-width="1.5"/>
+  <text x="300" y="336" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Youth Community Outreach</text>
+  <text x="300" y="356" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="13" font-weight="400" fill="#E5C158">የወጣቶች የማህበረሰብ አገልግሎት</text>
+</svg>

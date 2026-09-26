@@ -1,0 +1,132 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
+
+/* ==========================================================================
+   Felege Kidusan Sunday School (FKSS) - Theme Variables & Styles
+   Extracted from index.php
+   ========================================================================== */
+
+:root {
+    --fkss-maroon: #600000;
+    --fkss-maroon-light: #8B2030;
+    --fkss-maroon-dark: #400000;
+    --fkss-gold: #F0C000;
+    --fkss-gold-dark: #E0B020;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+}
+
+.amharic-text {
+    font-family: 'Noto Serif Ethiopic', serif;
+}
+
+/* Hero Section Decorative Background Pattern */
+.hero-pattern {
+    background-color: var(--fkss-maroon-dark);
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23F0C000' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Header & Navigation */
+nav {
+    backdrop-filter: blur(10px);
+    background-color: rgba(64, 0, 0, 0.95);
+    transition: background-color 0.3s ease;
+}
+
+/* Circular Logo / Cross Icon Holder */
+.cross-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--fkss-gold);
+    background-image: url('../assets/logos/school_logo.png');
+    background-size: 80%;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.cross-icon-sm {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--fkss-gold);
+    background-image: url('../assets/logos/school_logo.png');
+    background-size: 80%;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.gradient-text {
+    background: linear-gradient(135deg, var(--fkss-gold) 0%, var(--fkss-gold-dark) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Interactive Card Hover Animations */
+.card-hover {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 20px 40px rgba(96, 0, 0, 0.15);
+}
+
+/* Section Title Gold Underline */
+.section-title::after {
+    content: '';
+    display: block;
+    width: 80px;
+    height: 4px;
+    background: linear-gradient(90deg, var(--fkss-gold), var(--fkss-gold-dark));
+    margin: 10px auto;
+    border-radius: 2px;
+}
+
+/* ==========================================================================
+   FKSS PALETTE REMAP
+   Remaps standard Tailwind color utility classes to official FKSS brand colors
+   ========================================================================== */
+.text-green-900 { color: var(--fkss-maroon-dark) !important; }
+.text-green-800 { color: var(--fkss-maroon) !important; }
+.text-green-700 { color: var(--fkss-maroon) !important; }
+.text-green-600 { color: var(--fkss-maroon-light) !important; }
+
+.bg-green-900 { background-color: var(--fkss-maroon-dark) !important; }
+.bg-green-800 { background-color: var(--fkss-maroon) !important; }
+.bg-green-700 { background-color: var(--fkss-maroon) !important; }
+.bg-green-600 { background-color: var(--fkss-maroon-light) !important; }
+.bg-green-50  { background-color: #faf3e8 !important; }
+
+.border-green-600, .border-green-700, .border-green-800 { border-color: var(--fkss-maroon) !important; }
+
+.hover\:text-green-900:hover { color: var(--fkss-maroon-dark) !important; }
+.hover\:bg-green-900:hover { background-color: var(--fkss-maroon-dark) !important; }
+
+/* Tailwind gradient stops (from-green / to-green) */
+.from-green-800 { 
+    --tw-gradient-from: var(--fkss-maroon) !important; 
+    --tw-gradient-to: rgba(96,0,0,0) !important; 
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; 
+}
+.from-green-700 { 
+    --tw-gradient-from: var(--fkss-maroon) !important; 
+    --tw-gradient-to: rgba(96,0,0,0) !important; 
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important; 
+}
+.to-green-600 { 
+    --tw-gradient-to: var(--fkss-maroon-light) !important; 
+}
+
+/* Yellow → Gold remap */
+.text-yellow-300 { color: #ffe082 !important; }
+.text-yellow-400 { color: var(--fkss-gold) !important; }
+.text-yellow-500 { color: var(--fkss-gold-dark) !important; }
+.bg-yellow-500 { background-color: var(--fkss-gold) !important; }
+.hover\:bg-yellow-600:hover { background-color: var(--fkss-gold-dark) !important; }
+.border-yellow-500 { border-color: var(--fkss-gold) !important; }
+.hover\:bg-yellow-500:hover { background-color: var(--fkss-gold) !important; }

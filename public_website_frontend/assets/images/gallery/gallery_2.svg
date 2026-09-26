@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
+  <defs>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#360000" />
+      <stop offset="50%" stop-color="#6B0000" />
+      <stop offset="100%" stop-color="#1A0000" />
+    </linearGradient>
+    <linearGradient id="goldG2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE590" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#grad2)"/>
+  
+  <!-- Musical Wave Background -->
+  <path d="M 0 200 Q 150 120 300 200 T 600 200" fill="none" stroke="rgba(212,175,55,0.2)" stroke-width="4"/>
+  <path d="M 0 220 Q 150 140 300 220 T 600 220" fill="none" stroke="rgba(212,175,55,0.15)" stroke-width="2"/>
+  
+  <!-- Kebero / Traditional Drum & Sistrum (Tsenatsil) Icon -->
+  <g transform="translate(300, 150)">
+    <!-- Traditional Drum -->
+    <ellipse cx="-40" cy="0" rx="35" ry="50" fill="url(#goldG2)"/>
+    <ellipse cx="-40" cy="0" rx="28" ry="42" fill="#800000"/>
+    <ellipse cx="-40" cy="0" rx="18" ry="28" fill="#FCE590"/>
+    
+    <!-- Sistrum / Tsenatsil -->
+    <path d="M 40 -40 L 40 40 L 50 40 L 50 55 L 30 55 L 30 40 L 40 40" stroke="url(#goldG2)" stroke-width="6" fill="none"/>
+    <path d="M 25 -30 L 55 -30 M 25 -10 L 55 -10 M 25 10 L 55 10" stroke="url(#goldG2)" stroke-width="3"/>
+  </g>
+  
+  <!-- Banner -->
+  <rect x="50" y="310" width="500" height="60" rx="12" fill="rgba(0,0,0,0.6)" stroke="url(#goldG2)" stroke-width="1.5"/>
+  <text x="300" y="336" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Children's Choir Festival</text>
+  <text x="300" y="356" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="13" font-weight="400" fill="#E5C158">የህፃናት ዝማሬ ፌስቲቫል</text>
+</svg>

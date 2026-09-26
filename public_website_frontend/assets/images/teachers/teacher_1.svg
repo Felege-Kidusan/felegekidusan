@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDF8F0" />
+      <stop offset="100%" stop-color="#F5E6CC" />
+    </linearGradient>
+    <linearGradient id="maroon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#800000" />
+      <stop offset="100%" stop-color="#550000" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E5C158" />
+      <stop offset="100%" stop-color="#C59B27" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg1)"/>
+  <circle cx="200" cy="200" r="160" fill="none" stroke="url(#gold)" stroke-width="2" stroke-dasharray="6,4"/>
+  
+  <!-- Stylized Deacon / Teacher Avatar -->
+  <circle cx="200" cy="140" r="55" fill="#8D5524"/>
+  <!-- Hair & Beard -->
+  <path d="M 145 140 Q 145 75 200 75 Q 255 75 255 140 Q 255 170 240 180 Q 200 215 160 180 Z" fill="#222"/>
+  <circle cx="200" cy="145" r="46" fill="#8D5524"/>
+  <!-- Eyes & Smile -->
+  <circle cx="185" cy="140" r="4" fill="#222"/>
+  <circle cx="215" cy="140" r="4" fill="#222"/>
+  <path d="M 190 160 Q 200 168 210 160" stroke="#222" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Traditional Robe (Tibebe / Netela) -->
+  <path d="M 110 350 L 110 260 Q 140 210 200 210 Q 260 210 290 260 L 290 350 Z" fill="url(#maroon)"/>
+  <!-- Gold Stole / Cross -->
+  <path d="M 175 210 L 175 350 L 225 350 L 225 210 Z" fill="url(#gold)"/>
+  <path d="M 185 240 L 215 240 M 200 228 L 200 252" stroke="#800000" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 185 290 L 215 290 M 200 278 L 200 302" stroke="#800000" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Name Tag Badge -->
+  <rect x="80" y="320" width="240" height="42" rx="21" fill="#FFFFFF" stroke="url(#gold)" stroke-width="2"/>
+  <text x="200" y="346" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="14" font-weight="700" fill="#800000">Deacon Daniel Mekonnen</text>
+</svg>

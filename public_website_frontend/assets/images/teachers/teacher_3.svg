@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDF8F0" />
+      <stop offset="100%" stop-color="#F5E6CC" />
+    </linearGradient>
+    <linearGradient id="maroon3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#800000" />
+      <stop offset="100%" stop-color="#550000" />
+    </linearGradient>
+    <linearGradient id="gold3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E5C158" />
+      <stop offset="100%" stop-color="#C59B27" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg3)"/>
+  <circle cx="200" cy="200" r="160" fill="none" stroke="url(#gold3)" stroke-width="2" stroke-dasharray="6,4"/>
+  
+  <!-- Teacher Avatar with traditional Ethiopian Orthodox Memhir hat / Kob -->
+  <!-- Kob Hat -->
+  <rect x="160" y="55" width="80" height="50" rx="6" fill="#1A1A1A"/>
+  <path d="M 150 100 L 250 100 L 245 106 L 155 106 Z" fill="url(#gold3)"/>
+  
+  <circle cx="200" cy="148" r="45" fill="#75431D"/>
+  <path d="M 155 145 Q 155 180 200 205 Q 245 180 245 145" fill="#1A1A1A"/>
+  <circle cx="200" cy="145" r="38" fill="#75431D"/>
+  <circle cx="188" cy="140" r="3.5" fill="#1A1A1A"/>
+  <circle cx="212" cy="140" r="3.5" fill="#1A1A1A"/>
+  <path d="M 192 158 Q 200 166 208 158" stroke="#1A1A1A" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  
+  <!-- Robe -->
+  <path d="M 110 350 L 115 250 Q 145 205 200 205 Q 255 205 285 250 L 290 350 Z" fill="url(#maroon3)"/>
+  <circle cx="200" cy="240" r="14" fill="url(#gold3)"/>
+  <path d="M 194 240 L 206 240 M 200 234 L 200 246" stroke="#800000" stroke-width="2"/>
+  <path d="M 188 260 L 212 260 L 208 350 L 192 350 Z" fill="url(#gold3)"/>
+
+  <!-- Name Tag Badge -->
+  <rect x="80" y="320" width="240" height="42" rx="21" fill="#FFFFFF" stroke="url(#gold3)" stroke-width="2"/>
+  <text x="200" y="346" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="14" font-weight="700" fill="#800000">Memhir Yohannes Abebe</text>
+</svg>

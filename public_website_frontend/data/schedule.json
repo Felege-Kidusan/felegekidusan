@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "day_of_week": "Sunday",
+    "day_of_week_am": "እሁድ",
+    "time_label": "9:00 AM - 12:00 PM",
+    "activity": "Main Sunday School Classes & Liturgical Hymns",
+    "activity_am": "ዋናው የሰንበት ትምህርት ቤት ክፍለ ጊዜ እና የመዝሙር ልምምድ",
+    "location": "Main Church Hall & Classrooms",
+    "details": "9:00 - 9:30: Morning Prayer & Hymns\n9:30 - 10:30: Bible Study (Age Groups)\n10:30 - 11:15: Ge'ez Language Class\n11:15 - 12:00: Church History & Activities",
+    "sort_order": 1,
+    "is_active": 1
+  },
+  {
+    "id": 2,
+    "day_of_week": "Wednesday",
+    "day_of_week_am": "ረቡዕ",
+    "time_label": "6:00 PM - 7:30 PM",
+    "activity": "Evening Prayer Service & Youth Fellowship",
+    "activity_am": "የምሽት ጸሎትና የወጣቶች የውይይት መድረክ",
+    "location": "Youth Fellowship Room",
+    "details": "Evening Prayer Service\nYouth Fellowship & Discussion Groups",
+    "sort_order": 2,
+    "is_active": 1
+  },
+  {
+    "id": 3,
+    "day_of_week": "Saturday",
+    "day_of_week_am": "ቅዳሜ",
+    "time_label": "2:00 PM - 4:00 PM",
+    "activity": "Special Activities & Traditional Music Practice",
+    "activity_am": "ልዩ ልዩ ተግባራት፣ የከበሮና የጸናጽል ልምምድ፣ ስነ-ጥበብ",
+    "location": "Church Grounds & Choir Center",
+    "details": "Special Activities Day\nMusic Practice, Arts, Sports & Community Service",
+    "sort_order": 3,
+    "is_active": 1
+  }
+]

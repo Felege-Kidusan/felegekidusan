@@ -29,9 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
-requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'save_grades']);
+requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template', 'save_grades']);
 $__gradeActions = [
-    'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment',
+    'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',
     'get_students_for_grading', 'save_grades', 'get_grade_summary',
 ];
 if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
@@ -46,7 +46,7 @@ if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
 // assessments is education-staff work. Block those for teachers.
 $__manageActions = [
     'create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes',
-    'create_assessment', 'update_assessment', 'delete_assessment',
+    'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',
 ];
 if (in_array($action, $__manageActions, true)) {
     $__role = $_SESSION['admin_role'] ?? '';
@@ -95,7 +95,7 @@ function edu_require_assignment(mysqli $conn, int $teacherId, int $classId, int 
 // Refuse writes while time-travelling. Year-scoped writes (assessments, grades,
 // class-subject assignment) additionally require an active year to stamp.
 if (function_exists('ay_require_writable')) {
-    $ayYearScopedWrites = ['assign_subject_to_classes','create_assessment','update_assessment','delete_assessment','save_grades'];
+    $ayYearScopedWrites = ['assign_subject_to_classes','create_assessment','update_assessment','delete_assessment','apply_assessment_template','save_grades'];
     $ayReadonlyBlocked  = ['create_subject','update_subject','delete_subject'];
     if (in_array($action, $ayYearScopedWrites, true)) {
         ay_require_writable($conn);
@@ -446,7 +446,7 @@ switch ($action) {
         $subjectId = (int)($_POST['subject_id'] ?? 0);
         $name = trim($_POST['assessment_name'] ?? '');
         $type = $_POST['assessment_type'] ?? 'test';
-        $weight = (float)($_POST['weight_percentage'] ?? 0);
+        $weight = (float)($_POST['weight_percentage'] ?? $_POST['weight'] ?? 0);
         $maxScore = (float)($_POST['max_score'] ?? 100);
         $description = trim($_POST['description'] ?? '');
         $dueDate = $_POST['due_date'] ?? null;
@@ -523,12 +523,154 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Unable to save the record.']);
         }
         break;
+
+    case 'apply_assessment_template':
+        $classId = (int)($_POST['class_id'] ?? 0);
+        $targetSubjectId = (int)($_POST['subject_id'] ?? 0);
+        $rawItems = $_POST['items'] ?? '[]';
+        $items = is_array($rawItems) ? $rawItems : (json_decode($rawItems, true) ?: []);
+
+        if (!$classId || empty($items)) {
+            echo json_encode(['status' => 'error', 'message' => 'Class and assessment items are required']);
+            exit;
+        }
+
+        if (!$currentYear) {
+            echo json_encode(['status' => 'error', 'message' => 'No active academic year']);
+            exit;
+        }
+
+        // Validate template items
+        $totalWeight = 0;
+        foreach ($items as $it) {
+            $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
+            $maxS = (float)($it['max_score'] ?? 100);
+            $name = trim($it['name'] ?? $it['assessment_name'] ?? '');
+            if (empty($name) || $w <= 0 || $maxS <= 0) {
+                echo json_encode(['status' => 'error', 'message' => 'Each assessment item must have a name, valid max score, and positive weight.']);
+                exit;
+            }
+            $totalWeight += $w;
+        }
+
+        if ($totalWeight > 100) {
+            echo json_encode(['status' => 'error', 'message' => "Total template weight is {$totalWeight}%, which exceeds 100%."]);
+            exit;
+        }
+
+        // Determine target subjects
+        $subjectIds = [];
+        if ($targetSubjectId > 0) {
+            $subjectIds[] = $targetSubjectId;
+        } else {
+            $stmt = $conn->prepare("SELECT subject_id FROM class_subjects WHERE class_id = ?");
+            $stmt->bind_param("i", $classId);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($r = $res->fetch_assoc()) {
+                $subjectIds[] = (int)$r['subject_id'];
+            }
+            $stmt->close();
+
+            if (empty($subjectIds)) {
+                // If no class_subjects assigned yet, fetch all active subjects
+                $res = $conn->query("SELECT id FROM subjects WHERE is_active = 1");
+                while ($r = $res->fetch_assoc()) {
+                    $subjectIds[] = (int)$r['id'];
+                }
+            }
+        }
+
+        if (empty($subjectIds)) {
+            echo json_encode(['status' => 'error', 'message' => 'No subjects found for this class.']);
+            exit;
+        }
+
+        // Get current term
+        $termId = null;
+        $termResult = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
+        if ($termResult && $term = $termResult->fetch_assoc()) {
+            $termId = (int)$term['id'];
+        }
+
+        $createdBy = (int)$_SESSION['admin_id'];
+        $appliedCount = 0;
+        $skippedCount = 0;
+
+        $conn->begin_transaction();
+        try {
+            foreach ($subjectIds as $sid) {
+                // Check if existing assessments have grades recorded
+                $stmt = $conn->prepare("
+                    SELECT COUNT(*) as grade_count 
+                    FROM academic_records ar
+                    JOIN assessments a ON ar.assessment_id = a.id
+                    WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
+                ");
+                $stmt->bind_param("iii", $classId, $sid, $currentYear['id']);
+                $stmt->execute();
+                $hasGrades = (int)$stmt->get_result()->fetch_assoc()['grade_count'] > 0;
+                $stmt->close();
+
+                if ($hasGrades) {
+                    $skippedCount++;
+                    continue; // Do not overwrite existing graded assessments
+                }
+
+                // Delete previous un-graded assessments for this class-subject
+                $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
+                $stmt->bind_param("iii", $classId, $sid, $currentYear['id']);
+                $stmt->execute();
+                $stmt->close();
+
+                // Insert new assessment items
+                $order = 1;
+                foreach ($items as $it) {
+                    $name = trim($it['name'] ?? $it['assessment_name'] ?? '');
+                    $type = $it['type'] ?? $it['assessment_type'] ?? 'test';
+                    $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
+                    $maxS = (float)($it['max_score'] ?? 100);
+                    $desc = trim($it['description'] ?? '');
+
+                    $ins = $conn->prepare("
+                        INSERT INTO assessments 
+                        (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
+                         weight_percentage, max_score, description, assessment_order, created_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $ins->bind_param("iiiissddssi", $classId, $sid, $currentYear['id'], $termId, $name, $type, $w, $maxS, $desc, $order, $createdBy);
+                    $ins->execute();
+                    $ins->close();
+                    $order++;
+                }
+                $appliedCount++;
+            }
+
+            $conn->commit();
+
+            $msg = "Assessment scheme applied to {$appliedCount} subject(s).";
+            if ($skippedCount > 0) {
+                $msg .= " ({$skippedCount} subject(s) skipped because grades were already recorded).";
+            }
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => $msg,
+                'applied_count' => $appliedCount,
+                'skipped_count' => $skippedCount
+            ]);
+        } catch (Throwable $e) {
+            $conn->rollback();
+            reportInternalError('apply_assessment_template failed', $e);
+            echo json_encode(['status' => 'error', 'message' => 'Failed to apply assessment template: ' . $e->getMessage()]);
+        }
+        break;
     
     case 'update_assessment':
         $id = (int)($_POST['assessment_id'] ?? 0);
         $name = trim($_POST['assessment_name'] ?? '');
         $type = $_POST['assessment_type'] ?? 'test';
-        $weight = (float)($_POST['weight_percentage'] ?? 0);
+        $weight = (float)($_POST['weight_percentage'] ?? $_POST['weight'] ?? 0);
         $maxScore = (float)($_POST['max_score'] ?? 100);
         $description = trim($_POST['description'] ?? '');
         $dueDate = $_POST['due_date'] ?? null;

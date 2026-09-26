@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4A0000" />
+      <stop offset="50%" stop-color="#800000" />
+      <stop offset="100%" stop-color="#2B0000" />
+    </linearGradient>
+    <linearGradient id="goldG" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE590" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#grad1)"/>
+  
+  <!-- Rays / Background Light -->
+  <circle cx="300" cy="180" r="160" fill="none" stroke="rgba(212,175,55,0.15)" stroke-width="40"/>
+  <circle cx="300" cy="180" r="110" fill="none" stroke="rgba(212,175,55,0.25)" stroke-width="20"/>
+  
+  <!-- Graduation Cap & Certificate Icon -->
+  <g transform="translate(300, 160) scale(1.4)">
+    <polygon points="0,-35 45,-15 0,5 -45,-15" fill="url(#goldG)"/>
+    <polygon points="-25,-5 -25,18 25,18 25,-5 0,6" fill="#FCE590"/>
+    <path d="M 40,-13 L 42,15 L 36,25 L 48,25 L 42,15" fill="#D4AF37"/>
+    <!-- Scroll -->
+    <rect x="-35" y="30" width="70" height="16" rx="4" fill="#FFFFFF"/>
+    <rect x="-5" y="28" width="10" height="20" rx="2" fill="url(#goldG)"/>
+  </g>
+  
+  <!-- Heading / Caption Banner -->
+  <rect x="50" y="310" width="500" height="60" rx="12" fill="rgba(0,0,0,0.6)" stroke="url(#goldG)" stroke-width="1.5"/>
+  <text x="300" y="336" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Annual Graduation Ceremony</text>
+  <text x="300" y="356" text-anchor="middle" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="13" font-weight="400" fill="#E5C158">ዓመታዊ የምረቃ በዓል</text>
+</svg>

@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "platform": "facebook",
+    "url": "https://facebook.com/felegekidusan",
+    "icon_class": "fa-brands fa-facebook",
+    "label": "Facebook",
+    "sort_order": 1,
+    "is_active": 1
+  },
+  {
+    "id": 2,
+    "platform": "telegram",
+    "url": "https://t.me/felegekidusan",
+    "icon_class": "fa-brands fa-telegram",
+    "label": "Telegram",
+    "sort_order": 2,
+    "is_active": 1
+  },
+  {
+    "id": 3,
+    "platform": "youtube",
+    "url": "https://youtube.com/@felegekidusan",
+    "icon_class": "fa-brands fa-youtube",
+    "label": "YouTube",
+    "sort_order": 3,
+    "is_active": 1
+  }
+]
