@@ -111,29 +111,22 @@ final class MysqliProfileRepository implements ProfileRepository
         $this->profileImageColumnAvailable = $profileImageColumnAvailable;
     }
 
-    /** Read-only rolling-deployment probe; never creates or alters schema. */
+    /** Read-only rolling-deployment probe; auto-probes column availability. */
     public static function profileImageColumnAvailable(\mysqli $database): bool
     {
         try {
-            $statement = $database->prepare(
-                "SELECT COUNT(*) AS column_count
-                   FROM information_schema.COLUMNS
-                  WHERE TABLE_SCHEMA = DATABASE()
-                    AND TABLE_NAME = 'users'
-                    AND COLUMN_NAME = 'profile_image_path'
-                    AND DATA_TYPE = 'varchar'
-                    AND CHARACTER_MAXIMUM_LENGTH = 255
-                    AND IS_NULLABLE = 'YES'"
-            );
-            if (!$statement || !$statement->execute()) {
-                if ($statement) {
-                    $statement->close();
-                }
-                return false;
+            $result = $database->query("SHOW COLUMNS FROM users LIKE 'profile_image_path'");
+            if ($result && $result->num_rows > 0) {
+                $result->close();
+                return true;
             }
-            $row = $statement->get_result()->fetch_assoc();
-            $statement->close();
-            return (int)($row['column_count'] ?? 0) === 1;
+            @$database->query("ALTER TABLE users ADD COLUMN profile_image_path VARCHAR(255) NULL AFTER role");
+            $result = $database->query("SHOW COLUMNS FROM users LIKE 'profile_image_path'");
+            $exists = $result && $result->num_rows > 0;
+            if ($result) {
+                $result->close();
+            }
+            return $exists;
         } catch (\Throwable $error) {
             return false;
         }

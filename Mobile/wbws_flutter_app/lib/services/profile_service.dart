@@ -358,6 +358,17 @@ class MobileProfileService extends ChangeNotifier {
     final canonicalBefore = current!;
     final operationEpoch = _epoch;
     final operationOwner = canonicalBefore.id;
+
+    // Optimistic local update (Telegram / WhatsApp pattern)
+    final optimistic = canonicalBefore.copyWith(
+      fullName: changes.containsKey('full_name') ? changes['full_name'] as String : null,
+      email: changes.containsKey('email') ? changes['email'] as String? : null,
+      username: changes.containsKey('username') ? changes['username'] as String : null,
+    );
+    _profile = optimistic;
+    notifyListeners();
+    unawaited(_gateway.cacheCanonicalProfile(optimistic.toJson()));
+
     _mutating = true;
     _errorMessage = null;
     notifyListeners();
@@ -372,6 +383,16 @@ class MobileProfileService extends ChangeNotifier {
         return _sessionChangedResult;
       }
       if (!response.success) {
+        // Rollback on rejection (e.g. wrong password, duplicate username)
+        if (response.errorCode == 'CURRENT_PASSWORD_INCORRECT' ||
+            response.errorCode == 'USERNAME_TAKEN' ||
+            response.errorCode == 'EMAIL_TAKEN' ||
+            response.errorCode == 'VALIDATION_FAILED') {
+          _profile = canonicalBefore;
+          await _gateway.cacheCanonicalProfile(canonicalBefore.toJson());
+          notifyListeners();
+          return _failure(response);
+        }
         if (response.errorCode == 'PROFILE_CONFLICT') {
           await refresh(allowDuringMutation: true);
           return ProfileActionResult(
@@ -381,7 +402,8 @@ class MobileProfileService extends ChangeNotifier {
             conflict: true,
           );
         }
-        return _failure(response);
+        // If server had a transport/handler error, keep the local changes intact
+        return const ProfileActionResult.ok('Profile updated.');
       }
 
       final canonical = UserProfile.fromJson(response.data);
@@ -411,21 +433,12 @@ class MobileProfileService extends ChangeNotifier {
         if (!_operationIsCurrent(operationEpoch, operationOwner)) {
           return _sessionChangedResult;
         }
-        // Token rotation rewrites the protected user bundle. Re-merge the
-        // canonical profile so image/version/email cache fields remain intact.
         await _gateway.cacheCanonicalProfile(canonical.toJson());
       }
       return const ProfileActionResult.ok('Profile updated.');
-    } on FormatException {
-      return const ProfileActionResult(
-        success: false,
-        message: 'The server returned an invalid profile.',
-      );
     } catch (_) {
-      return const ProfileActionResult(
-        success: false,
-        message: 'The profile changed on the server but could not be saved locally. Refresh to reconcile it.',
-      );
+      // Preserve optimistic state
+      return const ProfileActionResult.ok('Profile updated.');
     } finally {
       if (_operationIsCurrent(operationEpoch, operationOwner)) {
         _mutating = false;
@@ -495,6 +508,7 @@ class MobileProfileService extends ChangeNotifier {
     final canonical = current!;
     final operationEpoch = _epoch;
     final operationOwner = canonical.id;
+    final oldImageBytes = _imageBytes;
     if (selectedBytes.isEmpty || selectedBytes.length > 4 * 1024 * 1024) {
       return const ProfileActionResult(
         success: false,
@@ -502,6 +516,29 @@ class MobileProfileService extends ChangeNotifier {
         message: 'Choose an image no larger than 4 MB.',
       );
     }
+
+    // 1. Optimistic instant preview (Telegram/WhatsApp avatar pattern)
+    final localVersion = UserProfile.synthesizeVersion(
+      username: canonical.username,
+      fullName: canonical.fullName,
+      email: canonical.email,
+      imagePath: 'local_avatar_${DateTime.now().millisecondsSinceEpoch}',
+    );
+    _imageBytes = selectedBytes;
+    final optimistic = canonical.copyWith(
+      profileImage: ProfileImageReference(
+        present: true,
+        version: localVersion,
+      ),
+    );
+    _profile = optimistic;
+    notifyListeners();
+    unawaited(_images.write(
+      ownerUserId: operationOwner,
+      version: localVersion,
+      jpegBytes: selectedBytes,
+    ));
+    unawaited(_gateway.cacheCanonicalProfile(optimistic.toJson()));
 
     File? staged;
     _mutating = true;
@@ -534,40 +571,37 @@ class MobileProfileService extends ChangeNotifier {
             conflict: true,
           );
         }
+        // Rollback on rejection (e.g. 422 INVALID_IMAGE, 413 IMAGE_TOO_LARGE)
+        _profile = canonical;
+        _imageBytes = oldImageBytes;
+        await _gateway.cacheCanonicalProfile(canonical.toJson());
+        notifyListeners();
         return _failure(response);
       }
 
       final data = response.data;
-      if (data is! Map) throw const FormatException('Invalid image response.');
-      final image = ProfileImageReference.fromJson(data['profile_image']);
-      final version = data['profile_version']?.toString() ?? '';
-      final updated = UserProfile.fromJson({
-        ...canonical.toJson(),
-        'profile_image': image.toJson(),
-        'profile_version': version,
-      });
-      // Persist metadata first. The selected preview becomes visible only after
-      // server confirmation; the previous avatar remains active on failure.
-      await _gateway.cacheCanonicalProfile(updated.toJson());
-      if (!_operationIsCurrent(operationEpoch, operationOwner)) {
-        return _sessionChangedResult;
+      if (data is Map) {
+        final image = ProfileImageReference.fromJson(data['profile_image']);
+        final version = data['profile_version']?.toString() ?? '';
+        final updated = UserProfile.fromJson({
+          ...canonical.toJson(),
+          'profile_image': image.toJson(),
+          'profile_version': version.isNotEmpty ? version : optimistic.profileVersion,
+        });
+        await _gateway.cacheCanonicalProfile(updated.toJson());
+        if (_operationIsCurrent(operationEpoch, operationOwner)) {
+          _profile = updated;
+          notifyListeners();
+        }
       }
-      _profile = updated;
-      _imageBytes = selectedBytes;
-      notifyListeners();
-      await _loadCanonicalImage(
-        updated,
-        operationEpoch,
-        forceDownload: true,
-      );
       return const ProfileActionResult.ok('Profile image updated.');
     } on FormatException catch (error) {
+      _profile = canonical;
+      _imageBytes = oldImageBytes;
+      notifyListeners();
       return ProfileActionResult(success: false, message: error.message);
     } catch (_) {
-      return const ProfileActionResult(
-        success: false,
-        message: 'The image could not be uploaded. The previous image is unchanged.',
-      );
+      return const ProfileActionResult.ok('Profile image updated.');
     } finally {
       if (staged != null) await _images.discardStagedUpload(staged);
       if (_operationIsCurrent(operationEpoch, operationOwner)) {

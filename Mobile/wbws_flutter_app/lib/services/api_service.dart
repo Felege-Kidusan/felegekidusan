@@ -1145,20 +1145,51 @@ class ApiService {
     final sentToken = _token;
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
-      Future<http.Response> send() {
+      Future<http.Response> send({String? httpMethod, Map<String, String>? extraHeaders}) {
         final headers = _headers();
+        if (extraHeaders != null) headers.addAll(extraHeaders);
+        final m = httpMethod ?? method;
         final encoded = jsonEncode(body);
-        if (method == 'PATCH') {
+        if (m == 'PATCH') {
           return _http
               .patch(uri, headers: headers, body: encoded)
               .timeout(Duration(seconds: AppConfig.postTimeout));
+        } else if (m == 'PUT') {
+          return _http
+              .put(uri, headers: headers, body: encoded)
+              .timeout(Duration(seconds: AppConfig.postTimeout));
+        } else if (m == 'DELETE') {
+          return _http
+              .delete(uri, headers: headers, body: encoded)
+              .timeout(Duration(seconds: AppConfig.postTimeout));
         }
         return _http
-            .delete(uri, headers: headers, body: encoded)
+            .post(uri, headers: headers, body: encoded)
             .timeout(Duration(seconds: AppConfig.postTimeout));
       }
 
       var response = await send();
+      // Telegram/WhatsApp fallback: If server or proxy rejects PATCH with 404/405,
+      // transparently retry with POST + X-HTTP-Method-Override and POST field
+      if ((response.statusCode == 404 || response.statusCode == 405) &&
+          (response.body.contains('No handler') || response.body.contains('not allowed') || response.body.contains('404'))) {
+        final postHeaders = {
+          ..._headers(),
+          'X-HTTP-Method-Override': method,
+        };
+        final postBody = {
+          ...body,
+          '_method': method,
+        };
+        response = await _http
+            .post(
+              uri,
+              headers: postHeaders,
+              body: jsonEncode(postBody),
+            )
+            .timeout(Duration(seconds: AppConfig.postTimeout));
+      }
+
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }
@@ -1199,10 +1230,11 @@ class ApiService {
     final generation = _requestGeneration;
     final sentToken = _token;
     try {
-      Future<http.Response> send() async {
+      Future<http.Response> send({String? url}) async {
+        final targetUrl = url ?? '${AppConfig.apiBaseUrl}/users/me/profile-image';
         final request = http.MultipartRequest(
           'POST',
-          Uri.parse('${AppConfig.apiBaseUrl}/users/me/profile-image'),
+          Uri.parse(targetUrl),
         )
           ..fields['profile_version'] = profileVersion
           ..files.add(await http.MultipartFile.fromPath('image', filePath));
@@ -1216,6 +1248,12 @@ class ApiService {
       }
 
       var response = await send();
+      if ((response.statusCode == 404 || response.statusCode == 405) &&
+          response.body.contains('No handler')) {
+        // Fallback to alternative endpoint path
+        response = await send(url: '${AppConfig.apiBaseUrl}/users/profile-image');
+      }
+
       if (!_generationIsCurrent(generation)) {
         return ApiResponse.superseded(generation);
       }

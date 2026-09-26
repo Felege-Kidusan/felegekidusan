@@ -295,9 +295,10 @@ function usersApiImageError(\Throwable $error): void
 }
 
 // ============================================================
-// /users/me/profile-image — no route or request target id exists.
+// /users/me/profile-image or /users/profile-image
 // ============================================================
-if ($action === 'me' && $subAction === 'profile-image') {
+if (($action === 'me' && $subAction === 'profile-image')
+    || ($action === 'profile-image' && $subAction === '')) {
     usersApiRejectOwnerParameters();
     $imageService = usersApiImageService($conn, $profileImageSchemaReady);
 
@@ -400,9 +401,10 @@ if ($action === 'me' && $subAction === '' && $method === 'GET') {
 }
 
 // ============================================================
-// PATCH /users/me — optimistic self-service profile mutation.
+// PATCH / PUT / POST /users/me — optimistic self-service profile mutation.
 // ============================================================
-if ($action === 'me' && $subAction === '' && $method === 'PATCH') {
+if ((($action === 'me' && $subAction === '') || $action === 'profile-update' || $action === 'update')
+    && in_array($method, ['PATCH', 'PUT', 'POST'], true)) {
     $body = getBody();
     $profileVersion = usersApiRequireProfileVersion($body);
     $profileIp = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
