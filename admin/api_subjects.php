@@ -382,7 +382,7 @@ switch ($action) {
         }
         
         $sql = "SELECT a.*, 
-                (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id) as grades_entered
+                (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id AND ar.score IS NOT NULL) as grades_entered
                 FROM assessments a
                 WHERE a.academic_year_id = ?";
         $params = [$currentYear['id']];
@@ -421,8 +421,46 @@ switch ($action) {
         $stmt->execute();
         $result = $stmt->get_result();
         
+        $classCounts = [];
         $assessments = [];
         while ($row = $result->fetch_assoc()) {
+            $cid = (int)$row['class_id'];
+            $yid = (int)$row['academic_year_id'];
+            $ckey = $cid . '-' . $yid;
+            if (!isset($classCounts[$ckey])) {
+                $totalSt = 0;
+                if (class_exists('\\App\\Services\\EnrollmentService')) {
+                    $scope = \App\Services\EnrollmentService::resolveRosterYear($conn, $cid, $yid);
+                    $totalSt = (int)($scope['count'] ?? 0);
+                }
+                if ($totalSt <= 0) {
+                    $cstmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM class_enrollments WHERE class_id = ? AND status = 'active' AND (academic_year_id = ? OR academic_year_id IS NULL OR academic_year_id = 0)");
+                    if ($cstmt) {
+                        $cstmt->bind_param('ii', $cid, $yid);
+                        $cstmt->execute();
+                        $totalSt = (int)($cstmt->get_result()->fetch_assoc()['cnt'] ?? 0);
+                        $cstmt->close();
+                    }
+                }
+                $classCounts[$ckey] = $totalSt;
+            }
+
+            $ge = (int)($row['grades_entered'] ?? 0);
+            $ts = $classCounts[$ckey];
+            $row['id'] = (int)$row['id'];
+            $row['class_id'] = (int)$row['class_id'];
+            $row['subject_id'] = (int)$row['subject_id'];
+            $row['academic_year_id'] = (int)$row['academic_year_id'];
+            $row['weight_percentage'] = (float)$row['weight_percentage'];
+            $row['max_score'] = (float)$row['max_score'];
+            $row['grades_entered'] = $ge;
+            $row['graded_count'] = $ge;
+            $row['total_students'] = $ts;
+            $row['student_count'] = $ts;
+            $row['pending_count'] = max(0, $ts - $ge);
+            $row['completion_percentage'] = $ts > 0 ? round(($ge / $ts) * 100, 1) : 0;
+            $row['is_complete'] = ($ts > 0 && $ge >= $ts);
+
             $assessments[] = $row;
         }
         
@@ -442,17 +480,16 @@ switch ($action) {
         break;
     
     case 'create_assessment':
-        $classId = (int)($_POST['class_id'] ?? 0);
-        $subjectId = (int)($_POST['subject_id'] ?? 0);
         $name = trim($_POST['assessment_name'] ?? '');
         $type = $_POST['assessment_type'] ?? 'test';
         $weight = (float)($_POST['weight_percentage'] ?? $_POST['weight'] ?? 0);
         $maxScore = (float)($_POST['max_score'] ?? 100);
         $description = trim($_POST['description'] ?? '');
         $dueDate = $_POST['due_date'] ?? null;
+        if (empty($dueDate)) $dueDate = null;
         
-        if (!$classId || !$subjectId || empty($name) || $weight <= 0) {
-            echo json_encode(['status' => 'error', 'message' => 'Class, subject, name, and weight are required']);
+        if (empty($name) || $weight <= 0 || $maxScore <= 0) {
+            echo json_encode(['status' => 'error', 'message' => 'Assessment name, valid max score, and positive weight are required']);
             exit;
         }
         
@@ -460,78 +497,223 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'No active academic year']);
             exit;
         }
-        
-        // Check current total weight for this class-subject
-        $stmt = $conn->prepare("
-            SELECT COALESCE(SUM(weight_percentage), 0) as total 
-            FROM assessments 
-            WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
-        ");
-        $stmt->bind_param("iii", $classId, $subjectId, $currentYear['id']);
-        $stmt->execute();
-        $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
-        
-        if ($currentTotal + $weight > 100) {
-            $remaining = 100 - $currentTotal;
-            echo json_encode([
-                'status' => 'error', 
-                'message' => "Cannot add {$weight}%. Current total is {$currentTotal}%, only {$remaining}% remaining."
-            ]);
+
+        // Resolve target class IDs (support single class_id or array/comma-separated class_ids or 'all')
+        $targetClassIds = [];
+        $rawClasses = $_POST['class_ids'] ?? $_POST['class_id'] ?? [];
+        if ($rawClasses === 'all') {
+            $cRes = $conn->query("SELECT id FROM classes WHERE is_active = 1 ORDER BY level_order, id");
+            while ($cRow = $cRes->fetch_assoc()) $targetClassIds[] = (int)$cRow['id'];
+        } elseif (is_array($rawClasses)) {
+            $targetClassIds = array_map('intval', array_filter($rawClasses));
+        } elseif (is_string($rawClasses)) {
+            $decoded = json_decode($rawClasses, true);
+            if (is_array($decoded)) {
+                $targetClassIds = array_map('intval', array_filter($decoded));
+            } elseif (strpos($rawClasses, ',') !== false) {
+                $targetClassIds = array_map('intval', array_filter(explode(',', $rawClasses)));
+            } elseif ((int)$rawClasses > 0) {
+                $targetClassIds = [(int)$rawClasses];
+            }
+        } elseif (is_int($rawClasses) && $rawClasses > 0) {
+            $targetClassIds = [$rawClasses];
+        }
+
+        if (empty($targetClassIds)) {
+            echo json_encode(['status' => 'error', 'message' => 'Class selection is required']);
             exit;
         }
-        
-        // Get next order
-        $stmt = $conn->prepare("
-            SELECT COALESCE(MAX(assessment_order), 0) + 1 as next_order 
-            FROM assessments 
-            WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
-        ");
-        $stmt->bind_param("iii", $classId, $subjectId, $currentYear['id']);
-        $stmt->execute();
-        $nextOrder = (int)$stmt->get_result()->fetch_assoc()['next_order'];
-        
-        // Get current term
+
+        // Resolve target subject IDs (support single subject_id, array/comma-separated subject_ids, 0 or 'all')
+        $explicitSubjectIds = [];
+        $rawSubjects = $_POST['subject_ids'] ?? $_POST['subject_id'] ?? 0;
+        $allSubjectsRequested = false;
+        if ($rawSubjects === 'all' || $rawSubjects === 0 || $rawSubjects === '0') {
+            $allSubjectsRequested = true;
+        } elseif (is_array($rawSubjects)) {
+            $explicitSubjectIds = array_map('intval', array_filter($rawSubjects));
+            if (empty($explicitSubjectIds) || in_array(0, $explicitSubjectIds, true)) $allSubjectsRequested = true;
+        } elseif (is_string($rawSubjects)) {
+            $decoded = json_decode($rawSubjects, true);
+            if (is_array($decoded)) {
+                $explicitSubjectIds = array_map('intval', array_filter($decoded));
+                if (empty($explicitSubjectIds) || in_array(0, $explicitSubjectIds, true)) $allSubjectsRequested = true;
+            } elseif (strpos($rawSubjects, ',') !== false) {
+                $explicitSubjectIds = array_map('intval', array_filter(explode(',', $rawSubjects)));
+            } elseif ((int)$rawSubjects > 0) {
+                $explicitSubjectIds = [(int)$rawSubjects];
+            } else {
+                $allSubjectsRequested = true;
+            }
+        } elseif (is_int($rawSubjects) && $rawSubjects > 0) {
+            $explicitSubjectIds = [$rawSubjects];
+        } else {
+            $allSubjectsRequested = true;
+        }
+
+        // Single target assessment creation
+        if (count($targetClassIds) === 1 && !$allSubjectsRequested && count($explicitSubjectIds) === 1) {
+            $classId = $targetClassIds[0];
+            $subjectId = $explicitSubjectIds[0];
+
+            $stmt = $conn->prepare("
+                SELECT COALESCE(SUM(weight_percentage), 0) as total 
+                FROM assessments 
+                WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
+            ");
+            $stmt->bind_param("iii", $classId, $subjectId, $currentYear['id']);
+            $stmt->execute();
+            $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
+            $stmt->close();
+            
+            if ($currentTotal + $weight > 100) {
+                $remaining = 100 - $currentTotal;
+                echo json_encode([
+                    'status' => 'error', 
+                    'message' => "Cannot add {$weight}%. Current total is {$currentTotal}%, only {$remaining}% remaining."
+                ]);
+                exit;
+            }
+            
+            $stmt = $conn->prepare("
+                SELECT COALESCE(MAX(assessment_order), 0) + 1 as next_order 
+                FROM assessments 
+                WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
+            ");
+            $stmt->bind_param("iii", $classId, $subjectId, $currentYear['id']);
+            $stmt->execute();
+            $nextOrder = (int)$stmt->get_result()->fetch_assoc()['next_order'];
+            $stmt->close();
+            
+            $termId = null;
+            $termResult = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
+            if ($termResult && $term = $termResult->fetch_assoc()) {
+                $termId = $term['id'];
+            }
+            
+            $stmt = $conn->prepare("
+                INSERT INTO assessments 
+                (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
+                 weight_percentage, max_score, description, due_date, assessment_order, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $createdBy = (int)$_SESSION['admin_id'];
+            $stmt->bind_param(
+                "iiiissddssii",
+                $classId, $subjectId, $currentYear['id'], $termId, $name, $type,
+                $weight, $maxScore, $description, $dueDate, $nextOrder, $createdBy
+            );
+            
+            if ($stmt->execute()) {
+                $newId = $conn->insert_id;
+                $stmt->close();
+                $newTotal = $currentTotal + $weight;
+                echo json_encode([
+                    'status' => 'success', 
+                    'message' => "Assessment created! Total weight now: {$newTotal}%",
+                    'assessment_id' => $newId,
+                    'new_total' => $newTotal
+                ]);
+            } else {
+                $err = $conn->error;
+                $stmt->close();
+                reportInternalError('Assessment creation failed', $err);
+                echo json_encode(['status' => 'error', 'message' => 'Unable to save the record.']);
+            }
+            break;
+        }
+
+        // Multi-target batch creation across multiple classes / subjects
         $termId = null;
         $termResult = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
         if ($termResult && $term = $termResult->fetch_assoc()) {
             $termId = $term['id'];
         }
-        
-        $stmt = $conn->prepare("
-            INSERT INTO assessments 
-            (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
-             weight_percentage, max_score, description, due_date, assessment_order, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $createdBy = $_SESSION['admin_id'];
-        $stmt->bind_param(
-            "iiiissddssii",
-            $classId, $subjectId, $currentYear['id'], $termId, $name, $type,
-            $weight, $maxScore, $description, $dueDate, $nextOrder, $createdBy
-        );
-        
-        if ($stmt->execute()) {
-            $newTotal = $currentTotal + $weight;
+        $createdBy = (int)$_SESSION['admin_id'];
+        $createdCount = 0;
+        $exceededCount = 0;
+
+        $conn->begin_transaction();
+        try {
+            foreach ($targetClassIds as $cid) {
+                $sids = [];
+                if ($allSubjectsRequested) {
+                    $stmt = $conn->prepare("SELECT subject_id FROM class_subjects WHERE class_id = ?");
+                    $stmt->bind_param("i", $cid);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($r = $res->fetch_assoc()) $sids[] = (int)$r['subject_id'];
+                    $stmt->close();
+
+                    if (empty($sids)) {
+                        $res = $conn->query("SELECT id FROM subjects WHERE is_active = 1");
+                        while ($r = $res->fetch_assoc()) $sids[] = (int)$r['id'];
+                    }
+                } else {
+                    $sids = $explicitSubjectIds;
+                }
+
+                foreach ($sids as $sid) {
+                    $stmt = $conn->prepare("
+                        SELECT COALESCE(SUM(weight_percentage), 0) as total,
+                               COALESCE(MAX(assessment_order), 0) + 1 as next_order
+                        FROM assessments 
+                        WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
+                    ");
+                    $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    $stmt->execute();
+                    $row = $stmt->get_result()->fetch_assoc();
+                    $stmt->close();
+
+                    $currTot = (float)($row['total'] ?? 0);
+                    $nextOrd = (int)($row['next_order'] ?? 1);
+
+                    if ($currTot + $weight > 100) {
+                        $exceededCount++;
+                        continue;
+                    }
+
+                    $ins = $conn->prepare("
+                        INSERT INTO assessments 
+                        (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
+                         weight_percentage, max_score, description, due_date, assessment_order, created_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $ins->bind_param(
+                        "iiiissddssii",
+                        $cid, $sid, $currentYear['id'], $termId, $name, $type,
+                        $weight, $maxScore, $description, $dueDate, $nextOrd, $createdBy
+                    );
+                    $ins->execute();
+                    $ins->close();
+                    $createdCount++;
+                }
+            }
+
+            $conn->commit();
+            $msg = "Assessment created across {$createdCount} class-subject(s).";
+            if ($exceededCount > 0) {
+                $msg .= " ({$exceededCount} skipped because total weight would exceed 100%).";
+            }
             echo json_encode([
-                'status' => 'success', 
-                'message' => "Assessment created! Total weight now: {$newTotal}%",
-                'assessment_id' => $conn->insert_id,
-                'new_total' => $newTotal
+                'status' => 'success',
+                'message' => $msg,
+                'created_count' => $createdCount,
+                'exceeded_count' => $exceededCount
             ]);
-        } else {
-            reportInternalError('Assessment creation failed', $conn->error);
-            echo json_encode(['status' => 'error', 'message' => 'Unable to save the record.']);
+        } catch (Throwable $e) {
+            $conn->rollback();
+            reportInternalError('Batch assessment create failed', $e);
+            echo json_encode(['status' => 'error', 'message' => 'Failed to create assessments: ' . $e->getMessage()]);
         }
         break;
 
     case 'apply_assessment_template':
-        $classId = (int)($_POST['class_id'] ?? 0);
-        $targetSubjectId = (int)($_POST['subject_id'] ?? 0);
         $rawItems = $_POST['items'] ?? '[]';
         $items = is_array($rawItems) ? $rawItems : (json_decode($rawItems, true) ?: []);
 
-        if (!$classId || empty($items)) {
-            echo json_encode(['status' => 'error', 'message' => 'Class and assessment items are required']);
+        if (empty($items)) {
+            echo json_encode(['status' => 'error', 'message' => 'Assessment items are required']);
             exit;
         }
 
@@ -558,32 +740,57 @@ switch ($action) {
             exit;
         }
 
-        // Determine target subjects
-        $subjectIds = [];
-        if ($targetSubjectId > 0) {
-            $subjectIds[] = $targetSubjectId;
-        } else {
-            $stmt = $conn->prepare("SELECT subject_id FROM class_subjects WHERE class_id = ?");
-            $stmt->bind_param("i", $classId);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            while ($r = $res->fetch_assoc()) {
-                $subjectIds[] = (int)$r['subject_id'];
+        // Resolve target class IDs (support single class_id or array/comma-separated class_ids or 'all')
+        $targetClassIds = [];
+        $rawClasses = $_POST['class_ids'] ?? $_POST['class_id'] ?? [];
+        if ($rawClasses === 'all') {
+            $cRes = $conn->query("SELECT id FROM classes WHERE is_active = 1 ORDER BY level_order, id");
+            while ($cRow = $cRes->fetch_assoc()) $targetClassIds[] = (int)$cRow['id'];
+        } elseif (is_array($rawClasses)) {
+            $targetClassIds = array_map('intval', array_filter($rawClasses));
+        } elseif (is_string($rawClasses)) {
+            $decoded = json_decode($rawClasses, true);
+            if (is_array($decoded)) {
+                $targetClassIds = array_map('intval', array_filter($decoded));
+            } elseif (strpos($rawClasses, ',') !== false) {
+                $targetClassIds = array_map('intval', array_filter(explode(',', $rawClasses)));
+            } elseif ((int)$rawClasses > 0) {
+                $targetClassIds = [(int)$rawClasses];
             }
-            $stmt->close();
-
-            if (empty($subjectIds)) {
-                // If no class_subjects assigned yet, fetch all active subjects
-                $res = $conn->query("SELECT id FROM subjects WHERE is_active = 1");
-                while ($r = $res->fetch_assoc()) {
-                    $subjectIds[] = (int)$r['id'];
-                }
-            }
+        } elseif (is_int($rawClasses) && $rawClasses > 0) {
+            $targetClassIds = [$rawClasses];
         }
 
-        if (empty($subjectIds)) {
-            echo json_encode(['status' => 'error', 'message' => 'No subjects found for this class.']);
+        if (empty($targetClassIds)) {
+            echo json_encode(['status' => 'error', 'message' => 'Target class(es) are required']);
             exit;
+        }
+
+        // Resolve target subject IDs (support single subject_id, array/comma-separated subject_ids, 0 or 'all')
+        $explicitSubjectIds = [];
+        $rawSubjects = $_POST['subject_ids'] ?? $_POST['subject_id'] ?? 0;
+        $allSubjectsRequested = false;
+        if ($rawSubjects === 'all' || $rawSubjects === 0 || $rawSubjects === '0') {
+            $allSubjectsRequested = true;
+        } elseif (is_array($rawSubjects)) {
+            $explicitSubjectIds = array_map('intval', array_filter($rawSubjects));
+            if (empty($explicitSubjectIds) || in_array(0, $explicitSubjectIds, true)) $allSubjectsRequested = true;
+        } elseif (is_string($rawSubjects)) {
+            $decoded = json_decode($rawSubjects, true);
+            if (is_array($decoded)) {
+                $explicitSubjectIds = array_map('intval', array_filter($decoded));
+                if (empty($explicitSubjectIds) || in_array(0, $explicitSubjectIds, true)) $allSubjectsRequested = true;
+            } elseif (strpos($rawSubjects, ',') !== false) {
+                $explicitSubjectIds = array_map('intval', array_filter(explode(',', $rawSubjects)));
+            } elseif ((int)$rawSubjects > 0) {
+                $explicitSubjectIds = [(int)$rawSubjects];
+            } else {
+                $allSubjectsRequested = true;
+            }
+        } elseif (is_int($rawSubjects) && $rawSubjects > 0) {
+            $explicitSubjectIds = [$rawSubjects];
+        } else {
+            $allSubjectsRequested = true;
         }
 
         // Get current term
@@ -599,65 +806,89 @@ switch ($action) {
 
         $conn->begin_transaction();
         try {
-            foreach ($subjectIds as $sid) {
-                // Check if existing assessments have grades recorded
-                $stmt = $conn->prepare("
-                    SELECT COUNT(*) as grade_count 
-                    FROM academic_records ar
-                    JOIN assessments a ON ar.assessment_id = a.id
-                    WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
-                ");
-                $stmt->bind_param("iii", $classId, $sid, $currentYear['id']);
-                $stmt->execute();
-                $hasGrades = (int)$stmt->get_result()->fetch_assoc()['grade_count'] > 0;
-                $stmt->close();
+            foreach ($targetClassIds as $cid) {
+                $subjectIdsForClass = [];
+                if ($allSubjectsRequested) {
+                    $stmt = $conn->prepare("SELECT subject_id FROM class_subjects WHERE class_id = ?");
+                    $stmt->bind_param("i", $cid);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($r = $res->fetch_assoc()) {
+                        $subjectIdsForClass[] = (int)$r['subject_id'];
+                    }
+                    $stmt->close();
 
-                if ($hasGrades) {
-                    $skippedCount++;
-                    continue; // Do not overwrite existing graded assessments
+                    if (empty($subjectIdsForClass)) {
+                        $res = $conn->query("SELECT id FROM subjects WHERE is_active = 1");
+                        while ($r = $res->fetch_assoc()) {
+                            $subjectIdsForClass[] = (int)$r['id'];
+                        }
+                    }
+                } else {
+                    $subjectIdsForClass = $explicitSubjectIds;
                 }
 
-                // Delete previous un-graded assessments for this class-subject
-                $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
-                $stmt->bind_param("iii", $classId, $sid, $currentYear['id']);
-                $stmt->execute();
-                $stmt->close();
-
-                // Insert new assessment items
-                $order = 1;
-                foreach ($items as $it) {
-                    $name = trim($it['name'] ?? $it['assessment_name'] ?? '');
-                    $type = $it['type'] ?? $it['assessment_type'] ?? 'test';
-                    $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
-                    $maxS = (float)($it['max_score'] ?? 100);
-                    $desc = trim($it['description'] ?? '');
-
-                    $ins = $conn->prepare("
-                        INSERT INTO assessments 
-                        (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
-                         weight_percentage, max_score, description, assessment_order, created_by)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                foreach ($subjectIdsForClass as $sid) {
+                    // Check if existing assessments have grades recorded
+                    $stmt = $conn->prepare("
+                        SELECT COUNT(*) as grade_count 
+                        FROM academic_records ar
+                        JOIN assessments a ON ar.assessment_id = a.id
+                        WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
                     ");
-                    $ins->bind_param("iiiissddssi", $classId, $sid, $currentYear['id'], $termId, $name, $type, $w, $maxS, $desc, $order, $createdBy);
-                    $ins->execute();
-                    $ins->close();
-                    $order++;
+                    $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    $stmt->execute();
+                    $hasGrades = (int)$stmt->get_result()->fetch_assoc()['grade_count'] > 0;
+                    $stmt->close();
+
+                    if ($hasGrades) {
+                        $skippedCount++;
+                        continue; // Do not overwrite existing graded assessments
+                    }
+
+                    // Delete previous un-graded assessments for this class-subject
+                    $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
+                    $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    $stmt->execute();
+                    $stmt->close();
+
+                    // Insert new assessment items
+                    $order = 1;
+                    foreach ($items as $it) {
+                        $name = trim($it['name'] ?? $it['assessment_name'] ?? '');
+                        $type = $it['type'] ?? $it['assessment_type'] ?? 'test';
+                        $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
+                        $maxS = (float)($it['max_score'] ?? 100);
+                        $desc = trim($it['description'] ?? '');
+
+                        $ins = $conn->prepare("
+                            INSERT INTO assessments 
+                            (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
+                             weight_percentage, max_score, description, assessment_order, created_by)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        $ins->bind_param("iiiissddssi", $cid, $sid, $currentYear['id'], $termId, $name, $type, $w, $maxS, $desc, $order, $createdBy);
+                        $ins->execute();
+                        $ins->close();
+                        $order++;
+                    }
+                    $appliedCount++;
                 }
-                $appliedCount++;
             }
 
             $conn->commit();
 
-            $msg = "Assessment scheme applied to {$appliedCount} subject(s).";
+            $msg = "Assessment scheme applied to {$appliedCount} class-subject(s) across " . count($targetClassIds) . " class(es).";
             if ($skippedCount > 0) {
-                $msg .= " ({$skippedCount} subject(s) skipped because grades were already recorded).";
+                $msg .= " ({$skippedCount} class-subject(s) skipped because student grades were already recorded).";
             }
 
             echo json_encode([
                 'status' => 'success',
                 'message' => $msg,
                 'applied_count' => $appliedCount,
-                'skipped_count' => $skippedCount
+                'skipped_count' => $skippedCount,
+                'classes_count' => count($targetClassIds)
             ]);
         } catch (Throwable $e) {
             $conn->rollback();
@@ -811,10 +1042,15 @@ switch ($action) {
         }
 
         $students = [];
+        $gradedCount = 0;
         foreach ($roster as $row) {
             $mid = (int)($row['member_id'] ?? $row['id'] ?? 0);
             if ($mid <= 0) continue;
             $g = $gradesByMember[$mid] ?? null;
+            $hasScore = ($g && $g['score'] !== null && $g['score'] !== '');
+            if ($hasScore) {
+                $gradedCount++;
+            }
             $students[] = [
                 'member_id' => $mid,
                 'id' => $mid,
@@ -829,11 +1065,19 @@ switch ($action) {
             ];
         }
         
+        $totalStudents = count($students);
+        $pendingCount = max(0, $totalStudents - $gradedCount);
+        $completionPercentage = $totalStudents > 0 ? round(($gradedCount / $totalStudents) * 100, 1) : 0;
+        
         echo json_encode([
             'status' => 'success',
             'assessment' => $assessment,
             'students' => $students,
-            'count' => count($students),
+            'count' => $totalStudents,
+            'total_students' => $totalStudents,
+            'graded_count' => $gradedCount,
+            'pending_count' => $pendingCount,
+            'completion_percentage' => $completionPercentage,
             'roster_year_id' => $scope['year_id'] ?? null,
             'roster_year_name' => $scope['year_name'] ?? null,
             'roster_fallback' => !empty($scope['fallback']),

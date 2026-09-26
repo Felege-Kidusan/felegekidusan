@@ -138,6 +138,21 @@ if ($action === 'bootstrap' && $method === 'GET') {
         $stmt->close();
     }
 
+    $classStudentCount = 0;
+    if (class_exists('\\App\\Services\\EnrollmentService')) {
+        $scope = \App\Services\EnrollmentService::resolveRosterYear($conn, $classId, $yearId);
+        $classStudentCount = (int)($scope['count'] ?? 0);
+    }
+    if ($classStudentCount <= 0) {
+        $cstmt = $conn->prepare("SELECT COUNT(*) as cnt FROM class_enrollments WHERE class_id = ? AND status = 'active' AND (academic_year_id = ? OR academic_year_id IS NULL OR academic_year_id = 0)");
+        if ($cstmt) {
+            $cstmt->bind_param('ii', $classId, $yearId);
+            $cstmt->execute();
+            $classStudentCount = (int)($cstmt->get_result()->fetch_assoc()['cnt'] ?? 0);
+            $cstmt->close();
+        }
+    }
+
     $assessments = [];
     $ids = array_map(static fn($s) => (int)$s['id'], $subjects);
     if ($ids) {
@@ -164,6 +179,7 @@ if ($action === 'bootstrap' && $method === 'GET') {
         $stmt->execute();
         $r = $stmt->get_result();
         while ($row = $r->fetch_assoc()) {
+            $ge = (int)$row['grades_entered'];
             $assessments[] = [
                 'id' => (int)$row['id'],
                 'subject_id' => (int)$row['subject_id'],
@@ -173,7 +189,13 @@ if ($action === 'bootstrap' && $method === 'GET') {
                 'max_score' => (float)$row['max_score'],
                 'assessment_order' => (int)$row['assessment_order'],
                 'is_published' => (bool)$row['is_published'],
-                'grades_entered' => (int)$row['grades_entered'],
+                'grades_entered' => $ge,
+                'graded_count' => $ge,
+                'total_students' => $classStudentCount,
+                'student_count' => $classStudentCount,
+                'pending_count' => max(0, $classStudentCount - $ge),
+                'completion_percentage' => $classStudentCount > 0 ? round(($ge / $classStudentCount) * 100, 1) : 0,
+                'is_complete' => ($classStudentCount > 0 && $ge >= $classStudentCount),
                 'submission_status' => $row['submission_status'] ?? null,
                 'locked' => class_exists('\\App\\Services\\SubmissionService')
                     && \App\Services\SubmissionService::isLockedForTeacher($row['submission_status'] ?? null, $auth),
@@ -275,12 +297,27 @@ if ($action === 'assessments' && $method === 'GET') {
         checkTeacherSubjectAccess($conn, $userId, $userRole, $classId, $subjectId, $yearId);
     }
     
+    $classStudentCount = 0;
+    if (class_exists('\\App\\Services\\EnrollmentService')) {
+        $scope = \App\Services\EnrollmentService::resolveRosterYear($conn, $classId, $yearId);
+        $classStudentCount = (int)($scope['count'] ?? 0);
+    }
+    if ($classStudentCount <= 0) {
+        $cstmt = $conn->prepare("SELECT COUNT(*) as cnt FROM class_enrollments WHERE class_id = ? AND status = 'active' AND (academic_year_id = ? OR academic_year_id IS NULL OR academic_year_id = 0)");
+        if ($cstmt) {
+            $cstmt->bind_param('ii', $classId, $yearId);
+            $cstmt->execute();
+            $classStudentCount = (int)($cstmt->get_result()->fetch_assoc()['cnt'] ?? 0);
+            $cstmt->close();
+        }
+    }
+    
     $assessments = [];
     try {
         $stmt = $conn->prepare("SELECT a.id, a.assessment_name, a.assessment_type, 
                                        a.weight_percentage, a.max_score, a.description,
                                        a.due_date, a.assessment_order, a.is_published,
-                                       (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id) as grades_entered
+                                       (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id AND ar.score IS NOT NULL) as grades_entered
                                 FROM assessments a
                                 WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
                                 ORDER BY a.assessment_order, a.created_at");
@@ -288,10 +325,17 @@ if ($action === 'assessments' && $method === 'GET') {
         $stmt->execute();
         $r = $stmt->get_result();
         while ($row = $r->fetch_assoc()) {
+            $ge = (int)$row['grades_entered'];
             $row['id'] = (int)$row['id'];
             $row['max_score'] = (float)$row['max_score'];
             $row['weight_percentage'] = (float)$row['weight_percentage'];
-            $row['grades_entered'] = (int)$row['grades_entered'];
+            $row['grades_entered'] = $ge;
+            $row['graded_count'] = $ge;
+            $row['total_students'] = $classStudentCount;
+            $row['student_count'] = $classStudentCount;
+            $row['pending_count'] = max(0, $classStudentCount - $ge);
+            $row['completion_percentage'] = $classStudentCount > 0 ? round(($ge / $classStudentCount) * 100, 1) : 0;
+            $row['is_complete'] = ($classStudentCount > 0 && $ge >= $classStudentCount);
             $row['is_published'] = (bool)$row['is_published'];
             $assessments[] = $row;
         }
@@ -305,98 +349,304 @@ if ($action === 'assessments' && $method === 'GET') {
 }
 
 // ============================================================
-// POST /grades/assessments — Create new assessment
+// POST /grades/assessments — Create new assessment / batch apply
 // ============================================================
 if ($action === 'assessments' && $method === 'POST') {
     $body = getBody();
-    $classId = (int)($body['class_id'] ?? 0);
-    $subjectId = (int)($body['subject_id'] ?? 0);
-    $name = trim($body['assessment_name'] ?? '');
-    $type = $body['assessment_type'] ?? 'test';
-    $maxScore = (float)($body['max_score'] ?? 100);
-    $weight = (float)($body['weight_percentage'] ?? 100);
-    
-    if (!$classId || !$subjectId || !$name) {
-        err('class_id, subject_id, and assessment_name are required');
-    }
+    $rawClasses = $body['class_ids'] ?? $body['class_id'] ?? 0;
+    $rawSubjects = $body['subject_ids'] ?? $body['subject_id'] ?? 0;
+    $items = $body['items'] ?? null;
     
     // Assessments are managed exclusively by the Education department (super_admin, school_admin, edu_dept)
     if ($isRestricted) {
         err('Only the Education department can create assessments. Teachers enter grades for assessments configured by the department.', 403);
     }
+
+    // Resolve target classes
+    $targetClassIds = [];
+    if ($rawClasses === 'all') {
+        $cRes = $conn->query("SELECT id FROM classes WHERE is_active = 1 ORDER BY level_order, id");
+        while ($cRow = $cRes->fetch_assoc()) $targetClassIds[] = (int)$cRow['id'];
+    } elseif (is_array($rawClasses)) {
+        $targetClassIds = array_map('intval', array_filter($rawClasses));
+    } elseif (is_string($rawClasses) && strpos($rawClasses, ',') !== false) {
+        $targetClassIds = array_map('intval', array_filter(explode(',', $rawClasses)));
+    } elseif ((int)$rawClasses > 0) {
+        $targetClassIds = [(int)$rawClasses];
+    }
+
+    if (empty($targetClassIds)) {
+        err('class_id or class_ids is required');
+    }
+
+    // Resolve target subjects
+    $explicitSubjectIds = [];
+    $allSubjectsRequested = false;
+    if ($rawSubjects === 'all' || $rawSubjects === 0 || $rawSubjects === '0' || empty($rawSubjects)) {
+        $allSubjectsRequested = true;
+    } elseif (is_array($rawSubjects)) {
+        $explicitSubjectIds = array_map('intval', array_filter($rawSubjects));
+        if (empty($explicitSubjectIds) || in_array(0, $explicitSubjectIds, true)) $allSubjectsRequested = true;
+    } elseif (is_string($rawSubjects) && strpos($rawSubjects, ',') !== false) {
+        $explicitSubjectIds = array_map('intval', array_filter(explode(',', $rawSubjects)));
+    } elseif ((int)$rawSubjects > 0) {
+        $explicitSubjectIds = [(int)$rawSubjects];
+    } else {
+        $allSubjectsRequested = true;
+    }
+
+    // Batch Template Application via REST API
+    if (!empty($items) && is_array($items)) {
+        $totalWeight = 0;
+        foreach ($items as $it) {
+            $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
+            $maxS = (float)($it['max_score'] ?? 100);
+            $name = trim($it['name'] ?? $it['assessment_name'] ?? '');
+            if (empty($name) || $w <= 0 || $maxS <= 0) {
+                err('Each assessment item must have a name, valid max score, and positive weight.', 422);
+            }
+            $totalWeight += $w;
+        }
+        if ($totalWeight > 100) {
+            err("Total template weight is {$totalWeight}%, which exceeds 100%.", 422);
+        }
+
+        $termId = null;
+        try {
+            $r = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
+            if ($r && $row = $r->fetch_assoc()) $termId = (int)$row['id'];
+        } catch (Exception $e) {}
+
+        $appliedCount = 0;
+        $skippedCount = 0;
+        $conn->begin_transaction();
+        try {
+            foreach ($targetClassIds as $cid) {
+                $sids = [];
+                if ($allSubjectsRequested) {
+                    $stmt = $conn->prepare("SELECT subject_id FROM class_subjects WHERE class_id = ?");
+                    $stmt->bind_param("i", $cid);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    while ($r = $res->fetch_assoc()) $sids[] = (int)$r['subject_id'];
+                    $stmt->close();
+                    if (empty($sids)) {
+                        $res = $conn->query("SELECT id FROM subjects WHERE is_active = 1");
+                        while ($r = $res->fetch_assoc()) $sids[] = (int)$r['id'];
+                    }
+                } else {
+                    $sids = $explicitSubjectIds;
+                }
+
+                foreach ($sids as $sid) {
+                    $stmt = $conn->prepare("
+                        SELECT COUNT(*) as grade_count 
+                        FROM academic_records ar
+                        JOIN assessments a ON ar.assessment_id = a.id
+                        WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
+                    ");
+                    $stmt->bind_param("iii", $cid, $sid, $yearId);
+                    $stmt->execute();
+                    $hasGrades = (int)$stmt->get_result()->fetch_assoc()['grade_count'] > 0;
+                    $stmt->close();
+
+                    if ($hasGrades) {
+                        $skippedCount++;
+                        continue;
+                    }
+
+                    $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
+                    $stmt->bind_param("iii", $cid, $sid, $yearId);
+                    $stmt->execute();
+                    $stmt->close();
+
+                    $order = 1;
+                    foreach ($items as $it) {
+                        $name = trim($it['name'] ?? $it['assessment_name'] ?? '');
+                        $type = $it['type'] ?? $it['assessment_type'] ?? 'test';
+                        $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
+                        $maxS = (float)($it['max_score'] ?? 100);
+                        $desc = trim($it['description'] ?? '');
+
+                        $ins = $conn->prepare("
+                            INSERT INTO assessments 
+                            (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
+                             weight_percentage, max_score, description, assessment_order, created_by)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        $ins->bind_param("iiiissddssi", $cid, $sid, $yearId, $termId, $name, $type, $w, $maxS, $desc, $order, $userId);
+                        $ins->execute();
+                        $ins->close();
+                        $order++;
+                    }
+                    $appliedCount++;
+                }
+            }
+            $conn->commit();
+            ok([
+                'message' => "Assessment scheme applied to {$appliedCount} class-subject(s)",
+                'applied_count' => $appliedCount,
+                'skipped_count' => $skippedCount,
+                'classes_count' => count($targetClassIds)
+            ]);
+        } catch (Exception $e) {
+            $conn->rollback();
+            reportInternalError('API batch assessment template failed', $e);
+            err('Failed to apply assessment template: ' . $e->getMessage(), 500);
+        }
+    }
+
+    // Single / Multi-target Assessment creation
+    $name = trim($body['assessment_name'] ?? '');
+    $type = $body['assessment_type'] ?? 'test';
+    $maxScore = (float)($body['max_score'] ?? 100);
+    $weight = (float)($body['weight_percentage'] ?? $body['weight'] ?? 100);
+    $dueDate = $body['due_date'] ?? null;
+    $desc = trim($body['description'] ?? '');
     
-    // Validate max score
+    if (!$name) {
+        err('assessment_name is required');
+    }
+    
     if ($maxScore <= 0 || $maxScore > 1000) {
         err('Max score must be between 1 and 1000');
     }
     
-    // Validate weight
     if ($weight <= 0 || $weight > 100) {
         err('Weight percentage must be between 1 and 100');
     }
     
-    // Validate type
     $validTypes = ['test', 'quiz', 'midterm', 'final', 'assignment', 'project', 'participation', 'other'];
     if (!in_array($type, $validTypes)) {
         $type = 'test';
     }
     
-    // Get current term
     $termId = null;
     try {
         $r = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
         if ($r && $row = $r->fetch_assoc()) $termId = (int)$row['id'];
     } catch (Exception $e) {}
-    
-    // Get next order
-    $order = 1;
-    try {
-        $stmt = $conn->prepare("SELECT MAX(assessment_order) as mx FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
-        $stmt->bind_param('iii', $classId, $subjectId, $yearId);
-        $stmt->execute();
-        $r = $stmt->get_result()->fetch_assoc();
-        if ($r && $r['mx']) $order = (int)$r['mx'] + 1;
-        $stmt->close();
-    } catch (Exception $e) {}
 
-    // H11 (audit): the web create/update blocks a class-subject's TOTAL
-    // weight from exceeding 100%, but the mobile path only validated each
-    // item — a phone could push the total to 300% and skew every weighted
-    // aggregate. Same rule, same honest message, both channels now.
-    try {
-        $stmt = $conn->prepare(
-            "SELECT COALESCE(SUM(weight_percentage), 0) AS total
-             FROM assessments
-             WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?"
-        );
-        $stmt->bind_param('iii', $classId, $subjectId, $yearId);
-        $stmt->execute();
-        $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
-        $stmt->close();
-    } catch (Exception $e) {
-        $currentTotal = 0.0;
-    }
-    if ($currentTotal + $weight > 100) {
-        $remaining = max(0, 100 - $currentTotal);
-        err("Total weight for this class-subject would exceed 100%. Remaining: {$remaining}%. Please adjust the weight.", 422);
-    }
-    
-    try {
-        $stmt = $conn->prepare("INSERT INTO assessments 
-            (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, weight_percentage, max_score, assessment_order, created_by) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param('iiiissddii', $classId, $subjectId, $yearId, $termId, $name, $type, $weight, $maxScore, $order, $userId);
-        $stmt->execute();
-        $newId = $stmt->insert_id;
-        $stmt->close();
+    // If single target
+    if (count($targetClassIds) === 1 && !$allSubjectsRequested && count($explicitSubjectIds) === 1) {
+        $classId = $targetClassIds[0];
+        $subjectId = $explicitSubjectIds[0];
+
+        $order = 1;
+        try {
+            $stmt = $conn->prepare("SELECT MAX(assessment_order) as mx FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
+            $stmt->bind_param('iii', $classId, $subjectId, $yearId);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            if ($r && $r['mx']) $order = (int)$r['mx'] + 1;
+            $stmt->close();
+        } catch (Exception $e) {}
+
+        try {
+            $stmt = $conn->prepare(
+                "SELECT COALESCE(SUM(weight_percentage), 0) AS total
+                 FROM assessments
+                 WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?"
+            );
+            $stmt->bind_param('iii', $classId, $subjectId, $yearId);
+            $stmt->execute();
+            $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
+            $stmt->close();
+        } catch (Exception $e) {
+            $currentTotal = 0.0;
+        }
+        if ($currentTotal + $weight > 100) {
+            $remaining = max(0, 100 - $currentTotal);
+            err("Total weight for this class-subject would exceed 100%. Remaining: {$remaining}%. Please adjust the weight.", 422);
+        }
         
-        logApiAction($userId, $auth['usr'], 'create_assessment', 
-            "Created assessment '{$name}' for class #{$classId} subject #{$subjectId}");
-        
-        ok(['id' => $newId, 'message' => 'Assessment created']);
+        try {
+            $stmt = $conn->prepare("INSERT INTO assessments 
+                (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, weight_percentage, max_score, description, due_date, assessment_order, created_by) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param('iiiissddssii', $classId, $subjectId, $yearId, $termId, $name, $type, $weight, $maxScore, $desc, $dueDate, $order, $userId);
+            $stmt->execute();
+            $newId = $stmt->insert_id;
+            $stmt->close();
+            
+            logApiAction($userId, $auth['usr'], 'create_assessment', 
+                "Created assessment '{$name}' for class #{$classId} subject #{$subjectId}");
+            
+            ok(['id' => $newId, 'message' => 'Assessment created', 'new_total' => $currentTotal + $weight]);
+        } catch (Exception $e) {
+            reportInternalError('API grades assessment creation failed', $e);
+            err('Unable to create assessment.', 500);
+        }
+    }
+
+    // Multi-target creation
+    $createdCount = 0;
+    $exceededCount = 0;
+    $conn->begin_transaction();
+    try {
+        foreach ($targetClassIds as $cid) {
+            $sids = [];
+            if ($allSubjectsRequested) {
+                $stmt = $conn->prepare("SELECT subject_id FROM class_subjects WHERE class_id = ?");
+                $stmt->bind_param("i", $cid);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($r = $res->fetch_assoc()) $sids[] = (int)$r['subject_id'];
+                $stmt->close();
+                if (empty($sids)) {
+                    $res = $conn->query("SELECT id FROM subjects WHERE is_active = 1");
+                    while ($r = $res->fetch_assoc()) $sids[] = (int)$r['id'];
+                }
+            } else {
+                $sids = $explicitSubjectIds;
+            }
+
+            foreach ($sids as $sid) {
+                $stmt = $conn->prepare("
+                    SELECT COALESCE(SUM(weight_percentage), 0) as total,
+                           COALESCE(MAX(assessment_order), 0) + 1 as next_order
+                    FROM assessments 
+                    WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
+                ");
+                $stmt->bind_param("iii", $cid, $sid, $yearId);
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+
+                $currTot = (float)($row['total'] ?? 0);
+                $nextOrd = (int)($row['next_order'] ?? 1);
+
+                if ($currTot + $weight > 100) {
+                    $exceededCount++;
+                    continue;
+                }
+
+                $ins = $conn->prepare("
+                    INSERT INTO assessments 
+                    (class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, 
+                     weight_percentage, max_score, description, due_date, assessment_order, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $ins->bind_param(
+                    "iiiissddssii",
+                    $cid, $sid, $yearId, $termId, $name, $type,
+                    $weight, $maxScore, $desc, $dueDate, $nextOrd, $userId
+                );
+                $ins->execute();
+                $ins->close();
+                $createdCount++;
+            }
+        }
+        $conn->commit();
+        ok([
+            'message' => "Assessment created across {$createdCount} class-subject(s)",
+            'created_count' => $createdCount,
+            'exceeded_count' => $exceededCount
+        ]);
     } catch (Exception $e) {
-        reportInternalError('API grades assessment creation failed', $e);
-        err('Unable to create assessment.', 500);
+        $conn->rollback();
+        reportInternalError('API batch assessment creation failed', $e);
+        err('Unable to create assessments: ' . $e->getMessage(), 500);
     }
 }
 
@@ -490,6 +740,17 @@ if ($action === 'students' && $method === 'GET') {
             $review = \App\Services\SubmissionService::marklistReview($conn, $assessmentId);
         }
     }
+
+    $totalStudents = count($students);
+    $gradedCount = 0;
+    foreach ($students as $s) {
+        if ($s['score'] !== null && $s['score'] !== '') {
+            $gradedCount++;
+        }
+    }
+    $pendingCount = max(0, $totalStudents - $gradedCount);
+    $completionPercentage = $totalStudents > 0 ? round(($gradedCount / $totalStudents) * 100, 1) : 0;
+
     ok([
         'assessment' => [
             'id' => (int)$assessment['id'],
@@ -498,7 +759,11 @@ if ($action === 'students' && $method === 'GET') {
             'weight_percentage' => (float)$assessment['weight_percentage'],
         ],
         'students' => $students,
-        'count' => count($students),
+        'count' => $totalStudents,
+        'total_students' => $totalStudents,
+        'graded_count' => $gradedCount,
+        'pending_count' => $pendingCount,
+        'completion_percentage' => $completionPercentage,
         'roster_year_id' => $scope['year_id'] ?? null,
         'roster_year_name' => $scope['year_name'] ?? null,
         'roster_fallback' => !empty($scope['fallback']),

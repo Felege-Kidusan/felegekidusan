@@ -385,9 +385,39 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     final type = a['assessment_type'] ?? 'test';
     final maxScore = a['max_score'] ?? 100;
     final weight = a['weight_percentage'] ?? 100;
+    final totalStudents = a['total_students'] ?? a['student_count'] ?? 0;
     final gradesEntered = a['grades_entered'] ?? 0;
+    final isLocked = PacketLock.isLocked('${a['submission_status'] ?? ''}', flagged: a['locked'] == true);
     final typeColors = {'test': AppTheme.primary, 'quiz': AppTheme.info, 'midterm': AppTheme.warning, 'final': AppTheme.danger, 'assignment': AppTheme.accent};
     final color = typeColors[type] ?? AppTheme.primary;
+
+    String statusText;
+    Color statusBg;
+    Color statusFg;
+
+    if (isLocked) {
+      statusText = 'Submitted';
+      statusBg = AppTheme.primary.withOpacity(0.12);
+      statusFg = AppTheme.primary;
+    } else if (totalStudents > 0) {
+      if (gradesEntered >= totalStudents) {
+        statusText = '$gradesEntered/$totalStudents (Done)';
+        statusBg = AppTheme.success.withOpacity(0.15);
+        statusFg = AppTheme.success;
+      } else if (gradesEntered > 0) {
+        statusText = '$gradesEntered/$totalStudents graded';
+        statusBg = AppTheme.info.withOpacity(0.12);
+        statusFg = AppTheme.info;
+      } else {
+        statusText = '0/$totalStudents graded';
+        statusBg = AppTheme.surfaceLight;
+        statusFg = AppTheme.textSecondary;
+      }
+    } else {
+      statusText = gradesEntered > 0 ? '$gradesEntered graded' : 'Enter';
+      statusBg = gradesEntered > 0 ? AppTheme.success.withOpacity(0.12) : AppTheme.surfaceLight;
+      statusFg = gradesEntered > 0 ? AppTheme.success : AppTheme.textSecondary;
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -416,16 +446,11 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
             ])),
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: gradesEntered > 0 ? AppTheme.success.withOpacity(0.12) : AppTheme.surfaceLight,
+                color: statusBg,
                 borderRadius: BorderRadius.circular(8)),
               child: Text(
-                PacketLock.isLocked('${a['submission_status'] ?? ''}', flagged: a['locked'] == true)
-                    ? 'Submitted'
-                    : (gradesEntered > 0 ? '$gradesEntered graded' : 'Enter'),
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
-                  color: PacketLock.isLocked('${a['submission_status'] ?? ''}', flagged: a['locked'] == true)
-                      ? AppTheme.primary
-                      : (gradesEntered > 0 ? AppTheme.success : AppTheme.textSecondary)))),
+                statusText,
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: statusFg))),
             const SizedBox(width: 4),
             Icon(Icons.chevron_right, size: 18, color: AppTheme.textSecondary),
           ]),

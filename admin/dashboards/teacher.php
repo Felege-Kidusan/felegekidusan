@@ -737,7 +737,11 @@ $csrfToken = generateCsrfToken();
                         } else {
                             select.innerHTML = '<option value="">-- Select Assessment --</option>';
                             data.assessments.forEach(a => {
-                                select.innerHTML += `<option value="${a.id}" data-max="${a.max_score}">${escapeHtml(a.assessment_name)} (Max: ${a.max_score} pts • ${a.weight_percentage}%)</option>`;
+                                const ge = a.grades_entered || a.graded_count || 0;
+                                const ts = a.total_students || a.student_count || 0;
+                                const pct = ts > 0 ? Math.round((ge / ts) * 100) : 0;
+                                const progText = ts > 0 ? ` — ${ge}/${ts} Graded (${pct}%)` : (ge > 0 ? ` — ${ge} Graded` : '');
+                                select.innerHTML += `<option value="${a.id}" data-max="${a.max_score}">${escapeHtml(a.assessment_name)} (Max: ${a.max_score} pts • ${a.weight_percentage}%)${progText}</option>`;
                             });
                             document.getElementById('selectGradeMsg').innerHTML = `
                                 <i class="fa-solid fa-clipboard-list text-3xl mb-2"></i>
@@ -766,10 +770,16 @@ $csrfToken = generateCsrfToken();
                 .then(data => {
                     if (data.status === 'success') {
                         currentAssessment = data.assessment;
+                        const students = data.students || [];
+                        const totalSt = students.length;
+                        const gradedSt = students.filter(s => s.score !== null && s.score !== '' && s.score !== undefined).length;
+                        const pendingSt = Math.max(0, totalSt - gradedSt);
+                        const pctSt = totalSt > 0 ? Math.round((gradedSt / totalSt) * 100) : 0;
+
                         document.getElementById('gradeEntryTitle').textContent = data.assessment.assessment_name;
-                        document.getElementById('gradeEntrySubtitle').textContent = `Max Score: ${data.assessment.max_score} | Weight: ${data.assessment.weight_percentage}%`;
+                        document.getElementById('gradeEntrySubtitle').innerHTML = `Max Score: <strong>${data.assessment.max_score}</strong> | Weight: <strong>${data.assessment.weight_percentage}%</strong> | Progress: <span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:12px;font-weight:600;font-size:0.75rem"><span id="teacherLiveGraded">${gradedSt}</span> / ${totalSt} Graded (<span id="teacherLivePct">${pctSt}%</span>)</span>`;
                         document.getElementById('maxScoreHeader').textContent = data.assessment.max_score;
-                        renderGradeEntryTable(data.students, data.assessment.max_score);
+                        renderGradeEntryTable(students, data.assessment.max_score);
                     }
                 });
         }
@@ -785,10 +795,24 @@ $csrfToken = generateCsrfToken();
                     <td>${i + 1}</td>
                     <td class="font-medium">${escapeHtml(s.student_name + ' ' + s.father_name)}</td>
                     <td><code class="text-xs bg-slate-100 px-2 py-1 rounded">${escapeHtml(s.member_code || '—')}</code></td>
-                    <td><input type="number" class="grade-input" data-member-id="${s.member_id}" value="${s.score !== null ? s.score : ''}" min="0" max="${maxScore}" step="0.5" placeholder="—"></td>
+                    <td><input type="number" class="grade-input" oninput="updateTeacherLiveGrading()" data-member-id="${s.member_id}" value="${s.score !== null ? s.score : ''}" min="0" max="${maxScore}" step="0.5" placeholder="—"></td>
                     <td><input type="text" class="form-input remarks-input" style="width:150px" data-member-id="${s.member_id}" value="${escapeHtml(s.remarks || '')}" placeholder="Remarks"></td>
                 </tr>
             `).join('');
+        }
+
+        function updateTeacherLiveGrading() {
+            const inputs = document.querySelectorAll('#gradeEntryBody .grade-input');
+            const total = inputs.length;
+            let graded = 0;
+            inputs.forEach(inp => {
+                if (inp.value !== '' && inp.value !== null && !isNaN(inp.value)) graded++;
+            });
+            const pct = total > 0 ? Math.round((graded / total) * 100) : 0;
+            const gEl = document.getElementById('teacherLiveGraded');
+            const pEl = document.getElementById('teacherLivePct');
+            if (gEl) gEl.textContent = graded;
+            if (pEl) pEl.textContent = pct + '%';
         }
         
         function saveAllGrades() {
@@ -979,7 +1003,10 @@ $csrfToken = generateCsrfToken();
                 .then(d => {
                     if (d.status === 'success') {
                         (d.assessments || []).forEach(a => {
-                            sel.innerHTML += `<option value="${a.id}" data-max="${a.max_score}" data-name="${escapeHtml(a.assessment_name)}">${escapeHtml(a.assessment_name)} (max: ${a.max_score})</option>`;
+                            const ge = a.grades_entered || a.graded_count || 0;
+                            const ts = a.total_students || a.student_count || 0;
+                            const prog = ts > 0 ? ` [${ge}/${ts} Graded]` : (ge > 0 ? ` [${ge} Graded]` : '');
+                            sel.innerHTML += `<option value="${a.id}" data-max="${a.max_score}" data-name="${escapeHtml(a.assessment_name)}">${escapeHtml(a.assessment_name)} (max: ${a.max_score})${prog}</option>`;
                         });
                     }
                 });
@@ -997,7 +1024,6 @@ $csrfToken = generateCsrfToken();
             const aName = opt?.dataset?.name || 'Assessment';
             const combo = document.getElementById('submitAssignmentSelect');
             document.getElementById('submitTitle').textContent = aName;
-            document.getElementById('submitSubtitle').textContent = combo.selectedOptions[0]?.text + ' • Max: ' + maxScore;
             
             submitAssessmentData = { id: aid, max: parseFloat(maxScore) };
             
@@ -1007,6 +1033,10 @@ $csrfToken = generateCsrfToken();
                     if (d.status === 'success') {
                         const tbody = document.getElementById('submitEntryBody');
                         const students = d.students || [];
+                        const totalSt = students.length;
+                        const gradedSt = students.filter(s => s.score !== null && s.score !== '' && s.score !== undefined).length;
+                        const pctSt = totalSt > 0 ? Math.round((gradedSt / totalSt) * 100) : 0;
+                        document.getElementById('submitSubtitle').textContent = (combo.selectedOptions[0]?.text || '') + ' • Max: ' + maxScore + ` • ${gradedSt}/${totalSt} Graded (${pctSt}%)`;
                         tbody.innerHTML = students.length ? students.map((s, i) => `
                             <tr>
                                 <td>${i+1}</td>
