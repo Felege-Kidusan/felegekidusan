@@ -23,7 +23,7 @@ if (!function_exists('renderProfileTabSection')) {
         $csrfToken = function_exists('generateCsrfToken') ? generateCsrfToken() : ($_SESSION['csrf_token'] ?? '');
         $safeTag = ($tagName === 'div') ? 'div' : 'section';
         ?>
-        <<?= $safeTag ?> id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?> wbws-profile-container"<?= $isActive ? '' : ' hidden style="display:none!important"' ?>>
+        <<?= $safeTag ?> id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?> wbws-profile-container">
             <style>
                 .wbws-profile-container {
                     display: none;
@@ -36,7 +36,7 @@ if (!function_exists('renderProfileTabSection')) {
                     --pt-input-bg: var(--inp-bg, var(--surface, #ffffff));
                     --pt-input-border: var(--inp-border, var(--border, #cbd5e1));
                 }
-                .wbws-profile-container.active, .wbws-profile-container.act {
+                .wbws-profile-container.active, .wbws-profile-container.act, .wbws-profile-container.show {
                     display: block !important;
                 }
                 .wbws-profile-card {
