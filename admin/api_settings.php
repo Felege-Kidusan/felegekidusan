@@ -213,7 +213,7 @@ function settingsProfileError(\Throwable $error): void
             'USER_NOT_FOUND' => 'User not found.',
         ];
         settingsFail(
-            $messages[$reason] ?? 'Profile input was rejected.',
+            $messages[$reason] ?? ($error->getMessage() ?: 'Profile input was rejected.'),
             $status,
             $code,
             ['reason' => $reason]
@@ -327,6 +327,7 @@ try {
                 settingsFail('POST required', 405, 'METHOD_NOT_ALLOWED');
             }
             $input = settingsJsonBody();
+            unset($input['csrf_token'], $input['action']);
             $expectedVersion = settingsRequireProfileVersion($input);
             $profileIp = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
             settingsEnforceRateLimits([

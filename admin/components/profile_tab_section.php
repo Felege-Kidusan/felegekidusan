@@ -394,8 +394,7 @@ if (!function_exists('renderProfileTabSection')) {
                     full_name: fn,
                     username: un,
                     email: em || null,
-                    profile_version: _profData.profile_version,
-                    csrf_token: token
+                    profile_version: _profData.profile_version
                 };
                 if (identityChanged) payload.current_password = cp;
 
@@ -520,8 +519,7 @@ if (!function_exists('renderProfileTabSection')) {
                         method: 'POST',
                         headers: headers,
                         body: JSON.stringify({
-                            profile_version: _profData.profile_version,
-                            csrf_token: token
+                            profile_version: _profData.profile_version
                         }),
                         credentials: 'same-origin'
                     });
@@ -607,8 +605,7 @@ if (!function_exists('renderProfileTabSection')) {
                         body: JSON.stringify({
                             current_password: cur,
                             new_password: np,
-                            confirm_password: conf,
-                            csrf_token: token
+                            confirm_password: conf
                         }),
                         credentials: 'same-origin'
                     });
