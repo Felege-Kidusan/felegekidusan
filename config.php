@@ -543,7 +543,22 @@ function requirePostActions(string $action, array $writeActions): void {
 
 function requireCsrfForPost() {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') return;
-    $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_SERVER['HTTP_X_XSRF_TOKEN'] ?? '';
+    if (!$token && !empty($_SERVER['HTTP_CSRF_TOKEN'])) {
+        $token = $_SERVER['HTTP_CSRF_TOKEN'];
+    }
+    if (!$token && !empty($_SERVER['REDIRECT_HTTP_X_CSRF_TOKEN'])) {
+        $token = $_SERVER['REDIRECT_HTTP_X_CSRF_TOKEN'];
+    }
+    if (!$token) {
+        $raw = @file_get_contents('php://input');
+        if ($raw) {
+            $json = @json_decode($raw, true);
+            if (is_array($json) && !empty($json['csrf_token'])) {
+                $token = $json['csrf_token'];
+            }
+        }
+    }
     if (!validateCsrf($token)) {
         http_response_code(403);
         die(json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh the page.']));

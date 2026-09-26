@@ -18,6 +18,7 @@ if (!function_exists('renderProfileTabSection')) {
         $activeClass = $isActive ? ' act active' : '';
         $apiUrl = function_exists('ssms_app_url') ? ssms_app_url('admin/api_settings.php') : '/admin/api_settings.php';
         $imageUrl = function_exists('ssms_app_url') ? ssms_app_url('admin/profile_image.php') : '/admin/profile_image.php';
+        $csrfToken = function_exists('generateCsrfToken') ? generateCsrfToken() : ($_SESSION['csrf_token'] ?? '');
         ?>
         <div id="<?= htmlspecialchars($sectionId, ENT_QUOTES, 'UTF-8') ?>" class="<?= htmlspecialchars($sectionClass . $activeClass, ENT_QUOTES, 'UTF-8') ?>" style="width:100%;box-sizing:border-box">
             <!-- Header -->
@@ -201,18 +202,28 @@ if (!function_exists('renderProfileTabSection')) {
         (function() {
             let _profData = null;
             let _accountContext = null;
+            let _csrfToken = <?= json_encode($csrfToken) ?>;
             let _pendingImageFile = null;
 
             function getCsrf() {
+                if (_csrfToken) return _csrfToken;
                 const meta = document.querySelector('meta[name="csrf-token"]');
-                return (meta && meta.getAttribute('content')) || (window.APP && window.APP.csrf) || '';
+                if (meta && meta.getAttribute('content')) return meta.getAttribute('content');
+                if (typeof CSRF_TOKEN !== 'undefined' && CSRF_TOKEN) return CSRF_TOKEN;
+                if (typeof csrfToken !== 'undefined' && csrfToken) return csrfToken;
+                if (typeof CSRF !== 'undefined' && CSRF) return CSRF;
+                if (window.CSRF_TOKEN) return window.CSRF_TOKEN;
+                if (window.APP && window.APP.csrf) return window.APP.csrf;
+                return '';
             }
 
             function setCsrf(token) {
                 if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return;
+                _csrfToken = token;
                 const meta = document.querySelector('meta[name="csrf-token"]');
                 if (meta) meta.setAttribute('content', token);
                 if (window.APP) window.APP.csrf = token;
+                if (typeof CSRF_TOKEN !== 'undefined') window.CSRF_TOKEN = token;
             }
 
             function showAlert(msg, type) {
@@ -378,11 +389,13 @@ if (!function_exists('renderProfileTabSection')) {
                     return;
                 }
 
+                const token = getCsrf();
                 const payload = {
                     full_name: fn,
                     username: un,
                     email: em || null,
-                    profile_version: _profData.profile_version
+                    profile_version: _profData.profile_version,
+                    csrf_token: token
                 };
                 if (identityChanged) payload.current_password = cp;
 
@@ -391,7 +404,7 @@ if (!function_exists('renderProfileTabSection')) {
 
                 const headers = {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrf()
+                    'X-CSRF-TOKEN': token
                 };
                 if (_accountContext) {
                     headers['X-Account-Context'] = _accountContext;
@@ -456,13 +469,14 @@ if (!function_exists('renderProfileTabSection')) {
             document.getElementById('tabProfileConfirmUploadBtn')?.addEventListener('click', async () => {
                 if (!_pendingImageFile || !_profData) return;
                 const modal = document.getElementById('tabProfileImageModal');
+                const token = getCsrf();
                 const fd = new FormData();
                 fd.append('image', _pendingImageFile);
                 fd.append('profile_version', _profData.profile_version);
-                fd.append('csrf_token', getCsrf());
+                fd.append('csrf_token', token);
 
                 const headers = {
-                    'X-CSRF-TOKEN': getCsrf()
+                    'X-CSRF-TOKEN': token
                 };
                 if (_accountContext) {
                     headers['X-Account-Context'] = _accountContext;
@@ -492,9 +506,10 @@ if (!function_exists('renderProfileTabSection')) {
 
             document.getElementById('tabProfileRemoveBtn')?.addEventListener('click', async () => {
                 if (!_profData || !confirm('Remove your profile photo?')) return;
+                const token = getCsrf();
                 const headers = {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrf()
+                    'X-CSRF-TOKEN': token
                 };
                 if (_accountContext) {
                     headers['X-Account-Context'] = _accountContext;
@@ -504,7 +519,10 @@ if (!function_exists('renderProfileTabSection')) {
                     const r = await fetch('<?= htmlspecialchars($apiUrl, ENT_QUOTES, 'UTF-8') ?>?action=profile_image_remove', {
                         method: 'POST',
                         headers: headers,
-                        body: JSON.stringify({ profile_version: _profData.profile_version }),
+                        body: JSON.stringify({
+                            profile_version: _profData.profile_version,
+                            csrf_token: token
+                        }),
                         credentials: 'same-origin'
                     });
                     const d = await r.json();
@@ -573,9 +591,10 @@ if (!function_exists('renderProfileTabSection')) {
                 const btn = document.getElementById('tabPwdSubmitBtn');
                 if (btn) { btn.disabled = true; btn.textContent = 'Changing…'; }
 
+                const token = getCsrf();
                 const headers = {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': getCsrf()
+                    'X-CSRF-TOKEN': token
                 };
                 if (_accountContext) {
                     headers['X-Account-Context'] = _accountContext;
@@ -588,7 +607,8 @@ if (!function_exists('renderProfileTabSection')) {
                         body: JSON.stringify({
                             current_password: cur,
                             new_password: np,
-                            confirm_password: conf
+                            confirm_password: conf,
+                            csrf_token: token
                         }),
                         credentials: 'same-origin'
                     });
