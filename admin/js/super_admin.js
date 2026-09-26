@@ -7,11 +7,11 @@
 
   var ALLOWED = {
     overview: 1, users: 1, departments: 1, identity: 1, health: 1, settings: 1,
-    branding: 1, logs: 1, backup: 1, syshealth: 1
+    branding: 1, logs: 1, backup: 1, syshealth: 1, profile: 1
   };
 
   function panels() {
-    return document.querySelectorAll('main.main .content > section.section');
+    return document.querySelectorAll('main.main .content > .section, main.main .content > section, main.main .content > [id^="section-"]');
   }
 
   function showPanel(id) {
@@ -20,8 +20,10 @@
       el.classList.toggle('active', on);
       if (on) {
         el.removeAttribute('hidden');
+        el.style.display = 'block';
       } else {
         el.setAttribute('hidden', '');
+        el.style.display = 'none';
       }
     });
   }
@@ -38,6 +40,9 @@
     document.body.classList.toggle('branding-on', id === 'branding');
     var pane = document.querySelector('main.main .content');
     if (pane) pane.scrollTop = 0;
+    if (id === 'profile' && typeof window.loadTabProfile === 'function') {
+      window.loadTabProfile();
+    }
     if (window.history && history.replaceState) {
       history.replaceState(null, '', '?section=' + encodeURIComponent(id));
     }

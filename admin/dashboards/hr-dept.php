@@ -707,7 +707,8 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 <span class="font-semibold">Communication</span>
             </button>
 
-            <button onclick="switchTab('profile')"
+            <button onclick="navigateToSection('profile')"
+               data-section="profile"
                class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition text-white text-left w-full border-none cursor-pointer">
                 <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
                     <i class="fa-solid fa-user-gear text-sm"></i>
@@ -2112,6 +2113,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         if (name === 'submissions') {
             try { HrSub.init(); } catch (e) { console.error(e); }
         }
+        if (name === 'profile' && typeof window.loadTabProfile === 'function') {
+            window.loadTabProfile();
+        }
 
         // Update URL so refresh stays on this section
         const url = new URL(window.location);
@@ -2136,6 +2140,12 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             btn.classList.add('opacity-100');
         });
     }
+
+    window.navigateToSection = navigateToSection;
+    window.switchTab = navigateToSection;
+    window.nav = navigateToSection;
+    window.switchSection = navigateToSection;
+    window.showSection = navigateToSection;
 
     document.querySelectorAll('[data-section]').forEach(el => {
         el.addEventListener('click', function (e) {

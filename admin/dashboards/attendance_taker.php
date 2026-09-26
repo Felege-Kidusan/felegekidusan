@@ -388,11 +388,16 @@ $csrfToken = generateCsrfToken();
         function showSection(name) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
-            const section = document.getElementById('sec-' + name);
+            const section = document.getElementById('sec-' + name) || document.getElementById('section-' + name);
             if (section) section.classList.add('active');
-            event?.target?.classList?.add('active');
+            if (name === 'profile' && typeof window.loadTabProfile === 'function') window.loadTabProfile();
             const _u=new URL(window.location);_u.searchParams.set('section',name);history.replaceState(null,'',_u);
         }
+        window.showSection = showSection;
+        window.nav = showSection;
+        window.switchSection = showSection;
+        window.navigateToSection = showSection;
+        window.switchTab = showSection;
         // Restore section from URL on load
         {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)showSection(_sp);}
         

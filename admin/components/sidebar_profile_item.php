@@ -25,7 +25,7 @@ if (!function_exists('renderSidebarProfileNavItem')) {
                 class="<?= htmlspecialchars($buttonClass . $activeClass, ENT_QUOTES, 'UTF-8') ?>"
                 data-sec="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
                 data-section="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
-                onclick="if(typeof nav==='function'){nav('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof switchTab==='function'){switchTab('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else{window.location.href='<?= htmlspecialchars($href, ENT_QUOTES, 'UTF-8') ?>';}"
+                onclick="if(typeof switchSection==='function'){switchSection('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof navigateToSection==='function'){navigateToSection('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof showSection==='function'){showSection('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof nav==='function'){nav('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof switchTab==='function'){switchTab('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else{window.location.href='<?= htmlspecialchars($href, ENT_QUOTES, 'UTF-8') ?>';}"
                 <?= $styleAttr ?>
                 title="My Profile & Account Settings">
             <i class="fa-solid fa-user-gear"></i> <span>My Profile</span>
@@ -72,7 +72,7 @@ if (!function_exists('renderSidebarUserCard')) {
         <div class="ssms-sidebar-user-card"
              data-sec="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
              data-section="<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>"
-             onclick="if(typeof nav==='function'){nav('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof switchTab==='function'){switchTab('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else{window.location.href='<?= htmlspecialchars($accountUrl, ENT_QUOTES, 'UTF-8') ?>';}"
+             onclick="if(typeof switchSection==='function'){switchSection('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof navigateToSection==='function'){navigateToSection('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof showSection==='function'){showSection('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof nav==='function'){nav('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else if(typeof switchTab==='function'){switchTab('<?= htmlspecialchars($secName, ENT_QUOTES, 'UTF-8') ?>');}else{window.location.href='<?= htmlspecialchars($accountUrl, ENT_QUOTES, 'UTF-8') ?>';}"
              title="View & Edit Profile (<?= htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8') ?>)">
             <div class="ssms-card-avatar-wrap">
                 <img src="<?= htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8') ?>"

@@ -604,7 +604,12 @@ function toggleTheme(){const h=document.documentElement,c=h.getAttribute('data-t
 (function(){const s=localStorage.getItem('wbws-theme');if(s){document.documentElement.setAttribute('data-theme',s);if(s==='light')document.getElementById('themeIcon').className='fa-solid fa-moon';}})();
 
 // NAVIGATION
-function nav(name){document.querySelectorAll('.cs').forEach(s=>s.classList.remove('active'));const t=document.getElementById('section-'+name);if(t)t.classList.add('active');document.querySelectorAll('aside .np').forEach(b=>b.classList.remove('active'));document.querySelectorAll('aside [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.bn [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));if(name==='members'&&!allMembers.length)loadMembers();if(name==='classes')loadClasses();if(name==='academicyear')loadYears();if(name==='staff')renderUsers();if(name==='reports')loadAnalysis();const _u=new URL(window.location);_u.searchParams.set('section',name);history.replaceState(null,'',_u);}
+function nav(name){document.querySelectorAll('.cs').forEach(s=>s.classList.remove('active'));const t=document.getElementById('section-'+name);if(t)t.classList.add('active');document.querySelectorAll('aside .np').forEach(b=>b.classList.remove('active'));document.querySelectorAll('aside [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.bn [data-section="'+name+'"]').forEach(b=>b.classList.add('active'));if(name==='members'&&!allMembers.length)loadMembers();if(name==='classes')loadClasses();if(name==='academicyear')loadYears();if(name==='staff')renderUsers();if(name==='reports')loadAnalysis();if(name==='profile'&&typeof window.loadTabProfile==='function')window.loadTabProfile();const _u=new URL(window.location);_u.searchParams.set('section',name);history.replaceState(null,'',_u);}
+window.nav = nav;
+window.switchSection = nav;
+window.navigateToSection = nav;
+window.showSection = nav;
+window.switchTab = nav;
 document.querySelectorAll('[data-section]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-section');if(n)nav(n);});});
 
 // GLOBAL SEARCH

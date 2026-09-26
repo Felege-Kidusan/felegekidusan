@@ -217,7 +217,12 @@ require __DIR__ . '/../components/bottom_nav.php';
 let cats=[],items=[];const API='/admin/api_material.php';
 const CSRF='<?=$csrfToken?>';
 function postAPI(fd){fd.append('csrf_token',CSRF);return fetch(API,{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json());}
-function nav(n){document.querySelectorAll('.cs').forEach(s=>s.classList.remove('active'));const t=document.getElementById('section-'+n);if(t)t.classList.add('active');document.querySelectorAll('aside .np').forEach(b=>b.classList.remove('active'));document.querySelectorAll('aside [data-section="'+n+'"]').forEach(b=>b.classList.add('active'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.bn [data-section="'+n+'"]').forEach(b=>b.classList.add('active'));if(n==='inventory')loadItems();if(n==='requests')loadReqs();if(n==='categories')loadMatCats();if(n==='incoming'||n==='outgoing')populateItemSelects();const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);}
+function nav(n){document.querySelectorAll('.cs').forEach(s=>s.classList.remove('active'));const t=document.getElementById('section-'+n);if(t)t.classList.add('active');document.querySelectorAll('aside .np').forEach(b=>b.classList.remove('active'));document.querySelectorAll('aside [data-section="'+n+'"]').forEach(b=>b.classList.add('active'));document.querySelectorAll('.bn button').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.bn [data-section="'+n+'"]').forEach(b=>b.classList.add('active'));if(n==='inventory')loadItems();if(n==='requests')loadReqs();if(n==='categories')loadMatCats();if(n==='incoming'||n==='outgoing')populateItemSelects();if(n==='profile'&&typeof window.loadTabProfile==='function')window.loadTabProfile();const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);}
+window.nav = nav;
+window.switchSection = nav;
+window.navigateToSection = nav;
+window.showSection = nav;
+window.switchTab = nav;
 document.querySelectorAll('[data-section]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-section');if(n)nav(n);});});
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
 

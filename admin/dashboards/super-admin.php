@@ -17,7 +17,7 @@ $calendarMode = wbws_get_calendar_mode($conn);
 $todayFormatted = wbws_format_date($today, 'long', $conn);
 
 // Track which section to show
-$saAllowedSections = ['overview','users','departments','identity','health','settings','branding','logs','backup','syshealth'];
+$saAllowedSections = ['overview','users','departments','identity','health','settings','branding','logs','backup','syshealth','profile'];
 $activeSection = $_GET['section'] ?? $_POST['section'] ?? 'overview';
 if (!in_array($activeSection, $saAllowedSections, true)) {
     $activeSection = 'overview';
@@ -608,8 +608,14 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
 <?php include __DIR__ . "/../theme.php"; ?>
     <style id="sa-section-lock">
         /* Last in head so Tailwind/theme cannot stack every page. */
-        main.main .content > section.section{display:none!important}
-        main.main .content > section.section.active{display:block!important}
+        main.main .content > section.section,
+        main.main .content > section,
+        main.main .content > .section,
+        main.main .content > [id^="section-"] { display: none !important; }
+        main.main .content > section.section.active,
+        main.main .content > section.active,
+        main.main .content > .section.active,
+        main.main .content > [id^="section-"].active { display: block !important; }
     </style>
 </head>
 <body class="<?= $activeSection === 'branding' ? 'branding-on' : '' ?>">
