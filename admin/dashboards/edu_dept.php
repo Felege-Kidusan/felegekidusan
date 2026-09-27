@@ -69,6 +69,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="/admin/js/advanced_analytics.js?v=20260927"></script>
+<script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
 /* Field footer: inline validation errors + live character counters (patch 8) */
@@ -481,6 +482,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </div>
 <div>
 <div class="nt">Academic</div>
+<button class="nl" data-sec="analytics"><i class="fa-solid fa-chart-pie"></i> Analytics &amp; Reports Hub</button>
 <button class="nl" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i> Enrollment</button>
 <button class="nl" data-sec="grades"><i class="fa-solid fa-star"></i> Grades</button>
 <button class="nl" data-sec="assessments"><i class="fa-solid fa-clipboard-list"></i> Assessments</button>
@@ -751,6 +753,179 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="reviewModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-check"></i> Review Submission</h3><button onclick="closeModal('reviewModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div id="reviewModalContent" style="padding:1.25rem"><p style="text-align:center;color:#94a3b8">Loading...</p></div>
 </div></div>
+
+<!-- ═══ EDUCATION ANALYTICS, REPORTING & INTELLIGENCE HUB ═══ -->
+<div id="sec-analytics" class="sec">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+<div>
+<h2 style="font-size:1.25rem;font-weight:800;color:#1e293b;display:flex;align-items:center;gap:.5rem">
+  <span style="width:34px;height:34px;border-radius:10px;background:#600000;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:1rem"><i class="fa-solid fa-chart-pie"></i></span>
+  <span>Education Analytics &amp; Intelligence Hub</span>
+</h2>
+<p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ክፍል መረጃ ትንተና፣ የመምህራን ፈተና አቀራረብ ክትትል፣ የክፍሎች ደረጃ እና የ5-ገጽ አመራር ሪፖርት ማዕከል</p>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap">
+<button class="btn btn-s" type="button" style="background:#600000;color:#fff;border:none" onclick="window.open('/admin/export_executive_report_pdf.php?' + (window.EduHubInstance ? window.EduHubInstance.buildQs().replace(/^&/, '') : ''), '_blank')"><i class="fa-solid fa-file-pdf"></i> Executive PDF</button>
+<button class="btn btn-s" type="button" style="background:#059669;color:#fff;border:none" onclick="window.location='/admin/export_executive_report_excel.php?' + (window.EduHubInstance ? window.EduHubInstance.buildQs().replace(/^&/, '') : '')"><i class="fa-solid fa-file-excel"></i> Excel Pack (.xlsx)</button>
+<button class="btn btn-o btn-xs" type="button" onclick="if(window.EduHubInstance) window.EduHubInstance.load()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+</div>
+</div>
+
+<!-- HUB FILTER CONTROLS CARD -->
+<div class="crd no-print" style="padding:1rem;margin-bottom:1rem">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.65rem;margin-bottom:.75rem">
+<div>
+<label class="lbl">Class Scope</label>
+<select id="hubFilterClass" class="inp" onchange="if(window.EduHubInstance) window.EduHubInstance.load()"><option value="all">All Classes (Entire School)</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>"><?= e($c['class_name']) ?><?php if (!empty($c['class_name_en'])): ?> (<?= e($c['class_name_en']) ?>)<?php endif; ?></option><?php endforeach; ?></select>
+</div>
+<div>
+<label class="lbl">Academic Year</label>
+<select id="hubFilterYear" class="inp" onchange="if(window.EduHubInstance) window.EduHubInstance.load()"><option value="">Current Year</option><?php foreach ($years as $y): ?><option value="<?= (int)$y['id'] ?>"<?= !empty($y['is_current'])?' selected':''; ?>><?= e($y['year_name']) ?></option><?php endforeach; ?></select>
+</div>
+<div>
+<label class="lbl">Semester / Term</label>
+<select id="hubFilterTerm" class="inp" onchange="if(window.EduHubInstance) window.EduHubInstance.load()"><option value="0">All Semesters</option><?php foreach ($terms as $tm): ?><option value="<?= (int)$tm['id'] ?>"><?= e($tm['term_name']) ?></option><?php endforeach; ?></select>
+</div>
+<div>
+<label class="lbl">Gender</label>
+<select id="hubFilterGender" class="inp" onchange="if(window.EduHubInstance) window.EduHubInstance.load()"><option value="all">All Genders</option><option value="male">Male (♂)</option><option value="female">Female (♀)</option></select>
+</div>
+<div>
+<label class="lbl">Grade Letter</label>
+<select id="hubFilterLetter" class="inp" onchange="if(window.EduHubInstance) window.EduHubInstance.load()"><option value="all">All Grades (A-F)</option><option value="A">Grade A (90-100%)</option><option value="B">Grade B (80-89%)</option><option value="C">Grade C (70-79%)</option><option value="D">Grade D (60-69%)</option><option value="F">Grade F (&lt;60%)</option></select>
+</div>
+<div>
+<label class="lbl">Sort Order</label>
+<select id="hubFilterSort" class="inp" onchange="if(window.EduHubInstance) window.EduHubInstance.load()"><option value="grade_desc">Score: Highest First</option><option value="grade_asc">Score: Lowest First</option><option value="att_desc">Attendance: Highest First</option><option value="att_asc">Attendance: Lowest First</option><option value="name_asc">Name: A to Z</option><option value="class_asc">By Class Name</option></select>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.65rem;align-items:end">
+<div>
+<label class="lbl" style="font-size:.7rem"><i class="fa-solid fa-graduation-cap"></i> Min Grade (%)</label>
+<input type="number" id="hubFilterMinGrade" class="inp" min="0" max="100" placeholder="e.g. 0" onchange="if(window.EduHubInstance) window.EduHubInstance.load()">
+</div>
+<div>
+<label class="lbl" style="font-size:.7rem"><i class="fa-solid fa-graduation-cap"></i> Max Grade (%)</label>
+<input type="number" id="hubFilterMaxGrade" class="inp" min="0" max="100" placeholder="e.g. 100" onchange="if(window.EduHubInstance) window.EduHubInstance.load()">
+</div>
+<div>
+<label class="lbl" style="font-size:.7rem"><i class="fa-solid fa-calendar-check"></i> Min Attendance (%)</label>
+<input type="number" id="hubFilterMinAtt" class="inp" min="0" max="100" placeholder="e.g. 0" onchange="if(window.EduHubInstance) window.EduHubInstance.load()">
+</div>
+<div>
+<label class="lbl" style="font-size:.7rem"><i class="fa-solid fa-calendar-check"></i> Max Attendance (%)</label>
+<input type="number" id="hubFilterMaxAtt" class="inp" min="0" max="100" placeholder="e.g. 100" onchange="if(window.EduHubInstance) window.EduHubInstance.load()">
+</div>
+<div style="grid-column: span 2">
+<label class="lbl" style="font-size:.7rem"><i class="fa-solid fa-search"></i> Live Search</label>
+<input autocomplete="off" type="text" id="hubFilterSearch" class="inp" placeholder="Search by student name, father name, or code…" oninput="if(window.EduHubInstance) window.EduHubInstance.triggerFilter()">
+</div>
+</div>
+</div>
+
+<!-- TOP EXECUTIVE KPI SCORECARD -->
+<div id="hubKpiRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem;margin-bottom:1rem"></div>
+
+<!-- WORKSPACE NAVIGATION TABS -->
+<div class="no-print" style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1rem;overflow-x:auto">
+<button class="tbn act" id="hubTabBtn_student_intel" type="button" onclick="if(window.EduHubInstance) window.EduHubInstance.switchTab('student_intel')"><i class="fa-solid fa-user-graduate"></i> Student Academic &amp; Attendance Intel</button>
+<button class="tbn" id="hubTabBtn_teacher_governance" type="button" onclick="if(window.EduHubInstance) window.EduHubInstance.switchTab('teacher_governance')"><i class="fa-solid fa-clipboard-check"></i> Teacher &amp; Exam Governance</button>
+<button class="tbn" id="hubTabBtn_class_benchmarks" type="button" onclick="if(window.EduHubInstance) window.EduHubInstance.switchTab('class_benchmarks')"><i class="fa-solid fa-trophy"></i> Class Benchmarks &amp; League Table</button>
+<button class="tbn" id="hubTabBtn_executive_reports" type="button" onclick="if(window.EduHubInstance) window.EduHubInstance.switchTab('executive_reports')"><i class="fa-solid fa-file-invoice"></i> Executive Briefs &amp; Exports</button>
+</div>
+
+<!-- LOADING INDICATOR -->
+<div id="hubMainLoading" style="display:none;justify-content:center;align-items:center;padding:2rem;color:#7c3aed">
+<i class="fa-solid fa-spinner fa-spin" style="font-size:1.5rem;margin-right:.5rem"></i> Loading Intelligence Hub…
+</div>
+
+<!-- WORKSPACE 1: STUDENT ACADEMIC & ATTENDANCE INTEL -->
+<div id="hubTabView_student_intel">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;margin-bottom:1rem">
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="font-weight:700;font-size:.88rem;color:#1e293b;margin-bottom:.4rem"><i class="fa-solid fa-braille" style="color:#7c3aed"></i> 4-Quadrant Correlation Matrix</div>
+<div style="position:relative;height:260px;width:100%"><canvas id="hubScatterChart"></canvas></div>
+</div>
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="font-weight:700;font-size:.88rem;color:#1e293b;margin-bottom:.4rem"><i class="fa-solid fa-chart-column" style="color:#0284c7"></i> Frequency Distribution</div>
+<div style="position:relative;height:260px;width:100%"><canvas id="hubDistChart"></canvas></div>
+</div>
+</div>
+
+<div class="crd" style="padding:0;overflow:hidden">
+<div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+<div style="font-weight:700;font-size:.9rem;color:#1e293b"><i class="fa-solid fa-list-check" style="color:#600000"></i> Filtered Student Records (<span id="hubStudentCountBadge">0</span>)</div>
+<div style="font-size:.72rem;color:#64748b">Showing ranked students under active criteria</div>
+</div>
+<div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Class</th><th>Gender</th><th>Grade Average</th><th>Attendance</th><th class="no-print">Actions</th></tr></thead><tbody id="hubStudentTableBody"></tbody></table></div>
+</div>
+</div>
+
+<!-- WORKSPACE 2: TEACHER ASSESSMENT & EXAM GOVERNANCE -->
+<div id="hubTabView_teacher_governance" style="display:none">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;margin-bottom:1rem">
+<div class="crd" style="padding:.75rem;border-left:4px solid #6366f1">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Planned Assessments</div>
+<div id="govStatPlanned" style="font-size:1.3rem;font-weight:800;color:#1e293b">0</div>
+<div style="font-size:.65rem;color:#64748b">Curriculum total</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #059669">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Approved Marklists</div>
+<div id="govStatApproved" style="font-size:1.3rem;font-weight:800;color:#059669">0</div>
+<div style="font-size:.65rem;color:#059669">Finalized grades</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #0284c7">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Submitted (Pending Review)</div>
+<div id="govStatSubmitted" style="font-size:1.3rem;font-weight:800;color:#0284c7">0</div>
+<div style="font-size:.65rem;color:#0284c7">Ready for Edu Dept review</div>
+</div>
+<div class="crd" style="padding:.75rem;border-left:4px solid #dc2626">
+<div style="font-size:.7rem;color:#64748b;font-weight:600">Missing / Overdue Submissions</div>
+<div id="govStatMissing" style="font-size:1.3rem;font-weight:800;color:#dc2626">0</div>
+<div style="font-size:.65rem;color:#dc2626">Pending teacher submission</div>
+</div>
+</div>
+
+<div class="crd" style="padding:0;overflow:hidden">
+<div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center">
+<div style="font-weight:700;font-size:.9rem;color:#1e293b"><i class="fa-solid fa-clipboard-list" style="color:#7c3aed"></i> Teacher Assessment Delivery Matrix</div>
+<div style="font-size:.72rem;color:#64748b">Tracks Mid Exam, Final Exam, and Marklist Submissions per Teacher &amp; Class</div>
+</div>
+<div class="tw"><table class="dt"><thead><tr><th>Class</th><th>Subject</th><th>Assigned Teacher</th><th>Assessment Title</th><th>Status</th><th>Class Avg</th><th>Students</th><th class="no-print">Action</th></tr></thead><tbody id="hubGovernanceTableBody"></tbody></table></div>
+</div>
+</div>
+
+<!-- WORKSPACE 3: CLASS BENCHMARKS & LEAGUE TABLE -->
+<div id="hubTabView_class_benchmarks" style="display:none">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;margin-bottom:1rem">
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="font-weight:700;font-size:.88rem;color:#1e293b;margin-bottom:.4rem"><i class="fa-solid fa-compass-drafting" style="color:#7c3aed"></i> Multi-Subject Competency Spider</div>
+<div style="position:relative;height:260px;width:100%"><canvas id="hubRadarChart"></canvas></div>
+</div>
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="font-weight:700;font-size:.88rem;color:#1e293b;margin-bottom:.4rem"><i class="fa-solid fa-circle-info" style="color:#0284c7"></i> Class Benchmark Insights</div>
+<p style="font-size:.78rem;color:#475569;line-height:1.5">
+The comparative league table displays academic score averages, median ranks, pass rates, and attendance regularities across each class.
+Classes with low curriculum recorded percentages indicate pending exam score submissions from teachers.
+</p>
+</div>
+</div>
+
+<div class="crd" style="padding:0;overflow:hidden">
+<div style="padding:.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center">
+<div style="font-weight:700;font-size:.9rem;color:#1e293b"><i class="fa-solid fa-trophy" style="color:#d97706"></i> Comparative Class League Table</div>
+<div style="font-size:.72rem;color:#64748b">Sorted by Class Grade Average</div>
+</div>
+<div class="tw"><table class="dt"><thead><tr><th>Rank</th><th>Class Name</th><th>Enrolled</th><th>Avg Score</th><th>Pass Rate</th><th>Attendance</th><th>Curriculum Recorded</th><th class="no-print">Action</th></tr></thead><tbody id="hubLeagueTableBody"></tbody></table></div>
+</div>
+</div>
+
+<!-- WORKSPACE 4: EXECUTIVE REPORTS & EXPORTS -->
+<div id="hubTabView_executive_reports" style="display:none">
+<div id="hubReportsSummaryBlock"></div>
+</div>
+</div>
 
 <!-- ═══ ADVANCED PERFORMANCE & ATTENDANCE FILTER ═══ -->
 <div id="sec-filter" class="sec">
@@ -3784,6 +3959,16 @@ function printFilteredList(){
     if(win) win.style.display = '';
 }
 
+function hubDrillIntoClass(classId){
+    const sel = document.getElementById('hubFilterClass');
+    if(sel) sel.value = String(classId);
+    if(window.EduHubInstance){
+        window.EduHubInstance.switchTab('student_intel');
+        window.EduHubInstance.load();
+    }
+}
+window.openReviewModal = reviewSubmission;
+
 // ═══ NAV EXTENSION ═══
 const _origNav=nav;
 nav=function(n){
@@ -3791,6 +3976,7 @@ nav=function(n){
     try{if(n==='submissions')loadSubmissions();}catch(e){console.error(e);}
     try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}
     try{if(n==='filter'&&!pfData.length)applyPerformanceFilter();}catch(e){console.error(e);}
+    try{if(n==='analytics'&&window.EduHubInstance)window.EduHubInstance.load();}catch(e){console.error(e);}
     try{if(n==='assessments'&&!allAssessmentTypes.length)loadAssessmentTypes();}catch(e){console.error(e);}
 };
 try{
@@ -3807,6 +3993,18 @@ document.addEventListener('DOMContentLoaded',()=>{
     loadTeachers();
     loadAssessmentTypes();
     try{ filterRcTerms(); }catch(e){}
+
+    // Initialize Education Analytics & Intelligence Hub
+    try{
+        if(typeof EducationAnalyticsHub !== 'undefined'){
+            window.EduHubInstance = new EducationAnalyticsHub();
+            // Preload if on analytics section
+            const curSec = document.querySelector('.sec.act')?.id;
+            if(curSec === 'sec-analytics') window.EduHubInstance.load();
+        }
+    }catch(err){
+        console.warn('EducationAnalyticsHub initialization error:', err);
+    }
 
     // Initialize Advanced Visual Analytics Engine
     try{
