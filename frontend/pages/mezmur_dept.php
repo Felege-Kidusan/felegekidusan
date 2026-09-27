@@ -494,6 +494,15 @@ ob_start();
                     <div id="mzSectionCards" class="stat-grid"></div>
                 </div>
 
+                <!-- Visual Intelligence & Sacred Data Archetypes -->
+                <div class="school-card">
+                    <h3 class="school-card-title"><i class="fa-solid fa-atom"></i> Sacred Visual Intelligence</h3>
+                    <div class="stat-grid">
+                        <div id="mzViRings" class="vi-card"></div>
+                        <div id="mzViJourney" class="vi-card"></div>
+                    </div>
+                </div>
+
                 <!-- Monthly trend -->
                 <div class="school-card">
                     <h3 class="school-card-title"><i class="fa-solid fa-chart-line"></i> Monthly Trend</h3>

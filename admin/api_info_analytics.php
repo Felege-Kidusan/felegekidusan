@@ -142,6 +142,23 @@ try {
             ));
         }
 
+        case 'heatmap': {
+            info_an_respond(['status' => 'success'] + InfoAnalyticsService::heatmapData(
+                $conn,
+                (string)($_GET['source'] ?? 'all'),
+                (string)($_GET['from'] ?? ''),
+                (string)($_GET['to'] ?? '')
+            ));
+        }
+
+        case 'sankey': {
+            info_an_respond(['status' => 'success'] + ['flow' => InfoAnalyticsService::sankeyFlow($conn)]);
+        }
+
+        case 'treemap': {
+            info_an_respond(['status' => 'success'] + InfoAnalyticsService::treemapData($conn));
+        }
+
         case 'meta': {
             info_an_respond(['status' => 'success'] + InfoAnalyticsService::sourceMeta($conn));
         }

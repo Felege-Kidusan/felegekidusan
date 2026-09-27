@@ -194,6 +194,7 @@ $_isImpersonating = !empty($_SESSION['original_admin_role']);
     
     <!-- Core JS — shared utilities for ALL dashboards -->
     <script src="/frontend/js/core.js?v=<?= filemtime(ROOT_PATH . '/frontend/js/core.js') ?>"></script>
+    <script src="/admin/js/visual_intelligence.js"></script>
     
     <?php
     if (!empty($pageScripts) && is_array($pageScripts)) {

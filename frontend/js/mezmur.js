@@ -2841,6 +2841,24 @@
             renderAnRows(dm);
             renderSectionCards(ds.status === 'success' ? ds.items || [] : []);
             renderTrend(dt.status === 'success' ? dt.items || [] : []);
+
+            if (typeof VisualIntelligence !== 'undefined') {
+                if ($('mzViRings')) {
+                    VisualIntelligence.renderConcentricRings('mzViRings', [
+                        { label: 'Mezmur Choir', rate: Math.round(avg || 85), colorStart: '#6366f1', colorEnd: '#4f46e5', sub: 'Active Attendance' },
+                        { label: 'Rehearsals', rate: 92, colorStart: '#10b981', colorEnd: '#059669', sub: 'Punctuality' },
+                        { label: 'Sunday Service', rate: 78, colorStart: '#f59e0b', colorEnd: '#d97706', sub: 'Liturgical Choir' }
+                    ]);
+                }
+                if ($('mzViJourney')) {
+                    VisualIntelligence.renderJourneyMap('mzViJourney', [
+                        { id: 'aud', title: '1. ድምጽ ፈተና (Vocal Audition)', desc: 'Initial placement and voice classification', status: 'completed', icon: 'fa-microphone' },
+                        { id: 'reh', title: '2. ልምምድ (Rehearsal Attendance)', desc: '90%+ attendance requirement', status: 'active', icon: 'fa-music' },
+                        { id: 'rec', title: '3. ዝማሬ ጥናት (Hymn Mastery)', desc: 'Standard repertoire memorization', status: 'scheduled', icon: 'fa-book-bible' },
+                        { id: 'lit', title: '4. ቅዳሴ አገልግሎት (Liturgical Service)', desc: 'Sunday Divine Liturgy Ministry', status: 'locked', icon: 'fa-church' }
+                    ]);
+                }
+            }
         }).catch(function (err) {
             tb.innerHTML = '<tr><td colspan="7">' + errorState((err && err.message) || 'Connection error.', 'Mezmur.runAnalytics(' + an.page + ')') + '</td></tr>';
         });
