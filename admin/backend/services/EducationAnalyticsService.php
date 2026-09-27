@@ -45,35 +45,78 @@ class EducationAnalyticsService
         $termId = !empty($filters['term_id']) ? (int)$filters['term_id'] : 0;
         $classFilter = !empty($filters['class_id']) && $filters['class_id'] !== 'all' ? (int)$filters['class_id'] : 0;
 
-        // 1. Fetch Students Performance Dataset via ReportCardService
-        $perfResult = ReportCardService::filterStudentsPerformance($conn, [
-            'class_id' => $classFilter > 0 ? $classFilter : 'all',
-            'year_id' => $yearId,
-            'term_id' => $termId,
-            'gender' => $filters['gender'] ?? 'all',
-            'min_grade' => $filters['min_grade'] ?? null,
-            'max_grade' => $filters['max_grade'] ?? null,
-            'min_attendance' => $filters['min_attendance'] ?? null,
-            'max_attendance' => $filters['max_attendance'] ?? null,
-            'grade_letter' => $filters['grade_letter'] ?? 'all',
-            'search' => $filters['search'] ?? null,
-            'sort' => $filters['sort'] ?? 'grade_desc',
-        ]);
+        $students = [];
+        $macroStats = [
+            'total' => 0,
+            'avg_grade' => 0,
+            'median_grade' => 0,
+            'stdev_grade' => 0,
+            'p25_grade' => 0,
+            'p75_grade' => 0,
+            'avg_attendance' => 0,
+            'median_attendance' => 0,
+            'stdev_attendance' => 0,
+            'recorded_att_students' => 0,
+            'unrecorded_att_students' => 0,
+            'high_achievers' => 0,
+            'at_risk_grade' => 0,
+            'at_risk_att' => 0,
+            'grade_distribution' => ['A' => 0, 'B' => 0, 'C' => 0, 'D' => 0, 'F' => 0],
+            'grade_bins' => ['<50' => 0, '50-59' => 0, '60-69' => 0, '70-79' => 0, '80-89' => 0, '90-100' => 0],
+            'att_bins' => ['<50' => 0, '50-59' => 0, '60-69' => 0, '70-79' => 0, '80-89' => 0, '90-100' => 0],
+            'triage_health' => ['mastery' => 0, 'proficient' => 0, 'academic_risk' => 0, 'attendance_risk' => 0, 'dual_critical' => 0, 'untracked' => 0, 'steady' => 0],
+            'subject_benchmarks' => [],
+            'graded_count' => 0,
+        ];
+        $classBenchmarks = [];
+        $examGovernance = ['summary' => ['total_planned_assessments' => 0, 'approved_count' => 0, 'submitted_count' => 0, 'draft_count' => 0, 'missing_count' => 0, 'delivery_rate' => 0], 'audit_matrix' => []];
+        $subjectBenchmarks = [];
+        $triageRoster = [];
 
-        $students = $perfResult['students'] ?? [];
-        $macroStats = $perfResult['stats'] ?? [];
+        // 1. Fetch Students Performance Dataset via ReportCardService
+        try {
+            $perfResult = ReportCardService::filterStudentsPerformance($conn, [
+                'class_id' => $classFilter > 0 ? $classFilter : 'all',
+                'year_id' => $yearId,
+                'term_id' => $termId,
+                'gender' => $filters['gender'] ?? 'all',
+                'min_grade' => $filters['min_grade'] ?? null,
+                'max_grade' => $filters['max_grade'] ?? null,
+                'min_attendance' => $filters['min_attendance'] ?? null,
+                'max_attendance' => $filters['max_attendance'] ?? null,
+                'grade_letter' => $filters['grade_letter'] ?? 'all',
+                'search' => $filters['search'] ?? null,
+                'sort' => $filters['sort'] ?? 'grade_desc',
+            ]);
+            if (($perfResult['status'] ?? '') === 'success') {
+                $students = $perfResult['students'] ?? [];
+                $macroStats = array_merge($macroStats, $perfResult['stats'] ?? []);
+                $subjectBenchmarks = $macroStats['subject_benchmarks'] ?? [];
+            }
+        } catch (\Throwable $e) {
+            error_log('EducationAnalyticsService::filterStudentsPerformance error: ' . $e->getMessage());
+        }
 
         // 2. Fetch Class-by-Class Comparative League Table
-        $classBenchmarks = self::buildClassBenchmarks($conn, $yearId, $termId);
+        try {
+            $classBenchmarks = self::buildClassBenchmarks($conn, $yearId, $termId);
+        } catch (\Throwable $e) {
+            error_log('EducationAnalyticsService::buildClassBenchmarks error: ' . $e->getMessage());
+        }
 
         // 3. Fetch Teacher Exam & Assessment Submission Governance Matrix
-        $examGovernance = self::buildExamGovernance($conn, $yearId, $termId, $classFilter);
+        try {
+            $examGovernance = self::buildExamGovernance($conn, $yearId, $termId, $classFilter);
+        } catch (\Throwable $e) {
+            error_log('EducationAnalyticsService::buildExamGovernance error: ' . $e->getMessage());
+        }
 
-        // 4. Fetch Subject Competency Benchmarks
-        $subjectBenchmarks = $macroStats['subject_benchmarks'] ?? [];
-
-        // 5. Build Triage Action Roster
-        $triageRoster = self::buildTriageRoster($students);
+        // 4. Build Triage Action Roster
+        try {
+            $triageRoster = self::buildTriageRoster($students);
+        } catch (\Throwable $e) {
+            error_log('EducationAnalyticsService::buildTriageRoster error: ' . $e->getMessage());
+        }
 
         return [
             'status' => 'success',
@@ -99,67 +142,75 @@ class EducationAnalyticsService
     public static function buildClassBenchmarks(\mysqli $conn, int $yearId, int $termId): array
     {
         $classes = [];
-        $res = $conn->query("SELECT id, class_name, class_name_en, level_order FROM classes WHERE is_active = 1 ORDER BY level_order, id");
-        if ($res) {
-            while ($row = $res->fetch_assoc()) {
-                $classes[] = $row;
+        try {
+            $res = $conn->query("SELECT id, class_name, class_name_en, level_order FROM classes WHERE is_active = 1 ORDER BY level_order, id");
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    $classes[] = $row;
+                }
             }
+        } catch (\Throwable $e) {
+            return [];
         }
 
         $league = [];
         foreach ($classes as $c) {
             $cid = (int)$c['id'];
-            $pack = ReportCardService::getClassReport($conn, $cid, 0, $yearId, $termId);
-            if (($pack['status'] ?? '') !== 'success') {
+            try {
+                $pack = ReportCardService::getClassReport($conn, $cid, 0, $yearId, $termId);
+                if (($pack['status'] ?? '') !== 'success') {
+                    continue;
+                }
+
+                $stList = $pack['students'] ?? [];
+                $stats = $pack['stats'] ?? [];
+                $tot = count($stList);
+                $graded = (int)($stats['graded_students'] ?? 0);
+                $avgGrade = $stats['class_average'] !== null ? (float)$stats['class_average'] : null;
+                $medianGrade = $stats['median'] !== null ? (float)$stats['median'] : null;
+                $passRate = $stats['pass_rate'] !== null ? (float)$stats['pass_rate'] : null;
+
+                $attRates = [];
+                $presentTot = 0;
+                $absentTot = 0;
+                $sessionsTot = 0;
+
+                foreach ($stList as $st) {
+                    $tDays = (int)($st['total_days'] ?? 0);
+                    if ($tDays > 0) {
+                        $attRates[] = (float)($st['attendance_rate'] ?? 0);
+                        $presentTot += (int)($st['present_days'] ?? 0);
+                        $absentTot += (int)($st['absent_days'] ?? 0);
+                        $sessionsTot = max($sessionsTot, $tDays);
+                    }
+                }
+
+                $avgAtt = !empty($attRates) ? round(array_sum($attRates) / count($attRates), 1) : null;
+                $recAttCount = count($attRates);
+
+                // Calculate curriculum submission completeness
+                $semRec = (float)($stats['semester']['recorded'] ?? 0.0);
+
+                $league[] = [
+                    'class_id' => $cid,
+                    'class_name' => $c['class_name'],
+                    'class_name_en' => $c['class_name_en'] ?? '',
+                    'level_order' => (int)($c['level_order'] ?? 0),
+                    'total_students' => $tot,
+                    'graded_students' => $graded,
+                    'average_grade' => $avgGrade,
+                    'median_grade' => $medianGrade,
+                    'pass_rate' => $passRate,
+                    'average_attendance' => $avgAtt,
+                    'tracked_attendance_students' => $recAttCount,
+                    'untracked_attendance_students' => $tot - $recAttCount,
+                    'sessions_recorded' => $sessionsTot,
+                    'curriculum_recorded_pct' => $semRec,
+                    'grade_distribution' => $stats['grade_distribution'] ?? ['A' => 0, 'B' => 0, 'C' => 0, 'D' => 0, 'F' => 0],
+                ];
+            } catch (\Throwable $e) {
                 continue;
             }
-
-            $stList = $pack['students'] ?? [];
-            $stats = $pack['stats'] ?? [];
-            $tot = count($stList);
-            $graded = (int)($stats['graded_students'] ?? 0);
-            $avgGrade = $stats['class_average'] !== null ? (float)$stats['class_average'] : null;
-            $medianGrade = $stats['median'] !== null ? (float)$stats['median'] : null;
-            $passRate = $stats['pass_rate'] !== null ? (float)$stats['pass_rate'] : null;
-
-            $attRates = [];
-            $presentTot = 0;
-            $absentTot = 0;
-            $sessionsTot = 0;
-
-            foreach ($stList as $st) {
-                $tDays = (int)($st['total_days'] ?? 0);
-                if ($tDays > 0) {
-                    $attRates[] = (float)($st['attendance_rate'] ?? 0);
-                    $presentTot += (int)($st['present_days'] ?? 0);
-                    $absentTot += (int)($st['absent_days'] ?? 0);
-                    $sessionsTot = max($sessionsTot, $tDays);
-                }
-            }
-
-            $avgAtt = !empty($attRates) ? round(array_sum($attRates) / count($attRates), 1) : null;
-            $recAttCount = count($attRates);
-
-            // Calculate curriculum submission completeness
-            $semRec = (float)($stats['semester']['recorded'] ?? 0.0);
-
-            $league[] = [
-                'class_id' => $cid,
-                'class_name' => $c['class_name'],
-                'class_name_en' => $c['class_name_en'] ?? '',
-                'level_order' => (int)$c['level_order'],
-                'total_students' => $tot,
-                'graded_students' => $graded,
-                'average_grade' => $avgGrade,
-                'median_grade' => $medianGrade,
-                'pass_rate' => $passRate,
-                'average_attendance' => $avgAtt,
-                'tracked_attendance_students' => $recAttCount,
-                'untracked_attendance_students' => $tot - $recAttCount,
-                'sessions_recorded' => $sessionsTot,
-                'curriculum_recorded_pct' => $semRec,
-                'grade_distribution' => $stats['grade_distribution'] ?? ['A' => 0, 'B' => 0, 'C' => 0, 'D' => 0, 'F' => 0],
-            ];
         }
 
         // Sort league by average_grade descending
@@ -189,18 +240,16 @@ class EducationAnalyticsService
      */
     public static function buildExamGovernance(\mysqli $conn, int $yearId, int $termId, int $classFilter = 0): array
     {
-        SubmissionService::ensureTable($conn);
-
-        // Fetch all active teacher assignments with class and subject
+        // 1. Fetch active teacher assignments with class and subject
         $sql = "SELECT ta.id AS assignment_id, ta.teacher_id, ta.class_id, ta.subject_id,
-                       u.full_name AS teacher_name, u.email AS teacher_email,
-                       c.class_name, c.class_name_en,
-                       s.subject_name, s.subject_name_en
+                       COALESCE(u.full_name, 'Teacher') AS teacher_name, COALESCE(u.email, '') AS teacher_email,
+                       COALESCE(c.class_name, 'Class') AS class_name, COALESCE(c.class_name_en, '') AS class_name_en,
+                       COALESCE(s.subject_name, 'General Subject') AS subject_name, COALESCE(s.subject_name_en, '') AS subject_name_en
                 FROM teacher_assignments ta
-                INNER JOIN users u ON ta.teacher_id = u.id
-                INNER JOIN classes c ON ta.class_id = c.id AND c.is_active = 1
-                INNER JOIN subjects s ON ta.subject_id = s.id AND s.is_active = 1
-                WHERE (ta.is_active = 1 OR ta.status = 'active' OR ta.is_active IS NULL)";
+                LEFT JOIN users u ON ta.teacher_id = u.id
+                LEFT JOIN classes c ON ta.class_id = c.id
+                LEFT JOIN subjects s ON ta.subject_id = s.id
+                WHERE (ta.is_active = 1 OR ta.is_active IS NULL)";
         
         $params = [];
         $types = '';
@@ -217,24 +266,26 @@ class EducationAnalyticsService
         $sql .= " ORDER BY c.level_order, c.class_name, s.subject_name";
 
         $assignments = [];
-        $stmt = $conn->prepare($sql);
-        if ($stmt) {
-            if ($types !== '') {
-                $stmt->bind_param($types, ...$params);
+        try {
+            $stmt = $conn->prepare($sql);
+            if ($stmt) {
+                if ($types !== '') {
+                    $stmt->bind_param($types, ...$params);
+                }
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($row = $res->fetch_assoc()) {
+                    $assignments[] = $row;
+                }
+                $stmt->close();
             }
-            $stmt->execute();
-            $res = $stmt->get_result();
-            while ($row = $res->fetch_assoc()) {
-                $assignments[] = $row;
-            }
-            $stmt->close();
+        } catch (\Throwable $e) {
+            $assignments = [];
         }
 
-        // Fetch all planned assessments
-        $assessSql = "SELECT a.id, a.class_id, a.subject_id, a.assessment_name, a.weight_percentage, a.max_score,
-                             at.name AS assessment_type_name, at.code AS assessment_type_code
+        // 2. Fetch planned assessments safely
+        $assessSql = "SELECT a.id, a.class_id, a.subject_id, a.assessment_name, a.weight_percentage, a.max_score
                       FROM assessments a
-                      LEFT JOIN assessment_types at ON a.assessment_type_id = at.id
                       WHERE 1=1";
         $aParams = [];
         $aTypes = '';
@@ -255,56 +306,64 @@ class EducationAnalyticsService
         }
 
         $plannedAssessments = [];
-        $aStmt = $conn->prepare($assessSql);
-        if ($aStmt) {
-            if ($aTypes !== '') {
-                $aStmt->bind_param($aTypes, ...$aParams);
+        try {
+            $aStmt = $conn->prepare($assessSql);
+            if ($aStmt) {
+                if ($aTypes !== '') {
+                    $aStmt->bind_param($aTypes, ...$aParams);
+                }
+                $aStmt->execute();
+                $aRes = $aStmt->get_result();
+                while ($row = $aRes->fetch_assoc()) {
+                    $cid = (int)$row['class_id'];
+                    $sid = (int)$row['subject_id'];
+                    $plannedAssessments[$cid][$sid][] = $row;
+                }
+                $aStmt->close();
             }
-            $aStmt->execute();
-            $aRes = $aStmt->get_result();
-            while ($row = $aRes->fetch_assoc()) {
-                $cid = (int)$row['class_id'];
-                $sid = (int)$row['subject_id'];
-                $plannedAssessments[$cid][$sid][] = $row;
-            }
-            $aStmt->close();
+        } catch (\Throwable $e) {
+            $plannedAssessments = [];
         }
 
-        // Fetch all grade_submissions records for quick lookup
-        $subSql = "SELECT gs.id, gs.teacher_id, gs.class_id, gs.subject_id, gs.assessment_id, gs.status,
-                          gs.student_count, gs.average_score, gs.submitted_at, gs.reviewed_at, gs.review_notes,
-                          rv.full_name AS reviewer_name
-                   FROM grade_submissions gs
-                   LEFT JOIN users rv ON gs.reviewed_by = rv.id
-                   WHERE 1=1";
-        $subParams = [];
-        $subTypes = '';
-        if ($classFilter > 0) {
-            $subSql .= " AND gs.class_id = ?";
-            $subParams[] = $classFilter;
-            $subTypes .= 'i';
-        }
-        if ($yearId > 0) {
-            $subSql .= " AND (gs.academic_year_id = ? OR gs.academic_year_id IS NULL OR gs.academic_year_id = 0)";
-            $subParams[] = $yearId;
-            $subTypes .= 'i';
-        }
-
+        // 3. Fetch grade_submissions records safely
         $submissionsMap = [];
-        $sStmt = $conn->prepare($subSql);
-        if ($sStmt) {
-            if ($subTypes !== '') {
-                $sStmt->bind_param($subTypes, ...$subParams);
+        try {
+            $subSql = "SELECT gs.id, gs.teacher_id, gs.class_id, gs.subject_id, gs.assessment_id, gs.status,
+                              gs.student_count, gs.average_score, gs.submitted_at, gs.reviewed_at, gs.review_notes,
+                              rv.full_name AS reviewer_name
+                       FROM grade_submissions gs
+                       LEFT JOIN users rv ON gs.reviewed_by = rv.id
+                       WHERE 1=1";
+            $subParams = [];
+            $subTypes = '';
+            if ($classFilter > 0) {
+                $subSql .= " AND gs.class_id = ?";
+                $subParams[] = $classFilter;
+                $subTypes .= 'i';
             }
-            $sStmt->execute();
-            $sRes = $sStmt->get_result();
-            while ($row = $sRes->fetch_assoc()) {
-                $cid = (int)$row['class_id'];
-                $sid = (int)$row['subject_id'];
-                $aid = (int)$row['assessment_id'];
-                $submissionsMap[$cid][$sid][$aid] = $row;
+            if ($yearId > 0) {
+                $subSql .= " AND (gs.academic_year_id = ? OR gs.academic_year_id IS NULL OR gs.academic_year_id = 0)";
+                $subParams[] = $yearId;
+                $subTypes .= 'i';
             }
-            $sStmt->close();
+
+            $sStmt = $conn->prepare($subSql);
+            if ($sStmt) {
+                if ($subTypes !== '') {
+                    $sStmt->bind_param($subTypes, ...$subParams);
+                }
+                $sStmt->execute();
+                $sRes = $sStmt->get_result();
+                while ($row = $sRes->fetch_assoc()) {
+                    $cid = (int)$row['class_id'];
+                    $sid = (int)$row['subject_id'];
+                    $aid = (int)$row['assessment_id'];
+                    $submissionsMap[$cid][$sid][$aid] = $row;
+                }
+                $sStmt->close();
+            }
+        } catch (\Throwable $e) {
+            $submissionsMap = [];
         }
 
         // Build composite audit matrix rows
@@ -324,7 +383,6 @@ class EducationAnalyticsService
 
             $subjectAssess = $plannedAssessments[$cid][$sid] ?? [];
             if (empty($subjectAssess)) {
-                // Assessment not configured yet
                 $auditRows[] = [
                     'class_id' => $cid,
                     'class_name' => $cName,
@@ -333,16 +391,18 @@ class EducationAnalyticsService
                     'teacher_id' => (int)$asg['teacher_id'],
                     'teacher_name' => $tName,
                     'assessment_id' => 0,
-                    'assessment_title' => 'No assessments configured yet',
+                    'assessment_title' => 'General / No assessments configured yet',
                     'assessment_type' => '—',
                     'weight' => 0,
                     'max_score' => 0,
                     'status' => 'unconfigured',
                     'status_label' => 'Not Configured',
                     'status_badge' => 'ch-w',
+                    'submission_id' => 0,
                     'student_count' => 0,
                     'average_score' => null,
                     'submitted_at' => null,
+                    'reviewer_name' => null,
                 ];
                 continue;
             }
@@ -359,12 +419,12 @@ class EducationAnalyticsService
                 else $totMissing++;
 
                 $badgeMap = [
-                    'approved' => 'ch-s',
-                    'submitted' => 'ch-i',
-                    'draft' => 'ch-w',
-                    'incomplete' => 'ch-w',
-                    'revision_needed' => 'ch-e',
-                    'missing' => 'ch-e',
+                    'approved' => 'badge-ok',
+                    'submitted' => 'badge-info',
+                    'draft' => 'badge-warn',
+                    'incomplete' => 'badge-warn',
+                    'revision_needed' => 'badge-err',
+                    'missing' => 'badge-err',
                 ];
 
                 $labelMap = [
@@ -385,12 +445,12 @@ class EducationAnalyticsService
                     'teacher_name' => $tName,
                     'assessment_id' => $aid,
                     'assessment_title' => (string)$aItem['assessment_name'],
-                    'assessment_type' => (string)($aItem['assessment_type_name'] ?? $aItem['assessment_name']),
+                    'assessment_type' => (string)$aItem['assessment_name'],
                     'weight' => (float)$aItem['weight_percentage'],
                     'max_score' => (float)$aItem['max_score'],
                     'status' => $st,
                     'status_label' => $labelMap[$st] ?? ucfirst($st),
-                    'status_badge' => $badgeMap[$st] ?? 'ch-w',
+                    'status_badge' => $badgeMap[$st] ?? 'badge-warn',
                     'submission_id' => $sub ? (int)$sub['id'] : 0,
                     'student_count' => $sub ? (int)$sub['student_count'] : 0,
                     'average_score' => $sub && $sub['average_score'] !== null ? round((float)$sub['average_score'], 1) : null,
