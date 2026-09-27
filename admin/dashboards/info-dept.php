@@ -4360,11 +4360,34 @@ const InfoHub = (function () {
     function $(id) { return document.getElementById(id); }
     function esc(s) { return escapeHtml(s || ''); }
 
-    function fmtDate(s) {
+    function fmtDate(s, fmt) {
         if (!s) return '—';
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(s, fmt || 'long');
+        }
         const d = new Date(String(s).replace(' ', 'T'));
         if (isNaN(d.getTime())) return esc(s);
         return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function renderGroupBadge(groupKey, src) {
+        if (!groupKey || groupKey === '—') {
+            return '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">—</span>';
+        }
+        if (src === 'edu') {
+            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-xs"><i class="fa-solid fa-graduation-cap text-[10px] text-blue-500"></i>' + esc(groupKey) + '</span>';
+        }
+        const s = String(groupKey).trim();
+        if (s.indexOf('ህጻናት') !== -1 || s.indexOf('ህፃናት') !== -1 || s === 'A' || s.toLowerCase() === 'children') {
+            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>ህጻናት (A) <span class="text-emerald-600 font-normal text-[10px]">7–13</span></span>';
+        }
+        if (s.indexOf('ማዕከላዊ') !== -1 || s.indexOf('ማእከላዊ') !== -1 || s === 'B' || s.toLowerCase() === 'intermediate' || s.toLowerCase() === 'middle') {
+            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 shadow-xs"><span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>ማዕከላዊያን (B) <span class="text-indigo-600 font-normal text-[10px]">14–17</span></span>';
+        }
+        if (s.indexOf('ወጣት') !== -1 || s === 'C' || s.toLowerCase() === 'youth' || s.toLowerCase() === 'parish') {
+            return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shadow-xs"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>ወጣቶች (C) <span class="text-amber-600 font-normal text-[10px]">18+</span></span>';
+        }
+        return '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">' + esc(s) + '</span>';
     }
 
     function apiGet(query) {
@@ -4521,7 +4544,7 @@ const InfoHub = (function () {
             } else {
                 gt.innerHTML = lastGroups.map(g =>
                     '<tr class="border-b border-slate-50 hover:bg-slate-50/50">' +
-                    '<td class="py-2 pr-3 font-semibold text-slate-800">' + esc(g.group_key || '—') + '</td>' +
+                    '<td class="py-2 pr-3 font-semibold text-slate-800">' + renderGroupBadge(g.group_key, source) + '</td>' +
                     '<td class="py-2 pr-3">' + (g.days || 0) + '</td>' +
                     '<td class="py-2 pr-3 font-medium">' + (g.marked || 0) + '</td>' +
                     '<td class="py-2 pr-3">' + rateBar(g.rate) + '</td>' +

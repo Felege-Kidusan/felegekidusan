@@ -274,6 +274,9 @@
     function formatDate(value, emptyText) {
         if (!value) return emptyText || '—';
         var normalized = String(value).replace(' ', 'T');
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(normalized, 'long');
+        }
         var date = new Date(normalized);
         if (Number.isNaN(date.getTime())) return '—';
         return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);

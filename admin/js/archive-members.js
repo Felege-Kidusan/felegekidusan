@@ -23,6 +23,9 @@
 
     function displayDate(v) {
         if (!v) return '—';
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(v, 'medium');
+        }
         try { return new Date(String(v).replace(' ', 'T')).toLocaleDateString('en-GB'); } catch (_) { return String(v); }
     }
 

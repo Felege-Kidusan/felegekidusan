@@ -27,6 +27,7 @@ namespace App\Services;
 // no trail). The service declares its own dependency — see
 // MezmurHymnService for the same hardening.
 require_once __DIR__ . '/SecurityAuditService.php';
+require_once __DIR__ . '/MemberCategory.php';
 
 final class MezmurSubmissionService
 {
@@ -188,19 +189,21 @@ final class MezmurSubmissionService
         if (!self::validDate($date)) {
             return false;
         }
+        $canonical = MemberCategory::canonicalizeSection($section);
+        $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
         try {
             $stmt = $conn->prepare(
                 "SELECT 1
                  FROM mezmur_attendance a
                  JOIN members m ON m.id = a.member_id
                  WHERE a.attendance_date = ?
-                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?
+                   AND ($secExpr = ? OR m.current_section = ?)
                  LIMIT 1"
             );
             if (!$stmt) {
                 return false;
             }
-            $stmt->bind_param('ss', $date, $section);
+            $stmt->bind_param('sss', $date, $canonical, $section);
             $stmt->execute();
             $ok = $stmt->get_result()->num_rows > 0;
             $stmt->close();
@@ -283,7 +286,8 @@ final class MezmurSubmissionService
     {
         $takerId = (int)($opts['taker_id'] ?? 0);
         $date = trim((string)($opts['date'] ?? ''));
-        $section = trim((string)($opts['section'] ?? ''));
+        $rawSection = trim((string)($opts['section'] ?? ''));
+        $section = MemberCategory::canonicalizeSection($rawSection);
         $status = self::normalizeStatus($opts['status'] ?? self::STATUS_INCOMPLETE);
         if ($status === self::STATUS_DRAFT) {
             $status = self::STATUS_INCOMPLETE;
@@ -298,7 +302,7 @@ final class MezmurSubmissionService
             $opId = null;
         }
 
-        if ($takerId <= 0 || !self::validDate($date) || $section === '' || mb_strlen($section) > self::SECTION_MAX) {
+        if ($takerId <= 0 || !self::validDate($date) || $section === '' || $section === '—' || mb_strlen($section) > self::SECTION_MAX) {
             return ['ok' => false, 'id' => 0, 'status' => $status, 'message' => 'Section, taker, and date are required.'];
         }
 
@@ -306,14 +310,14 @@ final class MezmurSubmissionService
         try {
             $stmt = $conn->prepare(
                 "SELECT id FROM mezmur_submissions
-                 WHERE attendance_date = ? AND section = ?
+                 WHERE attendance_date = ? AND (section = ? OR section = ?)
                  ORDER BY id DESC LIMIT 1"
             );
         } catch (\Throwable $e) {
             $stmt = false;
         }
         if ($stmt) {
-            $stmt->bind_param('ss', $date, $section);
+            $stmt->bind_param('sss', $date, $section, $rawSection);
             $stmt->execute();
             $row = $stmt->get_result()->fetch_assoc();
             $stmt->close();
@@ -639,20 +643,22 @@ final class MezmurSubmissionService
         if (!self::validDate($date) || trim($section) === '') {
             return [];
         }
+        $canonical = MemberCategory::canonicalizeSection($section);
+        $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
         try {
             $stmt = $conn->prepare(
                 "SELECT a.member_id, a.status, a.notes, m.student_name, m.father_name, m.member_code
                  FROM mezmur_attendance a
                  JOIN members m ON m.id = a.member_id
                  WHERE a.attendance_date = ?
-                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?
+                   AND ($secExpr = ? OR m.current_section = ?)
                  ORDER BY m.student_name, m.father_name
                  LIMIT 100000"
             );
             if (!$stmt) {
                 return [];
             }
-            $stmt->bind_param('ss', $date, $section);
+            $stmt->bind_param('sss', $date, $canonical, $section);
             $stmt->execute();
             $rows = [];
             $r = $stmt->get_result();

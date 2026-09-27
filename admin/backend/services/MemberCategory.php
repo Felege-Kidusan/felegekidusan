@@ -70,14 +70,33 @@ final class MemberCategory
      * return null from normalizeSectionAm() — never guessed.
      */
     private const SECTION_ALIASES = [
-        'ልጆች'      => 'ህጻናት',
-        'children'  => 'ህጻናት',
-        'ማእከላዊ'     => 'ማዕከላዊያን',
-        'middle'    => 'ማዕከላዊያን',
-        'ሰበከላ'     => 'ወጣቶች',
-        'parish'    => 'ወጣቶች',
-        'youth'     => 'ወጣቶች',
-        'ወጣቶ'      => 'ወጣቶች',
+        'ልጆች'           => 'ህጻናት',
+        'children'       => 'ህጻናት',
+        'ህፃናት'          => 'ህጻናት',
+        'ህጻናት (a)'       => 'ህጻናት',
+        'ህፃናት (a)'       => 'ህጻናት',
+        'a'              => 'ህጻናት',
+        '7_13'           => 'ህጻናት',
+        '7-13'           => 'ህጻናት',
+        'ማእከላዊ'          => 'ማዕከላዊያን',
+        'ማዕከላዊ'          => 'ማዕከላዊያን',
+        'ማእከላዊያን'       => 'ማዕከላዊያን',
+        'ማዕከላዊያን (b)'     => 'ማዕከላዊያን',
+        'ማእከላዊያን (b)'     => 'ማዕከላዊያን',
+        'middle'         => 'ማዕከላዊያን',
+        'intermediate'   => 'ማዕከላዊያን',
+        'b'              => 'ማዕከላዊያን',
+        '14_17'          => 'ማዕከላዊያን',
+        '14-17'          => 'ማዕከላዊያን',
+        'ሰበከላ'          => 'ወጣቶች',
+        'parish'         => 'ወጣቶች',
+        'youth'          => 'ወጣቶች',
+        'ወጣቶ'           => 'ወጣቶች',
+        'ወጣት'           => 'ወጣቶች',
+        'ወጣቶች (c)'       => 'ወጣቶች',
+        'c'              => 'ወጣቶች',
+        '18_plus'        => 'ወጣቶች',
+        '18+'            => 'ወጣቶች',
     ];
 
     /**
@@ -221,5 +240,45 @@ final class MemberCategory
             }
         }
         return null;
+    }
+
+    /**
+     * Return canonical section name from section string and/or age_group.
+     * Guaranteed never to return empty/null if either is resolvable.
+     */
+    public static function canonicalizeSection(?string $section, ?string $ageGroup = null): string
+    {
+        $s = self::normalizeSectionAm($section);
+        if ($s !== null) {
+            return $s;
+        }
+        if ($ageGroup !== null) {
+            $fromAg = self::sectionAm($ageGroup);
+            if ($fromAg !== null) {
+                return $fromAg;
+            }
+        }
+        $trimmed = trim((string)$section);
+        return ($trimmed !== '' && $trimmed !== '—') ? $trimmed : '—';
+    }
+
+    /**
+     * Generates a SQL CASE expression to evaluate the canonical section
+     * name from table columns (evaluating section aliases first, then age_group fallback).
+     */
+    public static function sqlSectionExpr(string $tableAlias = 'm', string $column = 'current_section', string $ageGroupCol = 'age_group'): string
+    {
+        $col = $tableAlias !== '' ? "`$tableAlias`.`$column`" : "`$column`";
+        $ag  = $tableAlias !== '' ? "`$tableAlias`.`$ageGroupCol`" : "`$ageGroupCol`";
+        return "CASE
+            WHEN NULLIF(TRIM($col), '') IN ('ህጻናት', 'ህፃናት', 'ልጆች', 'children', 'Children', 'ህጻናት (A)', 'ህጻናት (a)', 'A', 'a', '7_13', '7-13') THEN 'ህጻናት'
+            WHEN NULLIF(TRIM($col), '') IN ('ማዕከላዊያን', 'ማዕከላዊ', 'ማእከላዊ', 'ማእከላዊያን', 'middle', 'Middle', 'intermediate', 'Intermediate', 'ማዕከላዊያን (B)', 'ማዕከላዊያን (b)', 'B', 'b', '14_17', '14-17') THEN 'ማዕከላዊያን'
+            WHEN NULLIF(TRIM($col), '') IN ('ወጣቶች', 'ወጣት', 'ወጣቶ', 'ሰበከላ', 'parish', 'Parish', 'youth', 'Youth', 'ወጣቶች (C)', 'ወጣቶች (c)', 'C', 'c', '18_plus', '18+') THEN 'ወጣቶች'
+            WHEN $ag = '7_13' THEN 'ህጻናት'
+            WHEN $ag = '14_17' THEN 'ማዕከላዊያን'
+            WHEN $ag IN ('18_plus', '18+') THEN 'ወጣቶች'
+            WHEN NULLIF(TRIM($col), '') IS NOT NULL AND NULLIF(TRIM($col), '') != '—' THEN TRIM($col)
+            ELSE '—'
+        END";
     }
 }

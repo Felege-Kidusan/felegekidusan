@@ -36,6 +36,9 @@
         if (s < 3600) { return Math.floor(s / 60) + 'm ago'; }
         if (s < 86400) { return Math.floor(s / 3600) + 'h ago'; }
         if (s < 604800) { return Math.floor(s / 86400) + 'd ago'; }
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(t, 'medium');
+        }
         return new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     }
     function timeHM(iso) {
@@ -50,6 +53,9 @@
         if (d.toDateString() === now.toDateString()) { return 'Today'; }
         var y = new Date(now.getTime() - 86400000);
         if (d.toDateString() === y.toDateString()) { return 'Yesterday'; }
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(d, 'long');
+        }
         return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     }
     function initials(name) {
