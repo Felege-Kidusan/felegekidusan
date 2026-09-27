@@ -41,6 +41,31 @@ class InfoAnalyticsService
     // ────────────────────────────────────────────────────────────
 
     /**
+     * Ensures the rollup read model is populated and up-to-date.
+     * Automatically triggers a fresh rebuild if the rollup is empty or stale.
+     */
+    public static function ensureRollupFresh(\mysqli $conn, int $maxAgeSeconds = 180): void
+    {
+        try {
+            $probe = $conn->query('SELECT COUNT(*) AS c, MAX(refreshed_at) AS m FROM attendance_rollup');
+            if ($probe) {
+                $row = $probe->fetch_assoc();
+                $probe->close();
+                $count = (int)($row['c'] ?? 0);
+                $lastRefresh = $row['m'] ?? null;
+                $isStale = ($lastRefresh === null) || (time() - strtotime((string)$lastRefresh) > $maxAgeSeconds);
+                if ($count === 0 || $isStale) {
+                    self::refreshRollup($conn);
+                }
+            } else {
+                self::refreshRollup($conn);
+            }
+        } catch (\Throwable $e) {
+            error_log('[InfoAnalyticsService::ensureRollupFresh] ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Rebuild attendance_rollup from the three source tables.
      * Transactional: the hub either sees the old model or the new
      * one, never a half-built state. Returns summary counts.
@@ -181,6 +206,7 @@ class InfoAnalyticsService
      */
     public static function kpiBand(\mysqli $conn, ?string $from = null, ?string $to = null): array
     {
+        self::ensureRollupFresh($conn);
         [$from, $to] = self::window($from, $to);
         $stmt = $conn->prepare(
             "SELECT source,
@@ -239,6 +265,7 @@ class InfoAnalyticsService
     /** Daily trend rows for one source (bounded window). */
     public static function trends(\mysqli $conn, string $source, ?string $from = null, ?string $to = null): array
     {
+        self::ensureRollupFresh($conn);
         if (!in_array($source, self::SOURCES, true)) {
             return ['items' => []];
         }
@@ -285,6 +312,7 @@ class InfoAnalyticsService
         string $sort = 'marked',
         string $dir = 'desc'
     ): array {
+        self::ensureRollupFresh($conn);
         if (!in_array($source, self::SOURCES, true)) {
             return ['items' => [], 'total' => 0, 'page' => 1, 'total_pages' => 1];
         }
@@ -353,6 +381,7 @@ class InfoAnalyticsService
      */
     public static function comparison(\mysqli $conn, ?string $from = null, ?string $to = null): array
     {
+        self::ensureRollupFresh($conn);
         $kpi = self::kpiBand($conn, $from, $to);
         $items = [];
         foreach ($kpi['items'] as $row) {
@@ -376,6 +405,7 @@ class InfoAnalyticsService
     /** Filter metadata: groups per source (for the UI pickers). */
     public static function sourceMeta(\mysqli $conn): array
     {
+        self::ensureRollupFresh($conn);
         $out = ['sources' => [], 'generated_at' => null];
         $res = $conn->query('SELECT MAX(refreshed_at) m FROM attendance_rollup');
         if ($res) {
