@@ -8,7 +8,7 @@ import '../../utils/theme.dart';
 /// Split out of the Downloads list so that list can be what it should
 /// be: a clean library of audio. Everything here is a *policy* choice
 /// (what may download, over which radio, up to how much space) rather
-/// than content, which is exactly the line Spotify draws between
+/// than content, which is exactly the line Streaming draws between
 /// "Downloads" and "Settings → Storage".
 class MezmurDownloadSettingsScreen extends StatefulWidget {
   const MezmurDownloadSettingsScreen({super.key});

@@ -398,7 +398,7 @@ class LocalDb {
           }
         }
         if (oldVersion < 21) {
-          // P33: Spotify-style offline downloads for mezmur audio.
+          // P33: Streaming-style offline downloads for mezmur audio.
           await _createDownloadTables(db);
         }
         if (oldVersion < 24) {
@@ -408,7 +408,7 @@ class LocalDb {
           await _createHymnTrigramIndex(db);
         }
         if (oldVersion < 25) {
-          // P66 hymn art: per-hymn cover images (Spotify-style). The
+          // P66 hymn art: per-hymn cover images (Streaming-style). The
           // server stores square 160/320/640 JPEG renditions and a
           // dominant color; the URLs are immutable per artwork
           // (?v=<updated_at>), so the cache is safe to keep forever.
@@ -1005,7 +1005,7 @@ class LocalDb {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // P33 — offline audio downloads (Spotify model)
+  // P33 — offline audio downloads (Streaming model)
   // ══════════════════════════════════════════════════════════════
   // One row per hymn the user asked to keep offline. The AUDIO BYTES
   // live on the filesystem (app support dir, excluded from backup);
@@ -1046,7 +1046,7 @@ class LocalDb {
         'CREATE INDEX IF NOT EXISTS idx_hymn_downloads_source ON hymn_downloads (source, last_played_at)');
     // Collection-level pins ("download this category / this singer"),
     // so newly-synced hymns inside a pinned collection auto-download
-    // the way a Spotify playlist keeps itself current.
+    // the way a Streaming playlist keeps itself current.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS hymn_download_pins (
         kind TEXT NOT NULL,
@@ -1493,6 +1493,7 @@ class LocalDb {
     if (id <= 0) return;
     await db.delete('hymn_search_words', where: 'hymn_id = ?', whereArgs: [id]);
     // P28: single title — the index feeds from title + lyrics only.
+    // Tokenizer contract: length >= 2 and RegExp(r'[\p{L}\p{M}\p{N}]+', unicode: true)
     // P37: normalisation now folds Amharic homophones, so a member who
     // types ጸሀይ finds a hymn stored as ፀሐይ. Index and query MUST use
     // the same normaliser or nothing matches.
@@ -5578,7 +5579,7 @@ class LocalDb {
     );
   }
 
-  /// P24: hymn counts per category / singer (Spotify-style tiles) —
+  /// P24: hymn counts per category / singer (Streaming-style tiles) —
   /// active hymns only, computed on-device from the cached joins.
   Future<Map<int, int>> getCategoryHymnCounts() async {
     final db = await database;

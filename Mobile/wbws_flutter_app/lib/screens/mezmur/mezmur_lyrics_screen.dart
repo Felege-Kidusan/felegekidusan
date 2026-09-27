@@ -19,7 +19,7 @@ import 'parchment_style.dart';
 /// Lyrics that live INSIDE the parchment ornamental box.
 ///
 /// Timed lines highlight in real time; the active line is held at the
-/// visual centre. Extra padding equal to half the viewport lets the
+/// visual centre (Scrollable.ensureVisible with alignment: 0.5). Extra padding equal to half the viewport lets the
 /// first and last lines scroll in from either edge. A ShaderMask fades
 /// lines through the in/out points so they never clip hard against the
 /// painted frame. Tapping a line seeks the player to its timestamp.
@@ -28,7 +28,7 @@ import 'parchment_style.dart';
 /// is read locally first (offline-friendly), then refreshed from the
 /// single-hymn endpoint while online.
 ///
-/// Rendering model (P51/P53, emphasis reworked in P61) — Spotify-style lyric
+/// Rendering model (P51/P53, emphasis reworked in P61) — Streaming-style lyric
 /// emphasis on parchment:
 ///   * NO bubble / background per line. The sung line is simply bold + bright
 ///     + full size (and very slightly larger via a pure scale transform);

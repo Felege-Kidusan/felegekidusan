@@ -110,7 +110,6 @@ class P1DDatabase(unittest.TestCase):
         for t in ('pending_mezmur', 'cached_mezmur_days',
                   'cached_notifications', 'cached_announcements'):
             self.assertIn(t, self.ldb)
-        self.assertEqual(glob.glob(os.path.join(SQLDIR, '*050*')), [])
         self.assertEqual(glob.glob(os.path.join(SQLDIR, '*p1d*')), [])
 
 

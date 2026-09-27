@@ -4,7 +4,7 @@
  * MezmurMediaService — audio media plane for the Mezmur module
  * (መዝሙር ክፍል) · P0 audio upgrade
  * ════════════════════════════════════════════════════════════
- *   THE BIG RULE (Spotify shape): audio BYTES never touch the PHP
+ *   THE BIG RULE (Streaming shape): audio BYTES never touch the PHP
  *   origin or MySQL. This service only ever
  *     1. hands out SHORT-LIVED presigned upload URLs so the
  *        browser/app can PUT the file DIRECTLY to Cloudflare R2,

@@ -11,7 +11,7 @@ class MezmurDownloadPolicy {
 
   /// May the queue start a transfer right now?
   ///
-  /// The rule mirrors Spotify's: downloads need a link, and unless the
+  /// The rule mirrors Streaming's: downloads need a link, and unless the
   /// user explicitly allowed mobile data they need an unmetered one.
   static bool canTransfer({
     required bool hasLink,

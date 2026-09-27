@@ -25,6 +25,8 @@ class StaticSafetyTests(unittest.TestCase):
                 self.assertNotIn('Database', result.stdout)
 
     def test_auth_redirects_are_request_origin_independent_and_shim_safe(self):
+        if not shutil.which('php'):
+            self.skipTest('PHP CLI is required to test auth redirects.')
         program = '''
 require 'backend/core/browser.php';
 $results=[];
@@ -42,6 +44,8 @@ echo json_encode($results);
         self.assertEqual(json.loads(result.stdout),['/admin/index.php','/school/admin/index.php']*3)
 
     def test_ledger_validator_executes_with_no_database(self):
+        if not shutil.which('php'):
+            self.skipTest('PHP CLI is required to test ledger validator.')
         program = '''
 require 'admin/backend/services/LedgerValidation.php';
 use App\\Services\\LedgerValidation as Input;
@@ -61,6 +65,8 @@ echo json_encode(['bad'=>$bad,'money'=>Input::money('123.45'),
         self.assertEqual(json.loads(result.stdout),{'bad':8,'money':123.45,'whole':5,'leap':'2024-02-29','name':150})
 
     def test_member_age_handles_birthdays_and_ethiopian_new_year(self):
+        if not shutil.which('php'):
+            self.skipTest('PHP CLI is required to test member age calculation.')
         program = """
 require 'admin/backend/services/MemberAge.php';
 use App\\Services\\MemberAge;

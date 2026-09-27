@@ -19,7 +19,7 @@ import 'mezmur_mini_player.dart';
 ///     Save/Submit bar and the "take attendance" / "Add" FABs — making
 ///     those controls unreachable.
 ///
-/// The fix is the pattern accepted on SO 64644547 and used by Spotify,
+/// The fix is the pattern accepted on SO 64644547 and used by Streaming,
 /// YouTube Music and Apple Music: mount the bar ABOVE the Navigator, in
 /// `MaterialApp.builder`, as a real row in a `Column`. Because it is a
 /// sibling of the Navigator rather than an overlay:

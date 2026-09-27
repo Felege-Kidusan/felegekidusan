@@ -642,7 +642,7 @@ class _MezmurCategoriesState extends State<MezmurCategoriesScreen> {
         foregroundColor: Colors.white,
         onPressed: () => _nameDialog(parentId: _parentId),
         icon: const Icon(Icons.add, size: 20),
-        label: Text(_isDetail ? 'Add Sub' : 'Add Main'),
+        label: Text(_isDetail ? 'Add sub-category' : 'Add Main'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

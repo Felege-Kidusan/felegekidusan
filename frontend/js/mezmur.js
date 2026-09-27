@@ -202,7 +202,7 @@
         }
 
         var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-        var p = window.api.get('mezmur.php?' + q, controller ? { signal: controller.signal } : undefined);
+        var p = controller ? window.api.get('mezmur.php?' + q, { signal: controller.signal }) : window.api.get('mezmur.php?' + q);
 
         var wrapped = new Promise(function (resolve, reject) {
             var done = false;
@@ -778,7 +778,7 @@
     });
 
     // Clock + seek bar, driven by the audio element itself.
-    document.addEventListener('DOMContentLoaded', function () {
+    function initSyncAudioControls() {
         // P46: drain anything left queued by a previous session — the
         // user may have closed the tab mid-upload, or been offline.
         if (queuePending()) { paintSyncState(); queueFlush(); }
@@ -805,7 +805,7 @@
                 a.currentTime = (Number(sk.value) / 1000) * a.duration;
             });
         }
-    });
+    }
 
     // ══════════════════════════════════════════════════════════
     // LAZY TAB LOADING — data fetches on first tab activation
@@ -1117,7 +1117,7 @@
         };
     })();
 
-    /** Escape then wrap the user's search tokens in <mark>. */
+    /** Escape then wrap the user's search tokens in <mark>. Highlight: <mark>$1</mark> */
     function hi(text) {
         var raw = text == null ? '' : String(text);
         if (!lib.search) return esc(raw);
@@ -1783,7 +1783,7 @@
     }
     var imgPick = { id: 0, file: null, url: '', kind: 'cat' };
 
-    // ── P66 hymn art (per-hymn cover image, Spotify-style) ──────
+    // ── P66 hymn art (per-hymn cover image, Streaming-style) ──────
     // Set/replace + remove reuse the SAME hardened image dialog the
     // category/singer covers use (preview → POST); only the action
     // name and the post-refresh differ.
@@ -3312,7 +3312,7 @@
                 lib.search = (t.length === 1) ? '' : t;
                 lib.page = 1;
                 loadList();
-            }, 250);
+            }, 160);
         });
         $('mzCategoryFilter').addEventListener('change', function () {
             lib.category = '';
@@ -3329,6 +3329,7 @@
         initSysDialog();
         initImageDialog();
         initAudioDialog();
+        initSyncAudioControls();
         if (window.MezmurPlayer && typeof window.MezmurPlayer.init === 'function') {
             window.MezmurPlayer.init({
                 get: apiGet,
