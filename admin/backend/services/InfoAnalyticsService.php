@@ -58,7 +58,7 @@ class InfoAnalyticsService
                     (source, rollup_date, group_key, packets, members_marked,
                      present_count, late_count, absent_count, excused_count, approved_packets)
                  SELECT 'edu', a.attendance_date,
-                        COALESCE(c.class_name, '—'),
+                        COALESCE(NULLIF(TRIM(c.class_name), ''), '—'),
                         COUNT(DISTINCT CONCAT_WS('|', IFNULL(a.recorded_by,0), IFNULL(a.class_id,0))),
                         COUNT(*),
                         COALESCE(SUM(a.status = 'present'), 0),
@@ -69,11 +69,13 @@ class InfoAnalyticsService
                  FROM attendance a
                  LEFT JOIN classes c ON c.id = a.class_id
                  WHERE a.status <> 'holiday'
-                 GROUP BY a.attendance_date, COALESCE(c.class_name, '—')"
+                 GROUP BY a.attendance_date, COALESCE(NULLIF(TRIM(c.class_name), ''), '—')"
             );
-            $stmt->execute();
-            $inserted += (int)$conn->affected_rows;
-            $stmt->close();
+            if ($stmt) {
+                $stmt->execute();
+                $inserted += (int)$conn->affected_rows;
+                $stmt->close();
+            }
 
             // ── Mezmur + HR: section sheets from their own tables ──
             // Mezmur rows carry no section snapshot — the department
@@ -94,7 +96,8 @@ class InfoAnalyticsService
                         GROUP BY m.attendance_date,
                                  COALESCE(NULLIF(TRIM(mb.current_section), ''), '—')"],
                       ['hr', 'hr_attendance', 'hr_submissions',
-                       "SELECT ?, m.attendance_date, m.section,
+                       "SELECT ?, m.attendance_date,
+                               COALESCE(NULLIF(TRIM(m.section), ''), '—'),
                                0,
                                COUNT(*),
                                COALESCE(SUM(m.status = 'present'), 0),
@@ -103,34 +106,41 @@ class InfoAnalyticsService
                                COALESCE(SUM(m.status = 'excused'), 0),
                                0
                         FROM `hr_attendance` m
-                        GROUP BY m.attendance_date, m.section"]] as [$source, $attTable, $subTable, $selectSql]) {
+                        GROUP BY m.attendance_date,
+                                 COALESCE(NULLIF(TRIM(m.section), ''), '—')"]] as [$source, $attTable, $subTable, $selectSql]) {
                 $stmt = $conn->prepare(
                     "INSERT INTO attendance_rollup
                         (source, rollup_date, group_key, packets, members_marked,
                          present_count, late_count, absent_count, excused_count, approved_packets)
                      $selectSql"
                 );
-                $stmt->bind_param('s', $source);
-                $stmt->execute();
-                $inserted += (int)$conn->affected_rows;
-                $stmt->close();
+                if ($stmt) {
+                    $stmt->bind_param('s', $source);
+                    $stmt->execute();
+                    $inserted += (int)$conn->affected_rows;
+                    $stmt->close();
+                }
 
                 // Packet counters (submissions per date+section).
                 $stmt = $conn->prepare(
                     "INSERT INTO attendance_rollup
                         (source, rollup_date, group_key, packets, approved_packets)
-                     SELECT ?, s.attendance_date, s.section,
+                     SELECT ?, s.attendance_date,
+                            COALESCE(NULLIF(TRIM(s.section), ''), '—'),
                             COUNT(*),
                             COALESCE(SUM(s.status = 'approved'), 0)
                      FROM `{$subTable}` s
-                     GROUP BY s.attendance_date, s.section
+                     GROUP BY s.attendance_date,
+                              COALESCE(NULLIF(TRIM(s.section), ''), '—')
                      ON DUPLICATE KEY UPDATE
                         packets = VALUES(packets),
                         approved_packets = VALUES(approved_packets)"
                 );
-                $stmt->bind_param('s', $source);
-                $stmt->execute();
-                $stmt->close();
+                if ($stmt) {
+                    $stmt->bind_param('s', $source);
+                    $stmt->execute();
+                    $stmt->close();
+                }
             }
 
             $conn->commit();
