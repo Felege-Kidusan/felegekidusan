@@ -25,6 +25,8 @@
 
 namespace App\Services;
 
+require_once __DIR__ . '/MemberCategory.php';
+
 final class MezmurAttendanceService
 {
     public const PROGRAM_TYPES = ['rehearsal', 'service', 'feast', 'training', 'other'];
@@ -127,9 +129,10 @@ final class MezmurAttendanceService
     public static function rosterGroupedBySection(\mysqli $conn): array
     {
         $photo = self::photoSelectExpr($conn);
+        $secExpr = MemberCategory::sqlSectionExpr('', 'current_section', 'age_group');
         $res = $conn->query(
             "SELECT id, member_code, student_name, father_name, full_name_am, $photo,
-                    COALESCE(NULLIF(TRIM(current_section), ''), '—') AS section
+                    $secExpr AS section
              FROM members
              WHERE status = 'active'
              ORDER BY section, student_name, father_name"
@@ -358,18 +361,20 @@ final class MezmurAttendanceService
         if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
             throw new \DomainException('A valid section is required.');
         }
+        $canonical = MemberCategory::canonicalizeSection($section);
         $photo = self::photoSelectExpr($conn);
+        $secExpr = MemberCategory::sqlSectionExpr('members', 'current_section', 'age_group');
         $stmt = $conn->prepare(
             "SELECT id, member_code, student_name, father_name, $photo
              FROM members
              WHERE status = 'active'
-               AND COALESCE(NULLIF(TRIM(current_section), ''), '—') = ?
+               AND ($secExpr = ? OR current_section = ?)
              ORDER BY student_name, father_name"
         );
         if (!$stmt) {
             return [];
         }
-        $stmt->bind_param('s', $section);
+        $stmt->bind_param('ss', $canonical, $section);
         $stmt->execute();
         $rows = [];
         $r = $stmt->get_result();
@@ -385,8 +390,9 @@ final class MezmurAttendanceService
     public static function sectionListWithCounts(\mysqli $conn): array
     {
         $out = [];
+        $secExpr = MemberCategory::sqlSectionExpr('', 'current_section', 'age_group');
         $res = $conn->query(
-            "SELECT COALESCE(NULLIF(TRIM(current_section), ''), '—') AS section, COUNT(*) AS members
+            "SELECT $secExpr AS section, COUNT(*) AS members
              FROM members WHERE status = 'active'
              GROUP BY section ORDER BY section LIMIT 200"
         );
@@ -411,18 +417,20 @@ final class MezmurAttendanceService
         if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
             throw new \DomainException('A valid section is required.');
         }
+        $canonical = MemberCategory::canonicalizeSection($section);
 
         $marks = [];
+        $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
         try {
             $stmt = $conn->prepare(
                 "SELECT a.member_id, a.status, a.notes
                  FROM mezmur_attendance a
                  JOIN members m ON m.id = a.member_id
                  WHERE a.attendance_date = ?
-                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?"
+                   AND ($secExpr = ? OR m.current_section = ?)"
             );
             if ($stmt) {
-                $stmt->bind_param('ss', $date, $section);
+                $stmt->bind_param('sss', $date, $canonical, $section);
                 $stmt->execute();
                 $r = $stmt->get_result();
                 while ($row = $r->fetch_assoc()) {
@@ -446,16 +454,16 @@ final class MezmurAttendanceService
             $members[] = $m;
         }
 
-        $packetStatus = MezmurSubmissionService::resolvedStatus($conn, $date, $section);
+        $packetStatus = MezmurSubmissionService::resolvedStatus($conn, $date, $canonical);
         $locked = MezmurSubmissionService::isLockedForTaker($packetStatus, $auth);
         $review = null;
         if ($packetStatus === MezmurSubmissionService::STATUS_REVISION) {
-            $review = MezmurSubmissionService::review($conn, $date, $section);
+            $review = MezmurSubmissionService::review($conn, $date, $canonical);
         }
 
         return [
             'date' => $date,
-            'section' => $section,
+            'section' => $canonical,
             'members' => $members,
             'count' => count($members),
             'submission_status' => $packetStatus,
@@ -489,6 +497,7 @@ final class MezmurAttendanceService
         if ($section === '' || mb_strlen($section) > self::SECTION_MAX) {
             throw new \DomainException('A valid section is required.');
         }
+        $canonical = MemberCategory::canonicalizeSection($section);
 
         $roster = array_map(static fn($m) => (int)$m['id'], self::sectionRoster($conn, $section));
         $submitted = [];
@@ -523,13 +532,14 @@ final class MezmurAttendanceService
         }
         try {
             // Delete only this section's rows for the date.
+            $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
             $del = $conn->prepare(
                 "DELETE a FROM mezmur_attendance a
                  JOIN members m ON m.id = a.member_id
                  WHERE a.attendance_date = ?
-                   AND COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?"
+                   AND ($secExpr = ? OR m.current_section = ?)"
             );
-            $del->bind_param('ss', $date, $section);
+            $del->bind_param('sss', $date, $canonical, $section);
             $del->execute();
             $del->close();
 
@@ -544,7 +554,7 @@ final class MezmurAttendanceService
             throw $e;
         }
         self::ensureDay($conn, $date, 'rehearsal', null, null, $userId);
-        self::audit($conn, $date, $userId, 'section_sheet_saved', "section=$section marked=" . count($submitted) . " present=$present late=$late absent=$absent excused=$excused");
+        self::audit($conn, $date, $userId, 'section_sheet_saved', "section=$canonical marked=" . count($submitted) . " present=$present late=$late absent=$absent excused=$excused");
         return ['marked' => count($submitted), 'present' => $present, 'late' => $late, 'absent' => $absent, 'excused' => $excused];
     }
 
@@ -593,13 +603,15 @@ final class MezmurAttendanceService
         $perPage = self::clampPerPage((int)($filters['per_page'] ?? 25));
 
         $held = self::daysHeld($conn, $w, $programType);
+        $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
 
         $where = ["m.status = 'active'"];
         $types = '';
         $params = [];
         if ($section !== '') {
-            $where[] = "COALESCE(NULLIF(TRIM(m.current_section), ''), '—') = ?";
-            $types .= 's'; $params[] = $section;
+            $canonical = MemberCategory::canonicalizeSection($section);
+            $where[] = "($secExpr = ? OR m.current_section = ?)";
+            $types .= 'ss'; $params[] = $canonical; $params[] = $section;
         }
         if ($search !== '') {
             $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], mb_substr($search, 0, 100)) . '%';
@@ -613,7 +625,7 @@ final class MezmurAttendanceService
 
         $sql = "
             SELECT m.id, m.member_code, m.student_name, m.father_name, m.full_name_am, $photoExpr,
-                   COALESCE(NULLIF(TRIM(m.current_section), ''), '—') AS section,
+                   $secExpr AS section,
                    $held AS sessions_held,
                    COALESCE(agg.present, 0) AS present,
                    COALESCE(agg.late, 0) AS late,
@@ -670,9 +682,10 @@ final class MezmurAttendanceService
         $held = self::daysHeld($conn, $w, $programType);
 
         [$pJoin, $pType] = self::programJoinFilter($programType);
+        $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
 
         $sql = "
-            SELECT COALESCE(NULLIF(TRIM(m.current_section), ''), '—') AS section,
+            SELECT $secExpr AS section,
                    COUNT(DISTINCT m.id) AS members,
                    COALESCE(SUM(a.status = 'present'), 0) AS present,
                    COALESCE(SUM(a.status = 'late'), 0)    AS late,
@@ -753,7 +766,8 @@ final class MezmurAttendanceService
     public static function sectionList(\mysqli $conn): array
     {
         $out = [];
-        $res = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(current_section), ''), '—') AS section FROM members WHERE status = 'active' ORDER BY section LIMIT 200");
+        $secExpr = MemberCategory::sqlSectionExpr('', 'current_section', 'age_group');
+        $res = $conn->query("SELECT DISTINCT $secExpr AS section FROM members WHERE status = 'active' ORDER BY section LIMIT 200");
         if ($res) {
             while ($r = $res->fetch_assoc()) $out[] = $r['section'];
         }

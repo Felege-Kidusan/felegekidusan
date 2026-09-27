@@ -526,6 +526,9 @@ var Finance = (function() {
 
     function fDate(d) {
         if (!d) return '—';
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(d, 'medium');
+        }
         try { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
         catch (e) { return d; }
     }

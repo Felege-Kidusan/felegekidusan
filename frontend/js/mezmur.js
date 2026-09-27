@@ -42,11 +42,31 @@
             .replace(/'/g, '&#39;');
     }
 
-    function fmtDate(s) {
+    function fmtDate(s, fmt) {
         if (!s) return '—';
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(s, fmt || 'long');
+        }
         var d = new Date(String(s).replace(' ', 'T'));
         if (isNaN(d.getTime())) return esc(s);
         return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function sectionBadge(sectionName) {
+        if (!sectionName || sectionName === '—') {
+            return '<span class="section-badge section-badge-other">—</span>';
+        }
+        var s = String(sectionName).trim();
+        if (s.indexOf('ህጻናት') !== -1 || s.indexOf('ህፃናት') !== -1 || s === 'A' || s.toLowerCase() === 'children') {
+            return '<span class="section-badge section-badge-a"><span class="section-badge-dot"></span>ህጻናት (A) <span style="opacity:0.75;font-size:0.7rem;font-weight:normal">7–13</span></span>';
+        }
+        if (s.indexOf('ማዕከላዊ') !== -1 || s.indexOf('ማእከላዊ') !== -1 || s === 'B' || s.toLowerCase() === 'intermediate' || s.toLowerCase() === 'middle') {
+            return '<span class="section-badge section-badge-b"><span class="section-badge-dot"></span>ማዕከላዊያን (B) <span style="opacity:0.75;font-size:0.7rem;font-weight:normal">14–17</span></span>';
+        }
+        if (s.indexOf('ወጣት') !== -1 || s === 'C' || s.toLowerCase() === 'youth' || s.toLowerCase() === 'parish') {
+            return '<span class="section-badge section-badge-c"><span class="section-badge-dot"></span>ወጣቶች (C) <span style="opacity:0.75;font-size:0.7rem;font-weight:normal">18+</span></span>';
+        }
+        return '<span class="section-badge section-badge-other">' + esc(s) + '</span>';
     }
 
     function showError(el, msg) {
@@ -2318,10 +2338,33 @@
             sel.innerHTML = '<option value="">Select section…</option>' +
                 (d.items || []).map(function (s) {
                     var n = (s.members != null ? s.members : s.count);
-                    return '<option value="' + esc(s.section) + '">' + esc(s.section) + (n != null ? ' · ' + n : '') + '</option>';
+                    var label = s.section;
+                    if (s.section === 'ህጻናት') label = 'ህጻናት (A · 7–13)';
+                    else if (s.section === 'ማዕከላዊያን') label = 'ማዕከላዊያን (B · 14–17)';
+                    else if (s.section === 'ወጣቶች') label = 'ወጣቶች (C · 18+)';
+                    return '<option value="' + esc(s.section) + '">' + esc(label) + (n != null ? ' · ' + n : '') + '</option>';
                 }).join('');
             if (cur) sel.value = cur;
         }).catch(function () { /* retried on tab re-entry */ });
+    }
+
+    function loadSubSectionOptions() {
+        var sel = $('mzSubSection');
+        if (!sel) return;
+        apiGet('action=sections').then(function (d) {
+            if (d.status !== 'success' || !d.items) return;
+            var cur = sel.value;
+            sel.innerHTML = '<option value="">All sections</option>' +
+                d.items.map(function (s) {
+                    var n = (s.members != null ? s.members : s.count);
+                    var label = s.section;
+                    if (s.section === 'ህጻናት') label = 'ህጻናት (A · 7–13)';
+                    else if (s.section === 'ማዕከላዊያን') label = 'ማዕከላዊያን (B · 14–17)';
+                    else if (s.section === 'ወጣቶች') label = 'ወጣቶች (C · 18+)';
+                    return '<option value="' + esc(s.section) + '">' + esc(label) + (n != null ? ' · ' + n : '') + '</option>';
+                }).join('');
+            if (cur) sel.value = cur;
+        }).catch(function () { });
     }
 
     // ── days list ─────────────────────────────────────────────
@@ -2558,7 +2601,7 @@
                 }
                 return '<tr>' +
                     '<td class="nowrap">' + fmtDate(p.attendance_date) + '</td>' +
-                    '<td class="amharic">' + esc(p.section) + '</td>' +
+                    '<td>' + sectionBadge(p.section) + '</td>' +
                     '<td>' + esc(p.taker_name || '—') + '</td>' +
                     '<td>' + p.member_count + '</td>' +
                     '<td style="font-weight:600;font-size:.78rem">' + result + '</td>' +
@@ -2817,7 +2860,7 @@
                 '<td class="text-dim">' + (startRank + i + 1) + '</td>' +
                 '<td><b>' + esc(m.student_name) + '</b> ' + esc(m.father_name || '') +
                 (m.member_code ? '<div class="text-dim">' + esc(m.member_code) + '</div>' : '') + '</td>' +
-                '<td class="amharic">' + esc(m.section) + '</td>' +
+                '<td data-section="' + esc(m.section) + '">' + sectionBadge(m.section) + '</td>' +
                 '<td><b>' + m.attended + '</b> / ' + m.sessions_held +
                 ' <span class="text-dim">(' + pctLabel(m.sessions_held > 0 ? m.attended * 100 / m.sessions_held : null) + ')</span></td>' +
                 '<td>' + rateBar(m.rate) + '</td>' +
@@ -2838,13 +2881,13 @@
         if (!items.length) { el.innerHTML = emptyState('fa-layer-group', 'No section data', 'No attendance falls inside this window.'); return; }
         el.innerHTML = items.map(function (s) {
             return '<div class="school-card">' +
-                '<div class="page-head" style="margin-bottom:.6rem"><h3 class="amharic">' + esc(s.section) + '</h3>' + rateChip(s.rate) + '</div>' +
+                '<div class="page-head" style="margin-bottom:.6rem"><div>' + sectionBadge(s.section) + '</div>' + rateChip(s.rate) + '</div>' +
                 rateBar(s.rate) +
-                '<div class="text-dim mt-1">' +
-                s.members + ' members • ' + s.sessions_held + ' days<br>' +
-                '<span class="text-ok">' + s.present + ' present (' + pctLabel(s.present_pct) + ')</span> • ' +
-                '<span class="text-warn">' + s.late + ' late (' + pctLabel(s.late_pct) + ')</span><br>' +
-                '<span class="text-bad">' + s.absent + ' absent (' + pctLabel(s.absent_pct) + ')</span>' +
+                '<div class="text-dim mt-1" style="font-size:.82rem;line-height:1.5">' +
+                '<b>' + s.members + '</b> members • <b>' + s.sessions_held + '</b> days<br>' +
+                '<span class="text-ok"><b>' + s.present + '</b> present (' + pctLabel(s.present_pct) + ')</span> • ' +
+                '<span class="text-warn"><b>' + s.late + '</b> late (' + pctLabel(s.late_pct) + ')</span><br>' +
+                '<span class="text-bad"><b>' + s.absent + '</b> absent (' + pctLabel(s.absent_pct) + ')</span>' +
                 '</div></div>';
         }).join('');
     }

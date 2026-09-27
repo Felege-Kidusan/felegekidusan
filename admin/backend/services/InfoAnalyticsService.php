@@ -22,6 +22,8 @@
 
 namespace App\Services;
 
+require_once __DIR__ . '/MemberCategory.php';
+
 class InfoAnalyticsService
 {
     public const SOURCES = ['edu', 'mezmur', 'hr'];
@@ -104,11 +106,15 @@ class InfoAnalyticsService
 
             // ── Mezmur + HR: section sheets from their own tables ──
             // Mezmur rows carry no section snapshot — the department
-            // derives it from members.current_section (its canonical
-            // expression). HR rows snapshot the section on the row.
+            // derives it from COALESCE(NULLIF(TRIM(mb.current_section), ''), '—') / mb.age_group
+            // (its canonical expression via MemberCategory::sqlSectionExpr).
+            $mezmurSecExpr = MemberCategory::sqlSectionExpr('mb', 'current_section', 'age_group');
+            $hrSecExpr = MemberCategory::sqlSectionExpr('m', 'section', 'section');
+            $subSecExpr = MemberCategory::sqlSectionExpr('s', 'section', 'section');
+
             foreach ([['mezmur', 'mezmur_attendance', 'mezmur_submissions',
                        "SELECT ?, m.attendance_date,
-                               COALESCE(NULLIF(TRIM(mb.current_section), ''), '—'),
+                               $mezmurSecExpr,
                                0,
                                COUNT(*),
                                COALESCE(SUM(m.status = 'present'), 0),
@@ -118,11 +124,10 @@ class InfoAnalyticsService
                                0
                         FROM `mezmur_attendance` m
                         LEFT JOIN members mb ON mb.id = m.member_id
-                        GROUP BY m.attendance_date,
-                                 COALESCE(NULLIF(TRIM(mb.current_section), ''), '—')"],
+                        GROUP BY m.attendance_date, $mezmurSecExpr"],
                       ['hr', 'hr_attendance', 'hr_submissions',
                        "SELECT ?, m.attendance_date,
-                               COALESCE(NULLIF(TRIM(m.section), ''), '—'),
+                               $hrSecExpr,
                                0,
                                COUNT(*),
                                COALESCE(SUM(m.status = 'present'), 0),
@@ -131,8 +136,8 @@ class InfoAnalyticsService
                                COALESCE(SUM(m.status = 'excused'), 0),
                                0
                         FROM `hr_attendance` m
-                        GROUP BY m.attendance_date,
-                                 COALESCE(NULLIF(TRIM(m.section), ''), '—')"]] as [$source, $attTable, $subTable, $selectSql]) {
+                        LEFT JOIN members mb ON mb.id = m.member_id
+                        GROUP BY m.attendance_date, $hrSecExpr"]] as [$source, $attTable, $subTable, $selectSql]) {
                 $stmt = $conn->prepare(
                     "INSERT INTO attendance_rollup
                         (source, rollup_date, group_key, packets, members_marked,
@@ -151,12 +156,12 @@ class InfoAnalyticsService
                     "INSERT INTO attendance_rollup
                         (source, rollup_date, group_key, packets, approved_packets)
                      SELECT ?, s.attendance_date,
-                            COALESCE(NULLIF(TRIM(s.section), ''), '—'),
+                            $subSecExpr,
                             COUNT(*),
                             COALESCE(SUM(s.status = 'approved'), 0)
                      FROM `{$subTable}` s
                      GROUP BY s.attendance_date,
-                              COALESCE(NULLIF(TRIM(s.section), ''), '—')
+                              $subSecExpr
                      ON DUPLICATE KEY UPDATE
                         packets = VALUES(packets),
                         approved_packets = VALUES(approved_packets)"

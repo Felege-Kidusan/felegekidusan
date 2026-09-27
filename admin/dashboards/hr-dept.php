@@ -3755,8 +3755,11 @@ const HrSub = (function () {
     function $(id) { return document.getElementById(id); }
     function esc(s) { return escapeHtml(s); }
 
-    function fmtDate(s) {
+    function fmtDate(s, fmt) {
         if (!s) return '—';
+        if (typeof WBWSCalendar !== 'undefined' && typeof WBWSCalendar.formatDate === 'function') {
+            return WBWSCalendar.formatDate(s, fmt || 'long');
+        }
         const d = new Date(String(s).replace(' ', 'T'));
         if (isNaN(d.getTime())) return esc(s);
         return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
