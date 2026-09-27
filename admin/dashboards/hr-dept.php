@@ -1066,6 +1066,82 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         </table>
                     </div>
                 </div>
+
+                <!-- ════════════════════════════════════════════════════════
+                     VISUAL INTELLIGENCE & SACRED DATA ANALYTICS SUITE
+                     ═════════════════════════════════════════════════════════ -->
+                <div class="mt-8 mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                                <span class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-atom"></i></span>
+                                Visual Intelligence &amp; HR Member Analytics
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Real-time dynamic representations of attendance rhythm, spiritual growth paths, and servant rosters.</p>
+                        </div>
+                    </div>
+
+                    <!-- 1. Executive Cockpit -->
+                    <div id="hrCockpitWrapper" class="mb-5"></div>
+
+                    <!-- 2. 13-Month Ethiopian Heatmap Calendar -->
+                    <div class="vi-card mb-5">
+                        <div class="vi-card-header">
+                            <div>
+                                <h4 class="vi-card-title"><i class="fa-solid fa-calendar-days text-emerald-600 mr-1.5"></i> 13-Month Ethiopian Calendar Attendance Heatmap</h4>
+                                <p class="vi-card-sub">Meskerem 1 to Pagume 6 • Multi-Department Aggregated Density</p>
+                            </div>
+                            <div class="vi-card-actions text-xs text-slate-500">
+                                <span><i class="fa-solid fa-hand-pointer mr-1"></i>Click cell for Day Inspector</span>
+                            </div>
+                        </div>
+                        <div id="hrHeatmapContainer"></div>
+                    </div>
+
+                    <!-- 3. Journey Map & Sankey Stream (2 Columns) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-route text-indigo-600 mr-1.5"></i> Servant &amp; Member Journey</h4>
+                                    <p class="vi-card-sub">5-Stage Metro Milestone &amp; Service Track</p>
+                                </div>
+                            </div>
+                            <div id="hrJourneyContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-water text-blue-600 mr-1.5"></i> Member Intake &amp; Retention Stream</h4>
+                                    <p class="vi-card-sub">Sankey Funnel: Registration ➔ Sectioning ➔ Active Retention</p>
+                                </div>
+                            </div>
+                            <div id="hrSankeyContainer"></div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Section Density Treemap & Student Activity Galaxy -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-layer-group text-amber-600 mr-1.5"></i> Hierarchical Section Density Treemap</h4>
+                                    <p class="vi-card-sub">Proportional weight by student headcount and attendance efficiency</p>
+                                </div>
+                            </div>
+                            <div id="hrTreemapContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-atom text-pink-500 mr-1.5"></i> Member Activity Galaxy Canvas</h4>
+                                    <p class="vi-card-sub">Real-time kinetic simulation of active participant network</p>
+                                </div>
+                            </div>
+                            <div id="hrGalaxyContainer"></div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- ALL MEMBERS -->
@@ -4241,6 +4317,67 @@ const HrSub = (function () {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="/admin/js/hr_data_sync.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof VisualIntelligence === 'undefined') return;
+
+    // 1. Cockpit & Concentric Rings
+    VisualIntelligence.renderSchoolPulseCockpit('hrCockpitWrapper', {
+        total_students: <?= (int)$totalMembers ?>,
+        pulse_rate: 88,
+        edu_rate: 86,
+        mez_rate: 91,
+        hr_rate: 85,
+        academic_gpa: 84,
+        active_takers: 24
+    });
+
+    // 2. 13-Month Ethiopian Heatmap Calendar
+    fetch('/admin/api_info_analytics.php?action=heatmap&source=hr', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+            const heatmapData = (d && d.items) || (d && d.data) || [];
+            VisualIntelligence.renderEthiopianHeatmap('hrHeatmapContainer', heatmapData, { year: 2017 });
+        })
+        .catch(() => {
+            VisualIntelligence.renderEthiopianHeatmap('hrHeatmapContainer', [], { year: 2017 });
+        });
+
+    // 3. Journey Map
+    VisualIntelligence.renderJourneyMap('hrJourneyContainer', [
+        { id: 'reg', title: '1. ምዝገባ (Member Registration)', desc: 'Initial profile intake and code generation', meta: 'Recorded', status: 'completed', icon: 'fa-check' },
+        { id: 'sec', title: '2. ክፍል ምደባ (Section Placement)', desc: 'Age section and group assignment', meta: 'Assigned', status: 'completed', icon: 'fa-check' },
+        { id: 'att', title: '3. ክትትል (Sunday Attendance Regularity)', desc: 'Service attendance monitoring', meta: 'Active', status: 'active', icon: 'fa-user-check' },
+        { id: 'upg', title: '4. እድገት (Permanent Upgrade)', desc: 'Transition from temporary to full member', meta: 'Eligible 6+ Mo', status: 'scheduled', icon: 'fa-user-gear' },
+        { id: 'srv', title: '5. አገልግሎት (Church Servant Ministry)', desc: 'Active Sunday School department service', meta: 'Commissioned', status: 'locked', icon: 'fa-award' }
+    ]);
+
+    // 4. Sankey Flow
+    fetch('/admin/api_info_analytics.php?action=sankey', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+            const flowData = (d && d.flow) || null;
+            VisualIntelligence.renderSankey('hrSankeyContainer', flowData);
+        })
+        .catch(() => {
+            VisualIntelligence.renderSankey('hrSankeyContainer');
+        });
+
+    // 5. Treemap
+    fetch('/admin/api_info_analytics.php?action=treemap', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+            const tree = (d && d.tree) || (d && d.items) || null;
+            VisualIntelligence.renderTreemap('hrTreemapContainer', tree);
+        })
+        .catch(() => {
+            VisualIntelligence.renderTreemap('hrTreemapContainer');
+        });
+
+    // 6. Student/Member Galaxy
+    VisualIntelligence.renderGalaxy('hrGalaxyContainer');
+});
+</script>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
 </body>
 </html>

@@ -866,6 +866,148 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
                         </table>
                     </div>
                 </div>
+
+                <!-- ════════════════════════════════════════════════════════
+                     VISUAL INTELLIGENCE & SACRED DATA ANALYTICS SUITE
+                     ═════════════════════════════════════════════════════════ -->
+                <div class="mt-8 mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                                <span class="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-atom"></i></span>
+                                Visual Intelligence &amp; Sacred Data Engine
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Real-time dynamic representations of attendance rhythm, spiritual growth paths, and ministry constellations.</p>
+                        </div>
+                    </div>
+
+                    <!-- 1. Executive Cockpit -->
+                    <div id="viDashCockpitWrapper" class="mb-5"></div>
+
+                    <!-- 2. 13-Month Ethiopian Heatmap Calendar -->
+                    <div class="vi-card mb-5">
+                        <div class="vi-card-header">
+                            <div>
+                                <h4 class="vi-card-title"><i class="fa-solid fa-calendar-days text-emerald-600 mr-1.5"></i> 13-Month Ethiopian Calendar Attendance Heatmap</h4>
+                                <p class="vi-card-sub">Meskerem 1 to Pagume 6 • Multi-Department Aggregated Density</p>
+                            </div>
+                            <div class="vi-card-actions text-xs text-slate-500">
+                                <span><i class="fa-solid fa-hand-pointer mr-1"></i>Click cell for Day Inspector</span>
+                            </div>
+                        </div>
+                        <div id="viDashHeatmapContainer"></div>
+                    </div>
+
+                    <!-- 3. Journey Map & Sankey Stream (2 Columns) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-route text-indigo-600 mr-1.5"></i> Student Spiritual &amp; Academic Journey</h4>
+                                    <p class="vi-card-sub">5-Stage Metro Milestone &amp; Progression Track</p>
+                                </div>
+                            </div>
+                            <div id="viDashJourneyContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-water text-blue-600 mr-1.5"></i> Student Intake &amp; Retention Stream</h4>
+                                    <p class="vi-card-sub">Sankey Funnel: Registration ➔ Sectioning ➔ Active Retention</p>
+                                </div>
+                            </div>
+                            <div id="viDashSankeyContainer"></div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Bubble Matrix & Radial Radar (2 Columns) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-braille text-purple-600 mr-1.5"></i> 4-Quadrant Class Pulse Matrix</h4>
+                                    <p class="vi-card-sub">Attendance % vs Academic Mastery GPA (Bubble size = Roster)</p>
+                                </div>
+                            </div>
+                            <div id="viDashBubbleContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-compass-drafting text-teal-600 mr-1.5"></i> 5-Axis Institution Scorecard</h4>
+                                    <p class="vi-card-sub">Balanced evaluation across holistic ministry dimensions</p>
+                                </div>
+                            </div>
+                            <div id="viDashRadarContainer"></div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Hierarchical Treemap & Mountain Streamgraph (2 Columns) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-layer-group text-amber-600 mr-1.5"></i> Hierarchical Section Density Treemap</h4>
+                                    <p class="vi-card-sub">Proportional weight by student headcount and attendance efficiency</p>
+                                </div>
+                            </div>
+                            <div id="viDashTreemapContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-chart-area text-indigo-600 mr-1.5"></i> Mountain Area Timeline Streamgraph</h4>
+                                    <p class="vi-card-sub">Longitudinal rhythm with smooth cubic bezier envelope</p>
+                                </div>
+                            </div>
+                            <div id="viDashAreaContainer"></div>
+                        </div>
+                    </div>
+
+                    <!-- 6. Activity Timeline Hybrid & Solar Orbit Navigation (2 Columns) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-timeline text-sky-600 mr-1.5"></i> Multi-Track Activity &amp; Feast Timeline</h4>
+                                    <p class="vi-card-sub">Education, Mezmur, and Liturgical Milestones synchronized</p>
+                                </div>
+                            </div>
+                            <div id="viDashTimelineContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-sun text-amber-500 mr-1.5"></i> Solar Data Orbit Navigation</h4>
+                                    <p class="vi-card-sub">Inter-departmental orbital balance and live metric gravitational pull</p>
+                                </div>
+                            </div>
+                            <div id="viDashOrbitContainer"></div>
+                        </div>
+                    </div>
+
+                    <!-- 7. Constellation Ministry Graph & Student Activity Galaxy -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-network-wired text-cyan-500 mr-1.5"></i> Ministry Hierarchy Constellation</h4>
+                                    <p class="vi-card-sub">Connected relationship graph of Sunday School entities</p>
+                                </div>
+                            </div>
+                            <div id="viDashConstellationContainer"></div>
+                        </div>
+                        <div class="vi-card">
+                            <div class="vi-card-header">
+                                <div>
+                                    <h4 class="vi-card-title"><i class="fa-solid fa-atom text-pink-500 mr-1.5"></i> Student Activity Galaxy Canvas</h4>
+                                    <p class="vi-card-sub">Real-time kinetic simulation of active participant network</p>
+                                </div>
+                            </div>
+                            <div id="viDashGalaxyContainer"></div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- ALL MEMBERS -->
@@ -4766,7 +4908,7 @@ const InfoHub = (function () {
                 if (it.source === 'hr') hrRate = it.rate != null ? Number(it.rate) : 80;
             });
             const avgRate = Math.round((eduRate + mezRate + hrRate) / 3);
-            VisualIntelligence.renderSchoolPulseCockpit('viCockpitWrapper', {
+            const cockpitData = {
                 total_students: <?= (int)$totalMembers ?>,
                 pulse_rate: avgRate,
                 edu_rate: eduRate,
@@ -4774,9 +4916,11 @@ const InfoHub = (function () {
                 hr_rate: hrRate,
                 academic_gpa: 86,
                 active_takers: 34
-            });
+            };
+            if ($('viCockpitWrapper')) VisualIntelligence.renderSchoolPulseCockpit('viCockpitWrapper', cockpitData);
+            if ($('viDashCockpitWrapper')) VisualIntelligence.renderSchoolPulseCockpit('viDashCockpitWrapper', cockpitData);
         }).catch(() => {
-            VisualIntelligence.renderSchoolPulseCockpit('viCockpitWrapper', {
+            const defaultData = {
                 total_students: <?= (int)$totalMembers ?>,
                 pulse_rate: 88,
                 edu_rate: 85,
@@ -4784,28 +4928,33 @@ const InfoHub = (function () {
                 hr_rate: 80,
                 academic_gpa: 86,
                 active_takers: 34
-            });
+            };
+            if ($('viCockpitWrapper')) VisualIntelligence.renderSchoolPulseCockpit('viCockpitWrapper', defaultData);
+            if ($('viDashCockpitWrapper')) VisualIntelligence.renderSchoolPulseCockpit('viDashCockpitWrapper', defaultData);
         });
 
         // 2. Heatmap
         apiGet('action=heatmap' + windowParams()).then(d => {
-            const heatmapData = (d && d.data) || [];
-            VisualIntelligence.renderEthiopianHeatmap('viHeatmapContainer', heatmapData, {
-                year: 2017
-            });
+            const heatmapData = (d && d.items) || (d && d.data) || [];
+            if ($('viHeatmapContainer')) VisualIntelligence.renderEthiopianHeatmap('viHeatmapContainer', heatmapData, { year: 2017 });
+            if ($('viDashHeatmapContainer')) VisualIntelligence.renderEthiopianHeatmap('viDashHeatmapContainer', heatmapData, { year: 2017 });
         }).catch(() => {
-            VisualIntelligence.renderEthiopianHeatmap('viHeatmapContainer', [], { year: 2017 });
+            if ($('viHeatmapContainer')) VisualIntelligence.renderEthiopianHeatmap('viHeatmapContainer', [], { year: 2017 });
+            if ($('viDashHeatmapContainer')) VisualIntelligence.renderEthiopianHeatmap('viDashHeatmapContainer', [], { year: 2017 });
         });
 
         // 3. Journey Map
-        VisualIntelligence.renderJourneyMap('viJourneyContainer');
+        if ($('viJourneyContainer')) VisualIntelligence.renderJourneyMap('viJourneyContainer');
+        if ($('viDashJourneyContainer')) VisualIntelligence.renderJourneyMap('viDashJourneyContainer');
 
         // 4. Sankey Flow
         apiGet('action=sankey' + windowParams()).then(d => {
             const flowData = (d && d.flow) || null;
-            VisualIntelligence.renderSankey('viSankeyContainer', flowData);
+            if ($('viSankeyContainer')) VisualIntelligence.renderSankey('viSankeyContainer', flowData);
+            if ($('viDashSankeyContainer')) VisualIntelligence.renderSankey('viDashSankeyContainer', flowData);
         }).catch(() => {
-            VisualIntelligence.renderSankey('viSankeyContainer');
+            if ($('viSankeyContainer')) VisualIntelligence.renderSankey('viSankeyContainer');
+            if ($('viDashSankeyContainer')) VisualIntelligence.renderSankey('viDashSankeyContainer');
         });
 
         // 5. Bubble Matrix (Classes)
@@ -4818,48 +4967,54 @@ const InfoHub = (function () {
                 exam_average: 78 + Math.round(Math.random() * 15),
                 student_count: g.marked || 30
             }));
-            VisualIntelligence.renderBubbleMatrix('viBubbleContainer', bubbleData);
+            if ($('viBubbleContainer')) VisualIntelligence.renderBubbleMatrix('viBubbleContainer', bubbleData);
+            if ($('viDashBubbleContainer')) VisualIntelligence.renderBubbleMatrix('viDashBubbleContainer', bubbleData);
         }).catch(() => {
-            VisualIntelligence.renderBubbleMatrix('viBubbleContainer');
+            if ($('viBubbleContainer')) VisualIntelligence.renderBubbleMatrix('viBubbleContainer');
+            if ($('viDashBubbleContainer')) VisualIntelligence.renderBubbleMatrix('viDashBubbleContainer');
         });
 
         // 6. 5-Axis Radar Scorecard
-        VisualIntelligence.renderRadar('viRadarContainer', {
-            attendance: 88,
-            exams: 84,
-            curriculum: 92,
-            punctuality: 76,
-            ministry: 82
-        });
+        const radarData = { attendance: 88, exams: 84, curriculum: 92, punctuality: 76, ministry: 82 };
+        if ($('viRadarContainer')) VisualIntelligence.renderRadar('viRadarContainer', radarData);
+        if ($('viDashRadarContainer')) VisualIntelligence.renderRadar('viDashRadarContainer', radarData);
 
         // 7. Hierarchical Treemap
         apiGet('action=treemap' + windowParams()).then(d => {
-            const tree = (d && d.tree) || null;
-            VisualIntelligence.renderTreemap('viTreemapContainer', tree);
+            const tree = (d && d.tree) || (d && d.items) || null;
+            if ($('viTreemapContainer')) VisualIntelligence.renderTreemap('viTreemapContainer', tree);
+            if ($('viDashTreemapContainer')) VisualIntelligence.renderTreemap('viDashTreemapContainer', tree);
         }).catch(() => {
-            VisualIntelligence.renderTreemap('viTreemapContainer');
+            if ($('viTreemapContainer')) VisualIntelligence.renderTreemap('viTreemapContainer');
+            if ($('viDashTreemapContainer')) VisualIntelligence.renderTreemap('viDashTreemapContainer');
         });
 
         // 8. Area Timeline Streamgraph
         apiGet('action=trends&source=edu' + windowParams()).then(d => {
             const trends = (d && d.items) || [];
             const pts = trends.map(t => ({ label: t.date, rate: t.rate || 0 }));
-            VisualIntelligence.renderAreaTimeline('viAreaContainer', pts);
+            if ($('viAreaContainer')) VisualIntelligence.renderAreaTimeline('viAreaContainer', pts);
+            if ($('viDashAreaContainer')) VisualIntelligence.renderAreaTimeline('viDashAreaContainer', pts);
         }).catch(() => {
-            VisualIntelligence.renderAreaTimeline('viAreaContainer');
+            if ($('viAreaContainer')) VisualIntelligence.renderAreaTimeline('viAreaContainer');
+            if ($('viDashAreaContainer')) VisualIntelligence.renderAreaTimeline('viDashAreaContainer');
         });
 
         // 9. Activity Timeline Hybrid
-        VisualIntelligence.renderActivityTimelineHybrid('viTimelineContainer');
+        if ($('viTimelineContainer')) VisualIntelligence.renderActivityTimelineHybrid('viTimelineContainer');
+        if ($('viDashTimelineContainer')) VisualIntelligence.renderActivityTimelineHybrid('viDashTimelineContainer');
 
         // 10. Planetary Orbit Navigation
-        VisualIntelligence.renderDataOrbitNavigation('viOrbitContainer');
+        if ($('viOrbitContainer')) VisualIntelligence.renderDataOrbitNavigation('viOrbitContainer');
+        if ($('viDashOrbitContainer')) VisualIntelligence.renderDataOrbitNavigation('viDashOrbitContainer');
 
         // 11. Ministry Constellation Graph
-        VisualIntelligence.renderConstellationGraph('viConstellationContainer');
+        if ($('viConstellationContainer')) VisualIntelligence.renderConstellationGraph('viConstellationContainer');
+        if ($('viDashConstellationContainer')) VisualIntelligence.renderConstellationGraph('viDashConstellationContainer');
 
         // 12. Student Activity Galaxy
-        VisualIntelligence.renderGalaxy('viGalaxyContainer');
+        if ($('viGalaxyContainer')) VisualIntelligence.renderGalaxy('viGalaxyContainer');
+        if ($('viDashGalaxyContainer')) VisualIntelligence.renderGalaxy('viDashGalaxyContainer');
     }
 
     function reload() {
@@ -4895,7 +5050,8 @@ const InfoHub = (function () {
         reload: reload,
         setSource: setSource,
         exportAll: exportAll,
-        refresh: refresh
+        refresh: refresh,
+        loadVisualIntelligence: loadVisualIntelligence
     };
 })();
 
@@ -4938,7 +5094,7 @@ const InfoReports = (function () {
 window.InfoHub = InfoHub;
 window.InfoReports = InfoReports;
 
-// Initialize InfoHub if analytics section is requested or already active
+// Initialize InfoHub & Visual Intelligence immediately
 (function() {
     const urlParams = new URLSearchParams(window.location.search);
     const sec = urlParams.get('section');
@@ -4946,6 +5102,7 @@ window.InfoReports = InfoReports;
     if (sec === 'analytics' || (anEl && anEl.classList.contains('active'))) {
         InfoHub.init();
     }
+    try { InfoHub.loadVisualIntelligence(); } catch(e) {}
 })();
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -4955,6 +5112,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (sec === 'analytics' || (anEl && anEl.classList.contains('active'))) {
         InfoHub.init();
     }
+    try { InfoHub.loadVisualIntelligence(); } catch(e) {}
 });
 
 // Keep the settings preference preview reactive.
