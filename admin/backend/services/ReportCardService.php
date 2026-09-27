@@ -1618,6 +1618,141 @@ class ReportCardService
         $avgG = !empty($gradePcts) ? round(array_sum($gradePcts) / count($gradePcts), 1) : 0;
         $avgA = !empty($attRates) ? round(array_sum($attRates) / count($attRates), 1) : 0;
 
+        // Advanced Statistical Calculations for Visual Analytics
+        sort($gradePcts);
+        $gradedN = count($gradePcts);
+        $medianG = 0.0;
+        $p25G = 0.0;
+        $p75G = 0.0;
+        $stdevG = 0.0;
+
+        if ($gradedN > 0) {
+            $mid = (int)floor(($gradedN - 1) / 2);
+            $medianG = ($gradedN % 2 === 1)
+                ? round($gradePcts[$mid], 1)
+                : round(($gradePcts[$mid] + $gradePcts[$mid + 1]) / 2, 1);
+
+            $p25Idx = (int)floor($gradedN * 0.25);
+            $p75Idx = min($gradedN - 1, (int)floor($gradedN * 0.75));
+            $p25G = round($gradePcts[$p25Idx], 1);
+            $p75G = round($gradePcts[$p75Idx], 1);
+
+            $sumSqDiff = 0.0;
+            foreach ($gradePcts as $gVal) {
+                $sumSqDiff += ($gVal - $avgG) ** 2;
+            }
+            $stdevG = round(sqrt($sumSqDiff / $gradedN), 2);
+        }
+
+        sort($attRates);
+        $attN = count($attRates);
+        $medianA = 0.0;
+        $stdevA = 0.0;
+        if ($attN > 0) {
+            $midA = (int)floor(($attN - 1) / 2);
+            $medianA = ($attN % 2 === 1)
+                ? round($attRates[$midA], 1)
+                : round(($attRates[$midA] + $attRates[$midA + 1]) / 2, 1);
+
+            $sumSqDiffA = 0.0;
+            foreach ($attRates as $aVal) {
+                $sumSqDiffA += ($aVal - $avgA) ** 2;
+            }
+            $stdevA = round(sqrt($sumSqDiffA / $attN), 2);
+        }
+
+        // Subject-by-Subject Benchmarks across filtered cohort
+        $subjectAgg = [];
+        foreach ($allMatching as $st) {
+            $stSubs = $st['subjects'] ?? [];
+            if (!is_array($stSubs)) continue;
+            foreach ($stSubs as $sb) {
+                $sName = (string)($sb['name'] ?? $sb['subject_name'] ?? '');
+                $sAvg = $sb['average'] ?? null;
+                if ($sName === '' || $sAvg === null) continue;
+                if (!isset($subjectAgg[$sName])) {
+                    $subjectAgg[$sName] = ['total' => 0.0, 'count' => 0];
+                }
+                $subjectAgg[$sName]['total'] += (float)$sAvg;
+                $subjectAgg[$sName]['count']++;
+            }
+        }
+
+        $subjectBenchmarks = [];
+        foreach ($subjectAgg as $sName => $sData) {
+            if ($sData['count'] > 0) {
+                $subjectBenchmarks[] = [
+                    'subject' => $sName,
+                    'average' => round($sData['total'] / $sData['count'], 1),
+                    'count' => $sData['count'],
+                ];
+            }
+        }
+        usort($subjectBenchmarks, static fn($a, $b) => ($a['average'] < $b['average']) ? 1 : -1);
+
+        // Triage & Health Matrix (5 Actionable Tiers + Untracked)
+        $triage = [
+            'mastery' => 0,          // Score >= 85 & Att >= 80
+            'proficient' => 0,       // Score 70-84.9 & Att >= 70
+            'academic_risk' => 0,    // Score < 50 & Att >= 60
+            'attendance_risk' => 0,  // Att < 60 & Score >= 50
+            'dual_critical' => 0,    // Score < 50 & Att < 60
+            'untracked' => 0,        // total_days === 0
+            'steady' => 0,           // other passing students
+        ];
+
+        foreach ($allMatching as $st) {
+            $stAvg = $st['overall_average'];
+            $stAtt = (float)($st['attendance_rate'] ?? 0);
+            $stDays = (int)($st['total_days'] ?? 0);
+
+            if ($stDays === 0) {
+                $triage['untracked']++;
+                continue;
+            }
+
+            if ($stAvg === null) {
+                $triage['steady']++;
+                continue;
+            }
+
+            $g = (float)$stAvg;
+            if ($g >= 85.0 && $stAtt >= 80.0) {
+                $triage['mastery']++;
+            } elseif ($g < 50.0 && $stAtt < 60.0) {
+                $triage['dual_critical']++;
+            } elseif ($g < 50.0 && $stAtt >= 60.0) {
+                $triage['academic_risk']++;
+            } elseif ($stAtt < 60.0 && $g >= 50.0) {
+                $triage['attendance_risk']++;
+            } elseif ($g >= 70.0 && $stAtt >= 70.0) {
+                $triage['proficient']++;
+            } else {
+                $triage['steady']++;
+            }
+        }
+
+        // Binned Distributions for Histograms
+        $gradeBins = ['<50' => 0, '50-59' => 0, '60-69' => 0, '70-79' => 0, '80-89' => 0, '90-100' => 0];
+        foreach ($gradePcts as $gVal) {
+            if ($gVal < 50.0) $gradeBins['<50']++;
+            elseif ($gVal < 60.0) $gradeBins['50-59']++;
+            elseif ($gVal < 70.0) $gradeBins['60-69']++;
+            elseif ($gVal < 80.0) $gradeBins['70-79']++;
+            elseif ($gVal < 90.0) $gradeBins['80-89']++;
+            else $gradeBins['90-100']++;
+        }
+
+        $attBins = ['<50' => 0, '50-59' => 0, '60-69' => 0, '70-79' => 0, '80-89' => 0, '90-100' => 0];
+        foreach ($attRates as $aVal) {
+            if ($aVal < 50.0) $attBins['<50']++;
+            elseif ($aVal < 60.0) $attBins['50-59']++;
+            elseif ($aVal < 70.0) $attBins['60-69']++;
+            elseif ($aVal < 80.0) $attBins['70-79']++;
+            elseif ($aVal < 90.0) $attBins['80-89']++;
+            else $attBins['90-100']++;
+        }
+
         return [
             'status' => 'success',
             'students' => $allMatching,
@@ -1625,13 +1760,23 @@ class ReportCardService
             'stats' => [
                 'total' => $totCount,
                 'avg_grade' => $avgG,
+                'median_grade' => $medianG,
+                'stdev_grade' => $stdevG,
+                'p25_grade' => $p25G,
+                'p75_grade' => $p75G,
                 'avg_attendance' => $avgA,
+                'median_attendance' => $medianA,
+                'stdev_attendance' => $stdevA,
                 'recorded_att_students' => count($attRates),
                 'unrecorded_att_students' => $totCount - count($attRates),
                 'high_achievers' => $highAchievers,
                 'at_risk_grade' => $atRiskGrade,
                 'at_risk_att' => $atRiskAtt,
                 'grade_distribution' => $gradeDist,
+                'grade_bins' => $gradeBins,
+                'att_bins' => $attBins,
+                'triage_health' => $triage,
+                'subject_benchmarks' => $subjectBenchmarks,
                 'graded_count' => count($gradePcts),
             ],
             'filters_applied' => [

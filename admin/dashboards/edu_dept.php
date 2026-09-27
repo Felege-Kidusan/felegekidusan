@@ -65,8 +65,10 @@ $csrfToken = generateCsrfToken();
 /* P71: section/age-group definition injected from App\Services\MemberCategory (single source of truth). secCode('ህጻናት') maps legacy section names onto codes. */
 const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSON_UNESCAPED_UNICODE) ?>;function eduSecLabel(code){const s=EDU_SECTIONS[code];return s?s.am+' · '+s.ages:(code||'—');}function eduSecCode(name){if(!name)return '';if(EDU_SECTIONS[name])return name;for(const c in EDU_SECTIONS){if(EDU_SECTIONS[c].am===name)return c;}return '';}</script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/admin/js/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="/admin/js/advanced_analytics.js?v=20260927"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
 /* Field footer: inline validation errors + live character counters (patch 8) */
@@ -829,6 +831,14 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 </div>
 </div>
 
+<!-- VIEW SUB-TABS -->
+<div class="no-print" style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1rem">
+<button class="tbn act" id="pfSubTabTable" type="button" onclick="switchPfSubTab('table')"><i class="fa-solid fa-table-list"></i> Filtered Records (<span id="pfTabCountBadge">0</span>)</button>
+<button class="tbn" id="pfSubTabAnalytics" type="button" onclick="switchPfSubTab('analytics')"><i class="fa-solid fa-chart-line"></i> Advanced Analysis Center (የመረጃ ትንተና)</button>
+</div>
+
+<!-- VIEW 1: RECORDS TABLE VIEW -->
+<div id="pfTableView">
 <!-- LIVE SUMMARY STATS ROW -->
 <div id="pfStatsArea" style="display:none;margin-bottom:1rem">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem">
@@ -869,6 +879,83 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div class="tw"><table class="dt"><thead><tr><th>#</th><th>Student</th><th>Code</th><th>Class</th><th>Gender</th><th>Grade Average</th><th>Attendance</th><th class="no-print">Actions</th></tr></thead><tbody id="pfTableBody"></tbody></table></div>
 </div>
 <div id="pfEmptyMsg" class="crd" style="padding:2.5rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-filter" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>Configure filter ranges above or click "Apply Filter" to retrieve student records.</div>
+</div>
+
+<!-- VIEW 2: ADVANCED VISUAL ANALYTICS CENTER -->
+<div id="pfAnalyticsArea" style="display:none">
+<!-- ROW 1: EXECUTIVE PULSE KPIS -->
+<div id="pfAnalyticsKpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.75rem;margin-bottom:1rem"></div>
+
+<!-- ROW 2: EXECUTIVE SYNTHESIS -->
+<div id="pfAnalyticsInsights" style="margin-bottom:1rem"></div>
+
+<!-- ROW 3: PRIMARY MACRO VISUALIZATIONS -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;margin-bottom:1rem">
+<!-- CARD 1: 4-QUADRANT SCATTER MATRIX -->
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+<div>
+<div style="font-weight:700;font-size:.88rem;color:#1e293b"><i class="fa-solid fa-braille" style="color:#7c3aed"></i> 4-Quadrant Correlation Matrix</div>
+<div style="font-size:.65rem;color:#64748b">Academic Score vs. Attendance Rate (Interactive Student Nodes)</div>
+</div>
+<button class="btn btn-o btn-xs" type="button" onclick="window.FKSSAnalyticsInstance && window.FKSSAnalyticsInstance.exportChartPNG('scatter','Scatter_Performance_Matrix.png')" title="Download High-Res Image"><i class="fa-solid fa-image"></i> PNG</button>
+</div>
+<div style="position:relative;height:300px;width:100%"><canvas id="pfScatterChart"></canvas></div>
+<div style="margin-top:.5rem;display:flex;gap:.75rem;flex-wrap:wrap;font-size:.65rem;color:#64748b;border-top:1px solid #f1f5f9;padding-top:.4rem">
+<span><strong style="color:#047857">● Grade A</strong> (90-100%)</span>
+<span><strong style="color:#0284c7">● Grade B</strong> (80-89%)</span>
+<span><strong style="color:#b45309">● Grade C</strong> (70-79%)</span>
+<span><strong style="color:#c2410c">● Grade D</strong> (60-69%)</span>
+<span><strong style="color:#b91c1c">● Grade F</strong> (&lt;60%)</span>
+<span><strong style="color:#64748b">▲ Untracked Attendance</strong></span>
+</div>
+</div>
+
+<!-- CARD 2: SCORE & ATTENDANCE HISTOGRAM -->
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+<div>
+<div style="font-weight:700;font-size:.88rem;color:#1e293b"><i class="fa-solid fa-chart-column" style="color:#0284c7"></i> Frequency Distribution</div>
+<div style="font-size:.65rem;color:#64748b">Student Counts across Academic &amp; Attendance Tiers</div>
+</div>
+<button class="btn btn-o btn-xs" type="button" onclick="window.FKSSAnalyticsInstance && window.FKSSAnalyticsInstance.exportChartPNG('distribution','Score_Attendance_Distribution.png')" title="Download High-Res Image"><i class="fa-solid fa-image"></i> PNG</button>
+</div>
+<div style="position:relative;height:300px;width:100%"><canvas id="pfDistributionChart"></canvas></div>
+</div>
+</div>
+
+<!-- ROW 4: TEMPORAL WAVEFORM & SUBJECT RADAR -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem;margin-bottom:1rem">
+<!-- CARD 3: ATTENDANCE WAVEFORM -->
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+<div>
+<div style="font-weight:700;font-size:.88rem;color:#1e293b"><i class="fa-solid fa-wave-square" style="color:#059669"></i> Attendance Cadence Waveform</div>
+<div style="font-size:.65rem;color:#64748b">Session Regularity &amp; Trend Stream across the Filtered Cohort</div>
+</div>
+<button class="btn btn-o btn-xs" type="button" onclick="window.FKSSAnalyticsInstance && window.FKSSAnalyticsInstance.exportChartPNG('waveform','Attendance_Waveform.png')" title="Download High-Res Image"><i class="fa-solid fa-image"></i> PNG</button>
+</div>
+<div style="position:relative;height:260px;width:100%"><canvas id="pfWaveformChart"></canvas></div>
+</div>
+
+<!-- CARD 4: SUBJECT COMPETENCY RADAR -->
+<div class="crd" style="padding:1rem;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+<div>
+<div style="font-weight:700;font-size:.88rem;color:#1e293b"><i class="fa-solid fa-compass-drafting" style="color:#7c3aed"></i> Multi-Subject Competency Spider</div>
+<div style="font-size:.65rem;color:#64748b">Curriculum Balance &amp; Subject Mastery across Filtered Students</div>
+</div>
+<button class="btn btn-o btn-xs" type="button" onclick="window.FKSSAnalyticsInstance && window.FKSSAnalyticsInstance.exportChartPNG('radar','Subject_Competency_Radar.png')" title="Download High-Res Image"><i class="fa-solid fa-image"></i> PNG</button>
+</div>
+<div style="position:relative;height:260px;width:100%"><canvas id="pfRadarChart"></canvas></div>
+</div>
+</div>
+
+<!-- ROW 5: TRIAGE & HEALTH CARDS -->
+<div class="crd" style="padding:1rem;margin-bottom:1rem">
+<div id="pfAnalyticsTriage"></div>
+</div>
+</div>
 </div>
 
 <!-- ═══ REPORT CARDS ═══ -->
@@ -3455,6 +3542,25 @@ function pfQs(){
     return q;
 }
 
+function switchPfSubTab(tab){
+    const btnT = document.getElementById('pfSubTabTable');
+    const btnA = document.getElementById('pfSubTabAnalytics');
+    const viewT = document.getElementById('pfTableView');
+    const viewA = document.getElementById('pfAnalyticsArea');
+
+    if(btnT) btnT.className = 'tbn' + (tab === 'table' ? ' act' : '');
+    if(btnA) btnA.className = 'tbn' + (tab === 'analytics' ? ' act' : '');
+
+    if(viewT) viewT.style.display = (tab === 'table' ? 'block' : 'none');
+    if(viewA) viewA.style.display = (tab === 'analytics' ? 'block' : 'none');
+
+    if(tab === 'analytics' && window.FKSSAnalyticsInstance){
+        setTimeout(() => {
+            window.FKSSAnalyticsInstance.handleResize();
+        }, 50);
+    }
+}
+
 async function applyPerformanceFilter(){
     const tableArea = document.getElementById('pfTableArea');
     const emptyMsg = document.getElementById('pfEmptyMsg');
@@ -3483,6 +3589,7 @@ async function applyPerformanceFilter(){
         const hEl = document.getElementById('pfStatHigh');
         const alertEl = document.getElementById('pfStatAttAlert');
         const badgeEl = document.getElementById('pfTableCountBadge');
+        const tabBadgeEl = document.getElementById('pfTabCountBadge');
         const aSubEl = document.getElementById('pfStatAttSub');
 
         if(cntEl) cntEl.textContent = pfStats.total || 0;
@@ -3496,8 +3603,14 @@ async function applyPerformanceFilter(){
         if(hEl) hEl.textContent = pfStats.high_achievers || 0;
         if(alertEl) alertEl.textContent = pfStats.at_risk_att || 0;
         if(badgeEl) badgeEl.textContent = pfData.length;
+        if(tabBadgeEl) tabBadgeEl.textContent = pfData.length;
 
         renderFilterTable();
+
+        // Feed data to Advanced Analytics Engine
+        if(window.FKSSAnalyticsInstance){
+            window.FKSSAnalyticsInstance.update(d);
+        }
     }catch(e){
         if(tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:#dc2626">${esc(friendlyNetError(e))}</td></tr>`;
         toast('Error filtering students', 'err');
@@ -3690,13 +3803,53 @@ if(!document.querySelector('.sec.act')){
 }
 
 // ═══ INIT ═══
-document.addEventListener('DOMContentLoaded',()=>{loadTeachers();loadAssessmentTypes();try{filterRcTerms();}catch(e){}
-document.addEventListener('click',e=>{
-    const sr=document.getElementById('enrollSearchResults');
-    if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
-    const mh=document.getElementById('teacherMemberHits');
-    if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';
-});
+document.addEventListener('DOMContentLoaded',()=>{
+    loadTeachers();
+    loadAssessmentTypes();
+    try{ filterRcTerms(); }catch(e){}
+
+    // Initialize Advanced Visual Analytics Engine
+    try{
+        if(typeof AdvancedAnalyticsCenter !== 'undefined'){
+            window.FKSSAnalyticsInstance = new AdvancedAnalyticsCenter({
+                onStudentClick: function(memberId, classId){
+                    viewStudentReportFromFilter(memberId, classId);
+                },
+                onTierClick: function(tierKey){
+                    switch(tierKey){
+                        case 'mastery':
+                            setQuickFilterPreset(85, 100, 80, 100, 'all');
+                            break;
+                        case 'proficient':
+                            setQuickFilterPreset(70, 84.9, 70, 100, 'all');
+                            break;
+                        case 'academic_risk':
+                            setQuickFilterPreset(0, 49.9, 0, 100, 'all');
+                            break;
+                        case 'attendance_risk':
+                            setQuickFilterPreset(0, 100, 0, 59.9, 'all');
+                            break;
+                        case 'dual_critical':
+                            setQuickFilterPreset(0, 49.9, 0, 59.9, 'all');
+                            break;
+                        default:
+                            resetPerformanceFilter();
+                            break;
+                    }
+                    toast('Applied preset filter for selected cohort tier.', 'ok');
+                }
+            });
+        }
+    }catch(err){
+        console.warn('AdvancedAnalyticsCenter initialization error:', err);
+    }
+
+    document.addEventListener('click',e=>{
+        const sr=document.getElementById('enrollSearchResults');
+        if(sr&&!sr.contains(e.target)&&e.target.id!=='enrollSearchInput')sr.style.display='none';
+        const mh=document.getElementById('teacherMemberHits');
+        if(mh&&!mh.contains(e.target)&&e.target.id!=='teacherMemberQ')mh.style.display='none';
+    });
 });
 </script>
 <?php include __DIR__ . '/../components/account_link.php'; ?>
