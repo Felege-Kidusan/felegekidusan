@@ -200,7 +200,7 @@ class ParchmentScaffold extends StatelessWidget {
             gaplessPlayback: true,
           ),
           // P66: the hymn's own art (blurred + scrimmed by the caller)
-          // floods the screen Spotify-style; the parchment stays under
+          // floods the screen Streaming-style; the parchment stays under
           // it as the guaranteed-readable base layer.
           if (art != null) Positioned.fill(child: art),
           // Restrained washes at the extreme edges only — never over the

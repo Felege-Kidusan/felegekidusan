@@ -24,7 +24,7 @@ class MezmurTrack {
   final String? lyrics;
   final String? lyricsSynced;
 
-  // P66 hymn art — per-hymn cover (Spotify-style). Relative URLs as the
+  // P66 hymn art — per-hymn cover (Streaming-style). Relative URLs as the
   // server sends them (immutable per artwork, ?v= version tag); build
   // absolute ones with AppConfig.siteOrigin where a widget needs them.
   final String artStatus;

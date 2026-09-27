@@ -41,7 +41,7 @@ class PreviousDecision {
   /// True when the gesture should *restart the current hymn* instead of
   /// moving rows. Restart happens only when the selected row actually has
   /// audio AND is playing past the restart threshold — the industry rule
-  /// used by Spotify/Apple (see the surrounding analysis doc).
+  /// used by Streaming/Apple (see the surrounding analysis doc).
   final bool restartCurrent;
 
   /// True when the selected row has audio that should be played after the

@@ -501,7 +501,7 @@ if ($action === 'assessments' && $method === 'POST') {
         } catch (Exception $e) {
             $conn->rollback();
             reportInternalError('API batch assessment template failed', $e);
-            err('Failed to apply assessment template: ' . $e->getMessage(), 500);
+            err('Failed to apply assessment template. Please try again.', 500);
         }
     }
 
@@ -655,7 +655,7 @@ if ($action === 'assessments' && $method === 'POST') {
     } catch (Exception $e) {
         $conn->rollback();
         reportInternalError('API batch assessment creation failed', $e);
-        err('Unable to create assessments: ' . $e->getMessage(), 500);
+        err('Unable to create assessments. Please try again.', 500);
     }
 }
 

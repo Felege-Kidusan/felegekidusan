@@ -52,7 +52,7 @@ class LyricEmphasisProfile {
   /// [scaleFor]: one implementation, two consumers.
   double opacityFor(double d) => (1.0 - d * opacityStep).clamp(minOpacity, 1.0);
 
-  /// Default sing-along emphasis (Spotify-like): the current line is bold,
+  /// Default sing-along emphasis (Streaming-like): the current line is bold,
   /// bright and full-size; the rest recede with distance. The size change is a
   /// gentle, clearly-smooth scale-down (nearest neighbour ~8% smaller, settling
   /// ~14%) so the sung line reads as the biggest without the exiting line

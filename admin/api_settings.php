@@ -283,11 +283,7 @@ function settingsImageService(\mysqli $conn, bool $schemaReady): \App\Services\P
 {
     settingsEnsureProfileImageStorage();
     if (!$schemaReady) {
-        @$conn->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_path VARCHAR(255) NULL DEFAULT NULL AFTER full_name");
-        $schemaReady = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
-    }
-    if (!$schemaReady) {
-        settingsFail('Profile image storage is not available yet.', 503, 'STORAGE_UNAVAILABLE');
+        settingsFail('Profile image storage is not available yet. Please apply migration 049.', 503, 'STORAGE_UNAVAILABLE');
     }
     return new \App\Services\ProfileImageService(
         new \App\Services\MysqliProfileImageRepository($conn),

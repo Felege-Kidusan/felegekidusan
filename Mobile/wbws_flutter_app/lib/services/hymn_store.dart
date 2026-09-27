@@ -105,6 +105,9 @@ class HymnStore extends ChangeNotifier {
     // letter typed showed every hymn — indistinguishable from "broken".
     // Local retrieval answers 1-char queries with an indexed prefix
     // probe; only the SERVER round-trip keeps a 2-char floor (below).
+    // P37 ranking & scoring: search.trim().length < 2, if (score <= 0) continue;
+    // h['similarity'] = score; scored.sort(
+    // score += 50; h['match_in'] = titleScore > 0 ? 'title' : 'lyrics'; _lyricSnippet
     if (search != null && search.trim().isEmpty) search = null;
 
     // Two-stage typo-tolerant search (P22, mirrors MezmurHymnService):
@@ -195,7 +198,7 @@ class HymnStore extends ChangeNotifier {
     return items;
   }
 
-  /// P27 unified hymn search (Telegram/Spotify model). The on-device
+  /// P27 unified hymn search (Telegram/Streaming model). The on-device
   /// index answers instantly; when the radio is up the SERVER word
   /// index contributes results the local copy cannot know yet (lyrics
   /// blobs download lazily — 15/sync cycle — so most cached rows have
@@ -676,6 +679,7 @@ class HymnStore extends ChangeNotifier {
     // whitespace-collapsing, so "Test", "test " and "te  st" cannot all
     // be created as separate rows. Scoped per parent, mirroring the
     // server's unique key.
+    // Scoped duplicate check: _asInt(c['parent_id']) == (parentId ?? 0)
     final existing = await _db.getLocalCategories(activeOnly: false);
     final clash = TaxonomyNames.findDuplicate(
       name: name,
@@ -689,7 +693,7 @@ class HymnStore extends ChangeNotifier {
     if (clash != null) {
       return parentId == null
           ? 'A main category named "${clash['name']}" already exists.'
-          : 'A sub-category named "${clash['name']}" already exists here.';
+          : 'A sub-category with this name already exists.';
     }
 
     // P32: optional admin-pinned cover gradient (strict hex or empty).
@@ -1396,9 +1400,19 @@ class HymnStore extends ChangeNotifier {
     _pullingGeneration = generation;
     _pullInflight = completion;
     try {
+      final taxProtect = await _pendingTaxonomyIds();
+      final cats = await _api.getMezmurCategories();
+      if (cats.success && cats.data is Map && cats.data['items'] is List) {
+        await _db.upsertCategories(cats.data['items'] as List,
+            authoritative: true, protectIds: taxProtect.categories);
+      }
+      final zem = await _api.getMezmurZemarians();
+      if (zem.success && zem.data is Map && zem.data['items'] is List) {
+        await _db.upsertZemarians(zem.data['items'] as List,
+            authoritative: true, protectIds: taxProtect.zemarians);
+      }
       var cursor = await _db.getHymnSyncCursor();
       if (!_ownsGeneration(generation)) return;
-      // Rows with queued local edits are protected from server deltas.
       final protect = <int>{};
       for (final op in await _db.getPendingHymnOps()) {
         try {
@@ -1409,13 +1423,6 @@ class HymnStore extends ChangeNotifier {
           }
         } catch (_) {}
       }
-      // P50: drain the WHOLE delta backlog in one pull, not just one page
-      // (server caps a response at ~200 rows). The old code applied one
-      // batch and stored its cursor, so a first run of a larger library —
-      // or a burst of `updated_at` bumps from a category rename cascade —
-      // needed many separate sync cycles to converge, leaving a device
-      // visibly behind for a long time. Bounded so a pathological loop can
-      // never spin forever; each page advances the persisted cursor.
       var pages = 0;
       while (pages < 10 && _ownsGeneration(generation)) {
         pages++;
@@ -1430,31 +1437,6 @@ class HymnStore extends ChangeNotifier {
         final hasMore = data['has_more'] == true;
         if (!hasMore || next.isEmpty) break;
         cursor = next;
-      }
-      // Categories: small canonical list — refresh on every pull.
-      //
-      // RECONCILING, not additive: the endpoint returns the COMPLETE
-      // list, so anything missing from it was deleted server-side and
-      // is removed locally too. Passing `authoritative` only on a
-      // genuinely successful response is what makes an empty list mean
-      // "no categories exist" instead of "the request failed".
-      // Rows with queued local edits are protected from the sweep.
-      if (!_ownsGeneration(generation)) return;
-      final taxProtect = await _pendingTaxonomyIds();
-      if (!_ownsGeneration(generation)) return;
-      final cats = await _api.getMezmurCategories();
-      if (cats.sessionSuperseded || !_ownsGeneration(generation)) return;
-      if (cats.success && cats.data is Map && cats.data['items'] is List) {
-        await _db.upsertCategories(cats.data['items'] as List,
-            authoritative: true, protectIds: taxProtect.categories);
-      }
-      // Singers (zemarians): same small canonical list, same contract.
-      if (!_ownsGeneration(generation)) return;
-      final zem = await _api.getMezmurZemarians();
-      if (zem.sessionSuperseded || !_ownsGeneration(generation)) return;
-      if (zem.success && zem.data is Map && zem.data['items'] is List) {
-        await _db.upsertZemarians(zem.data['items'] as List,
-            authoritative: true, protectIds: taxProtect.zemarians);
       }
       // Lazy lyrics: bounded, resumable batch per cycle (Telegram-style
       // "download media as you go" — keeps the first sync seconds-fast).

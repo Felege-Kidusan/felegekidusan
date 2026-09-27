@@ -14,7 +14,7 @@ import 'mezmur_download_policy.dart';
 import '../utils/config.dart';
 
 /// ══════════════════════════════════════════════════════════════
-/// P33 — Mezmur offline downloads (the Spotify model)
+/// P33 — Mezmur offline downloads (the Streaming model)
 /// ══════════════════════════════════════════════════════════════
 ///
 /// WHY A DOWNLOAD MANAGER AND NOT `LockCachingAudioSource`
@@ -23,7 +23,7 @@ import '../utils/config.dart';
 /// streaming. It is the wrong tool here for three reasons:
 ///
 ///   1. It is opportunistic, not a promise. A hymn is only offline if
-///     the user happened to listen to all of it. Spotify's contract is
+///     the user happened to listen to all of it. Streaming's contract is
 ///     the opposite: "downloaded" means the whole file is on disk
 ///     BEFORE you go offline.
 ///   2. Its cache key is the URL. Our audio URLs are short-lived
@@ -47,7 +47,7 @@ import '../utils/config.dart';
 ///     never promoted to a playable file.
 ///   • Concurrency: capped at 2 so the phone stays responsive and the
 ///     shared host is not hammered.
-///   • Policy: Wi‑Fi-only by default (mirrors Spotify's "Download over
+///   • Policy: Wi‑Fi-only by default (mirrors Streaming's "Download over
 ///     cellular" switch), plus a storage cap with LRU eviction of
 ///     auto-downloaded rows. User-pinned rows are never evicted.
 ///   • Freshness: `audio_updated_at` from the delta sync is stored with

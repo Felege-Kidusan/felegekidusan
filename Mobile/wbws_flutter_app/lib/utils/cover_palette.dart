@@ -16,7 +16,7 @@ List<Color> coverColors(Map<String, dynamic>? item, String name) {
 /// P66 hymn art: cover colors for a HYMN.
 ///
 /// Priority: the server-extracted dominant color from the hymn's own
-/// artwork (one truth for web + mobile, Spotify's "color as emotional
+/// artwork (one truth for web + mobile, Streaming's "color as emotional
 /// infrastructure"); without art, the same automatic name-hashed
 /// palette the web console shows — so a hymn looks identical on every
 /// screen whether or not it has artwork yet.

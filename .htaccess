@@ -9,6 +9,13 @@
 </IfModule>
 
 <IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "0"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Content-Security-Policy "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=%{HTTPS} == 'on'"
+
     # HTML/PHP: always revalidate
     <FilesMatch "\.(html|php)$">
         Header set Cache-Control "no-cache, must-revalidate"
@@ -25,3 +32,12 @@
     Order allow,deny
     Deny from all
 </FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^admin/migrations/ - [F,L]
+    RewriteRule ^backend/migrations/ - [F,L]
+    RewriteRule ^admin/get_schema\.php$ - [F,L]
+    RewriteRule ^admin/id_cards/qr_diagnostic\.php$ - [F,L]
+    RewriteRule (^|/)leak_detector\.php$ - [F,L]
+</IfModule>

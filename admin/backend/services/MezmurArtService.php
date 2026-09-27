@@ -3,7 +3,7 @@
  * ════════════════════════════════════════════════════════════
  * MezmurArtService — hymn cover art plane (P66 "Hymn Art")
  * ════════════════════════════════════════════════════════════
- * Every hymn can carry its own cover image, Spotify-style.
+ * Every hymn can carry its own cover image, Streaming-style.
  *
  * STORAGE MODEL (owner decision 2026-09-09: LOCAL DISK, not R2 —
  * R2 stays the audio-only media plane):
@@ -14,15 +14,15 @@
  *     version-tagged with art_updated_at (?v=…) — a new artwork
  *     always means a NEW URL, so browsers/Cloudflare can cache the
  *     files forever without a disk stat per request (the
- *     immutable-URL pattern; same idea as Spotify/Apple renditions).
+ *     immutable-URL pattern; same idea as Streaming/Apple renditions).
  *
- * RENDITIONS (Spotify multi-size model): 160 (list thumb) /
+ * RENDITIONS (Streaming multi-size model): 160 (list thumb) /
  * 320 (card & detail) / 640 (hero, blurred player backdrop).
  * Source images are center-cropped to a square master — the same
  * 1:1 shape every large music platform standardises on — and
  * re-encoded as JPEG, which also strips EXIF/GPS/polyglot payloads.
  *
- * DOMINANT COLOR (Spotify "color as emotional infrastructure"):
+ * DOMINANT COLOR (Streaming "color as emotional infrastructure"):
  * art_color is extracted ONCE server-side at upload and stored as
  * #rrggbb so web and mobile theme from ONE server truth instead of
  * each client recomputing (and disagreeing).
@@ -383,7 +383,7 @@ final class MezmurArtService
     }
 
     /**
-     * Dominant color, Spotify-style but deterministic and cheap:
+     * Dominant color, Streaming-style but deterministic and cheap:
      * downsample to 32×32, bucket pixels into a 4-bit-per-channel
      * histogram, score each bucket by (saturation × frequency) with a
      * luminance floor so near-black/near-white art still themes
@@ -428,7 +428,7 @@ final class MezmurArtService
         $best = null;
         $bestScore = -1.0;
         foreach ($buckets as $bucket) {
-            // Vibrancy filter (Spotify's pipeline: dominant → vibrant →
+            // Vibrancy filter (Streaming's pipeline: dominant → vibrant →
             // contrast-checked): weight by frequency AND saturation so a
             // big grey field cannot beat a smaller vivid region.
             $score = $bucket['n'] * (0.25 + 0.75 * ($bucket['sat'] / max(1, $bucket['n'])));

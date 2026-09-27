@@ -62,11 +62,7 @@ if ($action === 'login' && $method === 'POST') {
     
     $profileImageColumnExists = \App\Services\MysqliProfileRepository::profileImageColumnAvailable($conn);
     $authVersionExists = \App\Services\MysqliProfileRepository::authorizationVersionColumnAvailable($conn);
-    $authVersionSelect = $authVersionExists ? ", authorization_version" : ", 1 AS authorization_version";
-    $selectSql = "SELECT id, username, email, full_name, role, password_hash, is_active"
-        . $authVersionSelect
-        . ($profileImageColumnExists ? ", profile_image_path" : "")
-        . " FROM users WHERE (username = ? OR email = ?) LIMIT 1";
+    $selectSql = "SELECT id, username, email, full_name, role, password_hash, is_active, authorization_version FROM users WHERE (username = ? OR email = ?) LIMIT 1";
     $stmt = $conn->prepare($selectSql);
     if (!$stmt) err('Database error', 500);
     $stmt->bind_param('ss', $username, $username);

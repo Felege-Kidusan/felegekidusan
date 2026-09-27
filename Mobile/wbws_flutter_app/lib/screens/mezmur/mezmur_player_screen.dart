@@ -489,7 +489,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
       child: ParchmentScaffold(
         // P66 hymn art: when the hymn being viewed carries its own
         // artwork, a blurred, cream-scrimmed rendition floods the player
-        // (Spotify's "color as emotional infrastructure" — the hymn's
+        // (Streaming's "color as emotional infrastructure" — the hymn's
         // own colors set the mood). The painted parchment stays painted
         // underneath and shows whenever art is absent, still loading or
         // failed, so the design never breaks.
@@ -498,7 +498,7 @@ class _MezmurPlayerScreenState extends State<MezmurPlayerScreen> {
           final h = box.maxHeight;
           final w = box.maxWidth;
           final pad = MediaQuery.paddingOf(context);
-          // P62: the fixed bands are placed through ParchmentArt.stageY,
+          // P62: the fixed bands are placed through ParchmentArt.stageY (mapping ParchmentArt.boxTop),
           // which maps the artwork's own regions through the cover fit —
           // bit-identical to the old screen fractions on portrait phones,
           // and correctly on the painted regions on tablets / landscape

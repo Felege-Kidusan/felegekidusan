@@ -155,7 +155,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   Future<void> _reload() async {
     final generation = ++_searchGeneration;
     final query = _searchCtrl.text;
-    final searching = query.trim().isNotEmpty;
+    final searching = query.trim().length >= 2;
+    if (searching && _searchCtrl.text.trim() != query.trim()) return;
     // P27: while searching, the store merges the on-device index with
     // the SERVER word index (lyrics blobs are lazily downloaded, so
     // the local copy alone cannot see most lyrics yet).
@@ -231,12 +232,8 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
   void _onSearchChanged(String _) {
     setState(() {}); // hint / result-mode update, zero latency
     _searchDebounce?.cancel();
-    // P39: 60ms. The earlier 180ms was tuned for a SERVER round-trip,
-    // but local results come from an indexed on-device lookup, so the
-    // list can repaint essentially per keystroke — which is what makes
-    // Telegram feel live. The server leg is still debounced by its own
-    // 2-char floor and the generation guard.
-    _searchDebounce = Timer(const Duration(milliseconds: 60), _reload);
+    // P39: 150ms debounce for responsive on-device lookup and server sync.
+    _searchDebounce = Timer(const Duration(milliseconds: 150), _reload);
   }
 
   Future<void> _refresh() async {
@@ -271,7 +268,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
 
   /// P33 — download sheet: bulk-pin exactly what the user is looking at
   /// (search results / filtered category), or manage what is already
-  /// stored. Mirrors Spotify's "Download" toggle on a playlist header.
+  /// stored. Mirrors Streaming's "Download" toggle on a playlist header.
   Future<void> _openDownloads() async {
     final dl = MezmurDownloadManager.instance;
     final withAudio = _items
@@ -412,7 +409,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
     );
   }
 
-  /// P66: the hymn's own cover art (Spotify-style), shown as a rounded
+  /// P66: the hymn's own cover art (Streaming-style), shown as a rounded
   /// square in the library list. Decode at display size (cacheWidth ≈
   /// 3× the 44px tile) — never the full 640px rendition — and fall
   /// back to the SAME name-hash gradient the web console shows, so a
@@ -1120,7 +1117,7 @@ class MezmurHymnsScreenState extends State<MezmurHymnsScreen>
                   ],
                 ),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  // P33: Spotify-style offline download, right where the
+                  // P33: Streaming-style offline download, right where the
                   // hymn is — one tap, no menu digging.
                   HymnDownloadButton(hymn: h, size: 19),
                   PopupMenuButton<String>(

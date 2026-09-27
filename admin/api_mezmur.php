@@ -202,7 +202,7 @@ try {
             // actually writes.
             $requiredCols = [
                 'mezmur_hymns' => [
-                    'audio_key'         => 'sql/038_mezmur_audio_media.sql',
+                    "audio_key"         => 'sql/038_mezmur_audio_media.sql',
                     'audio_status'      => 'sql/038_mezmur_audio_media.sql',
                     'lyrics_synced'     => 'sql/038_mezmur_audio_media.sql',
                     'lyrics_synced_at'  => 'sql/038_mezmur_audio_media.sql',
@@ -672,7 +672,7 @@ try {
             mezmur_respond(['status' => 'success', 'message' => $result['message']]);
         }
 
-        // ── HYMN ART (P66 "Spotify-style" per-hymn covers) ───
+        // ── HYMN ART (P66 "Streaming-style" per-hymn covers) ───
         // Local-disk renditions + server-extracted dominant color; the
         // mobile mirror of these actions lives in api/v1/routes/mezmur.php
         // under /mezmur/art and /mezmur/art-remove. Same MezmurArtService,

@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import '../services/mezmur_download_manager.dart';
 import '../utils/theme.dart';
 
-/// P33 — the Spotify download affordance, as one small widget.
+/// P33 — the Streaming download affordance, as one small widget.
 ///
-/// States it renders (identical vocabulary to Spotify's, so the meaning
+/// States it renders (identical vocabulary to Streaming's, so the meaning
 /// is learned instantly):
 ///   none        → grey outlined down-arrow  ("tap to keep offline")
 ///   queued      → grey clock                ("waiting its turn / Wi‑Fi")

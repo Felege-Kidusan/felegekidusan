@@ -750,7 +750,7 @@ switch ($action) {
         } catch (Throwable $e) {
             $conn->rollback();
             reportInternalError('Batch assessment create failed', $e);
-            echo json_encode(['status' => 'error', 'message' => 'Failed to create assessments: ' . $e->getMessage()]);
+            echo json_encode(['status' => 'error', 'message' => 'Failed to create assessments. Please try again.']);
         }
         break;
 
@@ -939,7 +939,7 @@ switch ($action) {
         } catch (Throwable $e) {
             $conn->rollback();
             reportInternalError('apply_assessment_template failed', $e);
-            echo json_encode(['status' => 'error', 'message' => 'Failed to apply assessment template: ' . $e->getMessage()]);
+            echo json_encode(['status' => 'error', 'message' => 'Failed to apply assessment template. Please try again.']);
         }
         break;
     
