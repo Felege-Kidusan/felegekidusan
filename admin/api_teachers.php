@@ -25,6 +25,7 @@ use App\Services\AssignmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
@@ -36,6 +37,7 @@ $isTeacher = $currentRole === 'teacher';
 
 // Teachers can only access their own data
 if (!$isTeacher && !in_array($currentRole, $allowedRoles)) {
+    http_response_code(403);
     echo json_encode(['status' => 'error', 'message' => 'Access denied']);
     exit;
 }

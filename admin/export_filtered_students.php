@@ -32,5 +32,6 @@ try {
     \App\Services\ReportCardService::streamFilteredExcel($conn, $_GET);
 } catch (Throwable $e) {
     http_response_code(500);
-    echo 'Could not build the Excel file: ' . $e->getMessage();
+    error_log('Filtered students Excel export failed: ' . $e->getMessage());
+    echo 'Could not build the Excel file. Please try again.';
 }

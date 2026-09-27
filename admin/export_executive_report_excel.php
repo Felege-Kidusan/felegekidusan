@@ -30,5 +30,6 @@ try {
     \App\Services\EducationAnalyticsService::streamExecutiveExcel($conn, $_GET);
 } catch (Throwable $e) {
     http_response_code(500);
-    echo 'Could not build executive Excel workbook: ' . $e->getMessage();
+    error_log('Executive Excel export failed: ' . $e->getMessage());
+    echo 'Could not build executive Excel workbook. Please try again.';
 }

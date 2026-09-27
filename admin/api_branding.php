@@ -21,6 +21,7 @@ if (!$conn || $conn->connect_error) {
 }
 
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
@@ -29,6 +30,7 @@ $userRole = $_SESSION['admin_role'] ?? '';
 $allowedRoles = ['super_admin', 'school_admin'];
 
 if (!in_array($userRole, $allowedRoles)) {
+    http_response_code(403);
     echo json_encode(['status' => 'error', 'message' => 'Access denied — only Super Admin and School Admin can manage branding']);
     exit;
 }

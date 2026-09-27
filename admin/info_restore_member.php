@@ -9,6 +9,7 @@ require_once __DIR__ . '/config.php';
 
 // Check auth
 if (empty($_SESSION['admin_username'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
@@ -19,6 +20,7 @@ $input = json_decode(file_get_contents('php://input'), true);
 // Validate CSRF token (from JSON body)
 $csrfToken = $input['csrf_token'] ?? '';
 if (empty($csrfToken) || empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $csrfToken)) {
+    http_response_code(403);
     echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh and try again.']);
     exit;
 }
