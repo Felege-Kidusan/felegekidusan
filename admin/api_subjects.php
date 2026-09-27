@@ -15,6 +15,7 @@ use App\Services\EnrollmentService;
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
@@ -23,6 +24,7 @@ if (empty($_SESSION['admin_id'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($csrfToken)) {
+        http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh.']);
         exit;
     }

@@ -8,6 +8,7 @@ require_once __DIR__ . '/config.php';
 header('Content-Type: application/json; charset=utf-8');
 
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
@@ -19,6 +20,7 @@ requireCsrfForPost();
 
 // Only school_admin and super_admin can impersonate
 if (!in_array($originalRole, ['school_admin', 'super_admin'])) {
+    http_response_code(403);
     echo json_encode(['status' => 'error', 'message' => 'Only School Admin or Super Admin can switch roles']);
     exit;
 }

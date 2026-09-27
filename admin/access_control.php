@@ -139,6 +139,9 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'api_communication.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
             'communication.php'     => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
             'export_class_report.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
+            'export_executive_report_excel.php' => ['super_admin', 'school_admin', 'edu_dept'],
+            'export_executive_report_pdf.php' => ['super_admin', 'school_admin', 'edu_dept'],
+            'export_filtered_students.php' => ['super_admin', 'school_admin', 'edu_dept', 'teacher'],
 
             // ---- Member management (Information department) ----
             // finance_dept included: the finance dashboard fetches the student

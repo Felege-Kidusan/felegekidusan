@@ -19,6 +19,7 @@ require_once __DIR__ . '/backend/services/ReportCardService.php';
 require_once __DIR__ . '/backend/services/SecurityAuditService.php';
 
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
@@ -29,6 +30,7 @@ $userRole = $_SESSION['admin_role'] ?? '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCsrf($csrfToken)) {
+        http_response_code(403);
         echo json_encode(['status' => 'error', 'message' => 'Security token expired']);
         exit;
     }

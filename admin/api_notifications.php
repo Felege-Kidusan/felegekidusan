@@ -45,6 +45,7 @@ function etagNotModified(string $version, string $prefix): bool
 
 // Check authentication
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }

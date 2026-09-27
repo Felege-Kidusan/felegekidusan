@@ -23,5 +23,6 @@ try {
     \App\Services\EducationAnalyticsService::streamExecutivePdf($conn, $_GET);
 } catch (Throwable $e) {
     http_response_code(500);
-    echo 'Could not generate executive report: ' . $e->getMessage();
+    error_log('Executive PDF export failed: ' . $e->getMessage());
+    echo 'Could not generate executive report. Please try again.';
 }

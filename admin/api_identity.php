@@ -21,6 +21,7 @@ use App\Services\PositionSyncService;
 use App\Services\SecurityAuditService;
 
 if (empty($_SESSION['admin_id'])) {
+    http_response_code(401);
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized'], JSON_UNESCAPED_UNICODE);
     exit;
 }
