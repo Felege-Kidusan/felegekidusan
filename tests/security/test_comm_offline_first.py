@@ -133,12 +133,12 @@ class OfflineFirstClientTests(unittest.TestCase):
         for t in ["comm_threads", "comm_messages", "comm_outbox", "comm_drafts", "comm_meta"]:
             self.assertIn(f"'{t}',", local_db, f"{t} must be in the logout wipe")
 
-    def test_version_is_140_build_23(self):
+    def test_version_is_151_build_25(self):
         config = (MOBILE / "utils/config.dart").read_text(encoding="utf-8")
         pubspec = (ROOT / "Mobile/wbws_flutter_app/pubspec.yaml").read_text(encoding="utf-8")
-        self.assertIn("appVersion = '1.5.0'", config)
-        self.assertIn("appBuild = 24", config)
-        self.assertIn("version: 1.5.0+24", pubspec)
+        self.assertIn("appVersion = '1.5.1'", config)
+        self.assertIn("appBuild = 25", config)
+        self.assertIn("version: 1.5.1+25", pubspec)
 
 
 if __name__ == "__main__":

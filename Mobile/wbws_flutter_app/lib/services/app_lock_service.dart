@@ -26,6 +26,7 @@ class AppLockService extends ChangeNotifier {
   AppLockService._internal();
 
   static const _kPinHash = 'applock_pin_hash';
+  static const _kPinLength = 'applock_pin_length';
   static const _kSalt = 'applock_salt';
   static const _kAutoLock = 'applock_autolock_seconds';
   static const _kBiometric = 'applock_biometric_enabled';
@@ -49,6 +50,7 @@ class AppLockService extends ChangeNotifier {
 
   DateTime? _backgroundedAt;
   int _failedAttempts = 0;
+  int get failedAttempts => _failedAttempts;
   DateTime _lastFailure = DateTime.fromMillisecondsSinceEpoch(0);
 
   // ── state ───────────────────────────────────────────────────
@@ -56,6 +58,12 @@ class AppLockService extends ChangeNotifier {
   Future<bool> isConfigured() async {
     final h = await _secure.read(key: _kPinHash);
     return h != null && h.isNotEmpty;
+  }
+
+  Future<int> configuredPinLength() async {
+    final raw = await _secure.read(key: _kPinLength);
+    final v = int.tryParse('${raw ?? 4}');
+    return (v != null && v >= 4 && v <= 8) ? v : 4;
   }
 
   Future<int> autoLockSeconds() async {
@@ -78,6 +86,7 @@ class AppLockService extends ChangeNotifier {
     final salt = _newSalt();
     await _secure.write(key: _kSalt, value: salt);
     await _secure.write(key: _kPinHash, value: _hash(clean, salt));
+    await _secure.write(key: _kPinLength, value: '${clean.length}');
     await _secure.write(key: _kAutoLock, value: '300');
     await _syncSecureFlag();
     notifyListeners();
@@ -92,9 +101,11 @@ class AppLockService extends ChangeNotifier {
   Future<String?> disable(String currentPin) async {
     if (!await verifyPin(currentPin)) return 'Current passcode is wrong.';
     await _secure.delete(key: _kPinHash);
+    await _secure.delete(key: _kPinLength);
     await _secure.delete(key: _kSalt);
     await _secure.delete(key: _kBiometric);
     _locked = false;
+    _failedAttempts = 0;
     await _syncSecureFlag();
     notifyListeners();
     return null;
@@ -105,6 +116,7 @@ class AppLockService extends ChangeNotifier {
   /// device-local, so it goes away with the session it was protecting.
   Future<void> clearPin() async {
     await _secure.delete(key: _kPinHash);
+    await _secure.delete(key: _kPinLength);
     await _secure.delete(key: _kSalt);
     await _secure.delete(key: _kBiometric);
     _locked = false;
@@ -143,6 +155,8 @@ class AppLockService extends ChangeNotifier {
     }
     return ok;
   }
+
+  Duration throttleRemaining() => _throttleRemaining();
 
   Duration _throttleRemaining() {
     if (_failedAttempts <= 0) return Duration.zero;

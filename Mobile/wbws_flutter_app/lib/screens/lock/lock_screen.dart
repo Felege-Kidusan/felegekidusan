@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -20,9 +21,12 @@ class _LockScreenState extends State<LockScreen>
     with SingleTickerProviderStateMixin {
   final _lock = AppLockService();
   String _entered = '';
+  int _pinLength = 4;
   bool _checking = false;
   bool _biometricAvailable = false;
   String? _error;
+  Timer? _throttleTimer;
+  int _throttleSeconds = 0;
   late AnimationController _shakeCtrl;
   late Animation<double> _shakeAnim;
 
@@ -36,19 +40,60 @@ class _LockScreenState extends State<LockScreen>
     _shakeAnim = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _shakeCtrl, curve: Curves.elasticIn),
     );
-    _initBiometric();
+    _initLockState();
   }
 
-  Future<void> _initBiometric() async {
+  Future<void> _initLockState() async {
+    final len = await _lock.configuredPinLength();
     final enabled = await _lock.biometricEnabled();
-    if (!enabled || !mounted) return;
-    setState(() => _biometricAvailable = true);
-    // Offer the fingerprint immediately, like Telegram.
-    await _tryBiometric();
+    if (!mounted) return;
+    setState(() {
+      _pinLength = len;
+      _biometricAvailable = enabled;
+    });
+
+    _checkThrottle();
+    if (enabled) {
+      await _tryBiometric();
+    }
+  }
+
+  void _checkThrottle() {
+    final remaining = _lock.throttleRemaining();
+    if (remaining > Duration.zero) {
+      _startThrottleCountdown(remaining.inSeconds + 1);
+    }
+  }
+
+  void _startThrottleCountdown(int seconds) {
+    _throttleTimer?.cancel();
+    setState(() {
+      _throttleSeconds = seconds;
+      _error = 'Too many attempts. Try again in ${_throttleSeconds}s.';
+    });
+    _throttleTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final rem = _lock.throttleRemaining();
+      if (rem <= Duration.zero) {
+        timer.cancel();
+        setState(() {
+          _throttleSeconds = 0;
+          _error = null;
+        });
+      } else {
+        setState(() {
+          _throttleSeconds = rem.inSeconds + 1;
+          _error = 'Too many attempts. Try again in ${_throttleSeconds}s.';
+        });
+      }
+    });
   }
 
   Future<void> _tryBiometric() async {
-    if (_checking) return;
+    if (_checking || _throttleSeconds > 0) return;
     setState(() => _checking = true);
     final ok = await _lock.authenticateWithBiometrics();
     if (!mounted) return;
@@ -58,6 +103,7 @@ class _LockScreenState extends State<LockScreen>
 
   @override
   void dispose() {
+    _throttleTimer?.cancel();
     _shakeCtrl.dispose();
     super.dispose();
   }
@@ -69,26 +115,29 @@ class _LockScreenState extends State<LockScreen>
   }
 
   Future<void> _press(String key) async {
-    if (_checking) return;
+    if (_checking || _throttleSeconds > 0) return;
     HapticFeedback.selectionClick();
     if (key == 'back') {
       setState(() {
-        if (_entered.isNotEmpty) _entered = _entered.substring(0, _entered.length - 1);
+        if (_entered.isNotEmpty) {
+          _entered = _entered.substring(0, _entered.length - 1);
+        }
         _error = null;
       });
       return;
     }
-    if (_entered.length >= 8) return;
+    if (_entered.length >= _pinLength) return;
     setState(() {
       _entered += key;
       _error = null;
     });
-    if (_entered.length >= 4) {
+    if (_entered.length == _pinLength) {
       await _verify();
     }
   }
 
   Future<void> _verify() async {
+    if (_throttleSeconds > 0) return;
     setState(() => _checking = true);
     final ok = await _lock.verifyPin(_entered);
     if (!mounted) return;
@@ -96,13 +145,22 @@ class _LockScreenState extends State<LockScreen>
       _onUnlocked();
       return;
     }
+
+    final wait = _lock.throttleRemaining();
     setState(() {
       _checking = false;
       _entered = '';
-      _error = 'Wrong passcode. Try again.';
     });
     _shakeCtrl.forward(from: 0);
     HapticFeedback.mediumImpact();
+
+    if (wait > Duration.zero) {
+      _startThrottleCountdown(wait.inSeconds + 1);
+    } else {
+      setState(() {
+        _error = 'Wrong passcode. Try again.';
+      });
+    }
   }
 
   Future<void> _showForgotHelp() async {
@@ -140,6 +198,7 @@ class _LockScreenState extends State<LockScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isThrottled = _throttleSeconds > 0;
     return Scaffold(
       backgroundColor: AppTheme.bgLight,
       body: SafeArea(
@@ -150,7 +209,7 @@ class _LockScreenState extends State<LockScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.lock_outline_rounded,
-                    size: 44, color: AppTheme.primary),
+                    size: 44, color: isThrottled ? Colors.red : AppTheme.primary),
                 const SizedBox(height: 14),
                 const Text('Felege Kidusan is locked',
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
@@ -169,7 +228,7 @@ class _LockScreenState extends State<LockScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(
-                        max(4, _entered.length),
+                        _pinLength,
                         (i) => Container(
                               width: 14,
                               height: 14,
@@ -180,24 +239,28 @@ class _LockScreenState extends State<LockScreen>
                                     ? AppTheme.primary
                                     : Colors.transparent,
                                 border: Border.all(
-                                    color: AppTheme.primary, width: 1.6),
+                                    color: isThrottled ? Colors.red : AppTheme.primary,
+                                    width: 1.6),
                               ),
                             )),
                   ),
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
-                  height: 18,
+                  height: 22,
                   child: _error != null
                       ? Text(_error!,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                              fontSize: 11.5, color: Colors.red))
+                              fontSize: 11.5,
+                              color: Colors.red,
+                              fontWeight: FontWeight.w600))
                       : null,
                 ),
                 const SizedBox(height: 6),
-                _keypad(),
+                _keypad(isThrottled),
                 const SizedBox(height: 10),
-                if (_biometricAvailable)
+                if (_biometricAvailable && !isThrottled)
                   TextButton.icon(
                     onPressed: _checking ? null : _tryBiometric,
                     icon: const Icon(Icons.fingerprint, size: 18),
@@ -218,7 +281,7 @@ class _LockScreenState extends State<LockScreen>
     );
   }
 
-  Widget _keypad() {
+  Widget _keypad(bool disabled) {
     final rows = [
       ['1', '2', '3'],
       ['4', '5', '6'],
@@ -234,34 +297,37 @@ class _LockScreenState extends State<LockScreen>
               for (final key in row)
                 key.isEmpty
                     ? const SizedBox(width: 76, height: 62)
-                    : _key(key),
+                    : _key(key, disabled),
             ],
           ),
       ],
     );
   }
 
-  Widget _key(String key) {
+  Widget _key(String key, bool disabled) {
     return Padding(
       padding: const EdgeInsets.all(6),
       child: Material(
-        color: AppTheme.primary.withOpacity(0.06),
+        color: disabled
+            ? Colors.grey.withOpacity(0.08)
+            : AppTheme.primary.withOpacity(0.06),
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => _press(key),
+          onTap: disabled ? null : () => _press(key),
           child: SizedBox(
             width: 64,
             height: 50,
             child: Center(
               child: key == 'back'
                   ? Icon(Icons.backspace_outlined,
-                      size: 18, color: AppTheme.primary)
+                      size: 18,
+                      color: disabled ? Colors.grey : AppTheme.primary)
                   : Text(key,
                       style: TextStyle(
                           fontSize: 19,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.primary)),
+                          color: disabled ? Colors.grey : AppTheme.primary)),
             ),
           ),
         ),

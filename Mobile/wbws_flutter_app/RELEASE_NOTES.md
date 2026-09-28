@@ -5,6 +5,12 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.5.1 (build 25) — App lock rate limiting, update pipeline & security hardening
+
+- App lock passcode rate limiting now features real-time countdown throttling and dynamic multi-digit indicator dots.
+- Super Admin mobile app release manager and direct self-hosted OTA updates without cPanel/FTP workflows.
+- Strict security boundaries, non-diagnostic exception handling, and offline sync resilience.
+
 ## 1.5.0 (build 24) — Safer access and recoverable offline work
 
 - Live role, status, and teacher-assignment changes now reconcile before the
