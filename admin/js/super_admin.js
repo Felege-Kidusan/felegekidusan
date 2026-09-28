@@ -6,7 +6,7 @@
   'use strict';
 
   var ALLOWED = {
-    overview: 1, users: 1, departments: 1, identity: 1, health: 1, settings: 1,
+    overview: 1, users: 1, departments: 1, identity: 1, app_release: 1, health: 1, settings: 1,
     branding: 1, logs: 1, backup: 1, syshealth: 1, profile: 1
   };
 
@@ -42,6 +42,10 @@
     if (pane) pane.scrollTop = 0;
     if (id === 'profile' && typeof window.loadTabProfile === 'function') {
       window.loadTabProfile();
+    }
+    if (id === 'app_release' && window.AppReleaseUI) {
+      window.AppReleaseUI.init();
+      window.AppReleaseUI.refresh();
     }
     if (window.history && history.replaceState) {
       history.replaceState(null, '', '?section=' + encodeURIComponent(id));
