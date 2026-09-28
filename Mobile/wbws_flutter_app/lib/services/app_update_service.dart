@@ -352,6 +352,23 @@ class AppUpdateService {
     return file.path;
   }
 
+  Future<bool> canRequestPackageInstalls() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    try {
+      final res = await _channel.invokeMethod<bool>('canRequestPackageInstalls');
+      return res ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> openInstallPermissionSettings() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod('openInstallPermissionSettings');
+    } catch (_) {}
+  }
+
   Future<void> installApk(String path) async {
     await _channel.invokeMethod('installApk', {'path': path});
   }

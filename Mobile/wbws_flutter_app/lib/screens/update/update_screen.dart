@@ -26,6 +26,10 @@ class _UpdateScreenState extends State<UpdateScreen> {
       _progress = 0;
     });
     try {
+      final canInstall = await _svc.canRequestPackageInstalls();
+      if (!canInstall) {
+        await _svc.openInstallPermissionSettings();
+      }
       final path = await _svc.downloadApk(onProgress: (p) {
         if (mounted) setState(() => _progress = p);
       });
