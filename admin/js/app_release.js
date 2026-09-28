@@ -1,11 +1,33 @@
 /**
  * Super Admin — Mobile App Release Management UI Module
+ * Production-grade Resumable Chunked APK Upload Engine with
+ * Real-time State Handling & cPanel Fault-Tolerance.
  */
 (function (window, document) {
   'use strict';
 
   var API_URL = '/admin/api_app_release.php';
+  var CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk (Optimal for cPanel / LiteSpeed / Nginx)
+  var MAX_CHUNK_RETRIES = 4;
   var loaded = false;
+
+  // Upload State Machine
+  var currentUpload = {
+    state: 'idle', // 'idle' | 'selected' | 'uploading' | 'assembling' | 'success' | 'error'
+    file: null,
+    abi: 'universal',
+    uploadId: null,
+    totalChunks: 0,
+    currentChunkIndex: 0,
+    chunkRetries: 0,
+    startTime: 0,
+    uploadedBytesBeforeCurrentChunk: 0,
+    lastSpeedUpdate: 0,
+    lastLoadedBytes: 0,
+    speedBps: 0,
+    xhr: null,
+    aborted: false
+  };
 
   function escapeHtml(str) {
     if (str == null) return '';
@@ -17,10 +39,25 @@
       .replace(/'/g, '&#039;');
   }
 
+  function formatBytes(bytes) {
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return bytes + ' B';
+  }
+
+  function formatDuration(seconds) {
+    if (!isFinite(seconds) || seconds <= 0) return 'calculating...';
+    if (seconds < 60) return Math.ceil(seconds) + 's';
+    var mins = Math.floor(seconds / 60);
+    var secs = Math.ceil(seconds % 60);
+    return mins + 'm ' + (secs < 10 ? '0' : '') + secs + 's';
+  }
+
   function showAlert(type, message) {
     var box = document.getElementById('app-release-alert-box');
     if (!box) return;
-    var icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
+    var icon = type === 'success' ? 'check-circle' : (type === 'warn' ? 'triangle-exclamation' : 'circle-exclamation');
     box.innerHTML = '<div class="alert alert-' + type + '" style="margin-bottom:1.25rem;display:flex;align-items:center;gap:.6rem;border-radius:0.5rem;padding:0.85rem 1.25rem">' +
       '<i class="fa-solid fa-' + icon + '"></i> <span>' + escapeHtml(message) + '</span>' +
       '</div>';
@@ -28,7 +65,7 @@
       if (box.innerHTML.indexOf(message) !== -1) {
         box.innerHTML = '';
       }
-    }, 6000);
+    }, 8000);
   }
 
   function getCsrfToken() {
@@ -36,11 +73,395 @@
     return input ? input.value : '';
   }
 
+  function generateUploadId() {
+    var rand = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    return 'apk_' + Date.now() + '_' + rand;
+  }
+
   var AppReleaseUI = {
     init: function () {
       if (loaded) return;
       loaded = true;
+      this.bindDropZone();
       this.refresh();
+    },
+
+    bindDropZone: function () {
+      var dropZone = document.getElementById('apk-drop-zone');
+      var fileInput = document.getElementById('upload-apk-input');
+      if (!dropZone || !fileInput) return;
+
+      ['dragenter', 'dragover'].forEach(function (eventName) {
+        dropZone.addEventListener(eventName, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.add('drag-active');
+        }, false);
+      });
+
+      ['dragleave', 'drop'].forEach(function (eventName) {
+        dropZone.addEventListener(eventName, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.remove('drag-active');
+        }, false);
+      });
+
+      dropZone.addEventListener('drop', function (e) {
+        var dt = e.dataTransfer;
+        if (dt && dt.files && dt.files.length > 0) {
+          fileInput.files = dt.files;
+          AppReleaseUI.onFileSelected(dt.files[0]);
+        }
+      }, false);
+
+      fileInput.addEventListener('change', function () {
+        if (fileInput.files && fileInput.files[0]) {
+          AppReleaseUI.onFileSelected(fileInput.files[0]);
+        }
+      }, false);
+    },
+
+    onFileSelected: function (file) {
+      if (!file) return;
+
+      if (!file.name.toLowerCase().endsWith('.apk')) {
+        showAlert('danger', 'Invalid file type. Only Android APK binaries (.apk) are supported.');
+        var fileInput = document.getElementById('upload-apk-input');
+        if (fileInput) fileInput.value = '';
+        return;
+      }
+
+      if (file.size > 262144000) { // 250 MB
+        showAlert('danger', 'APK file exceeds the maximum 250MB limit.');
+        return;
+      }
+
+      currentUpload.file = file;
+      currentUpload.state = 'selected';
+      currentUpload.totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      currentUpload.uploadId = generateUploadId();
+
+      var abiSelect = document.getElementById('upload-abi-select');
+      if (abiSelect) {
+        currentUpload.abi = abiSelect.value || 'universal';
+      }
+
+      this.renderUploadUI();
+    },
+
+    renderUploadUI: function () {
+      var idleBox = document.getElementById('upload-idle-state');
+      var stageBox = document.getElementById('upload-stage-state');
+      var progressBox = document.getElementById('upload-progress-state');
+      var assemblingBox = document.getElementById('upload-assembling-state');
+      var successBox = document.getElementById('upload-success-state');
+      var errorBox = document.getElementById('upload-error-state');
+
+      var all = [idleBox, stageBox, progressBox, assemblingBox, successBox, errorBox];
+      all.forEach(function (el) {
+        if (el) el.style.display = 'none';
+      });
+
+      switch (currentUpload.state) {
+        case 'idle':
+          if (idleBox) idleBox.style.display = 'block';
+          break;
+
+        case 'selected':
+          if (stageBox) {
+            stageBox.style.display = 'block';
+            var nameEl = document.getElementById('stage-file-name');
+            var sizeEl = document.getElementById('stage-file-size');
+            var chunksEl = document.getElementById('stage-file-chunks');
+            var abiEl = document.getElementById('stage-file-abi');
+
+            if (nameEl) nameEl.textContent = currentUpload.file ? currentUpload.file.name : '';
+            if (sizeEl) sizeEl.textContent = currentUpload.file ? formatBytes(currentUpload.file.size) : '';
+            if (chunksEl) chunksEl.textContent = currentUpload.totalChunks + ' chunks (' + formatBytes(CHUNK_SIZE) + ' / chunk)';
+            if (abiEl) abiEl.textContent = currentUpload.abi === 'universal' ? 'Universal APK' : currentUpload.abi;
+          }
+          break;
+
+        case 'uploading':
+          if (progressBox) progressBox.style.display = 'block';
+          break;
+
+        case 'assembling':
+          if (assemblingBox) {
+            assemblingBox.style.display = 'block';
+            var totalChunksText = document.getElementById('assemble-chunks-count');
+            if (totalChunksText) totalChunksText.textContent = currentUpload.totalChunks;
+          }
+          break;
+
+        case 'success':
+          if (successBox) successBox.style.display = 'block';
+          break;
+
+        case 'error':
+          if (errorBox) errorBox.style.display = 'block';
+          break;
+      }
+    },
+
+    startUpload: function () {
+      if (!currentUpload.file || currentUpload.state === 'uploading') return;
+
+      var abiSelect = document.getElementById('upload-abi-select');
+      if (abiSelect) {
+        currentUpload.abi = abiSelect.value || 'universal';
+      }
+
+      currentUpload.state = 'uploading';
+      currentUpload.aborted = false;
+      currentUpload.currentChunkIndex = 0;
+      currentUpload.chunkRetries = 0;
+      currentUpload.startTime = Date.now();
+      currentUpload.lastSpeedUpdate = Date.now();
+      currentUpload.uploadedBytesBeforeCurrentChunk = 0;
+      currentUpload.lastLoadedBytes = 0;
+      currentUpload.speedBps = 0;
+
+      this.renderUploadUI();
+      this.uploadNextChunk();
+    },
+
+    uploadNextChunk: function () {
+      if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+
+      if (currentUpload.currentChunkIndex >= currentUpload.totalChunks) {
+        // All chunks uploaded! Now trigger assembly on server
+        this.assembleChunksOnServer();
+        return;
+      }
+
+      var file = currentUpload.file;
+      var chunkIndex = currentUpload.currentChunkIndex;
+      var startByte = chunkIndex * CHUNK_SIZE;
+      var endByte = Math.min(startByte + CHUNK_SIZE, file.size);
+      var chunkBlob = file.slice(startByte, endByte);
+      var chunkSize = endByte - startByte;
+
+      var formData = new FormData();
+      formData.append('action', 'upload_chunk');
+      formData.append('upload_id', currentUpload.uploadId);
+      formData.append('chunk_index', chunkIndex);
+      formData.append('total_chunks', currentUpload.totalChunks);
+      formData.append('chunk_size', chunkSize);
+      formData.append('total_size', file.size);
+      formData.append('file_name', file.name);
+      formData.append('abi', currentUpload.abi);
+      formData.append('csrf_token', getCsrfToken());
+      formData.append('chunk_file', chunkBlob, 'chunk_' + chunkIndex);
+
+      var xhr = new XMLHttpRequest();
+      currentUpload.xhr = xhr;
+      xhr.open('POST', API_URL, true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('X-CSRF-TOKEN', getCsrfToken());
+
+      xhr.upload.onprogress = function (pe) {
+        if (pe.lengthComputable && currentUpload.state === 'uploading') {
+          var totalLoaded = currentUpload.uploadedBytesBeforeCurrentChunk + pe.loaded;
+          var totalBytes = file.size;
+          var pct = Math.min(99, Math.round((totalLoaded / totalBytes) * 100));
+
+          // Calculate Speed & ETA
+          var now = Date.now();
+          var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
+          if (timeDiff >= 0.5) {
+            var bytesDiff = totalLoaded - currentUpload.lastLoadedBytes;
+            currentUpload.speedBps = bytesDiff / timeDiff;
+            currentUpload.lastSpeedUpdate = now;
+            currentUpload.lastLoadedBytes = totalLoaded;
+          }
+
+          var remainingBytes = Math.max(0, totalBytes - totalLoaded);
+          var etaSeconds = currentUpload.speedBps > 0 ? (remainingBytes / currentUpload.speedBps) : 0;
+
+          AppReleaseUI.updateProgressDisplay(pct, totalLoaded, totalBytes, chunkIndex + 1, currentUpload.totalChunks, currentUpload.speedBps, etaSeconds);
+        }
+      };
+
+      xhr.onload = function () {
+        if (currentUpload.aborted) return;
+
+        if (xhr.status === 200) {
+          try {
+            var res = JSON.parse(xhr.responseText);
+            if (res.status === 'success') {
+              // Successfully uploaded chunk!
+              currentUpload.chunkRetries = 0;
+              currentUpload.uploadedBytesBeforeCurrentChunk += chunkSize;
+              currentUpload.currentChunkIndex++;
+              AppReleaseUI.uploadNextChunk();
+              return;
+            }
+          } catch (e) {}
+        }
+
+        // Retry chunk on error
+        AppReleaseUI.handleChunkFailure(xhr.status, xhr.responseText);
+      };
+
+      xhr.onerror = function () {
+        if (currentUpload.aborted) return;
+        AppReleaseUI.handleChunkFailure(0, 'Network connection interrupted');
+      };
+
+      xhr.ontimeout = function () {
+        if (currentUpload.aborted) return;
+        AppReleaseUI.handleChunkFailure(408, 'Chunk request timed out');
+      };
+
+      xhr.timeout = 45000; // 45s timeout per chunk
+      xhr.send(formData);
+    },
+
+    handleChunkFailure: function (status, responseText) {
+      if (currentUpload.aborted) return;
+
+      currentUpload.chunkRetries++;
+      if (currentUpload.chunkRetries <= MAX_CHUNK_RETRIES) {
+        var backoffMs = Math.min(6000, 1000 * Math.pow(1.8, currentUpload.chunkRetries - 1));
+        var label = document.getElementById('upload-status-subtext');
+        if (label) {
+          label.innerHTML = '<span style="color:#fbbf24"><i class="fa-solid fa-rotate fa-spin"></i> Network hiccup on chunk ' + (currentUpload.currentChunkIndex + 1) + '. Retrying (' + currentUpload.chunkRetries + '/' + MAX_CHUNK_RETRIES + ') in ' + Math.ceil(backoffMs / 1000) + 's...</span>';
+        }
+        setTimeout(function () {
+          if (!currentUpload.aborted && currentUpload.state === 'uploading') {
+            AppReleaseUI.uploadNextChunk();
+          }
+        }, backoffMs);
+      } else {
+        var errMsg = 'Upload stopped on chunk ' + (currentUpload.currentChunkIndex + 1) + ' of ' + currentUpload.totalChunks + '.';
+        try {
+          var res = JSON.parse(responseText);
+          if (res.message) errMsg += ' ' + res.message;
+        } catch (e) {
+          if (status) errMsg += ' (HTTP ' + status + ')';
+        }
+        AppReleaseUI.showUploadError(errMsg);
+      }
+    },
+
+    updateProgressDisplay: function (pct, loadedBytes, totalBytes, chunkNum, totalChunks, speedBps, etaSeconds) {
+      var bar = document.getElementById('upload-progress-fill');
+      var pctText = document.getElementById('upload-pct-display');
+      var bytesText = document.getElementById('upload-bytes-display');
+      var chunkText = document.getElementById('upload-chunk-display');
+      var speedText = document.getElementById('upload-speed-display');
+      var etaText = document.getElementById('upload-eta-display');
+
+      if (bar) bar.style.width = pct + '%';
+      if (pctText) pctText.textContent = pct + '%';
+      if (bytesText) bytesText.textContent = formatBytes(loadedBytes) + ' / ' + formatBytes(totalBytes);
+      if (chunkText) chunkText.textContent = 'Chunk ' + chunkNum + ' / ' + totalChunks;
+      if (speedText) speedText.textContent = speedBps > 0 ? (formatBytes(speedBps) + '/s') : '--';
+      if (etaText) etaText.textContent = formatDuration(etaSeconds);
+    },
+
+    assembleChunksOnServer: function () {
+      currentUpload.state = 'assembling';
+      this.renderUploadUI();
+
+      var formData = new FormData();
+      formData.append('action', 'assemble_chunks');
+      formData.append('upload_id', currentUpload.uploadId);
+      formData.append('total_chunks', currentUpload.totalChunks);
+      formData.append('total_size', currentUpload.file.size);
+      formData.append('file_name', currentUpload.file.name);
+      formData.append('abi', currentUpload.abi);
+      formData.append('csrf_token', getCsrfToken());
+
+      fetch(API_URL, {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+        credentials: 'same-origin',
+        body: formData
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (res) {
+        if (res.status === 'success') {
+          currentUpload.state = 'success';
+          AppReleaseUI.renderUploadUI();
+          AppReleaseUI.renderSuccessState(res.data, currentUpload.file.name, currentUpload.file.size);
+          showAlert('success', res.message || 'APK published and cryptographic sidecar generated successfully!');
+          if (res.data) {
+            AppReleaseUI.renderStatus(res.data);
+            AppReleaseUI.populateForm(res.data);
+          }
+        } else {
+          AppReleaseUI.showUploadError(res.message || 'Server failed to assemble APK chunks.');
+        }
+      })
+      .catch(function (err) {
+        AppReleaseUI.showUploadError('Network error while assembling APK on server: ' + (err.message || 'Request failed'));
+      });
+    },
+
+    renderSuccessState: function (data, filename, sizeBytes) {
+      var nameEl = document.getElementById('success-apk-name');
+      var sizeEl = document.getElementById('success-apk-size');
+      var shaEl = document.getElementById('success-apk-sha');
+      var verEl = document.getElementById('success-apk-version');
+
+      if (nameEl) nameEl.textContent = filename || 'fkss.apk';
+      if (sizeEl) sizeEl.textContent = formatBytes(sizeBytes);
+      if (verEl && data) verEl.textContent = 'v' + data.latest_version + ' (Build ' + data.latest_build + ')';
+      
+      var sha = '';
+      if (data && data.artifacts_detail && data.artifacts_detail[currentUpload.abi]) {
+        sha = data.artifacts_detail[currentUpload.abi].sha256;
+      }
+      if (shaEl) shaEl.textContent = sha ? ('SHA-256: ' + sha) : '';
+    },
+
+    showUploadError: function (msg) {
+      currentUpload.state = 'error';
+      this.renderUploadUI();
+      var errEl = document.getElementById('upload-error-message');
+      if (errEl) errEl.textContent = msg;
+      showAlert('danger', msg);
+    },
+
+    cancelUpload: function () {
+      currentUpload.aborted = true;
+      if (currentUpload.xhr) {
+        try { currentUpload.xhr.abort(); } catch (e) {}
+      }
+
+      if (currentUpload.uploadId) {
+        var formData = new FormData();
+        formData.append('action', 'cancel_upload');
+        formData.append('upload_id', currentUpload.uploadId);
+        formData.append('csrf_token', getCsrfToken());
+
+        fetch(API_URL, {
+          method: 'POST',
+          headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+          credentials: 'same-origin',
+          body: formData
+        }).catch(function () {});
+      }
+
+      this.resetUploadState();
+    },
+
+    resetUploadState: function () {
+      currentUpload.state = 'idle';
+      currentUpload.file = null;
+      currentUpload.uploadId = null;
+      currentUpload.currentChunkIndex = 0;
+      currentUpload.totalChunks = 0;
+      currentUpload.xhr = null;
+      currentUpload.aborted = false;
+
+      var fileInput = document.getElementById('upload-apk-input');
+      if (fileInput) fileInput.value = '';
+
+      this.renderUploadUI();
     },
 
     refresh: function () {
@@ -202,82 +623,6 @@
           btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save Release Policy';
         }
       });
-    },
-
-    uploadApk: function (e) {
-      if (e) e.preventDefault();
-      var fileInput = document.getElementById('upload-apk-input');
-      if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-        alert('Please select an APK file to upload.');
-        return;
-      }
-
-      var file = fileInput.files[0];
-      if (!file.name.toLowerCase().endsWith('.apk')) {
-        alert('The selected file is not a valid APK file (.apk).');
-        return;
-      }
-
-      var btn = document.getElementById('btn-upload-apk');
-      var progressWrapper = document.getElementById('upload-progress-wrapper');
-      var progressBar = document.getElementById('upload-progress-bar');
-      var progressPct = document.getElementById('upload-progress-pct');
-      var progressLabel = document.getElementById('upload-progress-label');
-
-      if (btn) btn.disabled = true;
-      if (progressWrapper) progressWrapper.style.display = 'block';
-      if (progressBar) progressBar.style.width = '0%';
-      if (progressPct) progressPct.textContent = '0%';
-      if (progressLabel) progressLabel.textContent = 'Uploading ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)...';
-
-      var form = document.getElementById('form-upload-apk');
-      var formData = new FormData(form);
-      formData.append('action', 'upload_apk');
-
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', API_URL, true);
-      xhr.withCredentials = true;
-      xhr.setRequestHeader('X-CSRF-TOKEN', getCsrfToken());
-
-      xhr.upload.onprogress = function (pe) {
-        if (pe.lengthComputable) {
-          var pct = Math.round((pe.loaded / pe.total) * 100);
-          if (progressBar) progressBar.style.width = pct + '%';
-          if (progressPct) progressPct.textContent = pct + '%';
-          if (pct === 100 && progressLabel) {
-            progressLabel.textContent = 'Computing cryptographic SHA-256 hash and publishing...';
-          }
-        }
-      };
-
-      xhr.onload = function () {
-        if (btn) btn.disabled = false;
-        if (progressWrapper) progressWrapper.style.display = 'none';
-
-        try {
-          var res = JSON.parse(xhr.responseText);
-          if (xhr.status === 200 && res.status === 'success') {
-            showAlert('success', res.message || 'APK uploaded and published successfully!');
-            fileInput.value = '';
-            if (res.data) {
-              AppReleaseUI.renderStatus(res.data);
-              AppReleaseUI.populateForm(res.data);
-            }
-          } else {
-            showAlert('danger', res.message || ('Upload failed with status ' + xhr.status));
-          }
-        } catch (err) {
-          showAlert('danger', 'Server returned invalid response during upload.');
-        }
-      };
-
-      xhr.onerror = function () {
-        if (btn) btn.disabled = false;
-        if (progressWrapper) progressWrapper.style.display = 'none';
-        showAlert('danger', 'Network error during APK upload.');
-      };
-
-      xhr.send(formData);
     },
 
     deleteApk: function (abi) {

@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,12 +32,18 @@ class AppReleaseManagementTests(unittest.TestCase):
         self.assertIn("validateCsrf", self.api_app_release)
         self.assertIn("case 'get_release':", self.api_app_release)
         self.assertIn("case 'save_config':", self.api_app_release)
+        self.assertIn("case 'upload_chunk':", self.api_app_release)
+        self.assertIn("case 'assemble_chunks':", self.api_app_release)
+        self.assertIn("case 'cancel_upload':", self.api_app_release)
         self.assertIn("case 'upload_apk':", self.api_app_release)
         self.assertIn("case 'delete_apk':", self.api_app_release)
 
-    def test_service_validates_apk_extension_and_size_limits(self):
-        self.assertIn("MAX_APK_BYTES = 209715200", self.app_release_manager)
-        self.assertIn("pathinfo($originalName, PATHINFO_EXTENSION)", self.app_release_manager)
+    def test_service_validates_apk_extension_and_chunk_integrity(self):
+        self.assertIn("MAX_APK_BYTES = 262144000", self.app_release_manager)
+        self.assertIn("handleChunkUpload", self.app_release_manager)
+        self.assertIn("assembleChunks", self.app_release_manager)
+        self.assertIn("cleanupOldChunks", self.app_release_manager)
+        self.assertIn("pathinfo($originalFilename, PATHINFO_EXTENSION)", self.app_release_manager)
         self.assertIn("$ext !== 'apk'", self.app_release_manager)
 
     def test_dashboard_embeds_app_release_tab_and_scripts(self):
@@ -48,12 +53,23 @@ class AppReleaseManagementTests(unittest.TestCase):
         self.assertIn("app_release.js", self.super_admin_dashboard)
         self.assertIn("AppReleaseUI", self.app_release_js)
 
-    def test_upload_progress_and_drag_drop_elements_exist_in_section(self):
+    def test_upload_state_elements_exist_in_section(self):
         self.assertIn("id=\"upload-apk-input\"", self.app_release_section)
-        self.assertIn("id=\"upload-progress-bar\"", self.app_release_section)
-        self.assertIn("id=\"cfg-latest-version\"", self.app_release_section)
-        self.assertIn("id=\"cfg-latest-build\"", self.app_release_section)
-        self.assertIn("id=\"cfg-force-update\"", self.app_release_section)
+        self.assertIn("id=\"upload-idle-state\"", self.app_release_section)
+        self.assertIn("id=\"upload-stage-state\"", self.app_release_section)
+        self.assertIn("id=\"upload-progress-state\"", self.app_release_section)
+        self.assertIn("id=\"upload-assembling-state\"", self.app_release_section)
+        self.assertIn("id=\"upload-success-state\"", self.app_release_section)
+        self.assertIn("id=\"upload-error-state\"", self.app_release_section)
+        self.assertIn("id=\"upload-progress-fill\"", self.app_release_section)
+
+    def test_js_engine_handles_chunking_retries_and_resilience(self):
+        self.assertIn("CHUNK_SIZE = 2 * 1024 * 1024", self.app_release_js)
+        self.assertIn("MAX_CHUNK_RETRIES = 4", self.app_release_js)
+        self.assertIn("uploadNextChunk", self.app_release_js)
+        self.assertIn("handleChunkFailure", self.app_release_js)
+        self.assertIn("assembleChunksOnServer", self.app_release_js)
+        self.assertIn("cancelUpload", self.app_release_js)
 
     def test_releases_storage_protection_rule(self):
         self.assertIn("Options -Indexes", self.app_release_manager)

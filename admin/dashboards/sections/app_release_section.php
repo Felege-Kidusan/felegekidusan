@@ -105,6 +105,50 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
 #section-app_release .ar-toggle-card.warn-box input[type="checkbox"] {
     accent-color: #ef4444;
 }
+
+/* Drop Zone & Resumable Upload Styles */
+.apk-drop-box {
+    background: #0f172a;
+    border: 2px dashed #334155;
+    border-radius: 0.75rem;
+    padding: 2rem 1.25rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
+.apk-drop-box:hover, .apk-drop-box.drag-active {
+    border-color: #38bdf8;
+    background: #131e36;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+}
+.apk-progress-track {
+    width: 100%;
+    height: 12px;
+    background: #0f172a;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #334155;
+    position: relative;
+}
+.apk-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #38bdf8, #10b981);
+    border-radius: 6px;
+    transition: width 0.15s ease;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+.apk-stat-pill {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.4rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    color: #cbd5e1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
 </style>
 
 <!-- ═══ MOBILE APP RELEASE MANAGER ═══ -->
@@ -112,15 +156,16 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
     <div class="sec-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
         <div>
             <h2 class="sec-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.4rem;color:#f8fafc"><i class="fa-solid fa-mobile-screen-button" style="color:#38bdf8"></i> Mobile App Release Manager</h2>
-            <p class="sec-desc" style="color:#94a3b8;font-size:0.875rem">Direct in-app update management, APK upload, version enforcement & announcements (No cPanel required)</p>
+            <p class="sec-desc" style="color:#94a3b8;font-size:0.875rem">Production-grade in-app update management, resilient chunked APK upload & version enforcement</p>
         </div>
         <button type="button" class="btn btn-outline btn-sm" onclick="if(window.AppReleaseUI)window.AppReleaseUI.refresh()"><i class="fa-solid fa-rotate"></i> Refresh Status</button>
     </div>
 
     <div id="app-release-alert-box"></div>
 
-    <!-- Live Status & Metrics Grid -->
+    <!-- Live Status & Upload Grid -->
     <div class="grid-2" style="margin-bottom:1.5rem;gap:1.5rem">
+        <!-- Active Release Status Card -->
         <div class="ar-card">
             <h3 class="card-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.1rem;color:#f8fafc;margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:0.75rem">
                 <i class="fa-solid fa-circle-info" style="color:#38bdf8"></i> Active Release Status
@@ -188,52 +233,143 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
             </div>
         </div>
 
+        <!-- Resumable APK Upload Card -->
         <div class="ar-card">
-            <h3 class="card-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.1rem;color:#f8fafc;margin-bottom:0.5rem;border-bottom:1px solid #334155;padding-bottom:0.75rem">
-                <i class="fa-solid fa-cloud-arrow-up" style="color:#4ade80"></i> Upload New APK Build
+            <h3 class="card-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.1rem;color:#f8fafc;margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:0.75rem">
+                <i class="fa-solid fa-cloud-arrow-up" style="color:#10b981"></i> Upload New APK Binary
             </h3>
-            <p style="font-size:0.825rem;color:#94a3b8;margin-bottom:1.25rem;line-height:1.5">Upload newly built <code>.apk</code> binary directly. SHA-256 hash and file size are calculated automatically.</p>
-            
-            <form id="form-upload-apk" enctype="multipart/form-data" onsubmit="AppReleaseUI.uploadApk(event)">
-                <?= csrfField() ?>
-                <div class="ar-form-group">
-                    <label class="ar-label" for="upload-abi-select">
-                        <i class="fa-solid fa-microchip" style="color:#94a3b8;font-size:0.75rem"></i> Artifact Architecture
-                    </label>
-                    <select name="abi" id="upload-abi-select" class="ar-select">
-                        <option value="universal">Universal APK (Recommended — Works on all Android devices)</option>
-                        <option value="arm64-v8a">ARM64-v8a (64-bit split APK — ~50% smaller file)</option>
-                        <option value="armeabi-v7a">ARMeabi-v7a (32-bit legacy split APK)</option>
-                    </select>
-                </div>
-                
-                <div class="ar-form-group">
-                    <label class="ar-label" for="upload-apk-input">
-                        <i class="fa-solid fa-file-arrow-up" style="color:#94a3b8;font-size:0.75rem"></i> APK File (.apk) <span class="req">*</span>
-                    </label>
-                    <input type="file" name="apk_file" id="upload-apk-input" accept=".apk,application/vnd.android.package-archive" class="ar-input" required style="padding:0.5rem">
-                    <span class="ar-help">Select the release build e.g. <code>build/app/outputs/flutter-apk/app-release.apk</code> (Max 200MB)</span>
-                </div>
 
-                <div id="upload-progress-wrapper" style="display:none;margin-bottom:1.25rem;background:#0f172a;padding:0.75rem;border-radius:0.5rem;border:1px solid #334155">
-                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:#e2e8f0;margin-bottom:0.4rem;font-weight:500">
-                        <span id="upload-progress-label">Uploading...</span>
-                        <span id="upload-progress-pct" style="color:#38bdf8;font-weight:700">0%</span>
-                    </div>
-                    <div style="width:100%;height:10px;background:#1e293b;border-radius:5px;overflow:hidden">
-                        <div id="upload-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);transition:width 0.2s"></div>
+            <div class="ar-form-group">
+                <label class="ar-label" for="upload-abi-select">
+                    <i class="fa-solid fa-microchip" style="color:#94a3b8;font-size:0.75rem"></i> Target Architecture
+                </label>
+                <select id="upload-abi-select" class="ar-select">
+                    <option value="universal">Universal APK (Recommended — Compatible with all Android devices)</option>
+                    <option value="arm64-v8a">ARM64-v8a (64-bit split APK — ~50% smaller download)</option>
+                    <option value="armeabi-v7a">ARMeabi-v7a (32-bit legacy split APK)</option>
+                </select>
+            </div>
+
+            <!-- Upload Engine Container -->
+            <div id="apk-upload-engine-box">
+                <!-- State 1: Idle Drag & Drop -->
+                <div id="upload-idle-state" class="apk-drop-box" id="apk-drop-zone" onclick="document.getElementById('upload-apk-input').click()">
+                    <input type="file" id="upload-apk-input" accept=".apk,application/vnd.android.package-archive" style="display:none">
+                    <i class="fa-solid fa-file-arrow-up" style="font-size:2.5rem;color:#38bdf8;margin-bottom:0.75rem;display:inline-block"></i>
+                    <div style="font-size:0.95rem;font-weight:600;color:#f8fafc">Drag &amp; Drop APK File Here</div>
+                    <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.25rem">or click to browse your computer</div>
+                    <div style="margin-top:0.75rem;display:flex;justify-content:center;gap:0.5rem;flex-wrap:wrap">
+                        <span class="apk-stat-pill"><i class="fa-solid fa-bolt" style="color:#38bdf8"></i> Resumable Chunks (2MB)</span>
+                        <span class="apk-stat-pill"><i class="fa-solid fa-shield-halved" style="color:#10b981"></i> Auto-Retry Protection</span>
+                        <span class="apk-stat-pill"><i class="fa-solid fa-server" style="color:#a78bfa"></i> cPanel Safe</span>
                     </div>
                 </div>
 
-                <button type="submit" id="btn-upload-apk" class="btn btn-primary" style="width:100%;justify-content:center;padding:0.75rem 1.25rem;font-size:0.875rem"><i class="fa-solid fa-upload"></i> Upload & Publish APK</button>
-            </form>
+                <!-- State 2: File Staged / Preflight -->
+                <div id="upload-stage-state" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:0.75rem;padding:1.25rem">
+                    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+                        <i class="fa-solid fa-file-lines" style="font-size:2rem;color:#38bdf8"></i>
+                        <div style="min-width:0;flex:1">
+                            <div id="stage-file-name" style="font-weight:700;color:#f8fafc;font-size:0.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">fkss.apk</div>
+                            <div style="font-size:0.775rem;color:#94a3b8;margin-top:0.2rem">
+                                Size: <span id="stage-file-size" style="color:#e2e8f0;font-weight:600">--</span> • 
+                                Plan: <span id="stage-file-chunks" style="color:#38bdf8">--</span> • 
+                                Target: <span id="stage-file-abi" style="color:#a78bfa">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.75rem">
+                        <button type="button" class="btn btn-primary" onclick="AppReleaseUI.startUpload()" style="flex:2;justify-content:center;padding:0.65rem 1rem">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> Start Reliable Upload
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="AppReleaseUI.resetUploadState()" style="flex:1;justify-content:center;background:#1e293b;border-color:#334155;color:#e2e8f0">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+
+                <!-- State 3: Upload In Progress -->
+                <div id="upload-progress-state" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:0.75rem;padding:1.25rem">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+                        <span id="upload-status-title" style="font-size:0.875rem;font-weight:600;color:#f8fafc">
+                            <i class="fa-solid fa-spinner fa-spin" style="color:#38bdf8"></i> Uploading APK in Safe Chunks...
+                        </span>
+                        <span id="upload-pct-display" style="font-size:1.1rem;font-weight:700;color:#38bdf8">0%</span>
+                    </div>
+
+                    <div class="apk-progress-track" style="margin-bottom:0.85rem">
+                        <div id="upload-progress-fill" class="apk-progress-fill"></div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.775rem;color:#cbd5e1;margin-bottom:0.85rem;background:#1e293b;padding:0.65rem 0.85rem;border-radius:0.5rem">
+                        <div>Transfer: <span id="upload-bytes-display" style="font-weight:600;color:#f8fafc">-- / --</span></div>
+                        <div style="text-align:right">Progress: <span id="upload-chunk-display" style="font-weight:600;color:#38bdf8">Chunk --</span></div>
+                        <div>Speed: <span id="upload-speed-display" style="font-weight:600;color:#10b981">-- MB/s</span></div>
+                        <div style="text-align:right">Time Remaining: <span id="upload-eta-display" style="font-weight:600;color:#e2e8f0">--</span></div>
+                    </div>
+
+                    <div id="upload-status-subtext" style="font-size:0.75rem;color:#94a3b8;margin-bottom:0.85rem;min-height:1rem">
+                        Automatic retry enabled for cPanel network tolerance.
+                    </div>
+
+                    <button type="button" class="btn btn-outline btn-sm" onclick="AppReleaseUI.cancelUpload()" style="width:100%;justify-content:center;background:#1e293b;border-color:rgba(239,68,68,0.4);color:#f87171">
+                        <i class="fa-solid fa-xmark"></i> Cancel Upload
+                    </button>
+                </div>
+
+                <!-- State 4: Server Assembling & Checksum Hash -->
+                <div id="upload-assembling-state" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:0.75rem;padding:1.5rem;text-align:center">
+                    <i class="fa-solid fa-arrows-spin fa-spin" style="font-size:2.5rem;color:#a78bfa;margin-bottom:0.85rem;display:inline-block"></i>
+                    <div style="font-size:1rem;font-weight:700;color:#f8fafc">Assembling APK on Server</div>
+                    <div style="font-size:0.8rem;color:#cbd5e1;margin-top:0.4rem;max-width:380px;margin-left:auto;margin-right:auto">
+                        Merging <span id="assemble-chunks-count" style="color:#38bdf8;font-weight:700">--</span> chunks, writing storage, and computing cryptographic SHA-256 sidecar...
+                    </div>
+                </div>
+
+                <!-- State 5: Success State -->
+                <div id="upload-success-state" style="display:none;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.4);border-radius:0.75rem;padding:1.25rem">
+                    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem">
+                        <i class="fa-solid fa-circle-check" style="font-size:2rem;color:#4ade80"></i>
+                        <div>
+                            <div style="font-weight:700;color:#f8fafc;font-size:0.95rem">APK Published Successfully!</div>
+                            <div id="success-apk-version" style="font-size:0.775rem;color:#cbd5e1;margin-top:0.15rem">--</div>
+                        </div>
+                    </div>
+                    <div style="font-size:0.75rem;color:#cbd5e1;background:#0f172a;padding:0.6rem 0.8rem;border-radius:0.4rem;border:1px solid #334155;margin-bottom:1rem">
+                        <div>File: <span id="success-apk-name" style="font-weight:600;color:#f8fafc">--</span> (<span id="success-apk-size">--</span>)</div>
+                        <div id="success-apk-sha" style="font-family:monospace;font-size:0.7rem;color:#94a3b8;word-break:break-all;margin-top:0.25rem"></div>
+                    </div>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="AppReleaseUI.resetUploadState()" style="width:100%;justify-content:center;background:#0f172a;border-color:#334155;color:#e2e8f0">
+                        <i class="fa-solid fa-upload"></i> Upload Another Build
+                    </button>
+                </div>
+
+                <!-- State 6: Error State -->
+                <div id="upload-error-state" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.4);border-radius:0.75rem;padding:1.25rem">
+                    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem">
+                        <i class="fa-solid fa-triangle-exclamation" style="font-size:2rem;color:#f87171"></i>
+                        <div>
+                            <div style="font-weight:700;color:#f87171;font-size:0.95rem">Upload Interrupted</div>
+                            <div id="upload-error-message" style="font-size:0.775rem;color:#cbd5e1;margin-top:0.2rem">An error occurred during upload.</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.75rem">
+                        <button type="button" class="btn btn-primary" onclick="AppReleaseUI.startUpload()" style="flex:1;justify-content:center;background:#ef4444;border-color:#ef4444">
+                            <i class="fa-solid fa-rotate-right"></i> Retry Upload
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="AppReleaseUI.resetUploadState()" style="flex:1;justify-content:center;background:#0f172a;border-color:#334155;color:#e2e8f0">
+                            Reset
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- Version Policy & Announcement Form -->
     <div class="ar-card" style="margin-bottom:1.5rem">
         <h3 class="card-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.1rem;color:#f8fafc;margin-bottom:0.75rem;border-bottom:1px solid #334155;padding-bottom:0.75rem">
-            <i class="fa-solid fa-sliders" style="color:#a78bfa"></i> Version Policy & Update Settings
+            <i class="fa-solid fa-sliders" style="color:#a78bfa"></i> Version Policy &amp; Update Settings
         </h3>
         
         <form id="form-release-config" onsubmit="AppReleaseUI.saveConfig(event)">

@@ -8,11 +8,11 @@ use Throwable;
 
 /**
  * Service for managing mobile application releases, APK artifacts,
- * and version policies from the Super Admin dashboard.
+ * chunked resumable uploads, and version policies from the Super Admin dashboard.
  */
 final class AppReleaseManager
 {
-    private const MAX_APK_BYTES = 209715200; // 200 MB
+    public const MAX_APK_BYTES = 262144000; // 250 MB
 
     /**
      * Get the target configuration file path.
@@ -50,6 +50,65 @@ final class AppReleaseManager
         }
 
         return $localDir;
+    }
+
+    /**
+     * Get temporary chunks storage directory for an upload session.
+     */
+    public static function getChunkDirectory(string $projectRoot, string $uploadId): string
+    {
+        $cleanId = preg_replace('/[^a-zA-Z0-9_-]/', '', $uploadId);
+        if (strlen($cleanId) < 8 || strlen($cleanId) > 64) {
+            throw new InvalidArgumentException('Invalid upload session identifier.');
+        }
+
+        $releasesDir = self::getReleasesDirectory($projectRoot);
+        $baseTmp = $releasesDir . '/.tmp_chunks';
+        if (!is_dir($baseTmp)) {
+            @mkdir($baseTmp, 0755, true);
+            $htaccess = $baseTmp . '/.htaccess';
+            if (!is_file($htaccess)) {
+                @file_put_contents($htaccess, "# Protect temp chunks\nOrder deny,allow\nDeny from all\n");
+            }
+        }
+
+        $targetDir = $baseTmp . '/' . $cleanId;
+        if (!is_dir($targetDir)) {
+            @mkdir($targetDir, 0755, true);
+        }
+
+        return $targetDir;
+    }
+
+    /**
+     * Garbage collect abandoned temporary chunk directories older than $maxAgeSeconds.
+     */
+    public static function cleanupOldChunks(string $projectRoot, int $maxAgeSeconds = 14400): void
+    {
+        $releasesDir = self::getReleasesDirectory($projectRoot);
+        $baseTmp = $releasesDir . '/.tmp_chunks';
+        if (!is_dir($baseTmp)) {
+            return;
+        }
+
+        $now = time();
+        $items = @scandir($baseTmp);
+        if ($items === false) {
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..' || $item === '.htaccess') {
+                continue;
+            }
+            $dirPath = $baseTmp . '/' . $item;
+            if (is_dir($dirPath)) {
+                $mtime = filemtime($dirPath);
+                if ($mtime !== false && ($now - $mtime) > $maxAgeSeconds) {
+                    self::deleteRecursive($dirPath);
+                }
+            }
+        }
     }
 
     /**
@@ -167,7 +226,176 @@ final class AppReleaseManager
     }
 
     /**
-     * Upload an APK file directly and update release configuration.
+     * Handle an individual upload chunk.
+     */
+    public static function handleChunkUpload(
+        string $projectRoot,
+        array $fileInfo,
+        string $uploadId,
+        int $chunkIndex,
+        int $totalChunks,
+        int $chunkSize,
+        int $totalSize
+    ): array {
+        self::cleanupOldChunks($projectRoot);
+
+        if ($chunkIndex < 0 || $chunkIndex >= $totalChunks || $totalChunks <= 0) {
+            throw new InvalidArgumentException('Invalid chunk index or total chunks.');
+        }
+
+        if ($totalSize <= 0 || $totalSize > self::MAX_APK_BYTES) {
+            throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 250MB.');
+        }
+
+        if (empty($fileInfo['tmp_name']) || !is_uploaded_file($fileInfo['tmp_name'])) {
+            throw new InvalidArgumentException('No valid chunk file uploaded.');
+        }
+
+        if ($fileInfo['error'] !== UPLOAD_ERR_OK) {
+            throw new RuntimeException('Chunk upload error: ' . $fileInfo['error']);
+        }
+
+        $chunkDir = self::getChunkDirectory($projectRoot, $uploadId);
+        $chunkFilename = sprintf('chunk_%05d', $chunkIndex);
+        $chunkPath = $chunkDir . '/' . $chunkFilename;
+
+        if (!move_uploaded_file($fileInfo['tmp_name'], $chunkPath)) {
+            throw new RuntimeException("Failed to save chunk {$chunkIndex}.");
+        }
+
+        @chmod($chunkPath, 0644);
+
+        return [
+            'chunk_index' => $chunkIndex,
+            'total_chunks' => $totalChunks,
+            'received' => true,
+            'size' => filesize($chunkPath),
+        ];
+    }
+
+    /**
+     * Assemble all received chunks into the final APK artifact.
+     */
+    public static function assembleChunks(
+        string $projectRoot,
+        string $uploadId,
+        int $totalChunks,
+        int $totalSize,
+        string $originalFilename,
+        string $targetAbi = 'universal'
+    ): array {
+        $ext = strtolower(pathinfo($originalFilename, PATHINFO_EXTENSION));
+        if ($ext !== 'apk') {
+            self::cancelUpload($projectRoot, $uploadId);
+            throw new InvalidArgumentException('The uploaded file must have a .apk extension.');
+        }
+
+        if ($totalSize <= 0 || $totalSize > self::MAX_APK_BYTES) {
+            self::cancelUpload($projectRoot, $uploadId);
+            throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 250MB.');
+        }
+
+        $chunkDir = self::getChunkDirectory($projectRoot, $uploadId);
+        $releasesDir = self::getReleasesDirectory($projectRoot);
+
+        $targetFilename = match ($targetAbi) {
+            'arm64-v8a' => 'fkss-arm64-v8a.apk',
+            'armeabi-v7a' => 'fkss-armeabi-v7a.apk',
+            default => 'fkss.apk',
+        };
+
+        $finalDestination = $releasesDir . '/' . $targetFilename;
+        $tempAssembly = $finalDestination . '.assembling.' . bin2hex(random_bytes(6));
+
+        $outHandle = @fopen($tempAssembly, 'wb');
+        if (!$outHandle) {
+            self::cancelUpload($projectRoot, $uploadId);
+            throw new RuntimeException('Failed to create assembly destination file on server disk.');
+        }
+
+        $assembledBytes = 0;
+
+        try {
+            for ($i = 0; $i < $totalChunks; $i++) {
+                $chunkFile = sprintf('%s/chunk_%05d', $chunkDir, $i);
+                if (!is_file($chunkFile)) {
+                    throw new RuntimeException("Missing chunk {$i} of {$totalChunks}. Please retry upload.");
+                }
+
+                $inHandle = @fopen($chunkFile, 'rb');
+                if (!$inHandle) {
+                    throw new RuntimeException("Failed to open chunk {$i} for reading.");
+                }
+
+                while (!feof($inHandle)) {
+                    $buf = fread($inHandle, 65536);
+                    if ($buf === false) {
+                        fclose($inHandle);
+                        throw new RuntimeException("Error reading chunk {$i}.");
+                    }
+                    if (fwrite($outHandle, $buf) === false) {
+                        fclose($inHandle);
+                        throw new RuntimeException("Disk write error assembling APK.");
+                    }
+                    $assembledBytes += strlen($buf);
+                }
+                fclose($inHandle);
+            }
+            fclose($outHandle);
+            $outHandle = null;
+
+            if ($assembledBytes !== $totalSize) {
+                throw new RuntimeException("Assembled size mismatch. Expected {$totalSize} bytes, got {$assembledBytes} bytes.");
+            }
+
+            // Move assembled file to final destination atomically
+            if (!@rename($tempAssembly, $finalDestination)) {
+                throw new RuntimeException('Failed to finalize APK destination file.');
+            }
+            @chmod($finalDestination, 0644);
+
+            // Clean up chunk files immediately
+            self::cancelUpload($projectRoot, $uploadId);
+
+            // Recompute metadata and write sidecar
+            require_once $projectRoot . '/api/v1/core/app_release.php';
+            $meta = fkssApkMeta($finalDestination);
+
+            // Update release config with new path
+            $configKey = match ($targetAbi) {
+                'arm64-v8a' => 'apk_arm64_path',
+                'armeabi-v7a' => 'apk_arm32_path',
+                default => 'apk_path',
+            };
+
+            return self::saveConfig($projectRoot, [$configKey => $finalDestination]);
+        } catch (Throwable $e) {
+            if ($outHandle) {
+                @fclose($outHandle);
+            }
+            if (is_file($tempAssembly)) {
+                @unlink($tempAssembly);
+            }
+            self::cancelUpload($projectRoot, $uploadId);
+            throw $e;
+        }
+    }
+
+    /**
+     * Cancel an upload session and remove all temporary chunks.
+     */
+    public static function cancelUpload(string $projectRoot, string $uploadId): void
+    {
+        try {
+            $chunkDir = self::getChunkDirectory($projectRoot, $uploadId);
+            if (is_dir($chunkDir)) {
+                self::deleteRecursive($chunkDir);
+            }
+        } catch (Throwable) {}
+    }
+
+    /**
+     * Upload an APK file directly (single-shot legacy fallback).
      */
     public static function handleApkUpload(string $projectRoot, array $fileInfo, string $targetAbi = 'universal'): array
     {
@@ -181,7 +409,7 @@ final class AppReleaseManager
 
         $size = (int)$fileInfo['size'];
         if ($size <= 0 || $size > self::MAX_APK_BYTES) {
-            throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 200MB.');
+            throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 250MB.');
         }
 
         $originalName = (string)($fileInfo['name'] ?? '');
@@ -217,12 +445,7 @@ final class AppReleaseManager
             default => 'apk_path',
         };
 
-        $currentInfo = self::getReleaseInfo($projectRoot);
-        $updatePayload = [
-            $configKey => $destination,
-        ];
-
-        return self::saveConfig($projectRoot, $updatePayload);
+        return self::saveConfig($projectRoot, [$configKey => $destination]);
     }
 
     /**
@@ -249,6 +472,27 @@ final class AppReleaseManager
         };
 
         return self::saveConfig($projectRoot, [$configKey => '']);
+    }
+
+    private static function deleteRecursive(string $dir): void
+    {
+        $items = @scandir($dir);
+        if ($items === false) {
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $item;
+            if (is_dir($path)) {
+                self::deleteRecursive($path);
+            } else {
+                @unlink($path);
+            }
+        }
+        @rmdir($dir);
     }
 
     private static function formatBytes(int $bytes): string
