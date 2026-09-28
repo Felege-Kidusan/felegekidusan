@@ -21,7 +21,7 @@
     var box = document.getElementById('app-release-alert-box');
     if (!box) return;
     var icon = type === 'success' ? 'check-circle' : 'exclamation-circle';
-    box.innerHTML = '<div class="alert alert-' + type + '" style="margin-bottom:1rem;display:flex;align-items:center;gap:.6rem">' +
+    box.innerHTML = '<div class="alert alert-' + type + '" style="margin-bottom:1.25rem;display:flex;align-items:center;gap:.6rem;border-radius:0.5rem;padding:0.85rem 1.25rem">' +
       '<i class="fa-solid fa-' + icon + '"></i> <span>' + escapeHtml(message) + '</span>' +
       '</div>';
     setTimeout(function () {
@@ -46,7 +46,7 @@
     refresh: function () {
       var container = document.getElementById('app-release-status-container');
       if (container) {
-        container.innerHTML = '<div style="text-align:center;padding:1.5rem;color:#64748b">' +
+        container.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8">' +
           '<i class="fa-solid fa-spinner fa-spin"></i> Loading release status...</div>';
       }
 
@@ -60,14 +60,14 @@
           AppReleaseUI.populateForm(res.data);
         } else {
           if (container) {
-            container.innerHTML = '<div style="color:#f87171;padding:1rem;font-size:.85rem">' +
+            container.innerHTML = '<div style="color:#f87171;padding:1.5rem;font-size:.875rem;background:#0f172a;border-radius:0.5rem;border:1px solid rgba(239,68,68,0.3)">' +
               '<i class="fa-solid fa-triangle-exclamation"></i> ' + escapeHtml(res.message || 'Failed to load release info.') + '</div>';
           }
         }
       })
       .catch(function (err) {
         if (container) {
-          container.innerHTML = '<div style="color:#f87171;padding:1rem;font-size:.85rem">' +
+          container.innerHTML = '<div style="color:#f87171;padding:1.5rem;font-size:.875rem;background:#0f172a;border-radius:0.5rem;border:1px solid rgba(239,68,68,0.3)">' +
             '<i class="fa-solid fa-triangle-exclamation"></i> Network error loading release info.</div>';
         }
       });
@@ -81,28 +81,28 @@
       var hasArm64 = data.artifacts_detail && data.artifacts_detail['arm64-v8a'];
       var hasArm32 = data.artifacts_detail && data.artifacts_detail['armeabi-v7a'];
 
-      var html = '<div style="display:flex;flex-direction:column;gap:.75rem">';
+      var html = '<div style="display:flex;flex-direction:column;gap:1rem">';
       
       // Version status banner
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem;background:rgba(255,255,255,0.03);border-radius:.5rem;border:1px solid rgba(255,255,255,0.06)">' +
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;background:#0f172a;border-radius:0.5rem;border:1px solid #334155;flex-wrap:wrap;gap:0.75rem">' +
         '<div>' +
-          '<div style="font-size:1.1rem;font-weight:700;color:#f8fafc">Version ' + escapeHtml(data.latest_version) + ' <span style="font-size:.8rem;color:#94a3b8;font-weight:400">(Build ' + escapeHtml(data.latest_build) + ')</span></div>' +
-          '<div style="font-size:.75rem;color:#64748b;margin-top:.2rem">Min required: v' + escapeHtml(data.min_version) + ' (Build ' + escapeHtml(data.min_build) + ')' +
-          (data.force_update ? ' • <span style="color:#f87171;font-weight:600">Mandatory Update</span>' : '') + '</div>' +
+          '<div style="font-size:1.2rem;font-weight:700;color:#f8fafc;letter-spacing:0.02em">Version ' + escapeHtml(data.latest_version) + ' <span style="font-size:.85rem;color:#94a3b8;font-weight:400">(Build ' + escapeHtml(data.latest_build) + ')</span></div>' +
+          '<div style="font-size:.775rem;color:#cbd5e1;margin-top:.3rem">Min required: v' + escapeHtml(data.min_version) + ' (Build ' + escapeHtml(data.min_build) + ')' +
+          (data.force_update ? ' • <span style="color:#f87171;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> Mandatory Update Gate</span>' : '') + '</div>' +
         '</div>' +
         '<div>' +
           (data.download_available
-            ? '<span class="badge" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);padding:.35rem .75rem;border-radius:99px;font-size:.75rem;font-weight:600"><i class="fa-solid fa-circle-check"></i> Published</span>'
-            : '<span class="badge" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:.35rem .75rem;border-radius:99px;font-size:.75rem;font-weight:600"><i class="fa-solid fa-circle-xmark"></i> No APK Uploaded</span>') +
+            ? '<span style="background:rgba(16,185,129,0.15);color:#4ade80;border:1px solid rgba(16,185,129,0.4);padding:.4rem .9rem;border-radius:99px;font-size:.8rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem"><i class="fa-solid fa-circle-check"></i> Published</span>'
+            : '<span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.4);padding:.4rem .9rem;border-radius:99px;font-size:.8rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem"><i class="fa-solid fa-circle-xmark"></i> No APK Uploaded</span>') +
         '</div>' +
       '</div>';
 
       // Active artifacts list
       html += '<div style="margin-top:.25rem">';
-      html += '<div style="font-size:.75rem;font-weight:600;color:#94a3b8;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:0.5px">Active Artifacts</div>';
+      html += '<div style="font-size:.75rem;font-weight:700;color:#94a3b8;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:0.75px">Active Artifacts</div>';
 
       if (!hasUniversal && !hasArm64 && !hasArm32) {
-        html += '<p style="font-size:.8rem;color:#64748b;font-style:italic">No APK files have been uploaded yet. Upload a universal build below.</p>';
+        html += '<div style="padding:1rem;background:#0f172a;border:1px dashed #334155;border-radius:0.5rem;font-size:.825rem;color:#94a3b8;text-align:center"><i class="fa-solid fa-box-open" style="font-size:1.25rem;display:block;margin-bottom:0.4rem;color:#64748b"></i>No APK binary uploaded yet. Use the upload card on the right to publish a build.</div>';
       } else {
         if (hasUniversal) {
           var u = data.artifacts_detail.universal;
@@ -110,20 +110,20 @@
         }
         if (hasArm64) {
           var a64 = data.artifacts_detail['arm64-v8a'];
-          html += this._renderArtifactItem('ARM64-v8a (64-bit)', a64, 'arm64-v8a');
+          html += this._renderArtifactItem('ARM64-v8a (64-bit split)', a64, 'arm64-v8a');
         }
         if (hasArm32) {
           var a32 = data.artifacts_detail['armeabi-v7a'];
-          html += this._renderArtifactItem('ARMeabi-v7a (32-bit)', a32, 'armeabi-v7a');
+          html += this._renderArtifactItem('ARMeabi-v7a (32-bit legacy)', a32, 'armeabi-v7a');
         }
       }
       html += '</div>';
 
       // Quick test link
       if (data.download_available) {
-        html += '<div style="margin-top:.5rem;display:flex;gap:.5rem">' +
-          '<a href="/api/v1/app/download" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center"><i class="fa-solid fa-download"></i> Test Direct APK Download</a>' +
-          '<a href="/api/v1/app/config" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center"><i class="fa-solid fa-code"></i> View Config JSON</a>' +
+        html += '<div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap">' +
+          '<a href="/api/v1/app/download" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center;background:#0f172a;border-color:#334155;color:#e2e8f0;padding:0.6rem 1rem"><i class="fa-solid fa-download" style="color:#38bdf8"></i> Test Direct APK Download</a>' +
+          '<a href="/api/v1/app/config" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center;background:#0f172a;border-color:#334155;color:#e2e8f0;padding:0.6rem 1rem"><i class="fa-solid fa-code" style="color:#a78bfa"></i> View Config JSON</a>' +
         '</div>';
       }
 
@@ -132,16 +132,16 @@
     },
 
     _renderArtifactItem: function (label, art, abi) {
-      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:.5rem .75rem;margin-bottom:.4rem;background:rgba(0,0,0,0.2);border-radius:.4rem;border-left:3px solid #3b82f6">' +
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;margin-bottom:.5rem;background:#0f172a;border-radius:.5rem;border:1px solid #334155;border-left:4px solid #38bdf8">' +
         '<div style="min-width:0;flex:1">' +
-          '<div style="font-size:.8rem;font-weight:600;color:#e2e8f0;display:flex;align-items:center;gap:.4rem">' +
-            '<i class="fa-solid fa-cube" style="color:#38bdf8;font-size:.75rem"></i> ' + escapeHtml(label) +
-            '<span style="font-size:.7rem;color:#94a3b8;font-weight:400">(' + escapeHtml(art.size_formatted) + ')</span>' +
+          '<div style="font-size:.85rem;font-weight:600;color:#f8fafc;display:flex;align-items:center;gap:.45rem">' +
+            '<i class="fa-solid fa-cube" style="color:#38bdf8;font-size:.8rem"></i> ' + escapeHtml(label) +
+            '<span style="font-size:.75rem;color:#94a3b8;font-weight:400">(' + escapeHtml(art.size_formatted) + ')</span>' +
           '</div>' +
-          '<div style="font-size:.65rem;color:#64748b;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.15rem" title="SHA-256: ' + escapeHtml(art.sha256) + '">SHA: ' + escapeHtml(art.sha256.substring(0, 20)) + '...</div>' +
+          '<div style="font-size:.7rem;color:#cbd5e1;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.2rem" title="SHA-256: ' + escapeHtml(art.sha256) + '"><span style="color:#64748b">SHA-256:</span> ' + escapeHtml(art.sha256) + '</div>' +
         '</div>' +
-        '<div style="display:flex;gap:.35rem;margin-left:.5rem">' +
-          '<button type="button" class="btn btn-outline btn-sm" style="padding:.2rem .4rem;font-size:.7rem;color:#f87171;border-color:rgba(239,68,68,0.3)" onclick="AppReleaseUI.deleteApk(\'' + escapeHtml(abi) + '\')" title="Delete artifact"><i class="fa-solid fa-trash"></i></button>' +
+        '<div style="display:flex;gap:.35rem;margin-left:.75rem">' +
+          '<button type="button" class="btn btn-outline btn-sm" style="padding:.35rem .6rem;font-size:.75rem;color:#f87171;border-color:rgba(239,68,68,0.4);background:#1e293b" onclick="AppReleaseUI.deleteApk(\'' + escapeHtml(abi) + '\')" title="Delete artifact"><i class="fa-solid fa-trash"></i></button>' +
         '</div>' +
       '</div>';
     },
