@@ -126,6 +126,7 @@ $routeMap = [
     'users'         => 'users.php',
     'grades'        => 'grades.php',
     'app'           => 'app.php',
+    'telemetry'     => 'telemetry.php',
     'mezmur'        => 'mezmur.php',
     'hr'            => 'hr.php',
     'notifications' => 'notifications.php',

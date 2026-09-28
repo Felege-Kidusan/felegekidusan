@@ -206,8 +206,9 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             'backup.php'          => ['super_admin'],
             'download_backup.php' => ['super_admin'],
 
-            // ---- Mobile App Releases: SUPER ADMIN ONLY ----
+            // ---- Mobile App Releases & Telemetry: SUPER ADMIN & SCHOOL ADMIN ----
             'api_app_release.php' => ['super_admin'],
+            'api_telemetry.php'   => ['super_admin', 'school_admin'],
 
             // ---- Identity & Codes hub: SUPER ADMIN ONLY ----
             'api_identity.php'  => ['super_admin'],

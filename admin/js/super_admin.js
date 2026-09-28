@@ -6,7 +6,7 @@
   'use strict';
 
   var ALLOWED = {
-    overview: 1, users: 1, departments: 1, identity: 1, app_release: 1, health: 1, settings: 1,
+    overview: 1, users: 1, departments: 1, identity: 1, app_release: 1, app_telemetry: 1, health: 1, settings: 1,
     branding: 1, logs: 1, backup: 1, syshealth: 1, profile: 1
   };
 
@@ -46,6 +46,10 @@
     if (id === 'app_release' && window.AppReleaseUI) {
       window.AppReleaseUI.init();
       window.AppReleaseUI.refresh();
+    }
+    if (id === 'app_telemetry' && window.AppTelemetryUI) {
+      window.AppTelemetryUI.init();
+      window.AppTelemetryUI.refresh();
     }
     if (window.history && history.replaceState) {
       history.replaceState(null, '', '?section=' + encodeURIComponent(id));
@@ -96,5 +100,8 @@
   showPanel(start);
   if (start === 'app_release' && window.AppReleaseUI) {
     window.AppReleaseUI.init();
+  }
+  if (start === 'app_telemetry' && window.AppTelemetryUI) {
+    window.AppTelemetryUI.init();
   }
 })();
