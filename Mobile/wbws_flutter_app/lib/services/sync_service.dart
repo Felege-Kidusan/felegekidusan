@@ -9,6 +9,7 @@ import 'hymn_store.dart';
 import 'legacy_outbox_models.dart';
 import 'local_db.dart';
 import 'outbox_policy.dart';
+import 'telemetry_service.dart';
 
 /// Outbox worker — Gmail / WhatsApp / Drive pattern.
 /// UI writes SQLite only. One worker sends. Retries wait on the in-flight
@@ -255,6 +256,14 @@ class SyncService {
     if (nextAttempt != null && (force || ConnectivityService().hasLink)) {
       final wait = nextAttempt.difference(DateTime.now().toUtc());
       nudge(delay: wait <= Duration.zero ? Duration.zero : wait);
+    }
+
+    if (synced > 0 || failed > 0) {
+      unawaited(TelemetryService.instance.recordSyncResult(
+        success: failed == 0,
+        itemsCount: synced,
+        error: failed > 0 ? '$failed operations pending retry' : null,
+      ));
     }
 
     return SyncResult(

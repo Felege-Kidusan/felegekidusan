@@ -12,6 +12,7 @@ import '../utils/config.dart';
 import '../utils/version.dart';
 import 'api_service.dart';
 import 'device_tier_service.dart';
+import 'telemetry_service.dart';
 
 /// P65 — metadata of one downloadable APK artifact
 /// (universal, arm64-v8a or armeabi-v7a).
@@ -349,6 +350,16 @@ class AppUpdateService {
         throw Exception('The file was damaged. Please try again.');
       }
     }
+
+    try {
+      if (config != null) {
+        TelemetryService.instance.recordUpdateDownloaded(
+          version: config.latestVersion,
+          build: config.latestBuild,
+        );
+      }
+    } catch (_) {}
+
     return file.path;
   }
 

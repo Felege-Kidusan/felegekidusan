@@ -13,6 +13,8 @@ import 'screens/lock/lock_screen.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/device_tier_service.dart';
+import 'services/telemetry_service.dart';
+import 'services/crash_log_service.dart';
 import 'services/app_navigator.dart';
 import 'services/mezmur_download_manager.dart';
 import 'services/lyrics_reader_settings.dart';
@@ -81,7 +83,17 @@ Future<void> runBootstrap() async {
     // are started only by SessionCoordinator after active owner reconciliation.
     ConnectivityService().startMonitoring();
     LyricsReaderSettings.instance.boot();
-    DeviceTierService.instance.boot();
+    DeviceTierService.instance.boot().then((_) async {
+      await TelemetryService.instance.boot();
+      try {
+        final recentCrash = await CrashLogService.instance.lastNativeCrash(
+          within: const Duration(hours: 24),
+        );
+        if (recentCrash != null) {
+          await TelemetryService.instance.recordCrash(summary: recentCrash.body);
+        }
+      } catch (_) {}
+    });
     if (SessionCoordinator().isActive) {
       Future<void>.delayed(const Duration(seconds: 2), () {
         if (SessionCoordinator().isActive) {

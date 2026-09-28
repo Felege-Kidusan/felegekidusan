@@ -81,6 +81,22 @@ if ($method === 'GET' && $action === 'download') {
     // files, all verify correctly.
     $meta = fkssApkMeta($file);
 
+    // Record download event for telemetry
+    try {
+        if (isset($conn) && $conn instanceof mysqli) {
+            $ver = (string)($rel['latest_version'] ?? '1.0.0');
+            $bld = (int)($rel['latest_build'] ?? 1);
+            $ipHash = hash('sha256', ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0') . '::' . date('Ymd'));
+            $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+            $stmt = $conn->prepare("INSERT INTO app_downloads (version, build, abi, ip_hash, user_agent, downloaded_at) VALUES (?, ?, ?, ?, ?, NOW())");
+            if ($stmt) {
+                $stmt->bind_param('sisss', $ver, $bld, $abi, $ipHash, $ua);
+                $stmt->execute();
+                $stmt->close();
+            }
+        }
+    } catch (Throwable) {}
+
     if (function_exists('session_write_close')) {
         @session_write_close();
     }

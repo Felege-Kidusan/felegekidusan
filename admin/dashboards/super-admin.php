@@ -17,7 +17,7 @@ $calendarMode = wbws_get_calendar_mode($conn);
 $todayFormatted = wbws_format_date($today, 'long', $conn);
 
 // Track which section to show
-$saAllowedSections = ['overview','users','departments','identity','app_release','health','settings','branding','logs','backup','syshealth','profile'];
+$saAllowedSections = ['overview','users','departments','identity','app_release','app_telemetry','health','settings','branding','logs','backup','syshealth','profile'];
 $activeSection = $_GET['section'] ?? $_POST['section'] ?? 'overview';
 if (!in_array($activeSection, $saAllowedSections, true)) {
     $activeSection = 'overview';
@@ -643,6 +643,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <li><button class="nav-link <?= $activeSection === 'departments' ? 'active' : '' ?>" data-section="departments"><i class="fa-solid fa-building"></i> Departments</button></li>
                 <li><button class="nav-link <?= $activeSection === 'identity' ? 'active' : '' ?>" data-section="identity"><i class="fa-solid fa-id-badge"></i> Identity &amp; Codes</button></li>
                 <li><button class="nav-link <?= $activeSection === 'app_release' ? 'active' : '' ?>" data-section="app_release"><i class="fa-solid fa-mobile-screen-button"></i> Mobile App Release</button></li>
+                <li><button class="nav-link <?= $activeSection === 'app_telemetry' ? 'active' : '' ?>" data-section="app_telemetry"><i class="fa-solid fa-chart-line"></i> Fleet Analytics</button></li>
                 <li><button class="nav-link <?= $activeSection === 'health' ? 'active' : '' ?>" data-section="health"><i class="fa-solid fa-heart-pulse"></i> Site Health</button></li>
                 <li><button class="nav-link <?= $activeSection === 'settings' ? 'active' : '' ?>" data-section="settings"><i class="fa-solid fa-gear"></i> Settings</button></li>
                 <li><button class="nav-link <?= $activeSection === 'branding' ? 'active' : '' ?>" data-section="branding"><i class="fa-solid fa-palette"></i> Branding</button></li>
@@ -830,6 +831,8 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
             <?php include __DIR__ . '/sections/identity_codes_section.php'; ?>
 
             <?php include __DIR__ . '/sections/app_release_section.php'; ?>
+
+            <?php include __DIR__ . '/sections/app_telemetry_section.php'; ?>
 
             <!-- SITE HEALTH - ADVANCED -->
             <section id="section-health" class="section <?= $activeSection === 'health' ? 'active' : '' ?>"<?= $activeSection === 'health' ? '' : ' hidden' ?>>
@@ -1487,6 +1490,7 @@ require __DIR__ . '/../components/bottom_nav.php';
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
     <script src="/admin/js/app_release.js"></script>
+    <script src="/admin/js/app_telemetry.js"></script>
     <script src="/admin/js/super_admin.js?v=20260827a"></script>
     <script>
         // Calendar mode save
