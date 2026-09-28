@@ -1489,9 +1489,9 @@ require __DIR__ . '/../components/bottom_nav.php';
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/app_release.js"></script>
-    <script src="/admin/js/app_telemetry.js"></script>
-    <script src="/admin/js/super_admin.js?v=20260827a"></script>
+    <script src="/admin/js/app_release.js?v=20260928b"></script>
+    <script src="/admin/js/app_telemetry.js?v=20260928b"></script>
+    <script src="/admin/js/super_admin.js?v=20260928b"></script>
     <script>
         // Calendar mode save
         async function saveCalendarMode(mode){

@@ -9,7 +9,6 @@
   var API_URL = '/admin/api_app_release.php';
   var CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk (Optimal for cPanel / LiteSpeed / Nginx)
   var MAX_CHUNK_RETRIES = 4;
-  var loaded = false;
 
   // Upload State Machine
   var currentUpload = {
@@ -70,56 +69,79 @@
 
   function getCsrfToken() {
     var input = document.querySelector('input[name="csrf_token"]');
-    return input ? input.value : '';
+    if (input && input.value) return input.value;
+    if (window.SA_BOOT && window.SA_BOOT.csrf) return window.SA_BOOT.csrf;
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.content) return meta.content;
+    return '';
   }
 
   function generateUploadId() {
-    var rand = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    var rand = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
     return 'apk_' + Date.now() + '_' + rand;
   }
 
   var AppReleaseUI = {
     init: function () {
-      if (loaded) return;
-      loaded = true;
       this.bindDropZone();
       this.refresh();
     },
 
     bindDropZone: function () {
-      var dropZone = document.getElementById('apk-drop-zone');
+      var dropZone = document.getElementById('upload-idle-state') || document.querySelector('.apk-drop-box');
       var fileInput = document.getElementById('upload-apk-input');
-      if (!dropZone || !fileInput) return;
 
-      ['dragenter', 'dragover'].forEach(function (eventName) {
-        dropZone.addEventListener(eventName, function (e) {
+      if (dropZone) {
+        ['dragenter', 'dragover'].forEach(function (eventName) {
+          dropZone.addEventListener(eventName, function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-active');
+          }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(function (eventName) {
+          dropZone.addEventListener(eventName, function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-active');
+          }, false);
+        });
+
+        dropZone.addEventListener('drop', function (e) {
           e.preventDefault();
           e.stopPropagation();
-          dropZone.classList.add('drag-active');
+          var dt = e.dataTransfer;
+          if (dt && dt.files && dt.files.length > 0) {
+            if (fileInput) {
+              fileInput.files = dt.files;
+            }
+            AppReleaseUI.onFileSelected(dt.files[0]);
+          }
         }, false);
-      });
+      }
 
-      ['dragleave', 'drop'].forEach(function (eventName) {
-        dropZone.addEventListener(eventName, function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          dropZone.classList.remove('drag-active');
+      if (fileInput) {
+        fileInput.addEventListener('change', function () {
+          if (fileInput.files && fileInput.files[0]) {
+            AppReleaseUI.onFileSelected(fileInput.files[0]);
+          }
         }, false);
-      });
+      }
+    },
 
-      dropZone.addEventListener('drop', function (e) {
-        var dt = e.dataTransfer;
-        if (dt && dt.files && dt.files.length > 0) {
-          fileInput.files = dt.files;
-          AppReleaseUI.onFileSelected(dt.files[0]);
-        }
-      }, false);
+    onFileInputChange: function (input) {
+      if (input && input.files && input.files[0]) {
+        this.onFileSelected(input.files[0]);
+      }
+    },
 
-      fileInput.addEventListener('change', function () {
-        if (fileInput.files && fileInput.files[0]) {
-          AppReleaseUI.onFileSelected(fileInput.files[0]);
-        }
-      }, false);
+    onAbiChange: function (val) {
+      currentUpload.abi = val || 'universal';
+      var abiEl = document.getElementById('stage-file-abi');
+      if (abiEl) {
+        abiEl.textContent = currentUpload.abi === 'universal' ? 'Universal APK' : currentUpload.abi;
+      }
     },
 
     onFileSelected: function (file) {
@@ -139,7 +161,7 @@
 
       currentUpload.file = file;
       currentUpload.state = 'selected';
-      currentUpload.totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      currentUpload.totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
       currentUpload.uploadId = generateUploadId();
 
       var abiSelect = document.getElementById('upload-abi-select');
@@ -206,6 +228,15 @@
     },
 
     startUpload: function () {
+      if (!currentUpload.file) {
+        var fileInput = document.getElementById('upload-apk-input');
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          currentUpload.file = fileInput.files[0];
+          currentUpload.totalChunks = Math.max(1, Math.ceil(fileInput.files[0].size / CHUNK_SIZE));
+          currentUpload.uploadId = generateUploadId();
+        }
+      }
+
       if (!currentUpload.file || currentUpload.state === 'uploading') return;
 
       var abiSelect = document.getElementById('upload-abi-select');
@@ -253,7 +284,7 @@
       formData.append('file_name', file.name);
       formData.append('abi', currentUpload.abi);
       formData.append('csrf_token', getCsrfToken());
-      formData.append('chunk_file', chunkBlob, 'chunk_' + chunkIndex);
+      formData.append('chunk_file', chunkBlob, 'chunk_' + chunkIndex + '.bin');
 
       var xhr = new XMLHttpRequest();
       currentUpload.xhr = xhr;
@@ -297,6 +328,9 @@
               currentUpload.currentChunkIndex++;
               AppReleaseUI.uploadNextChunk();
               return;
+            } else if (res.message) {
+              AppReleaseUI.handleChunkFailure(xhr.status, res.message);
+              return;
             }
           } catch (e) {}
         }
@@ -315,7 +349,7 @@
         AppReleaseUI.handleChunkFailure(408, 'Chunk request timed out');
       };
 
-      xhr.timeout = 45000; // 45s timeout per chunk
+      xhr.timeout = 60000; // 60s timeout per chunk
       xhr.send(formData);
     },
 
@@ -661,18 +695,12 @@
 
   window.AppReleaseUI = AppReleaseUI;
 
-  // Auto-init if DOM is ready and app_release is active
+  // Auto-init on page load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
-      var section = document.getElementById('section-app_release');
-      if (section && !section.hasAttribute('hidden')) {
-        AppReleaseUI.init();
-      }
+      AppReleaseUI.init();
     });
   } else {
-    var section = document.getElementById('section-app_release');
-    if (section && !section.hasAttribute('hidden')) {
-      AppReleaseUI.init();
-    }
+    AppReleaseUI.init();
   }
 })(window, document);

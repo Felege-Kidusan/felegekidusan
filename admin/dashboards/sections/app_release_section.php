@@ -111,10 +111,11 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
     background: #0f172a;
     border: 2px dashed #334155;
     border-radius: 0.75rem;
-    padding: 2rem 1.25rem;
+    padding: 2.25rem 1.25rem;
     text-align: center;
     cursor: pointer;
     transition: all 0.2s ease-in-out;
+    user-select: none;
 }
 .apk-drop-box:hover, .apk-drop-box.drag-active {
     border-color: #38bdf8;
@@ -243,7 +244,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
                 <label class="ar-label" for="upload-abi-select">
                     <i class="fa-solid fa-microchip" style="color:#94a3b8;font-size:0.75rem"></i> Target Architecture
                 </label>
-                <select id="upload-abi-select" class="ar-select">
+                <select id="upload-abi-select" class="ar-select" onchange="if(window.AppReleaseUI)window.AppReleaseUI.onAbiChange(this.value)">
                     <option value="universal">Universal APK (Recommended — Compatible with all Android devices)</option>
                     <option value="arm64-v8a">ARM64-v8a (64-bit split APK — ~50% smaller download)</option>
                     <option value="armeabi-v7a">ARMeabi-v7a (32-bit legacy split APK)</option>
@@ -253,11 +254,11 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
             <!-- Upload Engine Container -->
             <div id="apk-upload-engine-box">
                 <!-- State 1: Idle Drag & Drop -->
-                <div id="upload-idle-state" class="apk-drop-box" id="apk-drop-zone" onclick="document.getElementById('upload-apk-input').click()">
-                    <input type="file" id="upload-apk-input" accept=".apk,application/vnd.android.package-archive" style="display:none">
+                <div id="upload-idle-state" class="apk-drop-box" onclick="document.getElementById('upload-apk-input').click()">
+                    <input type="file" id="upload-apk-input" accept=".apk,application/vnd.android.package-archive" style="display:none" onchange="if(window.AppReleaseUI)window.AppReleaseUI.onFileInputChange(this)" onclick="event.stopPropagation()">
                     <i class="fa-solid fa-file-arrow-up" style="font-size:2.5rem;color:#38bdf8;margin-bottom:0.75rem;display:inline-block"></i>
                     <div style="font-size:0.95rem;font-weight:600;color:#f8fafc">Drag &amp; Drop APK File Here</div>
-                    <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.25rem">or click to browse your computer</div>
+                    <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.25rem">or click anywhere in this box to browse</div>
                     <div style="margin-top:0.75rem;display:flex;justify-content:center;gap:0.5rem;flex-wrap:wrap">
                         <span class="apk-stat-pill"><i class="fa-solid fa-bolt" style="color:#38bdf8"></i> Resumable Chunks (2MB)</span>
                         <span class="apk-stat-pill"><i class="fa-solid fa-shield-halved" style="color:#10b981"></i> Auto-Retry Protection</span>
@@ -279,7 +280,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
                         </div>
                     </div>
                     <div style="display:flex;gap:0.75rem">
-                        <button type="button" class="btn btn-primary" onclick="AppReleaseUI.startUpload()" style="flex:2;justify-content:center;padding:0.65rem 1rem">
+                        <button type="button" id="btn-start-upload" class="btn btn-primary" onclick="AppReleaseUI.startUpload()" style="flex:2;justify-content:center;padding:0.65rem 1rem">
                             <i class="fa-solid fa-cloud-arrow-up"></i> Start Reliable Upload
                         </button>
                         <button type="button" class="btn btn-outline" onclick="AppReleaseUI.resetUploadState()" style="flex:1;justify-content:center;background:#1e293b;border-color:#334155;color:#e2e8f0">
