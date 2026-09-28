@@ -11,7 +11,7 @@ if (PHP_SAPI !== 'cli') {
  * Migration 003 - Add Assessments and Class-Subject Assignment Tables
  */
 
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../../config.php';
 
 // Session already started by config.php
 $allowedRoles = ['super_admin', 'school_admin'];

@@ -11,7 +11,7 @@ if (PHP_SAPI !== 'cli') {
  * Migration 004: Finance & Material Department Tables
  * Run once to create all required tables for these departments.
  */
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../../config.php';
 
 header('Content-Type: text/html; charset=utf-8');
 echo "<h2>Migration 004: Finance & Material Tables</h2><pre>";
