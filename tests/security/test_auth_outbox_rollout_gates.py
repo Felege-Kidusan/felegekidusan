@@ -26,17 +26,17 @@ class Build24ReleaseGateTest(unittest.TestCase):
         cls.comm = (MOBILE / "lib/services/comm_outbox_service.dart").read_text(encoding="utf-8")
         cls.hymn = (MOBILE / "lib/services/hymn_store.dart").read_text(encoding="utf-8")
 
-    def test_release_version_sources_are_build_24(self):
+    def test_release_version_sources_are_build_25(self):
         pubspec = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
         config = (MOBILE / "lib/utils/config.dart").read_text(encoding="utf-8")
         notes = (MOBILE / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-        self.assertRegex(pubspec, r"(?m)^version:\s*1\.5\.0\+24\s*$")
-        self.assertIn("appVersion = '1.5.0'", config)
-        self.assertIn("appBuild = 24", config)
-        self.assertIn("## 1.5.0 (build 24)", notes)
+        self.assertRegex(pubspec, r"(?m)^version:\s*1\.5\.1\+25\s*$")
+        self.assertIn("appVersion = '1.5.1'", config)
+        self.assertIn("appBuild = 25", config)
+        self.assertIn("## 1.5.1 (build 25)", notes)
         for source in (self.release, self.release_example):
-            self.assertRegex(source, r"'latest_version'\s*=>\s*'1\.5\.0'")
-            self.assertRegex(source, r"'latest_build'\s*=>\s*24")
+            self.assertRegex(source, r"'latest_version'\s*=>\s*'1\.5\.1'")
+            self.assertRegex(source, r"'latest_build'\s*=>\s*25")
 
     def test_release_config_exposes_a_strict_drain_switch(self):
         self.assertIn("'background_drains_enabled' => true", self.release)
