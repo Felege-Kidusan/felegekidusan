@@ -94,4 +94,7 @@
   var boot = window.SA_BOOT || {};
   var start = ALLOWED[boot.section] ? boot.section : 'overview';
   showPanel(start);
+  if (start === 'app_release' && window.AppReleaseUI) {
+    window.AppReleaseUI.init();
+  }
 })();

@@ -45,13 +45,9 @@
 
     refresh: function () {
       var container = document.getElementById('app-release-status-container');
-      if (container) {
-        container.innerHTML = '<div style="text-align:center;padding:2rem;color:#94a3b8">' +
-          '<i class="fa-solid fa-spinner fa-spin"></i> Loading release status...</div>';
-      }
-
       fetch(API_URL + '?action=get_release', {
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
       })
       .then(function (res) { return res.json(); })
       .then(function (res) {
@@ -59,14 +55,14 @@
           AppReleaseUI.renderStatus(res.data);
           AppReleaseUI.populateForm(res.data);
         } else {
-          if (container) {
+          if (container && container.innerHTML.indexOf('Version') === -1) {
             container.innerHTML = '<div style="color:#f87171;padding:1.5rem;font-size:.875rem;background:#0f172a;border-radius:0.5rem;border:1px solid rgba(239,68,68,0.3)">' +
               '<i class="fa-solid fa-triangle-exclamation"></i> ' + escapeHtml(res.message || 'Failed to load release info.') + '</div>';
           }
         }
       })
       .catch(function (err) {
-        if (container) {
+        if (container && container.innerHTML.indexOf('Version') === -1) {
           container.innerHTML = '<div style="color:#f87171;padding:1.5rem;font-size:.875rem;background:#0f172a;border-radius:0.5rem;border:1px solid rgba(239,68,68,0.3)">' +
             '<i class="fa-solid fa-triangle-exclamation"></i> Network error loading release info.</div>';
         }
@@ -182,6 +178,7 @@
       fetch(API_URL, {
         method: 'POST',
         headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+        credentials: 'same-origin',
         body: formData
       })
       .then(function (res) { return res.json(); })
@@ -239,6 +236,7 @@
 
       var xhr = new XMLHttpRequest();
       xhr.open('POST', API_URL, true);
+      xhr.withCredentials = true;
       xhr.setRequestHeader('X-CSRF-TOKEN', getCsrfToken());
 
       xhr.upload.onprogress = function (pe) {
@@ -295,6 +293,7 @@
       fetch(API_URL, {
         method: 'POST',
         headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+        credentials: 'same-origin',
         body: formData
       })
       .then(function (res) { return res.json(); })
@@ -316,4 +315,19 @@
   };
 
   window.AppReleaseUI = AppReleaseUI;
+
+  // Auto-init if DOM is ready and app_release is active
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      var section = document.getElementById('section-app_release');
+      if (section && !section.hasAttribute('hidden')) {
+        AppReleaseUI.init();
+      }
+    });
+  } else {
+    var section = document.getElementById('section-app_release');
+    if (section && !section.hasAttribute('hidden')) {
+      AppReleaseUI.init();
+    }
+  }
 })(window, document);
