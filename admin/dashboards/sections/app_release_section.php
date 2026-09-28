@@ -2,6 +2,9 @@
 /**
  * Super Admin — Mobile App Release Management Section
  */
+$arProjectRoot = defined('ROOT_PATH') ? ROOT_PATH : dirname(__DIR__, 2);
+require_once $arProjectRoot . '/admin/backend/services/AppReleaseManager.php';
+$arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
 ?>
 <style>
 /* ═══ App Release UI Custom Styles (High Contrast & Professional Ergonomics) ═══ */
@@ -71,19 +74,6 @@
     margin-top: 0.4rem;
     line-height: 1.4;
 }
-#section-app_release .ar-file-upload-box {
-    border: 2px dashed #475569;
-    background: #0f172a;
-    border-radius: 0.5rem;
-    padding: 1.25rem 1rem;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-#section-app_release .ar-file-upload-box:hover {
-    border-color: #38bdf8;
-    background: #131d31;
-}
 #section-app_release .ar-toggle-card {
     background: #0f172a;
     border: 1px solid #334155;
@@ -136,7 +126,65 @@
                 <i class="fa-solid fa-circle-info" style="color:#38bdf8"></i> Active Release Status
             </h3>
             <div id="app-release-status-container">
-                <div style="text-align:center;padding:2rem;color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Loading release status...</div>
+                <div style="display:flex;flex-direction:column;gap:1rem">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;background:#0f172a;border-radius:0.5rem;border:1px solid #334155;flex-wrap:wrap;gap:0.75rem">
+                        <div>
+                            <div style="font-size:1.2rem;font-weight:700;color:#f8fafc;letter-spacing:0.02em">
+                                Version <?= htmlspecialchars((string)($arRelease['latest_version'] ?? '1.5.1')) ?> 
+                                <span style="font-size:.85rem;color:#94a3b8;font-weight:400">(Build <?= htmlspecialchars((string)($arRelease['latest_build'] ?? '25')) ?>)</span>
+                            </div>
+                            <div style="font-size:.775rem;color:#cbd5e1;margin-top:.3rem">
+                                Min required: v<?= htmlspecialchars((string)($arRelease['min_version'] ?? '1.0.0')) ?> (Build <?= htmlspecialchars((string)($arRelease['min_build'] ?? '1')) ?>)
+                                <?php if (!empty($arRelease['force_update'])): ?>
+                                    • <span style="color:#f87171;font-weight:700"><i class="fa-solid fa-triangle-exclamation"></i> Mandatory Update Gate</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <div>
+                            <?php if (!empty($arRelease['download_available'])): ?>
+                                <span style="background:rgba(16,185,129,0.15);color:#4ade80;border:1px solid rgba(16,185,129,0.4);padding:.4rem .9rem;border-radius:99px;font-size:.8rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem"><i class="fa-solid fa-circle-check"></i> Published</span>
+                            <?php else: ?>
+                                <span style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.4);padding:.4rem .9rem;border-radius:99px;font-size:.8rem;font-weight:600;display:inline-flex;align-items:center;gap:.35rem"><i class="fa-solid fa-circle-xmark"></i> No APK Uploaded</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:.25rem">
+                        <div style="font-size:.75rem;font-weight:700;color:#94a3b8;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:0.75px">Active Artifacts</div>
+                        <?php 
+                        $details = $arRelease['artifacts_detail'] ?? [];
+                        if (empty($details)): 
+                        ?>
+                            <div style="padding:1rem;background:#0f172a;border:1px dashed #334155;border-radius:0.5rem;font-size:.825rem;color:#94a3b8;text-align:center">
+                                <i class="fa-solid fa-box-open" style="font-size:1.25rem;display:block;margin-bottom:0.4rem;color:#64748b"></i>No APK binary uploaded yet. Use the upload card on the right to publish a build.
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($details as $abi => $art): ?>
+                                <div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;margin-bottom:.5rem;background:#0f172a;border-radius:.5rem;border:1px solid #334155;border-left:4px solid #38bdf8">
+                                    <div style="min-width:0;flex:1">
+                                        <div style="font-size:.85rem;font-weight:600;color:#f8fafc;display:flex;align-items:center;gap:.45rem">
+                                            <i class="fa-solid fa-cube" style="color:#38bdf8;font-size:.8rem"></i> <?= htmlspecialchars($abi === 'universal' ? 'Universal APK (All devices)' : ($abi === 'arm64-v8a' ? 'ARM64-v8a (64-bit split)' : 'ARMeabi-v7a (32-bit legacy)')) ?>
+                                            <span style="font-size:.75rem;color:#94a3b8;font-weight:400">(<?= htmlspecialchars($art['size_formatted'] ?? '') ?>)</span>
+                                        </div>
+                                        <div style="font-size:.7rem;color:#cbd5e1;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.2rem" title="SHA-256: <?= htmlspecialchars($art['sha256'] ?? '') ?>">
+                                            <span style="color:#64748b">SHA-256:</span> <?= htmlspecialchars($art['sha256'] ?? '') ?>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:.35rem;margin-left:.75rem">
+                                        <button type="button" class="btn btn-outline btn-sm" style="padding:.35rem .6rem;font-size:.75rem;color:#f87171;border-color:rgba(239,68,68,0.4);background:#1e293b" onclick="AppReleaseUI.deleteApk('<?= htmlspecialchars($abi) ?>')" title="Delete artifact"><i class="fa-solid fa-trash"></i></button>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+
+                    <?php if (!empty($arRelease['download_available'])): ?>
+                        <div style="margin-top:.75rem;display:flex;gap:.75rem;flex-wrap:wrap">
+                            <a href="/api/v1/app/download" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center;background:#0f172a;border-color:#334155;color:#e2e8f0;padding:0.6rem 1rem"><i class="fa-solid fa-download" style="color:#38bdf8"></i> Test Direct APK Download</a>
+                            <a href="/api/v1/app/config" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center;background:#0f172a;border-color:#334155;color:#e2e8f0;padding:0.6rem 1rem"><i class="fa-solid fa-code" style="color:#a78bfa"></i> View Config JSON</a>
+                        </div>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
 
@@ -195,14 +243,14 @@
                     <label class="ar-label" for="cfg-latest-version">
                         <i class="fa-solid fa-tag" style="color:#94a3b8;font-size:0.75rem"></i> Latest Version String <span class="req">*</span>
                     </label>
-                    <input type="text" name="latest_version" id="cfg-latest-version" class="ar-input" placeholder="1.5.0" required>
+                    <input type="text" name="latest_version" id="cfg-latest-version" class="ar-input" value="<?= htmlspecialchars((string)($arRelease['latest_version'] ?? '1.5.1')) ?>" placeholder="1.5.1" required>
                     <span class="ar-help">Must match <code>version: X.Y.Z</code> in pubspec.yaml</span>
                 </div>
                 <div class="ar-form-group">
                     <label class="ar-label" for="cfg-latest-build">
                         <i class="fa-solid fa-code-commit" style="color:#94a3b8;font-size:0.75rem"></i> Latest Build Number (VersionCode) <span class="req">*</span>
                     </label>
-                    <input type="number" name="latest_build" id="cfg-latest-build" class="ar-input" placeholder="24" min="1" required>
+                    <input type="number" name="latest_build" id="cfg-latest-build" class="ar-input" value="<?= htmlspecialchars((string)($arRelease['latest_build'] ?? '25')) ?>" placeholder="25" min="1" required>
                     <span class="ar-help">Must match <code>+build</code> in pubspec.yaml</span>
                 </div>
             </div>
@@ -212,21 +260,21 @@
                     <label class="ar-label" for="cfg-min-version">
                         <i class="fa-solid fa-shield" style="color:#94a3b8;font-size:0.75rem"></i> Minimum Required Version
                     </label>
-                    <input type="text" name="min_version" id="cfg-min-version" class="ar-input" placeholder="1.0.0">
+                    <input type="text" name="min_version" id="cfg-min-version" class="ar-input" value="<?= htmlspecialchars((string)($arRelease['min_version'] ?? '1.0.0')) ?>" placeholder="1.0.0">
                     <span class="ar-help">Devices running older versions will be blocked until updated</span>
                 </div>
                 <div class="ar-form-group">
                     <label class="ar-label" for="cfg-min-build">
                         <i class="fa-solid fa-shield-halved" style="color:#94a3b8;font-size:0.75rem"></i> Minimum Required Build Code
                     </label>
-                    <input type="number" name="min_build" id="cfg-min-build" class="ar-input" placeholder="1" min="1">
+                    <input type="number" name="min_build" id="cfg-min-build" class="ar-input" value="<?= htmlspecialchars((string)($arRelease['min_build'] ?? '1')) ?>" placeholder="1" min="1">
                     <span class="ar-help">Devices below this build number will be blocked until updated</span>
                 </div>
             </div>
 
             <div class="ar-form-group">
                 <label class="ar-toggle-card warn-box" for="cfg-force-update">
-                    <input type="checkbox" name="force_update" id="cfg-force-update" value="1">
+                    <input type="checkbox" name="force_update" id="cfg-force-update" value="1" <?= !empty($arRelease['force_update']) ? 'checked' : '' ?>>
                     <div>
                         <div style="font-size:0.875rem;font-weight:600;color:#f87171;display:flex;align-items:center;gap:0.4rem">
                             <i class="fa-solid fa-triangle-exclamation"></i> Enforce Mandatory Update Gate
@@ -242,7 +290,7 @@
                 <label class="ar-label" for="cfg-release-notes">
                     <i class="fa-solid fa-file-lines" style="color:#94a3b8;font-size:0.75rem"></i> Release Notes / Changelog
                 </label>
-                <textarea name="release_notes" id="cfg-release-notes" class="ar-textarea" rows="4" placeholder="• Faster QR attendance&#10;• Offline sync improvements&#10;• Bug fixes in Mezmur player"></textarea>
+                <textarea name="release_notes" id="cfg-release-notes" class="ar-textarea" rows="4" placeholder="• Faster QR attendance&#10;• Offline sync improvements&#10;• Bug fixes in Mezmur player"><?= htmlspecialchars((string)($arRelease['release_notes'] ?? '')) ?></textarea>
                 <span class="ar-help">Shown directly to teachers and students on the in-app update prompt</span>
             </div>
 
@@ -251,7 +299,7 @@
                     <label class="ar-label" for="cfg-banner-text">
                         <i class="fa-solid fa-bullhorn" style="color:#94a3b8;font-size:0.75rem"></i> In-App Top Banner Announcement
                     </label>
-                    <input type="text" name="banner_text" id="cfg-banner-text" class="ar-input" placeholder="New update available with offline sync improvements!">
+                    <input type="text" name="banner_text" id="cfg-banner-text" class="ar-input" value="<?= htmlspecialchars((string)($arRelease['banner_text'] ?? '')) ?>" placeholder="New update available with offline sync improvements!">
                     <span class="ar-help">Optional non-intrusive alert banner shown at top of the mobile home screen</span>
                 </div>
                 <div class="ar-form-group">
@@ -259,8 +307,8 @@
                         <i class="fa-solid fa-palette" style="color:#94a3b8;font-size:0.75rem"></i> Banner Tone / Style
                     </label>
                     <select name="banner_kind" id="cfg-banner-kind" class="ar-select">
-                        <option value="info">Information (Blue)</option>
-                        <option value="warn">Warning / Alert (Amber)</option>
+                        <option value="info" <?= ($arRelease['banner_kind'] ?? 'info') === 'info' ? 'selected' : '' ?>>Information (Blue)</option>
+                        <option value="warn" <?= ($arRelease['banner_kind'] ?? '') === 'warn' ? 'selected' : '' ?>>Warning / Alert (Amber)</option>
                     </select>
                     <span class="ar-help">Controls the accent color and icon of the in-app announcement banner</span>
                 </div>
@@ -268,7 +316,7 @@
 
             <div class="ar-form-group" style="margin-bottom:1.5rem">
                 <label class="ar-toggle-card" for="cfg-drains-enabled">
-                    <input type="checkbox" name="background_drains_enabled" id="cfg-drains-enabled" value="1" checked>
+                    <input type="checkbox" name="background_drains_enabled" id="cfg-drains-enabled" value="1" <?= ($arRelease['background_drains_enabled'] ?? true) !== false ? 'checked' : '' ?>>
                     <div>
                         <div style="font-size:0.875rem;font-weight:600;color:#e2e8f0;display:flex;align-items:center;gap:0.4rem">
                             <i class="fa-solid fa-cloud-arrow-up" style="color:#38bdf8"></i> Enable Background Outbox Sync Drains

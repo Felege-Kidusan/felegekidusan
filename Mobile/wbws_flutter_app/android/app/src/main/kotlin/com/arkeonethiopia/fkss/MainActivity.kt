@@ -96,7 +96,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                     "openInstallPermissionSettings" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             try {
-                                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES_PROMPT).apply {
+                                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                                     data = Uri.parse("package:$packageName")
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
