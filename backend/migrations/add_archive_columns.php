@@ -13,7 +13,7 @@ if (PHP_SAPI !== 'cli') {
  * 
  */
 
-require_once dirname(__DIR__) . '/config.php';
+require_once dirname(__DIR__, 2) . '/config.php';
 
 // Check auth
 if (empty($_SESSION['admin_username'])) {

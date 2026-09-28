@@ -15,7 +15,7 @@ if (PHP_SAPI !== 'cli') {
  * 
  * ============================================================
  */
-require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../../config.php';
 
 // Only super_admin can run migrations
 if (empty($_SESSION['admin_id']) || ($_SESSION['admin_role'] ?? '') !== 'super_admin') {

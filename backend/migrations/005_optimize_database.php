@@ -20,7 +20,7 @@ if (PHP_SAPI !== 'cli') {
  */
 
 session_start();
-require_once __DIR__ . '/../backend/config.php';
+require_once __DIR__ . '/../../config.php';
 
 // Auth check
 if (empty($_SESSION['admin_logged_in'])) {
