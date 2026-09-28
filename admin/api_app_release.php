@@ -3,9 +3,8 @@
  * ============================================================
  * Super Admin — Mobile App Release Management API
  * ============================================================
- * Allows Super Admins to upload new APK releases directly from
- * the web dashboard, set version policies, release notes, and
- * configure in-app update banners without cPanel or FTP access.
+ * Production-grade release management and chunked resumable APK
+ * upload engine designed specifically for cPanel shared hosting.
  *
  * Security: Super Admin session required, CSRF validated,
  * strict APK MIME/extension checks, rate limiting on uploads.
@@ -97,6 +96,110 @@ try {
             exit;
         }
 
+        case 'upload_chunk': {
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['status' => 'error', 'message' => 'POST required']);
+                exit;
+            }
+
+            if (empty($_FILES['chunk_file'])) {
+                http_response_code(422);
+                echo json_encode(['status' => 'error', 'message' => 'No chunk payload received.']);
+                exit;
+            }
+
+            $uploadId = trim((string)($_POST['upload_id'] ?? ''));
+            $chunkIndex = (int)($_POST['chunk_index'] ?? 0);
+            $totalChunks = (int)($_POST['total_chunks'] ?? 1);
+            $chunkSize = (int)($_POST['chunk_size'] ?? 0);
+            $totalSize = (int)($_POST['total_size'] ?? 0);
+
+            $result = AppReleaseManager::handleChunkUpload(
+                ROOT_PATH,
+                $_FILES['chunk_file'],
+                $uploadId,
+                $chunkIndex,
+                $totalChunks,
+                $chunkSize,
+                $totalSize
+            );
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => "Chunk {$chunkIndex} received successfully.",
+                'data' => $result,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'assemble_chunks': {
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['status' => 'error', 'message' => 'POST required']);
+                exit;
+            }
+
+            $uploadId = trim((string)($_POST['upload_id'] ?? ''));
+            $totalChunks = (int)($_POST['total_chunks'] ?? 1);
+            $totalSize = (int)($_POST['total_size'] ?? 0);
+            $fileName = trim((string)($_POST['file_name'] ?? 'app-release.apk'));
+            $abi = (string)($_POST['abi'] ?? 'universal');
+
+            if (!in_array($abi, ['universal', 'arm64-v8a', 'armeabi-v7a'], true)) {
+                $abi = 'universal';
+            }
+
+            $updated = AppReleaseManager::assembleChunks(
+                ROOT_PATH,
+                $uploadId,
+                $totalChunks,
+                $totalSize,
+                $fileName,
+                $abi
+            );
+
+            // Audit log
+            if (isset($conn) && $conn instanceof mysqli) {
+                $uid = (int)($_SESSION['admin_id'] ?? 0);
+                $uname = (string)($_SESSION['admin_username'] ?? 'admin');
+                $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                $details = "Assembled and published APK ($abi): {$fileName} (" . number_format($totalSize) . " bytes in {$totalChunks} chunks)";
+                $stmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address, created_at) VALUES (?, ?, 'APK Uploaded (Chunked)', ?, ?, NOW())");
+                if ($stmt) {
+                    $stmt->bind_param('isss', $uid, $uname, $details, $ip);
+                    $stmt->execute();
+                    $stmt->close();
+                }
+            }
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'APK assembled, cryptographically verified, and published successfully!',
+                'data' => $updated,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'cancel_upload': {
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['status' => 'error', 'message' => 'POST required']);
+                exit;
+            }
+
+            $uploadId = trim((string)($_POST['upload_id'] ?? ''));
+            if ($uploadId !== '') {
+                AppReleaseManager::cancelUpload(ROOT_PATH, $uploadId);
+            }
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Upload session canceled and temporary storage cleaned.',
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         case 'upload_apk': {
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                 http_response_code(405);
@@ -175,6 +278,6 @@ try {
     $err = $e->getMessage();
     error_log('AppRelease API error: ' . $err);
     http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'Failed to process app release request. Please try again.']);
+    echo json_encode(['status' => 'error', 'message' => 'Failed to process app release request: ' . $err]);
     exit;
 }
