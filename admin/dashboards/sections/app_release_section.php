@@ -157,7 +157,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
     <div class="sec-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
         <div>
             <h2 class="sec-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.4rem;color:#f8fafc"><i class="fa-solid fa-mobile-screen-button" style="color:#38bdf8"></i> Mobile App Release Manager</h2>
-            <p class="sec-desc" style="color:#94a3b8;font-size:0.875rem">Production-grade in-app update management, resilient chunked APK upload & version enforcement</p>
+            <p class="sec-desc" style="color:#94a3b8;font-size:0.875rem">In-app update management, resilient chunked APK upload & version enforcement</p>
         </div>
         <button type="button" class="btn btn-outline btn-sm" onclick="if(window.AppReleaseUI)window.AppReleaseUI.refresh()"><i class="fa-solid fa-rotate"></i> Refresh Status</button>
     </div>
