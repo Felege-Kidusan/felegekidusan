@@ -21,7 +21,7 @@ if (isApiRateLimited('telemetry_ip', 120)) {
     err('Too many telemetry requests. Please slow down.', 429);
 }
 
-$input = getJsonBody();
+$input = getBody();
 if (!is_array($input)) {
     $input = $_POST;
 }
@@ -95,7 +95,7 @@ try {
     }
     try {
         if (!$stmt->bind_param(
-            'ssisisssiiiiisssiiii',
+            'ssisisssiiiiiissiiii',
             $installId, $appVersion, $appBuild, $osVersion, $sdkInt,
             $deviceBrand, $deviceModel, $abi, $ramMb, $isLowRam,
             $incLaunch, $incSyncSuccess, $incSyncFail, $incCrash,
