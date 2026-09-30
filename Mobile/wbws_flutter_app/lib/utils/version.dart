@@ -52,7 +52,7 @@ UpdateDecision decideUpdate({
   final belowMin = cur.compareTo(min) < 0;
   final belowLatest = cur.compareTo(latest) < 0;
   return UpdateDecision(
-    force: forceFlag || belowMin,
-    optional: !belowMin && belowLatest,
+    force: belowMin || (forceFlag && belowLatest),
+    optional: !belowMin && !forceFlag && belowLatest,
   );
 }

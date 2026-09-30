@@ -28,7 +28,7 @@ void main() {
     expect(d.optional, isFalse);
   });
 
-  test('same version is quiet', () {
+  test('latest build is quiet even when force flag remains enabled', () {
     final d = decideUpdate(
       currentVersion: '1.1.0',
       currentBuild: 2,
@@ -36,16 +36,17 @@ void main() {
       latestBuild: 2,
       minVersion: '1.0.0',
       minBuild: 1,
+      forceFlag: true,
     );
     expect(d.any, isFalse);
   });
 
-  test('force flag wins', () {
+  test('force flag blocks clients behind latest build', () {
     final d = decideUpdate(
       currentVersion: '1.1.0',
       currentBuild: 2,
-      latestVersion: '1.1.0',
-      latestBuild: 2,
+      latestVersion: '1.2.0',
+      latestBuild: 5,
       minVersion: '1.0.0',
       minBuild: 1,
       forceFlag: true,

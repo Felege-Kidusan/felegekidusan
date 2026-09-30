@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use mysqli;
-use Throwable;
 
 /**
  * Service for aggregating and querying mobile fleet telemetry,
@@ -309,35 +308,39 @@ final class AppTelemetryService
 
     private static function fetchAll(mysqli $conn, string $sql, string $types = '', array $params = []): array
     {
-        try {
-            if (empty($params)) {
-                $res = $conn->query($sql);
-                if (!$res) return [];
-                $out = [];
-                while ($r = $res->fetch_assoc()) {
-                    $out[] = $r;
-                }
-                $res->free();
-                return $out;
-            }
-
-            $stmt = $conn->prepare($sql);
-            if (!$stmt) return [];
-            $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $res = $stmt->get_result();
+        if (empty($params)) {
+            $res = $conn->query($sql);
             if (!$res) {
-                $stmt->close();
-                return [];
+                throw new \RuntimeException('Telemetry query failed.');
             }
             $out = [];
             while ($r = $res->fetch_assoc()) {
                 $out[] = $r;
             }
-            $stmt->close();
+            $res->free();
             return $out;
-        } catch (Throwable) {
-            return [];
+        }
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            throw new \RuntimeException('Could not prepare telemetry query.');
+        }
+        try {
+            $stmt->bind_param($types, ...$params);
+            if (!$stmt->execute()) {
+                throw new \RuntimeException('Telemetry query failed.');
+            }
+            $res = $stmt->get_result();
+            if (!$res) {
+                throw new \RuntimeException('Could not read telemetry query results.');
+            }
+            $out = [];
+            while ($r = $res->fetch_assoc()) {
+                $out[] = $r;
+            }
+            return $out;
+        } finally {
+            $stmt->close();
         }
     }
 }
