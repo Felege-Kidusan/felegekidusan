@@ -352,10 +352,11 @@ class AppUpdateService {
     }
 
     try {
-      if (config != null) {
+      final currentConfig = config;
+      if (currentConfig != null) {
         TelemetryService.instance.recordUpdateDownloaded(
-          version: config.latestVersion,
-          build: config.latestBuild,
+          version: currentConfig.latestVersion,
+          build: currentConfig.latestBuild,
         );
       }
     } catch (_) {}

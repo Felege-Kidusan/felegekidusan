@@ -166,6 +166,7 @@ $sum = $atMetrics['summary'] ?? [];
             <button type="button" class="btn btn-outline btn-sm" onclick="if(window.AppTelemetryUI)window.AppTelemetryUI.refresh()"><i class="fa-solid fa-rotate"></i> Refresh Telemetry</button>
         </div>
     </div>
+    <p id="telemetry-status" role="status" hidden style="margin:-0.75rem 0 1rem;padding:0.75rem 1rem;border:1px solid rgba(248,113,113,.35);border-radius:6px;background:rgba(127,29,29,.18);color:#fecaca"></p>
 
     <!-- Filter Control Bar -->
     <div class="at-card" style="margin-bottom:1.5rem;padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">

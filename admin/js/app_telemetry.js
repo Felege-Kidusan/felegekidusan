@@ -39,6 +39,17 @@
     return Math.floor(days / 30) + ' mo ago';
   }
 
+  function setTelemetryStatus(message) {
+    var status = document.getElementById('telemetry-status');
+    if (!status) return;
+    status.textContent = message;
+    status.hidden = !message;
+  }
+
+  function telemetryLoadError() {
+    setTelemetryStatus('Telemetry data could not be loaded. Verify the API and confirm sql/051_app_telemetry.sql has been applied to the production database.');
+  }
+
   var AppTelemetryUI = {
     init: function () {
       if (state.loaded) return;
@@ -59,9 +70,12 @@
       .then(function (res) {
         if (res.status === 'success' && res.data) {
           AppTelemetryUI.renderOverview(res.data);
+          setTelemetryStatus('');
+        } else {
+          telemetryLoadError();
         }
       })
-      .catch(function () {});
+      .catch(telemetryLoadError);
     },
 
     setRange: function (range, btn) {
@@ -123,12 +137,18 @@
         if (res.status === 'success' && res.data) {
           state.totalPages = res.data.total_pages || 1;
           AppTelemetryUI.renderTable(res.data);
+        } else {
+          if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#f87171">Telemetry device data is unavailable.</td></tr>';
+          }
+          telemetryLoadError();
         }
       })
       .catch(function () {
         if (tbody) {
           tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#f87171">Failed to load device list.</td></tr>';
         }
+        telemetryLoadError();
       });
     },
 

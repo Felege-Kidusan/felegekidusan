@@ -90,16 +90,24 @@ try {
         ip_hash = VALUES(ip_hash),
         last_seen_at = NOW()");
 
-    if ($stmt) {
-        $stmt->bind_param(
+    if (!$stmt) {
+        throw new RuntimeException('Could not prepare telemetry heartbeat.');
+    }
+    try {
+        if (!$stmt->bind_param(
             'ssisisssiiiiisssiiii',
             $installId, $appVersion, $appBuild, $osVersion, $sdkInt,
             $deviceBrand, $deviceModel, $abi, $ramMb, $isLowRam,
             $incLaunch, $incSyncSuccess, $incSyncFail, $incCrash,
             $roleHint, $ipHash,
             $incLaunch, $incSyncSuccess, $incSyncFail, $incCrash
-        );
-        $stmt->execute();
+        )) {
+            throw new RuntimeException('Could not bind telemetry heartbeat.');
+        }
+        if (!$stmt->execute()) {
+            throw new RuntimeException('Could not record telemetry heartbeat.');
+        }
+    } finally {
         $stmt->close();
     }
 
