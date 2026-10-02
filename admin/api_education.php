@@ -477,11 +477,21 @@ switch ($action) {
 
         $conn->begin_transaction();
         try {
-            // Mark old enrollment as completed
-            $stmt = $conn->prepare("UPDATE class_enrollments SET status = 'completed' WHERE id = ?");
+            // Mark old enrollment as completed.
+            // Finding K (2026-10-02): the pre-flight SELECT above is a plain
+            // read, so two concurrent promotions of the same member to
+            // *different* target classes both passed it and both inserted an
+            // 'active' row — verified at runtime, the member ended up active
+            // in two classes. Re-assert the precondition here so only one
+            // request can close the source enrollment. `unique_enrollment`
+            // does not help: it is on (member_id, class_id, academic_year_id)
+            // and the two targets differ.
+            $stmt = $conn->prepare("UPDATE class_enrollments SET status = 'completed' WHERE id = ? AND status = 'active'");
             $stmt->bind_param("i", $sourceEnrollment['id']);
-            $stmt->execute();
+            if (!$stmt->execute()) { $stmt->close(); throw new RuntimeException('Unable to close the source enrollment.'); }
+            $closedRows = $stmt->affected_rows;
             $stmt->close();
+            if ($closedRows < 1) { throw new RuntimeException('__ENROLLMENT_NOT_ACTIVE__'); }
 
             // Create new enrollment
             $stmt = $conn->prepare("
@@ -512,8 +522,14 @@ switch ($action) {
             echo json_encode(['status' => 'success', 'message' => 'Student promoted successfully!']);
         } catch (Exception $e) {
             $conn->rollback();
-            error_log('promote failed: ' . $e->getMessage());
-            echo json_encode(['status' => 'error', 'message' => 'Promotion failed. No changes were made.']);
+            if ($e->getMessage() === '__ENROLLMENT_NOT_ACTIVE__') {
+                // Lost the race, or the request was replayed. Nothing written.
+                http_response_code(409);
+                echo json_encode(['status'=>'error','message'=>'This enrollment is no longer active — it may already have been promoted. Refresh and try again.']);
+            } else {
+                error_log('promote failed: ' . $e->getMessage());
+                echo json_encode(['status' => 'error', 'message' => 'Promotion failed. No changes were made.']);
+            }
         }
         break;
     
@@ -1139,10 +1155,23 @@ switch ($action) {
         // mid-sequence failure.
         $conn->begin_transaction();
         try {
-            $stmt = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''),' [Transferred: ',?,']') WHERE id=?");
+            // Finding K (2026-10-02): the SELECT at the top of this case is a
+            // plain read, so a replayed or concurrent request could transfer an
+            // enrollment that has ALREADY been transferred — leaving the member
+            // active in two classes at once. Re-assert the precondition inside
+            // the UPDATE so only a still-active row can be closed, and treat a
+            // zero-row result as a lost race rather than success. The
+            // `unique_enrollment` key does NOT catch this: it is on
+            // (member_id, class_id, academic_year_id), so two transfers to
+            // *different* target classes both insert cleanly.
+            // EnrollmentService::transferByEnrollment() and the 'promote' case
+            // already enforce this same rule; this path was the outlier.
+            $stmt = $conn->prepare("UPDATE class_enrollments SET status='transferred', notes=CONCAT(IFNULL(notes,''),' [Transferred: ',?,']') WHERE id=? AND status='active'");
             $stmt->bind_param("si", $reason, $enrollmentId);
-            if (!$stmt->execute()) { throw new RuntimeException('Unable to close the source enrollment.'); }
+            if (!$stmt->execute()) { $stmt->close(); throw new RuntimeException('Unable to close the source enrollment.'); }
+            $closedRows = $stmt->affected_rows;
             $stmt->close();
+            if ($closedRows < 1) { throw new RuntimeException('__ENROLLMENT_NOT_ACTIVE__'); }
             $by = (int)($_SESSION['admin_id'] ?? 0); $dt = date('Y-m-d'); $from = $enr['class_id'];
             $tnote = "Transferred from class #$from".($reason ? ": $reason" : '');
             $yearId = (int)$currentYear['id']; $memberId = (int)$enr['member_id'];
@@ -1155,8 +1184,15 @@ switch ($action) {
             echo json_encode(['status'=>'success','message'=>$enr['student_name'].' '.$enr['father_name'].' transferred!']);
         } catch (Exception $e) {
             $conn->rollback();
-            reportInternalError('Enrollment transfer failed', $e->getMessage());
-            echo json_encode(['status'=>'error','message'=>'Unable to transfer the enrollment. No changes were made.']);
+            if ($e->getMessage() === '__ENROLLMENT_NOT_ACTIVE__') {
+                // Lost the race, or the request was replayed: the source
+                // enrollment is no longer active. Nothing was written.
+                http_response_code(409);
+                echo json_encode(['status'=>'error','message'=>'This enrollment is no longer active — it may already have been transferred. Refresh and try again.']);
+            } else {
+                reportInternalError('Enrollment transfer failed', $e->getMessage());
+                echo json_encode(['status'=>'error','message'=>'Unable to transfer the enrollment. No changes were made.']);
+            }
         }
         break;
 
