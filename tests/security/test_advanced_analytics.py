@@ -1,7 +1,11 @@
 import unittest
 from pathlib import Path
 
-ROOT = Path("/home/user/SSMS")
+# Resolve from this file, not from an absolute path. These four modules
+# hardcoded /home/user/SSMS and so passed only on the machine that wrote
+# them; on any other checkout they raised FileNotFoundError at setUpClass.
+# The first real CI run surfaced this as 22 errors.
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class AdvancedAnalyticsCenterTests(unittest.TestCase):

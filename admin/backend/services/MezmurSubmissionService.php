@@ -21,6 +21,8 @@
 
 namespace App\Services;
 
+require_once __DIR__ . '/ReviewTransitionPolicy.php';
+
 // MZ-1: review decisions are audited after the packet UPDATE commits; on
 // the mobile path this class was never loaded, so the audit call threw
 // "Class not found" AFTER the state change (failed request, mutated row,
@@ -343,13 +345,42 @@ final class MezmurSubmissionService
                     'message' => 'This attendance is already submitted. Only administrators can change it.',
                 ];
             }
+            // Audit 2026-10-02, finding D: a packet re-entering the review
+            // queue must not carry the PREVIOUS review decision. Otherwise a
+            // returned packet reappears in the reviewer's inbox already
+            // stamped with the old reviewer's id, timestamp and "please fix X"
+            // note, and the inbox cannot tell a fresh submission from a
+            // decided one.
+            //
+            // Deliberately keyed on "is entering the queue" (status becomes
+            // submitted), NOT on "was revision_needed": the real-world path is
+            // revision_needed → draft/incomplete (taker edits, note still
+            // usefully visible to them) → submitted. Clearing only on the
+            // direct revision_needed → submitted hop would miss that. Draft
+            // saves and edits of an already-open packet keep the note.
+            // Matches the H10 precedent already used by upsertMarklist():
+            // clear on ENTERING the submitted state; a correction that keeps
+            // the current status leaves the review trail untouched.
+            $entersReviewQueue = $status === self::STATUS_SUBMITTED
+                && self::normalizeStatus($curStatus) !== self::STATUS_SUBMITTED;
+            $clearReviewSql = $entersReviewQueue
+                ? ', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL'
+                : '';
+            // Finding K (2026-10-02): the open-status check above is a
+            // SELECT, so a reviewer could approve this packet between that
+            // read and this write, letting a save overwrite approved data
+            // and clear the reviewer trail. Re-assert the precondition in
+            // the UPDATE itself. An explicit override intentionally skips it.
+            $lockGuard = empty($opts['force'])
+                ? " AND status IN ('draft','incomplete','revision_needed')"
+                : '';
             try {
                 $up = $conn->prepare(
                     "UPDATE mezmur_submissions
                      SET status = ?, taker_id = ?, member_count = ?, present_count = ?, late_count = ?,
                          absent_count = ?, excused_count = ?, client_op_id = COALESCE(?, client_op_id),
-                         submitted_at = COALESCE(?, submitted_at)
-                     WHERE id = ?"
+                         submitted_at = COALESCE(?, submitted_at)" . $clearReviewSql . "
+                     WHERE id = ?$lockGuard"
                 );
             } catch (\Throwable $e) {
                 $up = false;
@@ -359,7 +390,28 @@ final class MezmurSubmissionService
             }
             $up->bind_param('siiiiiissi', $status, $takerId, $count, $present, $late, $absent, $excused, $opId, $submittedAt, $existingId);
             $ok = $up->execute();
+            $changed = $up->affected_rows;
             $up->close();
+            // affected_rows can be 0 for a genuine no-op save, so re-read
+            // before blaming the lock (finding K).
+            if ($ok && $changed === 0 && empty($opts['force'])) {
+                $verify = $conn->prepare("SELECT status FROM mezmur_submissions WHERE id = ? LIMIT 1");
+                if ($verify) {
+                    $verify->bind_param('i', $existingId);
+                    $verify->execute();
+                    $vRow = $verify->get_result()->fetch_assoc() ?: [];
+                    $verify->close();
+                    $vStatus = (string)($vRow['status'] ?? '');
+                    if ($vStatus !== '' && !self::statusIsOpen($vStatus)) {
+                        return [
+                            'ok' => false,
+                            'id' => $existingId,
+                            'status' => self::normalizeStatus($vStatus),
+                            'message' => 'This attendance is already submitted. Only administrators can change it.',
+                        ];
+                    }
+                }
+            }
             if ($ok) {
                 self::auditPacket($conn, $date, $section, $takerId, $status, $count);
             }
@@ -459,11 +511,22 @@ final class MezmurSubmissionService
         }
         $previousStatus = (string)($packet['status'] ?? '');
 
+        // H9 (audit 2026-10-02, finding B): a reviewer decision is valid ONLY
+        // on a packet awaiting review. Without this, replaying a review request
+        // flipped approved→rejected, rejected→approved or decided a packet the
+        // taker had never submitted. Same rule Education enforces.
+        $transitionError = ReviewTransitionPolicy::error($previousStatus, $newStatus, 'packet', 'taker');
+        if ($transitionError !== null) {
+            return ['ok' => false, 'code' => 'invalid_transition', 'message' => $transitionError];
+        }
+
         try {
+            // The `status = 'submitted'` predicate closes the check-then-act
+            // race: two reviewers deciding at once, only one UPDATE matches.
             $up = $conn->prepare(
                 "UPDATE mezmur_submissions
                  SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
-                 WHERE id = ?"
+                 WHERE id = ? AND status = 'submitted'"
             );
         } catch (\Throwable $e) {
             $up = false;
@@ -473,9 +536,18 @@ final class MezmurSubmissionService
         }
         $up->bind_param('sisi', $newStatus, $actorId, $notes, $packetId);
         $ok = $up->execute();
+        $affected = $up->affected_rows;
         $up->close();
         if (!$ok) {
             return ['ok' => false, 'message' => 'Could not update the packet.'];
+        }
+        if ($affected < 1) {
+            // Lost the race — someone else decided it after our SELECT.
+            return [
+                'ok' => false,
+                'code' => 'conflict',
+                'message' => ReviewTransitionPolicy::raceLostMessage('packet'),
+            ];
         }
 
         // Immutable trail: who decided, from which state, and why.

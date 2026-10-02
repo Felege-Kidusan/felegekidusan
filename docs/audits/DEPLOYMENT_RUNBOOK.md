@@ -17,6 +17,9 @@
 ```
 [ ] 0.1  Make a full backup of the CURRENT live database (cPanel → phpMyAdmin →
          Export), even if you think there's no real data yet. Keep it somewhere safe.
+         Use the DEFAULT "Quick" export (Format: SQL). Do NOT tick
+         "Disable foreign key checks" — see "Restoring the 0.1 export" below
+         for why, and for the command that actually restores this file.
 [ ] 0.2  Make a copy of the current live files (cPanel → File Manager → compress
          public_html to a zip, download it). This is your undo button.
 ```
@@ -127,6 +130,48 @@ chmod 755 admin/uploads admin/uploads/members admin/uploads/members/photos \
          admin/api_mezmur.php?action=ping — it must report
          code_version phase7-art01 with no missing_columns. Full design:
          docs/mezmur_player/HYMN_ART_P66.md.
+[ ] 4.7  (Audit 2026-10-02 — migration ordering + uniqueness) Three items.
+
+         (a) MIGRATION 030 WAS DUPLICATED. Two different migrations both
+             shipped as number 030, so "apply in numeric order" was
+             ambiguous and one could be skipped without anyone noticing.
+             The roster index file is now sql/052_roster_scale_indexes.sql;
+             sql/030_mezmur_taxonomy.sql keeps 030 because 031/032/033
+             build on it and application code names it by path. If you
+             already applied the old sql/030_roster_scale_indexes.sql, you
+             have the index — re-running 052 just reports "Duplicate key
+             name", which is harmless. If you are deploying fresh, apply
+             052 in its new position. There is no semantic change.
+
+         (b) MEZMUR MIGRATIONS 031 -> 032 -> 033 ARE ORDER-DEPENDENT.
+             033 drops title_am/reference and then clears the word index
+             table that 032 CREATES, under the uniqueness rules 031 adds.
+             Run out of order, 033 would drop the columns and only then
+             fail on the missing table — a half-applied migration. 033 now
+             detects that case and prints a BLOCKER line naming 032
+             instead of aborting with a bare "table doesn't exist". Plain
+             numeric order satisfies the dependency; do not reorder these.
+
+         (c) VERIFY THE CONDITIONAL UNIQUE CONSTRAINTS. Several migrations
+             add a UNIQUE key only when existing data is already clean, and
+             skip it otherwise so a deployment never silently destroys
+             duplicate rows a human must adjudicate. That is intended. The
+             risk is that a skip used to look like a success, so a database
+             could go live missing a guarantee the application assumes —
+             e.g. without uq_academic_years_year_name the "year name
+             already exists" check in the save endpoint can never fire.
+             Run:
+                 sql/preflight/uniqueness_preflight.sql
+             It is read-only. It prints PASS/BLOCK/SKIP per constraint,
+             lists the exact duplicate rows behind any BLOCK, and raises
+             SQLSTATE 45000 if anything is blocked, so the result cannot be
+             misread as "probably fine". A BLOCK is a DEPLOYMENT BLOCKER:
+             decide which duplicate records survive (a business decision,
+             not the migration's), merge them, re-run the owning migration
+             (018 or 031), then re-run this script until it reports PASS.
+             It also reports how many rows sit unreviewed in the
+             migration_013_*_conflicts quarantine tables — not a blocker,
+             but real user data that should not be forgotten.
 ```
 
 ---
@@ -393,7 +438,101 @@ Use the **ROLE-BY-ROLE TEST CHECKLIST** in `FOUNDATION_VERIFICATION.md` (Section
 - **Legacy cron path**: `admin/backend/cron_backup.php` is now a CLI-only compatibility adapter to the same encrypted streaming service. New schedules should use `admin/tools/backup.php`.
 - **Code cleanup (Phase B)**: only after the above is stable and tested on a staging copy.
 
+## Restoring the 0.1 export (read before you need it)
+
+**Do not restore the 0.1 export by importing it in phpMyAdmin.** A phpMyAdmin
+export appends its foreign keys as trailing `ALTER TABLE ... ADD CONSTRAINT`
+statements and contains no `FOREIGN_KEY_CHECKS` statements at all. A plain
+import therefore stops at the first constraint that the live data violates and
+leaves the database **half-restored**. Measured against the 2026-10-02
+production export: `ERROR 1452` at line 9746, exit 1, **31 of 42 foreign keys**,
+87 tables — a database that looks present but is missing a quarter of its
+referential integrity.
+
+Use the repository's deterministic restore instead. It loads the data first,
+then applies each constraint individually so that **every** constraint is
+validated against real rows, and it reports any that the data rejects:
+
+```
+./scripts/restore_production_dump.sh <new_database> <export.sql> \
+    -h 127.0.0.1 -u <user> -p<password>
+```
+
+Expected results — anything else is a signal, and the script exits 2:
+
+| Export taken | Foreign keys | Meaning |
+|---|---|---|
+| Before `sql/055` | **39 / 42** | 3 constraints blocked by historical orphaned mezmur link rows. Expected. Apply `sql/055_mezmur_orphan_link_cleanup.sql` to reach 42/42. |
+| After `sql/055` | **42 / 42** | Every declared constraint present and validated. |
+
+**Why not just tick "Disable foreign key checks" in phpMyAdmin?** Because it
+hides the problem instead of restoring correctly. Constraints added while
+foreign-key checking is off are created **without being validated**, and
+re-enabling checks afterwards does not retro-validate them. Measured on the
+same export: the import "succeeds" and reports a complete **42/42**, while
+**99 orphaned `mezmur_hymn_categories` rows remain in the database**. You get a
+schema that claims integrity it does not have. The restore script deliberately
+refuses that shortcut.
+
+(The app's own encrypted backup — Stage 5.2 / `admin/tools/backup.php` — is
+self-contained and already emits its own `FOREIGN_KEY_CHECKS` guards, so it
+does not need this procedure. The 0.1 phpMyAdmin export does.)
+
 ## If something breaks
 1. You have the file zip (0.2) and DB export (0.1) — restore them to undo.
+   Restore the database with `scripts/restore_production_dump.sh`, not with a
+   phpMyAdmin import — see "Restoring the 0.1 export" above.
 2. Check the health check page — it usually points at the problem (DB down, disk full, env missing).
 3. The real error detail is in the server error log (not shown to users, by design).
+
+---
+
+## Stage 0 (read first) — `sql/` is not a fresh-install sequence
+
+*Added 2026-10-02 after audit finding M.*
+
+**Do not build a new database by running `sql/001` through `sql/052` in
+order. It will fail, and it would not produce a correct schema if it
+didn't.** The directory mixes two different kinds of file that nothing
+currently distinguishes:
+
+* **replayable migrations** — guarded, idempotent, safe to re-run; and
+* **one-time operational scripts** written against the already-live
+  production database. `sql/003_production_hardening.sql` says so in its own
+  header: *"HOW TO RUN (do this ONCE, from phpMyAdmin)"*.
+
+Two consequences, both measured:
+
+1. **Seven core tables are altered by migrations but never created by any of
+   them** — `users`, `members`, `subjects`, `finance_transactions`,
+   `finance_member_fees`, `material_items`, `material_transactions`. Their
+   real DDL originates outside this directory (legacy runtime DDL, plus the
+   stale `database_schema.sql`). A fresh run has nothing to alter.
+
+2. **Four tables are altered by a lower-numbered migration than the one that
+   creates them** — `003` adds foreign keys to `teacher_assignments`, which
+   is first created in `006`; `004` alters `academic_years` (created in
+   `012`); `012` alters `wbws_groups` and `wbws_group_leaders` (created in
+   `013`); `003` also alters `attendance`, `class_enrollments` and
+   `academic_records` (all created in `013`). `003` contains no
+   `information_schema` guard, no `IF EXISTS`, and no prepared statement, so
+   in strict numeric order it errors out.
+
+There is also **no `schema_migrations` ledger**, so nothing in the database
+records which of these files has actually been applied. Migration state is
+tracked by hand.
+
+### What to do
+
+* **Existing production deployments** — continue applying new migrations
+  individually, in number order, as you have been. Nothing here changes that.
+* **Standing up a new environment** — take a `mysqldump` of the live schema
+  (`mysqldump --no-data`) and restore that as the baseline, *then* apply any
+  migrations newer than the dump. Do not attempt to replay `sql/` from
+  scratch.
+* **Before sign-off** — run `sql/preflight/uniqueness_preflight.sql` and
+  resolve every `BLOCK` row.
+
+This boundary is pinned by `tests/security/test_migration_schema_boundary.py`,
+which fails if a new migration alters another unmanaged table or introduces a
+new forward reference.

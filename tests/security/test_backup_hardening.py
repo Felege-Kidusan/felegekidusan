@@ -82,6 +82,29 @@ class BackupHardeningTests(unittest.TestCase):
         self.assertIn("file_exists($outputPath)", self.service)
         self.assertIn("unexpected trailing data", self.service)
 
+    def test_runbook_restores_the_manual_export_without_an_fk_bypass(self):
+        """R-1: the 0.1 phpMyAdmin export is the rollback source, so the runbook
+        must point at the validating restore path and must reject the
+        'disable foreign key checks' shortcut.
+
+        Measured on the 2026-10-02 production export: a plain phpMyAdmin import
+        dies at ERROR 1452 line 9746 with 31/42 foreign keys, while an export
+        wrapped in FOREIGN_KEY_CHECKS=0 reports a complete 42/42 and still
+        carries 99 orphaned mezmur_hymn_categories rows -- constraints created
+        while checking is off are never validated.
+        """
+        runbook = (ROOT / "docs/audits/DEPLOYMENT_RUNBOOK.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/restore_production_dump.sh", runbook,
+                      "runbook must name the validating restore script, not a bare import")
+        self.assertIn('Do NOT tick', runbook,
+                      "step 0.1 must warn against the disable-foreign-key-checks export option")
+        self.assertIn("without being validated", runbook,
+                      "runbook must explain WHY the FK-check bypass is unsafe")
+        for inventory in ("39 / 42", "42 / 42"):
+            self.assertIn(inventory, runbook,
+                          f"runbook must record the expected {inventory} FK inventory")
+        self.assertTrue((ROOT / "scripts/restore_production_dump.sh").exists(),
+                        "the restore path the runbook points at must exist")
 
 if __name__ == "__main__":
     unittest.main()

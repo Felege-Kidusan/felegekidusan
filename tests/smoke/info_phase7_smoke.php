@@ -75,9 +75,12 @@ $conn->query("INSERT INTO members (id, member_code, student_name, father_name, s
   (903, 'FX-9003', 'Yonas', 'Tessema', 'active', 'ማዕከዋይ'),
   (904, 'FX-9004', 'Ruth',  'Bekele',  'active', '')") or $fail('members fixture: ' . $conn->error);
 
-$conn->query("INSERT INTO classes (id, class_name) VALUES
-  (901, 'Grade 7A'),
-  (902, 'Grade 8B')") or $fail('classes fixture: ' . $conn->error);
+// classes.class_code carries a UNIQUE key in production, so two rows that
+// both omit it collide on ''. The API path never hits this (api_education.php
+// rejects a blank code); only this fixture, which writes the table directly.
+$conn->query("INSERT INTO classes (id, class_name, class_code) VALUES
+  (901, 'Grade 7A', 'FX-C901'),
+  (902, 'Grade 8B', 'FX-C902')") or $fail('classes fixture: ' . $conn->error);
 
 $conn->query("INSERT INTO mezmur_sessions (id, session_date, program_type, title, created_by) VALUES
   (901, '$day', 'rehearsal', 'FX session', 901)") or $fail('mezmur_sessions fixture: ' . $conn->error);

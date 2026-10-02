@@ -215,14 +215,37 @@ final class AttendanceSummaryService
             $statement->close();
 
             if ($average && $average['avg_rate'] !== null) {
+                // Audit 2026-10-02, finding E: this used CURDATE(), so ANY
+                // save — backfilling last term's register, correcting a row
+                // from six months ago — stamped the member as having attended
+                // TODAY. last_attendance_date must describe the attendance
+                // data, not the moment the row happened to be written.
+                //
+                // Derived from the same source that feeds total_attendance_rate
+                // (the `attendance` table; HR/Mezmur keep their own datasets by
+                // product rule and are never merged here). Index-backed:
+                // idx_att_member_date (member_id, attendance_date) from
+                // sql/028 — and uq_att_member_class_date before it — are both
+                // member_id-prefixed, so MAX() on an equality-bound member is
+                // a bounded index probe, not a scan.
+                //
+                // COALESCE keeps any existing value when the member has no
+                // attendance rows left (e.g. the last row was deleted), so the
+                // fix can never blank a populated column.
                 $update = $conn->prepare(
                     'UPDATE members
-                     SET total_attendance_rate = ?, last_attendance_date = CURDATE()
+                     SET total_attendance_rate = ?,
+                         last_attendance_date = COALESCE(
+                             (SELECT MAX(a.attendance_date)
+                                FROM attendance a
+                               WHERE a.member_id = ?),
+                             last_attendance_date
+                         )
                      WHERE id = ?'
                 );
                 if ($update) {
                     $avgRate = round((float)$average['avg_rate'], 2);
-                    $update->bind_param('di', $avgRate, $memberId);
+                    $update->bind_param('dii', $avgRate, $memberId, $memberId);
                     $update->execute();
                     $update->close();
                 }
