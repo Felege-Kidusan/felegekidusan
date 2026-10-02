@@ -25,6 +25,12 @@
 
 namespace App\Services;
 
+// Hardening (not a live defect): this service records an audit trail after
+// the row has already been written. Its sole current caller does load the
+// audit class, so the path is safe today -- but that is the exact shape of
+// finding Q. Declared here so the guarantee does not depend on the caller.
+require_once __DIR__ . '/SecurityAuditService.php';
+
 class DeptTakerService
 {
     public const ROLE_MEZMUR_TAKER = 'mezmur_attendance_taker';

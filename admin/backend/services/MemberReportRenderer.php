@@ -4,6 +4,15 @@
  */
 namespace App\Services;
 
+// tableRow() calls MemberCategory::letterFor()/::sectionAm() at render time.
+// This project has no autoloader, so a class reference that is never
+// require'd is a runtime fatal that `php -l` cannot detect. Convention here
+// is that a service declares its own sibling dependencies (EnrollmentService,
+// IdentityCodeService, IdentityMigrationService, InfoAnalyticsService,
+// MezmurAttendanceService, MezmurSubmissionService and PositionSyncService
+// all require this same class this same way).
+require_once __DIR__ . '/MemberCategory.php';
+
 use PDOStatement;
 use RuntimeException;
 
