@@ -1,0 +1,242 @@
+# ============================================================================
+# Backend checks — PHP syntax, security test suite, migration hygiene
+# ----------------------------------------------------------------------------
+# Added 2026-10-02 (audit finding L).
+#
+# WHY THIS EXISTS
+# Before this file the repository had no `.github/` directory at all. The only
+# CI definition, docs/ci_cd/ci.yml.txt, is a .txt document that GitHub never
+# reads, and it covers the Flutter app only. That left two gaps:
+#
+#   1. tests/security/ contains 87 Python test files — including every
+#      regression test that proves audit findings A through K — and none of
+#      them ran automatically on any push or pull request.
+#   2. No `php -l` ran anywhere. That is exactly how finding I shipped: a
+#      fatal parse error in AssessmentTypeService.php reached main and sat
+#      there for roughly five days, reachable from nine call sites. A single
+#      lint job would have caught it in seconds.
+#
+# This workflow is deliberately narrow: it runs checks, it does not deploy,
+# and it needs no secrets, no database and no credentials.
+#
+# It does NOT replace docs/ci_cd/ci.yml.txt. To activate the Flutter job too,
+# copy that file to .github/workflows/ci.yml — it is valid as written and is
+# intentionally left untouched here.
+# ============================================================================
+
+name: Backend checks
+
+on:
+  push:
+    # audit/** is included so remediation branches get a real run before they
+    # are merged. Finding L was that this workflow had never executed once:
+    # the GitHub API reported 0 registered workflows and 0 Actions runs in
+    # this repository's entire history.
+    branches: [main, 'audit/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php-lint:
+    name: PHP syntax (php -l)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Production runs PHP 8.4.25 (confirmed by the database export
+          # banner). Linting on 8.2 cannot see syntax that 8.4 rejects.
+          php-version: '8.4'
+          coverage: none
+
+      - name: Lint every first-party PHP file
+        run: |
+          set -uo pipefail
+          status=0
+          count=0
+          # Vendored and third-party trees are excluded: they are not ours to
+          # fix and phpqrcode in particular targets an older PHP.
+          while IFS= read -r file; do
+            count=$((count + 1))
+            if ! out=$(php -l "$file" 2>&1); then
+              echo "::error file=${file}::${out}"
+              status=1
+            fi
+          done < <(git ls-files '*.php' \
+                     | grep -v '^vendor/' \
+                     | grep -v '/vendor/' \
+                     | grep -v 'id_cards/libs/')
+          echo "Linted ${count} PHP files."
+          if [ "$count" -lt 250 ]; then
+            echo "::error::Only ${count} files were linted; the file list looks wrong."
+            exit 1
+          fi
+          exit $status
+
+  security-tests:
+    name: Security and regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # WHY A DATABASE SERVICE
+    # Without one, every database-backed test in tests/security calls
+    # unittest.SkipTest and the job still reports green. That is the exact
+    # false green that hid finding P for two audit cycles: 13 comm e2e tests
+    # self-skipped, the badge stayed green, and a production fatal shipped.
+    # A skipped test is an unverified claim, not a pass.
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: ssms_comm_e2e
+          MARIADB_USER: ssms
+          MARIADB_PASSWORD: ssms
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mysqli, pdo_mysql, mbstring, gd, curl, xml
+          coverage: none
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest pytest-subtests
+
+      - name: Report the versions under test
+        run: |
+          php -v | head -1
+          python --version
+          mysql -h 127.0.0.1 -u ssms -pssms -e 'SELECT VERSION() AS mariadb;' || true
+
+      - name: Wait for MariaDB
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 45); do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -u ssms -pssms --silent 2>/dev/null; then
+              echo "MariaDB ready after ${i}s."
+              mysql -h 127.0.0.1 -u ssms -pssms -e 'SELECT VERSION();'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::MariaDB never became ready."
+          exit 1
+
+      - name: Create test databases
+        run: |
+          set -euo pipefail
+          for db in ssms_comm_e2e ssms_e2e ssms_smoke; do
+            mysql -h 127.0.0.1 -u ssms -pssms \
+              -e "CREATE DATABASE IF NOT EXISTS \`$db\` \
+                  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          done
+
+      - name: Provision a test-only .fkss_env.php
+        run: |
+          set -euo pipefail
+          # .fkss_env.php is gitignored and holds real credentials in a
+          # deployment. The harnesses require it, so CI generates a throwaway
+          # one pointing at the service container. These values are
+          # placeholders and are used nowhere else.
+          cat > .fkss_env.php <<'EOF'
+          <?php
+          define('DB_HOST', '127.0.0.1');
+          define('DB_NAME', getenv('SSMS_DB_NAME') ?: 'ssms_comm_e2e');
+          define('DB_USER', 'ssms');
+          define('DB_PASS', 'ssms');
+          define('JWT_SECRET', 'ci-only-not-a-real-secret');
+          define('BACKUP_KEY', 'ci-only-not-a-real-secret');
+          define('HEALTH_KEY', 'ci-only-not-a-real-secret');
+          define('MONITOR_SECRET_KEY', 'ci-only-not-a-real-secret');
+          EOF
+          php -l .fkss_env.php
+
+      - name: Run tests/security
+        env:
+          SSMS_DB_NAME: ssms_comm_e2e
+        run: |
+          set -uo pipefail
+          # -rs reports every skip with its reason so the gate below can count
+          # them and a human can see which test opted out.
+          python -m pytest tests/security -q -rs --durations=10 \
+            2>&1 | tee /tmp/pytest.out
+          rc="${PIPESTATUS[0]}"
+          echo "pytest exit=${rc}"
+          exit "$rc"
+
+      - name: Fail if any test skipped
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ ! -f /tmp/pytest.out ]; then
+            echo "::error::pytest produced no output; treating as failure."
+            exit 1
+          fi
+          skipped=$(grep -oE '[0-9]+ skipped' /tmp/pytest.out | head -1 \
+                      | grep -oE '[0-9]+' || echo 0)
+          echo "Skipped tests: ${skipped}"
+          if [ "${skipped}" -gt 0 ]; then
+            echo "::error::${skipped} test(s) skipped. A skipped test is an unverified claim - 13 self-skipping e2e tests concealed a production fatal (finding P) for two audit cycles. Fix the environment so the test runs, or remove the test deliberately."
+            grep -E '^SKIPPED' /tmp/pytest.out || true
+            exit 1
+          fi
+          echo "No tests skipped."
+
+  migration-hygiene:
+    name: Migration numbering
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No duplicate migration numbers
+        run: |
+          set -euo pipefail
+          dupes=$(ls sql/[0-9][0-9][0-9]_*.sql \
+                    | xargs -n1 basename \
+                    | cut -d_ -f1 \
+                    | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate migration number(s): ${dupes}"
+            exit 1
+          fi
+          echo "Migration numbers are unique."
+
+      - name: Migrations are not silently destructive
+        run: |
+          set -uo pipefail
+          # A migration may legitimately drop things, but a bare DELETE or
+          # TRUNCATE against a user-data table is how duplicate-row cleanups
+          # get smuggled in. Audit finding H: those are deployment decisions,
+          # not migration steps.
+          hits=$(grep -rniE '^[[:space:]]*(TRUNCATE|DELETE[[:space:]]+FROM)' sql/*.sql || true)
+          if [ -n "$hits" ]; then
+            echo "::warning::Destructive statement(s) found in migrations:"
+            echo "$hits"
+          fi
+          echo "Scan complete."
