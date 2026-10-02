@@ -17,6 +17,9 @@
 ```
 [ ] 0.1  Make a full backup of the CURRENT live database (cPanel → phpMyAdmin →
          Export), even if you think there's no real data yet. Keep it somewhere safe.
+         Use the DEFAULT "Quick" export (Format: SQL). Do NOT tick
+         "Disable foreign key checks" — see "Restoring the 0.1 export" below
+         for why, and for the command that actually restores this file.
 [ ] 0.2  Make a copy of the current live files (cPanel → File Manager → compress
          public_html to a zip, download it). This is your undo button.
 ```
@@ -435,8 +438,50 @@ Use the **ROLE-BY-ROLE TEST CHECKLIST** in `FOUNDATION_VERIFICATION.md` (Section
 - **Legacy cron path**: `admin/backend/cron_backup.php` is now a CLI-only compatibility adapter to the same encrypted streaming service. New schedules should use `admin/tools/backup.php`.
 - **Code cleanup (Phase B)**: only after the above is stable and tested on a staging copy.
 
+## Restoring the 0.1 export (read before you need it)
+
+**Do not restore the 0.1 export by importing it in phpMyAdmin.** A phpMyAdmin
+export appends its foreign keys as trailing `ALTER TABLE ... ADD CONSTRAINT`
+statements and contains no `FOREIGN_KEY_CHECKS` statements at all. A plain
+import therefore stops at the first constraint that the live data violates and
+leaves the database **half-restored**. Measured against the 2026-10-02
+production export: `ERROR 1452` at line 9746, exit 1, **31 of 42 foreign keys**,
+87 tables — a database that looks present but is missing a quarter of its
+referential integrity.
+
+Use the repository's deterministic restore instead. It loads the data first,
+then applies each constraint individually so that **every** constraint is
+validated against real rows, and it reports any that the data rejects:
+
+```
+./scripts/restore_production_dump.sh <new_database> <export.sql> \
+    -h 127.0.0.1 -u <user> -p<password>
+```
+
+Expected results — anything else is a signal, and the script exits 2:
+
+| Export taken | Foreign keys | Meaning |
+|---|---|---|
+| Before `sql/055` | **39 / 42** | 3 constraints blocked by historical orphaned mezmur link rows. Expected. Apply `sql/055_mezmur_orphan_link_cleanup.sql` to reach 42/42. |
+| After `sql/055` | **42 / 42** | Every declared constraint present and validated. |
+
+**Why not just tick "Disable foreign key checks" in phpMyAdmin?** Because it
+hides the problem instead of restoring correctly. Constraints added while
+foreign-key checking is off are created **without being validated**, and
+re-enabling checks afterwards does not retro-validate them. Measured on the
+same export: the import "succeeds" and reports a complete **42/42**, while
+**99 orphaned `mezmur_hymn_categories` rows remain in the database**. You get a
+schema that claims integrity it does not have. The restore script deliberately
+refuses that shortcut.
+
+(The app's own encrypted backup — Stage 5.2 / `admin/tools/backup.php` — is
+self-contained and already emits its own `FOREIGN_KEY_CHECKS` guards, so it
+does not need this procedure. The 0.1 phpMyAdmin export does.)
+
 ## If something breaks
 1. You have the file zip (0.2) and DB export (0.1) — restore them to undo.
+   Restore the database with `scripts/restore_production_dump.sh`, not with a
+   phpMyAdmin import — see "Restoring the 0.1 export" above.
 2. Check the health check page — it usually points at the problem (DB down, disk full, env missing).
 3. The real error detail is in the server error log (not shown to users, by design).
 
