@@ -516,6 +516,15 @@ renderProfileTabSection('section-profile', 'cs');
 <div><label class="flbl">Start Date</label><input type="date" id="yearStart" class="inp" style="width:100%"></div>
 <div><label class="flbl">End Date</label><input type="date" id="yearEnd" class="inp" style="width:100%"></div>
 </div>
+<div style="border-top:1px solid var(--bd);padding-top:.55rem;margin-top:.15rem">
+<label class="flbl" style="display:block;margin-bottom:.35rem"><i class="fa-solid fa-scale-balanced" style="color:var(--purple)"></i> Semester Weights for the Annual Result</label>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem">
+<div><label class="flbl" style="font-weight:400">Semester 1 (%)</label><input type="number" id="yearS1Weight" class="inp" style="width:100%" min="0" max="100" step="0.01" value="50" oninput="updateWeightTotal()"></div>
+<div><label class="flbl" style="font-weight:400">Semester 2 (%)</label><input type="number" id="yearS2Weight" class="inp" style="width:100%" min="0" max="100" step="0.01" value="50" oninput="updateWeightTotal()"></div>
+</div>
+<div id="yearWeightMsg" style="font-size:.68rem;margin-top:.35rem"></div>
+<div style="font-size:.68rem;color:var(--dim);margin-top:.3rem">Used only for subjects marked <b>Full Year</b>, which combine both semesters into one annual result. Subjects marked <b>Semester Only</b> are unaffected. The two values must total exactly 100%. Each year keeps its own weights, so past years stay reproducible.</div>
+</div>
 <input type="hidden" id="yearCurrent" value="0">
 <div style="font-size:.68rem;color:var(--dim);background:rgba(59,130,246,.08);border-left:3px solid #60a5fa;padding:.45rem .6rem;border-radius:4px">A new year is created as <b>Upcoming</b> and two semesters are added automatically. It stays inactive until you use the <b>Set Active</b> (✓) button on the year list — that safely closes the current year and switches over. <b>The very first year</b> you create becomes active automatically.</div>
 <button class="btn bp" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
@@ -1185,6 +1194,23 @@ function syncGcFromEc(){
     const ec=parseInt(document.getElementById('yearEc').value,10);
     if(!isNaN(ec)&&ec>0){const g=ec+7;document.getElementById('yearGc').value=g+'/'+(g+1);}
 }
+/* Live feedback on the semester weight pair. This mirrors the server rule so
+   the user sees the problem while typing; the server still decides. */
+function updateWeightTotal(){
+    const s1el=document.getElementById('yearS1Weight'),s2el=document.getElementById('yearS2Weight');
+    const msg=document.getElementById('yearWeightMsg');
+    if(!s1el||!s2el||!msg)return true;
+    const s1=parseFloat(s1el.value),s2=parseFloat(s2el.value);
+    if(isNaN(s1)||isNaN(s2)){msg.innerHTML='<span style="color:var(--dim)">Enter both semester weights.</span>';return false;}
+    if(s1<0||s2<0||s1>100||s2>100){msg.innerHTML='<span style="color:#f87171"><i class="fa-solid fa-circle-exclamation"></i> Each weight must be between 0 and 100.</span>';return false;}
+    const total=Math.round((s1+s2)*100)/100;
+    if(total!==100){
+        msg.innerHTML='<span style="color:#f87171"><i class="fa-solid fa-circle-exclamation"></i> Total is '+total+'% — it must be exactly 100%.</span>';
+        return false;
+    }
+    msg.innerHTML='<span style="color:#4ade80"><i class="fa-solid fa-circle-check"></i> Total 100% — valid.</span>';
+    return true;
+}
 function openYearModal(){
     const currentEc=<?= (int)ethio_date_format($today, 'Y') ?>;
     let ecYear=currentEc;
@@ -1203,6 +1229,11 @@ function openYearModal(){
     document.getElementById('yearStart').value='';
     document.getElementById('yearEnd').value='';
     document.getElementById('yearCurrent').checked=true;
+    /* Starting point only - the stored default from migration 056. Staff can
+       change it here, and each year keeps whatever it was saved with. */
+    document.getElementById('yearS1Weight').value=50;
+    document.getElementById('yearS2Weight').value=50;
+    updateWeightTotal();
     document.getElementById('yearModalTitle').innerHTML='<i class="fa-solid fa-calendar"></i> New Academic Year';
     document.getElementById('yearModal').classList.add('show');
 }
@@ -1214,6 +1245,10 @@ function editYearById(id){const y=window._yearData?.[id];if(!y)return;
     document.getElementById('yearStart').value=y.start_date||'';
     document.getElementById('yearEnd').value=y.end_date||'';
     document.getElementById('yearCurrent').checked=y.is_current==1;
+    /* Show what this year is actually stored with, not an assumed 50/50. */
+    document.getElementById('yearS1Weight').value=(y.s1_weight_pct!==undefined&&y.s1_weight_pct!==null)?parseFloat(y.s1_weight_pct):50;
+    document.getElementById('yearS2Weight').value=(y.s2_weight_pct!==undefined&&y.s2_weight_pct!==null)?parseFloat(y.s2_weight_pct):50;
+    updateWeightTotal();
     document.getElementById('yearModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Academic Year';
     document.getElementById('yearModal').classList.add('show');
 }
@@ -1226,6 +1261,9 @@ async function saveYear(){
     fd.append('start_date',document.getElementById('yearStart').value);
     fd.append('end_date',document.getElementById('yearEnd').value);
     fd.append('is_current',document.getElementById('yearCurrent').checked?1:0);
+    if(!updateWeightTotal()){toast('Semester weights must total exactly 100%','e');return;}
+    fd.append('s1_weight_pct',document.getElementById('yearS1Weight').value);
+    fd.append('s2_weight_pct',document.getElementById('yearS2Weight').value);
     fd.append('csrf_token',CSRF);
     try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
     if(d.status==='success'){toast('Academic year saved!','s');document.getElementById('yearModal').classList.remove('show');loadYears();}
