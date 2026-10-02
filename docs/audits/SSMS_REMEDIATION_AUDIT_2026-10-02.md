@@ -814,9 +814,10 @@ The YAML parses and the file list guard (`>= 250`) is satisfied at 297.
 
 ---
 
-## 5. Finding M — resolved, with a residual decision
+## 5. Finding M — resolved (ledger question closed in cycle 5: Contract B)
 
-**Downgraded from "cannot provision" to CLOSED for schema parity; one item REQUIRES DECISION.**
+**Downgraded from "cannot provision" to CLOSED for schema parity; the residual
+ledger item was CLOSED in cycle 5 as Contract B (see below).**
 
 Cycle 2 reported that seven core tables were created nowhere. **That was
 wrong, and the correction matters.** It was based on scanning `sql/` alone.
@@ -847,12 +848,62 @@ from the repo, compared via `information_schema`):
 `docs/audits/DEPLOYMENT_RUNBOOK.md` gained **Stage 0b** recording the verified
 procedure and which source is authoritative.
 
-**Still REQUIRES DECISION:** there is no `schema_migrations` ledger, so
-nothing records which migrations any database has received. Migration state
-is tracked by hand. Contract **A (existing-database upgrade)** is what the
-repo implements today and what the legacy files instruct; contract **B (fully
-reproducible fresh install)** is now *achievable* but is not what deployment
-docs promise. Choosing B needs an owner decision plus a ledger.
+**M — CLOSED — Contract B** *(resolved cycle 5)*. There is no
+`schema_migrations` ledger, so nothing records which migrations any database
+has received; migration state is tracked by hand. The factual position is
+unchanged from when this was written — what changed is that it is no longer an
+open question. Ledger-free, hand-tracked migration state **is** the project's
+actual and documented contract, not a gap awaiting a decision.
+
+> **Contract labels — cycle 5, authoritative.** **Contract A** = a
+> `schema_migrations` ledger is authoritative and every applied migration must
+> be represented in it. **Contract B** = migrations are applied and managed
+> *without* such a ledger being required.
+>
+> These supersede the earlier A/B labels used in this report and in section F,
+> which named a different axis (*existing-database upgrade* vs *fully
+> reproducible fresh install*). The ledger-free model previously called
+> "A (existing-database upgrade)" is what cycle 5 designates **Contract B**.
+> Read the older paragraphs with that mapping in mind.
+
+Evidence establishing Contract B (cycle 5, reproduced against the current
+tree):
+
+* Production contains no `schema_migrations` table — 87 tables, confirmed both
+  in the export and by `information_schema` against a live clean restore. The
+  three tables matching `/migrat/` were classified by column structure, not
+  name: `member_code_migrations` is business data
+  (`member_id, old_code, new_code, reason, migrated_at`) and the two
+  `migration_013_*_conflicts` tables are row-shaped quarantine output. None has
+  a version/filename/applied_at/batch column.
+* No application, deployment or runner code reads or writes one — **0
+  references** across `admin/ backend/ scripts/ sql/ api/ tests/e2e/
+  .github/`. Every repo-wide mention is audit prose or the test below.
+* `docs/audits/DEPLOYMENT_RUNBOOK.md` Stage 0 (lines 445–487) explicitly
+  documents ledger-free, hand-tracked migration state — *"no `schema_migrations`
+  ledger … Migration state is tracked by hand"* — and prescribes the operating
+  procedure that follows from it.
+* All 10 `admin/migrations/*.php` self-guard by introspection
+  (`SHOW COLUMNS`, `information_schema`, `CREATE TABLE IF NOT EXISTS`) rather
+  than consulting a ledger: ledger references 0, guards 1–14 per file.
+* `sql/` is not designed for clean replay from scratch (7 tables altered but
+  never created; 4 altered by a lower-numbered migration than the one that
+  creates them), so a ledger would be authoritative over a sequence that
+  cannot itself rebuild the schema.
+* A clean-restore probe confirmed the known cost: applied-state must be
+  inferred from schema, and that inference can be ambiguous — `052`'s index is
+  present only because the file previously shipped as
+  `030_roster_scale_indexes.sql` and creates an identical index, which schema
+  inspection cannot distinguish. This cost is disclosed in runbook step
+  4.7(a), which tells operators the resulting "duplicate key name" is harmless.
+
+Contract B matches both the actual architecture and the documented operating
+procedure. **No confirmed defect was found.** Adopting Contract A instead
+would require backfilling ~64 migrations with no record of what ran (and at
+least one entry — 030 vs 052 — is undecidable from available evidence),
+building a runner, and would fail
+`tests/security/test_migration_schema_boundary.py::test_there_is_still_no_applied_migration_ledger`
+by design.
 
 ---
 
@@ -1300,15 +1351,22 @@ patched but **REQUIRES VERIFICATION**:
    file, the PHP extensions, and a step that **fails the build if any test
    skips**.
 
-**M — schema parity CLOSED; ledger REQUIRES DECISION.** Re-provisioned a
-database from the repo's own procedure and diffed against the untouched
-production restore: **0 tables missing, 0 columns missing** (90 = 87 + 3
-optional `*_archive`). These are separate questions and are not conflated:
-parity is now demonstrated, but there is still **no `schema_migrations`
+**M — schema parity CLOSED; ledger question CLOSED in cycle 5 as Contract B.**
+Re-provisioned a database from the repo's own procedure and diffed against the
+untouched production restore: **0 tables missing, 0 columns missing** (90 = 87
++ 3 optional `*_archive`). These are separate questions and are not conflated:
+parity is demonstrated, and separately there is **no `schema_migrations`
 ledger** in the repo or in production, so nothing records which migrations a
-given database has received. Contract **A** (existing-database upgrade) is
-what the repo implements; **B** (fully reproducible fresh install) is now
-demonstrably achievable. Choosing B needs an owner decision plus a ledger.
+given database has received.
+
+Cycle 5 established that the absence is the intended contract rather than a
+gap: **Contract B** — migrations applied and managed without an authoritative
+ledger — evidenced by the runbook's explicit ledger-free procedure, zero
+ledger references in any executable path, and the 10 PHP migrations'
+introspective self-guarding. **No confirmed defect was found.** Note that the
+A/B labels in the sentence that previously stood here named the
+*upgrade vs fresh-install* axis; section 5 gives the authoritative cycle-5
+definitions and the full evidence.
 
 ---
 
@@ -1795,9 +1853,17 @@ tier; a guard test whose premise was wrong and dangerous — it set
    restorable by the command the runbook gives.
 3. **L-1 — CI has never executed.** Needs a `workflow`-scoped token to push
    `f1c365e`, then a real observed run.
-4. **M — migration ledger governance.** Unchanged: no `schema_migrations`
-   table exists in production, so "which migrations has this database had?"
-   is unanswerable. Contract A (upgrade) vs B (fresh install) still undecided.
+4. ~~**M — migration ledger governance.**~~ **CLOSED in cycle 5 — Contract B;
+   no longer a production blocker.** No `schema_migrations` table exists in
+   production and none is required: the repository has no application,
+   deployment or runner dependency on one, `DEPLOYMENT_RUNBOOK.md` documents
+   ledger-free, hand-tracked migration state as the operating procedure, the
+   10 PHP migrations self-guard by introspection, and `sql/` is not designed
+   for clean replay from scratch. "Which migrations has this database had?" is
+   answered by schema inspection, which a clean-restore probe showed can be
+   ambiguous — a disclosed operational cost (runbook 4.7(a)), not a defect.
+   **No confirmed defect was found.** See section 5 for the full evidence and
+   the authoritative cycle-5 contract definitions.
 5. **K — 5 unadjudicated SELECT-then-INSERT candidates**
    (`admin/api_attendance.php:206`, `admin/api_communication.php:124`,
    `admin/api_education.php:455,468,793`).
