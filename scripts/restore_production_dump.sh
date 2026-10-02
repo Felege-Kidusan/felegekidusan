@@ -49,6 +49,13 @@
 # sql/034 -- but discarding user-owned records is an owner's decision, not a
 # restore script's. See docs/audits for the evidence and the open question.
 #
+# INPUT FORMAT
+# Written for the phpMyAdmin export this project actually produces, where
+# foreign keys are appended as trailing ALTER TABLE ... ADD CONSTRAINT
+# statements. A mysqldump-style export declares constraints INLINE inside
+# CREATE TABLE; this script parses none from such a file and exits 2 with
+# "no constraints parsed" rather than silently restoring without them.
+#
 # USAGE
 #   scripts/restore_production_dump.sh <database> <dump.sql> [mysql args...]
 #
@@ -73,7 +80,15 @@ fi
 # The expected inventory. If the dump changes, these change with it, and a
 # mismatch is a signal rather than something to paper over.
 EXPECTED_TABLES=87
-EXPECTED_FKS=39
+# Two inventories are legitimate, depending on whether the export predates
+# migration 055 (the mezmur orphan-link cleanup, audit finding R-2):
+#   39  export taken BEFORE 055 — three constraints are blocked by 102
+#       orphaned junction rows and are expected to be rejected.
+#   42  export taken AFTER 055 — the orphans are gone and every declared
+#       constraint validates. This is the target state.
+# Anything else is a signal, not something to accept quietly.
+EXPECTED_FKS_PRE_055=39
+EXPECTED_FKS_POST_055=42
 KNOWN_VIOLATED=("fk_mhc_hymn" "fk_mhc_category" "fk_mhz_hymn")
 
 work="$(mktemp -d)"
@@ -142,11 +157,27 @@ tables=$("${MYSQL[@]}" -N -e \
 fks=$("${MYSQL[@]}" -N -e \
   "SELECT COUNT(*) FROM information_schema.table_constraints
     WHERE constraint_schema='${DB}' AND constraint_type='FOREIGN KEY';")
-echo "    tables=${tables}/${EXPECTED_TABLES}  foreign keys=${fks}/${EXPECTED_FKS}"
+echo "    tables=${tables}/${EXPECTED_TABLES}  foreign keys=${fks}"
 
 status=0
 [[ "$tables" == "$EXPECTED_TABLES" ]] || { echo "    MISMATCH: table count"; status=2; }
-[[ "$fks"    == "$EXPECTED_FKS"    ]] || { echo "    MISMATCH: constraint count"; status=2; }
+
+case "$fks" in
+  "$EXPECTED_FKS_POST_055")
+    inventory="post-055 (orphan cleanup applied; every declared constraint validates)"
+    if [[ "$rejected" -ne 0 ]]; then
+      echo "    MISMATCH: 42 constraints present but ${rejected} were rejected"; status=2
+    fi
+    ;;
+  "$EXPECTED_FKS_PRE_055")
+    inventory="pre-055 (three constraints blocked by orphaned junction rows)"
+    ;;
+  *)
+    echo "    MISMATCH: expected ${EXPECTED_FKS_PRE_055} (pre-055) or ${EXPECTED_FKS_POST_055} (post-055), got ${fks}"
+    inventory="unrecognised"; status=2
+    ;;
+esac
+echo "    inventory: ${inventory}"
 
 # The three rejections are known and expected. A DIFFERENT rejection means
 # the data changed shape and needs a human, so do not pass silently.
@@ -160,15 +191,21 @@ for n in "${rejected_names[@]:-}"; do
   fi
 done
 
-if [[ "$status" -eq 0 ]]; then
+if [[ "$status" -eq 0 && "$fks" == "$EXPECTED_FKS_POST_055" ]]; then
   cat <<EOF
 
-RESTORE STATUS: PASS (expected inventory)
+RESTORE STATUS: PASS
+  87 tables, 42/42 foreign keys, no data modified.
+  Every constraint the schema declares is present and validated.
+EOF
+elif [[ "$status" -eq 0 ]]; then
+  cat <<EOF
+
+RESTORE STATUS: PASS (expected inventory for a pre-055 export)
   87 tables, 39/42 foreign keys, no data modified.
-  3 constraints are absent because production data violates them:
+  3 constraints are absent because the exported data violates them:
     fk_mhc_hymn, fk_mhc_category, fk_mhz_hymn
-  Reaching 42/42 requires deleting 102 orphaned link rows, which is an
-  owner decision and is NOT performed here.
+  Apply sql/055_mezmur_orphan_link_cleanup.sql to reach 42/42.
 EOF
 else
   echo
