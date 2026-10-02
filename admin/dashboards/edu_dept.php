@@ -657,6 +657,28 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <tr><td class="amharic" style="font-weight:600"><?= e($s['subject_name']) ?></td><td><?= e($s['subject_name_en'] ?? '—') ?></td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px"><?= e($s['subject_code'] ?? '—') ?></code></td><td><span class="ch ch-i"><?= $cnt ?> classes</span></td><td><button onclick='editSubject(<?= json_encode($s, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>)' class="ab" style="background:#ede9fe;color:#7c3aed" title="Edit"><i class="fa-solid fa-pen"></i></button></td></tr>
 <?php endforeach; if(empty($subjects)): ?><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">No subjects yet</td></tr><?php endif; ?>
 </tbody></table></div></div>
+
+<!-- ═══ SUBJECT DURATION (migration 056) ═══ -->
+<div class="crd" style="margin-top:1rem">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">
+<div>
+<h3 style="font-size:1rem;font-weight:700;color:#1e293b;margin:0"><i class="fa-solid fa-hourglass-half" style="color:#7c3aed"></i> Subject Duration</h3>
+<p style="font-size:.72rem;color:#64748b;margin:.2rem 0 0">Set whether each subject runs for one semester or the whole year. This is set per class, because the same subject can run differently in different classes.</p>
+</div>
+</div>
+<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:.7rem">
+<div style="min-width:190px"><label class="lbl">Class</label><select id="durClass" class="inp" onchange="loadSubjectDurations()"><option value="">— Select a class —</option><?php foreach ($classes as $c): ?><option value="<?= (int)$c['id'] ?>" class="amharic"><?= e($c['class_name']) ?></option><?php endforeach; ?></select></div>
+<div style="min-width:170px"><label class="lbl">Academic Year</label><select id="durYear" class="inp" onchange="loadSubjectDurations()"></select></div>
+</div>
+<div style="display:flex;gap:.45rem;flex-wrap:wrap;font-size:.68rem;color:#475569;margin-bottom:.6rem">
+<span><span class="ch ch-ok">Full Year</span> both semesters combined into one annual result, using the year's weights</span>
+<span><span class="ch ch-i">Semester Only</span> finishes at the end of its semester</span>
+<span><span class="ch ch-d">Unclassified</span> not set yet — behaves exactly as before</span>
+</div>
+<div class="tw"><table class="dt"><thead><tr><th>Subject</th><th>Class</th><th>Academic Year</th><th>Duration</th><th>Semester</th><th>Status</th><th>Action</th></tr></thead><tbody id="durBody">
+<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Select a class to see its subjects.</td></tr>
+</tbody></table></div>
+</div>
 </div>
 
 <!-- ═══ ENROLLMENT (ADVANCED) ═══ -->
@@ -1630,6 +1652,7 @@ function nav(n){
         try{ if(n==='teachers')loadTeachers(); }catch(e){console.error(e);}
         try{ if(n==='classes')loadClasses(); }catch(e){console.error(e);}
         try{ if(n==='settings')loadYears(); }catch(e){console.error(e);}
+        try{ if(n==='subjects')initDurationYears().then(loadSubjectDurations); }catch(e){console.error(e);}
         try{ if(n==='enrollment')loadEnrollOverview(); }catch(e){console.error(e);}
         try{ if(n==='profile'&&typeof window.loadTabProfile==='function')window.loadTabProfile(); }catch(e){console.error(e);}
         const _u=new URL(window.location);_u.searchParams.set('section',n);history.replaceState(null,'',_u);
@@ -1641,6 +1664,116 @@ function nav(n){
 }
 document.querySelectorAll('[data-sec]').forEach(el=>{el.addEventListener('click',function(e){e.preventDefault();const n=this.getAttribute('data-sec');if(n)nav(n);});});
 {const _sp=new URLSearchParams(window.location.search).get('section');if(_sp)nav(_sp);}
+
+// ═══ SUBJECT DURATION (migration 056) ═══
+// Stores how each class/subject offering is scheduled. No averaging or
+// weighting happens here - the report service reads these values and does
+// the maths. This screen only records the choice.
+window._durTerms = [];
+
+async function initDurationYears(){
+    const sel=document.getElementById('durYear');
+    if(!sel||sel.dataset.ready==='1')return;
+    try{
+        const d=await getAPI('/admin/api_education.php?action=get_academic_years');
+        const years=d.years||d.data||[];
+        if(!years.length){sel.innerHTML='<option value="">No academic years</option>';return;}
+        sel.innerHTML=years.map(y=>`<option value="${y.id}" ${y.is_current==1?'selected':''}>${esc(y.year_name||('Year '+y.id))}${y.is_current==1?' (current)':''}</option>`).join('');
+        sel.dataset.ready='1';
+    }catch(e){sel.innerHTML='<option value="">Could not load years</option>';}
+}
+
+function durChip(dt){
+    if(dt==='FULL_YEAR')return '<span class="ch ch-ok">Full Year</span>';
+    if(dt==='SEMESTER_ONLY')return '<span class="ch ch-i">Semester Only</span>';
+    return '<span class="ch ch-d">Unclassified</span>';
+}
+
+async function loadSubjectDurations(){
+    const body=document.getElementById('durBody');
+    const cid=document.getElementById('durClass').value;
+    const yid=document.getElementById('durYear').value||0;
+    if(!body)return;
+    if(!cid){body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Select a class to see its subjects.</td></tr>';return;}
+    body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading…</td></tr>';
+    try{
+        const d=await getAPI(`/admin/api_subjects.php?action=get_class_subject_durations&class_id=${encodeURIComponent(cid)}&year_id=${encodeURIComponent(yid)}`);
+        if(d.status!=='success'){
+            body.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#b45309">${esc(d.message||'Could not load subject durations')}</td></tr>`;
+            return;
+        }
+        window._durTerms=d.terms||[];
+        const yearLabel=esc(document.getElementById('durYear').selectedOptions[0]?.textContent||'—');
+        const rows=d.offerings||[];
+        if(!rows.length){
+            body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#94a3b8">No subjects are assigned to this class yet.</td></tr>';
+            return;
+        }
+        body.innerHTML=rows.map(o=>{
+            const dt=o.duration_type||'';
+            const termOpts=['<option value="">— Select semester —</option>'].concat(
+                window._durTerms.map(t=>`<option value="${t.id}" ${String(o.term_id)===String(t.id)?'selected':''}>${esc(t.term_name||('Semester '+t.term_number))}</option>`)
+            ).join('');
+            return `<tr id="durRow${o.offering_id}">
+<td class="amharic" style="font-weight:600">${esc(o.subject_name)}${o.subject_name_en?`<div style="font-size:.68rem;color:#94a3b8;font-weight:400">${esc(o.subject_name_en)}</div>`:''}</td>
+<td class="amharic">${esc(o.class_name||'—')}</td>
+<td style="font-size:.74rem;color:#475569">${yearLabel}</td>
+<td><select class="inp" id="durType${o.offering_id}" style="min-width:150px;font-size:.75rem" onchange="durTypeChanged(${o.offering_id})">
+<option value="" ${dt===''?'selected':''}>Unclassified</option>
+<option value="SEMESTER_ONLY" ${dt==='SEMESTER_ONLY'?'selected':''}>Semester Only</option>
+<option value="FULL_YEAR" ${dt==='FULL_YEAR'?'selected':''}>Full Year</option>
+</select></td>
+<td><select class="inp" id="durTerm${o.offering_id}" style="min-width:140px;font-size:.75rem" ${dt==='SEMESTER_ONLY'?'':'disabled'}>${termOpts}</select>
+<div id="durHint${o.offering_id}" style="font-size:.66rem;color:#94a3b8;margin-top:.15rem">${dt==='SEMESTER_ONLY'?'':'Not needed for this duration.'}</div></td>
+<td id="durChip${o.offering_id}">${durChip(dt)}</td>
+<td><button class="ab" style="background:#ede9fe;color:#6d28d9" title="Save this subject" onclick="saveSubjectDuration(${o.offering_id})"><i class="fa-solid fa-save"></i></button></td>
+</tr>`;
+        }).join('');
+    }catch(e){
+        body.innerHTML='<tr><td colspan="7" style="text-align:center;padding:1.5rem;color:#dc2626">Error loading subject durations</td></tr>';
+    }
+}
+
+// The semester picker only applies to a semester-only subject.
+function durTypeChanged(id){
+    const t=document.getElementById('durType'+id).value;
+    const term=document.getElementById('durTerm'+id);
+    const hint=document.getElementById('durHint'+id);
+    if(t==='SEMESTER_ONLY'){
+        term.disabled=false;
+        hint.textContent='Required — choose which semester.';
+    }else{
+        term.disabled=true;
+        term.value='';
+        hint.textContent='Not needed for this duration.';
+    }
+    document.getElementById('durChip'+id).innerHTML=durChip(t);
+}
+
+async function saveSubjectDuration(id){
+    const t=document.getElementById('durType'+id).value;
+    const termSel=document.getElementById('durTerm'+id);
+    const term=t==='SEMESTER_ONLY'?termSel.value:'';
+    if(t==='SEMESTER_ONLY'&&!term){
+        toast('Choose which semester this subject runs in','err');
+        termSel.focus();
+        return;
+    }
+    const fd=new FormData();
+    fd.append('action','save_class_subject_duration');
+    fd.append('offering_id',id);
+    fd.append('duration_type',t);
+    fd.append('term_id',term);
+    try{
+        const d=await postAPI('/admin/api_subjects.php',fd);
+        if(d.status==='success'){
+            toast('Subject duration saved','ok');
+            loadSubjectDurations();
+        }else{
+            toast(d.message||'Could not save','err');
+        }
+    }catch(e){toast('Error saving subject duration','err');}
+}
 
 // ═══ HELPERS ═══
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');}
