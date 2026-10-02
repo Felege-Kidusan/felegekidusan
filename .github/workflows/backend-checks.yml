@@ -150,11 +150,18 @@ jobs:
       - name: Create test databases
         run: |
           set -euo pipefail
+          # The container provisions MARIADB_USER with rights on
+          # MARIADB_DATABASE only, so the service user cannot create the
+          # other two databases (run #1 failed here with errno 1044).
+          # Create them as root and grant explicitly.
           for db in ssms_comm_e2e ssms_e2e ssms_smoke; do
-            mysql -h 127.0.0.1 -u ssms -pssms \
+            mysql -h 127.0.0.1 -u root -proot \
               -e "CREATE DATABASE IF NOT EXISTS \`$db\` \
-                  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+                    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                  GRANT ALL PRIVILEGES ON \`$db\`.* TO 'ssms'@'%';"
           done
+          mysql -h 127.0.0.1 -u root -proot -e "FLUSH PRIVILEGES;"
+          mysql -h 127.0.0.1 -u ssms -pssms -e "SHOW DATABASES;"
 
       - name: Provision a test-only .fkss_env.php
         run: |
