@@ -1329,7 +1329,9 @@ absent, so the live table predates 013. Two attendance rows carry
 `attendance_date IS NULL`; unreachable by date-keyed lookups, exempt from the
 new key, left untouched. **No cleanup business rules required.**
 
-**K — CLOSED.** The scan found **10** UPDATE statements against status-bearing
+**K — CLOSED.** *(Superseded: this cycle-4 clearance was based on a 10-site scan. The final cycle re-scanned and found **34** status-mutating UPDATEs, of which **two** were genuine defects — see "FINAL RECONCILIATION" below. K is still CLOSED, but as `f93ffc8` **fixed**, not as "all guarded".)*
+
+The scan found **10** UPDATE statements against status-bearing
 tables; **8 mutate `status` and all 8 carry an expected-state predicate**
 (`AND status IN (...)` or `$lockGuard`): `api_communication.php:300`,
 `HrSubmissionService.php:373,521`, `MezmurSubmissionService.php:379,527`,
@@ -1847,10 +1849,17 @@ tier; a guard test whose premise was wrong and dangerous — it set
 
 1. **R-2 — 102 orphaned link rows.** Blocks 3 of 42 constraints. Needs an
    owner decision; no code change can resolve it.
-2. **R-1 — backup export configuration.** Re-export with "disable foreign
-   key checks" enabled, or adopt `scripts/restore_production_dump.sh` as the
-   documented procedure. Until then the organisation's only backup is not
-   restorable by the command the runbook gives.
+2. **R-1 — backup export configuration.** ~~Re-export with "disable foreign
+   key checks" enabled, or adopt~~ **SUPERSEDED — see "FINAL RECONCILIATION"
+   below. The "disable foreign key checks" half of this recommendation was
+   withdrawn: it was disproven at runtime in the final cycle. Constraints added
+   while foreign-key checking is off are created *without being validated*, so
+   such an export restores to an apparent 42/42 while 99 orphaned
+   `mezmur_hymn_categories` rows remain — integrity the schema claims but does
+   not have. The correct remedy is the second half only:** adopt
+   `scripts/restore_production_dump.sh` as the documented procedure. Until then
+   the organisation's only backup is not restorable by the command the runbook
+   gives. **Done in `928cab2`; R-1 is now repository-side CLOSED.**
 3. **L-1 — CI has never executed.** Needs a `workflow`-scoped token to push
    `f1c365e`, then a real observed run.
 4. ~~**M — migration ledger governance.**~~ **CLOSED in cycle 5 — Contract B;
@@ -2164,7 +2173,7 @@ rather than unknowns.
 
 ---
 
-## R-2 CLOSURE — ORPHANED MEZMUR LINK ROWS (owner-authorised, applied)
+## R-2 CLOSURE — ORPHANED MEZMUR LINK ROWS (owner-authorised; applied to a disposable database, NOT to production)
 
 Status change: **R-2 OPEN (decision pending) → R-2 RESOLVED (remediation
 written, applied to a disposable DB, verified and proven reversible).**
@@ -2240,8 +2249,11 @@ phpMyAdmin trailing-`ALTER` export format is now documented in its header; a
 mysqldump-style export with inline constraints exits 2 with
 `no constraints parsed` rather than silently restoring without foreign keys.
 
-**R-1 is unaffected and remains open:** the export still contains no
-`FOREIGN_KEY_CHECKS` statements.
+**R-1 was unaffected by R-2 and remained open at the time of writing:** the
+export still contains no `FOREIGN_KEY_CHECKS` statements. **Superseded —
+R-1 was subsequently closed repository-side in `928cab2`; the absence of
+`FOREIGN_KEY_CHECKS` turned out not to be the defect. See "FINAL
+RECONCILIATION" below.**
 
 ### Evidence
 
@@ -2254,3 +2266,61 @@ mysqldump-style export with inline constraints exits 2 with
 **Not done, by instruction:** nothing was applied to production. Migration 055
 is reviewed and proven but **unexecuted against the live database**; that
 remains the owner's call.
+
+---
+
+# FINAL RECONCILIATION — 2026-10-02
+
+Reconciled against the GitHub tree at `audit/cycle5-remediation` HEAD
+**`928cab27f8db1f4f7ffc0518db450dad1da1626e`** (`928cab2`), local == origin,
+working tree clean. This section is the authoritative current status; where it
+disagrees with an earlier cycle section above, **this section wins**. Earlier
+sections are retained as the chronological record of how each conclusion was
+reached, not as current status.
+
+## Status of every investigated finding
+
+| finding | status | commit | verification evidence | operational action outstanding |
+|---|---|---|---|---|
+| **P** — member report export fatals (`MemberCategory` never loaded) | **CLOSED** | `2279376` | Runtime-proven through the production entry point, not inferred from source; export fatal reproduced before the fix and absent after. | none |
+| **Q** — mobile HR review fatals (`SecurityAuditService` never loaded) | **CLOSED** | `2279376` | Runtime-reproduced; found to be materially worse than first recorded (the fatal aborted the review write path). Re-tested after the fix. | none |
+| **K** — check-then-act races on status mutations | **CLOSED** | `f93ffc8` | 34 status-mutating UPDATEs enumerated. 10 in-scope paths verified already guarded; **2 genuine defects** confirmed by runtime reproduction in `admin/api_education.php`: `transfer_student` (~L1142, reproduced with **no concurrency** — a replay left one member active in two classes) and `promote` (~L481, two concurrent promotions to *different* targets both succeeded). `UNIQUE KEY unique_enrollment` cannot catch either, because the targets differ. Fixed with a minimal compare-and-set (`AND status='active'`, `affected_rows < 1` → HTTP 409). Post-fix: replay → 409; 5/5 race rounds leave exactly one active enrollment. 3 regression tests added — **all 3 fail on the unfixed baseline**. | none |
+| **L** — CI never executed | **CLOSED** | `b6e2ad5` (workflow), `07db598` + `9b92a63` (fixes) | Verified by **real GitHub Actions runs**, not locally. Workflow `373109286` "Backend checks". Green run #3 `37011095086`@`9b92a63`; **controlled negative test** run #4 `37011303611`@`928d64f` on the temporary branch `audit/ci-negative-test` failed **by design**, proving skip ⇒ build failure; the branch was then removed and the workflow restored. Latest run **#10 `37031500284`@`928cab2` — 3/3 jobs success**, PHP 8.4.26, MariaDB 11.4, **1468 passed · 0 failed · 0 skipped** · 464 subtests; the job log records `Skipped tests: 0`. | none |
+| **M** — migration ledger governance | **CLOSED — Contract B** | `0f1bdbf` | Contract B = migrations are applied and managed without an authoritative ledger table. 0 `schema_migrations` rows across 87 production tables; no application, deployment or runner dependency on one; `sql/` is not replayable from empty. Of 54 files: 41 static-guard, 9 dynamic-guard, 4 unguarded (`015`, `029`, `036`, `052`). **No confirmed defect.** Earlier "REQUIRES DECISION" text at lines ~590, ~689, ~1042 and ~1212 is historical cycle narrative, superseded here. | none |
+| **R-1** — restore procedure / FK checks | **CLOSED (repository-side)**; GUI bypass is an operational responsibility | `928cab2` | Classified an **operational-runbook defect**, not a backup-file or code defect. The export did **not** need to change: the repo's own `BackupService.php` already emits FK guards and takes a consistent snapshot. The defect was that the runbook's rollback named no procedure, and `scripts/restore_production_dump.sh` appeared nowhere in it. Measured on MariaDB 11.8.6, disposable DBs: naive import → exit 1, `ERROR 1452` line 9746, **31/42**; restore script → `RESTORE STATUS: PASS`, **39/42** (expected pre-055); `FOREIGN_KEY_CHECKS=0` → exit 0, **42/42 but 99 orphans still present** (unvalidated — the trap); after `sql/055` → **42/42, 0 orphans**, all validated; dump with one FK removed → 38 detected, `MISMATCH`, `RESTORE STATUS: FAIL`, **exit 2** (fails loudly, as required). Regression test fails on the unfixed runbook. | **Yes** — the repository cannot prevent an operator ticking "Disable foreign key checks" in the phpMyAdmin GUI. It can only document the prohibition (now done) and have the restore script refuse the shortcut (it does). |
+| **R-2** — 102 orphaned mezmur link rows | **CLOSED (investigation + migration written)**; **migration 055 is NOT applied to production** | `1f9d410` | `sql/055_mezmur_orphan_link_cleanup.sql` reviewed, applied **to a disposable database only**, verified, proven reversible, and guarded by `SIGNAL '45000'`. Takes FKs 39 → 42. Hymns 68 and 73 category reassignments (32→85, 30→116) are **recommendations only and were not applied**; the other 100 payload-free orphan rows are addressed by the migration. CI #7 `37021351335` green. | **Yes** — two owner decisions: (a) confirm the categories for hymns 68 and 73; (b) authorise running `055` against production. Until then production runs at **39/42** constraints. |
+
+## Remaining operator / production actions
+
+1. **Apply `sql/055` to production** (R-2) — owner authorisation required. Until
+   applied, production carries 39 of 42 declared constraints.
+2. **Decide the category for hymns 68 and 73** (R-2) — a content decision;
+   recommendations recorded, deliberately not applied.
+3. **Never tick "Disable foreign key checks"** when taking the step 0.1
+   phpMyAdmin export (R-1), and restore with
+   `scripts/restore_production_dump.sh` rather than a phpMyAdmin import. The
+   repository cannot enforce either; `DEPLOYMENT_RUNBOOK.md` documents both.
+4. **Rotate both GitHub PATs** used during this audit.
+
+## Explicitly outside current scope
+
+- `admin/api_cms.php:285` — unguarded `cms_registration_submissions.status`
+  overwrite. **REQUIRES VERIFICATION in a later cycle**; not investigated here
+  by instruction, and therefore **not** cleared.
+- Duplicated legacy migration trees — out of scope, unchanged.
+
+## Standing disproofs preserved
+
+The suspected **Education self-approval bypass does not exist** — that
+disproof stands. Other rejected false positives (the scanner's "4 no-WHERE
+UPDATEs", `user-delete.php:116`, `MezmurMediaService.php:582`, the "11 missing
+FKs" damage measure — the real figure is 3, type/collation and restore-order as
+R's cause, and the smoke-suite exit 255 attributed to K) remain rejected and
+should not be re-litigated without new evidence.
+
+## Readiness
+
+**This section does not assert production readiness.** It records that the
+findings listed above are characterised and closed to the extent the repository
+can close them, and that the outstanding items are the operator actions named
+above.
