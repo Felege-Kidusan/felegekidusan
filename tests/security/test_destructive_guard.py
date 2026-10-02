@@ -35,6 +35,33 @@ REFUSED = 2
 
 PHP = os.environ.get("SSMS_E2E_PHP") or shutil.which("php")
 SANDBOX_DB = os.environ.get("SSMS_DB_NAME", "ssms_comm_e2e")
+ENV_FILE = ROOT / ".fkss_env.php"
+
+
+def _db_reachable():
+    """True when the sandbox database can actually be opened.
+
+    The refusal cases below need no database -- the guard exits before any
+    connection is attempted -- but the 'still works' case does. Probe the
+    same way test_comm_e2e.py does rather than pattern-matching stderr for
+    one particular error string: an earlier version only tolerated 'Access
+    denied' and so reported a hard failure when the server was simply not
+    running at all.
+    """
+    if PHP is None or not ENV_FILE.is_file():
+        return False
+    probe = (
+        "require %s; "
+        "$m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME); "
+        "exit($m->connect_errno ? 3 : 0);" % repr(str(ENV_FILE))
+    )
+    try:
+        return subprocess.run(
+            [PHP, "-r", probe], capture_output=True, text=True, timeout=30,
+            env={**os.environ, "SSMS_DB_NAME": SANDBOX_DB},
+        ).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 # A name with no test/e2e/smoke/sandbox token in it. This is the real
 # production database name; it is never created or contacted by these tests,
@@ -140,10 +167,9 @@ class GuardAllowsLegitimateUse(unittest.TestCase):
     half of the property that a 'does it refuse?' test cannot see.
     """
 
+    @unittest.skipUnless(_db_reachable(), "sandbox database unreachable")
     def test_case2_sandbox_database_still_executes(self):
         r = run_harness(HARNESSES[0], SANDBOX_DB, marker="1")
-        if r.returncode != 0 and "Access denied" in (r.stdout + r.stderr):
-            self.skipTest("no database available to this runner")
         self.assertEqual(
             0, r.returncode,
             f"the interlock broke legitimate sandbox lifecycle use; the "
@@ -152,6 +178,7 @@ class GuardAllowsLegitimateUse(unittest.TestCase):
         )
         self.assertIn("E2E-VERDICT: PASS", r.stdout)
 
+    @unittest.skipUnless(_db_reachable(), "sandbox database unreachable")
     def test_explicit_allowlist_lets_an_operator_opt_in(self):
         """Default-deny must stay overridable, or teams whose test database
         is named unconventionally will delete the guard instead."""
