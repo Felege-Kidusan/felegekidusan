@@ -11,6 +11,7 @@
 namespace App\Services;
 
 require_once __DIR__ . '/EnrollmentService.php';
+require_once __DIR__ . '/SubjectDurationPolicy.php';
 
 class ReportCardService
 {
@@ -149,7 +150,13 @@ class ReportCardService
                 $bundle['scores'][$memberId] ?? [],
                 $bundle['attendance'][$memberId] ?? self::emptyAttendance(),
                 $subjectId,
-                $bundle['assessments'] ?? []
+                $bundle['assessments'] ?? [],
+                [
+                    'is_annual' => (bool)($bundle['is_annual'] ?? false),
+                    'report_term_number' => (int)($bundle['report_term_number'] ?? 0),
+                    'weights' => $bundle['weights'] ?? ['s1' => 50.0, 's2' => 50.0],
+                    'term_numbers' => $bundle['term_numbers'] ?? [],
+                ]
             );
             $computedByMember[$memberId] = $computed;
             $avg = $computed['totals']['average'];
@@ -443,8 +450,18 @@ class ReportCardService
         $termInfo = $termId > 0 ? self::fetchTerm($conn, $termId) : null;
         $effectiveTermId = $termId > 0 ? $termId : 0;
 
+        // No term requested means the ANNUAL view. Before migration 056 that
+        // silently pooled every semester's marks into one average; it now
+        // computes each semester separately and combines them per subject
+        // using the year's configured weights.
+        $isAnnual = ($effectiveTermId === 0);
+        $reportTermNumber = (int)($termInfo['term_number'] ?? 0);
+
         $subjects = self::fetchSubjects($conn, $classId);
         $scoreYearId = self::resolveScoreYear($conn, $classId, (int)($yearInfo['id'] ?? 0));
+        $weightYearId = $scoreYearId > 0 ? $scoreYearId : (int)($yearInfo['id'] ?? 0);
+        $weights = SubjectDurationPolicy::weightsForYear($conn, $weightYearId);
+        $termNumbers = self::termNumbers($conn, $weightYearId);
         $scores = self::fetchScores($conn, $classId, $scoreYearId, $effectiveTermId);
         $attendance = self::fetchAttendance($conn, $classId, array_keys($roster), (int)($yearInfo['id'] ?? 0));
         $assessments = self::fetchAssessments($conn, $classId, $scoreYearId, $effectiveTermId);
@@ -476,6 +493,10 @@ class ReportCardService
             'scores' => $scores,
             'attendance' => $attendance,
             'assessments' => $assessments,
+            'is_annual' => $isAnnual,
+            'report_term_number' => $reportTermNumber,
+            'weights' => $weights,
+            'term_numbers' => $termNumbers,
         ];
     }
 
@@ -491,9 +512,15 @@ class ReportCardService
         array $memberScores,
         array $attendance,
         int $onlySubjectId = 0,
-        array $plannedBySubject = []
+        array $plannedBySubject = [],
+        array $ctx = []
     ): array {
         unset($memberId);
+        $isAnnual = (bool)($ctx['is_annual'] ?? false);
+        $reportTermNumber = (int)($ctx['report_term_number'] ?? 0);
+        $weights = $ctx['weights'] ?? ['s1' => 50.0, 's2' => 50.0];
+        $termNumbers = $ctx['term_numbers'] ?? [];
+
         $outSubjects = [];
         $subjectPcts = [];
         $totalObtained = 0.0;
@@ -505,24 +532,92 @@ class ReportCardService
             if ($onlySubjectId > 0 && $sid !== $onlySubjectId) {
                 continue;
             }
+
+            $duration = SubjectDurationPolicy::normalize($subj['duration_type'] ?? null);
+            $offeringTerm = (int)($subj['offering_term_number'] ?? 0);
+
+            // A semester-only offering that declares its semester does not
+            // appear on another semester's report at all. This is what lets a
+            // Semester 1 subject be replaced by a different Semester 2 subject
+            // without either showing up as an empty row on the other report.
+            if (!$isAnnual
+                && !SubjectDurationPolicy::appearsInTerm($duration, $offeringTerm, $reportTermNumber)) {
+                continue;
+            }
+
             $rows = $memberScores[$sid] ?? [];
             $agg = self::aggregateSubject($rows);
             $assessmentsCount += count($agg['assessments']);
             $totalObtained += $agg['obtained'];
             $totalMax += $agg['max'];
-            if ($agg['average'] !== null) {
-                $subjectPcts[] = [
-                    'id' => $sid,
-                    'subject_name' => $subj['subject_name'],
-                    'average' => $agg['average'],
-                ];
-            }
+
             $scoredIds = [];
             foreach ($agg['assessments'] as $a) {
                 if (($a['score'] ?? null) !== null && (int)($a['id'] ?? 0) > 0) {
                     $scoredIds[] = (int)$a['id'];
                 }
             }
+
+            $semesterScores = ['s1' => null, 's2' => null];
+            $untagged = 0;
+            $finalScore = $agg['average'];
+            $status = SubjectDurationPolicy::STATUS_PENDING;
+            $reason = '';
+
+            if ($isAnnual && $duration !== SubjectDurationPolicy::UNCLASSIFIED) {
+                // Split this subject's marks by semester and combine them
+                // through the duration policy. Raw S1 and S2 marks are never
+                // averaged together.
+                $byTerm = [1 => [], 2 => []];
+                foreach ($rows as $row) {
+                    $tn = $termNumbers[(int)($row['term_id'] ?? 0)] ?? 0;
+                    if ($tn === 1 || $tn === 2) {
+                        $byTerm[$tn][] = $row;
+                    } else {
+                        // No resolvable semester. Not guessed at, and not
+                        // folded into either side; surfaced instead.
+                        $untagged++;
+                    }
+                }
+                $s1 = $byTerm[1] ? self::aggregateSubject($byTerm[1])['average'] : null;
+                $s2 = $byTerm[2] ? self::aggregateSubject($byTerm[2])['average'] : null;
+                $semesterScores = ['s1' => $s1, 's2' => $s2];
+
+                $decision = SubjectDurationPolicy::finalScore(
+                    $duration,
+                    $s1 === null ? null : (float)$s1,
+                    $s2 === null ? null : (float)$s2,
+                    $weights,
+                    $offeringTerm
+                );
+                $finalScore = $decision['final'];
+                $status = $decision['status'];
+                $reason = $decision['reason'];
+            } elseif (!$isAnnual) {
+                $status = SubjectDurationPolicy::semesterStatus(
+                    $duration,
+                    $reportTermNumber,
+                    $agg['average'] !== null
+                );
+                $reason = $status === SubjectDurationPolicy::STATUS_CONTINUING
+                    ? 'full-year subject still running; this is the semester score, not the annual result'
+                    : '';
+            } else {
+                // Annual view of an unclassified offering: unchanged pre-056
+                // behaviour, explicitly reported as not a classified final.
+                $reason = 'subject duration is not classified; classify it to get a final score';
+            }
+
+            // Only a real final score contributes to the student's average. A
+            // CONTINUING full-year subject is excluded, never counted as zero.
+            if ($finalScore !== null) {
+                $subjectPcts[] = [
+                    'id' => $sid,
+                    'subject_name' => $subj['subject_name'],
+                    'average' => (float)$finalScore,
+                ];
+            }
+
             $outSubjects[] = [
                 'id' => $sid,
                 'subject_name' => $subj['subject_name'],
@@ -531,9 +626,17 @@ class ReportCardService
                 'obtained' => $agg['average'] !== null ? round($agg['obtained'], 2) : null,
                 'max' => $agg['max'] > 0 ? round($agg['max'], 2) : null,
                 'average' => $agg['average'],
-                'final_percentage' => $agg['average'],
-                'grade_letter' => $agg['average'] !== null ? self::letter($agg['average']) : null,
+                'final_percentage' => $finalScore,
+                'grade_letter' => $finalScore !== null ? self::letter((float)$finalScore) : null,
                 'completion' => self::subjectCompletion($plannedBySubject[$sid] ?? [], $scoredIds),
+                'duration_type' => $duration,
+                'offering_term_number' => $offeringTerm,
+                'subject_status' => $status,
+                'status_reason' => $reason,
+                'semester_1_score' => $semesterScores['s1'],
+                'semester_2_score' => $semesterScores['s2'],
+                'semester_weights' => $isAnnual ? $weights : null,
+                'untagged_mark_rows' => $untagged,
             ];
         }
 
@@ -544,8 +647,19 @@ class ReportCardService
                 $sum += $p['average'];
             }
             $overall = round($sum / count($subjectPcts), 1);
-        } elseif ($totalMax > 0) {
+        } elseif ($totalMax > 0 && !$isAnnual) {
+            // Raw obtained/max across every mark. Correct for a single
+            // semester, but in the ANNUAL view it would add Semester 1 and
+            // Semester 2 raw marks into one percentage -- exactly what the
+            // duration policy exists to prevent -- so it is not used there.
             $overall = round($totalObtained / $totalMax * 100, 1);
+        }
+
+        $pendingSubjects = 0;
+        foreach ($outSubjects as $s) {
+            if (($s['final_percentage'] ?? null) === null) {
+                $pendingSubjects++;
+            }
         }
 
         $strongest = null;
@@ -579,6 +693,9 @@ class ReportCardService
                 'grade_letter' => $overall !== null ? self::letter($overall) : null,
                 'subjects_count' => count($subjectPcts),
                 'assessments_count' => $assessmentsCount,
+                'pending_subjects' => $pendingSubjects,
+                'is_annual' => $isAnnual,
+                'semester_weights' => $isAnnual ? $weights : null,
             ],
             'attendance' => $attendance,
             'highlights' => [
@@ -694,14 +811,31 @@ class ReportCardService
      */
     private static function fetchSubjects(\mysqli $conn, int $classId): array
     {
-        $subjects = [];
-        $stmt = $conn->prepare(
+        // Migration 056 added class_subjects.duration_type / .term_id. The
+        // richer query is tried first and silently falls back on a database
+        // where 056 has not been applied yet, so report cards keep working
+        // between a code deploy and the migration.
+        $sql056 =
+            "SELECT s.id, s.subject_name, s.subject_name_en,
+                    cs.duration_type, cs.term_id AS offering_term_id,
+                    t.term_number AS offering_term_number
+             FROM subjects s
+             INNER JOIN class_subjects cs ON cs.subject_id = s.id
+             LEFT JOIN academic_terms t ON t.id = cs.term_id
+             WHERE cs.class_id = ? AND (s.is_active = 1 OR s.is_active IS NULL)
+             ORDER BY s.subject_name";
+        $sqlLegacy =
             "SELECT s.id, s.subject_name, s.subject_name_en
              FROM subjects s
              INNER JOIN class_subjects cs ON cs.subject_id = s.id
              WHERE cs.class_id = ? AND (s.is_active = 1 OR s.is_active IS NULL)
-             ORDER BY s.subject_name"
-        );
+             ORDER BY s.subject_name";
+
+        $subjects = [];
+        $stmt = @$conn->prepare($sql056);
+        if (!$stmt) {
+            $stmt = $conn->prepare($sqlLegacy);
+        }
         if ($stmt) {
             $stmt->bind_param('i', $classId);
             $stmt->execute();
@@ -711,11 +845,38 @@ class ReportCardService
                     'id' => (int)$row['id'],
                     'subject_name' => (string)$row['subject_name'],
                     'subject_name_en' => (string)($row['subject_name_en'] ?? ''),
+                    'duration_type' => SubjectDurationPolicy::normalize($row['duration_type'] ?? null),
+                    'offering_term_id' => (int)($row['offering_term_id'] ?? 0),
+                    'offering_term_number' => (int)($row['offering_term_number'] ?? 0),
                 ];
             }
             $stmt->close();
         }
         return $subjects;
+    }
+
+    /**
+     * term_id => term_number for one academic year, so a score row can be
+     * attributed to Semester 1 or Semester 2.
+     *
+     * @return array<int,int>
+     */
+    private static function termNumbers(\mysqli $conn, int $yearId): array
+    {
+        $map = [];
+        $sql = 'SELECT id, term_number FROM academic_terms';
+        if ($yearId > 0) {
+            $sql .= ' WHERE academic_year_id = ' . (int)$yearId;
+        }
+        try {
+            $r = $conn->query($sql);
+            while ($r && ($row = $r->fetch_assoc())) {
+                $map[(int)$row['id']] = (int)$row['term_number'];
+            }
+        } catch (\Throwable $e) {
+            return $map;
+        }
+        return $map;
     }
 
     /**
@@ -1180,6 +1341,11 @@ class ReportCardService
                 'average' => $sub['average'] ?? null,
                 'grade_letter' => $sub['grade_letter'] ?? null,
                 'assessments' => $sub['assessments'] ?? [],
+                'duration_type' => $sub['duration_type'] ?? null,
+                'subject_status' => $sub['subject_status'] ?? null,
+                'final_percentage' => $sub['final_percentage'] ?? null,
+                'semester_1_score' => $sub['semester_1_score'] ?? null,
+                'semester_2_score' => $sub['semester_2_score'] ?? null,
             ];
         }
         return $out;
