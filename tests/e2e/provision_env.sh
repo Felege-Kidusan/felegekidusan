@@ -67,9 +67,13 @@ echo "== 5. legacy-era bits the sql/ chain assumes =="
 python3 - <<'PYEOF'
 import re, glob
 def creates(path):
+    # Finding N: an earlier pattern matched only `$sql = "CREATE TABLE ...";`.
+    # 004_add_finance_material_tables.php declares its 8 tables in an array
+    # literal and 005_create_system_branding.php passes its CREATE TABLE
+    # straight to query(), so 9 tables extracted as 0 and every fresh
+    # environment silently lacked the finance and materials subsystems.
     src = open(path, encoding='utf-8').read()
-    return [s for s in re.findall(r'\$sql\s*=\s*"(.*?)"\s*;', src, re.S)
-            if s.strip().startswith('CREATE TABLE')]
+    return [s for s in re.findall(r'"(CREATE TABLE.*?)"\s*[,;)\]]', src, re.S)]
 others, last = [], []
 for f in sorted(glob.glob('admin/migrations/*.php')):
     (last if f.endswith('003_add_assessments.php') else others).extend(creates(f))

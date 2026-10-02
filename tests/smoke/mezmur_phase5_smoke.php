@@ -29,6 +29,13 @@ require dirname(__DIR__, 2) . '/admin/backend/services/MezmurSubmissionService.p
 use App\Services\MezmurAttendanceService;
 use App\Services\MezmurSubmissionService;
 
+
+// Destructive-run interlock: this harness TRUNCATEs real tables. Unlike the
+// comm lifecycle runners it targets a hardcoded 'ssms_smoke' rather than the
+// database .fkss_env.php names, so it cannot follow production credentials --
+// this is consistency hardening, not a production-reachable defect.
+require_once __DIR__ . '/../e2e/destructive_guard.php';
+ssms_require_disposable_database('ssms_smoke', basename(__FILE__));
 $conn = @new mysqli('127.0.0.1', 'ssms', 'ssms', 'ssms_smoke');
 if ($conn->connect_errno) $fail('db connect: ' . $conn->connect_error);
 $conn->set_charset('utf8mb4');
@@ -172,9 +179,42 @@ $sheet4 = MezmurAttendanceService::fetchSectionSheet($conn, '2026-08-25', 'ህ�
 $sheet4['review_notes'] === 'እባክዎ ማስታወሻውን ያረጋግጡ' or $fail('review note not delivered to taker');
 $pass('revision_needed unlocks taker + delivers the reason');
 
+// ── audit 2026-10-02, finding B: the state machine is enforced ──
+// The packet was RETURNED to the taker, so it is no longer awaiting
+// review and cannot be approved until it is resubmitted. Before the fix
+// this silently succeeded.
+$tooEarly = MezmurSubmissionService::reviewPacket($conn, $pid, 'approved', '', 2);
+$tooEarly['ok'] === false or $fail('approving a returned packet must be refused');
+($tooEarly['code'] ?? '') === 'invalid_transition' or $fail('expected invalid_transition, got: ' . ($tooEarly['code'] ?? 'none'));
+$conn->query("SELECT status FROM mezmur_submissions WHERE id = $pid")->fetch_assoc()['status'] === 'revision_needed'
+    or $fail('refused review must not change the status');
+$pass('finding B: revision_needed cannot be approved without a resubmission');
+
+// the taker corrects and resubmits
+$resub = MezmurSubmissionService::upsert($conn, [
+    'taker_id' => 1, 'date' => '2026-08-25', 'section' => 'ህናት',
+    'status' => MezmurSubmissionService::STATUS_SUBMITTED,
+    'member_count' => 2, 'present' => 2, 'late' => 0, 'absent' => 0, 'excused' => 0,
+]);
+$resub['ok'] or $fail('resubmission failed: ' . ($resub['message'] ?? '?'));
+
+// ── audit 2026-10-02, finding D: the stale review trail is cleared ──
+$fresh = $conn->query(
+    "SELECT reviewed_by, reviewed_at, review_notes FROM mezmur_submissions WHERE id = $pid"
+)->fetch_assoc();
+($fresh['reviewed_by'] === null && $fresh['reviewed_at'] === null && $fresh['review_notes'] === null)
+    or $fail('resubmitted packet still carries the previous review: ' . json_encode($fresh));
+$pass('finding D: resubmission clears the previous reviewer decision');
+
 // approve path
 $ap = MezmurSubmissionService::reviewPacket($conn, $pid, 'approved', '', 2);
 $ap['ok'] or $fail('approve failed');
+
+// a replayed decision must not flip an already-approved packet
+$replay = MezmurSubmissionService::reviewPacket($conn, $pid, 'rejected', 'changed my mind', 2);
+$replay['ok'] === false or $fail('an approved packet must not be re-decided');
+$conn->query("SELECT status FROM mezmur_submissions WHERE id = $pid")->fetch_assoc()['status'] === 'approved'
+    or $fail('replayed review corrupted the decision');
 MezmurSubmissionService::takerMayWrite($conn, $auth, '2026-08-25', 'ህናት') and $fail('approved packet must lock');
 $pass('approve finalizes the packet');
 

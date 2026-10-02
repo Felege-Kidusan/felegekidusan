@@ -85,6 +85,11 @@ class CommEndToEndTests(unittest.TestCase):
         return subprocess.run(
             [self.php, str(RUNNER), scenario],
             capture_output=True, text=True, timeout=300, cwd=str(ROOT),
+            # The destructive interlock (finding S) refuses to run unless the
+            # caller declares a disposable target. The suite is the authorised
+            # caller, so it says so explicitly here rather than relying on a
+            # variable happening to be exported in someone's shell.
+            env={**os.environ, "SSMS_AUDIT_TESTING": "1"},
         )
 
     def _assert_verdict_pass(self, proc, scenario):
@@ -167,6 +172,11 @@ class CommV1EndToEndTests(unittest.TestCase):
         return subprocess.run(
             [self.php, str(self.RUNNER_V1), scenario],
             capture_output=True, text=True, timeout=300, cwd=str(ROOT),
+            # The destructive interlock (finding S) refuses to run unless the
+            # caller declares a disposable target. The suite is the authorised
+            # caller, so it says so explicitly here rather than relying on a
+            # variable happening to be exported in someone's shell.
+            env={**os.environ, "SSMS_AUDIT_TESTING": "1"},
         )
 
     def _assert_verdict_pass(self, proc, scenario):
