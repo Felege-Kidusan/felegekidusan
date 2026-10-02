@@ -2095,3 +2095,96 @@ SELECT-then-INSERT sites), and the duplicated legacy migration trees.
 **The codebase is not production ready**, but R, S and L are no longer the
 reasons why — only R-2 and R-1 remain of the three, and both are decisions
 rather than unknowns.
+
+---
+
+## R-2 CLOSURE — ORPHANED MEZMUR LINK ROWS (owner-authorised, applied)
+
+Status change: **R-2 OPEN (decision pending) → R-2 RESOLVED (remediation
+written, applied to a disposable DB, verified and proven reversible).**
+
+The owner reviewed `docs/audits/evidence/r2/R2_category_decision_hymns_68_73.md`
+and authorised exactly three corrections. No other change was made.
+
+| # | Correction | Authority |
+|---|---|---|
+| 1 | Hymn 68 `የራማው ልዑል`: category 32 (deleted) → **85 `የገብርኤል መዝሙራት`** | Legacy denormalised `mezmur_hymns.category` string matches category 85 exactly; hymn 78 carries the identical string and is already filed under 85 |
+| 2 | Hymn 73 `የሚጠብቀኝ አይተኛም`: category 30 (deleted) → **116 `አጠቃላይ`** | Content is Psalm 121/23 addressed to ጌታዬ with no Marian/angelic material; 116 is the only in-use `አጠቃላይ` bucket (6 of 9 valid assignments, all Lord/Christ-themed) |
+| 3 | Delete the remaining **100** link rows | Pure junction rows, no payload column, both parents absent; no recoverable business value |
+
+### Implementation — `sql/055_mezmur_orphan_link_cleanup.sql`
+
+Data-only (no DDL against existing tables), idempotent, precondition-guarded,
+quarantine-backed, with a documented rollback block.
+
+- **Aborts** via `SIGNAL SQLSTATE '45000'` unless categories 85 and 116 both
+  exist with `is_active = 1`.
+- **Quarantines first:** every affected row is copied into
+  `migration_055_mezmur_link_quarantine` (migration 013's convention) with an
+  action and a written reason **before** anything is modified — 102 rows.
+- **Reassignments** are narrow keyed `UPDATE`s on the two specific pairs.
+- **Deletions are keyed on a missing _hymn_ only.** A generic "either parent
+  missing" sweep would also have destroyed the two live-hymn rows above,
+  silently removing two active hymns from category browsing. That asymmetry is
+  the single most important property of this migration.
+- Ends with a report and a zero-orphan assertion.
+
+It deliberately does **not** add the three foreign keys — adding constraints is
+a schema change and is left to the owner's migration process.
+
+### Verification (disposable DB `r_fix`, restored from the production export)
+
+| Table | Before | After | Δ |
+|---|---|---|---|
+| `mezmur_hymn_categories` | 110 | **11** | −99 |
+| `mezmur_hymn_zemarians` | 9 | **8** | −1 |
+| `mezmur_hymns` | 11 | 11 | 0 |
+| `mezmur_categories` | 38 | 38 | 0 |
+| Foreign keys | 39/42 | **42/42** | +3 |
+
+1. Hymn 68 → 85, active, parent `የመላዕክት ዝማሬዎች`. **PASS**
+2. Hymn 73 → 116, active, parent `የጌታ ዝማሬዎች`. **PASS**
+3. Dangling categories 30 and 32 → **0 references each**. **PASS**
+4. Combined orphan probe → **0**. Hymns with no category at all → **0** (was 2). **PASS**
+5. `fk_mhc_hymn`, `fk_mhc_category`, `fk_mhz_hymn` all created without error. **PASS**
+6. `CHECKSUM TABLE` over all 87 pre-existing tables: **only the two intended
+   tables changed; 85/87 bit-identical.** **PASS**
+7. **TOTAL FOREIGN KEYS: 42/42.** **PASS**
+
+**Idempotency:** a second run reports the same result and changes nothing.
+
+**Reversibility — proven, not asserted.** The three FKs were dropped, the
+documented rollback was executed, and **all 87 table checksums returned to
+`evidence/r2/fingerprint_before.txt` exactly**. Note that the FKs must be
+dropped before rolling back: restoring the quarantined rows necessarily
+violates the very constraints the cleanup made possible.
+
+**End-to-end:** a clean restore of the production export followed by migration
+055 and the three constraints reaches **42/42 foreign keys, 88 tables**, with
+zero uncategorised hymns.
+
+### Consequence for the restore runbook
+
+`scripts/restore_production_dump.sh` previously hard-expected 39 foreign keys
+and would therefore have reported a **false MISMATCH on a correct post-055
+re-export**. It now recognises both inventories — 39 (pre-055, three
+constraints legitimately rejected) and 42 (post-055, zero rejected) — and fails
+on anything else. Both paths were exercised. The script's dependence on the
+phpMyAdmin trailing-`ALTER` export format is now documented in its header; a
+mysqldump-style export with inline constraints exits 2 with
+`no constraints parsed` rather than silently restoring without foreign keys.
+
+**R-1 is unaffected and remains open:** the export still contains no
+`FOREIGN_KEY_CHECKS` statements.
+
+### Evidence
+
+- `sql/055_mezmur_orphan_link_cleanup.sql`
+- `docs/audits/evidence/r2/R2_category_decision_hymns_68_73.md`
+- `docs/audits/evidence/r2/fingerprint_before.txt` / `fingerprint_after.txt`
+- `docs/audits/evidence/r2/affected_rows_backup.sql` — 102 re-insertable
+  `INSERT IGNORE` statements, a file-based backup of only the affected rows
+
+**Not done, by instruction:** nothing was applied to production. Migration 055
+is reviewed and proven but **unexecuted against the live database**; that
+remains the owner's call.
