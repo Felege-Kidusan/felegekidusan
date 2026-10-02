@@ -49,6 +49,10 @@ if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
 $__manageActions = [
     'create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes',
     'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',
+    // Subject duration is academic configuration: same Education-staff tier as
+    // the rest of subject management. The read is gated too — a teacher has no
+    // reason to see or change how a subject is scheduled across semesters.
+    'get_class_subject_durations', 'save_class_subject_duration',
 ];
 if (in_array($action, $__manageActions, true)) {
     $__role = $_SESSION['admin_role'] ?? '';
@@ -369,6 +373,217 @@ switch ($action) {
             'message' => $catalog['message'],
         ]);
         break;
+
+    // ============================================================
+    // SUBJECT DURATION (SEMESTER_ONLY / FULL_YEAR) — migration 056
+    // ============================================================
+    // Reads and writes class_subjects.duration_type / .term_id, which
+    // SubjectDurationPolicy uses to decide whether a subject closes at the end
+    // of its semester or is combined across both using the academic year's
+    // weights. No calculation happens here: this endpoint only stores the
+    // classification the report service reads.
+
+    case 'get_class_subject_durations': {
+        $classId = (int)($_GET['class_id'] ?? 0);
+        if ($classId <= 0) {
+            echo json_encode(['status' => 'error', 'message' => 'A class is required.']);
+            break;
+        }
+        $yearId = (int)($_GET['year_id'] ?? ($currentYear['id'] ?? 0));
+
+        // Semesters of the selected year, so the UI offers the EXISTING term
+        // structure rather than inventing its own semester list.
+        $terms = [];
+        $tStmt = $conn->prepare(
+            "SELECT id, term_name, term_number, academic_year_id
+             FROM academic_terms
+             WHERE (? = 0 OR academic_year_id = ?)
+             ORDER BY academic_year_id, term_number"
+        );
+        if ($tStmt) {
+            $tStmt->bind_param('ii', $yearId, $yearId);
+            $tStmt->execute();
+            $tr = $tStmt->get_result();
+            while ($row = $tr->fetch_assoc()) {
+                $terms[] = [
+                    'id' => (int)$row['id'],
+                    'term_name' => (string)$row['term_name'],
+                    'term_number' => (int)$row['term_number'],
+                    'academic_year_id' => (int)$row['academic_year_id'],
+                ];
+            }
+            $tStmt->close();
+        }
+
+        $offerings = [];
+        $stmt = @$conn->prepare(
+            "SELECT cs.id AS offering_id, cs.class_id, cs.subject_id,
+                    cs.duration_type, cs.term_id,
+                    s.subject_name, s.subject_name_en,
+                    c.class_name,
+                    t.term_name, t.term_number
+             FROM class_subjects cs
+             INNER JOIN subjects s ON s.id = cs.subject_id
+             LEFT JOIN classes c ON c.id = cs.class_id
+             LEFT JOIN academic_terms t ON t.id = cs.term_id
+             WHERE cs.class_id = ?
+             ORDER BY s.subject_name"
+        );
+        if (!$stmt) {
+            // Migration 056 not applied yet — say so plainly instead of failing.
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Subject duration is not available yet: migration 056 has not been applied to this database.',
+                'migration_required' => '056_subject_duration_and_semester_weights.sql',
+            ]);
+            break;
+        }
+        $stmt->bind_param('i', $classId);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $offerings[] = [
+                'offering_id' => (int)$row['offering_id'],
+                'class_id' => (int)$row['class_id'],
+                'class_name' => (string)($row['class_name'] ?? ''),
+                'subject_id' => (int)$row['subject_id'],
+                'subject_name' => (string)$row['subject_name'],
+                'subject_name_en' => (string)($row['subject_name_en'] ?? ''),
+                'duration_type' => $row['duration_type'] !== null ? (string)$row['duration_type'] : null,
+                'term_id' => $row['term_id'] !== null ? (int)$row['term_id'] : null,
+                'term_name' => $row['term_name'] !== null ? (string)$row['term_name'] : null,
+                'term_number' => $row['term_number'] !== null ? (int)$row['term_number'] : null,
+            ];
+        }
+        $stmt->close();
+
+        echo json_encode([
+            'status' => 'success',
+            'class_id' => $classId,
+            'year_id' => $yearId,
+            'terms' => $terms,
+            'offerings' => $offerings,
+        ]);
+        break;
+    }
+
+    case 'save_class_subject_duration': {
+        $offeringId = (int)($_POST['offering_id'] ?? 0);
+        $rawDuration = trim((string)($_POST['duration_type'] ?? ''));
+        $rawTermId = $_POST['term_id'] ?? '';
+        $termId = ($rawTermId === '' || $rawTermId === null) ? 0 : (int)$rawTermId;
+
+        if ($offeringId <= 0) {
+            echo json_encode(['status' => 'error', 'message' => 'A subject offering is required.']);
+            break;
+        }
+
+        // Allowed values only. Anything else is rejected rather than coerced.
+        $upper = strtoupper($rawDuration);
+        if ($upper !== '' && $upper !== 'SEMESTER_ONLY' && $upper !== 'FULL_YEAR') {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Duration must be Semester Only, Full Year, or Unclassified.',
+            ]);
+            break;
+        }
+        $duration = ($upper === '') ? null : $upper;
+
+        // The offering must exist.
+        $chk = @$conn->prepare(
+            "SELECT cs.id, cs.class_id, cs.subject_id, cs.duration_type, cs.term_id, s.subject_name
+             FROM class_subjects cs
+             INNER JOIN subjects s ON s.id = cs.subject_id
+             WHERE cs.id = ? LIMIT 1"
+        );
+        if (!$chk) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Subject duration is not available yet: migration 056 has not been applied to this database.',
+                'migration_required' => '056_subject_duration_and_semester_weights.sql',
+            ]);
+            break;
+        }
+        $chk->bind_param('i', $offeringId);
+        $chk->execute();
+        $existing = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if (!$existing) {
+            echo json_encode(['status' => 'error', 'message' => 'That subject offering no longer exists.']);
+            break;
+        }
+
+        // SEMESTER_ONLY needs a real semester; FULL_YEAR and Unclassified must
+        // not carry one. The term must exist in the EXISTING term structure.
+        if ($duration === 'SEMESTER_ONLY') {
+            if ($termId <= 0) {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'Choose which semester this subject runs in.',
+                ]);
+                break;
+            }
+            $tv = $conn->prepare("SELECT id FROM academic_terms WHERE id = ? LIMIT 1");
+            $tv->bind_param('i', $termId);
+            $tv->execute();
+            $termOk = (bool)$tv->get_result()->fetch_assoc();
+            $tv->close();
+            if (!$termOk) {
+                echo json_encode(['status' => 'error', 'message' => 'That semester does not exist.']);
+                break;
+            }
+        } else {
+            // A full-year or unclassified offering is not tied to one semester.
+            $termId = 0;
+        }
+        $termParam = $termId > 0 ? $termId : null;
+
+        $upd = @$conn->prepare("UPDATE class_subjects SET duration_type = ?, term_id = ? WHERE id = ?");
+        if (!$upd) {
+            echo json_encode(['status' => 'error', 'message' => 'Unable to save the subject duration.']);
+            break;
+        }
+        $upd->bind_param('sii', $duration, $termParam, $offeringId);
+        if (!$upd->execute()) {
+            $upd->close();
+            echo json_encode(['status' => 'error', 'message' => 'Unable to save the subject duration.']);
+            break;
+        }
+        $upd->close();
+
+        // Audit through the existing activity_logs mechanism; no new system.
+        try {
+            $log = $conn->prepare(
+                "INSERT INTO activity_logs (user_id, username, action, details, entity_type, entity_id, ip_address)
+                 VALUES (?, ?, 'Subject Duration Changed', ?, 'class_subject', ?, ?)"
+            );
+            if ($log) {
+                $uname = (string)($_SESSION['admin_username'] ?? '');
+                $uid = (int)($_SESSION['admin_id'] ?? 0);
+                $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                $details = json_encode([
+                    'subject' => $existing['subject_name'] ?? '',
+                    'class_id' => (int)$existing['class_id'],
+                    'from' => ['duration_type' => $existing['duration_type'], 'term_id' => $existing['term_id']],
+                    'to' => ['duration_type' => $duration, 'term_id' => $termParam],
+                ], JSON_UNESCAPED_UNICODE);
+                $log->bind_param('issis', $uid, $uname, $details, $offeringId, $ip);
+                $log->execute();
+                $log->close();
+            }
+        } catch (\Throwable $e) {
+            // Audit failure must not lose the saved configuration.
+        }
+
+        echo json_encode([
+            'status' => 'success',
+            'message' => 'Subject duration saved.',
+            'offering_id' => $offeringId,
+            'duration_type' => $duration,
+            'term_id' => $termParam,
+        ]);
+        break;
+    }
 
     // ============================================================
     // DYNAMIC ASSESSMENT TYPES (EDUCATION DEPT MANAGEMENT)

@@ -785,6 +785,39 @@ switch ($action) {
         $end = trim($_POST['end_date'] ?? '');
         $isCurrent = (int)($_POST['is_current'] ?? 0);
         if (!$name) { echo json_encode(['status'=>'error','message'=>'Year name required']); exit; }
+
+    // ── Semester weights (migration 056) ────────────────────────────────────
+    // Optional: only touched when BOTH fields are posted, so existing callers
+    // that know nothing about weights never overwrite a configured split.
+    // Validation is server-side and authoritative — the browser check is a
+    // convenience, not the rule. Invalid values are REJECTED, never silently
+    // normalised to 50/50.
+    $rawS1 = $_POST['s1_weight_pct'] ?? null;
+    $rawS2 = $_POST['s2_weight_pct'] ?? null;
+    $weightsProvided = ($rawS1 !== null && $rawS1 !== '' && $rawS2 !== null && $rawS2 !== '');
+    $s1w = null; $s2w = null;
+    if ($weightsProvided) {
+        require_once __DIR__ . '/backend/services/SubjectDurationPolicy.php';
+        if (!is_numeric($rawS1) || !is_numeric($rawS2)) {
+            echo json_encode(['status'=>'error','message'=>'Semester weights must be numbers.']);
+            exit;
+        }
+        $s1w = (float)$rawS1;
+        $s2w = (float)$rawS2;
+        if ($s1w < 0 || $s2w < 0 || $s1w > 100 || $s2w > 100) {
+            echo json_encode(['status'=>'error','message'=>'Each semester weight must be between 0 and 100.']);
+            exit;
+        }
+        if (!\App\Services\SubjectDurationPolicy::weightsAreValid($s1w, $s2w)) {
+            echo json_encode([
+                'status'  => 'error',
+                'message' => 'Semester 1 and Semester 2 weights must add up to exactly 100% (got '
+                             . rtrim(rtrim(number_format($s1w, 2, '.', ''), '0'), '.') . '% + '
+                             . rtrim(rtrim(number_format($s2w, 2, '.', ''), '0'), '.') . '%).',
+            ]);
+            exit;
+        }
+    }
         
         // Convert empty strings to NULL for DATE columns
         $startDate = ($start !== '') ? $start : null;
@@ -829,14 +862,22 @@ switch ($action) {
                 // UPDATE existing — descriptive fields only. The active-year
                 // lifecycle (status/is_current) changes ONLY through the explicit
                 // "Set Active" switch, never from this edit form.
+            if ($weightsProvided) {
+                $sql = "UPDATE academic_years SET year_name=?, ec_year=?, year_gc=?, start_date=?, end_date=?, s1_weight_pct=?, s2_weight_pct=? WHERE id=?";
+            } else {
                 $sql = "UPDATE academic_years SET year_name=?, ec_year=?, year_gc=?, start_date=?, end_date=? WHERE id=?";
-                $stmt = $conn->prepare($sql);
-                if (!$stmt) {
-                    reportInternalError('Academic year update prepare failed', $conn->error);
-                    echo json_encode(['status'=>'error','message'=>'Academic year storage is temporarily unavailable.']);
-                    exit;
-                }
+            }
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                reportInternalError('Academic year update prepare failed', $conn->error);
+                echo json_encode(['status'=>'error','message'=>'Academic year storage is temporarily unavailable.']);
+                exit;
+            }
+            if ($weightsProvided) {
+                $stmt->bind_param("sisssddi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $s1w, $s2w, $id);
+            } else {
                 $stmt->bind_param("sisssi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $id);
+            }
                 if ($stmt->execute()) {
                     echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id]);
                 } else {
@@ -858,9 +899,19 @@ switch ($action) {
                     exit;
                 }
                 $stmt->bind_param("sisss", $name, $ecYearVal, $yearGcVal, $startDate, $endDate);
-                if ($stmt->execute()) {
-                    $newId = $conn->insert_id;
-                    // Auto-create 2 semesters
+            if ($stmt->execute()) {
+                $newId = $conn->insert_id;
+                // Semester weights, when the form supplied them. Validated above.
+                // Left at the column default (50/50) otherwise.
+                if ($newId && $weightsProvided) {
+                    $wStmt = $conn->prepare("UPDATE academic_years SET s1_weight_pct=?, s2_weight_pct=? WHERE id=?");
+                    if ($wStmt) {
+                        $wStmt->bind_param("ddi", $s1w, $s2w, $newId);
+                        $wStmt->execute();
+                        $wStmt->close();
+                    }
+                }
+                // Auto-create 2 semesters
                     if ($newId) {
                         try {
                             $term1 = '1ኛ ሴሚስተር'; $term2 = '2ኛ ሴሚስተር';
