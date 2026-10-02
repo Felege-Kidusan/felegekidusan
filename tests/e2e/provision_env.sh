@@ -38,10 +38,39 @@ sudo -n mariadb -e "SELECT 1" >/dev/null 2>&1 || sudo -n /etc/init.d/mariadb sta
 for i in $(seq 1 15); do sudo -n mariadb -e "SELECT 1" >/dev/null 2>&1 && break; sleep 1; done
 sudo -n mariadb -e "SELECT VERSION()"
 
-echo "== 3. database + user (from .fkss_env.php) =="
-DB_NAME=$(php -r 'require "/home/user/.fkss_env.php"; echo DB_NAME;')
-DB_USER=$(php -r 'require "/home/user/.fkss_env.php"; echo DB_USER;')
-DB_PASS=$(php -r 'require "/home/user/.fkss_env.php"; echo DB_PASS;')
+echo "== 3. database + user (from the env secrets file) =="
+# Resolve the secrets file exactly the way config.php does -- same candidate
+# names, same search order -- rather than hardcoding one machine's absolute
+# path. The previous version required "/home/user/.fkss_env.php", so this
+# script only worked on the sandbox that wrote it; anywhere else it died with
+# an unreadable PHP fatal and then tried to CREATE DATABASE with an empty
+# name. (Same class of defect as the hardcoded ROOT in four test modules,
+# which the first real CI run caught.)
+_env_values=$(php -r '
+$names = [".fkss_env.php", ".wbws_env.php"];
+$dirs  = [dirname(getcwd()), dirname(getcwd(), 2), getcwd()];
+foreach ($dirs as $d) {
+    foreach ($names as $n) {
+        $p = $d . "/" . $n;
+        if (is_readable($p)) {
+            require $p;
+            echo DB_NAME, PHP_EOL, DB_USER, PHP_EOL, DB_PASS, PHP_EOL;
+            exit(0);
+        }
+    }
+}
+fwrite(STDERR, "provision_env.sh: no .fkss_env.php / .wbws_env.php found in "
+             . implode(", ", $dirs) . PHP_EOL);
+exit(1);
+') || exit 1
+
+# Read line-wise so a password containing spaces survives intact.
+IFS=$'"'"'\n'"'"' read -r -d "" DB_NAME DB_USER DB_PASS <<< "$_env_values" || true
+if [ -z "${DB_NAME:-}" ] || [ -z "${DB_USER:-}" ]; then
+  echo "provision_env.sh: could not read DB settings from the env file." >&2
+  exit 1
+fi
+echo "   using database: $DB_NAME (user $DB_USER)"
 sudo -n mariadb -e "
   CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
   CREATE USER IF NOT EXISTS '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASS';
@@ -67,9 +96,13 @@ echo "== 5. legacy-era bits the sql/ chain assumes =="
 python3 - <<'PYEOF'
 import re, glob
 def creates(path):
+    # Finding N: an earlier pattern matched only `$sql = "CREATE TABLE ...";`.
+    # 004_add_finance_material_tables.php declares its 8 tables in an array
+    # literal and 005_create_system_branding.php passes its CREATE TABLE
+    # straight to query(), so 9 tables extracted as 0 and every fresh
+    # environment silently lacked the finance and materials subsystems.
     src = open(path, encoding='utf-8').read()
-    return [s for s in re.findall(r'\$sql\s*=\s*"(.*?)"\s*;', src, re.S)
-            if s.strip().startswith('CREATE TABLE')]
+    return [s for s in re.findall(r'"(CREATE TABLE.*?)"\s*[,;)\]]', src, re.S)]
 others, last = [], []
 for f in sorted(glob.glob('admin/migrations/*.php')):
     (last if f.endswith('003_add_assessments.php') else others).extend(creates(f))

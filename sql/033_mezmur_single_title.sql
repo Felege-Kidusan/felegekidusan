@@ -1,4 +1,16 @@
 -- 033: single Amharic title (Patch 28, item 9).
+--
+-- ORDERING REQUIREMENT (audit finding G, 2026-10-02) — apply AFTER:
+--   • 031_mezmur_hymn_title_unique.sql — the UNIQUE title key whose
+--     collision rules the fold below is written to respect.
+--   • 032_mezmur_hymn_words.sql — CREATES `mezmur_hymn_words`, the table
+--     step 3 clears. Run 033 first and that DELETE fails with error 1146
+--     ("table doesn't exist") AFTER step 2 has already dropped title_am
+--     and reference — a half-applied, destructive migration. Step 3 is
+--     therefore guarded below so a wrong order reports the cause instead
+--     of aborting mid-way.
+-- Numeric order (031 → 032 → 033) satisfies this; see
+-- docs/audits/DEPLOYMENT_RUNBOOK.md stage 4.7.
 -- Why: hymns carried THREE text fields (title, title_am, reference).
 -- The product decision is ONE title field — the Amharic name IS the
 -- hymn's real name — and the reference field is retired.
@@ -45,4 +57,17 @@ ALTER TABLE mezmur_hymns DROP COLUMN IF EXISTS reference;
 -- keep matching queries those hymns can no longer satisfy. The schema
 -- reconciler (admin action 'migrate') backfills every hymn that has no
 -- word rows — from title + lyrics only, per the P28 service change.
-DELETE FROM mezmur_hymn_words;
+--
+-- Guarded (finding G): `mezmur_hymn_words` is created by 032. If 032 has
+-- not run, say so plainly rather than failing with a bare error 1146 —
+-- the DROP COLUMNs above have already committed by this point, so a raw
+-- abort here leaves the database half-migrated and the cause unobvious.
+SET @mz33_words := (
+  SELECT COUNT(*) FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mezmur_hymn_words');
+SET @mz33_sql := IF(@mz33_words = 1,
+  'DELETE FROM mezmur_hymn_words',
+  'SELECT ''BLOCKER: mezmur_hymn_words is missing — run sql/032_mezmur_hymn_words.sql, then re-run this file (steps 1-2 are idempotent) to clear the stale word index.'' AS error');
+PREPARE mz33_stmt FROM @mz33_sql;
+EXECUTE mz33_stmt;
+DEALLOCATE PREPARE mz33_stmt;

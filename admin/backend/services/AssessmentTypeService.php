@@ -36,13 +36,6 @@ class AssessmentTypeService
             }
         }
     }
-                    ('participation', 'ተሳትፎ', 'Participation', 10.00, 10.00, 7),
-                    ('oral_exam', 'የቃል ፈተና', 'Oral Exam', 15.00, 15.00, 8),
-                    ('memorization', 'የቃል ጥናት / ዜማ', 'Hymn / Memorization', 15.00, 15.00, 9);
-                ");
-            }
-        }
-    }
 
     /**
      * Get all assessment types.

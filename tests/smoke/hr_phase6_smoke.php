@@ -29,6 +29,13 @@ require dirname(__DIR__, 2) . '/admin/backend/services/HrSubmissionService.php';
 use App\Services\HrAttendanceService;
 use App\Services\HrSubmissionService;
 
+
+// Destructive-run interlock: this harness TRUNCATEs real tables. Unlike the
+// comm lifecycle runners it targets a hardcoded 'ssms_smoke' rather than the
+// database .fkss_env.php names, so it cannot follow production credentials --
+// this is consistency hardening, not a production-reachable defect.
+require_once __DIR__ . '/../e2e/destructive_guard.php';
+ssms_require_disposable_database('ssms_smoke', basename(__FILE__));
 $conn = @new mysqli('127.0.0.1', 'ssms', 'ssms', 'ssms_smoke');
 if ($conn->connect_errno) $fail('db connect: ' . $conn->connect_error);
 $conn->set_charset('utf8mb4');
@@ -138,9 +145,45 @@ $okRev['ok'] or $fail('return with note failed: ' . ($okRev['message'] ?? '?'));
 // returned packet unlocks the taker again
 HrSubmissionService::takerMayWrite($conn, ['uid' => 11, 'role' => 'hr_attendance_taker'], $today, 'ህናት') === true
     or $fail('returned packet must unlock the taker');
+
+// ── audit 2026-10-02, finding A: the state machine is enforced ──
+// A packet that was RETURNED to the taker is not awaiting review, so it
+// cannot be approved until the taker actually resubmits it. Before the
+// fix this silently succeeded, letting a reviewer approve work the taker
+// had never corrected.
+$tooEarly = HrSubmissionService::reviewPacket($conn, $packetId, HrSubmissionService::STATUS_APPROVED, '', 12);
+$tooEarly['ok'] === false or $fail('approving a returned packet must be refused');
+($tooEarly['code'] ?? '') === 'invalid_transition' or $fail('expected invalid_transition, got: ' . ($tooEarly['code'] ?? 'none'));
+$stillReturned = $conn->query("SELECT status FROM hr_submissions WHERE id = $packetId")->fetch_assoc()['status'];
+$stillReturned === 'revision_needed' or $fail('refused review must not change status, got: ' . $stillReturned);
+$pass('finding A: revision_needed cannot be approved without a resubmission');
+
+// the taker corrects and resubmits — now it is awaiting review again
+$resub = HrSubmissionService::upsert($conn, [
+    'taker_id' => 11, 'date' => $today, 'section' => 'ህናት',
+    'status' => HrSubmissionService::STATUS_SUBMITTED,
+    'member_count' => 2, 'present' => 2, 'late' => 0, 'absent' => 0, 'excused' => 0,
+    'client_op_id' => 'hr-smoke-2',
+]);
+$resub['ok'] or $fail('resubmission failed: ' . ($resub['message'] ?? '?'));
+
+// ── audit 2026-10-02, finding C: the stale review trail is cleared ──
+$fresh = $conn->query(
+    "SELECT reviewed_by, reviewed_at, review_notes FROM hr_submissions WHERE id = $packetId"
+)->fetch_assoc();
+($fresh['reviewed_by'] === null && $fresh['reviewed_at'] === null && $fresh['review_notes'] === null)
+    or $fail('resubmitted packet still carries the previous review: ' . json_encode($fresh));
+$pass('finding C: resubmission clears the previous reviewer decision');
+
 $okApp = HrSubmissionService::reviewPacket($conn, $packetId, HrSubmissionService::STATUS_APPROVED, '', 12);
 $okApp['ok'] or $fail('approve failed: ' . ($okApp['message'] ?? '?'));
-$pass('review: note-required returns, hr_dept allowed, cross-dept denied');
+
+// a replayed decision must not flip an already-approved packet
+$replay = HrSubmissionService::reviewPacket($conn, $packetId, HrSubmissionService::STATUS_REJECTED, 'changed my mind', 12);
+$replay['ok'] === false or $fail('an approved packet must not be re-decided');
+$conn->query("SELECT status FROM hr_submissions WHERE id = $packetId")->fetch_assoc()['status'] === 'approved'
+    or $fail('replayed review corrupted the decision');
+$pass('review: note-required returns, hr_dept allowed, cross-dept denied, decisions final');
 
 // ── list / detail / stats ────────────────────────────────────
 $list = HrSubmissionService::listPackets($conn, ['status' => 'approved']);

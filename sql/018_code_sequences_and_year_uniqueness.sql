@@ -63,12 +63,45 @@ BEGIN
       AND `TABLE_NAME` = 'academic_years'
       AND `INDEX_NAME` = 'uq_academic_years_year_name';
 
-    IF v_duplicates = 0 AND v_index_exists = 0 THEN
+    IF v_index_exists > 0 THEN
+        SELECT 'OK: uq_academic_years_year_name already present — nothing to do.' AS status;
+    ELSEIF v_duplicates = 0 THEN
         ALTER TABLE `academic_years`
             ADD CONSTRAINT `uq_academic_years_year_name` UNIQUE (`year_name`);
+        SELECT 'OK: uq_academic_years_year_name created.' AS status;
+    ELSE
+        -- Finding H (2026-10-02): this branch used to be SILENT. The index
+        -- was skipped and the deployment looked clean, while duplicate year
+        -- names stayed possible under concurrency (the errno-1062 branch in
+        -- the save endpoint can never fire without the index). Duplicates
+        -- are still NOT merged or deleted here — that is a human decision —
+        -- but the operator is now told, and shown exactly which rows block.
+        SELECT CONCAT(
+            'BLOCKER: uq_academic_years_year_name NOT created — ',
+            v_duplicates,
+            ' duplicate year_name value(s) exist. Resolve them, then re-run this file.'
+        ) AS status;
+        SELECT `year_name` AS duplicate_year_name,
+               COUNT(*)    AS copies,
+               GROUP_CONCAT(`id` ORDER BY `id`) AS academic_year_ids
+        FROM `academic_years`
+        GROUP BY `year_name`
+        HAVING COUNT(*) > 1;
     END IF;
 END$$
 DELIMITER ;
 
 CALL `ssms_018_unique_year_name`();
 DROP PROCEDURE IF EXISTS `ssms_018_unique_year_name`;
+
+-- Deterministic verdict: re-reads the catalogue AFTER the attempt, so the
+-- final row reflects reality rather than what we intended to do.
+SELECT CASE
+    WHEN EXISTS(
+        SELECT 1 FROM `information_schema`.`STATISTICS`
+        WHERE `TABLE_SCHEMA` = DATABASE()
+          AND `TABLE_NAME` = 'academic_years'
+          AND `INDEX_NAME` = 'uq_academic_years_year_name'
+    ) THEN 'PASS: uq_academic_years_year_name exists.'
+    ELSE 'BLOCKER: uq_academic_years_year_name is MISSING — do not sign off this deployment.'
+END AS m018_verification;

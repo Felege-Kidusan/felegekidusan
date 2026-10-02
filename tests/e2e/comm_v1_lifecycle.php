@@ -29,6 +29,14 @@
 $ROOT = dirname(__DIR__, 2);
 require $ROOT . '/.fkss_env.php';
 
+// ── DESTRUCTIVE-RUN INTERLOCK ──────────────────────────────────────────────
+// This harness DROPs and TRUNCATEs real tables in the database .fkss_env.php
+// names -- the same filename production uses. Default-deny: see
+// tests/e2e/destructive_guard.php for the reasoning.
+require_once __DIR__ . '/destructive_guard.php';
+ssms_require_disposable_database(defined('DB_NAME') ? (string)DB_NAME : '', basename(__FILE__));
+
+
 /* ── CHILD MODE — must come before any parent function definitions
  *    (api/v1/core/response.php declares check()/err() too). ─────────── */
 if (getenv('COMM_V1_CHILD') !== false) {

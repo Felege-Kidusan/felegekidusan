@@ -12,6 +12,8 @@
 
 namespace App\Services;
 
+require_once __DIR__ . '/ReviewTransitionPolicy.php';
+
 class SubmissionService
 {
     public const STATUS_INCOMPLETE = 'incomplete';
@@ -30,7 +32,20 @@ class SubmissionService
     {
     }
 
-    /** Compatibility hook; unique keys are deployment-managed by migration 013. */
+    /**
+     * Compatibility hook — intentionally a no-op; runtime DDL was removed.
+     *
+     * Corrected 2026-10-02 (finding J): this previously claimed "unique keys
+     * are deployment-managed by migration 013". That was not true. Migration
+     * 013 creates `grade_submissions` with only NON-UNIQUE lookup keys
+     * (`sub_att_lookup`, `sub_mark_lookup`) and declares no UNIQUE key at all,
+     * so for a time nothing anywhere enforced one-packet-per-slot and the
+     * SELECT-then-INSERT upserts could duplicate a packet under concurrency.
+     *
+     * The slot constraints now live in sql/053_grade_submission_slot_uniqueness.sql
+     * (`uq_gs_attendance_slot`, `uq_gs_marklist_slot`) and are verified by
+     * sql/preflight/uniqueness_preflight.sql. Do not reintroduce DDL here.
+     */
     public static function hardenUniques(\mysqli $conn): void
     {
     }
@@ -266,25 +281,15 @@ class SubmissionService
      * explaining why the packet cannot be decided in its current state
      * (reviewing a draft, approving a rejected list, rejecting an approved
      * one, …). Shared by the web and mobile review endpoints.
+     *
+     * 2026-10-02: the rule itself moved to ReviewTransitionPolicy so that
+     * HR and Mezmur enforce the identical state machine without depending
+     * on this (Education) service. Messages are unchanged — "list" /
+     * "teacher" is Education's vocabulary.
      */
     public static function reviewTransitionError(?string $current, string $target): ?string
     {
-        $cur = self::normalizeStatus($current);
-        if ($cur === self::STATUS_SUBMITTED) {
-            return null; // awaiting review — approve / return / reject are all valid
-        }
-        if ($cur === '' || self::statusIsOpen($cur)) {
-            return 'This list has not been submitted for review yet. The teacher must submit it first.';
-        }
-        switch ($cur) {
-            case self::STATUS_APPROVED:
-                return 'This list is already approved.';
-            case self::STATUS_REJECTED:
-                return 'This list was rejected. Ask the teacher to submit a corrected list.';
-            case self::STATUS_REVISION:
-                return 'This list was returned to the teacher and has not been resubmitted yet.';
-        }
-        return 'This list cannot be reviewed in its current state.';
+        return ReviewTransitionPolicy::error($current, $target, 'list', 'teacher');
     }
 
     /** One score per student per test. Always update the existing row. */
@@ -434,17 +439,59 @@ class SubmissionService
                     'message' => 'This attendance is already submitted. Only Education can change it.',
                 ];
             }
+            // H10 (extended 2026-10-02): upsertMarklist() has always cleared
+            // the stale reviewer trail on (re)submission; this attendance
+            // sibling did not, so a returned attendance packet re-entered the
+            // Education inbox still showing the previous reviewer's decision.
+            // Same rule, same condition — clear on ENTERING the submitted
+            // state only; corrections that keep the status are untouched.
+            $entersReviewQueue = $status === self::STATUS_SUBMITTED
+                && self::normalizeStatus($curStatus) !== self::STATUS_SUBMITTED;
+            $clearReview = $entersReviewQueue
+                ? ', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL'
+                : '';
+            // Finding K (2026-10-02): the open-status check above is a
+            // SELECT, so Education could approve this packet between that
+            // read and this write, letting a save silently overwrite
+            // approved data and wipe the reviewer trail. Re-assert the same
+            // precondition inside the UPDATE so the race cannot land. An
+            // explicit staff override ('force') intentionally bypasses it.
+            $lockGuard = empty($opts['force'])
+                ? " AND status IN ('draft','incomplete','revision_needed')"
+                : '';
             $sql = "UPDATE grade_submissions
                     SET status = ?, student_count = ?, present_count = ?, absent_count = ?, late_count = ?, excused_count = ?,
                         academic_year_id = ?, submitted_at = COALESCE(?, submitted_at), updated_at = NOW()
-                    WHERE id = ?";
+                        $clearReview
+                    WHERE id = ?$lockGuard";
             $up = $conn->prepare($sql);
             if (!$up) {
                 return ['ok' => false, 'id' => $existingId, 'status' => $status, 'message' => 'Could not update attendance packet.'];
             }
             $up->bind_param('siiiiiisi', $status, $count, $present, $absent, $late, $excused, $yearId, $submittedAt, $existingId);
             $ok = $up->execute();
+            $changed = $up->affected_rows;
             $up->close();
+            // affected_rows can be 0 for a genuine no-op save, so re-read
+            // before blaming the lock (finding K).
+            if ($ok && $changed === 0 && empty($opts['force'])) {
+                $verify = $conn->prepare("SELECT status FROM grade_submissions WHERE id = ? LIMIT 1");
+                if ($verify) {
+                    $verify->bind_param('i', $existingId);
+                    $verify->execute();
+                    $vRow = $verify->get_result()->fetch_assoc() ?: [];
+                    $verify->close();
+                    $vStatus = (string)($vRow['status'] ?? '');
+                    if ($vStatus !== '' && !self::statusIsOpen($vStatus)) {
+                        return [
+                            'ok' => false,
+                            'id' => $existingId,
+                            'status' => self::normalizeStatus($vStatus),
+                            'message' => 'This attendance is already submitted. Only Education can change it.',
+                        ];
+                    }
+                }
+            }
             return [
                 'ok' => (bool)$ok,
                 'id' => $existingId,
@@ -480,8 +527,28 @@ class SubmissionService
             $submittedAt
         );
         $ok = $ins->execute();
+        $insErrno = $ins->errno;
         $id = (int)$ins->insert_id;
         $ins->close();
+        // Finding J (2026-10-02): this is the losing side of a SELECT-then-
+        // INSERT race. Once uq_gs_attendance_slot exists (migration 053) the
+        // duplicate INSERT is refused with errno 1062 instead of silently
+        // creating a second packet for the same (class, date). The packet we
+        // were trying to create now exists, so converge on it through the
+        // normal update path rather than failing the teacher's save. One
+        // retry only — if it still fails, report instead of looping.
+        if (!$ok && $insErrno === 1062 && empty($opts['__slot_retry'])) {
+            $opts['__slot_retry'] = true;
+            return self::upsertAttendance($conn, $opts);
+        }
+        if (!$ok && $insErrno === 1062) {
+            return [
+                'ok' => false,
+                'id' => 0,
+                'status' => $status,
+                'message' => 'Another save for this class and date is in progress. Please try again.',
+            ];
+        }
         return [
             'ok' => (bool)$ok,
             'id' => $id,
@@ -591,12 +658,17 @@ class SubmissionService
             // review cycle starts clean. Corrections that keep the current
             // status leave the review trail untouched.
             $clearReview = $newSubmit !== null ? ', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL' : '';
+            // Finding K (2026-10-02): re-assert the open-status precondition
+            // inside the UPDATE. The check above is a SELECT, so Education
+            // could approve between the read and this write, letting a save
+            // overwrite an approved mark list. A staff override skips it.
+            $lockGuard = $force ? '' : " AND status IN ('draft','incomplete','revision_needed')";
             $up = $conn->prepare(
                 "UPDATE grade_submissions
                  SET teacher_id = ?, status = ?, student_count = ?, average_score = ?, class_id = ?, subject_id = ?,
                      academic_year_id = ?, term_id = ?, submitted_at = COALESCE(?, submitted_at), updated_at = NOW()
                      $clearReview
-                 WHERE id = ?"
+                 WHERE id = ?$lockGuard"
             );
             if (!$up) {
                 return ['ok' => false, 'id' => $existingId, 'status' => $finalStatus, 'message' => 'Could not update mark list.'];
@@ -615,7 +687,28 @@ class SubmissionService
                 $existingId
             );
             $ok = $up->execute();
+            $changed = $up->affected_rows;
             $up->close();
+            // affected_rows can be 0 for a genuine no-op save, so re-read
+            // before blaming the lock (finding K).
+            if ($ok && $changed === 0 && !$force) {
+                $verify = $conn->prepare("SELECT status FROM grade_submissions WHERE id = ? LIMIT 1");
+                if ($verify) {
+                    $verify->bind_param('i', $existingId);
+                    $verify->execute();
+                    $vRow = $verify->get_result()->fetch_assoc() ?: [];
+                    $verify->close();
+                    $vStatus = (string)($vRow['status'] ?? '');
+                    if ($vStatus !== '' && !self::statusIsOpen($vStatus)) {
+                        return [
+                            'ok' => false,
+                            'id' => $existingId,
+                            'status' => self::normalizeStatus($vStatus),
+                            'message' => 'This mark list is already submitted. Only Education can change it.',
+                        ];
+                    }
+                }
+            }
             return [
                 'ok' => (bool)$ok,
                 'id' => $existingId,
@@ -648,8 +741,24 @@ class SubmissionService
             $insSubmittedAt
         );
         $ok = $ins->execute();
+        $insErrno = $ins->errno;
         $id = (int)$ins->insert_id;
         $ins->close();
+        // Finding J (2026-10-02): losing side of the SELECT-then-INSERT race,
+        // refused by uq_gs_marklist_slot (migration 053). Converge on the
+        // packet that won instead of failing the teacher's save. One retry.
+        if (!$ok && $insErrno === 1062 && empty($opts['__slot_retry'])) {
+            $opts['__slot_retry'] = true;
+            return self::upsertMarklist($conn, $opts);
+        }
+        if (!$ok && $insErrno === 1062) {
+            return [
+                'ok' => false,
+                'id' => 0,
+                'status' => $status,
+                'message' => 'Another save for this mark list is in progress. Please try again.',
+            ];
+        }
         return [
             'ok' => (bool)$ok,
             'id' => $id,
