@@ -61,16 +61,36 @@
     const period = [yr.year_name, tm && tm.term_name].filter(Boolean).join(' · ');
     const logo = brand.logo || '/themes/fkss/assets/logos/school_logo.png';
 
-    const subjectRows = subjects.length
-      ? subjects.map(function (sub) {
-          const gl = sub.grade_letter;
+      // How a subject is scheduled, straight from the backend. Without this a
+      // full-year subject part way through the year shows a mark that looks
+      // final. Nothing is calculated here - subject_status and duration_type
+      // are decided by SubjectDurationPolicy and only displayed.
+      function durationNote(sub) {
+        const dt = sub.duration_type || '';
+        const st = sub.subject_status || '';
+        let label = '';
+        if (st === 'CONTINUING') {
+          label = 'Full year — continues next semester';
+        } else if (dt === 'FULL_YEAR') {
+          label = 'Full year';
+        } else if (dt === 'SEMESTER_ONLY') {
+          label = 'Semester only';
+        }
+        if (!label) return '';
+        return '<div style="font-size:.56rem;color:#6d28d9;font-weight:600;margin-top:.1rem">'
+          + esc(label) + '</div>';
+      }
+
+      const subjectRows = subjects.length
+        ? subjects.map(function (sub) {
+            const gl = sub.grade_letter;
           const chips = (sub.assessments || []).map(function (a) {
             const sc = a.score != null ? a.score : '—';
             const mx = a.max_score != null ? a.max_score : '';
             return '<span class="rc-chip">' + esc(a.assessment_name || '') + ': ' + esc(sc) + (mx !== '' ? '/' + esc(mx) : '') + '</span>';
           }).join('');
           return '<tr>' +
-            '<td class="am">' + esc(sub.subject_name || '') + (sub.subject_name_en ? '<div style="font-size:.58rem;color:#3b0000;font-weight:400">' + esc(sub.subject_name_en) + '</div>' : '') + doneBar(sub.completion) + '</td>' +
+            '<td class="am">' + esc(sub.subject_name || '') + (sub.subject_name_en ? '<div style="font-size:.58rem;color:#3b0000;font-weight:400">' + esc(sub.subject_name_en) + '</div>' : '') + durationNote(sub) + doneBar(sub.completion) + '</td>' +
             '<td><div class="rc-chips">' + (chips || '<span class="rc-chip">No scores yet</span>') + '</div></td>' +
             '<td class="num">' + dash(sub.obtained) + '</td>' +
             '<td class="num">' + dash(sub.max) + '</td>' +

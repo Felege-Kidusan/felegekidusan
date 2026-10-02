@@ -467,6 +467,24 @@ class ReportsStillUseTheBackendPolicyTests(unittest.TestCase):
                 "the duration panel must not weight or average anything: found %r" % forbidden,
             )
 
+    def test_the_report_card_shows_the_backend_subject_status(self):
+        src = (ROOT / "admin/js/report_card.js").read_text(
+            encoding="utf-8", errors="replace")
+        self.assertIn("subject_status", src,
+                      "a continuing full-year subject must be distinguishable")
+        self.assertIn("duration_type", src)
+        self.assertIn("CONTINUING", src)
+
+    def test_the_report_card_does_not_weight_semesters_itself(self):
+        src = (ROOT / "admin/js/report_card.js").read_text(
+            encoding="utf-8", errors="replace")
+        start = src.find("function durationNote")
+        self.assertGreater(start, -1)
+        block = src[start:src.find("const subjectRows", start)]
+        for forbidden in ("s1_weight", "s2_weight", "* 0.", "/ 2"):
+            self.assertNotIn(forbidden, block,
+                             "the report card must display, not calculate: %r" % forbidden)
+
     def test_the_weight_form_sends_values_rather_than_applying_them(self):
         src = SCHOOL_ADMIN_DASHBOARD.read_text(encoding="utf-8", errors="replace")
         self.assertIn("s1_weight_pct", src, "the year form should submit the weights")
