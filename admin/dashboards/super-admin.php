@@ -603,8 +603,6 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
     <link rel="stylesheet" href="/admin/css/super_admin.css?v=20260819h">
-    <link rel="stylesheet" href="/themes/components.css">
-    <script src="/admin/js/visual_intelligence.js"></script>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
