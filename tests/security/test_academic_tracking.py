@@ -588,33 +588,46 @@ class TrackingContractTests(unittest.TestCase):
         self.assertIn('data-sec="academic-tracking"', page)
         self.assertIn("window.AcademicTrackingInstance.boot()", page)
 
-    def test_the_unbuilt_entities_state_their_boundary_rather_than_faking_it(self):
+    def test_no_entity_fakes_a_workflow_it_does_not_have(self):
         """
-        Phase 2 built the student tracking screens, so the old wording
-        ("Tracking view arrives in Phase 2") is legitimately gone for
-        students. The principle it protected is not: an entity whose
-        workflow does not exist yet must say so, not fake it with
-        placeholder numbers.
+        This began in Phase 1 as "an unbuilt entity must say so on
+        screen", pinned to the words the user actually read. Each phase
+        re-pointed it at whatever was still unbuilt rather than deleting
+        it: Phase 2 dropped students, Phase 3 teachers, Phase 4 subjects,
+        and Phase 5 classes — which leaves nothing unbuilt.
 
-        The check is therefore re-pointed at teachers, subjects and
-        classes, which are still unbuilt — it is not deleted.
+        The principle it protected outlives the wording. Whatever a
+        selection renders, it must route to that entity's real workflow
+        and must never fabricate a dashboard: no chart frame, no canvas,
+        no KPI, no placeholder percentage standing in for an answer
+        nobody computed.
         """
-        # Pin the string the user actually reads, not a source comment.
-        self.assertIn("tracking is not built yet", self.src,
-                      "an unbuilt entity must say so on screen")
-        self.assertIn("is a later phase", self.src)
-        # ...and it must not be faked with numbers.
         boundary = self.src[self.src.index("renderSelection = function"):
                             self.src.index("renderList = function")]
-        self.assertIn("renderStudent()", boundary,
-                      "students must route to the real workflow")
+
+        # Every root entity routes to its own real workflow.
+        for entity, fn in (("students", "renderStudent()"),
+                           ("teachers", "renderTeacher()"),
+                           ("subjects", "renderSubject()"),
+                           ("classes", "renderClass()")):
+            with self.subTest(entity=entity):
+                self.assertIn(fn, boundary,
+                              f"{entity} must route to the real workflow")
+
+        # And none of it is faked.
         for faked in ("drawChart", "canvas", "KPI", "0%"):
             with self.subTest(fake=faked):
                 self.assertNotIn(faked, boundary,
-                                 "the boundary panel must not fake a dashboard")
-        # Students are built now, so the old placeholder must be gone.
-        self.assertNotIn("Tracking view arrives in Phase 2", self.src,
-                         "students are built; the placeholder must not survive")
+                                 "a selection must not fake a dashboard")
+
+        # The retired placeholders must not creep back.
+        for stale in ("Tracking view arrives in Phase 2",
+                      "tracking is not built yet",
+                      "is a later phase"):
+            with self.subTest(stale=stale):
+                self.assertNotIn(stale, self.src,
+                                 "all four workflows exist; this wording is "
+                                 "no longer true")
 
 
 if __name__ == "__main__":
