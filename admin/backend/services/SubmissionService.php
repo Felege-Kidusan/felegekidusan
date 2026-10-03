@@ -114,6 +114,33 @@ class SubmissionService
      */
     public static function marklistPacketStatuses(\mysqli $conn, array $assessmentIds): array
     {
+        $out = [];
+        foreach (self::marklistPacketRefs($conn, $assessmentIds) as $aid => $ref) {
+            $out[$aid] = $ref['status'];
+        }
+        return $out;
+    }
+
+    /**
+     * The winning packet for each assessment: its id as well as its status.
+     *
+     * Added for Academic Tracking Phase 3, which needs the packet id to hand
+     * the user straight to the existing review screen. Status alone cannot
+     * open anything, and looking the id up separately would mean a second
+     * copy of the precedence rule deciding *which* packet is the right one.
+     *
+     * This is therefore the single implementation of that rule;
+     * marklistPacketStatuses() above is a projection of this result.
+     *
+     * PATCH C2/H8 precedence, unchanged: a submitted/approved packet is the
+     * workflow truth for the assessment — a *newer* draft packet (e.g. a
+     * staff correction) must never silently re-open a locked mark list.
+     *
+     * @param list<int> $assessmentIds
+     * @return array<int,array{id:int,status:string}> absent when no packet exists
+     */
+    public static function marklistPacketRefs(\mysqli $conn, array $assessmentIds): array
+    {
         self::ensureTable($conn);
 
         $ids = [];
@@ -150,9 +177,10 @@ class SubmissionService
         while ($row = $res->fetch_assoc()) {
             $aid = (int)$row['assessment_id'];
             $st = self::normalizeStatus($row['status'] ?? '');
-            $latest[$aid] = $st;
+            $ref = ['id' => (int)$row['id'], 'status' => $st];
+            $latest[$aid] = $ref;
             if ($st === self::STATUS_SUBMITTED || $st === self::STATUS_APPROVED) {
-                $locked[$aid] = $st;
+                $locked[$aid] = $ref;
             }
         }
         $stmt->close();

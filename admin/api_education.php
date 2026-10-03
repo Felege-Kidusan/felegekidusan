@@ -105,6 +105,11 @@ $__analyticsActions = [
     // getting a gate of its own.
     'tracking_student_detail',
     'tracking_student_assessments',
+    // Academic Tracking (Phase 3) — scoped teacher workflow. These return
+    // who teaches what and where each mark list stands, which is the same
+    // scoped academic surface as the rest of this tier.
+    'tracking_teacher_detail',
+    'tracking_teacher_assessments',
 ];
 if (in_array($action, $__analyticsActions, true)) {
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
@@ -1886,6 +1891,122 @@ switch ($action) {
                 'status' => 'error',
                 'code' => 'server_error',
                 'message' => 'Could not load this student right now.',
+            ]);
+        }
+        break;
+
+    case 'tracking_teacher_detail':
+    case 'tracking_teacher_assessments':
+        require_once __DIR__ . '/backend/services/AcademicTrackingService.php';
+
+        $ttTeacher = (int)($_GET['teacher_id'] ?? 0);
+        $ttClass   = (int)($_GET['class_id'] ?? 0);
+        $ttSubject = (int)($_GET['subject_id'] ?? 0);
+        $ttYear    = !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0);
+        $ttTerm    = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : 0;
+
+        // 1. Validate ids before they reach a query. Every one of these
+        //    arrives from the browser and none of them is trusted.
+        if ($ttTeacher <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'invalid_teacher',
+                'message' => 'A teacher must be selected.',
+            ]);
+            break;
+        }
+
+        // 2. The class gate, if a class is named. Same canViewClass() the
+        //    report card uses — deliberately not a second permission system.
+        if ($ttClass > 0 && !\App\Services\ReportCardService::canViewClass(
+            $conn,
+            (int)($_SESSION['admin_id'] ?? 0),
+            (string)$__role,
+            $ttClass
+        )) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'code' => 'forbidden', 'message' => 'Access denied for this class.']);
+            break;
+        }
+
+        try {
+            if ($action === 'tracking_teacher_detail') {
+                $ttRes = \App\Services\AcademicTrackingService::teacherDetail($conn, $ttTeacher, $ttYear, $ttTerm);
+
+                // 3. Visibility is re-checked against the classes actually
+                //    returned. The detail call takes no class_id, so the gate
+                //    above never ran for it; without this, a caller who may
+                //    not see a class could still learn it exists by reading
+                //    a teacher who is assigned to it.
+                if (($ttRes['status'] ?? '') === 'success') {
+                    $ttVisible = [];
+                    foreach ($ttRes['assignments'] as $ttRow) {
+                        $ttCid = (int)$ttRow['class_id'];
+                        if (!array_key_exists($ttCid, $ttVisible)) {
+                            $ttVisible[$ttCid] = \App\Services\ReportCardService::canViewClass(
+                                $conn,
+                                (int)($_SESSION['admin_id'] ?? 0),
+                                (string)$__role,
+                                $ttCid
+                            );
+                        }
+                    }
+                    $ttRes['assignments'] = array_values(array_filter(
+                        $ttRes['assignments'],
+                        static function ($r) use ($ttVisible) {
+                            return !empty($ttVisible[(int)$r['class_id']]);
+                        }
+                    ));
+                    // The state has to follow the filtered list, otherwise a
+                    // teacher whose every class is hidden would report "ok"
+                    // with nothing in it.
+                    $ttRes['data_state']['assignments'] = $ttRes['assignments']
+                        ? \App\Services\AcademicTrackingService::STATE_OK
+                        : \App\Services\AcademicTrackingService::STATE_NO_ASSIGNMENTS;
+                }
+            } else {
+                // 4. The subject scope is required here, and the service
+                //    re-validates the teacher/class/subject triple against
+                //    teacher_assignments before returning any workflow row.
+                if ($ttClass <= 0) {
+                    http_response_code(400);
+                    echo json_encode([
+                        'status' => 'error',
+                        'code' => 'invalid_class',
+                        'message' => 'A class must be selected.',
+                    ]);
+                    break;
+                }
+                if ($ttSubject <= 0) {
+                    http_response_code(400);
+                    echo json_encode([
+                        'status' => 'error',
+                        'code' => 'invalid_subject',
+                        'message' => 'A subject must be selected.',
+                    ]);
+                    break;
+                }
+                $ttRes = \App\Services\AcademicTrackingService::teacherAssessments(
+                    $conn,
+                    $ttTeacher,
+                    $ttClass,
+                    $ttSubject,
+                    $ttYear,
+                    $ttTerm
+                );
+                if (($ttRes['code'] ?? '') === 'not_assigned') {
+                    http_response_code(404);
+                }
+            }
+            echo json_encode($ttRes);
+        } catch (Throwable $e) {
+            error_log('tracking teacher: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'server_error',
+                'message' => 'Could not load this teacher right now.',
             ]);
         }
         break;
