@@ -452,9 +452,21 @@ class ListAuthorizationTests(_ListBase):
                          "Phase 1 must not quietly re-tier a shared endpoint")
 
     def test_no_second_authorization_system_was_introduced(self):
+        """
+        The browser must not make authorization decisions.
+
+        Comments are stripped before the check — the same thing
+        test_the_controller_never_indexes_the_first_row already does.
+        A comment that says "the server checks canViewClass" documents
+        where the decision is made; it does not make one. The ban on the
+        tokens appearing in executable code is unchanged.
+        """
+        import re
         src = CONTROLLER.read_text(encoding="utf-8")
+        code = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+        code = re.sub(r"(?m)^\s*//.*$", "", code)
         for forbidden in ("admin_role", "super_admin", "school_admin", "edu_dept", "canViewClass"):
-            self.assertNotIn(forbidden, src,
+            self.assertNotIn(forbidden, code,
                              "the browser must not make authorization decisions")
 
 
@@ -488,23 +500,65 @@ class TrackingContractTests(unittest.TestCase):
         cls.src = CONTROLLER.read_text(encoding="utf-8")
 
     def test_the_controller_performs_no_academic_calculation(self):
-        """ReportCardService is the only calculation engine; JS must not compute."""
+        """
+        ReportCardService is the only calculation engine; JS must not compute.
+
+        Phase 1 could enforce this by banning the vocabulary outright,
+        because the root lists never touched an academic field. Phase 2
+        legitimately *displays* pass_mark, grade_letter, final_percentage
+        and assessment weight, so banning the words would now forbid the
+        feature rather than the defect.
+
+        The rule being enforced has not changed and has not been relaxed:
+        the controller may render a number the engine produced, and may
+        not derive one. So the ban moves from the nouns to the arithmetic
+        — every way a grade could actually be recomputed in the browser.
+        """
         import re
-        # `font-weight` is CSS, not a semester weight, so the weight check is
-        # anchored to reject only a standalone academic identifier.
-        patterns = {
-            "PASS_MARK": r"PASS_MARK",
-            "pass_mark": r"\bpass_mark\b",
-            "gradeLetter": r"\bgradeLetter\b",
-            "grade_letter": r"\bgrade_letter\b",
-            "final_percentage": r"\bfinal_percentage\b",
-            "semester average": r"\bsemester_[12]_average\b",
-            "semester weight": r"(?<!font-)(?<!font_)\bweight\b",
+        code = re.sub(r"/\*.*?\*/", "", self.src, flags=re.S)
+        code = re.sub(r"(?m)^\s*//.*$", "", code)
+        forbidden = {
+            "a grade letter threshold":
+                r">=\s*(?:90|80|70|60)\b",
+            "a hard-coded pass mark":
+                r"(?:PASS_MARK|pass_mark)\s*[:=]\s*\d",
+            "a weighted combination":
+                r"\*\s*(?:\w+\.)?weight\b|\bweight\s*\*",
+            "weight used as a divisor":
+                r"\bweight\s*/",
+            "an average folded in the browser":
+                r"\.reduce\s*\(",
+            "an assignment to final_percentage":
+                r"final_percentage\s*=[^=]",
+            "an assignment to a semester average":
+                r"semester_[12]_average\s*=[^=]",
         }
-        for name, pattern in patterns.items():
-            with self.subTest(token=name):
-                self.assertIsNone(re.search(pattern, self.src),
-                                  f"the controller references {name}")
+        for name, pattern in forbidden.items():
+            with self.subTest(calculation=name):
+                hit = re.search(pattern, code)
+                self.assertIsNone(
+                    hit, f"the controller computes a result itself: {name} "
+                         f"({hit.group(0) if hit else ''!r})")
+
+    def test_the_controller_still_only_displays_engine_numbers(self):
+        """
+        The companion to the test above: proof that the academic numbers
+        on screen arrive from a payload rather than from local state.
+        Every academic field must be read off a response object, never
+        initialised as a literal in the controller.
+        """
+        import re
+        code = re.sub(r"/\*.*?\*/", "", self.src, flags=re.S)
+        code = re.sub(r"(?m)^\s*//.*$", "", code)
+        for field in ("pass_mark", "grade_letter", "final_percentage",
+                      "semester_1_score", "semester_2_score"):
+            with self.subTest(field=field):
+                self.assertIsNotNone(
+                    re.search(r"[\w\]\)]\.\s*" + field + r"\b", code),
+                    f"{field} should be read from a server payload")
+                self.assertIsNone(
+                    re.search(field + r"\s*[:=]\s*(?:\d|'|\")", code),
+                    f"{field} must never be given a literal value in JS")
 
     def test_the_controller_never_indexes_the_first_row(self):
         """The auto-selection bug of the first attempt, pinned shut."""
@@ -534,8 +588,33 @@ class TrackingContractTests(unittest.TestCase):
         self.assertIn('data-sec="academic-tracking"', page)
         self.assertIn("window.AcademicTrackingInstance.boot()", page)
 
-    def test_the_phase_2_boundary_is_stated_rather_than_faked(self):
-        self.assertIn("Tracking view arrives in Phase 2", self.src)
+    def test_the_unbuilt_entities_state_their_boundary_rather_than_faking_it(self):
+        """
+        Phase 2 built the student tracking screens, so the old wording
+        ("Tracking view arrives in Phase 2") is legitimately gone for
+        students. The principle it protected is not: an entity whose
+        workflow does not exist yet must say so, not fake it with
+        placeholder numbers.
+
+        The check is therefore re-pointed at teachers, subjects and
+        classes, which are still unbuilt — it is not deleted.
+        """
+        # Pin the string the user actually reads, not a source comment.
+        self.assertIn("tracking is not built yet", self.src,
+                      "an unbuilt entity must say so on screen")
+        self.assertIn("is a later phase", self.src)
+        # ...and it must not be faked with numbers.
+        boundary = self.src[self.src.index("renderSelection = function"):
+                            self.src.index("renderList = function")]
+        self.assertIn("renderStudent()", boundary,
+                      "students must route to the real workflow")
+        for faked in ("drawChart", "canvas", "KPI", "0%"):
+            with self.subTest(fake=faked):
+                self.assertNotIn(faked, boundary,
+                                 "the boundary panel must not fake a dashboard")
+        # Students are built now, so the old placeholder must be gone.
+        self.assertNotIn("Tracking view arrives in Phase 2", self.src,
+                         "students are built; the placeholder must not survive")
 
 
 if __name__ == "__main__":

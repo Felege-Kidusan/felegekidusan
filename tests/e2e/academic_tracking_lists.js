@@ -354,12 +354,24 @@ async function run() {
     eq('selection: it is the row that was clicked, not the first', 1003, ctrl.scope.id);
     eq('selection: the type is recorded', 'students', ctrl.scope.type);
     eq('selection: the label is the clicked row', 'Student 03 Father 03', ctrl.scope.label);
-    ok('selection: clicking a row fetches no academic payload',
+    ok('selection: clicking a row never calls the old perspective endpoint',
       !log.some((r) => /get_academic_intelligence/.test(r.url)));
 
     const html = root.innerHTML;
-    has('selection: the Phase 2 boundary is stated honestly', html, 'Tracking view arrives in Phase 2');
+    // PHASE 2 CHANGE OF CONTRACT. Until Phase 2 a selected student showed a
+    // boundary panel saying the tracking view did not exist. It exists now,
+    // so pinning that sentence would be pinning a lie. What still matters —
+    // and is asserted instead — is that selection is explicit, that it
+    // opens the student's own workspace, and that no number is invented
+    // before the data arrives. The boundary panel itself is still covered
+    // below, on an entity whose workflow genuinely has not been built.
+    has('selection: the student workspace opens', html, 'role="tablist"');
+    has('selection: the workspace offers the Report Card section', html, 'data-section="report_card"');
     hasNot('selection: no fabricated metric is shown', html, 'Average');
+    // While the detail request is in flight the panel shows a skeleton, not
+    // a zeroed metric that would later be replaced by the real one.
+    has('selection: the pending workspace shows a loading skeleton', html, 'at-skel');
+    hasNot('selection: no attendance figure is invented while loading', html, 'attendance rate across');
     has('selection: breadcrumb shows the hierarchy', html, 'Academic Tracking');
     has('selection: breadcrumb names the list', html, '>Students<');
     has('selection: breadcrumb names the entity', html, 'Student 03 Father 03');
@@ -371,6 +383,13 @@ async function run() {
     await tick();
     pick(r2, '[data-select-id]', 4, 'selection: a fifth teacher row exists').dispatch('keydown', { key: 'Enter' });
     eq('selection: Enter on a row selects it too', 2005, c2.scope.id);
+
+    // The three unbuilt workflows must still say so rather than render an
+    // empty version of the student screen.
+    const teacherHtml = r2.innerHTML;
+    has('selection: an unbuilt workflow still states the boundary honestly',
+      teacherHtml, 'tracking is not built yet');
+    hasNot('selection: an unbuilt workflow shows no section tabs', teacherHtml, 'role="tablist"');
   }
 
   // ========== 5. going back to the list clears the selection
