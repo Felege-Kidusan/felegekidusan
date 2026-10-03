@@ -615,10 +615,6 @@
     return out;
   };
 
-  AcademicTracking.prototype.hasFilters = function (key) {
-    return this.activeFilters(key).length > 0;
-  };
-
   /** Changing any filter resets to page 1 — page 3 of a different query is meaningless. */
   AcademicTracking.prototype.setFilter = function (key, name, value) {
     var st = this.lists[key];
