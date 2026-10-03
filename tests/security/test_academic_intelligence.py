@@ -281,6 +281,75 @@ class AcademicIntelligenceAuthorizationTests(_LiveBase):
         self.assertNotIn("rows", body)
 
 
+class AcademicIntelligenceRenderTests(_LiveBase):
+    """Execute the browser controller against real payloads.
+
+    admin/js/academic_intelligence.js reads dozens of field names off the
+    service payload. A mistyped one does not throw and does not print
+    "undefined" -- the renderer prints an em dash for anything missing,
+    which is a real requirement (an ungraded subject must never read as 0)
+    and therefore also a perfect hiding place for typos. The harness wraps
+    the payload in a recording Proxy so every read of an absent field is
+    reported by name, and checks that unmeasurable values render as a dash
+    while genuine zeroes render as zero.
+    """
+
+    CASES = [
+        ("student", {"perspective": "student", "member_id": 101, "class_id": 1}),
+        ("student_incomplete", {"perspective": "student", "member_id": 104, "class_id": 1}),
+        ("teacher", {"perspective": "teacher", "teacher_id": 11}),
+        ("teacher_noassign", {"perspective": "teacher", "teacher_id": 13}),
+        ("subject", {"perspective": "subject", "subject_id": 1}),
+        ("subject_noteacher", {"perspective": "subject", "subject_id": 3}),
+        ("class", {"perspective": "class", "class_id": 1}),
+        ("class_empty", {"perspective": "class", "class_id": 3}),
+        ("class_filtered", {"perspective": "class", "class_id": 1, "gender": "female"}),
+        ("class_sem2", {"perspective": "class", "class_id": 1, "term_id": 2}),
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.node = shutil.which("node")
+        if not cls.node:
+            raise unittest.SkipTest("node not available — renderer execution skipped")
+        if not ROLE_RUNNER.is_file():
+            raise unittest.SkipTest("tests/e2e/education_config_api.php not present")
+        subprocess.run(
+            [cls.php, str(RUNNER), "term_scoping"],
+            capture_output=True, text=True, timeout=600, cwd=str(ROOT),
+            env={**os.environ, "SSMS_AUDIT_TESTING": "1", "SSMS_SYNC_DB": SYNC_DB},
+        )
+
+    def test_renderer_runs_against_every_real_payload(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, params in self.CASES:
+                params = {"action": "get_academic_intelligence", "year_id": 1, **params}
+                proc = subprocess.run(
+                    [self.php, str(ROLE_RUNNER), "api_education.php", "edu_dept",
+                     "GET", json.dumps(params)],
+                    capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+                    env={**os.environ, "SSMS_DB_NAME": SYNC_DB},
+                )
+                line = proc.stdout.strip().splitlines()[-1]
+                body = json.loads(line)
+                self.assertEqual("success", body.get("status"), f"{name}: {line[:200]}")
+                Path(tmp, name + ".json").write_text(line, encoding="utf-8")
+
+            harness = ROOT / "tests" / "e2e" / "academic_intelligence_render.js"
+            run = subprocess.run(
+                [self.node, str(harness), tmp],
+                capture_output=True, text=True, timeout=180, cwd=str(ROOT),
+            )
+            self.assertEqual(
+                0, run.returncode,
+                "renderer failed against real payloads:\n" + run.stdout + run.stderr,
+            )
+            self.assertIn("0 failed", run.stdout)
+
+
 class AcademicIntelligenceContractTests(unittest.TestCase):
     """Source-level pins for decisions a runtime harness cannot show.
 
@@ -333,6 +402,52 @@ class AcademicIntelligenceContractTests(unittest.TestCase):
                           "worst_teacher", "teacher_rank", "effectiveness"):
             self.assertNotIn(forbidden, lowered)
         self.assertIn("Not a measure of teacher quality", self.service)
+
+    def test_frontend_calculates_nothing(self):
+        """Server computes, browser renders.
+
+        The controller may format and group; it must not decide what a
+        result IS. A hard-coded pass mark or a semester weighting in
+        JavaScript is a second engine that will drift from the first.
+        """
+        js = (ROOT / "admin" / "js" / "academic_intelligence.js").read_text(encoding="utf-8")
+        for forbidden in ("s1_weight", "s2_weight", "* 0.5", "*0.5", "/ 2)",
+                          "50.0", "PASS_MARK ="):
+            self.assertNotIn(
+                forbidden, js,
+                f"'{forbidden}' suggests the browser started calculating",
+            )
+        # The pass mark is displayed, and it comes from the payload.
+        self.assertIn("d.pass_mark", js)
+
+    def test_frontend_uses_the_existing_chart_runtime_only(self):
+        """One chart library, the one already shipped."""
+        page = (ROOT / "admin" / "dashboards" / "edu_dept.php").read_text(encoding="utf-8")
+        self.assertIn("/admin/js/chart.umd.min.js", page)
+        for rival in ("d3.", "echarts", "highcharts", "apexcharts", "plotly",
+                      "chartjs-plugin", "react", "vue.js", "angular"):
+            self.assertNotIn(
+                rival.lower(), page.lower().replace("archart", ""),
+                f"a second frontend library ({rival}) was introduced",
+            )
+
+    def test_workspace_is_reachable_from_the_education_dashboard(self):
+        """One workspace, wired into the existing navigation."""
+        page = (ROOT / "admin" / "dashboards" / "edu_dept.php").read_text(encoding="utf-8")
+        self.assertIn("/admin/js/academic_intelligence.js", page)
+        self.assertIn('id="sec-academic-intel"', page)
+        self.assertIn('data-sec="academic-intel"', page)
+        self.assertIn("AcademicIntelligenceInstance.boot()", page)
+
+    def test_four_perspectives_share_one_endpoint(self):
+        """Not four pages: one request shape, perspective as a parameter."""
+        js = (ROOT / "admin" / "js" / "academic_intelligence.js").read_text(encoding="utf-8")
+        self.assertEqual(
+            1, js.count("action=get_academic_intelligence'"),
+            "each perspective should not have its own endpoint",
+        )
+        for p in ("student", "teacher", "subject", "class"):
+            self.assertIn("'" + p + "'", js)
 
     def test_current_year_resolver_is_callable_from_outside(self):
         """EducationAnalyticsService::getHubData() calls this across class
