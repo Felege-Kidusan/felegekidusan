@@ -99,6 +99,12 @@ $__analyticsActions = [
     'filter_students_performance',
     'get_academic_intelligence',
     'get_academic_intelligence_options',
+    // Academic Tracking (Phase 2) — scoped student workflow. Same payload
+    // class as the rest of this tier: another person's marks, grades, rank
+    // and attendance. It therefore joins the existing tier rather than
+    // getting a gate of its own.
+    'tracking_student_detail',
+    'tracking_student_assessments',
 ];
 if (in_array($action, $__analyticsActions, true)) {
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
@@ -1802,6 +1808,88 @@ switch ($action) {
     // ReportCardService calculation, not four reports. The perspective is a
     // parameter so the workspace can drill from one into another without
     // changing endpoint.
+    // ────────────────────────────────────────────────────────────────────
+    // ACADEMIC TRACKING — STUDENT WORKFLOW (Phase 2)
+    //
+    // Two actions, both scoped to one explicitly selected student:
+    //   tracking_student_detail      header + overview + subjects + attendance
+    //   tracking_student_assessments the assessment list, loaded on demand
+    //
+    // The Report Card section is NOT here. It reuses the existing
+    // api_communication.php?action=get_report_card, which already returns
+    // ReportCardService::getCard() behind the same canViewClass check.
+    // Adding a third action that re-served the same card would be the
+    // duplication the phase brief forbids.
+    // ────────────────────────────────────────────────────────────────────
+    case 'tracking_student_detail':
+    case 'tracking_student_assessments':
+        require_once __DIR__ . '/backend/services/AcademicTrackingService.php';
+
+        $trkMember = (int)($_GET['member_id'] ?? 0);
+        $trkClass  = (int)($_GET['class_id'] ?? 0);
+        $trkYear   = !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0);
+        $trkTerm   = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : 0;
+
+        // 1. Validate the id before it reaches a query. The browser is not
+        //    trusted to send a sane one.
+        if ($trkMember <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'invalid_student',
+                'message' => 'A student must be selected.',
+            ]);
+            break;
+        }
+
+        // 2. If the caller names a class, they must be allowed to see it.
+        //    Same rule the report card uses — not a second system.
+        if ($trkClass > 0 && !\App\Services\ReportCardService::canViewClass(
+            $conn,
+            (int)($_SESSION['admin_id'] ?? 0),
+            (string)$__role,
+            $trkClass
+        )) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'code' => 'forbidden', 'message' => 'Access denied for this class.']);
+            break;
+        }
+
+        try {
+            $trkRes = $action === 'tracking_student_detail'
+                ? \App\Services\AcademicTrackingService::studentDetail($conn, $trkMember, $trkClass, $trkYear, $trkTerm)
+                : \App\Services\AcademicTrackingService::studentAssessments($conn, $trkMember, $trkClass, $trkYear, $trkTerm);
+
+            // 3. When the class was resolved from the enrolment rather than
+            //    supplied, re-check visibility against what came back, so an
+            //    id for a class the caller cannot see cannot be reached by
+            //    simply omitting class_id.
+            if (($trkRes['status'] ?? '') === 'success') {
+                $trkResolved = (int)($trkRes['scope']['class_id'] ?? 0);
+                if ($trkResolved > 0 && $trkResolved !== $trkClass
+                    && !\App\Services\ReportCardService::canViewClass(
+                        $conn,
+                        (int)($_SESSION['admin_id'] ?? 0),
+                        (string)$__role,
+                        $trkResolved
+                    )) {
+                    http_response_code(403);
+                    echo json_encode(['status' => 'error', 'code' => 'forbidden', 'message' => 'Access denied for this class.']);
+                    break;
+                }
+            }
+            echo json_encode($trkRes);
+        } catch (Throwable $e) {
+            error_log('tracking student: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'server_error',
+                'message' => 'Could not load this student right now.',
+            ]);
+        }
+        break;
+
     case 'get_academic_intelligence':
         require_once __DIR__ . '/backend/services/AcademicIntelligenceService.php';
         $aiPerspective = is_scalar($_GET['perspective'] ?? '') ? (string)$_GET['perspective'] : '';

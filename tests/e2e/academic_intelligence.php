@@ -968,6 +968,55 @@ function scenario_tracking_list_fixture(mysqli $conn): void
     check('tracking fixture: C3 is no longer empty', 30, $c3);
 }
 
+/**
+ * Extra rows the Student Tracking (Phase 2) tests need, on top of seed().
+ *
+ * The base seed already gives us a student with perfect attendance (101),
+ * one with none at all (103) and one whose full-year subject stays PENDING
+ * because a semester mark is missing (104). What it does not give us is:
+ *
+ *   - an assessment that exists but has never been marked by anyone, which
+ *     is the only way to reach the "Not started" workflow state;
+ *   - weighted assessments, so planned-vs-recorded weight is exercised;
+ *   - a mark list handed back for revision;
+ *   - a student enrolled but with nothing recorded at all;
+ *   - a member who is in no class, which is the no_enrolment state.
+ */
+function scenario_student_tracking_fixture(mysqli $conn): void
+{
+    // Weight the two C1 Music assessments so the subject plans 100% of its
+    // weight across one marked and one unmarked assessment.
+    $conn->query("UPDATE assessments SET weight_percentage = 50.00 WHERE id = 3");
+    $conn->query("INSERT INTO assessments
+        (id, class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, max_score, weight_percentage, is_active)
+        VALUES (7, " . C1 . ", " . S_MUSIC . ", " . Y1 . ", " . T1 . ", 'Music Project', 'project', 100.00, 50.00, 1)");
+
+    // A mark list Education handed back to the teacher.
+    $conn->query("INSERT INTO grade_submissions
+        (teacher_id, class_id, subject_id, academic_year_id, term_id, assessment_id, status, student_count, average_score, submitted_at)
+        VALUES (" . U_BEKELE . ", " . C2 . ", " . S_HIST . ", " . Y1 . ", " . T1 . ", 6, 'revision_needed', 3, 70.33, '2025-03-01 10:00:00')");
+
+    // 105: enrolled in C1, but not one mark and not one attendance row.
+    $conn->query("INSERT INTO members (id, member_code, student_name, father_name, gender, status)
+                  VALUES (105, 'M-105', 'Tsion', 'Mekonnen', 'female', 'active')");
+    $conn->query("INSERT INTO class_enrollments (member_id, class_id, academic_year_id, status)
+                  VALUES (105, " . C1 . ", " . Y1 . ", 'active')");
+
+    // 150: a real member in no class at all.
+    $conn->query("INSERT INTO members (id, member_code, student_name, father_name, gender, status)
+                  VALUES (150, 'M-150', 'Yonas', 'Girma', 'male', 'active')");
+
+    $unmarked = (int)$conn->query("SELECT COUNT(*) c FROM academic_records WHERE assessment_id = 7")->fetch_assoc()['c'];
+    $noClass  = (int)$conn->query("SELECT COUNT(*) c FROM class_enrollments WHERE member_id = 150")->fetch_assoc()['c'];
+    $blank    = (int)$conn->query("SELECT COUNT(*) c FROM academic_records WHERE member_id = 105")->fetch_assoc()['c'];
+    $noAtt    = (int)$conn->query("SELECT COUNT(*) c FROM attendance WHERE member_id = 103")->fetch_assoc()['c'];
+
+    check('tracking fixture: assessment 7 is unmarked by anyone', 0, $unmarked);
+    check('tracking fixture: member 150 is in no class', 0, $noClass);
+    check('tracking fixture: student 105 has no marks', 0, $blank);
+    check('tracking fixture: student 103 has no attendance', 0, $noAtt);
+}
+
 $scenarios = [
     'breakdown_matches_subject_report' => 'scenario_breakdown_matches_subject_report',
     'breakdown_is_one_pass' => 'scenario_breakdown_is_one_pass',
@@ -981,6 +1030,7 @@ $scenarios = [
     'contract_shape' => 'scenario_contract_shape',
     'term_scoping' => 'scenario_term_scoping',
     'tracking_list_fixture' => 'scenario_tracking_list_fixture',
+    'student_tracking_fixture' => 'scenario_student_tracking_fixture',
 ];
 
 $want = $argv[1] ?? 'all';
