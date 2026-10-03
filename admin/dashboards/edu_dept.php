@@ -71,6 +71,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="/admin/js/advanced_analytics.js?v=20260927"></script>
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
 <script src="/admin/js/academic_intelligence.js?v=20261003"></script>
+<script src="/admin/js/academic_tracking.js?v=20261003"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
 /* Field footer: inline validation errors + live character counters (patch 8) */
@@ -484,6 +485,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div>
 <div class="nt">Academic</div>
 <button class="nl" data-sec="analytics"><i class="fa-solid fa-chart-pie"></i> Analytics &amp; Reports Hub</button>
+<button class="nl" data-sec="academic-tracking"><i class="fa-solid fa-compass-drafting"></i> Academic Tracking</button>
 <button class="nl" data-sec="academic-intel"><i class="fa-solid fa-diagram-project"></i> Academic Intelligence</button>
 <button class="nl" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i> Enrollment</button>
 <button class="nl" data-sec="grades"><i class="fa-solid fa-star"></i> Grades</button>
@@ -777,6 +779,12 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <div style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;padding:1rem 1.25rem;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center"><h3 id="reviewModalTitle" style="font-weight:700;font-size:1rem;margin:0"><i class="fa-solid fa-clipboard-check"></i> Review Submission</h3><button onclick="closeModal('reviewModal')" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem">&times;</button></div>
 <div id="reviewModalContent" style="padding:1.25rem"><p style="text-align:center;color:#94a3b8">Loading...</p></div>
 </div></div>
+
+<!-- ═══ ACADEMIC TRACKING — root navigation (Phase 1) ═══ -->
+<!-- Rendered entirely by /admin/js/academic_tracking.js. It opens on the
+     four entry points with nothing selected; the scoped tracking screens
+     are Phase 2. -->
+<div id="sec-academic-tracking" class="sec"></div>
 
 <!-- ═══ EDUCATION ANALYTICS, REPORTING & INTELLIGENCE HUB ═══ -->
 <div id="sec-academic-intel" class="sec"></div>
@@ -4114,6 +4122,7 @@ nav=function(n){
     try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}
     try{if(n==='filter'&&!pfData.length)applyPerformanceFilter();}catch(e){console.error(e);}
     try{if(n==='analytics'&&window.EduHubInstance)window.EduHubInstance.load();}catch(e){console.error(e);}
+    try{if(n==='academic-tracking'&&window.AcademicTrackingInstance)window.AcademicTrackingInstance.boot();}catch(e){console.error(e);}
     try{if(n==='academic-intel'&&window.AcademicIntelligenceInstance)window.AcademicIntelligenceInstance.boot();}catch(e){console.error(e);}
     try{if(n==='assessments'&&!allAssessmentTypes.length)loadAssessmentTypes();}catch(e){console.error(e);}
 };
