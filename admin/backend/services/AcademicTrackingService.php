@@ -578,11 +578,14 @@ final class AcademicTrackingService
         }
 
         if ($ids) {
-            $statuses = SubmissionService::resolvedMarklistStatuses($conn, $ids);
-            $refs     = SubmissionService::marklistPacketRefs($conn, $ids);
+            // One call, one query: status and the packet it came from are
+            // resolved together. Asking the service twice cost an
+            // identical second round trip per offering.
+            $resolved = SubmissionService::resolvedMarklistRefs($conn, $ids);
             foreach ($rows as $i => $r) {
                 $aid = $r['assessment_id'];
-                $st  = $statuses[$aid] ?? null;
+                $ref = $resolved[$aid] ?? ['status' => null, 'submission_id' => null];
+                $st  = $ref['status'];
                 $rows[$i]['workflow_status'] = $st;
                 // null is a real answer: no packet and no marks => never started.
                 $rows[$i]['workflow_label'] = $st === null
@@ -591,7 +594,7 @@ final class AcademicTrackingService
                 // Only a real packet can be opened in the review screen. A
                 // mark list that exists only as loose marks has no packet,
                 // and inventing an id would send the user to a dead modal.
-                $rows[$i]['submission_id'] = isset($refs[$aid]) ? (int)$refs[$aid]['id'] : null;
+                $rows[$i]['submission_id'] = $ref['submission_id'];
             }
         }
 
