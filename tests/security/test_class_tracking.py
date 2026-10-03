@@ -401,8 +401,8 @@ class ClassRelationshipTests(_ClassBase):
         self.sql(
             "INSERT INTO assessments "
             "(id, class_id, subject_id, academic_year_id, term_id, "
-            " assessment_name, assessment_type, max_score, is_active) "
-            f"VALUES (950, {C1}, {S_HIST}, {Y1}, {T1}, 'Stray', 'test', 100, 1)"
+            " assessment_name, assessment_type, max_score) "
+            f"VALUES (950, {C1}, {S_HIST}, {Y1}, {T1}, 'Stray', 'test', 100)"
         )
         try:
             self.assertEqual("1", self.scalar(
@@ -834,9 +834,9 @@ class ClassAssessmentFactTests(_ClassBase):
         self.sql(
             "INSERT INTO assessments "
             "(id, class_id, subject_id, academic_year_id, term_id, "
-            " assessment_name, assessment_type, max_score, is_active) "
+            " assessment_name, assessment_type, max_score) "
             f"VALUES (951, {C1}, {S_GEEZ}, {Y1}, {T1}, 'Empty packet', "
-            f"'test', 100, 1);"
+            f"'test', 100);"
             "INSERT INTO grade_submissions "
             "(id, teacher_id, class_id, subject_id, academic_year_id, "
             " term_id, assessment_id, submission_type, status, student_count) "

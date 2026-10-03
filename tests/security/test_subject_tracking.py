@@ -261,7 +261,7 @@ class SubjectOfferingModelTests(_SubjectBase):
         self.assertEqual(2, geez[C1]["assessment_count"])
         self.assertEqual(2, music[C1]["assessment_count"])
         total_in_c1 = int(self.scalar(
-            "SELECT COUNT(*) FROM assessments WHERE class_id = %d AND is_active = 1" % C1
+            "SELECT COUNT(*) FROM assessments WHERE class_id = %d" % C1
         ))
         self.assertEqual(4, total_in_c1)
         self.assertNotEqual(total_in_c1, geez[C1]["assessment_count"],
@@ -272,7 +272,7 @@ class SubjectOfferingModelTests(_SubjectBase):
         self.assertEqual(2, geez[C1]["assessment_count"])
         self.assertEqual(2, geez[C2]["assessment_count"])
         total_geez = int(self.scalar(
-            "SELECT COUNT(*) FROM assessments WHERE subject_id = %d AND is_active = 1" % S_GEEZ
+            "SELECT COUNT(*) FROM assessments WHERE subject_id = %d" % S_GEEZ
         ))
         self.assertEqual(4, total_geez)
         self.assertNotEqual(total_geez, geez[C1]["assessment_count"])

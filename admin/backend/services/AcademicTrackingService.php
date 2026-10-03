@@ -553,7 +553,7 @@ final class AcademicTrackingService
         $sql = "SELECT a.id, a.assessment_name, a.assessment_type, a.max_score,
                        a.weight_percentage, a.term_id
                   FROM assessments a
-                 WHERE a.class_id = ? AND a.subject_id = ? AND a.is_active = 1";
+                 WHERE a.class_id = ? AND a.subject_id = ?";
         $params = [$classId, $subjectId];
         $types  = 'ii';
         if ($yearId > 0) {
@@ -817,7 +817,7 @@ final class AcademicTrackingService
         }
         $sql = "SELECT class_id, subject_id, COUNT(*) AS n
                   FROM assessments
-                 WHERE is_active = 1 AND (" . implode(' OR ', $clauses) . ')';
+                 WHERE (" . implode(' OR ', $clauses) . ')';
         if ($yearId > 0) {
             $sql .= ' AND academic_year_id = ?';
             $params[] = $yearId;
@@ -1118,8 +1118,16 @@ final class AcademicTrackingService
      */
     private static function subjectOfferings(\mysqli $conn, int $subjectId): array
     {
+        // Migration 056 may not be applied on this database. The offering
+        // columns are then selected as literal NULL, which is exactly the
+        // value 056 gives existing rows: unclassified, never a guessed
+        // default. Detection happens before prepare() because mysqli throws
+        // on an unknown column rather than returning false.
+        $durCols = SubjectDurationPolicy::supportsOfferingDuration($conn)
+            ? 'cs.duration_type, cs.term_id'
+            : 'NULL AS duration_type, NULL AS term_id';
         $stmt = $conn->prepare(
-            'SELECT cs.class_id, cs.duration_type, cs.term_id,
+            'SELECT cs.class_id, ' . $durCols . ',
                     c.class_name, c.class_name_en, c.is_active
                FROM class_subjects cs
                JOIN classes c ON c.id = cs.class_id
@@ -1170,8 +1178,16 @@ final class AcademicTrackingService
         if ($classId <= 0) {
             return 'invalid_class';
         }
+        // Migration 056 may not be applied on this database. The offering
+        // columns are then selected as literal NULL, which is exactly the
+        // value 056 gives existing rows: unclassified, never a guessed
+        // default. Detection happens before prepare() because mysqli throws
+        // on an unknown column rather than returning false.
+        $durCols = SubjectDurationPolicy::supportsOfferingDuration($conn)
+            ? 'cs.duration_type, cs.term_id'
+            : 'NULL AS duration_type, NULL AS term_id';
         $stmt = $conn->prepare(
-            'SELECT cs.duration_type, cs.term_id, c.class_name, s.subject_name
+            'SELECT ' . $durCols . ', c.class_name, s.subject_name
                FROM class_subjects cs
                JOIN classes c  ON c.id = cs.class_id
                JOIN subjects s ON s.id = cs.subject_id
@@ -1311,7 +1327,7 @@ final class AcademicTrackingService
         $sql = 'SELECT a.id, a.assessment_name, a.assessment_type, a.max_score,
                        a.weight_percentage, a.term_id
                   FROM assessments a
-                 WHERE a.class_id = ? AND a.subject_id = ? AND a.is_active = 1';
+                 WHERE a.class_id = ? AND a.subject_id = ?';
         $params = [$classId, $subjectId];
         $types = 'ii';
         if ($yearId > 0) {
@@ -1443,7 +1459,7 @@ final class AcademicTrackingService
         $place = implode(',', array_fill(0, count($classIds), '?'));
         $sql = "SELECT class_id, COUNT(*) AS n
                   FROM assessments
-                 WHERE class_id IN ($place) AND subject_id = ? AND is_active = 1";
+                 WHERE class_id IN ($place) AND subject_id = ?";
         $params = $classIds;
         $types = str_repeat('i', count($classIds));
         $params[] = $subjectId;
@@ -1708,8 +1724,16 @@ final class AcademicTrackingService
 
         $rows = [];
         $subjectIds = [];
+        // Migration 056 may not be applied on this database. The offering
+        // columns are then selected as literal NULL, which is exactly the
+        // value 056 gives existing rows: unclassified, never a guessed
+        // default. Detection happens before prepare() because mysqli throws
+        // on an unknown column rather than returning false.
+        $durCols = SubjectDurationPolicy::supportsOfferingDuration($conn)
+            ? 'cs.duration_type, cs.term_id'
+            : 'NULL AS duration_type, NULL AS term_id';
         $stmt = $conn->prepare(
-            'SELECT cs.subject_id, cs.duration_type, cs.term_id,
+            'SELECT cs.subject_id, ' . $durCols . ',
                     s.subject_name, s.subject_name_en, s.is_active
                FROM class_subjects cs
                JOIN subjects s ON s.id = cs.subject_id
@@ -1902,7 +1926,7 @@ final class AcademicTrackingService
                        s.subject_name
                   FROM assessments a
              LEFT JOIN subjects s ON s.id = a.subject_id
-                 WHERE a.class_id = ? AND a.is_active = 1';
+                 WHERE a.class_id = ?';
         $params = [$classId];
         $types = 'i';
         if ($yearId > 0) {
@@ -2080,7 +2104,7 @@ final class AcademicTrackingService
         int $yearId,
         int $termId
     ): int {
-        $sql = 'SELECT COUNT(*) AS n FROM assessments WHERE class_id = ? AND is_active = 1';
+        $sql = 'SELECT COUNT(*) AS n FROM assessments WHERE class_id = ?';
         $params = [$classId];
         $types = 'i';
         if ($yearId > 0) {
@@ -2207,7 +2231,7 @@ final class AcademicTrackingService
         }
         $place = implode(',', array_fill(0, count($subjectIds), '?'));
         $sql = "SELECT id, subject_id FROM assessments
-                 WHERE class_id = ? AND subject_id IN ($place) AND is_active = 1";
+                 WHERE class_id = ? AND subject_id IN ($place)";
         $params = array_merge([$classId], $subjectIds);
         $types = 'i' . str_repeat('i', count($subjectIds));
         if ($yearId > 0) {
