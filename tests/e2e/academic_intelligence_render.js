@@ -81,7 +81,9 @@ function makeEl(tag, attrs) {
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this._attrs, k) ? this._attrs[k] : null; },
     addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
     querySelectorAll(sel) { return matchTags(this._html, sel); },
-    getContext() { return {}; }
+    getContext() { return {}; },
+    appendChild(child) { this._children = (this._children || []).concat([child]); return child; },
+    focus() {}
   };
   return el;
 }
@@ -90,8 +92,30 @@ function buildWindow() {
   const byId = Object.create(null);
   const doc = {
     createElement: (t) => makeEl(t, {}),
-    getElementById: (id) => byId[id] || null,
-    _register: (id) => (byId[id] = byId[id] || makeEl('div', { id }))
+    /**
+     * Elements the renderer wrote into innerHTML -- notably every <canvas>
+     * a chart mounts onto -- are not registered up front. Without this
+     * lookup getElementById returns null for them, Chart.js is never
+     * reached, and every assertion about chart data silently passes over
+     * an empty list. Scan the rendered markup for the id and synthesise a
+     * node with a parent, which is what the renderer manipulates.
+     */
+    getElementById: (id) => {
+      if (byId[id]) return byId[id];
+      const needle = 'id="' + id + '"';
+      for (const key of Object.keys(byId)) {
+        if ((byId[key]._html || '').indexOf(needle) === -1) continue;
+        const el = makeEl('canvas', { id });
+        el.parentElement = makeEl('div', {});
+        byId[id] = el;
+        return el;
+      }
+      return null;
+    },
+    _register: (id) => (byId[id] = byId[id] || makeEl('div', { id })),
+    head: makeEl('head', {}),
+    body: makeEl('body', {}),
+    documentElement: makeEl('html', {})
   };
   // Containers the renderer writes into. Everything else it creates itself
   // inside innerHTML strings, which this harness then scans.
@@ -111,6 +135,8 @@ function buildWindow() {
     _byId: byId,
     setTimeout: (fn) => fn,
     clearTimeout: () => {},
+    // Exercise the reduced-motion branch: charts must still be built.
+    matchMedia: (q) => ({ matches: /reduce/.test(q) && buildWindow._reduceMotion === true, media: q }),
     fetch: () => Promise.reject(new Error('network disabled in harness')),
     encodeURIComponent
   };
@@ -188,7 +214,8 @@ if (!payloadDir || !fs.existsSync(payloadDir)) {
 const SRC = path.join(__dirname, '..', '..', 'admin', 'js', 'academic_intelligence.js');
 const source = fs.readFileSync(SRC, 'utf8');
 
-function renderPayload(payload, misses) {
+function renderPayload(payload, misses, reduceMotion) {
+  buildWindow._reduceMotion = reduceMotion === true;
   const win = buildWindow();
   const ctx = vm.createContext(win);
   vm.runInContext(source, ctx, { filename: 'academic_intelligence.js' });
@@ -250,6 +277,50 @@ files.forEach((file) => {
       });
     });
   });
+
+  // A semester a student has not sat is a GAP in the line, not a zero.
+  // Number(null) is 0 and 0 is finite, so the check above cannot see this;
+  // it has to be compared against the payload position by position.
+  const sem = (payload.charts || {}).semester_comparison || [];
+  if (sem.length) {
+    const kept = sem.filter((pt) =>
+      (pt.semester_1 !== null && pt.semester_1 !== undefined)
+      || (pt.semester_2 !== null && pt.semester_2 !== undefined));
+    const semChart = out.charts.find((c) =>
+      (c.data.datasets || []).some((ds) => ds.label === 'Semester 2'));
+    if (semChart && kept.length) {
+      ['Semester 1', 'Semester 2'].forEach((label, di) => {
+        const ds = semChart.data.datasets.find((x) => x.label === label);
+        if (!ds) return;
+        const key = di === 0 ? 'semester_1' : 'semester_2';
+        kept.forEach((pt, i) => {
+          if (pt[key] === null || pt[key] === undefined) {
+            check('missing ' + label + ' stays a gap, not a zero',
+              ds.data[i] === null,
+              'point ' + i + ' plotted as ' + JSON.stringify(ds.data[i]));
+          } else {
+            check('present ' + label + ' is plotted',
+              Number(ds.data[i]) === Number(pt[key]));
+          }
+        });
+      });
+    }
+  }
+
+  // Reduced motion must reach the charts, not just the CSS: Chart.js
+  // animates by default, which is animation purely because the library
+  // offers it.
+  try {
+    const reduced = renderPayload(payload, null, true);
+    const animated = reduced.charts.filter((c) => c.options && c.options.animation !== false);
+    check('charts honour prefers-reduced-motion', animated.length === 0,
+      animated.length + ' chart(s) still animate');
+    check('charts are still built under reduced motion',
+      reduced.charts.length === out.charts.length);
+  } catch (e) {
+    check('reduced-motion render does not throw', false, e.message);
+  }
+  buildWindow._reduceMotion = false;
 
   // Drill-down wiring.
   const drills = matchTags(html, '[data-drill]');
