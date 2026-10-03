@@ -84,15 +84,34 @@ the real workflow ran, not a copy of it. Same for teachers and subjects.
 
 ## 4. The class domain model
 
+> **Correction (2026-10-03).** The table below was read from the live
+> `information_schema` **of the e2e fixture database**, which this project
+> authors itself — not from production. Two entries were therefore wrong, and
+> both caused a production outage:
+>
+> * `class_subjects` in production is `id, class_id, subject_id, created_at`.
+>   The `duration_type` / `term_id` columns come from migration **056, which
+>   had not been applied to production**.
+> * `assessments` has **no `is_active` column** in production or in the
+>   canonical migration (`admin/migrations/003_add_assessments.php`); the
+>   publish flag is `is_published`, and nothing filters assessments by it.
+>   `is_active` existed only in the fixture.
+>
+> The code now degrades on a pre-056 database and no longer references
+> `assessments.is_active`. `tests/security/test_schema_conformance.py` drives
+> the endpoints against a deliberately pre-056 database so this class of
+> defect fails in CI rather than in production. See
+> `docs/INCIDENT_2026-10-03_TRACKING_SCHEMA.md`.
+
 Read back from the live `information_schema` during this phase, not assumed.
 
 | Table | Columns that matter | Note |
 |---|---|---|
 | `classes` | `id, class_name, class_name_en, class_code, level_order, section, age_group, is_active` | **No `academic_year_id`.** |
-| `class_subjects` | `id, class_id, subject_id, duration_type, term_id` | **No `academic_year_id`** (migration 056 added the last two). |
+| `class_subjects` | production: `id, class_id, subject_id, created_at`; after migration 056 also `duration_type, term_id` | **No `academic_year_id`.** The 056 columns are optional — the code must run without them. |
 | `teacher_assignments` | `teacher_id, class_id, subject_id` **NULLABLE**, `academic_year_id` **NULLABLE**, `is_class_teacher, is_primary, is_active, assignment_role ENUM('primary','assistant','homeroom')` | Two meaningful NULLs. |
 | `class_enrollments` | `member_id, class_id, academic_year_id, status` | → `members`. |
-| `assessments` | `class_id, subject_id, academic_year_id, term_id, is_active` | Class-owned. |
+| `assessments` | `class_id, subject_id, academic_year_id, term_id, is_published` | Class-owned. There is **no `is_active`** and no "active assessment" concept. |
 | `academic_records` | `member_id, class_id, subject_id, assessment_id, academic_year_id, term_id, score, max_score` | The result store. |
 
 **The consequence, and the central design decision of this phase:** a class is
