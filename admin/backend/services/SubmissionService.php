@@ -87,37 +87,148 @@ class SubmissionService
 
     public static function marklistPacketStatus(\mysqli $conn, int $assessmentId): ?string
     {
-        self::ensureTable($conn);
         if ($assessmentId <= 0) {
             return null;
         }
-        // PATCH C2/H8: a submitted/approved packet is the workflow truth for
-        // the assessment — a *newer* draft packet (e.g. a staff correction)
-        // must never silently re-open a locked mark list.
-        foreach (
-            [
-                "SELECT status FROM grade_submissions
-                 WHERE assessment_id = ? AND submission_type = 'marklist'
-                   AND status IN ('submitted','approved')
-                 ORDER BY id DESC LIMIT 1",
-                "SELECT status FROM grade_submissions
-                 WHERE assessment_id = ? AND submission_type = 'marklist'
-                 ORDER BY id DESC LIMIT 1",
-            ] as $sql
-        ) {
-            $stmt = $conn->prepare($sql);
-            if (!$stmt) {
-                continue;
-            }
-            $stmt->bind_param('i', $assessmentId);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            if ($row) {
-                return self::normalizeStatus($row['status'] ?? '');
+        $map = self::marklistPacketStatuses($conn, [$assessmentId]);
+        return $map[$assessmentId] ?? null;
+    }
+
+    /**
+     * Packet status for many assessments in ONE query.
+     *
+     * Added for the Academic Tracking student view, which lists every
+     * assessment across every subject a student takes and would otherwise
+     * call the single-id lookup once per row (N+1).
+     *
+     * This is deliberately the ONLY implementation of the precedence rule;
+     * marklistPacketStatus() above delegates here rather than keeping a
+     * second copy that could drift from it.
+     *
+     * PATCH C2/H8 precedence, unchanged: a submitted/approved packet is the
+     * workflow truth for the assessment — a *newer* draft packet (e.g. a
+     * staff correction) must never silently re-open a locked mark list.
+     *
+     * @param list<int> $assessmentIds
+     * @return array<int,string> assessment_id => normalised status (absent when no packet)
+     */
+    public static function marklistPacketStatuses(\mysqli $conn, array $assessmentIds): array
+    {
+        self::ensureTable($conn);
+
+        $ids = [];
+        foreach ($assessmentIds as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $ids[$id] = true;
             }
         }
-        return null;
+        if (!$ids) {
+            return [];
+        }
+        $ids = array_keys($ids);
+        $place = implode(',', array_fill(0, count($ids), '?'));
+
+        // Ascending id, so a later row overwrites an earlier one and the
+        // last writer wins — the same "ORDER BY id DESC LIMIT 1" answer the
+        // per-id query gives, computed for every id at once.
+        $sql = "SELECT assessment_id, status, id
+                  FROM grade_submissions
+                 WHERE submission_type = 'marklist'
+                   AND assessment_id IN ($place)
+                 ORDER BY id ASC";
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return [];
+        }
+        $stmt->bind_param(str_repeat('i', count($ids)), ...$ids);
+        $stmt->execute();
+        $res = $stmt->get_result();
+
+        $latest = [];   // any packet
+        $locked = [];   // submitted/approved packets only
+        while ($row = $res->fetch_assoc()) {
+            $aid = (int)$row['assessment_id'];
+            $st = self::normalizeStatus($row['status'] ?? '');
+            $latest[$aid] = $st;
+            if ($st === self::STATUS_SUBMITTED || $st === self::STATUS_APPROVED) {
+                $locked[$aid] = $st;
+            }
+        }
+        $stmt->close();
+
+        $out = [];
+        foreach ($ids as $aid) {
+            if (isset($locked[$aid])) {
+                $out[$aid] = $locked[$aid];
+            } elseif (isset($latest[$aid])) {
+                $out[$aid] = $latest[$aid];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Batched twin of resolvedMarklistStatus(): packet status, falling back
+     * to "submitted" for older sheets that carry marks but never got a
+     * packet. Keys with no packet AND no marks map to null — a real answer
+     * meaning the mark list was never started.
+     *
+     * @param list<int> $assessmentIds
+     * @return array<int,?string>
+     */
+    public static function resolvedMarklistStatuses(\mysqli $conn, array $assessmentIds): array
+    {
+        $ids = [];
+        foreach ($assessmentIds as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $ids[$id] = true;
+            }
+        }
+        if (!$ids) {
+            return [];
+        }
+        $ids = array_keys($ids);
+
+        $packets = self::marklistPacketStatuses($conn, $ids);
+
+        $missing = [];
+        foreach ($ids as $id) {
+            if (!isset($packets[$id])) {
+                $missing[] = $id;
+            }
+        }
+
+        $hasRows = [];
+        if ($missing) {
+            $place = implode(',', array_fill(0, count($missing), '?'));
+            $stmt = $conn->prepare(
+                "SELECT DISTINCT assessment_id FROM academic_records
+                  WHERE assessment_id IN ($place)"
+            );
+            if ($stmt) {
+                $stmt->bind_param(str_repeat('i', count($missing)), ...$missing);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                while ($row = $res->fetch_assoc()) {
+                    $hasRows[(int)$row['assessment_id']] = true;
+                }
+                $stmt->close();
+            }
+        }
+
+        $out = [];
+        foreach ($ids as $id) {
+            if (isset($packets[$id])) {
+                $out[$id] = $packets[$id];
+            } elseif (isset($hasRows[$id])) {
+                $out[$id] = self::STATUS_SUBMITTED;
+            } else {
+                $out[$id] = null;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -242,11 +353,11 @@ class SubmissionService
 
     public static function resolvedMarklistStatus(\mysqli $conn, int $assessmentId): ?string
     {
-        $status = self::marklistPacketStatus($conn, $assessmentId);
-        if ($status !== null) {
-            return $status;
+        if ($assessmentId <= 0) {
+            return null;
         }
-        return self::marklistHasRows($conn, $assessmentId) ? self::STATUS_SUBMITTED : null;
+        $map = self::resolvedMarklistStatuses($conn, [$assessmentId]);
+        return $map[$assessmentId] ?? null;
     }
 
     public static function teacherMayWriteAttendance(\mysqli $conn, array $auth, int $classId, string $date): bool
