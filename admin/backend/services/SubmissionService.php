@@ -207,6 +207,34 @@ class SubmissionService
      */
     public static function resolvedMarklistStatuses(\mysqli $conn, array $assessmentIds): array
     {
+        $out = [];
+        foreach (self::resolvedMarklistRefs($conn, $assessmentIds) as $id => $ref) {
+            $out[$id] = $ref['status'];
+        }
+        return $out;
+    }
+
+    /**
+     * Resolved status AND the packet it came from, in one pass.
+     *
+     * Academic Tracking Phase 3 needs both: the status to show, and the
+     * packet id to open the review screen with. Asking for them
+     * separately meant resolvedMarklistStatuses() and
+     * marklistPacketRefs() each running the same grade_submissions
+     * batch query — measured, two identical round trips per offering.
+     *
+     * Both answers come from one resolution here, so the precedence rule
+     * and the marks fallback each keep exactly one implementation and
+     * cost one query. resolvedMarklistStatuses() is a projection of this.
+     *
+     * submission_id is null when the status was inferred from marks
+     * rather than read from a packet: there is genuinely nothing to open.
+     *
+     * @param list<int> $assessmentIds
+     * @return array<int,array{status:?string,submission_id:?int}>
+     */
+    public static function resolvedMarklistRefs(\mysqli $conn, array $assessmentIds): array
+    {
         $ids = [];
         foreach ($assessmentIds as $id) {
             $id = (int)$id;
@@ -219,7 +247,7 @@ class SubmissionService
         }
         $ids = array_keys($ids);
 
-        $packets = self::marklistPacketStatuses($conn, $ids);
+        $packets = self::marklistPacketRefs($conn, $ids);
 
         $missing = [];
         foreach ($ids as $id) {
@@ -249,11 +277,16 @@ class SubmissionService
         $out = [];
         foreach ($ids as $id) {
             if (isset($packets[$id])) {
-                $out[$id] = $packets[$id];
+                $out[$id] = [
+                    'status' => $packets[$id]['status'],
+                    'submission_id' => $packets[$id]['id'],
+                ];
             } elseif (isset($hasRows[$id])) {
-                $out[$id] = self::STATUS_SUBMITTED;
+                // Marks exist but no packet was ever raised. The status is
+                // real; there is simply no packet to open.
+                $out[$id] = ['status' => self::STATUS_SUBMITTED, 'submission_id' => null];
             } else {
-                $out[$id] = null;
+                $out[$id] = ['status' => null, 'submission_id' => null];
             }
         }
         return $out;
