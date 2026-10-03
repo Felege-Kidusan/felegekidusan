@@ -516,6 +516,17 @@ final class AcademicTrackingService
 
         $assignment = self::findAssignment($conn, $teacherId, $classId, $subjectId, $yearId);
         if ($assignment === null) {
+            // Separate the two reasons only once the lookup has already
+            // failed, so the normal path still costs one query. A stale
+            // assignment row belonging to someone who is no longer a
+            // teacher must not read as "not assigned to this subject".
+            if (self::teacherIdentity($conn, $teacherId) === null) {
+                return [
+                    'status'  => 'error',
+                    'code'    => 'unknown_teacher',
+                    'message' => 'That teacher could not be found.',
+                ];
+            }
             return [
                 'status'  => 'error',
                 'code'    => 'not_assigned',
@@ -701,6 +712,12 @@ final class AcademicTrackingService
      * Confirms the teacher really holds this class+subject, and returns the
      * display names for the scope header in the same round trip.
      *
+     * The `users` join is not decoration. teacher_assignments can outlive
+     * the role it was granted for, and without the role condition this
+     * lookup and teacherDetail() would disagree about who is a teacher —
+     * one refusing an id the other accepts. The scope must mean the same
+     * thing on both endpoints.
+     *
      * @return array<string,string>|null
      */
     private static function findAssignment(
@@ -712,6 +729,7 @@ final class AcademicTrackingService
     ): ?array {
         $sql = "SELECT c.class_name, s.subject_name
                   FROM teacher_assignments ta
+                  JOIN users u    ON u.id = ta.teacher_id AND u.role = 'teacher'
                   JOIN classes c  ON c.id = ta.class_id
                   JOIN subjects s ON s.id = ta.subject_id
                  WHERE ta.teacher_id = ? AND ta.class_id = ? AND ta.subject_id = ?
