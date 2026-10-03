@@ -9,8 +9,10 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/AssignmentService.php';
 require_once __DIR__ . '/backend/services/EnrollmentService.php';
 require_once __DIR__ . '/backend/services/SubmissionService.php';
+require_once __DIR__ . '/backend/services/SubjectDurationPolicy.php';
 
 use App\Services\AssignmentService;
+use App\Services\SubjectDurationPolicy;
 use App\Services\EnrollmentService;
 
 // Check authentication
@@ -497,7 +499,7 @@ switch ($action) {
         }
 
         $offerings = [];
-        $stmt = @$conn->prepare(
+        $stmt = !SubjectDurationPolicy::supportsOfferingDuration($conn) ? false : $conn->prepare(
             "SELECT cs.id AS offering_id, cs.class_id, cs.subject_id,
                     cs.duration_type, cs.term_id,
                     s.subject_name, s.subject_name_en,
@@ -571,7 +573,7 @@ switch ($action) {
         $duration = ($upper === '') ? null : $upper;
 
         // The offering must exist.
-        $chk = @$conn->prepare(
+        $chk = !SubjectDurationPolicy::supportsOfferingDuration($conn) ? false : $conn->prepare(
             "SELECT cs.id, cs.class_id, cs.subject_id, cs.duration_type, cs.term_id, s.subject_name
              FROM class_subjects cs
              INNER JOIN subjects s ON s.id = cs.subject_id
@@ -619,7 +621,7 @@ switch ($action) {
         }
         $termParam = $termId > 0 ? $termId : null;
 
-        $upd = @$conn->prepare("UPDATE class_subjects SET duration_type = ?, term_id = ? WHERE id = ?");
+        $upd = !SubjectDurationPolicy::supportsOfferingDuration($conn) ? false : $conn->prepare("UPDATE class_subjects SET duration_type = ?, term_id = ? WHERE id = ?");
         if (!$upd) {
             echo json_encode(['status' => 'error', 'message' => 'Unable to save the subject duration.']);
             break;
