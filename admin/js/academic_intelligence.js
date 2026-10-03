@@ -54,6 +54,40 @@
     return d.innerHTML;
   }
 
+  /** The operating system setting wins over anything decorative here. */
+  function prefersReducedMotion() {
+    try {
+      return !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * A small stylesheet scoped to this workspace. It is injected rather than
+   * added to the dashboard's global CSS so that nothing outside the section
+   * changes appearance: the surrounding pages keep whatever focus treatment
+   * they already have.
+   */
+  var STYLE_ID = 'ai-workspace-style';
+  function injectStyle(containerId) {
+    if (document.getElementById(STYLE_ID)) return;
+    var css =
+      '#' + containerId + ' button:focus-visible,'
+      + '#' + containerId + ' select:focus-visible,'
+      + '#' + containerId + ' input:focus-visible{'
+      + 'outline:3px solid #7c3aed;outline-offset:2px;border-radius:6px}'
+      // Rows are wide; a hover cue keeps the eye on one record while
+      // scanning across eight columns.
+      + '#' + containerId + ' tbody tr:hover{background:#fafbff}'
+      + '@media (prefers-reduced-motion: reduce){'
+      + '#' + containerId + ' *{animation:none !important;transition:none !important}}';
+    var el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = css;
+    (document.head || document.body || document.documentElement).appendChild(el);
+  }
+
   /** A missing measurement is a dash, never a zero. */
   function num(value, suffix) {
     if (value === null || value === undefined || value === '') return '—';
@@ -222,6 +256,7 @@
   AcademicIntelligence.prototype.renderShell = function () {
     var root = this.root();
     if (!root) return;
+    injectStyle(this.options.containerId);
     var tabs = [
       ['student', 'fa-user-graduate', 'Student', 'ተማሪ'],
       ['teacher', 'fa-chalkboard-user', 'Teacher', 'መምህር'],
@@ -253,10 +288,25 @@
       + '<div id="aiBody" aria-live="polite" aria-busy="false"></div>';
 
     var self = this;
-    root.querySelectorAll('.ai-tab').forEach(function (btn) {
+    var tabEls = root.querySelectorAll('.ai-tab');
+    tabEls.forEach(function (btn, i) {
       btn.addEventListener('click', function () {
         self.trail = [];
         self.setPerspective(btn.getAttribute('data-perspective'));
+      });
+      // role="tab" promises arrow-key navigation; without it the strip
+      // announces itself as a tablist and then does not behave like one.
+      btn.addEventListener('keydown', function (ev) {
+        var step = ev.key === 'ArrowRight' ? 1 : (ev.key === 'ArrowLeft' ? -1 : 0);
+        var jump = ev.key === 'Home' ? 0 : (ev.key === 'End' ? tabEls.length - 1 : null);
+        if (!step && jump === null) return;
+        ev.preventDefault();
+        var next = jump !== null ? jump : ((i + step + tabEls.length) % tabEls.length);
+        var target = tabEls[next];
+        self.trail = [];
+        self.setPerspective(target.getAttribute('data-perspective'));
+        var refreshed = self.root().querySelectorAll('.ai-tab')[next];
+        if (refreshed && refreshed.focus) refreshed.focus();
       });
     });
     var refresh = document.getElementById('aiRefresh');
@@ -271,6 +321,7 @@
     root.querySelectorAll('.ai-tab').forEach(function (b) {
       var on = b.getAttribute('data-perspective') === self.perspective;
       b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.setAttribute('tabindex', on ? '0' : '-1');
       b.className = 'btn ai-tab ' + (on ? 'btn-p' : 'btn-o');
       b.style.cssText = 'flex:1 1 130px;justify-content:center';
     });
@@ -990,6 +1041,10 @@
     var el = document.getElementById(id);
     if (!el) return;
     try {
+      // Chart.js animates by default. That is animation for its own sake
+      // here, and it is exactly what prefers-reduced-motion is for.
+      config.options = config.options || {};
+      config.options.animation = prefersReducedMotion() ? false : { duration: 220 };
       this.charts[id] = new global.Chart(el.getContext('2d'), config);
     } catch (e) {
       var holder = el.parentElement;
@@ -1012,6 +1067,7 @@
   var BASE_OPTS = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: false, // set per-mount from the user's motion preference
     plugins: {
       legend: { display: false },
       tooltip: { enabled: true }
