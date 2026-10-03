@@ -426,6 +426,55 @@ class TeacherTrackingAuthorizationTests(_TeacherBase):
             "classes the detail response returns",
         )
 
+    def test_the_visibility_filter_is_actually_applied(self):
+        """
+        Pins the filter in place.
+
+        It cannot be observed from outside: canViewClass() returns true
+        unconditionally for super_admin, school_admin and edu_dept, and
+        those are the only roles that reach these endpoints. So removing
+        the filter changes no response today — it would only start
+        mattering on the day the tier is widened, which is exactly when
+        nobody would remember to re-add it. Source is the only available
+        hold. (Same limitation Phase 2 recorded for its own recheck.)
+        """
+        src = API_EDU.read_text(encoding="utf-8")
+        case = src.split("case 'tracking_teacher_detail':")[1].split("case 'get_academic_intelligence':")[0]
+        self.assertIn("array_filter", case,
+                      "the assignment list is no longer filtered by visibility")
+        self.assertIn("$ttVisible[(int)$r['class_id']]", case,
+                      "the filter no longer consults the per-class visibility map")
+        # And the filtered list, not the raw one, must drive the state.
+        self.assertIn("$ttRes['data_state']['assignments'] = $ttRes['assignments']", case,
+                      "the empty state no longer follows the filtered list")
+
+    def test_the_visibility_check_runs_after_the_data_is_fetched(self):
+        """A check placed before the service call would filter nothing."""
+        src = API_EDU.read_text(encoding="utf-8")
+        case = src.split("case 'tracking_teacher_detail':")[1].split("case 'get_academic_intelligence':")[0]
+        service_call = case.index("AcademicTrackingService::teacherDetail")
+        self.assertGreater(case.index("array_filter"), service_call)
+
+    def test_the_subject_id_is_validated_at_both_layers(self):
+        """
+        Defence in depth. The endpoint rejects a missing subject_id before
+        the service is reached, and the service rejects it again for any
+        other caller. Removing either leaves the behaviour unchanged, so
+        both are pinned here rather than left to an outcome assertion.
+        """
+        src = API_EDU.read_text(encoding="utf-8")
+        case = src.split("case 'tracking_teacher_assessments':")[1].split("case 'get_academic_intelligence':")[0]
+        self.assertIn("if ($ttSubject <= 0) {", case,
+                      "the endpoint no longer validates the subject id")
+        self.assertIn("if ($ttClass <= 0) {", case,
+                      "the endpoint no longer validates the class id")
+        svc = _strip_comments(SERVICE.read_text(encoding="utf-8"))
+        part = svc[svc.index("function teacherAssessments"):]
+        self.assertIn("if ($subjectId <= 0) {", part,
+                      "the service no longer validates the subject id")
+        self.assertIn("if ($classId <= 0) {", part,
+                      "the service no longer validates the class id")
+
     def test_the_endpoint_executes_no_sql_of_its_own(self):
         """Scoped reads belong in the service, where they are tested."""
         src = API_EDU.read_text(encoding="utf-8")
@@ -541,6 +590,88 @@ class TeacherWorkflowStatusTests(_TeacherBase):
         self.assertEqual(
             1, code.count("FROM grade_submissions\n                 WHERE submission_type = 'marklist'"),
             "the batched marklist precedence query exists more than once",
+        )
+
+    def test_a_locked_packet_wins_over_a_newer_draft(self):
+        """
+        The C2/H8 precedence rule: a submitted/approved packet is the
+        workflow truth even when a NEWER draft row exists, or a later
+        correction would silently re-open a locked mark list.
+
+        Phase 3 reads that rule through marklistPacketRefs(), so the rule
+        is exercised here for both the status and the id it returns.
+        """
+        self._sql(
+            "INSERT INTO grade_submissions "
+            "(teacher_id, class_id, subject_id, academic_year_id, term_id, "
+            " assessment_id, submission_type, status, student_count) "
+            "VALUES (%d, %d, %d, 1, 1, %d, 'marklist', 'draft', 0);"
+            % (T_BEKELE, C1, S_GEEZ, A_GEEZ_MID)
+        )
+        try:
+            got = self.assessments(T_BEKELE, C1, S_GEEZ)
+            row = [a for a in got["assessments"] if a["assessment_id"] == A_GEEZ_MID][0]
+            self.assertEqual(
+                "approved", row["workflow_status"],
+                "a newer draft packet overrode an approved mark list",
+            )
+            # And the id must address the APPROVED packet, not the draft,
+            # or "Open review" opens the wrong row.
+            self.assertEqual(1, row["submission_id"])
+        finally:
+            self._sql(
+                "DELETE FROM grade_submissions WHERE assessment_id = %d "
+                "AND status = 'draft';" % A_GEEZ_MID
+            )
+
+    def test_the_precedence_rule_is_exercised_through_both_entry_points(self):
+        """Both the status map and the ref map must apply the same rule."""
+        self._sql(
+            "INSERT INTO grade_submissions "
+            "(teacher_id, class_id, subject_id, academic_year_id, term_id, "
+            " assessment_id, submission_type, status, student_count) "
+            "VALUES (%d, %d, %d, 1, 1, %d, 'marklist', 'draft', 0);"
+            % (T_BEKELE, C1, S_GEEZ, A_GEEZ_MID)
+        )
+        try:
+            script = (
+                "require %s;"
+                "$c = new mysqli(DB_HOST, DB_USER, DB_PASS, %s);"
+                "require_once %s;"
+                "$s = \\App\\Services\\SubmissionService::marklistPacketStatuses($c, [%d]);"
+                "$r = \\App\\Services\\SubmissionService::marklistPacketRefs($c, [%d]);"
+                "echo json_encode([$s[%d] ?? null, $r[%d]['status'] ?? null, $r[%d]['id'] ?? null]);"
+                % (repr(str(ENV_FILE)), repr(SYNC_DB),
+                   repr(str(ROOT / "admin" / "backend" / "services" / "SubmissionService.php")),
+                   A_GEEZ_MID, A_GEEZ_MID, A_GEEZ_MID, A_GEEZ_MID, A_GEEZ_MID)
+            )
+            proc = subprocess.run(
+                [self.php, "-r", script], capture_output=True, text=True, timeout=60,
+                cwd=str(ROOT), env={**os.environ, "SSMS_DB_NAME": SYNC_DB},
+            )
+            status, ref_status, ref_id = json.loads(
+                (proc.stdout or "").strip().splitlines()[-1])
+            self.assertEqual("approved", status)
+            self.assertEqual("approved", ref_status)
+            self.assertEqual(1, ref_id)
+        finally:
+            self._sql(
+                "DELETE FROM grade_submissions WHERE assessment_id = %d "
+                "AND status = 'draft';" % A_GEEZ_MID
+            )
+
+    def _sql(self, statements):
+        script = (
+            "require %s;"
+            "$c = new mysqli(DB_HOST, DB_USER, DB_PASS, %s);"
+            "$c->multi_query(%s);"
+            "while ($c->more_results() && $c->next_result()) {}"
+            "echo 'ok';"
+            % (repr(str(ENV_FILE)), repr(SYNC_DB), repr(statements))
+        )
+        subprocess.run(
+            [self.php, "-r", script], capture_output=True, text=True, timeout=60,
+            cwd=str(ROOT), env={**os.environ, "SSMS_DB_NAME": SYNC_DB},
         )
 
     def test_the_status_projection_matches_the_refs(self):
@@ -692,6 +823,52 @@ class TeacherEmptyStateTests(_TeacherBase):
         got = self.detail(T_BEKELE, term_id=99)
         counts = [a["assessment_count"] for a in got["assignments"]]
         self.assertTrue(all(c == 0 for c in counts), counts)
+
+    def _service_detail(self, teacher_id, year_id=0, term_id=0):
+        """
+        Calls AcademicTrackingService::teacherDetail() directly.
+
+        The endpoint recomputes data_state after filtering the assignment
+        list by class visibility, which masks whatever the service itself
+        decided. Going through the API alone therefore cannot tell whether
+        the service's own empty-state is right, so it is checked here.
+        """
+        script = (
+            "require %s;"
+            "$c = new mysqli(DB_HOST, DB_USER, DB_PASS, %s);"
+            "$c->set_charset('utf8mb4');"
+            "require_once %s;"
+            "echo json_encode(\\App\\Services\\AcademicTrackingService::teacherDetail($c, %d, %d, %d));"
+            % (repr(str(ENV_FILE)), repr(SYNC_DB), repr(str(SERVICE)),
+               teacher_id, year_id, term_id)
+        )
+        proc = subprocess.run(
+            [self.php, "-r", script], capture_output=True, text=True, timeout=120,
+            cwd=str(ROOT), env={**os.environ, "SSMS_DB_NAME": SYNC_DB},
+        )
+        lines = (proc.stdout or "").strip().splitlines()
+        if not lines:
+            self.fail(f"teacherDetail({teacher_id}): no output\n{proc.stderr}")
+        return json.loads(lines[-1])
+
+    def test_the_service_itself_reports_no_assignments(self):
+        got = self._service_detail(T_KEBEDE, year_id=1)
+        self.assertEqual("no_assignments", got["data_state"]["assignments"])
+
+    def test_the_service_itself_reports_ok_when_there_are_assignments(self):
+        got = self._service_detail(T_BEKELE, year_id=1)
+        self.assertEqual("ok", got["data_state"]["assignments"])
+
+    def test_the_service_never_uses_the_assessment_state_for_assignments(self):
+        """
+        The two empty states are different answers and must not be
+        interchangeable: "this teacher teaches nothing" is not "this
+        offering has no assessments planned".
+        """
+        for teacher in (T_KEBEDE, T_BEKELE):
+            with self.subTest(teacher=teacher):
+                got = self._service_detail(teacher, year_id=1)
+                self.assertNotEqual("no_assessments", got["data_state"]["assignments"])
 
     def test_a_real_count_is_reported_truthfully(self):
         got = self.detail(T_BEKELE)
@@ -913,6 +1090,26 @@ class TeacherTrackingControllerTests(unittest.TestCase):
                 part = self.code[start:start + 3000]
                 self.assertIn("++this." + seq, part)
                 self.assertIn("!== self." + seq, part)
+
+    def test_the_guards_also_check_the_entity_not_just_the_sequence(self):
+        """
+        The sequence number alone happens to be sufficient today, because
+        every load increments it. The identity checks are what keep that
+        true if a future caller ever reloads without a new sequence, and
+        they cost nothing — so they are held in place here. Behaviourally
+        they are redundant, which is why a mutation removing them survives
+        the harness; this is the pin that replaces that coverage.
+        """
+        start = self.code.find("prototype.loadTeacherDetail")
+        detail = self.code[start:start + 3000]
+        self.assertIn("self.scope.id !== teacherId", detail,
+                      "the detail guard no longer checks the teacher changed")
+
+        start = self.code.find("prototype.loadTeacherAssessments")
+        offering = self.code[start:start + 3500]
+        self.assertIn("=== want", offering,
+                      "the offering guard no longer checks WHICH offering returned")
+        self.assertIn("self.offering.class_id + ':' + self.offering.subject_id", offering)
 
     def test_the_behavioural_harness_passes(self):
         node = shutil.which("node")
