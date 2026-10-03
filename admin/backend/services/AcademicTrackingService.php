@@ -67,6 +67,8 @@ final class AcademicTrackingService
     public const STATE_NO_ASSESSMENTS = 'no_assessments';
     /** Not one attendance row exists — which is NOT an attendance rate of 0. */
     public const STATE_NO_ATTENDANCE = 'no_attendance';
+    /** Phase 3: the teacher holds no assignment in this academic context. */
+    public const STATE_NO_ASSIGNMENTS = 'no_assignments';
 
     /**
      * Header + overview + subjects + attendance for one student.
@@ -401,5 +403,408 @@ final class AcademicTrackingService
             return 'not_in_class';
         }
         return 'unavailable';
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // PHASE 3 — TEACHER TRACKING
+    //
+    // Teacher tracking answers a workflow question, not an academic
+    // one: "what is this teacher responsible for, and where does
+    // each of those mark lists currently stand?"
+    //
+    // Consequences that are deliberate, not oversights:
+    //
+    //   * Nothing below calls ReportCardService. A teacher has no
+    //     academic result. Scores, averages and grades belong to a
+    //     student in a class, and showing them aggregated under a
+    //     teacher's name would turn a tracking screen into a staff
+    //     evaluation. There is no ranking, no effectiveness figure
+    //     and no comparative statistic here, by requirement.
+    //
+    //   * Assignments come from `teacher_assignments` and nowhere
+    //     else. It is tempting to infer "subjects this teacher
+    //     teaches" from the mark lists they have submitted, and it
+    //     is wrong: the fixture alone contains a packet submitted
+    //     by a teacher for an offering they hold no assignment for.
+    //     An inferred relationship is an invented one.
+    //
+    //   * Workflow status comes from SubmissionService. This layer
+    //     reads and labels it; it never decides it.
+    // ════════════════════════════════════════════════════════════
+
+    /**
+     * Identity + the class/subject offerings one teacher is assigned to.
+     *
+     * Intentionally cheap: two scoped queries and no engine call, because
+     * this runs every time a teacher is selected.
+     *
+     * @return array<string,mixed>
+     */
+    public static function teacherDetail(
+        \mysqli $conn,
+        int $teacherId,
+        int $yearId = 0,
+        int $termId = 0
+    ): array {
+        if ($teacherId <= 0) {
+            return ['status' => 'error', 'code' => 'invalid_teacher', 'message' => 'Teacher is required.'];
+        }
+
+        $teacher = self::teacherIdentity($conn, $teacherId);
+        if ($teacher === null) {
+            return ['status' => 'error', 'code' => 'unknown_teacher', 'message' => 'That teacher could not be found.'];
+        }
+
+        $assignments = self::teacherAssignments($conn, $teacherId, $yearId);
+
+        // One grouped query for the whole assignment set rather than one per
+        // row: the count is a real COUNT(*), never a placeholder for a value
+        // that was not looked up.
+        $counts = self::assessmentCounts($conn, $assignments, $yearId, $termId);
+        foreach ($assignments as $i => $a) {
+            $key = $a['class_id'] . ':' . (int)$a['subject_id'];
+            $assignments[$i]['assessment_count'] = $a['subject_id'] === null
+                ? null                      // homeroom: no subject, so the question does not apply
+                : (int)($counts[$key] ?? 0);
+        }
+
+        return [
+            'status'  => 'success',
+            'scope'   => ['type' => 'teacher', 'teacher_id' => $teacherId],
+            'context' => ['year_id' => $yearId, 'term_id' => $termId],
+            'teacher' => $teacher,
+            'assignments' => $assignments,
+            'data_state'  => [
+                'assignments' => $assignments ? self::STATE_OK : self::STATE_NO_ASSIGNMENTS,
+            ],
+        ];
+    }
+
+    /**
+     * The assessments of ONE offering (class + subject) the teacher is
+     * assigned to, each with its current mark-list workflow state.
+     *
+     * The teacher/class/subject triple is re-validated here against
+     * `teacher_assignments`. The caller has already authorised the class,
+     * but that only proves the viewer may see the class — not that this
+     * teacher is connected to it. Without this check a caller could read
+     * any offering's workflow through any teacher's id.
+     *
+     * No score is returned. An assessment's workflow status ("Approved")
+     * and its academic result (a mark) are different facts, and merging
+     * them is how a reviewed-but-failing mark list comes to look fine.
+     *
+     * @return array<string,mixed>
+     */
+    public static function teacherAssessments(
+        \mysqli $conn,
+        int $teacherId,
+        int $classId,
+        int $subjectId,
+        int $yearId = 0,
+        int $termId = 0
+    ): array {
+        if ($teacherId <= 0) {
+            return ['status' => 'error', 'code' => 'invalid_teacher', 'message' => 'Teacher is required.'];
+        }
+        if ($classId <= 0) {
+            return ['status' => 'error', 'code' => 'invalid_class', 'message' => 'A class must be selected.'];
+        }
+        if ($subjectId <= 0) {
+            return ['status' => 'error', 'code' => 'invalid_subject', 'message' => 'A subject must be selected.'];
+        }
+
+        $assignment = self::findAssignment($conn, $teacherId, $classId, $subjectId, $yearId);
+        if ($assignment === null) {
+            return [
+                'status'  => 'error',
+                'code'    => 'not_assigned',
+                'message' => 'That teacher is not assigned to this class and subject.',
+            ];
+        }
+
+        $sql = "SELECT a.id, a.assessment_name, a.assessment_type, a.max_score,
+                       a.weight_percentage, a.term_id
+                  FROM assessments a
+                 WHERE a.class_id = ? AND a.subject_id = ? AND a.is_active = 1";
+        $params = [$classId, $subjectId];
+        $types  = 'ii';
+        if ($yearId > 0) {
+            $sql .= ' AND a.academic_year_id = ?';
+            $params[] = $yearId;
+            $types .= 'i';
+        }
+        if ($termId > 0) {
+            $sql .= ' AND a.term_id = ?';
+            $params[] = $termId;
+            $types .= 'i';
+        }
+        $sql .= ' ORDER BY a.term_id IS NULL, a.term_id, a.id';
+
+        $rows = [];
+        $ids  = [];
+        $stmt = $conn->prepare($sql);
+        if ($stmt) {
+            $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($r = $res->fetch_assoc()) {
+                $aid = (int)$r['id'];
+                $ids[] = $aid;
+                $rows[] = [
+                    'assessment_id'   => $aid,
+                    'assessment_name' => (string)$r['assessment_name'],
+                    'assessment_type' => (string)($r['assessment_type'] ?? ''),
+                    'max_score'       => $r['max_score'] === null ? null : (float)$r['max_score'],
+                    'weight'          => $r['weight_percentage'] === null ? null : (float)$r['weight_percentage'],
+                    'term_id'         => self::positiveOrNull($r['term_id']),
+                    'workflow_status' => null,
+                    'workflow_label'  => '',
+                    'submission_id'   => null,
+                ];
+            }
+            $stmt->close();
+        }
+
+        if ($ids) {
+            $statuses = SubmissionService::resolvedMarklistStatuses($conn, $ids);
+            $refs     = SubmissionService::marklistPacketRefs($conn, $ids);
+            foreach ($rows as $i => $r) {
+                $aid = $r['assessment_id'];
+                $st  = $statuses[$aid] ?? null;
+                $rows[$i]['workflow_status'] = $st;
+                // null is a real answer: no packet and no marks => never started.
+                $rows[$i]['workflow_label'] = $st === null
+                    ? 'Not started'
+                    : SubmissionService::statusLabel($st);
+                // Only a real packet can be opened in the review screen. A
+                // mark list that exists only as loose marks has no packet,
+                // and inventing an id would send the user to a dead modal.
+                $rows[$i]['submission_id'] = isset($refs[$aid]) ? (int)$refs[$aid]['id'] : null;
+            }
+        }
+
+        return [
+            'status'  => 'success',
+            'scope'   => [
+                'type'       => 'teacher',
+                'teacher_id' => $teacherId,
+                'class_id'   => $classId,
+                'subject_id' => $subjectId,
+            ],
+            'context' => ['year_id' => $yearId, 'term_id' => $termId],
+            'class'   => ['id' => $classId, 'class_name' => $assignment['class_name']],
+            'subject' => ['id' => $subjectId, 'subject_name' => $assignment['subject_name']],
+            'assessments' => $rows,
+            'data_state'  => [
+                'assessments' => $rows ? self::STATE_OK : self::STATE_NO_ASSESSMENTS,
+            ],
+        ];
+    }
+
+    /**
+     * The teacher's own record. Teachers are logins (`users`) linked to a
+     * person (`members`) through a NULLABLE member_id, so the join has to
+     * be a LEFT JOIN and the member fields have to be allowed to be absent.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function teacherIdentity(\mysqli $conn, int $teacherId): ?array
+    {
+        $stmt = $conn->prepare(
+            "SELECT u.id, u.full_name, u.username, u.email, u.is_active, u.member_id,
+                    m.member_code, m.phone_number
+               FROM users u
+          LEFT JOIN members m ON u.member_id = m.id
+              WHERE u.id = ? AND u.role = 'teacher'
+              LIMIT 1"
+        );
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param('i', $teacherId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return null;
+        }
+        return [
+            'id'          => (int)$row['id'],
+            'full_name'   => (string)($row['full_name'] ?? ''),
+            'username'    => (string)($row['username'] ?? ''),
+            'email'       => (string)($row['email'] ?? ''),
+            'is_active'   => (int)$row['is_active'] === 1,
+            'member_code' => $row['member_code'] === null ? null : (string)$row['member_code'],
+            'phone'       => $row['phone_number'] === null ? null : (string)$row['phone_number'],
+        ];
+    }
+
+    /**
+     * Active assignments for a teacher in one academic year.
+     *
+     * `academic_year_id` is nullable in this table: a row with no year is a
+     * standing assignment that is not tied to one year, so it is kept when
+     * a year is in scope rather than dropped.
+     *
+     * `subject_id` is nullable too, and that NULL is meaningful — migration
+     * 006 made it so because "Homeroom does not need a subject". Such a row
+     * is a real assignment with no subject, and is reported as exactly that
+     * instead of being hidden or given a placeholder subject.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function teacherAssignments(\mysqli $conn, int $teacherId, int $yearId): array
+    {
+        $sql = "SELECT ta.class_id, ta.subject_id, ta.assignment_role,
+                       ta.is_class_teacher, ta.academic_year_id,
+                       c.class_name, s.subject_name
+                  FROM teacher_assignments ta
+                  JOIN classes c  ON c.id = ta.class_id
+             LEFT JOIN subjects s ON s.id = ta.subject_id
+                 WHERE ta.teacher_id = ? AND ta.is_active = 1";
+        $params = [$teacherId];
+        $types  = 'i';
+        if ($yearId > 0) {
+            $sql .= ' AND (ta.academic_year_id = ? OR ta.academic_year_id IS NULL)';
+            $params[] = $yearId;
+            $types .= 'i';
+        }
+        $sql .= ' ORDER BY c.class_name, s.subject_name IS NULL DESC, s.subject_name';
+
+        $out = [];
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return $out;
+        }
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $subjectId = self::positiveOrNull($r['subject_id']);
+            $out[] = [
+                'class_id'         => (int)$r['class_id'],
+                'class_name'       => (string)($r['class_name'] ?? ''),
+                'subject_id'       => $subjectId,
+                'subject_name'     => $subjectId === null ? null : (string)($r['subject_name'] ?? ''),
+                'assignment_role'  => (string)($r['assignment_role'] ?? ''),
+                'is_class_teacher' => (int)($r['is_class_teacher'] ?? 0) === 1,
+                'is_homeroom'      => $subjectId === null,
+                'assessment_count' => null,
+            ];
+        }
+        $stmt->close();
+        return $out;
+    }
+
+    /**
+     * Confirms the teacher really holds this class+subject, and returns the
+     * display names for the scope header in the same round trip.
+     *
+     * @return array<string,string>|null
+     */
+    private static function findAssignment(
+        \mysqli $conn,
+        int $teacherId,
+        int $classId,
+        int $subjectId,
+        int $yearId
+    ): ?array {
+        $sql = "SELECT c.class_name, s.subject_name
+                  FROM teacher_assignments ta
+                  JOIN classes c  ON c.id = ta.class_id
+                  JOIN subjects s ON s.id = ta.subject_id
+                 WHERE ta.teacher_id = ? AND ta.class_id = ? AND ta.subject_id = ?
+                   AND ta.is_active = 1";
+        $params = [$teacherId, $classId, $subjectId];
+        $types  = 'iii';
+        if ($yearId > 0) {
+            $sql .= ' AND (ta.academic_year_id = ? OR ta.academic_year_id IS NULL)';
+            $params[] = $yearId;
+            $types .= 'i';
+        }
+        $sql .= ' LIMIT 1';
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return null;
+        }
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            return null;
+        }
+        return [
+            'class_name'   => (string)($row['class_name'] ?? ''),
+            'subject_name' => (string)($row['subject_name'] ?? ''),
+        ];
+    }
+
+    /**
+     * Assessment counts for every assigned offering at once.
+     *
+     * One query for the whole set. Counting per assignment would make the
+     * cost of opening a teacher grow with how many classes they teach,
+     * which is exactly the N+1 the earlier phases removed.
+     *
+     * @param list<array<string,mixed>> $assignments
+     * @return array<string,int> "classId:subjectId" => count
+     */
+    private static function assessmentCounts(
+        \mysqli $conn,
+        array $assignments,
+        int $yearId,
+        int $termId
+    ): array {
+        $pairs = [];
+        foreach ($assignments as $a) {
+            if ($a['subject_id'] === null) {
+                continue;   // homeroom has no subject to count against
+            }
+            $pairs[$a['class_id'] . ':' . $a['subject_id']] = [(int)$a['class_id'], (int)$a['subject_id']];
+        }
+        if (!$pairs) {
+            return [];
+        }
+
+        $clauses = [];
+        $params  = [];
+        $types   = '';
+        foreach ($pairs as $p) {
+            $clauses[] = '(class_id = ? AND subject_id = ?)';
+            $params[]  = $p[0];
+            $params[]  = $p[1];
+            $types    .= 'ii';
+        }
+        $sql = "SELECT class_id, subject_id, COUNT(*) AS n
+                  FROM assessments
+                 WHERE is_active = 1 AND (" . implode(' OR ', $clauses) . ')';
+        if ($yearId > 0) {
+            $sql .= ' AND academic_year_id = ?';
+            $params[] = $yearId;
+            $types .= 'i';
+        }
+        if ($termId > 0) {
+            $sql .= ' AND term_id = ?';
+            $params[] = $termId;
+            $types .= 'i';
+        }
+        $sql .= ' GROUP BY class_id, subject_id';
+
+        $out = [];
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return $out;
+        }
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $out[$r['class_id'] . ':' . $r['subject_id']] = (int)$r['n'];
+        }
+        $stmt->close();
+        return $out;
     }
 }
