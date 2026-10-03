@@ -1429,6 +1429,18 @@ class ApiService {
     return get('/attendance', params: params);
   }
 
+  /// One page of attendance changes after [cursor] from the server's
+  /// change feed (PHASE A). A response may be partial: the caller must
+  /// follow `next_cursor` while `has_more` is true, and must honour
+  /// `bootstrap_required` instead of treating an empty page as "up to
+  /// date". Read-only, so no idempotency key is involved.
+  Future<ApiResponse> getAttendanceChanges({int cursor = 0, int limit = 200}) =>
+      get('/sync/changes', params: {
+        'entity': 'attendance',
+        'cursor': '$cursor',
+        'limit': '$limit',
+      });
+
   Future<ApiResponse> saveAttendance(
           int classId, String date, List<Map<String, dynamic>> records,
           {String? clientOpId}) =>

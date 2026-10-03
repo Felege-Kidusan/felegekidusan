@@ -75,6 +75,24 @@ final class SyncChangeFeedService
         return (int)$result->fetch_assoc()['min_valid_revision'];
     }
 
+    /**
+     * `scope_date` (migration 058) expressed so the query still runs on a
+     * database where 058 has not been applied yet. Same runtime-detection
+     * approach MezmurHymnService::revisionExpr() uses for its own
+     * late-added column, so a partial rollout degrades instead of fataling.
+     */
+    private function scopeDateExpr(): string
+    {
+        $result = $this->database->query(
+            "SELECT 1 FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'sync_changes'
+                AND COLUMN_NAME = 'scope_date' LIMIT 1"
+        );
+        $present = $result !== false && $result->num_rows > 0;
+        return $present ? '`scope_date`' : 'NULL AS `scope_date`';
+    }
+
     /** Highest revision currently assigned; the cursor a bootstrap starts from. */
     public function headRevision(): int
     {
@@ -166,7 +184,7 @@ final class SyncChangeFeedService
         }
 
         $sql = "SELECT revision, entity_type, entity_id, op, scope_class_id,
-                       scope_year_id, scope_member_id, changed_at
+                       scope_year_id, scope_member_id, {$this->scopeDateExpr()}, changed_at
                   FROM sync_changes
                  WHERE revision > ? AND entity_type = ?";
         $types = 'is';
@@ -213,11 +231,19 @@ final class SyncChangeFeedService
         $nextCursor = $cursor;
         foreach ($rows as $row) {
             $nextCursor = (int)$row['revision'];
+            // Scope keys travel with the entry so a tombstone stays
+            // self-describing: a deleted row has no canonical record
+            // left, and the device needs class + date + member to find
+            // the cached sheet it must correct. Additive fields — older
+            // clients simply ignore them.
             $items[] = [
                 'revision'    => (int)$row['revision'],
                 'entity_type' => (string)$row['entity_type'],
                 'entity_id'   => (int)$row['entity_id'],
                 'op'          => (string)$row['op'],
+                'class_id'    => $row['scope_class_id'] === null ? null : (int)$row['scope_class_id'],
+                'member_id'   => $row['scope_member_id'] === null ? null : (int)$row['scope_member_id'],
+                'date'        => $row['scope_date'] === null ? null : (string)$row['scope_date'],
                 'changed_at'  => (string)$row['changed_at'],
             ];
         }

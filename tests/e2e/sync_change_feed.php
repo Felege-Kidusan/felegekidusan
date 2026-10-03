@@ -117,6 +117,7 @@ function resetWorld(\mysqli $conn, string $root): void
     );
 
     applyMigration($conn, $root . '/sql/057_sync_change_feed.sql');
+    applyMigration($conn, $root . '/sql/058_sync_feed_scope_date.sql');
 }
 
 /**
@@ -240,6 +241,13 @@ if ($run('delete_tombstone')) {
 
     $gone = $conn->query("SELECT COUNT(*) c FROM attendance WHERE id={$id}")->fetch_assoc()['c'];
     check('business row was really deleted', '0', $gone);
+
+    // A tombstone must be actionable on its own. The device has never
+    // seen attendance.id, so class + date + member are what let it find
+    // the cached sheet entry to clear.
+    check('tombstone carries its class', 10, $page['items'][0]['class_id']);
+    check('tombstone carries its member', 1, $page['items'][0]['member_id']);
+    check('tombstone carries its date', '2026-03-01', $page['items'][0]['date']);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -396,8 +404,8 @@ if ($run('canonical_payload')) {
     $feedKeys = array_keys($page['items'][0]);
     sort($feedKeys);
     check(
-        'feed entries carry ids and ops only',
-        ['changed_at', 'entity_id', 'entity_type', 'op', 'revision'],
+        'feed entries carry ids, ops and scope keys only',
+        ['changed_at', 'class_id', 'date', 'entity_id', 'entity_type', 'member_id', 'op', 'revision'],
         $feedKeys
     );
 }
@@ -455,6 +463,33 @@ if ($run('change_then_delete')) {
     $records = $feed->hydrateAttendance(array_column($page['items'], 'entity_id'));
     check('no canonical payload survives the delete', [], $records);
     check('last operation is the tombstone', 'DELETE', $page['items'][2]['op']);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 11. Moving a record to another class or date must retire the entry
+//     on the old sheet, not just add one to the new sheet.
+// ─────────────────────────────────────────────────────────────
+if ($run('record_moved')) {
+    echo "\n[record_moved]\n";
+    resetWorld($conn, $root);
+    $feed = new SyncChangeFeedService($conn);
+
+    $id = addAttendance($conn, 1, 10, '2026-03-01');
+    $after = $feed->changesSince(0, 'attendance', null, 50)['next_cursor'];
+
+    // Marked on the wrong day, then corrected.
+    $conn->query("UPDATE attendance SET attendance_date='2026-03-02' WHERE id={$id}");
+    $page = $feed->changesSince($after, 'attendance', null, 50);
+
+    check('a move emits two entries', 2, count($page['items']));
+    check('the old location is retired', 'DELETE', $page['items'][0]['op']);
+    check('retirement names the old date', '2026-03-01', $page['items'][0]['date']);
+    check('the new location is announced', 'UPDATE', $page['items'][1]['op']);
+    check('announcement names the new date', '2026-03-02', $page['items'][1]['date']);
+
+    // The row still exists, so the UPDATE half still hydrates.
+    $records = $feed->hydrateAttendance([$id]);
+    check('canonical row survives the move', '2026-03-02', $records[$id]['attendance_date']);
 }
 
 // ─────────────────────────────────────────────────────────────

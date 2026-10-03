@@ -2,7 +2,7 @@
 ///
 /// This file intentionally has no Flutter dependency. The runtime SQLite
 /// migration harness reads these declarations as its schema source of truth.
-const localDatabaseSchemaVersion = 34;
+const localDatabaseSchemaVersion = 35;
 
 final class LocalColumnSpec {
   final String table;
@@ -18,6 +18,25 @@ final class LegacyOutboxTableSpec {
 
   const LegacyOutboxTableSpec(this.table, this.businessKeyColumns);
 }
+
+/// Download-sync cursor state, one row per domain.
+///
+/// Deliberately generic: `domain` is the key, so grades, members and the
+/// rest reuse this table instead of each growing its own. It mirrors the
+/// server's feed contract — `cursor` is the last revision whose changes
+/// were fully applied locally, and it is only ever advanced after the
+/// apply transaction commits, so a crash mid-apply re-pulls rather than
+/// skipping. `status`/`error` give the UI something honest to show when
+/// a pull fails without blocking the app from opening offline.
+const localSyncStateV35Sql = '''
+  CREATE TABLE IF NOT EXISTS sync_state (
+    domain TEXT PRIMARY KEY,
+    cursor INTEGER NOT NULL DEFAULT 0,
+    last_sync_at TEXT,
+    status TEXT NOT NULL DEFAULT 'idle',
+    error TEXT
+  )
+''';
 
 const localSessionStateV34Sql = '''
   CREATE TABLE IF NOT EXISTS local_session_state (
