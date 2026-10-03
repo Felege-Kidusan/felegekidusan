@@ -832,10 +832,13 @@ class ReportCardService
              ORDER BY s.subject_name";
 
         $subjects = [];
-        $stmt = @$conn->prepare($sql056);
-        if (!$stmt) {
-            $stmt = $conn->prepare($sqlLegacy);
-        }
+        // The database is asked what it supports BEFORE preparing. The old
+        // `@prepare(...) ?: prepare($legacy)` form could never work: `@` does
+        // not suppress exceptions and mysqli throws by default on PHP 8.1+,
+        // so on a pre-056 database this method raised instead of degrading.
+        $stmt = SubjectDurationPolicy::supportsOfferingDuration($conn)
+            ? $conn->prepare($sql056)
+            : $conn->prepare($sqlLegacy);
         if ($stmt) {
             $stmt->bind_param('i', $classId);
             $stmt->execute();

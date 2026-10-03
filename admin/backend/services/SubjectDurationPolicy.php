@@ -97,6 +97,49 @@ class SubjectDurationPolicy
     }
 
     /**
+     * Whether migration 056's `class_subjects.duration_type` / `.term_id`
+     * columns exist on the database behind this connection.
+     *
+     * Callers previously detected a pre-056 database with
+     * `$stmt = @$conn->prepare($sql); if (!$stmt) { ...fallback... }`.
+     * That never worked. `@` suppresses diagnostics but NOT exceptions, and
+     * since PHP 8.1 mysqli's default report mode is
+     * MYSQLI_REPORT_ERROR|MYSQLI_REPORT_STRICT, so `prepare()` on an unknown
+     * column throws instead of returning false. Every such fallback branch
+     * was unreachable and the request failed outright. This probe asks
+     * information_schema, which cannot throw for a missing column.
+     *
+     * Cached per connection: the schema cannot change inside one request.
+     */
+    public static function supportsOfferingDuration(\mysqli $conn): bool
+    {
+        static $cache = [];
+        $key = spl_object_id($conn);
+        if (isset($cache[$key])) {
+            return $cache[$key];
+        }
+        $found = 0;
+        try {
+            $res = $conn->query(
+                "SELECT COUNT(*) AS n FROM information_schema.columns
+                  WHERE table_schema = DATABASE()
+                    AND table_name = 'class_subjects'
+                    AND column_name IN ('duration_type', 'term_id')"
+            );
+            if ($res) {
+                $row = $res->fetch_assoc();
+                $found = (int)($row['n'] ?? 0);
+                $res->free();
+            }
+        } catch (\Throwable $e) {
+            $found = 0;
+        }
+        // Both columns, or treat the database as pre-056. A half-applied
+        // migration is not a state we guess our way through.
+        return $cache[$key] = ($found === 2);
+    }
+
+    /**
      * Weights for one academic year, read from the year row.
      *
      * @return array{s1:float,s2:float}
