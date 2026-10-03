@@ -84,6 +84,33 @@ if (in_array($action, $__manageActions, true)) {
     }
 }
 
+// TIER 3 — School-wide academic ANALYTICS: Education dept + admins.
+//
+// These actions return other people's academic results: averages, ranks,
+// grade letters, attendance and named students across every class. They are
+// read-only, so they were not covered by the management tier above, and
+// until now the only gate on them was "is logged in" -- which let a teacher
+// or an attendance taker read the whole school's marks through the API even
+// though the page that hosts the hub (dashboards/edu_dept.php) is itself
+// restricted to these three roles in access_control.php. There is no
+// non-admin consumer of these endpoints anywhere in the repository.
+$__analyticsActions = [
+    'get_education_hub',
+    'filter_students_performance',
+    'get_academic_intelligence',
+    'get_academic_intelligence_options',
+];
+if (in_array($action, $__analyticsActions, true)) {
+    if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+        http_response_code(403);
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'Academic analytics are available to the Education department only.',
+        ]);
+        exit;
+    }
+}
+
 // Effective academic year — single source of truth (resolver, time-travel aware)
 $currentYear = function_exists('ay_resolve') ? ay_resolve($conn)['year'] : null;
 
@@ -1680,6 +1707,82 @@ switch ($action) {
         ];
         $res = \App\Services\EducationAnalyticsService::getHubData($conn, $filters);
         echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        break;
+
+    // ============================================================
+    // ACADEMIC INTELLIGENCE — one dataset, four perspectives
+    // ============================================================
+    // Student / Teacher / Subject / Class are four projections of the same
+    // ReportCardService calculation, not four reports. The perspective is a
+    // parameter so the workspace can drill from one into another without
+    // changing endpoint.
+    case 'get_academic_intelligence':
+        require_once __DIR__ . '/backend/services/AcademicIntelligenceService.php';
+        $aiPerspective = is_scalar($_GET['perspective'] ?? '') ? (string)$_GET['perspective'] : '';
+        $aiYear = !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0);
+        $aiClass = (int)($_GET['class_id'] ?? 0);
+
+        // Defence in depth: the tier-3 gate above already limits this action
+        // to the Education roles, for whom canViewClass() is always true.
+        // Enforcing it anyway means that if the role list is ever widened,
+        // class scoping is already in force rather than something somebody
+        // has to remember to add.
+        if ($aiClass > 0 && !\App\Services\ReportCardService::canViewClass(
+            $conn,
+            (int)($_SESSION['admin_id'] ?? 0),
+            (string)$__role,
+            $aiClass
+        )) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'message' => 'Access denied for this class.']);
+            break;
+        }
+
+        try {
+            $res = \App\Services\AcademicIntelligenceService::perspective($conn, $aiPerspective, [
+                'year_id' => $aiYear,
+                'term_id' => !empty($_GET['term_id']) ? (int)$_GET['term_id'] : 0,
+                'member_id' => (int)($_GET['member_id'] ?? 0),
+                'teacher_id' => (int)($_GET['teacher_id'] ?? 0),
+                'subject_id' => (int)($_GET['subject_id'] ?? 0),
+                'class_id' => $aiClass,
+                'filters' => [
+                    'class_id' => $aiClass,
+                    'subject_id' => (int)($_GET['subject_id'] ?? 0),
+                    'gender' => $_GET['gender'] ?? null,
+                    'grade_letter' => $_GET['grade_letter'] ?? null,
+                    'min_grade' => (isset($_GET['min_grade']) && $_GET['min_grade'] !== '') ? (float)$_GET['min_grade'] : null,
+                    'max_grade' => (isset($_GET['max_grade']) && $_GET['max_grade'] !== '') ? (float)$_GET['max_grade'] : null,
+                    'min_attendance' => (isset($_GET['min_attendance']) && $_GET['min_attendance'] !== '') ? (float)$_GET['min_attendance'] : null,
+                    'max_attendance' => (isset($_GET['max_attendance']) && $_GET['max_attendance'] !== '') ? (float)$_GET['max_attendance'] : null,
+                    'search' => $_GET['search'] ?? null,
+                    'page' => (int)($_GET['page'] ?? 1),
+                    'per_page' => (int)($_GET['per_page'] ?? 0),
+                ],
+            ]);
+            echo json_encode($res, JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            error_log('get_academic_intelligence: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['status' => 'error', 'message' => 'Could not build this analysis.']);
+        }
+        break;
+
+    case 'get_academic_intelligence_options':
+        require_once __DIR__ . '/backend/services/AcademicIntelligenceService.php';
+        try {
+            echo json_encode(
+                \App\Services\AcademicIntelligenceService::options(
+                    $conn,
+                    !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0)
+                ),
+                JSON_UNESCAPED_UNICODE
+            );
+        } catch (Throwable $e) {
+            error_log('get_academic_intelligence_options: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['status' => 'error', 'message' => 'Could not load the filter options.']);
+        }
         break;
 
     // ============================================================

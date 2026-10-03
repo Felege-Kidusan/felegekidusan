@@ -1147,7 +1147,16 @@ class ReportCardService
         }
     }
 
-    private static function currentYearId(\mysqli $conn): int
+    /**
+     * The active academic year id, or 0 when none is set.
+     *
+     * Public because EducationAnalyticsService::getHubData() already calls it
+     * from outside the class to resolve a missing year_id. While this was
+     * private that call was a fatal "Call to private method" the moment the
+     * hub was opened with no current academic year configured, which is the
+     * state of a fresh deployment and of any year between rollovers.
+     */
+    public static function currentYearId(\mysqli $conn): int
     {
         $year = EnrollmentService::activeYear($conn);
         return $year ? (int)$year['id'] : 0;
