@@ -800,26 +800,56 @@ class StudentTrackingContractTests(unittest.TestCase):
         self.assertIn("ReportCardService::getCard", src)
         self.assertIn("SubmissionService::", src)
 
-    def test_later_workflows_were_not_built(self):
+    def test_the_tracking_surface_is_exactly_the_four_root_entities(self):
         """
-        Class tracking belongs to a later phase, and this is the guard that
-        keeps it out.
+        The scope-creep guard, in its final form.
 
-        It was written in Phase 2 to exclude Teacher, Subject and Class
-        tracking, narrowed in Phase 3 when Teacher landed, and narrowed
-        again in Phase 4 when Subject landed. It has never been deleted,
-        and what remains is the boundary that is still in front of us.
+        It was written in Phase 2 to assert Teacher, Subject and Class
+        tracking were all absent, and narrowed as each one landed: Phase 3
+        dropped Teacher, Phase 4 dropped Subject, Phase 5 dropped Class.
+        It has never been deleted. With all four root entities built there
+        is no later phase left for it to exclude, so what it pins now is
+        that the surface stopped at four — no fifth tracking workflow was
+        invented along the way, and the root catalogue did not grow a new
+        entity nobody asked for.
         """
-        src = CONTROLLER.read_text(encoding="utf-8")
-        for absent in ("renderClassDetail", "renderClassTracking",
-                       "tracking_class_detail", "tracking_class_students"):
-            with self.subTest(symbol=absent):
-                self.assertNotIn(absent, src)
         api = API_EDU.read_text(encoding="utf-8")
-        for absent in ("tracking_class_detail", "tracking_class_assessments",
-                       "tracking_class_students", "tracking_class_subjects"):
-            with self.subTest(action=absent):
-                self.assertNotIn(absent, api)
+        tracking = set(re.findall(r"'(tracking_[a-z_]+)'", api))
+        expected = {
+            "tracking_student_detail", "tracking_student_assessments",
+            "tracking_teacher_detail", "tracking_teacher_assessments",
+            "tracking_subject_detail", "tracking_subject_offering",
+            "tracking_subject_students",
+            "tracking_class_detail", "tracking_class_students",
+            "tracking_class_subjects", "tracking_class_teachers",
+            "tracking_class_assessments",
+        }
+        self.assertEqual(
+            expected, tracking,
+            "the tracking action surface changed; a workflow was added or removed "
+            "without updating this guard",
+        )
+
+        src = CONTROLLER.read_text(encoding="utf-8")
+        entity_keys = set(re.findall(r"^    (\w+): \{$", src, re.M))
+        self.assertEqual(
+            {"students", "teachers", "subjects", "classes"}, entity_keys,
+            "the root entity catalogue changed",
+        )
+
+    def test_every_root_entity_has_its_own_workspace(self):
+        """Each of the four renders its own screen, not a shared one."""
+        src = CONTROLLER.read_text(encoding="utf-8")
+        for fn in ("renderStudent =", "renderTeacher =", "renderSubject =",
+                   "renderClass ="):
+            with self.subTest(fn=fn):
+                self.assertIn(fn, src)
+        # The student workspace predates the naming the later phases
+        # settled on, so its panel id is at-section-panel.
+        for panel in ("at-section-panel", "at-teacher-panel",
+                      "at-subject-panel", "at-class-panel"):
+            with self.subTest(panel=panel):
+                self.assertIn(panel, src)
 
     def test_the_student_workflow_is_unchanged_by_later_phases(self):
         """Later phases must not modify Student Tracking to fit themselves."""

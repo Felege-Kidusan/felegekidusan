@@ -544,9 +544,34 @@
     this._subjOfferingSeq = 0;
     this._subjStudentSeq = 0;
 
+    // ── Phase 5: the scoped class workspace ──
+    // klass     = identity, reporting context and a small summary
+    // classTab  = which panel is open; each loads on first open only
+    // The class is the scope. Nothing below it is selected for the user.
+    this.klass = this.freshSection();
+    this.classTab = 'students';
+    this.classStudents = this.freshSection();
+    this.classSubjects = this.freshSection();
+    this.classTeachers = this.freshSection();
+    this.classAssessments = this.freshSection();
+    this.classStudentQuery = '';
+    this._classSeq = 0;
+    this._classTabSeq = { students: 0, subjects: 0, teachers: 0, assessments: 0 };
+
     this._searchTimer = null;
     this._booted = false;
   }
+
+  /** Clears everything the previously selected class loaded. */
+  AcademicTracking.prototype.resetClass = function () {
+    this.klass = this.freshSection();
+    this.classTab = 'students';
+    this.classStudents = this.freshSection();
+    this.classSubjects = this.freshSection();
+    this.classTeachers = this.freshSection();
+    this.classAssessments = this.freshSection();
+    this.classStudentQuery = '';
+  };
 
   /** Clears everything the previously selected subject loaded. */
   AcademicTracking.prototype.resetSubject = function () {
@@ -635,11 +660,13 @@
     this.lazy.report_card = this.freshSection();
     this.resetTeacher();
     this.resetSubject();
+    this.resetClass();
 
     this.render();
     if (type === 'students') this.loadStudentDetail();
     else if (type === 'teachers') this.loadTeacherDetail();
     else if (type === 'subjects') this.loadSubjectDetail();
+    else if (type === 'classes') this.loadClassDetail();
     return this.scope;
   };
 
@@ -651,6 +678,7 @@
     this.lazy.report_card = this.freshSection();
     this.resetTeacher();
     this.resetSubject();
+    this.resetClass();
     this.render();
   };
 
@@ -900,12 +928,12 @@
    * and has no data, which is a different and false statement.
    */
   AcademicTracking.prototype.renderSelection = function () {
-    // Students (Phase 2), Teachers (Phase 3) and Subjects (Phase 4) have
-    // real workflows. Classes keeps the honest boundary panel below until
-    // its phase lands.
+    // All four root entities now have real workflows: Students (Phase 2),
+    // Teachers (Phase 3), Subjects (Phase 4) and Classes (Phase 5).
     if (this.scope.type === 'students') return this.renderStudent();
     if (this.scope.type === 'teachers') return this.renderTeacher();
     if (this.scope.type === 'subjects') return this.renderSubject();
+    if (this.scope.type === 'classes') return this.renderClass();
 
     var d = ENTITIES[this.scope.type];
     return '<div class="crd" style="padding:1.25rem">'
@@ -919,13 +947,11 @@
       + '</div>'
       + '<div style="border:1px dashed #cbd5e1;border-radius:12px;padding:1rem;background:#f8fafc">'
       + '<div style="font-weight:700;color:#475569;font-size:.85rem;margin-bottom:.3rem">'
-      + '<i class="fa-solid fa-road-barrier" style="color:' + PALETTE.warn + '"></i> '
-      + esc(d.singular.charAt(0).toUpperCase() + d.singular.slice(1)) + ' tracking is not built yet</div>'
+      + '<i class="fa-solid fa-circle-question" style="color:' + PALETTE.warn + '" aria-hidden="true"></i> '
+      + 'No workflow for this selection</div>'
       + '<p style="font-size:.76rem;color:#64748b;line-height:1.5;margin:0">'
-      + 'This ' + esc(d.singular) + ' is now the active scope. The student workflow shipped in Phase 2; '
-      + 'the scoped ' + esc(d.singular) + ' screen — results, progress, workflow status and the links into '
-      + 'the existing report card and submission screens — is a later phase. Nothing is shown here rather '
-      + 'than showing numbers that have not been built yet.</p></div>'
+      + 'All four tracking workflows are built, so this message means the selection did not match '
+      + 'one of them. Nothing is shown rather than guessing which screen was intended.</p></div>'
       + '<div style="margin-top:.85rem;display:flex;gap:.5rem;flex-wrap:wrap">'
       + '<button type="button" class="btn btn-o btn-xs" data-go="' + esc(this.scope.type) + '">'
       + '<i class="fa-solid fa-arrow-left"></i> Back to ' + esc(d.label) + '</button>'
@@ -1259,6 +1285,71 @@
         ev.preventDefault();
         var target = subjTabs[next];
         if (target) self.openSubjectTab(target.getAttribute('data-subject-tab'));
+      });
+    });
+
+    // ── Phase 5: class workspace controls ──
+    root.querySelectorAll('[data-retry-class]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadClassDetail(); });
+    });
+    root.querySelectorAll('[data-retry-class-tab]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.loadClassTab(el.getAttribute('data-retry-class-tab'));
+      });
+    });
+    root.querySelectorAll('[data-class-student-page]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.loadClassTab('students', { page: intOr(el.getAttribute('data-class-student-page'), 1) });
+      });
+    });
+    root.querySelectorAll('[data-class-student-clear]').forEach(function (el) {
+      el.addEventListener('click', function () { self.searchClassStudents(''); });
+    });
+    root.querySelectorAll('[data-class-student-search]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        clearTimeout(self._searchTimer);
+        var v = el.value;
+        self._searchTimer = setTimeout(function () { self.searchClassStudents(v); }, 250);
+      });
+    });
+
+    // Hand-offs. The class established the relationship; the existing
+    // workflow screen does the rest. No tracking logic is duplicated here.
+    root.querySelectorAll('[data-open-student]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.selectEntity('students', el.getAttribute('data-open-student'),
+          el.getAttribute('data-open-student-name'));
+      });
+    });
+    root.querySelectorAll('[data-open-teacher]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.selectEntity('teachers', el.getAttribute('data-open-teacher'),
+          el.getAttribute('data-open-teacher-name'));
+      });
+    });
+    root.querySelectorAll('[data-open-subject]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.selectEntity('subjects', el.getAttribute('data-open-subject'),
+          el.getAttribute('data-open-subject-name'));
+      });
+    });
+
+    var classTabs = root.querySelectorAll('[data-class-tab]');
+    classTabs.forEach(function (el, idx) {
+      el.addEventListener('click', function () {
+        self.openClassTab(el.getAttribute('data-class-tab'));
+      });
+      el.addEventListener('keydown', function (ev) {
+        var n = classTabs.length;
+        var next = null;
+        if (ev.key === 'ArrowRight') next = (idx + 1) % n;
+        else if (ev.key === 'ArrowLeft') next = (idx - 1 + n) % n;
+        else if (ev.key === 'Home') next = 0;
+        else if (ev.key === 'End') next = n - 1;
+        if (next === null) return;
+        ev.preventDefault();
+        var target = classTabs[next];
+        if (target) self.openClassTab(target.getAttribute('data-class-tab'));
       });
     });
 
@@ -2894,6 +2985,568 @@
       + 'Status is resolved by the submission service that owns the review workflow, and \u201cOpen review\u201d '
       + 'opens that same screen. Academic Tracking shows where the work stands; it does not approve, '
       + 'reject or request revision itself.</p>';
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PHASE 5 — CLASS TRACKING
+  //
+  // Classes -> select class -> context -> students / subjects /
+  // teachers / assessments -> submission status -> the EXISTING
+  // workflow action.
+  //
+  // The class is the scope; the year and term are reporting context.
+  // Nothing below the class is chosen for the user, and nothing a tab
+  // owns is loaded until that tab is opened.
+  //
+  // No academic value is computed here. Four separate facts are shown
+  // per assessment — it exists, a packet exists, the packet's status,
+  // and whether marks have been recorded — and none of them is ever
+  // turned into a percentage.
+  // ══════════════════════════════════════════════════════════════════════
+
+  var CLASS_TABS = ['students', 'subjects', 'teachers', 'assessments'];
+  var CLASS_TAB_META = {
+    students:    { label: 'Students',    icon: 'fa-user-graduate' },
+    subjects:    { label: 'Subjects',    icon: 'fa-book-open' },
+    teachers:    { label: 'Teachers',    icon: 'fa-chalkboard-user' },
+    assessments: { label: 'Assessments', icon: 'fa-clipboard-list' }
+  };
+  var CLASS_TAB_ACTION = {
+    students:    'tracking_class_students',
+    subjects:    'tracking_class_subjects',
+    teachers:    'tracking_class_teachers',
+    assessments: 'tracking_class_assessments'
+  };
+
+  AcademicTracking.prototype.classQs = function (action, extra) {
+    var qs = ['action=' + action, 'class_id=' + this.scope.id];
+    if (this.context.year_id) qs.push('year_id=' + this.context.year_id);
+    if (extra && extra.page) qs.push('page=' + extra.page);
+    if (extra && extra.q) qs.push('q=' + encodeURIComponent(extra.q));
+    return qs;
+  };
+
+  AcademicTracking.prototype.loadClassDetail = function () {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'classes') return Promise.resolve();
+    var seq = ++this._classSeq;
+    var classId = this.scope.id;
+    this.klass = { status: 'loading', data: null, error: '', code: '' };
+    this.render();
+
+    return fetch(API_EDU + '?' + this.classQs('tracking_class_detail').join('&'),
+      { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (seq !== self._classSeq || !self.scope || self.scope.id !== classId) return;
+        if (!d || d.status !== 'success') {
+          self.klass = {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return this class.',
+            code: (d && d.code) || ''
+          };
+        } else {
+          self.klass = { status: 'ready', data: d, error: '', code: '' };
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._classSeq) return;
+        // A transport failure is not an empty class.
+        self.klass = {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        };
+        self.render();
+      });
+  };
+
+  /**
+   * Open one of the class panels.
+   *
+   * Each loads the first time it is opened and not before, so selecting
+   * a class never pulls its roll, its mark lists or anybody's marks.
+   */
+  AcademicTracking.prototype.openClassTab = function (name) {
+    if (CLASS_TABS.indexOf(name) < 0) return Promise.resolve();
+    this.classTab = name;
+    this.render();
+    if (this.classSection(name).status === 'idle') {
+      return this.loadClassTab(name);
+    }
+    return Promise.resolve();
+  };
+
+  AcademicTracking.prototype.classSection = function (name) {
+    if (name === 'students') return this.classStudents;
+    if (name === 'subjects') return this.classSubjects;
+    if (name === 'teachers') return this.classTeachers;
+    return this.classAssessments;
+  };
+
+  AcademicTracking.prototype.setClassSection = function (name, value) {
+    if (name === 'students') this.classStudents = value;
+    else if (name === 'subjects') this.classSubjects = value;
+    else if (name === 'teachers') this.classTeachers = value;
+    else this.classAssessments = value;
+  };
+
+  AcademicTracking.prototype.loadClassTab = function (name, extra) {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'classes') return Promise.resolve();
+    if (CLASS_TABS.indexOf(name) < 0) return Promise.resolve();
+
+    var seq = ++this._classTabSeq[name];
+    var classId = this.scope.id;
+    this.setClassSection(name, { status: 'loading', data: null, error: '', code: '' });
+    this.render();
+
+    var params = extra || {};
+    if (name === 'students' && this.classStudentQuery) params.q = this.classStudentQuery;
+    var qs = this.classQs(CLASS_TAB_ACTION[name], params).join('&');
+
+    return fetch(API_EDU + '?' + qs, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        // Two guards: a superseded request for this same panel, and a
+        // response for a class the user has since navigated away from.
+        if (seq !== self._classTabSeq[name] || !self.scope || self.scope.id !== classId) return;
+        if (!d || d.status !== 'success') {
+          self.setClassSection(name, {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return this data.',
+            code: (d && d.code) || ''
+          });
+        } else {
+          self.setClassSection(name, { status: 'ready', data: d, error: '', code: '' });
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._classTabSeq[name]) return;
+        self.setClassSection(name, {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        });
+        self.render();
+      });
+  };
+
+  AcademicTracking.prototype.searchClassStudents = function (q) {
+    this.classStudentQuery = String(q == null ? '' : q).trim();
+    return this.loadClassTab('students', { page: 1 });
+  };
+
+  // ── class rendering ───────────────────────────────────────────────────────
+
+  AcademicTracking.prototype.renderClass = function () {
+    var self = this;
+    var busy = this.klass.status === 'loading'
+      || CLASS_TABS.some(function (t) { return self.classSection(t).status === 'loading'; });
+    return this.renderClassHeader()
+      + '<div class="crd" id="at-class-panel" tabindex="-1" '
+      + 'style="padding:0;margin-top:.7rem;overflow:hidden" aria-live="polite" aria-busy="'
+      + (busy ? 'true' : 'false') + '">'
+      + this.renderClassBody()
+      + '</div>';
+  };
+
+  AcademicTracking.prototype.renderClassHeader = function () {
+    var st = this.klass;
+    var d = st.data;
+    var name = d && d.class ? (d.class.class_name || this.scope.label) : this.scope.label;
+    var sub, chips = '';
+
+    if (st.status === 'loading') {
+      sub = '<span class="at-skel" style="width:160px;display:inline-block;height:.7rem"></span>';
+    } else if (st.status === 'error') {
+      sub = '<span style="color:' + PALETTE.bad + '">Details unavailable</span>';
+    } else if (d && d.class) {
+      var bits = [];
+      if (d.class.class_name_en) bits.push(esc(d.class.class_name_en));
+      if (d.class.class_code) bits.push(esc(d.class.class_code));
+      if (d.class.section) bits.push('Section ' + esc(d.class.section));
+      sub = bits.join(' &nbsp;\u00b7&nbsp; ') || 'No code recorded';
+
+      // Reporting context, labelled as such — never presented as part of
+      // the class's identity.
+      chips += '<span class="ch ch-i" title="Reporting period. Context, not a filter.">'
+        + '<i class="fa-solid fa-calendar" aria-hidden="true"></i> '
+        + esc(this.context.year_name || 'Current year') + '</span>';
+      if (this.context.term_name) {
+        chips += '<span class="ch ch-i" title="Reporting period. Context, not a filter.">'
+          + esc(this.context.term_name) + '</span>';
+      }
+      chips += '<span class="ch ' + (d.class.is_active ? 'ch-ok' : 'ch-d') + '">'
+        + (d.class.is_active ? 'Active' : 'Inactive') + '</span>';
+    } else {
+      sub = '';
+    }
+
+    var homeroom = '';
+    if (st.status === 'ready' && d) {
+      var hr = d.homeroom_teachers || [];
+      if (hr.length) {
+        homeroom = hr.map(function (t) {
+          return '<span class="amharic" style="font-weight:700;color:#1e293b">' + esc(t.full_name) + '</span>'
+            + (t.is_standing
+                ? ' <span class="ch ch-w" title="Not tied to one academic year">Standing</span>' : '');
+        }).join(', ');
+      } else {
+        // Honest: there is no homeroom teacher on record, which is not
+        // the same as there being no teachers at all.
+        homeroom = '<span style="color:#94a3b8;font-style:italic">No homeroom teacher assigned</span>';
+      }
+      homeroom = '<div style="margin-top:.7rem;display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;'
+        + 'padding:.5rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">'
+        + '<span style="font-size:.68rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;font-weight:700">Homeroom</span>'
+        + '<span style="font-size:.8rem">' + homeroom + '</span></div>';
+    }
+
+    return '<div class="crd" style="padding:1rem 1.1rem">'
+      + '<div style="display:flex;gap:.8rem;align-items:flex-start;flex-wrap:wrap">'
+      + '<span style="width:46px;height:46px;border-radius:13px;background:#f5f3ff;color:' + PALETTE.primary
+      + ';display:inline-flex;align-items:center;justify-content:center;font-size:1.15rem;flex:none">'
+      + '<i class="fa-solid fa-school" aria-hidden="true"></i></span>'
+      + '<div style="flex:1;min-width:180px">'
+      + '<div class="amharic" style="font-weight:800;color:#1e293b;font-size:1.05rem;line-height:1.3">'
+      + esc(name) + '</div>'
+      + '<div style="font-size:.74rem;color:#64748b;margin-top:.15rem">' + sub + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center">' + chips + '</div>'
+      + '</div>'
+      + homeroom
+      + this.renderClassSummary()
+      + '<div style="margin-top:.8rem;display:flex;gap:.4rem;flex-wrap:wrap">'
+      + '<button type="button" class="btn btn-o btn-xs" data-go="classes">'
+      + '<i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to Classes</button>'
+      + '<button type="button" class="btn btn-o btn-xs" data-clear-selection="1">Clear selection</button>'
+      + '</div></div>';
+  };
+
+  /** Four truthful counts. No score, no rank, no invented KPI. */
+  AcademicTracking.prototype.renderClassSummary = function () {
+    var st = this.klass;
+    if (st.status !== 'ready' || !st.data) return '';
+    var s = st.data.summary || {};
+    var cells = [
+      ['Students', s.students, 'No students enrolled', 'fa-user-graduate'],
+      ['Subjects', s.subjects, 'No subjects offered', 'fa-book-open'],
+      ['Teachers', s.teachers, 'No teachers assigned', 'fa-chalkboard-user'],
+      ['Assessments', s.assessments, 'No assessments', 'fa-clipboard-list']
+    ].map(function (c) {
+      var n = c[1];
+      // A real COUNT(*) of zero is stated in words. A value nobody looked
+      // up is a dash. Neither is ever shown as a bare 0.
+      var val;
+      if (n === null || typeof n === 'undefined') {
+        val = '<span style="color:#94a3b8;font-size:.78rem">\u2014</span>';
+      } else if (intOr(n, 0) === 0) {
+        val = '<span style="color:#94a3b8;font-size:.72rem">' + esc(c[2]) + '</span>';
+      } else {
+        val = '<span style="font-weight:800;color:#1e293b;font-size:1.05rem">' + esc(n) + '</span>';
+      }
+      return '<div style="flex:1;min-width:120px;padding:.55rem .7rem;background:#f8fafc;'
+        + 'border:1px solid #e2e8f0;border-radius:10px">'
+        + '<div style="font-size:.64rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;'
+        + 'font-weight:700;display:flex;align-items:center;gap:.3rem">'
+        + '<i class="fa-solid ' + c[3] + '" aria-hidden="true"></i> ' + esc(c[0]) + '</div>'
+        + '<div style="margin-top:.2rem">' + val + '</div></div>';
+    }).join('');
+    return '<div style="margin-top:.7rem;display:flex;gap:.45rem;flex-wrap:wrap">' + cells + '</div>';
+  };
+
+  AcademicTracking.prototype.renderClassBody = function () {
+    var st = this.klass;
+    if (st.status === 'idle' || st.status === 'loading') return this.renderDetailSkeleton();
+    if (st.status === 'error') {
+      return this.stateBlock(
+        st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation',
+        PALETTE.bad,
+        'Could not load this class',
+        esc(st.error),
+        '<button type="button" class="btn btn-p btn-xs" data-retry-class="1">'
+          + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+
+    var self = this;
+    var tabs = CLASS_TABS.map(function (key) {
+      var m = CLASS_TAB_META[key];
+      var on = self.classTab === key;
+      return '<button type="button" role="tab" id="at-classtab-' + key + '" data-class-tab="' + key + '" '
+        + 'aria-selected="' + (on ? 'true' : 'false') + '" tabindex="' + (on ? '0' : '-1') + '" '
+        + 'style="border:0;background:' + (on ? '#f5f3ff' : 'transparent') + ';color:'
+        + (on ? PALETTE.primary : '#64748b') + ';font-weight:' + (on ? '800' : '600')
+        + ';padding:.55rem .85rem;border-bottom:2px solid ' + (on ? PALETTE.primary : 'transparent')
+        + ';cursor:pointer;font-size:.78rem;display:inline-flex;align-items:center;gap:.35rem;font-family:inherit">'
+        + '<i class="fa-solid ' + m.icon + '" aria-hidden="true"></i> ' + m.label + '</button>';
+    }).join('');
+
+    return '<div role="tablist" aria-label="Class sections" '
+      + 'style="display:flex;gap:.15rem;border-bottom:1px solid #e2e8f0;overflow-x:auto">'
+      + tabs + '</div>'
+      + '<div role="tabpanel" aria-labelledby="at-classtab-' + esc(this.classTab) + '" tabindex="0">'
+      + this.renderClassTabBody() + '</div>';
+  };
+
+  AcademicTracking.prototype.renderClassTabBody = function () {
+    var name = this.classTab;
+    var st = this.classSection(name);
+    if (st.status === 'idle' || st.status === 'loading') return this.renderDetailSkeleton();
+    if (st.status === 'error') {
+      return this.stateBlock(
+        st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation',
+        PALETTE.bad,
+        'Could not load this section',
+        esc(st.error),
+        '<button type="button" class="btn btn-p btn-xs" data-retry-class-tab="' + esc(name) + '">'
+          + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+    if (name === 'students') return this.renderClassStudents();
+    if (name === 'subjects') return this.renderClassSubjects();
+    if (name === 'teachers') return this.renderClassTeachers();
+    return this.renderClassAssessments();
+  };
+
+  AcademicTracking.prototype.renderClassStudents = function () {
+    var d = this.classStudents.data;
+    var rows = (d && d.students) || [];
+    var state = (d && d.data_state && d.data_state.students) || '';
+    var q = this.classStudentQuery;
+
+    var search = '<div style="padding:.8rem 1rem .2rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:center">'
+      + '<label for="at-class-stu-q" style="font-size:.7rem;color:#64748b;font-weight:700">Search students</label>'
+      + '<input id="at-class-stu-q" type="search" data-class-student-search="1" value="' + esc(q) + '" '
+      + 'placeholder="Name or code\u2026" style="flex:1;min-width:160px;padding:.4rem .6rem;border:1px solid #e2e8f0;'
+      + 'border-radius:9px;font-size:.78rem;font-family:inherit">'
+      + (q ? '<button type="button" class="btn btn-o btn-xs" data-class-student-clear="1">Clear search</button>' : '')
+      + '</div>';
+
+    if (!rows.length) {
+      // "Nobody is enrolled" and "your search matched nobody" are
+      // different answers, and only the second may mention the search.
+      var body = state === 'filtered_empty'
+        ? this.stateBlock('fa-magnifying-glass', PALETTE.muted,
+            'No student matches this search',
+            'No enrolled student matches \u201c' + esc(q) + '\u201d. Clearing the search shows the whole class.',
+            '<button type="button" class="btn btn-o btn-xs" data-class-student-clear="1">Clear search</button>')
+        : this.stateBlock('fa-users-slash', PALETTE.muted,
+            'No students enrolled',
+            'Nobody is enrolled in this class for '
+              + esc(this.context.year_name || 'the current academic year') + '.', '');
+      return search + body;
+    }
+
+    var body2 = rows.map(function (s) {
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">'
+        + esc([s.student_name, s.father_name].filter(Boolean).join(' ')) + '</span></td>'
+        + '<td>' + esc(s.member_code || '\u2014') + '</td>'
+        + '<td>' + (s.status
+            ? '<span class="ch ' + (s.status === 'active' ? 'ch-ok' : 'ch-d') + '">'
+              + esc(titleCase(s.status)) + '</span>' : '\u2014') + '</td>'
+        + '<td style="text-align:right">'
+        + '<button type="button" class="btn btn-o btn-xs" data-open-student="' + esc(s.member_id) + '" '
+        + 'data-open-student-name="' + esc([s.student_name, s.father_name].filter(Boolean).join(' ')) + '">'
+        + 'Track <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></td>'
+        + '</tr>';
+    }).join('');
+
+    var pager = '';
+    if (intOr(d.pages, 1) > 1) {
+      pager = '<div style="display:flex;gap:.4rem;align-items:center;justify-content:center;padding:.6rem">'
+        + '<button type="button" class="btn btn-o btn-xs" data-class-student-page="' + (intOr(d.page, 1) - 1) + '"'
+        + (intOr(d.page, 1) <= 1 ? ' disabled' : '') + '>Previous</button>'
+        + '<span style="font-size:.72rem;color:#64748b">Page ' + esc(d.page) + ' of ' + esc(d.pages) + '</span>'
+        + '<button type="button" class="btn btn-o btn-xs" data-class-student-page="' + (intOr(d.page, 1) + 1) + '"'
+        + (intOr(d.page, 1) >= intOr(d.pages, 1) ? ' disabled' : '') + '>Next</button></div>';
+    }
+
+    return search
+      + '<div style="padding:.3rem 1rem .2rem"><p style="font-size:.73rem;color:#64748b;margin:0;line-height:1.5">'
+      + esc(d.total) + ' enrolled for ' + esc(this.context.year_name || 'the current year')
+      + '. Membership comes from enrolment records \u2014 appearing on a mark list does not place a student here.'
+      + '</p></div>'
+      + '<div class="tw" style="margin-top:.5rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Student</th><th scope="col">Code</th><th scope="col">Status</th>'
+      + '<th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body2 + '</tbody></table></div>' + pager;
+  };
+
+  AcademicTracking.prototype.renderClassSubjects = function () {
+    var d = this.classSubjects.data;
+    var rows = (d && d.subjects) || [];
+    if (!rows.length) {
+      return this.stateBlock(
+        'fa-book-bookmark', PALETTE.muted,
+        'No subjects offered',
+        'No subject is recorded against this class. An assessment existing for a subject does not '
+          + 'make it an offering \u2014 the class-subject record is what does.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (s) {
+      var dur = s.duration_type
+        ? '<span class="ch ch-d">' + esc(durationLabel(s.duration_type)) + '</span>'
+        : '<span style="color:#94a3b8;font-style:italic">Not classified</span>';
+      var teachers = (s.teachers && s.teachers.length)
+        ? s.teachers.map(function (t) {
+            return '<span class="amharic">' + esc(t.full_name) + '</span>'
+              + (t.is_standing ? ' <span class="ch ch-w" title="Not tied to one academic year">Standing</span>' : '');
+          }).join(', ')
+        : '<span style="color:#94a3b8">No teacher assigned</span>';
+      // Three separate facts, not one score.
+      var assess = intOr(s.assessment_count, 0) === 0
+        ? '<span style="color:#94a3b8">No assessments</span>'
+        : '<span style="font-weight:700;color:#1e293b">' + esc(s.assessment_count) + '</span>';
+      var results = s.has_results
+        ? '<span class="ch ch-ok">Marks recorded</span>'
+        : '<span class="ch ch-d">No marks yet</span>';
+
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">' + esc(s.subject_name || '') + '</span>'
+        + (s.subject_name_en ? '<div style="font-size:.67rem;color:#94a3b8">' + esc(s.subject_name_en) + '</div>' : '')
+        + '</td>'
+        + '<td>' + dur + '</td><td style="font-size:.76rem">' + teachers + '</td>'
+        + '<td>' + assess + '</td><td>' + results + '</td>'
+        + '<td style="text-align:right">'
+        + '<button type="button" class="btn btn-o btn-xs" data-open-subject="' + esc(s.subject_id) + '" '
+        + 'data-open-subject-name="' + esc(s.subject_name || '') + '">'
+        + 'Track <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Subjects offered to this class</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'A class-subject record is a standing arrangement and is not tied to one academic year. '
+      + 'The teachers, assessments and marks beside it are for '
+      + esc(this.context.year_name || 'the current year') + '.</p></div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Subject</th><th scope="col">Duration</th><th scope="col">Teachers</th>'
+      + '<th scope="col">Assessments</th><th scope="col">Marks</th>'
+      + '<th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  };
+
+  AcademicTracking.prototype.renderClassTeachers = function () {
+    var d = this.classTeachers.data;
+    var rows = (d && d.teachers) || [];
+    if (!rows.length) {
+      return this.stateBlock(
+        'fa-user-slash', PALETTE.muted,
+        'No teachers assigned',
+        'No teacher holds an assignment for this class in '
+          + esc(this.context.year_name || 'the current academic year')
+          + '. Someone may still have filed work against it; that does not make them a teacher of it.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (t) {
+      // Homeroom covers the class; a subject assignment covers one
+      // subject. They are never shown as the same thing.
+      var what = t.is_homeroom
+        ? '<span class="ch ch-p" title="Assigned to the class, not to a subject">Homeroom</span>'
+        : '<span class="amharic" style="font-weight:600">' + esc(t.subject_name || '') + '</span>';
+      var role = t.is_primary
+        ? '<span class="ch ch-i">Primary</span>'
+        : (t.assignment_role
+            ? '<span class="ch ch-d">' + esc(titleCase(t.assignment_role)) + '</span>' : '');
+      var standing = t.is_standing
+        ? ' <span class="ch ch-w" title="Not tied to one academic year">Standing</span>' : '';
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">' + esc(t.full_name || '') + '</span>'
+        + '<div style="font-size:.67rem;color:#94a3b8">'
+        + esc(t.member_code || ('@' + (t.username || ''))) + '</div></td>'
+        + '<td>' + what + '</td><td>' + role + standing + '</td>'
+        + '<td>' + (t.is_active
+            ? '<span class="ch ch-ok">Active</span>' : '<span class="ch ch-d">Inactive</span>') + '</td>'
+        + '<td style="text-align:right">'
+        + '<button type="button" class="btn btn-o btn-xs" data-open-teacher="' + esc(t.teacher_id) + '" '
+        + 'data-open-teacher-name="' + esc(t.full_name || '') + '">'
+        + 'Track <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Teachers assigned to this class</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'Read from teacher assignment records. A homeroom assignment covers the class itself and is '
+      + 'shown as such; it never makes its holder the teacher of a subject.</p></div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Teacher</th><th scope="col">Assignment</th><th scope="col">Role</th>'
+      + '<th scope="col">Status</th><th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  };
+
+  AcademicTracking.prototype.renderClassAssessments = function () {
+    var d = this.classAssessments.data;
+    var rows = (d && d.assessments) || [];
+    if (!rows.length) {
+      return this.stateBlock(
+        'fa-clipboard-question', PALETTE.muted,
+        'No assessments for this class',
+        'Nothing has been planned for this class in '
+          + esc(this.context.year_name || 'the current academic year')
+          + '. Assessments are created in the Assessments screen.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (a) {
+      var weight = a.weight === null || typeof a.weight === 'undefined'
+        ? '<span style="color:#94a3b8" title="No weight configured for this assessment">\u2014</span>'
+        : esc(a.weight) + '%';
+      // Marks recorded is a THIRD fact, separate from the packet and from
+      // its status. An assessment can be complete with no packet, or have
+      // a packet with no marks.
+      var marks = a.has_results
+        ? '<span class="ch ch-ok">Recorded</span>'
+        : '<span class="ch ch-d">None yet</span>';
+
+      var action;
+      if (intOr(a.submission_id, 0) > 0) {
+        action = '<button type="button" class="btn btn-o btn-xs" data-open-submission="' + esc(a.submission_id) + '">'
+          + '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> Open review</button>';
+      } else if (a.workflow_status) {
+        action = '<span style="font-size:.68rem;color:#94a3b8" '
+          + 'title="This status comes from the recorded marks. There is no submission packet to open.">'
+          + 'No packet</span>';
+      } else {
+        action = '<span style="font-size:.68rem;color:#cbd5e1">\u2014</span>';
+      }
+
+      return '<tr>'
+        + '<td><span style="font-weight:700;color:#1e293b">' + esc(a.assessment_name || '') + '</span>'
+        + (a.assessment_type
+            ? '<div style="font-size:.67rem;color:#94a3b8">' + esc(titleCase(a.assessment_type)) + '</div>' : '')
+        + '</td>'
+        + '<td><span class="amharic">' + esc(a.subject_name || '\u2014') + '</span></td>'
+        + '<td>' + weight + '</td>'
+        + '<td>' + workflowChip(a.workflow_status, a.workflow_label) + '</td>'
+        + '<td>' + marks + '</td>'
+        + '<td style="text-align:right">' + action + '</td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Assessments and mark list status</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'Whether an assessment exists, whether a mark list was submitted, what state that submission is '
+      + 'in, and whether any mark has been recorded are four separate facts and are shown separately. '
+      + 'None of them is a result.</p></div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Assessment</th><th scope="col">Subject</th><th scope="col">Weight</th>'
+      + '<th scope="col">Mark list</th><th scope="col">Marks</th>'
+      + '<th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Status is resolved by the submission service that owns the review workflow, and \u201cOpen review\u201d '
+      + 'opens that same screen.</p>';
   };
 
   AcademicTracking.ENTITIES = ENTITIES;
