@@ -129,8 +129,9 @@ function rebuild(mysqli $conn): void
         `end_date` DATE DEFAULT NULL,
         `is_current` TINYINT(1) NOT NULL DEFAULT 0,
         `status` VARCHAR(20) DEFAULT 'active',
+" . (pre056() ? '' : "
         `s1_weight_pct` DECIMAL(5,2) NOT NULL DEFAULT 50.00,
-        `s2_weight_pct` DECIMAL(5,2) NOT NULL DEFAULT 50.00,
+        `s2_weight_pct` DECIMAL(5,2) NOT NULL DEFAULT 50.00,") . "
         `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (`id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
@@ -171,9 +172,9 @@ function rebuild(mysqli $conn): void
     $conn->query("CREATE TABLE `class_subjects` (
         `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
         `class_id` INT UNSIGNED NOT NULL,
-        `subject_id` INT UNSIGNED NOT NULL,
+        `subject_id` INT UNSIGNED NOT NULL," . (pre056() ? '' : "
         `duration_type` VARCHAR(20) DEFAULT NULL,
-        `term_id` INT UNSIGNED DEFAULT NULL,
+        `term_id` INT UNSIGNED DEFAULT NULL,") . "
         PRIMARY KEY (`id`), UNIQUE KEY (`class_id`,`subject_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
@@ -252,7 +253,12 @@ function rebuild(mysqli $conn): void
         `assessment_type` VARCHAR(30) NOT NULL DEFAULT 'test',
         `max_score` DECIMAL(6,2) NOT NULL DEFAULT 100.00,
         `weight_percentage` DECIMAL(5,2) DEFAULT NULL,
-        `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+        -- Mirrors admin/migrations/003_add_assessments.php and production.
+        -- This table has NO `is_active` column; the publish flag is
+        -- `is_published`, and nothing filters assessments by it. The fixture
+        -- previously invented `is_active`, which let queries pass here while
+        -- failing in production with \"Unknown column 'is_active'\".
+        `is_published` TINYINT(1) NOT NULL DEFAULT 0,
         PRIMARY KEY (`id`), KEY (`class_id`), KEY (`subject_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
@@ -302,11 +308,30 @@ function rebuild(mysqli $conn): void
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
+/**
+ * Whether this fixture should build a PRE-migration-056 schema.
+ *
+ * Production ran the Academic Tracking code for weeks on a database where
+ * 056 had never been applied, and every test passed regardless because the
+ * fixture always built the post-056 shape. Setting SSMS_FIXTURE_PRE056=1
+ * reproduces the production shape so the degradation path is exercised for
+ * real instead of being assumed.
+ */
+function pre056(): bool
+{
+    return (string)getenv('SSMS_FIXTURE_PRE056') === '1';
+}
+
 function seed(mysqli $conn): void
 {
     // 40/60 weights: a full-year annual score is NOT the mean of S1 and S2.
-    $conn->query("INSERT INTO academic_years (id, year_name, ec_year, is_current, s1_weight_pct, s2_weight_pct)
-                  VALUES (" . Y1 . ", '2017 E.C.', 2017, 1, 40.00, 60.00)");
+    if (pre056()) {
+        $conn->query("INSERT INTO academic_years (id, year_name, ec_year, is_current)
+                      VALUES (" . Y1 . ", '2017 E.C.', 2017, 1)");
+    } else {
+        $conn->query("INSERT INTO academic_years (id, year_name, ec_year, is_current, s1_weight_pct, s2_weight_pct)
+                      VALUES (" . Y1 . ", '2017 E.C.', 2017, 1, 40.00, 60.00)");
+    }
     $conn->query("INSERT INTO academic_terms (id, academic_year_id, term_name, term_number, is_current) VALUES
                   (" . T1 . ", " . Y1 . ", 'Semester 1', 1, 0),
                   (" . T2 . ", " . Y1 . ", 'Semester 2', 2, 1)");
@@ -323,11 +348,19 @@ function seed(mysqli $conn): void
 
     // GEEZ is full-year in both classes. MUSIC is semester-1-only in C1.
     // HISTORY in C2 is deliberately left unclassified (NULL duration).
-    $conn->query("INSERT INTO class_subjects (class_id, subject_id, duration_type, term_id) VALUES
-                  (" . C1 . ", " . S_GEEZ . ", 'FULL_YEAR', NULL),
-                  (" . C1 . ", " . S_MUSIC . ", 'SEMESTER_ONLY', " . T1 . "),
-                  (" . C2 . ", " . S_GEEZ . ", 'FULL_YEAR', NULL),
-                  (" . C2 . ", " . S_HIST . ", NULL, NULL)");
+    if (pre056()) {
+        $conn->query("INSERT INTO class_subjects (class_id, subject_id) VALUES
+                      (" . C1 . ", " . S_GEEZ . "),
+                      (" . C1 . ", " . S_MUSIC . "),
+                      (" . C2 . ", " . S_GEEZ . "),
+                      (" . C2 . ", " . S_HIST . ")");
+    } else {
+        $conn->query("INSERT INTO class_subjects (class_id, subject_id, duration_type, term_id) VALUES
+                      (" . C1 . ", " . S_GEEZ . ", 'FULL_YEAR', NULL),
+                      (" . C1 . ", " . S_MUSIC . ", 'SEMESTER_ONLY', " . T1 . "),
+                      (" . C2 . ", " . S_GEEZ . ", 'FULL_YEAR', NULL),
+                      (" . C2 . ", " . S_HIST . ", NULL, NULL)");
+    }
 
     // Teachers are people before they are logins, so two of the three get a
     // `members` row and are linked through users.member_id -- the same shape
@@ -988,7 +1021,7 @@ function scenario_student_tracking_fixture(mysqli $conn): void
     // weight across one marked and one unmarked assessment.
     $conn->query("UPDATE assessments SET weight_percentage = 50.00 WHERE id = 3");
     $conn->query("INSERT INTO assessments
-        (id, class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, max_score, weight_percentage, is_active)
+        (id, class_id, subject_id, academic_year_id, term_id, assessment_name, assessment_type, max_score, weight_percentage, is_published)
         VALUES (7, " . C1 . ", " . S_MUSIC . ", " . Y1 . ", " . T1 . ", 'Music Project', 'project', 100.00, 50.00, 1)");
 
     // A mark list Education handed back to the teacher.
