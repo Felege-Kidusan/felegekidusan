@@ -350,6 +350,69 @@ class AcademicIntelligenceRenderTests(_LiveBase):
             self.assertIn("0 failed", run.stdout)
 
 
+class AcademicTrackingSelectionTests(_LiveBase):
+    """Academic Tracking Phase 0: nothing is selected until the user selects it.
+
+    The first implementation opened by choosing whichever class, subject,
+    teacher and student the database returned first and immediately
+    rendering a report for them. Verified against that code, this harness
+    reports: class_id=1, subject_id=3, teacher_id=12 and one
+    get_academic_intelligence request issued before the user had chosen
+    anything.
+
+    That is wrong for a tracking system on two counts. It puts a named
+    child's marks on screen that nobody asked to see, and it makes every
+    heading on the page describe a choice the user never made. It also
+    costs work: opening the feature ran the catalogue query plus a full
+    class report (measured at 5 + 12 = 17 queries) for a class picked at
+    random.
+
+    The harness drives the real controller's boot sequence against a
+    stubbed network, so it observes the selection model and the request
+    log directly rather than inspecting source strings.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.node = shutil.which("node")
+        if not cls.node:
+            raise unittest.SkipTest("node not available — selection model harness skipped")
+        if not ROLE_RUNNER.is_file():
+            raise unittest.SkipTest("tests/e2e/education_config_api.php not present")
+        subprocess.run(
+            [cls.php, str(RUNNER), "term_scoping"],
+            capture_output=True, text=True, timeout=600, cwd=str(ROOT),
+            env={**os.environ, "SSMS_AUDIT_TESTING": "1", "SSMS_SYNC_DB": SYNC_DB},
+        )
+
+    def test_no_entity_is_selected_automatically(self):
+        import tempfile
+
+        proc = subprocess.run(
+            [self.php, str(ROLE_RUNNER), "api_education.php", "edu_dept", "GET",
+             json.dumps({"action": "get_academic_intelligence_options", "year_id": 1})],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT),
+            env={**os.environ, "SSMS_DB_NAME": SYNC_DB},
+        )
+        line = proc.stdout.strip().splitlines()[-1]
+        self.assertEqual("success", json.loads(line).get("status"), line[:200])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cat = Path(tmp, "catalogue.json")
+            cat.write_text(line, encoding="utf-8")
+            harness = ROOT / "tests" / "e2e" / "academic_tracking_selection.js"
+            run = subprocess.run(
+                [self.node, str(harness), str(cat)],
+                capture_output=True, text=True, timeout=180, cwd=str(ROOT),
+            )
+            self.assertEqual(
+                0, run.returncode,
+                "selection model regressed:\n" + run.stdout + run.stderr,
+            )
+            self.assertIn("0 failed", run.stdout)
+
+
 class AcademicIntelligenceContractTests(unittest.TestCase):
     """Source-level pins for decisions a runtime harness cannot show.
 
