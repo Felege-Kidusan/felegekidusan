@@ -27,14 +27,18 @@ earlier report.
 | New API files | **None** — the existing education API was extended |
 | New permission system | **None** — the existing tier-3 gate and `canViewClass` |
 | New workflow states | **None** — `SubmissionService` statuses only |
-| Security suite | 1774 passed / 750 subtests / 12 pre-existing environmental failures |
+| Security suite | **CI #40: 1786 passed, 0 failed, 750 subtests** |
 | Teacher suites | 89 pytest tests + 44 subtests · 166 node checks |
 | Mutation testing | 32 mutations, **32 caught, 0 survived** |
 
-The 12 failing tests are `test_comm_e2e.py` (11) and `test_destructive_guard.py`
-(1). They fail identically before and after Phase 3, are caused by an unseeded
-local `ssms_comm_e2e`, and touch nothing in Academic Tracking. The failure list
-was diffed against the pre-Phase-3 baseline and is byte-identical.
+CI run #40 on `a95b02c` is green on all three jobs: *PHP syntax (php -l)*,
+*Security and regression suite* and *Migration numbering*.
+
+Locally, 12 tests fail — `test_comm_e2e.py` (11) and `test_destructive_guard.py`
+(1). They fail identically before and after Phase 3, the failure list was
+diffed against the pre-Phase-3 baseline and is byte-identical, and they touch
+nothing in Academic Tracking. CI, which seeds `ssms_comm_e2e` properly, passes
+all 1786 — which confirms those 12 were environmental rather than real.
 
 ---
 
@@ -459,7 +463,8 @@ node tests/e2e/teacher_tracking.js
 
 | Suite | Result |
 |---|---|
-| `tests/security` (full) | 1774 passed, 750 subtests, 12 pre-existing environmental failures |
+| `tests/security` (full, CI #40) | **1786 passed, 0 failed, 750 subtests** |
+| `tests/security` (full, local) | 1774 passed, 750 subtests, 12 pre-existing environmental failures |
 | `tests/security/test_teacher_tracking.py` | **89 passed, 44 subtests, 0 skipped** |
 | `tests/security/test_student_tracking.py` | 59 passed, 151 subtests (Phase 2, unaffected) |
 | `tests/e2e/teacher_tracking.js` | **166 checks, 0 failed** |
@@ -467,7 +472,8 @@ node tests/e2e/teacher_tracking.js
 | `tests/e2e/academic_tracking_lists.js` | 143 checks, 0 failed |
 | `php -l` | 251 first-party files, all clean |
 
-Phase 3 adds **+90 tests and +48 subtests** to the security suite.
+Phase 3 adds **+90 tests and +48 subtests** to the security suite, measured
+against the Phase 2 CI baseline of 1696 passed / 702 subtests (run #38).
 
 No test was skipped, weakened or deleted to get green.
 
@@ -714,4 +720,4 @@ endpoint or a renderer in this phase.
 | Academic Intelligence / Student Tracking / Education still functional | yes — suites pass |
 | Regression tests pass | yes — baseline identical |
 | Documentation complete | this document |
-| Clean tree, pushed, CI | see below |
+| Clean tree, pushed, CI | yes — `a95b02c` on `origin/main`, CI #40 green |
