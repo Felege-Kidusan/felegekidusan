@@ -597,8 +597,11 @@ class StudentTrackingAuthorizationTests(_TrackingBase):
         reach tier 3, so only a source pin can hold them in place.
         """
         src = API_EDU.read_text(encoding="utf-8")
+        # Bounded by the next case, so a later phase adding its own
+        # endpoints after this one cannot inflate the count and make this
+        # assertion pass for the wrong reason.
         block = src[src.index("case 'tracking_student_detail'"):
-                    src.index("case 'get_academic_intelligence'")]
+                    src.index("case 'tracking_teacher_detail'")]
         self.assertEqual(
             2, block.count("canViewClass"),
             "expected exactly two visibility checks: inbound class_id and resolved class")
@@ -797,18 +800,34 @@ class StudentTrackingContractTests(unittest.TestCase):
         self.assertIn("ReportCardService::getCard", src)
         self.assertIn("SubmissionService::", src)
 
-    def test_phase_three_workflows_were_not_built(self):
-        """Teacher, Subject and Class tracking stay out of Phase 2."""
+    def test_later_workflows_were_not_built(self):
+        """
+        Phase 3 added Teacher tracking and nothing else. Subject and Class
+        tracking belong to a later phase, and this is the guard that keeps
+        them out: it was written in Phase 2 to exclude all three, and was
+        narrowed — not deleted — when Teacher tracking landed.
+        """
         src = CONTROLLER.read_text(encoding="utf-8")
-        for absent in ("renderTeacher =", "renderSubjectDetail", "renderClassDetail",
-                       "tracking_teacher_detail", "tracking_class_detail"):
+        for absent in ("renderSubjectDetail", "renderClassDetail",
+                       "tracking_subject_detail", "tracking_class_detail"):
             with self.subTest(symbol=absent):
                 self.assertNotIn(absent, src)
         api = API_EDU.read_text(encoding="utf-8")
-        for absent in ("tracking_teacher_detail", "tracking_subject_detail",
-                       "tracking_class_detail"):
+        for absent in ("tracking_subject_detail", "tracking_class_detail",
+                       "tracking_subject_assessments", "tracking_class_assessments"):
             with self.subTest(action=absent):
                 self.assertNotIn(absent, api)
+
+    def test_the_student_workflow_is_unchanged_by_phase_three(self):
+        """Phase 3 must not have modified Student Tracking to fit itself."""
+        api = API_EDU.read_text(encoding="utf-8")
+        self.assertIn("case 'tracking_student_detail':", api)
+        self.assertIn("case 'tracking_student_assessments':", api)
+        src = CONTROLLER.read_text(encoding="utf-8")
+        for kept in ("renderStudent =", "loadStudentDetail", "loadStudentAssessments",
+                     "loadStudentReportCard"):
+            with self.subTest(symbol=kept):
+                self.assertIn(kept, src)
 
 
 # ══════════════════════════════════════════════════════════════════════
