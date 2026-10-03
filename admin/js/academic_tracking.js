@@ -352,6 +352,35 @@
     return '<span class="ch ch-d" title="Duration not classified for this offering">Unclassified</span>';
   }
 
+  /**
+   * The duration as a bare word, for places that need the label without
+   * the chip. Shares durationChip()'s vocabulary so the two can never
+   * describe the same offering differently.
+   */
+  function durationLabel(d) {
+    if (d === 'FULL_YEAR') return 'Full year';
+    if (d === 'SEMESTER_ONLY') return 'Semester';
+    return 'Unclassified';
+  }
+
+  /**
+   * A count cell that says what zero means.
+   *
+   * These counts are genuine COUNT(*) results, so 0 is a real answer —
+   * but "No teacher" is a clearer statement of it than the digit 0, which
+   * reads like a measurement. A null (nobody looked) renders as a dash
+   * and never as zero.
+   */
+  function countCell(n, emptyWord) {
+    if (n === null || typeof n === 'undefined') {
+      return '<span style="color:#94a3b8">\u2014</span>';
+    }
+    if (intOr(n, 0) === 0) {
+      return '<span style="color:#94a3b8">' + esc(emptyWord) + '</span>';
+    }
+    return '<span style="font-weight:700;color:#1e293b">' + esc(n) + '</span>';
+  }
+
   function subjectStatusChip(s) {
     var st = s.subject_status;
     var map = {
@@ -498,9 +527,35 @@
     this._lazySeq = { assessments: 0, report_card: 0 };
     this._teacherSeq = 0;
     this._offeringSeq = 0;
+
+    // ── Phase 4: the scoped subject workspace ──
+    // subject        = identity + the classes it is offered to
+    // subjectOffering = the class the user then picked INSIDE that
+    //                  subject. A secondary scope, never a filter, and
+    //                  null until an explicit click — a subject taught
+    //                  in exactly one class still has to be opened.
+    // subjectTab     = which panel of the offering is open
+    this.subject = this.freshSection();
+    this.subjectOffering = null;
+    this.subjectTab = 'teachers';
+    this.offeringData = this.freshSection();
+    this.subjectStudents = this.freshSection();
+    this._subjectSeq = 0;
+    this._subjOfferingSeq = 0;
+    this._subjStudentSeq = 0;
+
     this._searchTimer = null;
     this._booted = false;
   }
+
+  /** Clears everything the previously selected subject loaded. */
+  AcademicTracking.prototype.resetSubject = function () {
+    this.subject = this.freshSection();
+    this.subjectOffering = null;
+    this.subjectTab = 'teachers';
+    this.offeringData = this.freshSection();
+    this.subjectStudents = this.freshSection();
+  };
 
   /** Clears everything the previously selected teacher loaded. */
   AcademicTracking.prototype.resetTeacher = function () {
@@ -579,10 +634,12 @@
     this.lazy.assessments = this.freshSection();
     this.lazy.report_card = this.freshSection();
     this.resetTeacher();
+    this.resetSubject();
 
     this.render();
     if (type === 'students') this.loadStudentDetail();
     else if (type === 'teachers') this.loadTeacherDetail();
+    else if (type === 'subjects') this.loadSubjectDetail();
     return this.scope;
   };
 
@@ -593,6 +650,7 @@
     this.lazy.assessments = this.freshSection();
     this.lazy.report_card = this.freshSection();
     this.resetTeacher();
+    this.resetSubject();
     this.render();
   };
 
@@ -842,11 +900,12 @@
    * and has no data, which is a different and false statement.
    */
   AcademicTracking.prototype.renderSelection = function () {
-    // Students (Phase 2) and Teachers (Phase 3) have real workflows. The
-    // other two keep the honest boundary panel below until their phases
-    // land.
+    // Students (Phase 2), Teachers (Phase 3) and Subjects (Phase 4) have
+    // real workflows. Classes keeps the honest boundary panel below until
+    // its phase lands.
     if (this.scope.type === 'students') return this.renderStudent();
     if (this.scope.type === 'teachers') return this.renderTeacher();
+    if (this.scope.type === 'subjects') return this.renderSubject();
 
     var d = ENTITIES[this.scope.type];
     return '<div class="crd" style="padding:1.25rem">'
@@ -1150,6 +1209,56 @@
     root.querySelectorAll('[data-open-submission]').forEach(function (el) {
       el.addEventListener('click', function () {
         self.openSubmission(el.getAttribute('data-open-submission'));
+      });
+    });
+
+    // ── Phase 4: subject workspace controls ──
+    root.querySelectorAll('[data-retry-subject]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadSubjectDetail(); });
+    });
+    root.querySelectorAll('[data-retry-offering-class]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadSubjectOffering(); });
+    });
+    root.querySelectorAll('[data-retry-subject-students]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadSubjectStudents(); });
+    });
+    root.querySelectorAll('[data-clear-offering-class]').forEach(function (el) {
+      el.addEventListener('click', function () { self.clearSubjectOffering(); });
+    });
+    // A class offering opens because this button was activated. Nothing
+    // opens the first one on load.
+    root.querySelectorAll('[data-offering-class-id]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.selectSubjectOffering(
+          el.getAttribute('data-offering-class-id'),
+          el.getAttribute('data-offering-class-name')
+        );
+      });
+    });
+    root.querySelectorAll('[data-student-page]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.loadSubjectStudents(el.getAttribute('data-student-page'));
+      });
+    });
+
+    var subjTabs = root.querySelectorAll('[data-subject-tab]');
+    subjTabs.forEach(function (el, idx) {
+      el.addEventListener('click', function () {
+        self.openSubjectTab(el.getAttribute('data-subject-tab'));
+      });
+      // Arrow-key navigation is what makes a tablist a tablist for anyone
+      // not using a mouse.
+      el.addEventListener('keydown', function (ev) {
+        var n = subjTabs.length;
+        var next = null;
+        if (ev.key === 'ArrowRight') next = (idx + 1) % n;
+        else if (ev.key === 'ArrowLeft') next = (idx - 1 + n) % n;
+        else if (ev.key === 'Home') next = 0;
+        else if (ev.key === 'End') next = n - 1;
+        if (next === null) return;
+        ev.preventDefault();
+        var target = subjTabs[next];
+        if (target) self.openSubjectTab(target.getAttribute('data-subject-tab'));
       });
     });
 
@@ -2225,6 +2334,558 @@
       + 'This is the state of the submission, not a result: an approved mark list says the marks were '
       + 'accepted, not how the class performed.</p>'
       + '</div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Assessment</th><th scope="col">Out of</th><th scope="col">Weight</th>'
+      + '<th scope="col">Mark list</th><th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Status is resolved by the submission service that owns the review workflow, and \u201cOpen review\u201d '
+      + 'opens that same screen. Academic Tracking shows where the work stands; it does not approve, '
+      + 'reject or request revision itself.</p>';
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PHASE 4 — SUBJECT TRACKING
+  //
+  // Subjects -> select subject -> classes that offer it -> select one ->
+  // teachers / students / assessments -> submission status -> the
+  // EXISTING workflow action.
+  //
+  // The screen carries no academic number and no subject-level figure.
+  // There is no subject score, no rank, no "strongest subject". What it
+  // shows is where a subject is taught, who is responsible for it, who
+  // studies it, and what state the work is in.
+  //
+  // Nothing here calculates. Every status string is rendered exactly as
+  // SubmissionService resolved it on the server.
+  // ══════════════════════════════════════════════════════════════════════
+
+  var SUBJECT_TABS = ['teachers', 'students', 'assessments'];
+  var SUBJECT_TAB_META = {
+    teachers:    { label: 'Teachers',    icon: 'fa-chalkboard-user' },
+    students:    { label: 'Students',    icon: 'fa-user-graduate' },
+    assessments: { label: 'Assessments', icon: 'fa-clipboard-list' }
+  };
+
+  AcademicTracking.prototype.subjectQs = function (action, extra) {
+    var qs = ['action=' + action, 'subject_id=' + this.scope.id];
+    if (this.context.year_id) qs.push('year_id=' + this.context.year_id);
+    if (extra && extra.class_id) qs.push('class_id=' + extra.class_id);
+    if (extra && extra.page) qs.push('page=' + extra.page);
+    return qs;
+  };
+
+  AcademicTracking.prototype.loadSubjectDetail = function () {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'subjects') return Promise.resolve();
+    var seq = ++this._subjectSeq;
+    var subjectId = this.scope.id;
+    this.subject = { status: 'loading', data: null, error: '', code: '' };
+    this.render();
+
+    return fetch(API_EDU + '?' + this.subjectQs('tracking_subject_detail').join('&'),
+      { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        // Two guards: a superseded request, and a response for a subject
+        // the user has since navigated away from.
+        if (seq !== self._subjectSeq || !self.scope || self.scope.id !== subjectId) return;
+        if (!d || d.status !== 'success') {
+          self.subject = {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return this subject.',
+            code: (d && d.code) || ''
+          };
+        } else {
+          self.subject = { status: 'ready', data: d, error: '', code: '' };
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._subjectSeq) return;
+        // A transport failure is NOT a subject that is taught nowhere.
+        self.subject = {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        };
+        self.render();
+      });
+  };
+
+  /**
+   * Open one of the classes that offers this subject.
+   *
+   * Called only from a click. No code path opens an offering on load, and
+   * a subject offered to exactly one class still has to have it opened —
+   * the next subject's single class would be a different one.
+   */
+  AcademicTracking.prototype.selectSubjectOffering = function (classId, classLabel) {
+    var cid = intOr(classId, 0);
+    if (!cid) return null;
+    this.subjectOffering = { class_id: cid, class_label: classLabel || ('#' + cid) };
+    this.subjectTab = 'teachers';
+    this.offeringData = this.freshSection();
+    this.subjectStudents = this.freshSection();
+    this.render();
+    this.loadSubjectOffering();
+    return this.subjectOffering;
+  };
+
+  AcademicTracking.prototype.clearSubjectOffering = function () {
+    this.subjectOffering = null;
+    this.subjectTab = 'teachers';
+    this.offeringData = this.freshSection();
+    this.subjectStudents = this.freshSection();
+    this.render();
+  };
+
+  /**
+   * Switch panel inside the offering.
+   *
+   * Teachers and Assessments arrive together in one response, so they
+   * cost nothing to open. Students are the only collection that can be
+   * large, so they are fetched the first time they are asked for and
+   * never on load.
+   */
+  AcademicTracking.prototype.openSubjectTab = function (name) {
+    if (SUBJECT_TABS.indexOf(name) < 0) return Promise.resolve();
+    this.subjectTab = name;
+    this.render();
+    if (name === 'students' && this.subjectStudents.status === 'idle') {
+      return this.loadSubjectStudents();
+    }
+    return Promise.resolve();
+  };
+
+  AcademicTracking.prototype.loadSubjectOffering = function () {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'subjects' || !this.subjectOffering) {
+      return Promise.resolve();
+    }
+    var seq = ++this._subjOfferingSeq;
+    var subjectId = this.scope.id;
+    var want = this.subjectOffering.class_id;
+    this.offeringData = { status: 'loading', data: null, error: '', code: '' };
+    this.render();
+
+    var qs = this.subjectQs('tracking_subject_offering', { class_id: want }).join('&');
+    return fetch(API_EDU + '?' + qs, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        // Three guards: superseded request, subject changed, offering
+        // changed. The third matters because switching between two
+        // classes of the same subject does not change the subject.
+        var still = self.subjectOffering && self.subjectOffering.class_id === want;
+        if (seq !== self._subjOfferingSeq || !self.scope
+            || self.scope.id !== subjectId || !still) return;
+        if (!d || d.status !== 'success') {
+          self.offeringData = {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return this offering.',
+            code: (d && d.code) || ''
+          };
+        } else {
+          self.offeringData = { status: 'ready', data: d, error: '', code: '' };
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._subjOfferingSeq) return;
+        self.offeringData = {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        };
+        self.render();
+      });
+  };
+
+  AcademicTracking.prototype.loadSubjectStudents = function (page) {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'subjects' || !this.subjectOffering) {
+      return Promise.resolve();
+    }
+    var seq = ++this._subjStudentSeq;
+    var subjectId = this.scope.id;
+    var want = this.subjectOffering.class_id;
+    this.subjectStudents = { status: 'loading', data: null, error: '', code: '' };
+    this.render();
+
+    var qs = this.subjectQs('tracking_subject_students', {
+      class_id: want, page: Math.max(1, intOr(page, 1))
+    }).join('&');
+    return fetch(API_EDU + '?' + qs, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var still = self.subjectOffering && self.subjectOffering.class_id === want;
+        if (seq !== self._subjStudentSeq || !self.scope
+            || self.scope.id !== subjectId || !still) return;
+        if (!d || d.status !== 'success') {
+          self.subjectStudents = {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return these students.',
+            code: (d && d.code) || ''
+          };
+        } else {
+          self.subjectStudents = { status: 'ready', data: d, error: '', code: '' };
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._subjStudentSeq) return;
+        self.subjectStudents = {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        };
+        self.render();
+      });
+  };
+
+  // ── subject rendering ─────────────────────────────────────────────────────
+
+  AcademicTracking.prototype.renderSubject = function () {
+    var busy = this.subject.status === 'loading'
+      || this.offeringData.status === 'loading'
+      || this.subjectStudents.status === 'loading';
+    return this.renderSubjectHeader()
+      + '<div class="crd" id="at-subject-panel" tabindex="-1" '
+      + 'style="padding:0;margin-top:.7rem;overflow:hidden" aria-live="polite" aria-busy="'
+      + (busy ? 'true' : 'false') + '">'
+      + (this.subjectOffering ? this.renderSubjectOfferingBody() : this.renderOfferingsBody())
+      + '</div>';
+  };
+
+  AcademicTracking.prototype.renderSubjectHeader = function () {
+    var st = this.subject;
+    var d = st.data;
+    var name = d && d.subject ? (d.subject.subject_name || this.scope.label) : this.scope.label;
+    var sub, chips = '';
+
+    if (st.status === 'loading') {
+      sub = '<span class="at-skel" style="width:160px;display:inline-block;height:.7rem"></span>';
+    } else if (st.status === 'error') {
+      sub = '<span style="color:' + PALETTE.bad + '">Details unavailable</span>';
+    } else if (d && d.subject) {
+      var bits = [];
+      if (d.subject.subject_name_en) bits.push(esc(d.subject.subject_name_en));
+      if (d.subject.subject_code) bits.push(esc(d.subject.subject_code));
+      sub = bits.join(' &nbsp;\u00b7&nbsp; ') || 'No code recorded';
+
+      chips += '<span class="ch ch-i" title="Reporting period. Context, not a filter.">'
+        + '<i class="fa-solid fa-calendar" aria-hidden="true"></i> '
+        + esc(this.context.year_name || 'Current year') + '</span>';
+      chips += '<span class="ch ' + (d.subject.is_active ? 'ch-ok' : 'ch-d') + '">'
+        + (d.subject.is_active ? 'Active' : 'Inactive') + '</span>';
+    } else {
+      sub = '';
+    }
+
+    var scopeLine = '';
+    if (this.subjectOffering) {
+      var dur = '';
+      if (this.offeringData.status === 'ready' && this.offeringData.data.offering) {
+        dur = durationLabel(this.offeringData.data.offering.duration_type);
+      }
+      scopeLine = '<div style="margin-top:.7rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;'
+        + 'padding:.5rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">'
+        + '<span style="font-size:.68rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;font-weight:700">Viewing</span>'
+        + '<span class="amharic" style="font-weight:700;color:#1e293b;font-size:.8rem">'
+        + esc(this.subjectOffering.class_label) + '</span>'
+        + (dur ? '<span class="ch ch-d">' + esc(dur) + '</span>' : '')
+        + '<button type="button" class="btn btn-o btn-xs" data-clear-offering-class="1" style="margin-left:auto">'
+        + '<i class="fa-solid fa-xmark" aria-hidden="true"></i> Change class</button>'
+        + '</div>';
+    }
+
+    return '<div class="crd" style="padding:1rem 1.1rem">'
+      + '<div style="display:flex;gap:.8rem;align-items:flex-start;flex-wrap:wrap">'
+      + '<span style="width:46px;height:46px;border-radius:13px;background:#f5f3ff;color:' + PALETTE.primary
+      + ';display:inline-flex;align-items:center;justify-content:center;font-size:1.15rem;flex:none">'
+      + '<i class="fa-solid fa-book-open" aria-hidden="true"></i></span>'
+      + '<div style="flex:1;min-width:180px">'
+      + '<div class="amharic" style="font-weight:800;color:#1e293b;font-size:1.05rem;line-height:1.3">'
+      + esc(name) + '</div>'
+      + '<div style="font-size:.74rem;color:#64748b;margin-top:.15rem">' + sub + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center">' + chips + '</div>'
+      + '</div>'
+      + scopeLine
+      + '<div style="margin-top:.8rem;display:flex;gap:.4rem;flex-wrap:wrap">'
+      + '<button type="button" class="btn btn-o btn-xs" data-go="subjects">'
+      + '<i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to Subjects</button>'
+      + '<button type="button" class="btn btn-o btn-xs" data-clear-selection="1">Clear selection</button>'
+      + '</div></div>';
+  };
+
+  /** Step 3: the classes this subject is offered to. */
+  AcademicTracking.prototype.renderOfferingsBody = function () {
+    var st = this.subject;
+
+    if (st.status === 'idle' || st.status === 'loading') return this.renderDetailSkeleton();
+    if (st.status === 'error') {
+      return this.stateBlock(
+        st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation',
+        PALETTE.bad,
+        'Could not load this subject',
+        esc(st.error),
+        '<button type="button" class="btn btn-p btn-xs" data-retry-subject="1">'
+          + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+
+    var rows = (st.data && st.data.offerings) || [];
+    if (!rows.length) {
+      // Distinct from an error and from "no assessments": the subject is
+      // on file and simply offered to no class.
+      return this.stateBlock(
+        'fa-book-bookmark', PALETTE.muted,
+        'Not offered to any class',
+        'This subject is in the catalogue but no class offers it. Class offerings are managed in '
+          + 'the Subjects screen; nothing is shown here because there is nothing on record to show.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (o) {
+      var dur = o.duration_type
+        ? '<span class="ch ch-d">' + esc(durationLabel(o.duration_type)) + '</span>'
+        // NULL duration is a real third value from migration 056, not a
+        // missing one, and it is not silently defaulted to full year.
+        : '<span style="color:#94a3b8;font-style:italic">Not classified</span>';
+
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">' + esc(o.class_name || '') + '</span>'
+        + (o.class_name_en ? '<div style="font-size:.67rem;color:#94a3b8">' + esc(o.class_name_en) + '</div>' : '')
+        + '</td>'
+        + '<td>' + dur + '</td>'
+        + '<td>' + countCell(o.teacher_count, 'No teacher') + '</td>'
+        + '<td>' + countCell(o.student_count, 'No students') + '</td>'
+        + '<td>' + countCell(o.assessment_count, 'No assessments') + '</td>'
+        + '<td style="text-align:right">'
+        + '<button type="button" class="btn btn-o btn-xs" data-offering-class-id="' + esc(o.class_id)
+        + '" data-offering-class-name="' + esc(o.class_name || '') + '">'
+        + 'Open <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>'
+        + '</td></tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Classes offering this subject</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'A class offering is a standing arrangement and is not tied to one academic year. '
+      + 'The counts beside it are for ' + esc(this.context.year_name || 'the current year')
+      + '. Choose a class to see its teachers, students and assessments.</p>'
+      + '</div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Class</th><th scope="col">Duration</th>'
+      + '<th scope="col">Teachers</th><th scope="col">Students</th>'
+      + '<th scope="col">Assessments</th><th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Offerings come from the recorded class-subject records only. A mark list filed against a '
+      + 'class does not create an offering, and does not make its author a teacher of this subject.</p>';
+  };
+
+  /** Steps 4-7: teachers, students, assessments and the workflow action. */
+  AcademicTracking.prototype.renderSubjectOfferingBody = function () {
+    var st = this.offeringData;
+
+    if (st.status === 'idle' || st.status === 'loading') return this.renderDetailSkeleton();
+    if (st.status === 'error') {
+      var notOffered = st.code === 'not_offered_here';
+      return this.stateBlock(
+        notOffered ? 'fa-ban' : (st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation'),
+        notOffered ? PALETTE.warn : PALETTE.bad,
+        notOffered ? 'That class does not offer this subject' : 'Could not load this offering',
+        esc(st.error),
+        notOffered
+          ? '<button type="button" class="btn btn-o btn-xs" data-clear-offering-class="1">Back to classes</button>'
+          : '<button type="button" class="btn btn-p btn-xs" data-retry-offering-class="1">'
+              + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+
+    var self = this;
+    var tabs = SUBJECT_TABS.map(function (key) {
+      var m = SUBJECT_TAB_META[key];
+      var on = self.subjectTab === key;
+      return '<button type="button" role="tab" id="at-subjtab-' + key + '" data-subject-tab="' + key + '" '
+        + 'aria-selected="' + (on ? 'true' : 'false') + '" tabindex="' + (on ? '0' : '-1') + '" '
+        + 'style="border:0;background:' + (on ? '#f5f3ff' : 'transparent') + ';color:'
+        + (on ? PALETTE.primary : '#64748b') + ';font-weight:' + (on ? '800' : '600')
+        + ';padding:.55rem .85rem;border-bottom:2px solid ' + (on ? PALETTE.primary : 'transparent')
+        + ';cursor:pointer;font-size:.78rem;display:inline-flex;align-items:center;gap:.35rem;font-family:inherit">'
+        + '<i class="fa-solid ' + m.icon + '" aria-hidden="true"></i> ' + m.label + '</button>';
+    }).join('');
+
+    return '<div role="tablist" aria-label="Offering sections" '
+      + 'style="display:flex;gap:.15rem;border-bottom:1px solid #e2e8f0;overflow-x:auto">'
+      + tabs + '</div>'
+      + '<div role="tabpanel" aria-labelledby="at-subjtab-' + esc(this.subjectTab) + '" tabindex="0">'
+      + this.renderSubjectTabBody() + '</div>';
+  };
+
+  AcademicTracking.prototype.renderSubjectTabBody = function () {
+    if (this.subjectTab === 'teachers') return this.renderOfferingTeachers();
+    if (this.subjectTab === 'students') return this.renderOfferingStudents();
+    return this.renderOfferingAssessments();
+  };
+
+  AcademicTracking.prototype.renderOfferingTeachers = function () {
+    var d = this.offeringData.data;
+    var rows = (d && d.teachers) || [];
+    if (!rows.length) {
+      // Distinct from "no students" and "no assessments": nobody is
+      // assigned to teach this subject in this class.
+      return this.stateBlock(
+        'fa-user-slash', PALETTE.muted,
+        'No teacher assigned',
+        'No teacher holds an assignment for this subject in this class for '
+          + esc(this.context.year_name || 'the current academic year')
+          + '. Someone may still have filed work against it; that does not make them its teacher.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (t) {
+      var role = t.is_primary
+        ? '<span class="ch ch-i">Primary</span>'
+        : (t.assignment_role
+            ? '<span class="ch ch-d">' + esc(titleCase(t.assignment_role)) + '</span>' : '');
+      // A standing assignment is not tied to one year. Saying so is more
+      // honest than quietly presenting it as a this-year assignment.
+      var standing = t.is_standing
+        ? ' <span class="ch ch-w" title="Not tied to one academic year">Standing</span>' : '';
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">' + esc(t.full_name || '') + '</span>'
+        + '<div style="font-size:.67rem;color:#94a3b8">'
+        + esc(t.member_code || ('@' + (t.username || ''))) + '</div></td>'
+        + '<td>' + role + standing + '</td>'
+        + '<td>' + (t.is_active
+            ? '<span class="ch ch-ok">Active</span>' : '<span class="ch ch-d">Inactive</span>') + '</td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Assigned teachers</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'Every teacher holding a recorded assignment for this class and subject. Where more than one '
+      + 'is assigned, all are listed; none is chosen on your behalf.</p></div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Teacher</th><th scope="col">Role</th><th scope="col">Status</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Read from teacher assignment records. A homeroom assignment covers the class, not a '
+      + 'subject, so it never appears here.</p>';
+  };
+
+  AcademicTracking.prototype.renderOfferingStudents = function () {
+    var st = this.subjectStudents;
+    if (st.status === 'idle' || st.status === 'loading') return this.renderDetailSkeleton();
+    if (st.status === 'error') {
+      return this.stateBlock(
+        st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation',
+        PALETTE.bad, 'Could not load these students', esc(st.error),
+        '<button type="button" class="btn btn-p btn-xs" data-retry-subject-students="1">'
+          + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+
+    var d = st.data;
+    var rows = (d && d.students) || [];
+    if (!rows.length) {
+      return this.stateBlock(
+        'fa-users-slash', PALETTE.muted,
+        'No students enrolled',
+        'Nobody is enrolled in this class for ' + esc(this.context.year_name || 'the current academic year')
+          + '. Enrolment is what connects a student to a subject, so none is listed here.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (s) {
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">'
+        + esc([s.student_name, s.father_name].filter(Boolean).join(' ')) + '</span></td>'
+        + '<td>' + esc(s.member_code || '\u2014') + '</td>'
+        + '<td>' + (s.status
+            ? '<span class="ch ' + (s.status === 'active' ? 'ch-ok' : 'ch-d') + '">'
+              + esc(titleCase(s.status)) + '</span>' : '\u2014') + '</td>'
+        + '</tr>';
+    }).join('');
+
+    var pager = '';
+    if (intOr(d.pages, 1) > 1) {
+      pager = '<div style="display:flex;gap:.4rem;align-items:center;justify-content:center;padding:.6rem">'
+        + '<button type="button" class="btn btn-o btn-xs" data-student-page="' + (intOr(d.page, 1) - 1) + '"'
+        + (intOr(d.page, 1) <= 1 ? ' disabled' : '') + '>Previous</button>'
+        + '<span style="font-size:.72rem;color:#64748b">Page ' + esc(d.page) + ' of ' + esc(d.pages) + '</span>'
+        + '<button type="button" class="btn btn-o btn-xs" data-student-page="' + (intOr(d.page, 1) + 1) + '"'
+        + (intOr(d.page, 1) >= intOr(d.pages, 1) ? ' disabled' : '') + '>Next</button></div>';
+    }
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Enrolled students</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + esc(d.total) + ' enrolled in this class for ' + esc(this.context.year_name || 'the current year')
+      + '. A student takes this subject because they are enrolled in a class that offers it.</p></div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Student</th><th scope="col">Code</th><th scope="col">Status</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Read from enrolment records. Appearing on a mark list does not by itself place a student '
+      + 'in this subject.</p>';
+  };
+
+  AcademicTracking.prototype.renderOfferingAssessments = function () {
+    var d = this.offeringData.data;
+    var rows = (d && d.assessments) || [];
+    if (!rows.length) {
+      return this.stateBlock(
+        'fa-clipboard-question', PALETTE.muted,
+        'No assessments for this class',
+        'Nothing has been planned for this subject in this class for '
+          + esc(this.context.year_name || 'the current academic year')
+          + '. Assessments are created in the Assessments screen.',
+        ''
+      );
+    }
+
+    var body = rows.map(function (a) {
+      var weight = a.weight === null || typeof a.weight === 'undefined'
+        ? '<span style="color:#94a3b8" title="No weight configured for this assessment">\u2014</span>'
+        : esc(a.weight) + '%';
+      var max = a.max_score === null || typeof a.max_score === 'undefined'
+        ? '<span style="color:#94a3b8">\u2014</span>' : esc(a.max_score);
+
+      // The only action offered is the one that already exists. A mark
+      // list with no packet cannot be reviewed, and no button is drawn.
+      var action;
+      if (intOr(a.submission_id, 0) > 0) {
+        action = '<button type="button" class="btn btn-o btn-xs" data-open-submission="' + esc(a.submission_id) + '">'
+          + '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> Open review</button>';
+      } else if (a.workflow_status) {
+        action = '<span style="font-size:.68rem;color:#94a3b8" '
+          + 'title="This status comes from the recorded marks. There is no submission packet to open.">'
+          + 'No packet</span>';
+      } else {
+        action = '<span style="font-size:.68rem;color:#cbd5e1">\u2014</span>';
+      }
+
+      return '<tr>'
+        + '<td><span style="font-weight:700;color:#1e293b">' + esc(a.assessment_name || '') + '</span>'
+        + (a.assessment_type
+            ? '<div style="font-size:.67rem;color:#94a3b8">' + esc(titleCase(a.assessment_type)) + '</div>' : '')
+        + '</td>'
+        + '<td>' + max + '</td><td>' + weight + '</td>'
+        + '<td>' + workflowChip(a.workflow_status, a.workflow_label) + '</td>'
+        + '<td style="text-align:right">' + action + '</td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Assessments and mark list status</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'Each row is an assessment planned for this subject in this class, with the current state of '
+      + 'its mark list. This is the state of the submission, not a result.</p></div>'
       + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
       + '<th scope="col">Assessment</th><th scope="col">Out of</th><th scope="col">Weight</th>'
       + '<th scope="col">Mark list</th><th scope="col" style="text-align:right">Action</th>'

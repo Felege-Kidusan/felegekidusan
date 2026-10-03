@@ -802,24 +802,27 @@ class StudentTrackingContractTests(unittest.TestCase):
 
     def test_later_workflows_were_not_built(self):
         """
-        Phase 3 added Teacher tracking and nothing else. Subject and Class
-        tracking belong to a later phase, and this is the guard that keeps
-        them out: it was written in Phase 2 to exclude all three, and was
-        narrowed — not deleted — when Teacher tracking landed.
+        Class tracking belongs to a later phase, and this is the guard that
+        keeps it out.
+
+        It was written in Phase 2 to exclude Teacher, Subject and Class
+        tracking, narrowed in Phase 3 when Teacher landed, and narrowed
+        again in Phase 4 when Subject landed. It has never been deleted,
+        and what remains is the boundary that is still in front of us.
         """
         src = CONTROLLER.read_text(encoding="utf-8")
-        for absent in ("renderSubjectDetail", "renderClassDetail",
-                       "tracking_subject_detail", "tracking_class_detail"):
+        for absent in ("renderClassDetail", "renderClassTracking",
+                       "tracking_class_detail", "tracking_class_students"):
             with self.subTest(symbol=absent):
                 self.assertNotIn(absent, src)
         api = API_EDU.read_text(encoding="utf-8")
-        for absent in ("tracking_subject_detail", "tracking_class_detail",
-                       "tracking_subject_assessments", "tracking_class_assessments"):
+        for absent in ("tracking_class_detail", "tracking_class_assessments",
+                       "tracking_class_students", "tracking_class_subjects"):
             with self.subTest(action=absent):
                 self.assertNotIn(absent, api)
 
-    def test_the_student_workflow_is_unchanged_by_phase_three(self):
-        """Phase 3 must not have modified Student Tracking to fit itself."""
+    def test_the_student_workflow_is_unchanged_by_later_phases(self):
+        """Later phases must not modify Student Tracking to fit themselves."""
         api = API_EDU.read_text(encoding="utf-8")
         self.assertIn("case 'tracking_student_detail':", api)
         self.assertIn("case 'tracking_student_assessments':", api)
