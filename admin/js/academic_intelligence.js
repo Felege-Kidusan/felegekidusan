@@ -227,20 +227,19 @@
           years: d.years || [], terms: d.terms || [], classes: d.classes || [],
           subjects: d.subjects || [], teachers: d.teachers || []
         };
-        if (!self.state.year_id) {
-          var cur = self.catalogue.years.filter(function (y) { return y.is_current; })[0];
-          self.state.year_id = cur ? cur.id : (self.catalogue.years[0] ? self.catalogue.years[0].id : 0);
-        }
-        if (!self.state.class_id && self.catalogue.classes.length) {
-          self.state.class_id = self.catalogue.classes[0].id;
-        }
-        if (!self.state.subject_id && self.catalogue.subjects.length) {
-          self.state.subject_id = self.catalogue.subjects[0].id;
-        }
-        if (!self.state.teacher_id && self.catalogue.teachers.length) {
-          self.state.teacher_id = self.catalogue.teachers[0].id;
-        }
-        self.renderFilters();
+          // The academic YEAR is reporting context, not an entity the user
+          // is investigating, so defaulting it to the year the school has
+          // flagged current is a statement of fact rather than a guess.
+          if (!self.state.year_id) {
+            var cur = self.catalogue.years.filter(function (y) { return y.is_current; })[0];
+            self.state.year_id = cur ? cur.id : (self.catalogue.years[0] ? self.catalogue.years[0].id : 0);
+          }
+          // Class, subject, teacher and student are ENTITIES. Nothing is
+          // selected until the user selects it. Picking whichever row the
+          // database returned first would put a named child's marks on
+          // screen that nobody asked to see, and would make every heading
+          // on the page describe an arbitrary choice the user never made.
+          self.renderFilters();
       })
       .catch(function (e) {
         var bar = document.getElementById('aiFilterBar');
@@ -366,14 +365,17 @@
     // The subject of the analysis depends on the perspective.
     if (this.perspective === 'teacher') {
       html += select('aiTeacher', 'Teacher', this.catalogue.teachers, s.teacher_id, 'id', 'full_name',
-        this.catalogue.teachers.length ? '' : 'No teacher has an assignment');
+        this.catalogue.teachers.length ? 'Select a teacher…' : 'No teacher has an assignment this year');
     } else if (this.perspective === 'subject') {
-      html += select('aiSubject', 'Subject', this.catalogue.subjects, s.subject_id, 'id', 'subject_name');
+      html += select('aiSubject', 'Subject', this.catalogue.subjects, s.subject_id, 'id', 'subject_name',
+        this.catalogue.subjects.length ? 'Select a subject…' : 'No subjects configured');
     } else {
-      html += select('aiClass', 'Class', this.catalogue.classes, s.class_id, 'id', 'class_name');
+      html += select('aiClass', 'Class', this.catalogue.classes, s.class_id, 'id', 'class_name',
+        this.catalogue.classes.length ? 'Select a class…' : 'No classes configured');
       if (this.perspective === 'student') {
         html += '<div><label class="lbl" for="aiStudent">Student</label>'
-          + '<select class="inp" id="aiStudent"><option value="0">Loading…</option></select></div>';
+          + '<select class="inp" id="aiStudent"><option value="0">'
+          + (s.class_id ? 'Loading\u2026' : 'Select a class first') + '</option></select></div>';
       }
     }
 
@@ -417,8 +419,23 @@
       el.addEventListener('change', function () {
         self.state[key] = el.value;
         if (key === 'year_id') {
+          // A different year is a different world: last year's class,
+          // subject and teacher ids mean nothing here, so the selection is
+          // dropped rather than carried across and silently mismatched.
           self.state.term_id = 0;
+          self.state.class_id = 0;
+          self.state.subject_id = 0;
+          self.state.teacher_id = 0;
+          self.state.member_id = 0;
           self.loadCatalogue().then(function () { self.load(); });
+          return;
+        }
+        if (key === 'class_id' && self.perspective === 'student') {
+          // The roster changed, so the student picker has to be rebuilt
+          // and the previous student dropped.
+          self.state.member_id = 0;
+          self.renderFilters();
+          self.load();
           return;
         }
         self.load();
@@ -488,20 +505,20 @@
           sel.innerHTML = '<option value="0">No students in this class</option>';
           return;
         }
-        sel.innerHTML = students.map(function (st) {
-          var label = st.student_name + (st.father_name ? ' ' + st.father_name : '')
-            + (st.member_code ? ' · ' + st.member_code : '');
-          return '<option value="' + st.member_id + '"'
-            + (String(st.member_id) === String(self.state.member_id) ? ' selected' : '')
-            + '>' + esc(label) + '</option>';
-        }).join('');
-        if (!self.state.member_id || !students.some(function (s) {
-          return String(s.member_id) === String(self.state.member_id);
-        })) {
-          self.state.member_id = students[0].member_id;
-          sel.value = String(self.state.member_id);
-          self.load();
-        }
+        // If the previously selected student is not in this roster the
+        // selection is dropped rather than silently moved to someone else.
+        var stillValid = students.some(function (st) {
+          return String(st.member_id) === String(self.state.member_id);
+        });
+        if (!stillValid) self.state.member_id = 0;
+        sel.innerHTML = '<option value="0">Select a student\u2026</option>'
+          + students.map(function (st) {
+            var label = st.student_name + (st.father_name ? ' ' + st.father_name : '')
+              + (st.member_code ? ' \u00b7 ' + st.member_code : '');
+            return '<option value="' + st.member_id + '"'
+              + (String(st.member_id) === String(self.state.member_id) ? ' selected' : '')
+              + '>' + esc(label) + '</option>';
+          }).join('');
       })
       .catch(function () {
         sel.innerHTML = '<option value="0">Could not load students</option>';
@@ -534,19 +551,81 @@
     return '&' + parts.join('&');
   };
 
+  /**
+   * Which explicit choice is still outstanding, if any.
+   *
+   * Each perspective is answered separately so the prompt can say what is
+   * actually missing -- "pick a class, then a student" is a different
+   * instruction from "no teacher holds an assignment this year", and the
+   * second is a fact about the school rather than something the user can
+   * fix by choosing differently.
+   */
+  AcademicIntelligence.prototype.awaitingSelection = function () {
+    var s = this.state;
+    var cat = this.catalogue;
+    switch (this.perspective) {
+      case 'student':
+        if (!s.class_id) {
+          return cat.classes.length
+            ? { icon: 'fa-user-graduate', title: 'Choose a class, then a student',
+                message: 'Student tracking starts from a class roster.' }
+            : { icon: 'fa-school', title: 'No classes configured',
+                message: 'Classes must exist before students can be tracked.' };
+        }
+        if (!s.member_id) {
+          return { icon: 'fa-user-graduate', title: 'Choose a student',
+                   message: 'Select a student from this class to see their subjects, '
+                            + 'results and attendance.' };
+        }
+        return null;
+      case 'teacher':
+        if (!s.teacher_id) {
+          return cat.teachers.length
+            ? { icon: 'fa-chalkboard-user', title: 'Choose a teacher',
+                message: 'Select a teacher to see the classes and subjects they are '
+                         + 'assigned, and how their assessments are progressing.' }
+            : { icon: 'fa-chalkboard-user', title: 'No teacher has an assignment this year',
+                message: 'Teacher tracking appears once teachers are assigned to '
+                         + 'classes for the selected academic year.' };
+        }
+        return null;
+      case 'subject':
+        if (!s.subject_id) {
+          return cat.subjects.length
+            ? { icon: 'fa-book-open', title: 'Choose a subject',
+                message: 'Select a subject to see every class that offers it.' }
+            : { icon: 'fa-book-open', title: 'No subjects configured',
+                message: 'Subjects must be created before they can be tracked.' };
+        }
+        return null;
+      default:
+        if (!s.class_id) {
+          return cat.classes.length
+            ? { icon: 'fa-school', title: 'Choose a class',
+                message: 'Select a class to see its students, subjects and results.' }
+            : { icon: 'fa-school', title: 'No classes configured',
+                message: 'Classes must exist before they can be tracked.' };
+        }
+        return null;
+    }
+  };
+
   AcademicIntelligence.prototype.load = function () {
     var self = this;
     var body = document.getElementById('aiBody');
     if (!body) return Promise.resolve();
 
-    if (this.perspective === 'student' && !this.state.member_id) {
-      body.innerHTML = emptyState('fa-user-graduate', 'Choose a student',
-        'Pick a class, then a student, to see their results.');
-      return Promise.resolve();
-    }
-    if (this.perspective === 'teacher' && !this.state.teacher_id) {
-      body.innerHTML = emptyState('fa-chalkboard-user', 'No teacher selected',
-        'No teacher currently holds an assignment for this academic year.');
+    // ── NOTHING SELECTED YET ────────────────────────────────────────
+    //
+    // This is its own state. It is not "no data", it is not an error, and
+    // it must never be reported as a filter problem: the user simply has
+    // not told us who or what they want to look at. Nothing is fetched and
+    // nothing is calculated until they do.
+    var waiting = this.awaitingSelection();
+    if (waiting) {
+      body.setAttribute('aria-busy', 'false');
+      body.innerHTML = '<div class="crd" style="padding:.5rem">'
+        + emptyState(waiting.icon, waiting.title, waiting.message) + '</div>';
       return Promise.resolve();
     }
 
