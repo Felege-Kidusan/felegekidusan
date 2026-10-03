@@ -962,18 +962,25 @@ async function main() {
     ok('icons: no emoji anywhere in the class workspace', !emoji.test(html));
   }
 
-  // ── report ───────────────────────────────────────────────────────────────
+}
+
+// ── report ─────────────────────────────────────────────────────────────────
+// Printed whether main() finished or threw. A mutation that breaks the
+// controller badly enough to crash the harness would otherwise hide every
+// assertion that had already failed, which is exactly when they matter.
+function report(err) {
   const total = passed + failures.length;
+  if (err) {
+    failures.push('the harness could not finish: ' + (err && err.message ? err.message : err));
+  }
   if (failures.length) {
     console.log('\n  FAILURES');
     failures.forEach((f) => console.log('    FAIL  ' + f));
     console.log('\n  FAIL  ' + total + ' checks, ' + failures.length + ' failed\n');
+    if (err) console.error(err);
     process.exit(1);
   }
   console.log('\n  PASS  ' + total + ' checks, 0 failed\n');
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().then(() => report(null)).catch(report);
