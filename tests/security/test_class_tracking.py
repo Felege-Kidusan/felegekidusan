@@ -326,6 +326,40 @@ class ClassRelationshipTests(_ClassBase):
         got = self.students(C1, per_page=100)
         self.assertEqual(set(), self.ids_of(got, "students", "member_id") & C2_STUDENTS)
 
+    def test_a_withdrawn_student_is_not_on_the_roll(self):
+        """
+        Every enrolment in the fixture is active, so the status
+        condition is invisible unless a withdrawn row is introduced.
+        Without this, removing `status = 'active'` changes nothing and
+        the condition is untested.
+        """
+        probe = 105
+        self.sql(
+            "UPDATE class_enrollments SET status = 'withdrawn' "
+            f"WHERE member_id = {probe} AND class_id = {C1}"
+        )
+        try:
+            # Guard the guard: the row is still there, just withdrawn.
+            self.assertEqual("withdrawn", self.scalar(
+                "SELECT status FROM class_enrollments "
+                f"WHERE member_id = {probe} AND class_id = {C1}"))
+
+            got = self.students(C1, per_page=100)
+            self.assertNotIn(probe, self.ids_of(got, "students", "member_id"))
+            self.assertEqual(4, got["total"])
+            # The summary count must agree with the list.
+            self.assertEqual(4, self.detail(C1)["summary"]["students"])
+        finally:
+            self.sql(
+                "UPDATE class_enrollments SET status = 'active' "
+                f"WHERE member_id = {probe} AND class_id = {C1}"
+            )
+        # And restored, they are back: the only thing hiding them was
+        # the status.
+        self.assertIn(probe, self.ids_of(
+            self.students(C1, per_page=100), "students", "member_id"))
+        self.assertEqual(5, self.detail(C1)["summary"]["students"])
+
     def test_a_mark_does_not_enroll_a_student(self):
         """
         A student with an academic_records row for a class they are not
@@ -516,6 +550,117 @@ class ClassNullSemanticsTests(_ClassBase):
         self.assertEqual("no_teacher_assignments",
                          self.detail(C1)["data_state"]["homeroom"])
 
+    def test_a_homeroom_row_held_by_a_non_teacher_is_not_exposed(self):
+        """
+        The homeroom query is a separate query from the teacher list and
+        needs its own role check. Nothing else in the suite reaches it,
+        so without this the role condition could be dropped from the
+        homeroom query alone and no test would notice.
+        """
+        self.sql(
+            f"INSERT INTO users (id, username, full_name, role, is_active) "
+            f"VALUES ({SCRATCH_USER}, 'ex_homeroom_p5', 'Ex Homeroom', "
+            f"'finance_dept', 1);"
+            "INSERT INTO teacher_assignments "
+            "(teacher_id, class_id, subject_id, academic_year_id, "
+            " is_class_teacher, is_primary, is_active, assignment_role) "
+            f"VALUES ({SCRATCH_USER}, {C1}, NULL, {Y1}, 1, 0, 1, 'homeroom');"
+        )
+        try:
+            # Guard the guard: the homeroom row exists and is active.
+            self.assertEqual("1", self.scalar(
+                "SELECT COUNT(*) FROM teacher_assignments "
+                f"WHERE teacher_id = {SCRATCH_USER} AND subject_id IS NULL "
+                "AND is_active = 1"))
+
+            detail = self.detail(C1)
+            self.assertEqual(
+                [], [t["teacher_id"] for t in detail["homeroom_teachers"]])
+            self.assertEqual("no_teacher_assignments",
+                             detail["data_state"]["homeroom"])
+            self.assertNotIn(SCRATCH_USER,
+                             self.ids_of(self.teachers(C1), "teachers", "teacher_id"))
+
+            # Guard the guard, positively: promote them and the SAME
+            # homeroom row surfaces, so the role was the only thing
+            # keeping it out.
+            self.sql(f"UPDATE users SET role = 'teacher' WHERE id = {SCRATCH_USER}")
+            promoted = self.detail(C1)
+            self.assertEqual(
+                [SCRATCH_USER],
+                [t["teacher_id"] for t in promoted["homeroom_teachers"]])
+            self.assertEqual("ok", promoted["data_state"]["homeroom"])
+        finally:
+            self.sql(
+                f"DELETE FROM teacher_assignments WHERE teacher_id = {SCRATCH_USER};"
+                f"DELETE FROM users WHERE id = {SCRATCH_USER};"
+            )
+
+    def test_a_standing_homeroom_assignment_is_kept_and_flagged(self):
+        """
+        The homeroom query is separate from the teacher list and builds
+        its own year predicate, so it needs its own standing-assignment
+        case. Without this, the "OR academic_year_id IS NULL" branch
+        could be dropped from the homeroom query alone and a homeroom
+        teacher with no year would silently vanish.
+        """
+        self.sql(
+            "INSERT INTO teacher_assignments "
+            "(teacher_id, class_id, subject_id, academic_year_id, "
+            " is_class_teacher, is_primary, is_active, assignment_role) "
+            f"VALUES ({T_ALMAZ}, {C1}, NULL, NULL, 1, 0, 1, 'homeroom')"
+        )
+        try:
+            # Guard the guard: the row really has no academic year.
+            self.assertEqual("1", self.scalar(
+                "SELECT COUNT(*) FROM teacher_assignments "
+                f"WHERE teacher_id = {T_ALMAZ} AND class_id = {C1} "
+                "AND subject_id IS NULL AND academic_year_id IS NULL"))
+
+            # It appears for the selected year...
+            scoped = self.detail(C1, year_id=Y1)["homeroom_teachers"]
+            self.assertEqual([T_ALMAZ], [t["teacher_id"] for t in scoped])
+            self.assertTrue(scoped[0]["is_standing"])
+
+            # ...and for a year it was never stamped with, because it
+            # belongs to no year at all.
+            other = self.detail(C1, year_id=99)["homeroom_teachers"]
+            self.assertEqual([T_ALMAZ], [t["teacher_id"] for t in other])
+            self.assertTrue(other[0]["is_standing"])
+
+            # The stored row is untouched -- not rewritten into the year.
+            self.assertEqual("1", self.scalar(
+                "SELECT COUNT(*) FROM teacher_assignments "
+                f"WHERE teacher_id = {T_ALMAZ} AND class_id = {C1} "
+                "AND subject_id IS NULL AND academic_year_id IS NULL"))
+        finally:
+            self.sql(
+                "DELETE FROM teacher_assignments "
+                f"WHERE teacher_id = {T_ALMAZ} AND class_id = {C1} "
+                "AND subject_id IS NULL"
+            )
+
+    def test_a_year_scoped_homeroom_assignment_is_not_flagged_standing(self):
+        """The other half: a year-stamped homeroom row is NOT standing."""
+        self.sql(
+            "INSERT INTO teacher_assignments "
+            "(teacher_id, class_id, subject_id, academic_year_id, "
+            " is_class_teacher, is_primary, is_active, assignment_role) "
+            f"VALUES ({T_ALMAZ}, {C1}, NULL, {Y1}, 1, 0, 1, 'homeroom')"
+        )
+        try:
+            scoped = self.detail(C1, year_id=Y1)["homeroom_teachers"]
+            self.assertEqual([T_ALMAZ], [t["teacher_id"] for t in scoped])
+            self.assertFalse(scoped[0]["is_standing"])
+            # And it does NOT leak into another year.
+            self.assertEqual([], self.detail(C1, year_id=99)["homeroom_teachers"])
+        finally:
+            self.sql(
+                "DELETE FROM teacher_assignments "
+                f"WHERE teacher_id = {T_ALMAZ} AND class_id = {C1} "
+                "AND subject_id IS NULL"
+            )
+
     def test_a_standing_assignment_is_kept_and_flagged(self):
         """
         academic_year_id IS NULL means the assignment is not tied to a
@@ -678,6 +823,63 @@ class ClassAssessmentFactTests(_ClassBase):
         self.assertTrue(any(not r["has_results"] and r["workflow_status"] is None
                             for r in rows),
                         "no assessment is genuinely untouched")
+
+    def test_a_packet_can_exist_with_no_marks_at_all(self):
+        """
+        Every packet in the fixture also has marks, so "a status exists"
+        and "a mark exists" agree everywhere and either could stand in
+        for the other. This introduces the one combination the fixture
+        lacks: a submitted mark list with no mark rows behind it.
+        """
+        self.sql(
+            "INSERT INTO assessments "
+            "(id, class_id, subject_id, academic_year_id, term_id, "
+            " assessment_name, assessment_type, max_score, is_active) "
+            f"VALUES (951, {C1}, {S_GEEZ}, {Y1}, {T1}, 'Empty packet', "
+            f"'test', 100, 1);"
+            "INSERT INTO grade_submissions "
+            "(id, teacher_id, class_id, subject_id, academic_year_id, "
+            " term_id, assessment_id, submission_type, status, student_count) "
+            f"VALUES (951, {T_BEKELE}, {C1}, {S_GEEZ}, {Y1}, {T1}, 951, "
+            f"'marklist', 'submitted', 0);"
+        )
+        try:
+            # Guard the guard: the packet exists and has no mark rows.
+            self.assertEqual("1", self.scalar(
+                "SELECT COUNT(*) FROM grade_submissions WHERE assessment_id = 951"))
+            self.assertEqual("0", self.scalar(
+                "SELECT COUNT(*) FROM academic_records WHERE assessment_id = 951"))
+
+            a = self.rows()[951]
+            self.assertEqual("submitted", a["workflow_status"])
+            self.assertEqual("Complete", a["workflow_label"])
+            self.assertEqual(951, a["submission_id"])
+            # The decisive assertion: a status is NOT a mark.
+            self.assertFalse(a["has_results"],
+                             "a submitted packet with no mark rows is being "
+                             "reported as having results")
+
+            # The offering must not claim marks on the strength of it.
+            geez = [x for x in self.subjects(C1)["subjects"]
+                    if x["subject_id"] == S_GEEZ][0]
+            self.assertEqual(3, geez["assessment_count"])
+            # Guard the guard: Geez genuinely does have marks elsewhere,
+            # so has_results staying true here is correct and not luck.
+            self.assertTrue(geez["has_results"])
+        finally:
+            self.sql(
+                "DELETE FROM grade_submissions WHERE id = 951;"
+                "DELETE FROM assessments WHERE id = 951;"
+            )
+
+    def test_a_mark_without_a_packet_is_still_a_mark(self):
+        """
+        The mirror of the test above, and the other half of what keeps
+        'status' and 'has marks' from collapsing into one field.
+        """
+        a = self.rows()[A_MUSIC_TEST]
+        self.assertIsNone(a["submission_id"])
+        self.assertTrue(a["has_results"])
 
     def test_a_missing_mark_is_never_a_zero(self):
         for a in self.assessments(C1)["assessments"]:
@@ -987,6 +1189,24 @@ class ClassRootListTests(_ClassBase):
                         sort="level")
         self.assertEqual("success", got["status"])
         baseline = [c["id"] for c in got["classes"]]
+
+        # The decisive case: a real column name that is NOT in the map.
+        # Anything that is merely invalid SQL would be "caught" by the
+        # query failing, which proves nothing about the allowlist.
+        raw = self.call("api_education.php", "get_classes", "edu_dept",
+                        sort="student_count")
+        self.assertEqual("success", raw["status"])
+        self.assertEqual(baseline, [c["id"] for c in raw["classes"]],
+                         "a raw column name reached ORDER BY; the sort is "
+                         "interpolated rather than allowlisted")
+        # Guard the guard: that column, requested by its allowlisted
+        # alias, really does produce a different order -- so the
+        # comparison above could have failed.
+        alias = self.call("api_education.php", "get_classes", "edu_dept",
+                          sort="students")
+        self.assertNotEqual(baseline, [c["id"] for c in alias["classes"]],
+                            "sorting by students does not change the order; "
+                            "the assertion above is vacuous")
 
         for bad in ("id; DROP TABLE classes", "(SELECT 1)", "class_name--",
                     "students desc, id"):
