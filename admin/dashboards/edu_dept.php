@@ -70,6 +70,7 @@ const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSO
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="/admin/js/advanced_analytics.js?v=20260927"></script>
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>
+<script src="/admin/js/academic_intelligence.js?v=20261003"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Ethiopic:wght@400;600;700&family=Poppins:wght@300;400;600;700&display=swap');
 /* Field footer: inline validation errors + live character counters (patch 8) */
@@ -483,6 +484,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 <div>
 <div class="nt">Academic</div>
 <button class="nl" data-sec="analytics"><i class="fa-solid fa-chart-pie"></i> Analytics &amp; Reports Hub</button>
+<button class="nl" data-sec="academic-intel"><i class="fa-solid fa-diagram-project"></i> Academic Intelligence</button>
 <button class="nl" data-sec="enrollment"><i class="fa-solid fa-user-graduate"></i> Enrollment</button>
 <button class="nl" data-sec="grades"><i class="fa-solid fa-star"></i> Grades</button>
 <button class="nl" data-sec="assessments"><i class="fa-solid fa-clipboard-list"></i> Assessments</button>
@@ -777,6 +779,8 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 </div></div>
 
 <!-- ═══ EDUCATION ANALYTICS, REPORTING & INTELLIGENCE HUB ═══ -->
+<div id="sec-academic-intel" class="sec"></div>
+
 <div id="sec-analytics" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
 <div>
@@ -4110,6 +4114,7 @@ nav=function(n){
     try{if(n==='reportcards')loadClassPerformance();}catch(e){console.error(e);}
     try{if(n==='filter'&&!pfData.length)applyPerformanceFilter();}catch(e){console.error(e);}
     try{if(n==='analytics'&&window.EduHubInstance)window.EduHubInstance.load();}catch(e){console.error(e);}
+    try{if(n==='academic-intel'&&window.AcademicIntelligenceInstance)window.AcademicIntelligenceInstance.boot();}catch(e){console.error(e);}
     try{if(n==='assessments'&&!allAssessmentTypes.length)loadAssessmentTypes();}catch(e){console.error(e);}
 };
 try{
