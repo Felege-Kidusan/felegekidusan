@@ -27,12 +27,16 @@ the commits below rather than against any earlier report.
 | New permission system | **None** — the existing tier-3 gate and `canViewClass` |
 | New workflow states | **None** — `SubmissionService` statuses only |
 | `SubmissionService` / `ReportCardService` | **Untouched** (verified by diff) |
-| Security suite | 1883 passed / 821 subtests / 12 pre-existing environmental failures |
+| Security suite | **CI #42: 1895 passed, 0 failed, 821 subtests** |
 | Subject suites | 109 pytest tests + 71 subtests · 196 node checks |
 | Mutation testing | 48 mutations, **47 caught, 1 equivalent and pinned** |
 
-Phase 4 adds **+109 tests and +71 subtests** over the Phase 3 local baseline
-(1774 / 750).
+CI run #42 on `5d2286d` is green on all three jobs: *PHP syntax (php -l)*,
+*Security and regression suite* and *Migration numbering*.
+
+Phase 4 adds **+109 tests and +71 subtests**, measured against the Phase 3 CI
+baseline of 1786 passed / 750 subtests (run #40) — the same delta as the local
+measurement, from an independently seeded environment.
 
 The 12 failing tests are `test_comm_e2e.py` (11) and `test_destructive_guard.py`
 (1). They fail identically before and after Phase 4 — the failure list was
@@ -511,7 +515,8 @@ node tests/e2e/subject_tracking.js
 
 | Suite | Result | Evidence |
 |---|---|---|
-| `tests/security` (full) | 1883 passed, 821 subtests, 12 pre-existing environmental failures | local |
+| `tests/security` (full) | **1895 passed, 0 failed, 821 subtests** | **CI #42** |
+| `tests/security` (full) | 1883 passed, 821 subtests, 12 environmental failures | local |
 | `tests/security/test_subject_tracking.py` | **109 passed, 71 subtests, 0 skipped** | local |
 | `tests/security/test_student_tracking.py` | 59 passed (Phase 2, unaffected) | local |
 | `tests/security/test_teacher_tracking.py` | 89 passed (Phase 3, unaffected) | local |
@@ -713,12 +718,11 @@ executed.
    It is an Education oversight screen and fails closed.
 6. **Performance figures are local fixture measurements**, not a load test, and
    carry no automated assertion.
-7. **No CI evidence is recorded in this document at the time of writing** — see
-   the push/CI section of the final report for the run that covers these
-   commits. Everything above is local evidence unless stated otherwise.
-8. **The 12 failing `comm_e2e` / `destructive_guard` tests are environmental**
+7. **The 12 failing `comm_e2e` / `destructive_guard` tests are environmental**
    and pre-date this work. They were not investigated, being outside this brief,
-   and were confirmed byte-identical before and after.
+   and were confirmed byte-identical before and after. CI, which seeds
+   `ssms_comm_e2e` properly, passes all 1895 — which confirms those 12 are
+   environmental rather than real.
 
 ---
 
@@ -814,4 +818,4 @@ This is a design boundary, not permission to implement.
 | Responsive / accessibility | yes — §16 |
 | Documentation complete | this document |
 | No unrelated changes | yes — §17 diff review |
-| Clean tree, pushed, CI green | see the final report |
+| Clean tree, pushed, CI green | yes — `5d2286d` on `origin/main`, CI #42 green |
