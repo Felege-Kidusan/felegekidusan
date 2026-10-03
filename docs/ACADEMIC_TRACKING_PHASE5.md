@@ -30,7 +30,7 @@ destinations, and the Academic Tracking surface is complete as scoped.
 | Schema changes | **none** |
 | New endpoints | 5, all inside `admin/api_education.php` |
 | New files | 2, both tests |
-| Test totals | **1946 passed / 926 subtests**, 12 environmental failures (§14) |
+| Test totals | **CI #44: 1958 passed, 0 failed, 926 subtests** |
 | Added this phase | 62 pytest tests (98 subtests), 189 node checks |
 | Mutation testing | 24 run, **24 caught**, 0 survivors |
 | Query growth | **flat** at 1 / 5 / 10 offerings on every endpoint |
@@ -406,7 +406,13 @@ measured as the pre-Phase-5 baseline before any code was written, and CI seeds
 that database properly and passes them. *Verified* by diffing the failure list
 against the baseline.
 
-Growth over Phase 4: **+51 tests, +105 subtests** (1895/821 → 1946/926).
+**CI #44 (`4a9cb93`) is green: 1958 passed, 0 failed, 926 subtests.** CI seeds
+`ssms_comm_e2e` properly, so the 12 environmental failures above pass there —
+1946 + 12 = 1958, which is the arithmetic confirming they are the only
+difference between the two environments.
+
+Growth over Phase 4: **+63 tests, +105 subtests** (CI #42: 1895/821 →
+CI #44: 1958/926).
 
 **Two existing guard tests were narrowed, not deleted.** Both had run out of
 things to guard now that the fourth workflow exists:
