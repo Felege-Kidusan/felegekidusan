@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'api_service.dart';
+import 'attendance_sync_coordinator.dart';
 import 'catalog_service.dart';
 import 'connectivity_service.dart';
 import 'mezmur_download_manager.dart';
@@ -138,6 +139,12 @@ class SyncService {
         // Yield after the bounded immediate rescans, then continue from the DB.
         nudge(delay: const Duration(milliseconds: 50));
       }
+      // The outbox has settled, so this is the moment the server's view
+      // and ours are most likely to differ: our own writes have just
+      // landed, and anything another device did is still unseen. Pull
+      // after the drain rather than before, so we reconcile against the
+      // state our uploads produced.
+      await pullServerChanges(generation: generation);
       if (!c.isCompleted) c.complete(r);
       return r;
     } catch (e) {
@@ -515,9 +522,37 @@ class SyncService {
         message: 'Sending is temporarily paused. Your work remains saved.',
       );
 
+  /// Download half of synchronization: pull server attendance changes
+  /// into the local cache.
+  ///
+  /// Kept separate from the outbox drain because the two fail
+  /// independently — being unable to reach the feed must not make a
+  /// pending upload look failed, and vice versa. Never throws, so a
+  /// sync problem cannot stop the app opening offline.
+  Future<void> pullServerChanges({int? generation}) async {
+    final gen = generation ?? sessionGenerationProvider?.call() ?? 0;
+    if (!_ownsGeneration(gen) || !_api.isLoggedIn) return;
+    try {
+      final outcome = await AttendanceSyncCoordinator().pull();
+      if (!_ownsGeneration(gen)) return;
+      if (outcome.changedLocalData) {
+        // Local data moved underneath whatever is on screen; the
+        // existing status stream is how screens already learn to reread
+        // the local database.
+        await _emitStatus();
+      }
+    } catch (_) {
+      // Download failures are recorded in sync_state by the coordinator.
+    }
+  }
+
   Future<void> cacheForOffline() async {
     final generation = sessionGenerationProvider?.call() ?? 0;
     if (!_ownsGeneration(generation) || !_api.isLoggedIn) return;
+    // Startup / session restore / foreground return all land here, which
+    // makes it the natural place to reconcile downwards as well.
+    await pullServerChanges(generation: generation);
+    if (!_ownsGeneration(generation)) return;
     try {
       final dashRes = await _api.getDashboardStats();
       if (!dashRes.sessionSuperseded &&

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 
+import 'attendance_delta.dart';
 import 'amharic_text.dart' as amharic;
 import 'search_index_policy.dart';
 import 'search_matching.dart';
@@ -112,6 +113,7 @@ class LocalDb {
       onCreate: (db, version) async {
         await _createTables(db);
         await _migrateToV34(db);
+        await db.execute(localSyncStateV35Sql);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -544,9 +546,17 @@ class LocalDb {
           // Risks #1/#9/#8/#10: one coordinated owner/scope/state and
           // immutable-operation migration. sqflite wraps onUpgrade in one
           // transaction; the migration itself is repeat-safe.
-          await _migrateToV34(db);
-        }
-      },
+            await _migrateToV34(db);
+          }
+          if (oldVersion < 35) {
+            // Download-sync cursor state. Creating it empty is the whole
+            // migration: an absent row means cursor 0, which the server
+            // answers with bootstrap_required, so an upgrading device
+            // rebuilds its attendance cache instead of resuming from a
+            // revision it never actually applied.
+            await db.execute(localSyncStateV35Sql);
+          }
+        },
       onOpen: (db) async {
         // No HTTP request survives its issuing process. Recover durable claims
         // before any scheduler can observe/select work, preserving operation
@@ -3900,6 +3910,197 @@ class LocalDb {
   // CACHED ATTENDANCE RESPONSES
   // ============================================================
 
+  // ============================================================
+  // DOWNLOAD SYNC — CURSOR STATE AND DELTA APPLICATION
+  // ============================================================
+  // The server feed (sql/057, sql/058) reports per-record attendance
+  // changes. This cache does not store attendance records: it stores a
+  // whole class/day sheet blob keyed by (class_id, date), whose student
+  // entries are roster rows carrying member_id and a nullable status.
+  //
+  // So a delta is applied by patching the student entry inside the
+  // affected sheet, not by inserting or deleting cache rows. Deleting an
+  // attendance record means the student becomes unmarked again, because
+  // the roster entry itself is enrollment data and must stay.
+  //
+  // Only the server layer is touched. Unsynced local edits live in
+  // pending_attendance and are overlaid on top of the cache at read time
+  // by the attendance screen, so a pull can never silently discard a
+  // local change that has not been uploaded yet.
+
+  /// Last revision whose changes are fully applied locally for [domain].
+  /// Absent means 0, which the server answers with bootstrap_required.
+  Future<int> getSyncCursor(String domain) async {
+    final db = await database;
+    try {
+      final rows = await db.query('sync_state',
+          columns: ['cursor'], where: 'domain = ?', whereArgs: [domain], limit: 1);
+      if (rows.isEmpty) return 0;
+      final value = rows.first['cursor'];
+      return value is int ? value : int.tryParse('$value') ?? 0;
+    } catch (_) {
+      // A device that predates the table behaves like a fresh install.
+      return 0;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getSyncState(String domain) async {
+    final db = await database;
+    try {
+      final rows = await db.query('sync_state',
+          where: 'domain = ?', whereArgs: [domain], limit: 1);
+      return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Record the outcome of a sync attempt without moving the cursor.
+  /// Used for failures, so the UI can say "sync failed" while the cursor
+  /// still points at the last revision that was genuinely applied.
+  Future<void> setSyncStatus(String domain, String status, {String? error}) async {
+    final db = await database;
+    try {
+      await db.insert(
+        'sync_state',
+        {
+          'domain': domain,
+          'cursor': await getSyncCursor(domain),
+          'last_sync_at': DateTime.now().toIso8601String(),
+          'status': status,
+          'error': error,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {}
+  }
+
+  /// Apply one page of attendance changes and advance the cursor, both
+  /// inside a single SQLite transaction.
+  ///
+  /// The cursor moves only on the same commit that writes the data, so
+  /// the two can never disagree: if anything throws, sqflite rolls the
+  /// whole transaction back and the next pull re-requests the same page.
+  /// Re-applying a page is harmless — each change is an idempotent
+  /// "set this student's status in this sheet to this value".
+  ///
+  /// [items] are the feed entries (op, class_id, member_id, date) and
+  /// [records] maps attendance id to the canonical server row. An id
+  /// missing from [records] is a tombstone.
+  Future<void> applyAttendanceDelta({
+    required List<Map<String, dynamic>> items,
+    required Map<String, dynamic> records,
+    required int nextCursor,
+    String domain = 'attendance',
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // Sheets are rewritten once each, not once per change, so a class
+      // day with thirty corrections costs one read and one write.
+      final touched = <String, Map<String, dynamic>>{};
+      final sheetKeys = <String, List<Object>>{};
+
+      Future<Map<String, dynamic>?> loadSheet(int classId, String date) async {
+        final key = '$classId|$date';
+        if (touched.containsKey(key)) return touched[key];
+        final rows = await txn.query('cached_attendance',
+            where: 'class_id = ? AND date = ?', whereArgs: [classId, date], limit: 1);
+        if (rows.isEmpty) {
+          // Nothing cached for that day: there is no stale copy to
+          // correct, and inventing one would fabricate a roster the
+          // server never sent.
+          touched[key] = <String, dynamic>{};
+          return null;
+        }
+        final decoded = _decodeSheet(rows.first['response_json'] as String);
+        touched[key] = decoded;
+        sheetKeys[key] = [classId, date];
+        return decoded;
+      }
+
+      for (final item in items) {
+        final raw = records['${item['entity_id'] ?? ''}'];
+        final record = raw is Map ? Map<String, dynamic>.from(raw) : null;
+
+        // What this change means is decided by AttendanceDelta, which is
+        // pure and unit-testable; this method only supplies storage and
+        // the transaction.
+        final target = AttendanceDelta.resolve(item, record);
+        if (target == null) continue;
+
+        final sheet = await loadSheet(target.classId, target.date);
+        if (sheet == null) continue;
+
+        AttendanceDelta.applyToSheet(sheet, target);
+      }
+
+      for (final entry in sheetKeys.entries) {
+        final sheet = touched[entry.key];
+        if (sheet == null || sheet.isEmpty) continue;
+        await txn.update(
+          'cached_attendance',
+          {
+            'response_json': jsonEncode(sheet),
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'class_id = ? AND date = ?',
+          whereArgs: entry.value,
+        );
+      }
+
+      // Same transaction as the data above. This is the only place the
+      // cursor moves forward.
+      await txn.insert(
+        'sync_state',
+        {
+          'domain': domain,
+          'cursor': nextCursor,
+          'last_sync_at': DateTime.now().toIso8601String(),
+          'status': 'ok',
+          'error': null,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+  }
+
+  /// Drop the cached attendance sheets and reset the cursor together, so
+  /// a bootstrap cannot leave an empty cache paired with a cursor that
+  /// claims to be up to date.
+  Future<void> resetAttendanceSyncForBootstrap() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('cached_attendance');
+      await txn.insert(
+        'sync_state',
+        {
+          'domain': 'attendance',
+          'cursor': 0,
+          'last_sync_at': DateTime.now().toIso8601String(),
+          'status': 'bootstrap',
+          'error': null,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+  }
+
+  /// Store the cursor a completed bootstrap corresponds to.
+  Future<void> completeAttendanceBootstrap(int cursor) async {
+    final db = await database;
+    await db.insert(
+      'sync_state',
+      {
+        'domain': 'attendance',
+        'cursor': cursor,
+        'last_sync_at': DateTime.now().toIso8601String(),
+        'status': 'ok',
+        'error': null,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<void> cacheAttendanceResponse(int classId, String date, List<Map<String, dynamic>> students,
       {String? submissionStatus, bool locked = false}) async {
     final db = await database;
@@ -6318,6 +6519,14 @@ class LocalDb {
       for (final table in _privateReadCacheTables) {
         await txn.delete(table);
       }
+      // The download cursor describes caches that no longer exist. Left
+      // alone, the next pull would ask for changes "since" a revision it
+      // can no longer substantiate and would only ever receive deltas,
+      // never the rows the purge removed. Resetting to 0 makes the
+      // server demand a bootstrap, which is the honest answer.
+      try {
+        await txn.delete('sync_state');
+      } catch (_) {}
     });
     // Remove deleted role-scoped pages from the WAL without the much heavier
     // VACUUM used by an explicit destructive account purge.
