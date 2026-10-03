@@ -116,24 +116,105 @@ switch ($action) {
     // SUBJECT MANAGEMENT
     // ============================================================
     
+    // Opt-in list controls, exactly as get_classes in api_education.php:
+    // called with no parameters (or the long-standing include_inactive=1)
+    // the response is unchanged, so the smoke tests and any existing caller
+    // keep working. q / status / sort / page / per_page turn it into a root
+    // list for Academic Tracking.
+    //
+    // assigned_classes stays a correlated COUNT over class_subjects -- a
+    // cheap relational count. Phase 1 deliberately does NOT compute subject
+    // averages here: that would mean a ReportCardService pack per class and
+    // would reintroduce the cost Phase 0 measured at +12 queries per class.
     case 'get_subjects':
         $includeInactive = isset($_GET['include_inactive']) && $_GET['include_inactive'] === '1';
-        
-        $sql = "SELECT s.*, 
+        $subQ = trim((string)($_GET['q'] ?? ''));
+        $subStatus = trim((string)($_GET['status'] ?? ''));
+        $subSort = trim((string)($_GET['sort'] ?? 'name'));
+        $subDir = strtolower(trim((string)($_GET['dir'] ?? 'asc'))) === 'desc' ? 'DESC' : 'ASC';
+        $subPaged = isset($_GET['page']) || isset($_GET['per_page']);
+        $subPage = max(1, (int)($_GET['page'] ?? 1));
+        $subPerPage = min(100, max(10, (int)($_GET['per_page'] ?? 25)));
+
+        // Allowlist; never interpolate a caller-supplied column name.
+        $subOrderMap = [
+            'name' => 's.subject_name',
+            'code' => 's.subject_code',
+            'classes' => 'assigned_classes',
+        ];
+        $subOrderCol = $subOrderMap[$subSort] ?? 's.subject_name';
+
+        $subW = [];
+        $subP = [];
+        $subT = '';
+        // `status` wins when supplied; otherwise the historic include_inactive
+        // behaviour (active only unless asked) is preserved exactly.
+        if ($subStatus === 'active') {
+            $subW[] = 's.is_active = 1';
+        } elseif ($subStatus === 'inactive') {
+            $subW[] = 's.is_active = 0';
+        } elseif ($subStatus !== 'all' && !$includeInactive) {
+            $subW[] = 's.is_active = 1';
+        }
+        if ($subQ !== '') {
+            $subW[] = '(s.subject_name LIKE ? OR s.subject_name_en LIKE ? OR s.subject_code LIKE ?)';
+            $subLike = '%' . $subQ . '%';
+            array_push($subP, $subLike, $subLike, $subLike);
+            $subT .= 'sss';
+        }
+        $subWhere = $subW ? ('WHERE ' . implode(' AND ', $subW)) : '';
+
+        $countSql = "SELECT COUNT(*) AS total FROM subjects s $subWhere";
+        if ($subT !== '') {
+            $st = $conn->prepare($countSql);
+            $st->bind_param($subT, ...$subP);
+            $st->execute();
+            $subTotal = (int)($st->get_result()->fetch_assoc()['total'] ?? 0);
+            $st->close();
+        } else {
+            $rc = $conn->query($countSql);
+            $subTotal = $rc ? (int)$rc->fetch_assoc()['total'] : 0;
+        }
+
+        $sql = "SELECT s.*,
                 (SELECT COUNT(DISTINCT cs.class_id) FROM class_subjects cs WHERE cs.subject_id = s.id) as assigned_classes
-                FROM subjects s";
-        if (!$includeInactive) {
-            $sql .= " WHERE s.is_active = 1";
+                FROM subjects s
+                $subWhere
+                ORDER BY $subOrderCol $subDir, s.subject_name ASC";
+        $subFp = $subP;
+        $subFt = $subT;
+        if ($subPaged) {
+            $sql .= " LIMIT ? OFFSET ?";
+            $subFp[] = $subPerPage;
+            $subFp[] = ($subPage - 1) * $subPerPage;
+            $subFt .= 'ii';
         }
-        $sql .= " ORDER BY s.subject_name";
-        
-        $result = $conn->query($sql);
+
         $subjects = [];
-        while ($row = $result->fetch_assoc()) {
-            $subjects[] = $row;
+        if ($subFt !== '') {
+            $st = $conn->prepare($sql);
+            $st->bind_param($subFt, ...$subFp);
+            $st->execute();
+            $result = $st->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $subjects[] = $row;
+            }
+            $st->close();
+        } else {
+            $result = $conn->query($sql);
+            while ($row = $result->fetch_assoc()) {
+                $subjects[] = $row;
+            }
         }
-        
-        echo json_encode(['status' => 'success', 'subjects' => $subjects]);
+
+        echo json_encode([
+            'status' => 'success',
+            'subjects' => $subjects,
+            'total' => $subTotal,
+            'page' => $subPaged ? $subPage : 1,
+            'per_page' => $subPaged ? $subPerPage : max(1, count($subjects)),
+            'pages' => $subPaged && $subPerPage > 0 ? (int)ceil($subTotal / $subPerPage) : 1,
+        ], JSON_UNESCAPED_UNICODE);
         break;
     
     case 'create_subject':

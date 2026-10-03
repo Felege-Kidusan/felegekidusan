@@ -653,23 +653,109 @@ switch ($action) {
     // ============================================================
     // CLASS MANAGEMENT
     // ============================================================
+    // Serves two callers with different needs, so the list controls are all
+    // OPT-IN. Called with no parameters it returns every class ordered by
+    // level_order exactly as it always has -- that is what the class
+    // management screen and the HR registration dropdown expect, and neither
+    // sends the new parameters. Supply q / status / sort / page / per_page
+    // and it behaves as a proper root list instead. The envelope always
+    // carries total/page/per_page/pages; adding keys is backward compatible,
+    // removing or reordering `classes` would not have been.
     case 'get_classes':
         $yearCond2 = $currentYear ? " AND ce.academic_year_id=" . (int)$currentYear['id'] : "";
+        $clsQ = trim((string)($_GET['q'] ?? ''));
+        $clsStatus = trim((string)($_GET['status'] ?? 'all'));
+        $clsSort = trim((string)($_GET['sort'] ?? 'level'));
+        $clsDir = strtolower(trim((string)($_GET['dir'] ?? 'asc'))) === 'desc' ? 'DESC' : 'ASC';
+        // Paging only engages when the caller asks for it, so existing
+        // consumers keep receiving the complete list.
+        $clsPaged = isset($_GET['page']) || isset($_GET['per_page']);
+        $clsPage = max(1, (int)($_GET['page'] ?? 1));
+        $clsPerPage = min(100, max(10, (int)($_GET['per_page'] ?? 25)));
+
+        // Allowlist: the column is chosen here, never interpolated from input.
+        $clsOrderMap = [
+            'level' => 'c.level_order',
+            'name' => 'c.class_name',
+            'code' => 'c.class_code',
+            'students' => 'student_count',
+        ];
+        $clsOrderCol = $clsOrderMap[$clsSort] ?? 'c.level_order';
+
+        $clsW = [];
+        $clsP = [];
+        $clsT = '';
+        if ($clsStatus === 'active') {
+            $clsW[] = 'c.is_active = 1';
+        } elseif ($clsStatus === 'inactive') {
+            $clsW[] = 'c.is_active = 0';
+        }
+        if ($clsQ !== '') {
+            $clsW[] = '(c.class_name LIKE ? OR c.class_name_en LIKE ? OR c.class_code LIKE ?)';
+            $clsLike = '%' . $clsQ . '%';
+            array_push($clsP, $clsLike, $clsLike, $clsLike);
+            $clsT .= 'sss';
+        }
+        $clsWhere = $clsW ? ('WHERE ' . implode(' AND ', $clsW)) : '';
+
         $classes = [];
+        $clsTotal = 0;
+        $clsFallback = false;
         try {
-            $sql = "SELECT c.*, COALESCE((SELECT COUNT(*) FROM class_enrollments ce WHERE ce.class_id=c.id AND ce.status='active'{$yearCond2}), 0) as student_count FROM classes c ORDER BY c.level_order";
-            $r = $conn->query($sql);
-            if ($r) {
+            $countSql = "SELECT COUNT(*) AS total FROM classes c $clsWhere";
+            if ($clsT !== '') {
+                $st = $conn->prepare($countSql);
+                $st->bind_param($clsT, ...$clsP);
+                $st->execute();
+                $clsTotal = (int)($st->get_result()->fetch_assoc()['total'] ?? 0);
+                $st->close();
+            } else {
+                $rc = $conn->query($countSql);
+                $clsTotal = $rc ? (int)$rc->fetch_assoc()['total'] : 0;
+            }
+
+            $sql = "SELECT c.*, COALESCE((SELECT COUNT(*) FROM class_enrollments ce WHERE ce.class_id=c.id AND ce.status='active'{$yearCond2}), 0) as student_count
+                    FROM classes c
+                    $clsWhere
+                    ORDER BY $clsOrderCol $clsDir, c.level_order ASC";
+            $clsFp = $clsP;
+            $clsFt = $clsT;
+            if ($clsPaged) {
+                $sql .= " LIMIT ? OFFSET ?";
+                $clsFp[] = $clsPerPage;
+                $clsFp[] = ($clsPage - 1) * $clsPerPage;
+                $clsFt .= 'ii';
+            }
+            if ($clsFt !== '') {
+                $st = $conn->prepare($sql);
+                $st->bind_param($clsFt, ...$clsFp);
+                $st->execute();
+                $r = $st->get_result();
                 while ($row = $r->fetch_assoc()) $classes[] = $row;
+                $st->close();
+            } else {
+                $r = $conn->query($sql);
+                if ($r) {
+                    while ($row = $r->fetch_assoc()) $classes[] = $row;
+                }
             }
         } catch (Exception $e) {
             // class_enrollments or classes table may not exist yet
+            $clsFallback = true;
             try {
                 $r2 = $conn->query("SELECT c.*, 0 as student_count FROM classes c ORDER BY c.level_order");
                 if ($r2) while ($row = $r2->fetch_assoc()) $classes[] = $row;
+                $clsTotal = count($classes);
             } catch (Exception $e2) { /* classes table doesn't exist */ }
         }
-        echo json_encode(['status' => 'success', 'classes' => $classes]);
+        echo json_encode([
+            'status' => 'success',
+            'classes' => $classes,
+            'total' => $clsFallback ? count($classes) : $clsTotal,
+            'page' => $clsPaged ? $clsPage : 1,
+            'per_page' => $clsPaged ? $clsPerPage : max(1, count($classes)),
+            'pages' => $clsPaged && $clsPerPage > 0 ? (int)ceil($clsTotal / $clsPerPage) : 1,
+        ], JSON_UNESCAPED_UNICODE);
         break;
 
     case 'save_class':
