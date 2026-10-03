@@ -384,15 +384,17 @@ async function run() {
     pick(r2, '[data-select-id]', 4, 'selection: a fifth teacher row exists').dispatch('keydown', { key: 'Enter' });
     eq('selection: Enter on a row selects it too', 2005, c2.scope.id);
 
-    // Teachers gained a real workflow in Phase 3, so the boundary panel is
-    // gone for them and a teacher screen is rendered instead. The two
-    // workflows that are still unbuilt must keep saying so rather than
-    // render an empty version of somebody else's screen.
+    // Every root entity now has a real workflow: students in Phase 2,
+    // teachers in Phase 3, subjects in Phase 4 and classes in Phase 5.
+    // This assertion began life as "the unbuilt ones say so"; what it
+    // pins now is that each selection opens ITS OWN workspace and not an
+    // empty version of somebody else's.
     const teacherHtml = r2.innerHTML;
-    hasNot('selection: the built teacher workflow no longer claims to be unbuilt',
+    hasNot('selection: no workflow claims to be unbuilt any more',
       teacherHtml, 'tracking is not built yet');
     has('selection: selecting a teacher opens the teacher workspace',
       teacherHtml, 'at-teacher-panel');
+    hasNot('selection: and not the class workspace', teacherHtml, 'at-class-panel');
 
     const { ctrl: c3, root: r3 } = build();
     await c3.boot();
@@ -400,10 +402,13 @@ async function run() {
     await tick();
     pick(r3, '[data-select-id]', 0, 'selection: a class row exists').dispatch('click');
     await tick();
+    await tick();
     const classHtml = r3.innerHTML;
-    has('selection: an unbuilt workflow still states the boundary honestly',
+    has('selection: selecting a class opens the class workspace',
+      classHtml, 'at-class-panel');
+    hasNot('selection: the class workflow does not claim to be unbuilt',
       classHtml, 'tracking is not built yet');
-    hasNot('selection: an unbuilt workflow shows no section tabs', classHtml, 'role="tablist"');
+    hasNot('selection: and not the teacher workspace', classHtml, 'at-teacher-panel');
   }
 
   // ========== 5. going back to the list clears the selection
