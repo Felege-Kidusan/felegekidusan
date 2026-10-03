@@ -116,6 +116,14 @@ $__analyticsActions = [
     'tracking_subject_detail',
     'tracking_subject_offering',
     'tracking_subject_students',
+    // Academic Tracking (Phase 5) — scoped class workflow. Same payload
+    // class again: a class's roll, offerings, assignments and the state
+    // of its work.
+    'tracking_class_detail',
+    'tracking_class_students',
+    'tracking_class_subjects',
+    'tracking_class_teachers',
+    'tracking_class_assessments',
 ];
 if (in_array($action, $__analyticsActions, true)) {
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
@@ -2128,6 +2136,92 @@ switch ($action) {
                 'status' => 'error',
                 'code' => 'server_error',
                 'message' => 'Could not load this subject right now.',
+            ]);
+        }
+        break;
+
+    case 'tracking_class_detail':
+    case 'tracking_class_students':
+    case 'tracking_class_subjects':
+    case 'tracking_class_teachers':
+    case 'tracking_class_assessments':
+        require_once __DIR__ . '/backend/services/AcademicTrackingService.php';
+
+        $tcClass = (int)($_GET['class_id'] ?? 0);
+        $tcYear  = !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0);
+        $tcTerm  = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : 0;
+
+        // 1. Validate before any query. class_id arrives from the browser
+        //    and is never trusted.
+        if ($tcClass <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'invalid_class',
+                'message' => 'A class must be selected.',
+            ]);
+            break;
+        }
+
+        // 2. Authorize the class itself, on EVERY one of these actions.
+        //    This is the whole scope boundary: the class id is the only
+        //    thing standing between a caller and another class's roll,
+        //    assignments and mark lists. Same canViewClass() the report
+        //    card uses — deliberately not a second permission system.
+        if (!\App\Services\ReportCardService::canViewClass(
+            $conn,
+            (int)($_SESSION['admin_id'] ?? 0),
+            (string)$__role,
+            $tcClass
+        )) {
+            http_response_code(403);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'forbidden',
+                'message' => 'Access denied for this class.',
+            ]);
+            break;
+        }
+
+        try {
+            if ($action === 'tracking_class_detail') {
+                $tcRes = \App\Services\AcademicTrackingService::classDetail(
+                    $conn, $tcClass, $tcYear, $tcTerm
+                );
+            } elseif ($action === 'tracking_class_students') {
+                $tcRes = \App\Services\AcademicTrackingService::classStudents(
+                    $conn,
+                    $tcClass,
+                    $tcYear,
+                    is_scalar($_GET['q'] ?? '') ? (string)$_GET['q'] : '',
+                    (int)($_GET['page'] ?? 1),
+                    (int)($_GET['per_page'] ?? 25)
+                );
+            } elseif ($action === 'tracking_class_subjects') {
+                $tcRes = \App\Services\AcademicTrackingService::classSubjects(
+                    $conn, $tcClass, $tcYear, $tcTerm
+                );
+            } elseif ($action === 'tracking_class_teachers') {
+                $tcRes = \App\Services\AcademicTrackingService::classTeachers(
+                    $conn, $tcClass, $tcYear
+                );
+            } else {
+                $tcRes = \App\Services\AcademicTrackingService::classAssessments(
+                    $conn, $tcClass, $tcYear, $tcTerm, (int)($_GET['subject_id'] ?? 0)
+                );
+            }
+
+            if (($tcRes['code'] ?? '') === 'not_offered_here') {
+                http_response_code(404);
+            }
+            echo json_encode($tcRes, JSON_UNESCAPED_UNICODE);
+        } catch (Throwable $e) {
+            error_log('tracking class: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'server_error',
+                'message' => 'Could not load this class right now.',
             ]);
         }
         break;

@@ -385,17 +385,57 @@ class SubmissionService
         if ($assessmentId <= 0) {
             return false;
         }
+        return self::marklistsHaveRows($conn, [$assessmentId])[$assessmentId] ?? false;
+    }
+
+    /**
+     * "Do marks exist yet?" for many assessments at once.
+     *
+     * Whether a mark list has rows is a different fact from whether a
+     * submission packet exists and from what state that packet is in, and
+     * Academic Tracking has to keep the three apart. Answering it one
+     * assessment at a time is N+1 across a class, so this is the batched
+     * form and marklistHasRows() above is now a projection of it — one
+     * implementation of the question, as with marklistPacketRefs().
+     *
+     * Existence only. No score is read and nothing is averaged; that
+     * remains ReportCardService's job.
+     *
+     * @param list<int> $assessmentIds
+     * @return array<int,bool> keyed by assessment id, false where absent
+     */
+    public static function marklistsHaveRows(\mysqli $conn, array $assessmentIds): array
+    {
+        $ids = [];
+        foreach ($assessmentIds as $id) {
+            $id = (int)$id;
+            if ($id > 0) {
+                $ids[$id] = true;
+            }
+        }
+        $ids = array_keys($ids);
+        if (!$ids) {
+            return [];
+        }
+
+        $out = array_fill_keys($ids, false);
+        $place = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $conn->prepare(
-            "SELECT 1 FROM academic_records WHERE assessment_id = ? LIMIT 1"
+            "SELECT DISTINCT assessment_id
+               FROM academic_records
+              WHERE assessment_id IN ($place)"
         );
         if (!$stmt) {
-            return false;
+            return $out;
         }
-        $stmt->bind_param('i', $assessmentId);
+        $stmt->bind_param(str_repeat('i', count($ids)), ...$ids);
         $stmt->execute();
-        $ok = $stmt->get_result()->num_rows > 0;
+        $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            $out[(int)$row['assessment_id']] = true;
+        }
         $stmt->close();
-        return $ok;
+        return $out;
     }
 
     /**
