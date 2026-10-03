@@ -238,6 +238,97 @@ class SubjectOfferingModelTests(_SubjectBase):
         self.assertEqual("0", n, "class_subjects gained an academic_year_id; "
                                  "the Phase 4 offering model must be re-examined")
 
+    def test_the_batched_counts_are_real_and_per_offering(self):
+        """
+        The counts are one grouped query over all offerings, so a scoping
+        slip shows up as the same number everywhere rather than as an
+        error. C1 and C2 deliberately hold different numbers of students.
+        """
+        by_class = {o["class_id"]: o for o in self.detail(S_GEEZ)["offerings"]}
+        self.assertEqual(5, by_class[C1]["student_count"])
+        self.assertEqual(3, by_class[C2]["student_count"])
+        self.assertNotEqual(by_class[C1]["student_count"],
+                            by_class[C2]["student_count"],
+                            "the student count is not scoped to its own class")
+
+    def test_the_assessment_count_is_scoped_to_the_subject(self):
+        """
+        C1 offers Geez (2 assessments) and Music (2: ids 3 and 7). If the
+        count ignored the subject it would report 4 for both.
+        """
+        geez = {o["class_id"]: o for o in self.detail(S_GEEZ)["offerings"]}
+        music = {o["class_id"]: o for o in self.detail(S_MUSIC)["offerings"]}
+        self.assertEqual(2, geez[C1]["assessment_count"])
+        self.assertEqual(2, music[C1]["assessment_count"])
+        total_in_c1 = int(self.scalar(
+            "SELECT COUNT(*) FROM assessments WHERE class_id = %d AND is_active = 1" % C1
+        ))
+        self.assertEqual(4, total_in_c1)
+        self.assertNotEqual(total_in_c1, geez[C1]["assessment_count"],
+                            "the assessment count is not scoped to the subject")
+
+    def test_the_assessment_count_is_scoped_to_the_class(self):
+        geez = {o["class_id"]: o for o in self.detail(S_GEEZ)["offerings"]}
+        self.assertEqual(2, geez[C1]["assessment_count"])
+        self.assertEqual(2, geez[C2]["assessment_count"])
+        total_geez = int(self.scalar(
+            "SELECT COUNT(*) FROM assessments WHERE subject_id = %d AND is_active = 1" % S_GEEZ
+        ))
+        self.assertEqual(4, total_geez)
+        self.assertNotEqual(total_geez, geez[C1]["assessment_count"])
+
+    def test_the_teacher_count_is_scoped_to_its_own_offering(self):
+        hist = self.detail(S_HIST)["offerings"][0]
+        geez = {o["class_id"]: o for o in self.detail(S_GEEZ)["offerings"]}
+        self.assertEqual(0, hist["teacher_count"])
+        self.assertEqual(1, geez[C2]["teacher_count"])
+        self.assertNotEqual(hist["teacher_count"], geez[C2]["teacher_count"],
+                            "the teacher count ignores the subject")
+
+    def test_the_service_itself_reports_not_offered(self):
+        """
+        The endpoint recomputes data_state after filtering offerings by
+        class visibility, which masks whatever the service decided. Going
+        through the API alone therefore cannot tell whether the service's
+        own empty state is right, so it is checked directly here.
+        """
+        self.sql(
+            "DELETE FROM subjects WHERE id = %d;" % SCRATCH_SUBJECT
+            + "INSERT INTO subjects (id, subject_name, is_active) "
+              "VALUES (%d, 'Scratch', 1);" % SCRATCH_SUBJECT
+        )
+        try:
+            got = self._service_detail(SCRATCH_SUBJECT, Y1)
+            self.assertEqual([], got["offerings"])
+            self.assertEqual("not_offered", got["data_state"]["offerings"])
+        finally:
+            self.sql("DELETE FROM subjects WHERE id = %d;" % SCRATCH_SUBJECT)
+
+    def test_the_service_itself_reports_ok_when_offered(self):
+        got = self._service_detail(S_GEEZ, Y1)
+        self.assertEqual("ok", got["data_state"]["offerings"])
+        self.assertNotEqual("not_offered", got["data_state"]["offerings"])
+
+    def _service_detail(self, subject_id, year_id=0, term_id=0):
+        """Calls AcademicTrackingService::subjectDetail() directly."""
+        script = (
+            "require %s;"
+            "$c = new mysqli(DB_HOST, DB_USER, DB_PASS, %s);"
+            "$c->set_charset('utf8mb4');"
+            "require_once %s;"
+            "echo json_encode(\\App\\Services\\AcademicTrackingService::subjectDetail($c, %d, %d, %d));"
+            % (repr(str(ENV_FILE)), repr(SYNC_DB), repr(str(SERVICE)),
+               subject_id, year_id, term_id)
+        )
+        proc = subprocess.run(
+            [self.php, "-r", script], capture_output=True, text=True, timeout=120,
+            cwd=str(ROOT), env={**os.environ, "SSMS_DB_NAME": SYNC_DB},
+        )
+        lines = (proc.stdout or "").strip().splitlines()
+        if not lines:
+            self.fail(f"subjectDetail({subject_id}): no output\n{proc.stderr}")
+        return json.loads(lines[-1])
+
     def test_the_duration_is_reported_verbatim(self):
         by_class = {o["class_id"]: o["duration_type"] for o in self.detail(S_GEEZ)["offerings"]}
         self.assertEqual("FULL_YEAR", by_class[C1])
@@ -522,6 +613,31 @@ class SubjectTeacherTests(_SubjectBase):
         self.assertEqual("primary", row["assignment_role"])
         self.assertIn("is_primary", row)
 
+    def test_an_unlinked_teacher_keeps_a_null_member_code(self):
+        """
+        users.member_id is nullable. Kebede is deliberately unlinked in
+        the fixture, and an absent member record must stay absent rather
+        than become an empty string pretending to be a code.
+        """
+        self.sql(
+            "DELETE FROM teacher_assignments WHERE teacher_id = %d;" % T_KEBEDE
+            + "INSERT INTO teacher_assignments "
+              "(teacher_id, class_id, subject_id, academic_year_id, is_active) "
+              "VALUES (%d, %d, %d, %d, 1);" % (T_KEBEDE, C2, S_HIST, Y1)
+        )
+        try:
+            row = [t for t in self.offering(S_HIST, C2)["teachers"]
+                   if t["teacher_id"] == T_KEBEDE][0]
+            self.assertIsNone(row["member_code"])
+            self.assertNotEqual("", row["member_code"])
+        finally:
+            self.sql("DELETE FROM teacher_assignments WHERE teacher_id = %d;" % T_KEBEDE)
+
+    def test_a_linked_teacher_keeps_their_real_code(self):
+        """Guards the test above: null must mean absent, not always-null."""
+        row = self.offering(S_GEEZ, C1)["teachers"][0]
+        self.assertEqual("T-901", row["member_code"])
+
     def test_no_teacher_metric_is_returned(self):
         for t in self.offering(S_GEEZ, C1)["teachers"]:
             for banned in ("effectiveness", "score", "rating", "average",
@@ -592,6 +708,28 @@ class SubjectStudentTests(_SubjectBase):
             self.sql(
                 "UPDATE class_enrollments SET status = 'active' "
                 "WHERE member_id = 102 AND class_id = %d;" % C1
+            )
+
+    def test_a_withdrawn_student_leaves_the_batched_count_too(self):
+        """
+        The roll and the count are separate queries, so excluding a
+        withdrawn student from one does not exclude them from the other.
+        """
+        before = {o["class_id"]: o["student_count"]
+                  for o in self.detail(S_GEEZ)["offerings"]}[C1]
+        self.sql(
+            "UPDATE class_enrollments SET status = 'withdrawn' "
+            "WHERE member_id = 103 AND class_id = %d;" % C1
+        )
+        try:
+            after = {o["class_id"]: o["student_count"]
+                     for o in self.detail(S_GEEZ)["offerings"]}[C1]
+            self.assertEqual(before - 1, after,
+                             "a withdrawn student is still being counted")
+        finally:
+            self.sql(
+                "UPDATE class_enrollments SET status = 'active' "
+                "WHERE member_id = 103 AND class_id = %d;" % C1
             )
 
     def test_the_year_scopes_the_roll(self):
@@ -952,6 +1090,45 @@ class SubjectTrackingContractTests(_SubjectBase):
             with self.subTest(action=kept):
                 self.assertIn(kept, src)
 
+    def test_the_batched_counts_stay_restricted_to_the_offering_set(self):
+        """
+        Pins the IN clause on all three count queries.
+
+        It cannot be caught behaviourally. Each count is GROUP BY
+        class_id and the result is read back by class id, so widening the
+        IN clause returns extra rows that are simply never looked up —
+        the answer is identical. The clause is therefore a performance
+        guard, not a correctness one: without it these queries scan every
+        enrolment, assignment and assessment in the school on every
+        subject open. Source is the only available hold.
+        """
+        code = _strip_comments(SERVICE.read_text(encoding="utf-8"))
+        for fn in ("offeringTeacherCounts", "offeringStudentCounts",
+                   "offeringAssessmentCounts"):
+            with self.subTest(fn=fn):
+                start = code.index("function " + fn)
+                end = code.index("return self::countMap", start)
+                part = code[start:end]
+                self.assertIn("IN ($place)", part,
+                              f"{fn} no longer restricts to the offering set")
+                self.assertIn("array_fill(0, count($classIds), '?')", part,
+                              f"{fn} no longer binds its class list")
+
+    def test_the_counts_are_one_query_each_not_one_per_offering(self):
+        """The N+1 guard: a count must never be issued inside a loop."""
+        code = _strip_comments(SERVICE.read_text(encoding="utf-8"))
+        start = code.index("function subjectDetail")
+        end = code.index("function subjectOffering", start)
+        body = code[start:end]
+        self.assertEqual(1, body.count("offeringTeacherCounts("))
+        self.assertEqual(1, body.count("offeringStudentCounts("))
+        self.assertEqual(1, body.count("offeringAssessmentCounts("))
+        # and none of them may be reached from inside the per-offering loop
+        loop = body[body.index("foreach ($offerings as $i => $o)"):]
+        for fn in ("offeringTeacherCounts", "offeringStudentCounts",
+                   "offeringAssessmentCounts", "$conn->prepare"):
+            self.assertNotIn(fn, loop, "a query is being issued per offering")
+
     def test_no_migration_was_added_for_phase_4(self):
         for f in (ROOT / "sql").glob("*.sql"):
             text = f.read_text(encoding="utf-8", errors="ignore").lower()
@@ -1062,13 +1239,26 @@ class SubjectTrackingControllerTests(unittest.TestCase):
         Behaviourally redundant, which is why a mutation removing them
         survives the harness; this is the pin that replaces that coverage.
         """
-        for fn in ("loadSubjectOffering", "loadSubjectStudents"):
+        # Each window is bounded by the NEXT function, not by a character
+        # count: a fixed window overran into the following loader, which
+        # contains the same guard, and so passed even when this one's had
+        # been removed.
+        bounds = [
+            ("prototype.loadSubjectOffering", "prototype.loadSubjectStudents"),
+            ("prototype.loadSubjectStudents", "prototype.renderSubject ="),
+        ]
+        for fn, nxt in bounds:
             with self.subTest(fn=fn):
-                start = self.code.find("prototype." + fn)
-                part = self.code[start:start + 3200]
-                self.assertIn("self.subjectOffering.class_id === want", part)
+                start = self.code.find(fn)
+                end = self.code.find(nxt, start + 1)
+                self.assertGreater(end, start, f"could not bound {fn}")
+                part = self.code[start:end]
+                self.assertIn("self.subjectOffering.class_id === want", part,
+                              f"{fn} no longer checks WHICH offering returned")
+
         start = self.code.find("prototype.loadSubjectDetail")
-        self.assertIn("self.scope.id !== subjectId", self.code[start:start + 3200])
+        end = self.code.find("prototype.selectSubjectOffering", start + 1)
+        self.assertIn("self.scope.id !== subjectId", self.code[start:end])
 
     def test_students_are_lazy(self):
         """They must not be fetched when an offering is opened."""
