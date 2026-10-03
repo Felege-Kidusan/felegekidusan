@@ -720,7 +720,11 @@ async function main() {
     eq('a11y: End jumps to the last section', 'report_card', ctrl.section);
   }
 
-  // ========== 18. the other three entities are still honestly unbuilt
+  // ========== 18. a teacher is a different workflow, not the student one
+  //
+  // Teachers gained their own screen in Phase 3. What this still pins is
+  // the separation: selecting a teacher must never reach into the student
+  // workflow or render the student workspace under a teacher's name.
   {
     const { ctrl, root, log } = build();
     await ctrl.boot();
@@ -730,10 +734,13 @@ async function main() {
     await tick();
 
     const html = root.innerHTML;
-    has('phase: selecting a teacher states the boundary', html, 'tracking is not built yet');
     hasNot('phase: no student workspace is rendered for a teacher', html, 'role="tablist"');
     eq('phase: no student detail was requested for a teacher',
       0, log.filter((r) => r.action === 'tracking_student_detail').length);
+    eq('phase: no student assessments were requested for a teacher',
+      0, log.filter((r) => r.action === 'tracking_student_assessments').length);
+    eq('phase: no report card was requested for a teacher',
+      0, log.filter((r) => r.action === 'get_report_card').length);
   }
 
   // ========== 19. the context is never mistaken for a filter

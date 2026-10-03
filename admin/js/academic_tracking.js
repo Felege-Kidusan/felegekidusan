@@ -482,12 +482,32 @@
       report_card: this.freshSection()
     };
 
+    // ── Phase 3: the scoped teacher workspace ──
+    // teacher   = identity + the offerings they are assigned to
+    // offering  = the class+subject the user then picked INSIDE that
+    //             teacher. A secondary scope, never a filter, and null
+    //             until an explicit click — the teacher's first class is
+    //             not opened for them.
+    // teacherAssessments = the mark lists of that one offering
+    this.teacher = this.freshSection();
+    this.offering = null;
+    this.teacherAssessments = this.freshSection();
+
     this._seq = 0;
     this._detailSeq = 0;
     this._lazySeq = { assessments: 0, report_card: 0 };
+    this._teacherSeq = 0;
+    this._offeringSeq = 0;
     this._searchTimer = null;
     this._booted = false;
   }
+
+  /** Clears everything the previously selected teacher loaded. */
+  AcademicTracking.prototype.resetTeacher = function () {
+    this.teacher = this.freshSection();
+    this.offering = null;
+    this.teacherAssessments = this.freshSection();
+  };
 
   /** Every async section uses the same four states. 'idle' means never asked. */
   AcademicTracking.prototype.freshSection = function () {
@@ -558,9 +578,11 @@
     this.detail = this.freshSection();
     this.lazy.assessments = this.freshSection();
     this.lazy.report_card = this.freshSection();
+    this.resetTeacher();
 
     this.render();
     if (type === 'students') this.loadStudentDetail();
+    else if (type === 'teachers') this.loadTeacherDetail();
     return this.scope;
   };
 
@@ -570,6 +592,7 @@
     this.detail = this.freshSection();
     this.lazy.assessments = this.freshSection();
     this.lazy.report_card = this.freshSection();
+    this.resetTeacher();
     this.render();
   };
 
@@ -819,9 +842,11 @@
    * and has no data, which is a different and false statement.
    */
   AcademicTracking.prototype.renderSelection = function () {
-    // Students has a real workflow as of Phase 2. The other three keep the
-    // honest boundary panel below until their phases land.
+    // Students (Phase 2) and Teachers (Phase 3) have real workflows. The
+    // other two keep the honest boundary panel below until their phases
+    // land.
     if (this.scope.type === 'students') return this.renderStudent();
+    if (this.scope.type === 'teachers') return this.renderTeacher();
 
     var d = ENTITIES[this.scope.type];
     return '<div class="crd" style="padding:1.25rem">'
@@ -1097,6 +1122,34 @@
         var s = el.getAttribute('data-retry-section');
         if (s === 'assessments') self.loadStudentAssessments();
         else if (s === 'report_card') self.loadStudentReportCard();
+      });
+    });
+
+    // ── Phase 3: teacher workspace controls ──
+    root.querySelectorAll('[data-retry-teacher]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadTeacherDetail(); });
+    });
+    root.querySelectorAll('[data-retry-offering]').forEach(function (el) {
+      el.addEventListener('click', function () { self.loadTeacherAssessments(); });
+    });
+    root.querySelectorAll('[data-clear-offering]').forEach(function (el) {
+      el.addEventListener('click', function () { self.clearOffering(); });
+    });
+    // An offering opens because this button was activated. Nothing opens
+    // the first one on load.
+    root.querySelectorAll('[data-offering-class]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.selectOffering(
+          el.getAttribute('data-offering-class'),
+          el.getAttribute('data-offering-subject'),
+          el.getAttribute('data-offering-class-label'),
+          el.getAttribute('data-offering-subject-label')
+        );
+      });
+    });
+    root.querySelectorAll('[data-open-submission]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        self.openSubmission(el.getAttribute('data-open-submission'));
       });
     });
 
@@ -1769,6 +1822,417 @@
       + 'Served by the existing report card endpoint and produced by ReportCardService \u2014 the same '
       + 'numbers the printed report card carries. Academic Tracking displays them, it does not '
       + 'recalculate them.</p>';
+  };
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PHASE 3 — TEACHER TRACKING
+  //
+  // Teachers -> select teacher -> classes & subjects -> select one ->
+  // assessments -> submission status -> the EXISTING workflow action.
+  //
+  // The screen deliberately carries no academic number. A teacher has no
+  // grade, average or result, and there is no score, ranking or
+  // effectiveness figure anywhere below. What it shows is what the teacher
+  // is responsible for and where each of those mark lists currently
+  // stands, which is a workflow question.
+  //
+  // Nothing here calculates. Every status string is rendered exactly as
+  // SubmissionService resolved it on the server.
+  // ══════════════════════════════════════════════════════════════════════
+
+  AcademicTracking.prototype.teacherQs = function (extra) {
+    var qs = ['action=' + (extra && extra.action ? extra.action : 'tracking_teacher_detail'),
+              'teacher_id=' + this.scope.id];
+    if (this.context.year_id) qs.push('year_id=' + this.context.year_id);
+    if (extra && extra.class_id) qs.push('class_id=' + extra.class_id);
+    if (extra && extra.subject_id) qs.push('subject_id=' + extra.subject_id);
+    return qs;
+  };
+
+  AcademicTracking.prototype.loadTeacherDetail = function () {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'teachers') return Promise.resolve();
+    var seq = ++this._teacherSeq;
+    var teacherId = this.scope.id;
+    this.teacher = { status: 'loading', data: null, error: '', code: '' };
+    this.render();
+
+    return fetch(API_EDU + '?' + this.teacherQs().join('&'), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        // Two guards, not one: a superseded request, and a response for a
+        // teacher the user has since navigated away from.
+        if (seq !== self._teacherSeq || !self.scope || self.scope.id !== teacherId) return;
+        if (!d || d.status !== 'success') {
+          self.teacher = {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return this teacher.',
+            code: (d && d.code) || ''
+          };
+        } else {
+          self.teacher = { status: 'ready', data: d, error: '', code: '' };
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._teacherSeq) return;
+        // A transport failure is NOT a teacher with no assignments.
+        self.teacher = {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        };
+        self.render();
+      });
+  };
+
+  /**
+   * Open one of the teacher's offerings. Called only from a click on a row
+   * the user activated; no code path selects an offering automatically, and
+   * a teacher with exactly one assignment still has to have it opened.
+   */
+  AcademicTracking.prototype.selectOffering = function (classId, subjectId, classLabel, subjectLabel) {
+    var cid = intOr(classId, 0);
+    var sid = intOr(subjectId, 0);
+    if (!cid || !sid) return null;
+    this.offering = {
+      class_id: cid, subject_id: sid,
+      class_label: classLabel || ('#' + cid),
+      subject_label: subjectLabel || ('#' + sid)
+    };
+    this.teacherAssessments = this.freshSection();
+    this.render();
+    this.loadTeacherAssessments();
+    return this.offering;
+  };
+
+  AcademicTracking.prototype.clearOffering = function () {
+    this.offering = null;
+    this.teacherAssessments = this.freshSection();
+    this.render();
+  };
+
+  AcademicTracking.prototype.loadTeacherAssessments = function () {
+    var self = this;
+    if (!this.scope || this.scope.type !== 'teachers' || !this.offering) return Promise.resolve();
+    var seq = ++this._offeringSeq;
+    var teacherId = this.scope.id;
+    var want = this.offering.class_id + ':' + this.offering.subject_id;
+    this.teacherAssessments = { status: 'loading', data: null, error: '', code: '' };
+    this.render();
+
+    var qs = this.teacherQs({
+      action: 'tracking_teacher_assessments',
+      class_id: this.offering.class_id,
+      subject_id: this.offering.subject_id
+    }).join('&');
+
+    return fetch(API_EDU + '?' + qs, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        // Three guards: superseded request, teacher changed, offering
+        // changed. The third matters because switching between two of the
+        // same teacher's offerings does not change the teacher.
+        var still = self.offering
+          && (self.offering.class_id + ':' + self.offering.subject_id) === want;
+        if (seq !== self._offeringSeq || !self.scope || self.scope.id !== teacherId || !still) return;
+        if (!d || d.status !== 'success') {
+          self.teacherAssessments = {
+            status: 'error', data: null,
+            error: (d && d.message) || 'The server did not return these assessments.',
+            code: (d && d.code) || ''
+          };
+        } else {
+          self.teacherAssessments = { status: 'ready', data: d, error: '', code: '' };
+        }
+        self.render();
+      })
+      .catch(function () {
+        if (seq !== self._offeringSeq) return;
+        self.teacherAssessments = {
+          status: 'error', data: null,
+          error: 'We could not reach the server.', code: 'network'
+        };
+        self.render();
+      });
+  };
+
+  /**
+   * Hand off to the review screen that already exists.
+   *
+   * edu_dept.php exports reviewSubmission() as window.openReviewModal for
+   * exactly this. Academic Tracking is an entry point into the submission
+   * workflow, not a second copy of it: it does not approve, reject or
+   * request revision itself, and it owns none of those rules.
+   */
+  AcademicTracking.prototype.openSubmission = function (submissionId) {
+    var id = intOr(submissionId, 0);
+    if (!id) return false;
+    if (typeof global.openReviewModal === 'function') {
+      global.openReviewModal(id);
+      return true;
+    }
+    // The dashboard that hosts the review modal is not present. Sending the
+    // user to the submissions screen is honest; pretending to open a modal
+    // that does not exist is not.
+    if (typeof global.nav === 'function') {
+      global.nav('submissions');
+      return true;
+    }
+    return false;
+  };
+
+  // ── teacher rendering ─────────────────────────────────────────────────────
+
+  AcademicTracking.prototype.renderTeacher = function () {
+    var busy = this.teacher.status === 'loading'
+      || this.teacherAssessments.status === 'loading';
+    return this.renderTeacherHeader()
+      + '<div class="crd" id="at-teacher-panel" tabindex="-1" '
+      + 'style="padding:0;margin-top:.7rem;overflow:hidden" aria-live="polite" aria-busy="'
+      + (busy ? 'true' : 'false') + '">'
+      + (this.offering ? this.renderOfferingBody() : this.renderAssignmentsBody())
+      + '</div>';
+  };
+
+  AcademicTracking.prototype.renderTeacherHeader = function () {
+    var st = this.teacher;
+    var d = st.data;
+    var name = d && d.teacher ? (d.teacher.full_name || this.scope.label) : this.scope.label;
+    var sub, chips = '';
+
+    if (st.status === 'loading') {
+      sub = '<span class="at-skel" style="width:160px;display:inline-block;height:.7rem"></span>';
+    } else if (st.status === 'error') {
+      sub = '<span style="color:' + PALETTE.bad + '">Details unavailable</span>';
+    } else if (d && d.teacher) {
+      var bits = [];
+      if (d.teacher.member_code) bits.push(esc(d.teacher.member_code));
+      if (d.teacher.username) bits.push('@' + esc(d.teacher.username));
+      // A teacher login need not be linked to a member record, so the code
+      // is genuinely absent rather than empty. Say so.
+      sub = bits.join(' &nbsp;\u00b7&nbsp; ') || 'No member record linked';
+
+      chips += '<span class="ch ch-i" title="Reporting period. Context, not a filter.">'
+        + '<i class="fa-solid fa-calendar" aria-hidden="true"></i> '
+        + esc(this.context.year_name || 'Current year') + '</span>';
+      chips += '<span class="ch ' + (d.teacher.is_active ? 'ch-ok' : 'ch-d') + '">'
+        + (d.teacher.is_active ? 'Active' : 'Inactive') + '</span>';
+    } else {
+      sub = '';
+    }
+
+    // The selected offering is shown as scope, beside the teacher, so the
+    // user can always see what the assessment list below is scoped to.
+    var scopeLine = '';
+    if (this.offering) {
+      scopeLine = '<div style="margin-top:.7rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;'
+        + 'padding:.5rem .65rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">'
+        + '<span style="font-size:.68rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;font-weight:700">Viewing</span>'
+        + '<span class="amharic" style="font-weight:700;color:#1e293b;font-size:.8rem">'
+        + esc(this.offering.class_label) + '</span>'
+        + '<i class="fa-solid fa-chevron-right" style="font-size:.6rem;color:#cbd5e1" aria-hidden="true"></i>'
+        + '<span class="amharic" style="font-weight:700;color:#1e293b;font-size:.8rem">'
+        + esc(this.offering.subject_label) + '</span>'
+        + '<button type="button" class="btn btn-o btn-xs" data-clear-offering="1" style="margin-left:auto">'
+        + '<i class="fa-solid fa-xmark" aria-hidden="true"></i> Change class or subject</button>'
+        + '</div>';
+    }
+
+    return '<div class="crd" style="padding:1rem 1.1rem">'
+      + '<div style="display:flex;gap:.8rem;align-items:flex-start;flex-wrap:wrap">'
+      + '<span style="width:46px;height:46px;border-radius:13px;background:#f5f3ff;color:' + PALETTE.primary
+      + ';display:inline-flex;align-items:center;justify-content:center;font-size:1.15rem;flex:none">'
+      + '<i class="fa-solid fa-chalkboard-user" aria-hidden="true"></i></span>'
+      + '<div style="flex:1;min-width:180px">'
+      + '<div class="amharic" style="font-weight:800;color:#1e293b;font-size:1.05rem;line-height:1.3">'
+      + esc(name) + '</div>'
+      + '<div style="font-size:.74rem;color:#64748b;margin-top:.15rem">' + sub + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:.35rem;flex-wrap:wrap;align-items:center">' + chips + '</div>'
+      + '</div>'
+      + scopeLine
+      + '<div style="margin-top:.8rem;display:flex;gap:.4rem;flex-wrap:wrap">'
+      + '<button type="button" class="btn btn-o btn-xs" data-go="teachers">'
+      + '<i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to Teachers</button>'
+      + '<button type="button" class="btn btn-o btn-xs" data-clear-selection="1">Clear selection</button>'
+      + '</div></div>';
+  };
+
+  /** Step 3 of the chain: the classes and subjects this teacher holds. */
+  AcademicTracking.prototype.renderAssignmentsBody = function () {
+    var st = this.teacher;
+
+    if (st.status === 'idle' || st.status === 'loading') {
+      return this.renderDetailSkeleton();
+    }
+    if (st.status === 'error') {
+      return this.stateBlock(
+        st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation',
+        PALETTE.bad,
+        'Could not load this teacher',
+        esc(st.error),
+        '<button type="button" class="btn btn-p btn-xs" data-retry-teacher="1">'
+          + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+
+    var d = st.data;
+    var rows = (d && d.assignments) || [];
+    if (!rows.length) {
+      // Distinct from an error and from "no assessments": this teacher is
+      // on file and simply holds no assignment in this academic year.
+      return this.stateBlock(
+        'fa-user-slash', PALETTE.muted,
+        'No classes or subjects assigned',
+        'This teacher holds no assignment for ' + esc(this.context.year_name || 'the current academic year')
+          + '. Assignments are managed in the Teachers screen; nothing is shown here because there is '
+          + 'nothing on record to show.',
+        ''
+      );
+    }
+
+    var self = this;
+    var body = rows.map(function (a) {
+      var homeroom = !!a.is_homeroom;
+      var subjectCell = homeroom
+        ? '<span style="color:#94a3b8;font-style:italic">No subject \u2014 homeroom</span>'
+        : '<span class="amharic" style="font-weight:700;color:#1e293b">' + esc(a.subject_name || '') + '</span>';
+
+      // A homeroom assignment has no subject, so it has no subject mark
+      // list to track. It is listed because it is a real assignment, and
+      // it is not made clickable because there is nowhere honest to go.
+      var countCell;
+      if (homeroom) {
+        countCell = '<span style="color:#94a3b8">\u2014</span>';
+      } else if (intOr(a.assessment_count, 0) > 0) {
+        countCell = '<span style="font-weight:700;color:#1e293b">' + esc(a.assessment_count) + '</span>';
+      } else {
+        countCell = '<span style="color:#94a3b8">No assessments</span>';
+      }
+
+      var action = homeroom
+        ? '<span style="font-size:.7rem;color:#cbd5e1">Not applicable</span>'
+        : '<button type="button" class="btn btn-o btn-xs" data-offering-class="' + esc(a.class_id)
+            + '" data-offering-subject="' + esc(a.subject_id)
+            + '" data-offering-class-label="' + esc(a.class_name || '')
+            + '" data-offering-subject-label="' + esc(a.subject_name || '') + '">'
+            + 'Open <i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>';
+
+      var roleChip = a.is_class_teacher
+        ? ' <span class="ch ch-i" style="margin-left:.3rem">Class teacher</span>'
+        : (a.assignment_role && a.assignment_role !== 'primary'
+            ? ' <span class="ch ch-d" style="margin-left:.3rem">' + esc(titleCase(a.assignment_role)) + '</span>'
+            : '');
+
+      return '<tr>'
+        + '<td><span class="amharic" style="font-weight:700;color:#1e293b">' + esc(a.class_name || '') + '</span>'
+        + roleChip + '</td>'
+        + '<td>' + subjectCell + '</td>'
+        + '<td>' + countCell + '</td>'
+        + '<td style="text-align:right">' + action + '</td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Classes and subjects</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'Taken from this teacher\u2019s recorded assignments for ' + esc(this.context.year_name || 'the current year')
+      + '. Choose one to see its assessments and where each mark list stands.</p>'
+      + '</div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Class</th><th scope="col">Subject</th>'
+      + '<th scope="col">Assessments</th><th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Assignments come from the teacher assignment records only. A mark list this teacher happens to '
+      + 'have submitted elsewhere does not create an assignment, so it is not listed here.</p>';
+  };
+
+  /** Steps 5-7: assessments, their submission status, and the action. */
+  AcademicTracking.prototype.renderOfferingBody = function () {
+    var st = this.teacherAssessments;
+
+    if (st.status === 'idle' || st.status === 'loading') {
+      return this.renderDetailSkeleton();
+    }
+    if (st.status === 'error') {
+      // "Not assigned" is a refusal, not a failure, and it reads as one.
+      var notAssigned = st.code === 'not_assigned';
+      return this.stateBlock(
+        notAssigned ? 'fa-ban' : (st.code === 'network' ? 'fa-plug-circle-xmark' : 'fa-triangle-exclamation'),
+        notAssigned ? PALETTE.warn : PALETTE.bad,
+        notAssigned ? 'Not assigned to this class and subject' : 'Could not load these assessments',
+        esc(st.error),
+        notAssigned
+          ? '<button type="button" class="btn btn-o btn-xs" data-clear-offering="1">Back to assignments</button>'
+          : '<button type="button" class="btn btn-p btn-xs" data-retry-offering="1">'
+              + '<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Try again</button>'
+      );
+    }
+
+    var d = st.data;
+    var rows = (d && d.assessments) || [];
+    if (!rows.length) {
+      // Distinct from "no assignments" above: the offering exists, it just
+      // has no assessment planned in this context yet.
+      return this.stateBlock(
+        'fa-clipboard-question', PALETTE.muted,
+        'No assessments for this class and subject',
+        'Nothing has been planned for this offering in ' + esc(this.context.year_name || 'the current academic year')
+          + '. Assessments are created in the Assessments screen.',
+        '<button type="button" class="btn btn-o btn-xs" data-clear-offering="1">Back to assignments</button>'
+      );
+    }
+
+    var body = rows.map(function (a) {
+      var weight = a.weight === null || typeof a.weight === 'undefined'
+        ? '<span style="color:#94a3b8" title="No weight configured for this assessment">\u2014</span>'
+        : esc(a.weight) + '%';
+      var max = a.max_score === null || typeof a.max_score === 'undefined'
+        ? '<span style="color:#94a3b8">\u2014</span>'
+        : esc(a.max_score);
+
+      // The only action offered is the one that already exists. A mark list
+      // with no packet cannot be reviewed, and no button is drawn for it.
+      var action;
+      if (intOr(a.submission_id, 0) > 0) {
+        action = '<button type="button" class="btn btn-o btn-xs" data-open-submission="' + esc(a.submission_id) + '">'
+          + '<i class="fa-solid fa-folder-open" aria-hidden="true"></i> Open review</button>';
+      } else if (a.workflow_status) {
+        action = '<span style="font-size:.68rem;color:#94a3b8" '
+          + 'title="This status comes from the recorded marks. There is no submission packet to open.">'
+          + 'No packet</span>';
+      } else {
+        action = '<span style="font-size:.68rem;color:#cbd5e1">\u2014</span>';
+      }
+
+      return '<tr>'
+        + '<td><span style="font-weight:700;color:#1e293b">' + esc(a.assessment_name || '') + '</span>'
+        + (a.assessment_type
+            ? '<div style="font-size:.67rem;color:#94a3b8">' + esc(titleCase(a.assessment_type)) + '</div>' : '')
+        + '</td>'
+        + '<td>' + max + '</td>'
+        + '<td>' + weight + '</td>'
+        + '<td>' + workflowChip(a.workflow_status, a.workflow_label) + '</td>'
+        + '<td style="text-align:right">' + action + '</td>'
+        + '</tr>';
+    }).join('');
+
+    return '<div style="padding:.9rem 1rem .2rem">'
+      + '<div style="font-weight:800;color:#1e293b;font-size:.9rem">Assessments and mark list status</div>'
+      + '<p style="font-size:.73rem;color:#64748b;margin:.25rem 0 0;line-height:1.5">'
+      + 'Each row is an assessment planned for this offering, with the current state of its mark list. '
+      + 'This is the state of the submission, not a result: an approved mark list says the marks were '
+      + 'accepted, not how the class performed.</p>'
+      + '</div>'
+      + '<div class="tw" style="margin-top:.6rem"><table class="dt"><thead><tr>'
+      + '<th scope="col">Assessment</th><th scope="col">Out of</th><th scope="col">Weight</th>'
+      + '<th scope="col">Mark list</th><th scope="col" style="text-align:right">Action</th>'
+      + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + '<p style="font-size:.71rem;color:#94a3b8;margin:.6rem 1rem 1rem">'
+      + 'Status is resolved by the submission service that owns the review workflow, and \u201cOpen review\u201d '
+      + 'opens that same screen. Academic Tracking shows where the work stands; it does not approve, '
+      + 'reject or request revision itself.</p>';
   };
 
   AcademicTracking.ENTITIES = ENTITIES;
