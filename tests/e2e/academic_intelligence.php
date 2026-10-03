@@ -104,6 +104,10 @@ const S_HIST = 3;
 const U_BEKELE = 11;
 const U_ALMAZ = 12;
 const U_KEBEDE = 13;
+// `members` rows for the two teachers who have one. Numbered well clear of
+// the student block (101-203) so a mix-up is obvious rather than subtle.
+const M_BEKELE = 901;
+const M_ALMAZ = 902;
 
 function rebuild(mysqli $conn): void
 {
@@ -186,6 +190,7 @@ function rebuild(mysqli $conn): void
         `age` INT DEFAULT NULL,
         `education_level` VARCHAR(50) DEFAULT NULL,
         `member_type` VARCHAR(30) DEFAULT 'regular',
+        `phone_number` VARCHAR(30) DEFAULT NULL,
         `is_teacher` TINYINT(1) DEFAULT 0,
         `is_staff` TINYINT(1) DEFAULT 0,
         `is_committee` TINYINT(1) DEFAULT 0,
@@ -214,7 +219,14 @@ function rebuild(mysqli $conn): void
         `email` VARCHAR(150) DEFAULT NULL,
         `role` VARCHAR(40) DEFAULT NULL,
         `is_active` TINYINT(1) NOT NULL DEFAULT 1,
-        PRIMARY KEY (`id`)
+        -- Staff identity is split across two tables in production: `users` is
+        -- the login, `members` is the person. sql/012_runtime_schema_baseline
+        -- adds this nullable link AFTER `is_active`, and list_teachers reads
+        -- the teacher's member_code and phone through it. It is NULLABLE on
+        -- purpose: a login need not correspond to a registered member, and
+        -- the LEFT JOIN has to survive that.
+        `member_id` INT UNSIGNED DEFAULT NULL,
+        PRIMARY KEY (`id`), KEY (`member_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     $conn->query("CREATE TABLE `teacher_assignments` (
@@ -317,10 +329,19 @@ function seed(mysqli $conn): void
                   (" . C2 . ", " . S_GEEZ . ", 'FULL_YEAR', NULL),
                   (" . C2 . ", " . S_HIST . ", NULL, NULL)");
 
-    $conn->query("INSERT INTO users (id, username, full_name, email, role, is_active) VALUES
-                  (" . U_BEKELE . ", 'bekele', 'Bekele Tadesse', 'bekele@example.org', 'teacher', 1),
-                  (" . U_ALMAZ . ", 'almaz', 'Almaz Girma', 'almaz@example.org', 'teacher', 1),
-                  (" . U_KEBEDE . ", 'kebede', 'Kebede Haile', 'kebede@example.org', 'teacher', 1)");
+    // Teachers are people before they are logins, so two of the three get a
+    // `members` row and are linked through users.member_id -- the same shape
+    // production has. KEBEDE is deliberately left unlinked (member_id NULL):
+    // that is legal in production and it is the case that proves the
+    // LEFT JOIN in list_teachers does not silently drop a teacher.
+    $conn->query("INSERT INTO members (id, member_code, student_name, father_name, gender, status, is_teacher, phone_number) VALUES
+                  (" . M_BEKELE . ", 'T-901', 'Bekele', 'Tadesse', 'male',   'active', 1, '0911000901'),
+                  (" . M_ALMAZ . ",  'T-902', 'Almaz',  'Girma',   'female', 'active', 1, '0911000902')");
+
+    $conn->query("INSERT INTO users (id, username, full_name, email, role, is_active, member_id) VALUES
+                  (" . U_BEKELE . ", 'bekele', 'Bekele Tadesse', 'bekele@example.org', 'teacher', 1, " . M_BEKELE . "),
+                  (" . U_ALMAZ . ", 'almaz', 'Almaz Girma', 'almaz@example.org', 'teacher', 1, " . M_ALMAZ . "),
+                  (" . U_KEBEDE . ", 'kebede', 'Kebede Haile', 'kebede@example.org', 'teacher', 1, NULL)");
 
     $conn->query("INSERT INTO teacher_assignments (teacher_id, class_id, subject_id, academic_year_id, is_active) VALUES
                   (" . U_BEKELE . ", " . C1 . ", " . S_GEEZ . ", " . Y1 . ", 1),
@@ -871,6 +892,82 @@ function scenario_term_scoping(mysqli $conn): void
         in_array(S_GEEZ, $s1Subjects, true) && in_array(S_GEEZ, $s2Subjects, true));
 }
 
+/**
+ * Fixture-only scenario for the Academic Tracking root lists.
+ *
+ * The base fixture is deliberately tiny -- three classes, seven students,
+ * three teachers -- because the calculation scenarios need numbers a human
+ * can verify by hand. That size cannot prove anything about pagination: the
+ * roster and list_teachers endpoints both floor per_page at 10, so a nine-row
+ * table always fits on page one and a broken LIMIT/OFFSET would look fine.
+ *
+ * So this scenario adds a bulk cohort on top of the base seed: 30 extra
+ * members enrolled in C3 and 12 extra teachers. Names are zero-padded
+ * ("Bulk Student 01") so that ORDER BY student_name is a total order with no
+ * ties -- which is what makes "page 2 contains exactly these ten names" a
+ * real assertion rather than a coin flip.
+ *
+ * It asserts only the shape of the fixture it just built. The endpoints
+ * themselves are exercised over HTTP by tests/security/test_academic_tracking.py
+ * through education_config_api.php, because that is the harness that can
+ * supply a session role.
+ */
+function scenario_tracking_list_fixture(mysqli $conn): void
+{
+    // 30 students, ids 301-330, all in the otherwise-empty C3.
+    for ($i = 1; $i <= 30; $i++) {
+        $id = 300 + $i;
+        $name = sprintf('Bulk Student %02d', $i);
+        $code = sprintf('B-%03d', $i);
+        $gender = ($i % 2 === 0) ? 'female' : 'male';
+        $stmt = $conn->prepare("INSERT INTO members (id, member_code, student_name, father_name, gender, status)
+                                VALUES (?,?,?,'Bulk',?, 'active')");
+        $stmt->bind_param('isss', $id, $code, $name, $gender);
+        $stmt->execute();
+        $stmt->close();
+        $conn->query("INSERT INTO class_enrollments (member_id, class_id, academic_year_id, status)
+                      VALUES ({$id}, " . C3 . ", " . Y1 . ", 'active')");
+    }
+
+    // 12 extra teachers, ids 21-32. Half are linked to a member row and half
+    // are not, so a paged teacher list has to cope with both on every page.
+    for ($i = 1; $i <= 12; $i++) {
+        $uid = 20 + $i;
+        $name = sprintf('Bulk Teacher %02d', $i);
+        $user = sprintf('bulkteacher%02d', $i);
+        $memberId = null;
+        if ($i % 2 === 1) {
+            $memberId = 900 + 10 + $i;
+            $mcode = sprintf('T-%03d', 910 + $i);
+            $stmt = $conn->prepare("INSERT INTO members (id, member_code, student_name, father_name, gender, status, is_teacher)
+                                    VALUES (?,?,?,'Bulk','male','active',1)");
+            $stmt->bind_param('iss', $memberId, $mcode, $name);
+            $stmt->execute();
+            $stmt->close();
+        }
+        $stmt = $conn->prepare("INSERT INTO users (id, username, full_name, email, role, is_active, member_id)
+                                VALUES (?,?,?,?, 'teacher', 1, ?)");
+        $email = $user . '@example.org';
+        $stmt->bind_param('isssi', $uid, $user, $name, $email, $memberId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    $members = (int)$conn->query("SELECT COUNT(*) c FROM members WHERE status='active'")->fetch_assoc()['c'];
+    $teachers = (int)$conn->query("SELECT COUNT(*) c FROM users WHERE role='teacher' AND is_active=1")->fetch_assoc()['c'];
+    $linked = (int)$conn->query("SELECT COUNT(*) c FROM users u JOIN members m ON u.member_id = m.id WHERE u.role='teacher'")->fetch_assoc()['c'];
+    $unlinked = (int)$conn->query("SELECT COUNT(*) c FROM users WHERE role='teacher' AND member_id IS NULL")->fetch_assoc()['c'];
+    $c3 = (int)$conn->query("SELECT COUNT(*) c FROM class_enrollments WHERE class_id=" . C3 . " AND status='active'")->fetch_assoc()['c'];
+
+    // 7 base students + 2 teacher-members + 30 bulk students + 6 bulk
+    // teacher-members = 45 active member rows.
+    check('tracking fixture: active members', 45, $members);
+    check('tracking fixture: active teachers', 15, $teachers);
+    check('tracking fixture: teachers linked to a member', 8, $linked);
+    check('tracking fixture: teachers with no member link', 7, $unlinked);
+    check('tracking fixture: C3 is no longer empty', 30, $c3);
+}
+
 $scenarios = [
     'breakdown_matches_subject_report' => 'scenario_breakdown_matches_subject_report',
     'breakdown_is_one_pass' => 'scenario_breakdown_is_one_pass',
@@ -883,6 +980,7 @@ $scenarios = [
     'filters_apply_to_summary' => 'scenario_filters_apply_to_summary',
     'contract_shape' => 'scenario_contract_shape',
     'term_scoping' => 'scenario_term_scoping',
+    'tracking_list_fixture' => 'scenario_tracking_list_fixture',
 ];
 
 $want = $argv[1] ?? 'all';
