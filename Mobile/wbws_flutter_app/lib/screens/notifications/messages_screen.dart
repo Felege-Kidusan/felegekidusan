@@ -101,7 +101,19 @@ class _MessagesScreenState extends State<MessagesScreen> {
     // O1: persist the fresh window — next cold start opens instantly
     // and works offline. (Runs after setState; the UI is already
     // correct either way, the store is the durability layer.)
-    if (okRows != null && okRows.isNotEmpty) {
+    //
+    // The condition is deliberately the SAME one the setState above
+    // uses to replace the visible rows. An authoritative response with
+    // zero threads is a real answer — the last conversation was
+    // deleted, or access was revoked — and the store has to hear it
+    // too. Skipping the empty case let the screen show nothing while
+    // SQLite kept the old rows, so the next cold start or offline
+    // reopen resurrected threads the server had already dropped.
+    //
+    // Only `comm_threads` is touched. The outbox, drafts, cached
+    // messages and ETag/cursor state live in their own tables and are
+    // untouched by a thread-window replacement.
+    if (okRows != null) {
       await CommStore.instance.replaceAllThreads(okRows);
     }
   }

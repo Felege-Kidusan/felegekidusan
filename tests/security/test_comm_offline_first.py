@@ -133,6 +133,46 @@ class OfflineFirstClientTests(unittest.TestCase):
         for t in ["comm_threads", "comm_messages", "comm_outbox", "comm_drafts", "comm_meta"]:
             self.assertIn(f"'{t}',", local_db, f"{t} must be in the logout wipe")
 
+    def test_authoritative_empty_thread_list_reaches_the_store(self):
+        """An authoritative response with zero threads must be persisted,
+        not skipped.
+
+        The screen already replaces the VISIBLE rows whenever the server
+        returned a well-formed thread list (`okRows != null`). The
+        persistence call must use that identical condition, or the two
+        disagree: the UI shows nothing while SQLite still holds the old
+        threads, and the next cold start or offline reopen brings them
+        back. Guarding persistence on `isNotEmpty` was exactly that bug.
+        """
+        import re
+        self.assertRegex(
+            self.screen,
+            r"if \(okRows != null\)\s*\{\s*await CommStore\.instance\.replaceAllThreads\(okRows\);",
+            "persistence must run for an authoritative empty result too",
+        )
+        del re
+        self.assertNotIn(
+            "okRows != null && okRows.isNotEmpty",
+            self.screen,
+            "an empty authoritative response must not skip the store write",
+        )
+
+    def test_thread_replacement_leaves_pending_work_alone(self):
+        """Clearing the thread window must not touch queued sends,
+        drafts, cached messages or ETag/cursor state.
+
+        comm_threads is a server-owned cache: the only writer is
+        replaceAllThreads and the only reader is threads(). Pending work
+        lives in comm_outbox/comm_drafts and is unaffected.
+        """
+        replace = self.store.split("Future<void> replaceAllThreads(")[1].split("}\n")[0]
+        for table in ("comm_outbox", "comm_drafts", "comm_messages", "comm_meta"):
+            self.assertNotIn(
+                table, replace,
+                f"replaceAllThreads must not touch {table}",
+            )
+        self.assertIn("txn.delete('comm_threads')", replace)
+
     def test_version_is_151_build_25(self):
         config = (MOBILE / "utils/config.dart").read_text(encoding="utf-8")
         pubspec = (ROOT / "Mobile/wbws_flutter_app/pubspec.yaml").read_text(encoding="utf-8")
