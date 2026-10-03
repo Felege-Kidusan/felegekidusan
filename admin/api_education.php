@@ -110,6 +110,12 @@ $__analyticsActions = [
     // scoped academic surface as the rest of this tier.
     'tracking_teacher_detail',
     'tracking_teacher_assessments',
+    // Academic Tracking (Phase 4) — scoped subject workflow. Same payload
+    // class again: who teaches what, who studies it, and where the work
+    // stands.
+    'tracking_subject_detail',
+    'tracking_subject_offering',
+    'tracking_subject_students',
 ];
 if (in_array($action, $__analyticsActions, true)) {
     if (!in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
@@ -2007,6 +2013,121 @@ switch ($action) {
                 'status' => 'error',
                 'code' => 'server_error',
                 'message' => 'Could not load this teacher right now.',
+            ]);
+        }
+        break;
+
+    case 'tracking_subject_detail':
+    case 'tracking_subject_offering':
+    case 'tracking_subject_students':
+        require_once __DIR__ . '/backend/services/AcademicTrackingService.php';
+
+        $tsSubject = (int)($_GET['subject_id'] ?? 0);
+        $tsClass   = (int)($_GET['class_id'] ?? 0);
+        $tsYear    = !empty($_GET['year_id']) ? (int)$_GET['year_id'] : (int)($currentYear['id'] ?? 0);
+        $tsTerm    = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : 0;
+
+        // 1. Validate ids before they reach a query. None of these is
+        //    trusted; all three arrive from the browser.
+        if ($tsSubject <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'invalid_subject',
+                'message' => 'A subject must be selected.',
+            ]);
+            break;
+        }
+        if ($action !== 'tracking_subject_detail' && $tsClass <= 0) {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'invalid_class',
+                'message' => 'A class must be selected.',
+            ]);
+            break;
+        }
+
+        // 2. The class gate, when a class is named. Same canViewClass() the
+        //    report card uses — deliberately not a second permission system.
+        if ($tsClass > 0 && !\App\Services\ReportCardService::canViewClass(
+            $conn,
+            (int)($_SESSION['admin_id'] ?? 0),
+            (string)$__role,
+            $tsClass
+        )) {
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'code' => 'forbidden', 'message' => 'Access denied for this class.']);
+            break;
+        }
+
+        try {
+            if ($action === 'tracking_subject_detail') {
+                $tsRes = \App\Services\AcademicTrackingService::subjectDetail($conn, $tsSubject, $tsYear, $tsTerm);
+
+                // 3. The detail call takes no class_id, so the gate above
+                //    never ran for it. Its offering list is filtered by
+                //    visibility instead; otherwise a caller who may not see
+                //    a class could learn it exists, and how many students
+                //    it holds, by reading a subject taught there.
+                if (($tsRes['status'] ?? '') === 'success') {
+                    $tsVisible = [];
+                    foreach ($tsRes['offerings'] as $tsRow) {
+                        $tsCid = (int)$tsRow['class_id'];
+                        if (!array_key_exists($tsCid, $tsVisible)) {
+                            $tsVisible[$tsCid] = \App\Services\ReportCardService::canViewClass(
+                                $conn,
+                                (int)($_SESSION['admin_id'] ?? 0),
+                                (string)$__role,
+                                $tsCid
+                            );
+                        }
+                    }
+                    $tsRes['offerings'] = array_values(array_filter(
+                        $tsRes['offerings'],
+                        static function ($r) use ($tsVisible) {
+                            return !empty($tsVisible[(int)$r['class_id']]);
+                        }
+                    ));
+                    // The state has to follow the filtered list, or a
+                    // subject whose every class is hidden would report
+                    // "ok" with nothing in it.
+                    $tsRes['data_state']['offerings'] = $tsRes['offerings']
+                        ? \App\Services\AcademicTrackingService::STATE_OK
+                        : \App\Services\AcademicTrackingService::STATE_NOT_OFFERED;
+                }
+            } elseif ($action === 'tracking_subject_offering') {
+                // 4. The service re-validates that this class really offers
+                //    this subject before returning a single row.
+                $tsRes = \App\Services\AcademicTrackingService::subjectOffering(
+                    $conn,
+                    $tsSubject,
+                    $tsClass,
+                    $tsYear,
+                    $tsTerm
+                );
+            } else {
+                $tsRes = \App\Services\AcademicTrackingService::subjectStudents(
+                    $conn,
+                    $tsSubject,
+                    $tsClass,
+                    $tsYear,
+                    (int)($_GET['page'] ?? 1),
+                    (int)($_GET['per_page'] ?? 25)
+                );
+            }
+
+            if (($tsRes['code'] ?? '') === 'not_offered_here') {
+                http_response_code(404);
+            }
+            echo json_encode($tsRes);
+        } catch (Throwable $e) {
+            error_log('tracking subject: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'server_error',
+                'message' => 'Could not load this subject right now.',
             ]);
         }
         break;
