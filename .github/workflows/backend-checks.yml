@@ -219,6 +219,47 @@ jobs:
           fi
           echo "No tests skipped."
 
+  flutter-tests:
+    # S0.5. The mobile offline/sync/session state machine is the most
+    # concurrency-sensitive code in the product and had never been executed by
+    # CI: 35 test files / 478 test cases existed and none of them ran. The S0
+    # audit recorded that as finding F-05.
+    #
+    # Version choice: pubspec.yaml declares a floor of flutter >=3.27.0, but
+    # pubspec.lock was resolved against flutter >=3.44.0 / dart >=3.12.0.
+    # The lock wins — installing the pubspec floor cannot resolve these
+    # packages. 3.44.9 is the newest patch of the 3.44 series the lock was
+    # built from, so this pins the series without taking a minor upgrade.
+    #
+    # --enforce-lockfile makes an accidental dependency upgrade a build
+    # failure instead of a silent resolution.
+    #
+    # No emulator, no Android SDK, no secrets, no network fixtures and no
+    # database: every test under test/ is pure Dart or a widget test.
+    name: Flutter unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: Mobile/wbws_flutter_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.9
+          channel: stable
+          cache: true
+
+      - name: Toolchain versions
+        run: flutter --version
+
+      - name: Resolve dependencies without upgrading them
+        run: flutter pub get --enforce-lockfile
+
+      - name: Run the existing test suite
+        run: flutter test --reporter expanded
+
   migration-hygiene:
     name: Migration numbering
     runs-on: ubuntu-latest
