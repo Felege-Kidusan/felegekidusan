@@ -1180,3 +1180,37 @@ The brief proposes S1 ledger → S2 sync engine → S3 session/account isolation
 | UI rendering / message placement | **NOT VERIFIED** |
 
 **Nothing in this report was fixed. No code, schema, migration, dependency, API, auth, sync behaviour or UI was modified.**
+
+---
+
+# S1a Verification Addendum (2026-10-05)
+
+**The S0 findings above are preserved verbatim and deliberately not rewritten.** This addendum records what the S0.5 + S1a phase proved or disproved by execution. Full method and evidence: `docs/MOBILE_OFFLINE_SYNC_S0_5_S1A_VERIFICATION.md`.
+
+S0 was written without any Dart/Flutter toolchain, so its client-side conclusions were source-reading results. S0.5 put the mobile suite into CI; S1a then verified the open behaviours. Four `NOT VERIFIED` findings are now closed, two of them in S0's favour and two against S0's worst-case framing.
+
+| S0 finding | Original S0 status | S1a verification |
+|---|---|---|
+| **F-05** — 35 test files never run by CI | High, confirmed | **RESOLVED.** A pinned `flutter-tests` job (Flutter 3.44.9 / Dart 3.12.2) now runs them on every push. CI run #49: **478 test cases, 478 passed, 0 failed, 0 skipped, 13 s.** Note the correct unit: 35 test *files* contain **478 test cases**. |
+| **F-13** — `in_flight` recovery sweep **NOT VERIFIED** ("High if absent") | NOT VERIFIED | **VERIFIED — the sweep exists and cannot be mis-ordered.** `recoverOrphanedInFlightOperations()` (`local_db.dart:796`) resets `in_flight → retry_wait` with `next_attempt_at = now` across all six outboxes in one transaction, and is wired into sqflite's **`onOpen`** (`local_db.dart:561–566`), so no caller can obtain a database handle before it runs. Runtime-proven against real SQLite: before recovery `claimable=0` (stranded), after recovery `claimable=1`, `state=retry_wait`, `attempt_count` **preserved**. S0's concern is disproven. |
+| **F-14** — logout discard may be default / unconfirmed ("High if true") | NOT VERIFIED | **VERIFIED — not a defect.** `session_logout_dialog.dart` uses `barrierDismissible: false`, names the exact work via `inventory.workSummary`, offers Cancel / "Keep work & sign out" / a red "Discard permanently", and falls back to **`?? LogoutChoice.cancel`**. Discard does delete (via `destructiveSignOut`), but it is non-default, non-dismissible and itemised. It also discloses the shared-hymn exception to the user. |
+| **F-11** — pre-v34 rows with NULL `owner_user_id` | Medium-High, NOT VERIFIED | **RESOLVED, downgraded to Low.** Runtime-proven that NULL-owner rows are claimable by **nobody** (safe-but-stranded, not a leak). `backfillOwnerlessRows` (`local_db.dart:6599`) adopts them across all six outboxes and `comm_drafts`, and its caller binds them to the **previous** authorization scope, never the new one. |
+| **F-15** — hymn ops exempt from account isolation | Medium (High if destructive) | **VERIFIED and reclassified: `INTENTIONAL BUT NEEDS DOCUMENTATION`.** `api/v1/routes/mezmur.php` authenticates (`:19`) and re-checks Mezmur staff/admin role on every write (`:36`, `:320`, `:342`) against the **current** bearer token, so User B can never exceed their own authority — **no privilege escalation**. The real defect is **attribution**: `saveHymn(..., $auth['uid'])` records the transmitting user. Severity **Low-Medium** (audit integrity). |
+| **§15 — can User B sync User A's pending work?** | "No", Medium-High confidence (code-reading only) | **Confidence raised to High.** Runtime-proven at the SQL layer with the verbatim claim query: owner A claims 1 row, owner B claims **0**, and a stale `authorization_version` claims **0**. |
+| **F-07** — idempotency completion outside the business transaction | Medium, mechanism High / impact Medium | **CONFIRMED and made more precise.** Runtime-proven against real MariaDB: replay returns the stored `200` and exact body with no duplicate row; `processing` returns `retry_after=300`; **after lease expiry the retry re-acquires** — i.e. the write re-executes. See new finding **F-20**. |
+| **Retry ladder / `Retry-After`** | Source-verified | **Now continuously executed.** `drain_outcome_test.dart:8` asserts `[2,5,12,30,60,120,300,900,900]` and clamps `Retry-After` at 0 / 7200; `outbox_policy_test.dart` pins all 8 decisions. Backoff honoured by the claim query, runtime-proven. |
+| **§10 Q8 — do drafts sync?** | "Yes, deliberately" (source) | **Runtime-confirmed.** A `packet_kind='draft'` row is claimable (`claimable=1`); drafts sync *as drafts*. |
+| **F-12** — sync state on the originating screen | NOT VERIFIED | **Still NOT VERIFIED** — requires a device/widget harness. |
+| **F-01 / F-02 / F-03 / F-04 / F-06 / F-08 / F-09 / F-10 / F-16 / F-17 / F-18** | various | **Unchanged.** None was contradicted. F-01 re-confirmed by exact code reading (still not runtime-executed). |
+
+### New findings raised by S1a
+
+| ID | Finding | Severity |
+|---|---|---|
+| **F-19** | `pubspec.lock` cannot satisfy `pubspec.yaml`: `url_launcher` is a declared direct dependency and is **absent from the lock entirely**, so `--enforce-lockfile` fails (CI run #48, exit 65) and builds are not reproducible | **Medium-High** |
+| **F-20** | The binding idempotency constant is **`LEASE_SECONDS = 300`**, not the 7-day retention. Since the client retry ladder saturates at **900 s**, a server that dies between `COMMIT` and `apiIdempotencyStore` is retried *after* the lease expires and the write re-executes. Reachable in production, not theoretical. Mitigated for attendance by `replaceSheet`; **unverified for `comm_outbox`** | **Medium** |
+| — | `tests/security/test_api_idempotency.py` is **source-string assertion only** — it would still pass if the logic were inverted, provided the strings remained | **Low** (test quality) |
+
+### Net effect on the S0 conclusion
+
+S0's central thesis is **strengthened, not revised**: the synchronization machinery is sound and must be preserved; the deficiency is observability. Two of S0's three worst-case data-loss candidates (F-13, F-14) are now disproven, and the account-isolation verdict is proven rather than reasoned. The gate for the next phase is **`READY_FOR_S1`**.
