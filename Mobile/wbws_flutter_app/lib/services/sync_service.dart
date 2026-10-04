@@ -10,6 +10,7 @@ import 'hymn_store.dart';
 import 'legacy_outbox_models.dart';
 import 'local_db.dart';
 import 'outbox_policy.dart';
+import 'sync_attempt_models.dart';
 import 'telemetry_service.dart';
 
 /// Outbox worker — Gmail / WhatsApp / Drive pattern.
@@ -184,6 +185,7 @@ class SyncService {
     var synced = 0;
     var failed = 0;
     var supersededLocal = false;
+    var passSummary = const SyncPassSummary();
 
     for (final kind in LegacyOperationKind.values) {
       if (!_drainsAllowed) {
@@ -193,6 +195,7 @@ class SyncService {
       final result = await _drainLegacyKind(kind, generation);
       synced += result.synced;
       failed += result.failed;
+      passSummary = passSummary.merge(result.summary);
       supersededLocal = supersededLocal || result.supersededLocal;
       if (!_ownsGeneration(generation) || result.supersededSession) {
         return _pausedResult(synced: synced, failed: failed);
@@ -265,12 +268,20 @@ class SyncService {
       nudge(delay: wait <= Duration.zero ? Duration.zero : wait);
     }
 
-    if (synced > 0 || failed > 0) {
-      unawaited(TelemetryService.instance.recordSyncResult(
-        success: failed == 0,
-        itemsCount: synced,
-        error: failed > 0 ? '$failed operations pending retry' : null,
-      ));
+    // S1 telemetry semantics. The pre-S1 event said `success: failed == 0`
+    // with a row count, so one operation that failed three times and then
+    // succeeded was indistinguishable from three lost operations. The pass
+    // event below reports operations, attempts and retries separately, so
+    // that case reads as 1 operation / 4 attempts / 3 retries / 1 success.
+    //
+    // Attempt-level detail is NOT sent per attempt: it is already durable in
+    // the local `sync_attempts` ledger, and emitting one request per attempt
+    // would scale telemetry traffic with the retry count of a device that is,
+    // by definition, having network trouble.
+    //
+    // unawaited: telemetry must never delay or fail a drain.
+    if (!passSummary.isEmpty) {
+      unawaited(TelemetryService.instance.recordSyncPass(passSummary));
     }
 
     return SyncResult(
@@ -293,6 +304,15 @@ class SyncService {
     var synced = 0;
     var failed = 0;
     var supersededLocal = false;
+    // S1 counters. `operations` counts distinct logical operations touched in
+    // this pass; `attempts` counts real transmissions. They differ whenever
+    // anything was retried, which is exactly the distinction S0 telemetry
+    // could not express.
+    final touchedOperations = <String>{};
+    var attemptsMade = 0;
+    var operationsSucceeded = 0;
+    var operationsWaitingRetry = 0;
+    var operationsNeedingAttention = 0;
 
     for (var guard = 0; guard < 100; guard++) {
       // Do not abandon an HTTP result already in flight: it must settle by its
@@ -323,6 +343,8 @@ class SyncService {
       }
       if (claim == null) break;
 
+      touchedOperations.add(claim.operation.clientOpId);
+      attemptsMade++;
       final response = await _sendLegacyClaim(claim);
       if (!_ownsGeneration(generation) || response.sessionSuperseded) {
         return _LegacyDrainStats(
@@ -332,11 +354,10 @@ class SyncService {
           supersededSession: true,
         );
       }
-      final decision = classifyOutboxResponse(
-        response.toOutboxEvidence(
-          automaticAttemptCount: claim.attemptCount,
-        ),
+      final evidence = response.toOutboxEvidence(
+        automaticAttemptCount: claim.attemptCount,
       );
+      final decision = classifyOutboxResponse(evidence);
       if (decision == OutboxDecision.supersededSession) {
         return _LegacyDrainStats(
           synced: synced,
@@ -351,12 +372,29 @@ class SyncService {
       }
 
       final settlement = _legacySettlement(decision, response, claim);
+      final category = classifySyncErrorCategory(evidence);
       final result = await _db.settleLegacyOperation(
         claim: claim,
         settlement: settlement,
         currentOwnerUserId: _api.userId,
         currentAuthorizationVersion: _api.authorizationVersion,
         currentRuntimeGeneration: generation,
+        attemptClosure: SyncAttemptClosure(
+          category: category,
+          decision: describeRetryDecision(
+            decision: decision,
+            category: category,
+            serverDictatedDelay: response.retryAfterSeconds != null,
+            // classifyOutboxResponse escalates an unknown failure to
+            // needsAttention only once the automatic budget is spent.
+            unknownBudgetExhausted: claim.attemptCount >= 5,
+          ),
+          httpStatus: response.statusCode,
+          failureMessage:
+              decision == OutboxDecision.accepted ? null : response.message,
+          nextAttemptAt: settlement.nextAttemptAt,
+          serverRef: response.serverRequestId,
+        ),
       );
       if (result == LegacySettlementResult.supersededSession) {
         return _LegacyDrainStats(
@@ -383,13 +421,16 @@ class SyncService {
       }
       if (decision == OutboxDecision.accepted) {
         synced++;
+        operationsSucceeded++;
         lastError = '';
       } else if (decision == OutboxDecision.retryable) {
         failed++;
+        operationsWaitingRetry++;
         lastError = response.message ?? 'Could not send yet.';
       } else if (decision == OutboxDecision.needsAttention ||
           decision == OutboxDecision.resolvedConflict) {
         failed++;
+        operationsNeedingAttention++;
         lastError = response.message ?? 'The school did not accept this work.';
       }
     }
@@ -399,11 +440,19 @@ class SyncService {
       failed: failed,
       supersededLocal: supersededLocal,
       supersededSession: false,
+      summary: SyncPassSummary(
+        operationsAttempted: touchedOperations.length,
+        attemptsMade: attemptsMade,
+        operationsSucceeded: operationsSucceeded,
+        operationsWaitingRetry: operationsWaitingRetry,
+        operationsNeedingAttention: operationsNeedingAttention,
+      ),
     );
   }
 
   Future<ApiResponse> _sendLegacyClaim(LegacyClaimSnapshot claim) {
     final operation = claim.operation;
+    final attemptUid = claim.attemptUid;
     final rows = claim.records
         .map((row) => Map<String, dynamic>.from(row))
         .toList(growable: false);
@@ -420,9 +469,9 @@ class SyncService {
             .toList(growable: false);
         return operation.packetKind == LegacyPacketKind.submitted
             ? _api.submitAttendance(classId, date, records,
-                clientOpId: operation.clientOpId)
+                clientOpId: operation.clientOpId, attemptUid: attemptUid)
             : _api.saveAttendance(classId, date, records,
-                clientOpId: operation.clientOpId);
+                clientOpId: operation.clientOpId, attemptUid: attemptUid);
       case LegacyOperationKind.grades:
         final assessmentId = _asInt(operation.naturalKey['assessment_id']);
         final grades = rows
@@ -435,9 +484,9 @@ class SyncService {
             .toList(growable: false);
         return operation.packetKind == LegacyPacketKind.submitted
             ? _api.submitGrades(assessmentId, grades,
-                clientOpId: operation.clientOpId)
+                clientOpId: operation.clientOpId, attemptUid: attemptUid)
             : _api.saveGrades(assessmentId, grades,
-                clientOpId: operation.clientOpId);
+                clientOpId: operation.clientOpId, attemptUid: attemptUid);
       case LegacyOperationKind.mezmur:
         final date = '${operation.naturalKey['date'] ?? ''}';
         final section = '${operation.naturalKey['section'] ?? ''}';
@@ -456,6 +505,7 @@ class SyncService {
               ? 'submitted'
               : 'draft',
           clientOpId: operation.clientOpId,
+          attemptUid: attemptUid,
         );
       case LegacyOperationKind.hr:
         final date = '${operation.naturalKey['date'] ?? ''}';
@@ -475,6 +525,7 @@ class SyncService {
               ? 'submitted'
               : 'draft',
           clientOpId: operation.clientOpId,
+          attemptUid: attemptUid,
         );
     }
   }
@@ -611,6 +662,7 @@ final class _LegacyDrainStats {
     required this.supersededLocal,
     required this.supersededSession,
     this.paused = false,
+    this.summary = const SyncPassSummary(),
   });
 
   final int synced;
@@ -618,6 +670,10 @@ final class _LegacyDrainStats {
   final bool supersededLocal;
   final bool supersededSession;
   final bool paused;
+
+  /// Operation- and attempt-shaped counters for this kind (S1). `synced`
+  /// and `failed` stay row-shaped so existing callers are unaffected.
+  final SyncPassSummary summary;
 }
 
 class SyncStatus {

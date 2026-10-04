@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/config.dart';
 import 'device_tier_service.dart';
+import 'sync_attempt_models.dart';
 
 /// Lightweight, privacy-conscious first-party telemetry service for SSMS.
 ///
@@ -97,11 +98,34 @@ class TelemetryService {
     await _sendPayload(eventType: eventType, eventData: data);
   }
 
+  /// Drain-pass outcome in *row* terms (pre-S1 semantics).
+  ///
+  /// Retained because it is still the right shape for callers that genuinely
+  /// mean "this pass moved N rows". It must not be used to describe
+  /// operations: `success: failed == 0` cannot distinguish one operation that
+  /// failed three times from three operations that each failed once. Use
+  /// [recordSyncPass] for anything operation-shaped.
   Future<void> recordSyncResult({required bool success, int itemsCount = 0, String? error}) async {
     await recordEvent(success ? 'sync_completed' : 'sync_failed', {
       'items_count': itemsCount,
       if (error != null) 'error': error.substring(0, min(200, error.length)),
     });
+  }
+
+  /// Drain-pass outcome in *operation and attempt* terms (S1).
+  ///
+  /// One event per pass, deliberately: attempt-level detail is written to the
+  /// durable local ledger, not pushed over the network, so a retrying device
+  /// does not multiply its telemetry traffic by its retry count. The counters
+  /// make the previously ambiguous case explicit — three failures followed by
+  /// a success is reported as one operation, four attempts, three retries,
+  /// one success.
+  ///
+  /// The payload is counts only: no operation ids, no payloads, no member
+  /// data, no credentials.
+  Future<void> recordSyncPass(SyncPassSummary summary) async {
+    if (summary.isEmpty) return;
+    await recordEvent('sync_pass_completed', summary.toTelemetryData());
   }
 
   Future<void> recordCrash({required String summary}) async {
