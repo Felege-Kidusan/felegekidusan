@@ -179,13 +179,21 @@ class F8ClientClassifier(unittest.TestCase):
         self.assertIn('settleLegacyOperation(', self.s)
 
     def test_synced_progress_only_after_exact_accepted_settlement(self):
-        body = self.s[self.s.find('settleLegacyOperation('):
-                      self.s.find('settleLegacyOperation(') + 1500]
+        # Scan the whole drain function rather than a fixed character window.
+        # The original 1500-character slice silently stopped covering the
+        # guard as soon as the settlement call grew, which would have let a
+        # real ordering regression pass unnoticed.
+        start = self.s.index('Future<_LegacyDrainStats> _drainLegacyKind(')
+        end = self.s.index('Future<ApiResponse> _sendLegacyClaim(')
+        body = self.s[start:end]
         self.assertIn('result != LegacySettlementResult.applied', body)
         self.assertIn('decision == OutboxDecision.accepted', body)
         guard = body.find('result != LegacySettlementResult.applied')
         increment = body.find('synced++')
         self.assertGreater(increment, guard)
+        # There must be exactly one place that can advance the synced count,
+        # so the guard above cannot be bypassed by a second increment.
+        self.assertEqual(body.count('synced++'), 1)
 
 
 class F8LocalOutbox(unittest.TestCase):

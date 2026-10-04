@@ -979,10 +979,12 @@ def test_dart_sources_bind_runtime_contract_and_never_use_lexical_max() -> None:
     policy = (MOBILE / "lib" / "services" / "outbox_policy.dart").read_text(encoding="utf-8")
     session = (MOBILE / "lib" / "services" / "session_models.dart").read_text(encoding="utf-8")
 
-    # v35 added the download-sync cursor table (sync_state). The v33→v34
-    # migration this harness exercises is unchanged history; only the
-    # current-version pin moves.
-    assert "const localDatabaseSchemaVersion = 35;" in schema
+    # v35 added the download-sync cursor table (sync_state); v36 added the
+    # S1 operation/attempt ledger (sync_attempts). The v33→v34 migration this
+    # harness exercises is unchanged history; only the current-version pin
+    # moves. The v36 contract has its own runtime harness in
+    # test_mobile_sync_attempt_ledger.py.
+    assert "const localDatabaseSchemaVersion = 36;" in schema
     assert "version: localDatabaseSchemaVersion" in db
     assert "await _migrateToV34(db);" in db
     assert "claimNextLegacyOperation" in db and "settleLegacyOperation" in db
