@@ -67,11 +67,18 @@ final class LegacyClaimSnapshot {
   final DateTime claimedAt;
   final int attemptCount;
 
+  /// Correlation id for this one transmission (S1).
+  ///
+  /// Optional so existing callers and tests that build a snapshot directly
+  /// keep compiling; the database always supplies it for a real claim.
+  final String? attemptUid;
+
   LegacyClaimSnapshot({
     required this.operation,
     required List<Map<String, Object?>> records,
     required this.claimedAt,
     required this.attemptCount,
+    this.attemptUid,
   })  : assert(records.isNotEmpty),
         records = List<Map<String, Object?>>.unmodifiable(
           records.map(
