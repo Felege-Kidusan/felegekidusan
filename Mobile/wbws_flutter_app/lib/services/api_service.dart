@@ -43,6 +43,12 @@ class ApiResponse {
   /// one (summary/thread conditional GETs). Null on ordinary calls.
   final String? etag;
 
+  /// S1 — the server's opaque correlation id for this exact HTTP request
+  /// (`X-Request-Id`). Recorded against the attempt so one transmission can
+  /// be followed from the device into the server log. Absent when talking to
+  /// an older server, which is why nothing depends on it being present.
+  final String? serverRequestId;
+
   /// P74 Phase 3 — a conditional GET answered 304 Not Modified: the
   /// body is empty and the caller keeps its current state.
   bool get notModified => statusCode == 304;
@@ -62,6 +68,7 @@ class ApiResponse {
     this.requestGeneration = 0,
     this.sessionSuperseded = false,
     this.etag,
+    this.serverRequestId,
   });
 
   factory ApiResponse.fromJson(Map<String, dynamic> json, int code,
@@ -87,7 +94,14 @@ class ApiResponse {
           headers['idempotency-replayed']?.toLowerCase() == 'true',
       failureKind: failureKind,
       etag: etag,
+      serverRequestId: _trimmedOrNull(headers['x-request-id']),
     );
+  }
+
+  static String? _trimmedOrNull(String? value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty || trimmed.length > 128) return null;
+    return trimmed;
   }
 
   factory ApiResponse.error(String msg,
@@ -147,6 +161,7 @@ class ApiResponse {
         requestGeneration: generation,
         sessionSuperseded: sessionSuperseded,
         etag: etag,
+        serverRequestId: serverRequestId,
       );
 
   ApiResponse withRefreshOutcome(AuthRefreshOutcome? outcome) => ApiResponse(
@@ -164,6 +179,7 @@ class ApiResponse {
         requestGeneration: requestGeneration,
         sessionSuperseded: sessionSuperseded,
         etag: etag,
+        serverRequestId: serverRequestId,
       );
 
   OutboxResponseEvidence toOutboxEvidence({
@@ -705,7 +721,8 @@ class ApiService {
   Future<ApiResponse> post(String path,
       {Map<String, dynamic>? body,
       bool auth = true,
-      String? idempotencyKey}) async {
+      String? idempotencyKey,
+      String? attemptUid}) async {
     final generation = _requestGeneration;
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
@@ -715,6 +732,13 @@ class ApiService {
       if (key.isNotEmpty) {
         headers['Idempotency-Key'] = key;
         body = {...?body, 'client_op_id': key};
+      }
+      // S1 correlation: identifies this single transmission, not the
+      // operation. Opaque and random, so it leaks nothing; a server that
+      // does not know the header simply ignores it.
+      final attempt = (attemptUid ?? '').trim();
+      if (attempt.isNotEmpty) {
+        headers['X-Client-Attempt-Id'] = attempt;
       }
       var response = await _http
           .post(
@@ -737,6 +761,7 @@ class ApiService {
         if (refreshOutcome == AuthRefreshOutcome.sameScope) {
           headers = _headers(withAuth: true);
           if (key.isNotEmpty) headers['Idempotency-Key'] = key;
+          if (attempt.isNotEmpty) headers['X-Client-Attempt-Id'] = attempt;
           response = await _http
               .post(
                 uri,
@@ -1443,25 +1468,27 @@ class ApiService {
 
   Future<ApiResponse> saveAttendance(
           int classId, String date, List<Map<String, dynamic>> records,
-          {String? clientOpId}) =>
+          {String? clientOpId, String? attemptUid}) =>
       post('/attendance',
           body: {
             'class_id': classId,
             'date': date,
             'records': records,
           },
-          idempotencyKey: clientOpId);
+          idempotencyKey: clientOpId,
+          attemptUid: attemptUid);
 
   Future<ApiResponse> submitAttendance(
           int classId, String date, List<Map<String, dynamic>> records,
-          {String? clientOpId}) =>
+          {String? clientOpId, String? attemptUid}) =>
       post('/attendance/submit',
           body: {
             'class_id': classId,
             'date': date,
             'records': records,
           },
-          idempotencyKey: clientOpId);
+          idempotencyKey: clientOpId,
+          attemptUid: attemptUid);
 
   // ── Mezmur department (date-based, section-grouped) ─────────
   Future<ApiResponse> getMezmurDays(
@@ -1495,7 +1522,10 @@ class ApiService {
   /// Section-scoped save (teacher clone). [kind] = 'draft' | 'submitted'.
   Future<ApiResponse> saveMezmurSheet(
       String date, List<Map<String, dynamic>> records,
-      {String? section, String kind = 'draft', String? clientOpId}) {
+      {String? section,
+      String kind = 'draft',
+      String? clientOpId,
+      String? attemptUid}) {
     return post('/mezmur/sheet',
         body: {
           'date': date,
@@ -1503,7 +1533,8 @@ class ApiService {
           if (section != null && section.isNotEmpty) 'section': section,
           if (section != null && section.isNotEmpty) 'kind': kind,
         },
-        idempotencyKey: clientOpId);
+        idempotencyKey: clientOpId,
+        attemptUid: attemptUid);
   }
 
   /// Active sections with member counts (for the [Section ▾] picker).
@@ -1528,7 +1559,10 @@ class ApiService {
   /// Section-scoped save. [kind] = 'draft' | 'submitted'.
   Future<ApiResponse> saveHrSheet(
       String date, List<Map<String, dynamic>> records,
-      {String? section, String kind = 'draft', String? clientOpId}) {
+      {String? section,
+      String kind = 'draft',
+      String? clientOpId,
+      String? attemptUid}) {
     return post('/hr/sheet',
         body: {
           'date': date,
@@ -1536,7 +1570,8 @@ class ApiService {
           if (section != null && section.isNotEmpty) 'section': section,
           if (section != null && section.isNotEmpty) 'kind': kind,
         },
-        idempotencyKey: clientOpId);
+        idempotencyKey: clientOpId,
+        attemptUid: attemptUid);
   }
 
   /// Active sections with member counts (for the [Section ▾] picker).
@@ -1756,23 +1791,25 @@ class ApiService {
 
   Future<ApiResponse> saveGrades(
           int assessmentId, List<Map<String, dynamic>> grades,
-          {String? clientOpId}) =>
+          {String? clientOpId, String? attemptUid}) =>
       post('/grades/save',
           body: {
             'assessment_id': assessmentId,
             'grades': grades,
           },
-          idempotencyKey: clientOpId);
+          idempotencyKey: clientOpId,
+          attemptUid: attemptUid);
 
   Future<ApiResponse> submitGrades(
           int assessmentId, List<Map<String, dynamic>> grades,
-          {String? clientOpId}) =>
+          {String? clientOpId, String? attemptUid}) =>
       post('/grades/submit',
           body: {
             'assessment_id': assessmentId,
             'grades': grades,
           },
-          idempotencyKey: clientOpId);
+          idempotencyKey: clientOpId,
+          attemptUid: attemptUid);
 
   Future<ApiResponse> getGradeSummary(int classId, {int? subjectId}) {
     final params = <String, String>{'class_id': '$classId'};

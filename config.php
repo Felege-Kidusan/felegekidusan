@@ -719,7 +719,22 @@ function reportInternalError($context, $error = null) {
     if (strlen($detail) > 2000) {
         $detail = substr($detail, 0, 2000) . '…';
     }
-    error_log('[SSMS:' . $reference . '] ' . $context . ($detail !== '' ? ': ' . $detail : ''));
+    // S1 correlation: when this runs inside an API v1 request, join the log
+    // line to the request the client saw (X-Request-Id) and to the client's
+    // own attempt id. Both are opaque, bounded and validated at the edge, so
+    // neither can inject log content. Admin/non-API callers are unaffected.
+    $correlation = '';
+    if (function_exists('apiRequestId')) {
+        $correlation = ' [req:' . apiRequestId() . ']';
+        if (function_exists('apiClientAttemptId')) {
+            $attemptId = apiClientAttemptId();
+            if ($attemptId !== '') {
+                $correlation .= ' [attempt:' . $attemptId . ']';
+            }
+        }
+    }
+
+    error_log('[SSMS:' . $reference . ']' . $correlation . ' ' . $context . ($detail !== '' ? ': ' . $detail : ''));
     return $reference;
 }
 
