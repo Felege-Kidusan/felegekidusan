@@ -14,6 +14,7 @@ import 'taxonomy_reconcile.dart';
 import 'hymn_outbox_models.dart';
 import 'legacy_outbox_models.dart';
 import 'local_schema_v34.dart';
+import 'sync_attempt_models.dart';
 import 'session_models.dart';
 import 'sync_recovery_models.dart';
 
@@ -114,6 +115,7 @@ class LocalDb {
         await _createTables(db);
         await _migrateToV34(db);
         await db.execute(localSyncStateV35Sql);
+        await _createSyncAttemptLedger(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -556,6 +558,14 @@ class LocalDb {
             // revision it never actually applied.
             await db.execute(localSyncStateV35Sql);
           }
+          if (oldVersion < 36) {
+            // Operation/attempt lineage. Created empty on purpose: existing
+            // pending work keeps its outbox row, its client_op_id and its
+            // attempt_count untouched, and simply has no recorded history
+            // before this point. Backfilling invented attempts would be
+            // fabricated evidence.
+            await _createSyncAttemptLedger(db);
+          }
         },
       onOpen: (db) async {
         // No HTTP request survives its issuing process. Recover durable claims
@@ -792,6 +802,192 @@ class LocalDb {
     }
   }
 
+
+  // ── S1: durable operation/attempt lineage ────────────────────────────────
+  // The outbox row stays authoritative for execution. These helpers only
+  // record what happened around it, inside the very same transactions, so a
+  // crash can never leave the ledger disagreeing with the row it describes.
+
+  Future<void> _createSyncAttemptLedger(DatabaseExecutor db) async {
+    await db.execute(localSyncAttemptsV36Sql);
+    for (final statement in localSyncAttemptsV36IndexSql) {
+      await db.execute(statement);
+    }
+  }
+
+  /// Correlation id for exactly one transmission.
+  ///
+  /// Opaque and random by construction: it carries no user id, no token, no
+  /// payload and nothing guessable about the operation it belongs to.
+  String newAttemptUid() => 'att_${newClientOpId().replaceAll('-', '')}';
+
+  /// Opens an attempt row for a claim that is about to be transmitted.
+  ///
+  /// Runs inside the claim transaction. `attemptNumber` is the outbox row's
+  /// own post-increment `attempt_count`, so the ledger and the row can never
+  /// drift. The UNIQUE(client_op_id, attempt_number) index turns a
+  /// non-incrementing attempt counter into a hard failure rather than a
+  /// quietly corrupted history.
+  Future<void> _openSyncAttempt(
+    DatabaseExecutor txn, {
+    required String clientOpId,
+    required int attemptNumber,
+    required String attemptUid,
+    required String domain,
+    required DateTime startedAt,
+    Map<String, Object?>? entityRef,
+    int? ownerUserId,
+    int? authorizationVersion,
+  }) async {
+    await txn.insert(
+      'sync_attempts',
+      {
+        'client_op_id': clientOpId,
+        'attempt_number': attemptNumber,
+        'attempt_uid': attemptUid,
+        'domain': domain,
+        // Natural key only — never the records payload.
+        'entity_ref': entityRef == null ? null : jsonEncode(entityRef),
+        'owner_user_id': ownerUserId,
+        'created_authorization_version': authorizationVersion,
+        'started_at': startedAt.toUtc().toIso8601String(),
+        'retry_decision': SyncRetryDecision.pending.storageValue,
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  /// Closes the open attempt for an operation inside the settlement
+  /// transaction. Never rewrites an attempt that is already closed, so
+  /// earlier failures survive a later success.
+  Future<void> _closeSyncAttempt(
+    DatabaseExecutor txn, {
+    required String clientOpId,
+    required int attemptNumber,
+    required SyncAttemptClosure closure,
+    required DateTime finishedAt,
+  }) async {
+    final rows = await txn.query(
+      'sync_attempts',
+      columns: ['started_at'],
+      where: 'client_op_id = ? AND attempt_number = ? AND finished_at IS NULL',
+      whereArgs: [clientOpId, attemptNumber],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final startedAt = DateTime.tryParse('${rows.first['started_at']}')?.toUtc();
+    final finished = finishedAt.toUtc();
+    final duration =
+        startedAt == null ? null : finished.difference(startedAt).inMilliseconds;
+    await txn.update(
+      'sync_attempts',
+      {
+        'finished_at': finished.toIso8601String(),
+        'duration_ms': duration != null && duration >= 0 ? duration : null,
+        'http_status': closure.httpStatus,
+        'error_category': closure.category.storageValue,
+        'retry_decision': closure.decision.storageValue,
+        'failure_message': _safeAttemptMessage(closure.failureMessage),
+        'next_attempt_at': closure.nextAttemptAt?.toUtc().toIso8601String(),
+        'server_ref': closure.serverRef,
+      },
+      where: 'client_op_id = ? AND attempt_number = ? AND finished_at IS NULL',
+      whereArgs: [clientOpId, attemptNumber],
+    );
+  }
+
+  /// Diagnostic messages are bounded and must never carry a payload.
+  static String? _safeAttemptMessage(String? message) {
+    if (message == null) return null;
+    final trimmed = message.trim();
+    if (trimmed.isEmpty) return null;
+    return trimmed.length <= 200 ? trimmed : trimmed.substring(0, 200);
+  }
+
+  /// Marks attempts whose process disappeared. Called by the same recovery
+  /// sweep that releases orphaned `in_flight` rows, so an interrupted
+  /// transmission is never left looking like it is still running — and never
+  /// looking like it succeeded.
+  Future<void> _interruptOpenSyncAttempts(
+    DatabaseExecutor txn,
+    DateTime now,
+  ) async {
+    await txn.update(
+      'sync_attempts',
+      {
+        'finished_at': now.toUtc().toIso8601String(),
+        'retry_decision': SyncRetryDecision.interrupted.storageValue,
+        'error_category': SyncErrorCategory.unknown.storageValue,
+        'failure_message': 'The app closed before this attempt finished.',
+      },
+      where: 'finished_at IS NULL',
+    );
+  }
+
+  /// Full history of one logical operation, oldest attempt first.
+  Future<SyncOperationLineage?> operationLineage(String clientOpId) async {
+    final db = await database;
+    if (!await _tableExists(db, 'sync_attempts')) return null;
+    final rows = await db.query(
+      'sync_attempts',
+      where: 'client_op_id = ?',
+      whereArgs: [clientOpId],
+      orderBy: 'attempt_number',
+    );
+    if (rows.isEmpty) return null;
+    return SyncOperationLineage(
+      clientOpId: clientOpId,
+      domain: '${rows.first['domain']}',
+      attempts: rows.map(SyncAttemptRecord.fromRow).toList(growable: false),
+    );
+  }
+
+  /// Most recently active operations, newest first, each with full lineage.
+  Future<List<SyncOperationLineage>> recentOperationLineages({
+    int limit = 50,
+  }) async {
+    final db = await database;
+    if (!await _tableExists(db, 'sync_attempts')) {
+      return const <SyncOperationLineage>[];
+    }
+    final bounded = limit < 1 ? 1 : (limit > 500 ? 500 : limit);
+    final heads = await db.rawQuery(
+      'SELECT client_op_id, MAX(started_at) AS last_started '
+      'FROM sync_attempts GROUP BY client_op_id '
+      'ORDER BY last_started DESC, client_op_id DESC LIMIT ?',
+      [bounded],
+    );
+    final lineages = <SyncOperationLineage>[];
+    for (final head in heads) {
+      final lineage = await operationLineage('${head['client_op_id']}');
+      if (lineage != null) lineages.add(lineage);
+    }
+    return lineages;
+  }
+
+  /// Bounded growth guard.
+  ///
+  /// This is a capacity limit, not a retention policy: it keeps the newest
+  /// [keepOperations] operations so the ledger cannot grow without end on a
+  /// long-lived install. A dated retention policy is deliberately out of
+  /// scope here. Operations with an attempt still open are never pruned.
+  Future<int> pruneSyncAttempts({int keepOperations = 500}) async {
+    final db = await database;
+    if (!await _tableExists(db, 'sync_attempts')) return 0;
+    final keep = keepOperations < 1 ? 1 : keepOperations;
+    return db.rawDelete(
+      'DELETE FROM sync_attempts WHERE client_op_id NOT IN ('
+      '  SELECT client_op_id FROM sync_attempts'
+      '  GROUP BY client_op_id'
+      '  ORDER BY MAX(started_at) DESC, client_op_id DESC'
+      '  LIMIT ?'
+      ') AND client_op_id NOT IN ('
+      '  SELECT DISTINCT client_op_id FROM sync_attempts WHERE finished_at IS NULL'
+      ')',
+      [keep],
+    );
+  }
+
   /// Public for startup orchestration and deterministic recovery tests.
   Future<void> recoverOrphanedInFlightOperations() async {
     final db = await database;
@@ -806,6 +1002,7 @@ class LocalDb {
     }
     final hasHymn = await _tableExists(db, 'pending_hymn_ops');
     final hasComm = await _tableExists(db, 'comm_outbox');
+    final hasAttemptLedger = await _tableExists(db, 'sync_attempts');
     await db.transaction((txn) async {
       for (final spec in existingLegacy) {
         await txn.rawUpdate(
@@ -829,6 +1026,11 @@ class LocalDb {
           "WHERE state = 'in_flight'",
           [now],
         );
+      }
+      // S1 lineage: an attempt whose process vanished must not keep looking
+      // like it is still running, and must never be mistaken for a success.
+      if (hasAttemptLedger) {
+        await _interruptOpenSyncAttempts(txn, DateTime.parse(now));
       }
     });
   }
@@ -3307,6 +3509,9 @@ class LocalDb {
     final spec = _legacySpecFor(kind);
     final claimedAt = (now ?? DateTime.now()).toUtc();
     final claimedAtText = claimedAt.toIso8601String();
+    // Probed on the outer handle: using `db` inside `db.transaction` would
+    // deadlock sqflite, which serialises access to the single connection.
+    final hasAttemptLedger = await _tableExists(db, 'sync_attempts');
 
     return db.transaction((txn) async {
       final sessionMatches = await activeSessionMatches(
@@ -3411,6 +3616,25 @@ class LocalDb {
       final packetKind = packetKinds.single == 'submitted'
           ? LegacyPacketKind.submitted
           : LegacyPacketKind.draft;
+
+      // S1 lineage: one ledger row per real transmission, written in the
+      // claim transaction so a process death cannot lose the fact that an
+      // attempt started. attempt_number is the row's own attempt_count.
+      final attemptUid = newAttemptUid();
+      if (hasAttemptLedger) {
+        await _openSyncAttempt(
+          txn,
+          clientOpId: clientOpId,
+          attemptNumber: attemptCount,
+          attemptUid: attemptUid,
+          domain: spec.table,
+          startedAt: claimedAt,
+          entityRef: naturalKey,
+          ownerUserId: ownerUserId,
+          authorizationVersion: authorizationVersion,
+        );
+      }
+
       return LegacyClaimSnapshot(
         operation: LegacyOperationRef(
           kind: kind,
@@ -3424,6 +3648,7 @@ class LocalDb {
         records: claimedRows,
         claimedAt: claimedAt,
         attemptCount: attemptCount,
+        attemptUid: attemptUid,
       );
     });
   }
@@ -3436,6 +3661,7 @@ class LocalDb {
     required int currentOwnerUserId,
     required int currentAuthorizationVersion,
     required int currentRuntimeGeneration,
+    SyncAttemptClosure? attemptClosure,
     DateTime? now,
   }) async {
     final operation = claim.operation;
@@ -3448,6 +3674,8 @@ class LocalDb {
     final db = await database;
     final spec = _legacySpecFor(operation.kind);
     final settledAt = (now ?? DateTime.now()).toUtc().toIso8601String();
+    // Probed outside the transaction for the same reason as the claim path.
+    final hasAttemptLedger = await _tableExists(db, 'sync_attempts');
     return db.transaction((txn) async {
       final sessionMatches = await activeSessionMatches(
         runtimeGeneration: currentRuntimeGeneration,
@@ -3535,6 +3763,19 @@ class LocalDb {
       );
       if (affected != matching) {
         throw StateError('Legacy operation settlement was not atomic.');
+      }
+
+      // S1 lineage: close this attempt in the same transaction that settles
+      // the row. Only the matching open attempt is touched, so a later
+      // success can never rewrite an earlier failure.
+      if (attemptClosure != null && hasAttemptLedger) {
+        await _closeSyncAttempt(
+          txn,
+          clientOpId: operation.clientOpId,
+          attemptNumber: claim.attemptCount,
+          closure: attemptClosure,
+          finishedAt: DateTime.parse(settledAt),
+        );
       }
       return LegacySettlementResult.applied;
     });

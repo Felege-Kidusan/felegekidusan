@@ -2,7 +2,7 @@
 ///
 /// This file intentionally has no Flutter dependency. The runtime SQLite
 /// migration harness reads these declarations as its schema source of truth.
-const localDatabaseSchemaVersion = 35;
+const localDatabaseSchemaVersion = 36;
 
 final class LocalColumnSpec {
   final String table;
@@ -52,6 +52,69 @@ const localSessionStateV34Sql = '''
     updated_at TEXT NOT NULL
   )
 ''';
+
+/// Durable operation/attempt lineage (schema v36, phase S1).
+///
+/// The outbox row already records the *current* state of an operation —
+/// `attempt_count`, `last_attempt_at`, `failure_code`, `failure_http_status`.
+/// What it cannot express is history: every attempt overwrites the previous
+/// one, so "this succeeded on the fourth try after three timeouts" is
+/// indistinguishable from "this succeeded first time".
+///
+/// This table is append-and-close only. It never participates in deciding
+/// what to send: `sync_state` on the outbox row remains the single
+/// authoritative execution state. One row here = one real transmission.
+///
+/// Identity: `client_op_id` is the operation (it is already stable across
+/// retries, restarts and recovery, and is the same value the server stores
+/// as `api_idempotency_records.idem_key`). `attempt_number` mirrors the
+/// outbox row's `attempt_count` at claim time, so the two can never silently
+/// disagree. `attempt_uid` is this one transmission's correlation id.
+///
+/// Privacy: identifiers, timings, status codes and controlled categories
+/// only. `entity_ref` carries the operation's natural key (for example
+/// `{"class_id":7,"date":"2026-03-01"}`) and never member rows, names,
+/// message bodies, marks or credentials.
+const localSyncAttemptsV36Sql = '''
+  CREATE TABLE IF NOT EXISTS sync_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_op_id TEXT NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    attempt_uid TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    entity_ref TEXT,
+    owner_user_id INTEGER,
+    created_authorization_version INTEGER,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_ms INTEGER,
+    http_status INTEGER,
+    error_category TEXT,
+    retry_decision TEXT NOT NULL DEFAULT 'PENDING',
+    failure_message TEXT,
+    next_attempt_at TEXT,
+    server_ref TEXT
+  )
+''';
+
+/// Index contract for `sync_attempts`.
+///
+/// The two UNIQUE indexes are load-bearing, not optimisations:
+///   * `uq_sync_attempt_identity` makes a non-incrementing attempt number a
+///     hard constraint violation rather than a silently corrupted lineage.
+///   * `uq_sync_attempt_uid` keeps one correlation id to one transmission.
+const localSyncAttemptsV36IndexSql = <String>[
+  '''CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_attempt_identity
+     ON sync_attempts(client_op_id, attempt_number)''',
+  '''CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_attempt_uid
+     ON sync_attempts(attempt_uid)''',
+  '''CREATE INDEX IF NOT EXISTS idx_sync_attempts_operation
+     ON sync_attempts(client_op_id, attempt_number)''',
+  '''CREATE INDEX IF NOT EXISTS idx_sync_attempts_open
+     ON sync_attempts(finished_at, started_at)''',
+  '''CREATE INDEX IF NOT EXISTS idx_sync_attempts_recent
+     ON sync_attempts(started_at)''',
+];
 
 const legacyOutboxTableSpecs = <LegacyOutboxTableSpec>[
   LegacyOutboxTableSpec('pending_attendance', ['class_id', 'date']),
