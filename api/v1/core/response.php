@@ -35,6 +35,43 @@ function err($message, $code = 400, $extra = []) {
     apiSendJson($response, $code);
 }
 
+/**
+ * Opaque per-request correlation id (S1).
+ *
+ * One value per HTTP request, generated once and reused, so the response
+ * header, the error log and any diagnostics all name the same transmission.
+ * It is random and carries no token, user id or payload. A client attempt id
+ * is accepted and echoed only after strict validation, so a caller cannot
+ * inject log content or oversized data through it.
+ */
+function apiRequestId(): string {
+    static $requestId = null;
+    if ($requestId !== null) {
+        return $requestId;
+    }
+    try {
+        $requestId = 'req_' . bin2hex(random_bytes(12));
+    } catch (\Throwable $ignored) {
+        $requestId = 'req_' . substr(hash('sha256', uniqid('', true)), 0, 24);
+    }
+    return $requestId;
+}
+
+/**
+ * The client's attempt correlation id, if it sent a well-formed one.
+ *
+ * Deliberately strict: an opaque token of bounded length and a fixed
+ * alphabet. Anything else is ignored rather than sanitised, because this
+ * value reaches the server log.
+ */
+function apiClientAttemptId(): string {
+    $value = trim((string)($_SERVER['HTTP_X_CLIENT_ATTEMPT_ID'] ?? ''));
+    if ($value === '' || strlen($value) > 64 || !preg_match('/^[A-Za-z0-9._-]+$/', $value)) {
+        return '';
+    }
+    return $value;
+}
+
 function apiSendJson(array $response, int $code = 200) {
     // Module version handshake (see routes/mezmur.php): lets clients
     // detect a stale server and show an actionable update message.
@@ -48,6 +85,8 @@ function apiSendJson(array $response, int $code = 200) {
         http_response_code($code);
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
+        // S1 correlation. Additive and advisory: older clients ignore it.
+        header('X-Request-Id: ' . apiRequestId());
     }
     $json = json_encode($response, JSON_UNESCAPED_UNICODE);
     if ($json === false) {
