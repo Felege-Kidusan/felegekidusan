@@ -68,6 +68,16 @@ void main() {
       expect(parseCrashLog(''), isEmpty);
       expect(parseCrashLog('no headers here\njust text'), isEmpty);
     });
+
+    test('report key is stable, bounded, and changes with the entry', () {
+      final first = parseCrashLog('=== CRASH 1 ===\nprivate stack\n').first;
+      final same = parseCrashLog('=== CRASH 1 ===\nprivate stack\n').first;
+      final different = parseCrashLog('=== CRASH 1 ===\nother stack\n').first;
+      expect(first.reportKey, hasLength(64));
+      expect(first.reportKey, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(first.reportKey, same.reportKey);
+      expect(first.reportKey, isNot(different.reportKey));
+    });
   });
 
   group('CrashLogEntry.within', () {

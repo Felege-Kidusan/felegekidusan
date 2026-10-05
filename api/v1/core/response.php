@@ -124,8 +124,16 @@ function getPagination($maxLimit = 100) {
     return [$page, $limit, $offset];
 }
 
-function getBody() {
-    $raw = file_get_contents('php://input');
+function getBody(?int $maxBytes = null) {
+    if ($maxBytes !== null) {
+        $maxBytes = max(1, $maxBytes);
+        $raw = file_get_contents('php://input', false, null, 0, $maxBytes + 1);
+        if (is_string($raw) && strlen($raw) > $maxBytes) {
+            err('Request body too large.', 413);
+        }
+    } else {
+        $raw = file_get_contents('php://input');
+    }
     $data = json_decode($raw, true);
     if (!is_array($data)) $data = $_POST;
     // Keep only a bounded, allow-listed entity projection for the optional

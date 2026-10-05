@@ -41,7 +41,7 @@ class MobileFleetTelemetryReleaseGateTests(unittest.TestCase):
         self.assertNotIn("INSERT INTO api_", self.preflight)
 
     def test_preflight_checks_both_migrations_and_all_tables(self):
-        for migration in ("'051'", "'059'"):
+        for migration in ("'051'", "'059'", "'060'"):
             self.assertIn(migration, self.preflight)
         for table in (
             "app_installations",
@@ -58,6 +58,7 @@ class MobileFleetTelemetryReleaseGateTests(unittest.TestCase):
         for column in (
             "installation_id",
             "event_type",
+            "dedupe_key",
             "event_data",
             "downloaded_at",
             "attempt_uid",
@@ -72,6 +73,7 @@ class MobileFleetTelemetryReleaseGateTests(unittest.TestCase):
         ):
             self.assertIn(column, self.preflight)
         self.assertIn("18 AS expected_count", self.preflight)
+        self.assertIn("8,", self.preflight)
         self.assertIn("7,", self.preflight)
         self.assertIn("20,", self.preflight)
 
@@ -79,6 +81,7 @@ class MobileFleetTelemetryReleaseGateTests(unittest.TestCase):
         for index_name in (
             "idx_app_install_ver",
             "idx_app_events_type_created",
+            "uq_app_events_dedupe",
             "idx_app_downloads_ver",
             "idx_sync_attempts_status_started",
             "idx_sync_attempts_request",
@@ -108,7 +111,8 @@ class MobileFleetTelemetryReleaseGateTests(unittest.TestCase):
         ):
             self.assertIn(phrase, self.runbook)
         self.assertIn("mobile_fleet_telemetry_preflight.sql", self.runbook)
-        self.assertIn("f437e45f7391795fddb801c3f017cb56f9ed7e94", self.runbook)
+        self.assertIn("060_telemetry_integrity_hardening.sql", self.runbook)
+        self.assertIn("7676303f56d77d3c2ba03b92030981ee6eee4fff", self.runbook)
 
     def test_gate_remains_aligned_with_current_producer_and_monitor_boundaries(self):
         self.assertIn("/api/v1/telemetry/heartbeat", self.telemetry_route)

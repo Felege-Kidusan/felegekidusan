@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 
@@ -39,6 +41,14 @@ class CrashLogEntry {
     required this.header,
     required this.body,
   });
+
+  /// Stable, non-reversible identity for this exact diagnostic entry.
+  ///
+  /// The raw header/body remain local diagnostic material. Only this SHA-256
+  /// key is eligible for telemetry, so a crash stack cannot cross the device
+  /// trust boundary as an event payload.
+  String get reportKey =>
+      sha256.convert(utf8.encode('$header\n$body')).toString();
 
   bool within(Duration d) {
     final t = at;

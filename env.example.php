@@ -41,6 +41,7 @@ define('JWT_SECRET',         'REPLACE_WITH_A_LONG_RANDOM_STRING_1'); // mobile a
 define('BACKUP_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_2'); // encrypts backups; required for restore
 define('HEALTH_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_3'); // HTTP Basic/X-Health-Key health credential
 define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password for the error-monitor dashboard (/monitor/)
+define('TELEMETRY_HASH_SECRET', 'REPLACE_WITH_A_LONG_RANDOM_STRING_5'); // HMAC salt for rotating telemetry IP hashes
 
 // ---- Mobile authorization-scope rollout (TEMPORARY / OPTIONAL) ----
 // Build 24+ always receives live role/status/assignment revalidation. Older
