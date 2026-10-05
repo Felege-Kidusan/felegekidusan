@@ -322,6 +322,12 @@ radius from 20 routes to 1.
 
 ## §24–§32 — Goal A, durable background sync
 
+**Goal A.1 is COMPLETE and pushed as `0ed7d72`** — see
+`docs/MOBILE_OFFLINE_SYNC_S2_A1_BACKGROUND_CORE.md` for the unified
+execution boundary, `execution_source` lineage (schema v37), the mockable
+scheduler boundary and its deduplication, with exact verification numbers
+(Python 2026 passed / 0 skipped; mutation 13 attempted / 13 caught) and an
+explicit list of what is NOT verified. Goal A.2 (native Android) remains
 `NOT STARTED`. Per §1 the scope is Dart-side only: unified trigger converging
 foreground and background on the **existing** drain, `execution_source =
 foreground|background` threaded through the S1 lineage and telemetry,
