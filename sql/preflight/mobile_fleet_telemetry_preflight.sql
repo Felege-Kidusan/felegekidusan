@@ -1,7 +1,7 @@
 -- Mobile Fleet Telemetry & Analytics — read-only staging preflight.
 --
 -- Run this AFTER deploying the application code and after applying migrations
--- 051 and 059, against the intended staging database. It creates only one
+-- 051, 059, and 060, against the intended staging database. It creates only one
 -- TEMPORARY table, reads information_schema metadata, and never changes
 -- application data. Do not run this as a migration runner.
 --
@@ -27,7 +27,7 @@ CREATE TEMPORARY TABLE ssms_mobile_fleet_preflight (
 
 -- ── Required tables ─────────────────────────────────────────────────────────
 INSERT INTO ssms_mobile_fleet_preflight
-SELECT '051/059',
+SELECT '051/059/060',
        'required telemetry and sync-monitor tables',
        CAST(COUNT(*) AS CHAR),
        '4',
@@ -45,7 +45,7 @@ SELECT '051/059',
 -- treats monitor bookkeeping as advisory, but a non-transactional table would
 -- invalidate the reviewed persistence and cleanup assumptions.
 INSERT INTO ssms_mobile_fleet_preflight
-SELECT '051/059',
+SELECT '051/059/060',
        CONCAT('InnoDB table ', wanted.table_name),
        COALESCE(t.ENGINE, 'absent'),
        'InnoDB',
@@ -75,8 +75,8 @@ SELECT wanted.migration_no,
               18 AS expected_count,
               'installation_id,app_version,app_build,os_version,sdk_int,device_brand,device_model,abi,ram_mb,is_low_ram,launch_count,sync_success_count,sync_fail_count,crash_count,last_role_hint,ip_hash,first_seen_at,last_seen_at' AS required_columns
        UNION ALL
-       SELECT '051', 'app_telemetry_events', 7,
-              'id,installation_id,event_type,event_data,app_version,app_build,created_at'
+       SELECT '051/060', 'app_telemetry_events', 8,
+              'id,installation_id,event_type,dedupe_key,event_data,app_version,app_build,created_at'
        UNION ALL
        SELECT '051', 'app_downloads', 7,
               'id,version,build,abi,ip_hash,user_agent,downloaded_at'
@@ -121,6 +121,8 @@ SELECT wanted.migration_no,
               'NONUNIQUE:installation_id,created_at'
        UNION ALL SELECT '051', 'app_telemetry_events', 'idx_app_events_created',
               'NONUNIQUE:created_at'
+       UNION ALL SELECT '060', 'app_telemetry_events', 'uq_app_events_dedupe',
+              'UNIQUE:installation_id,event_type,dedupe_key'
 
        UNION ALL SELECT '051', 'app_downloads', 'PRIMARY',
               'UNIQUE:id'

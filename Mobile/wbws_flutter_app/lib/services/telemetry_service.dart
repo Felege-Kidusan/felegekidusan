@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -21,7 +22,25 @@ class TelemetryService {
 
   static const _kInstallIdKey = 'fkss_telemetry_install_id';
   static const _kLastPingKey = 'fkss_telemetry_last_ping';
+  static const _kLastReportedCrashKey =
+      'fkss_telemetry_last_reported_crash_key';
   static const _minPingInterval = Duration(minutes: 15);
+
+  /// This is the compatibility allowlist for the public telemetry boundary.
+  /// Unknown strings must not become arbitrary durable event types.
+  static const _supportedEventTypes = <String>{
+    'event',
+    'launch',
+    'heartbeat',
+    'sync_success',
+    'sync_completed',
+    'sync_failed',
+    'sync_error',
+    'sync_pass_completed',
+    'crash',
+    'crash_recorded',
+    'update_downloaded',
+  };
 
   final _secure = const FlutterSecureStorage();
   String? _cachedInstallId;
@@ -92,9 +111,12 @@ class TelemetryService {
     await _sendPayload(eventType: 'launch');
   }
 
-  /// Periodic or event-driven telemetry ping
+  /// Periodic or event-driven telemetry ping.
+  ///
+  /// Event types are intentionally allow-listed on the client as a fast-fail
+  /// guard. The server repeats this validation at the trust boundary.
   Future<void> recordEvent(String eventType, [Map<String, dynamic>? data]) async {
-    if (kIsWeb) return;
+    if (kIsWeb || !_supportedEventTypes.contains(eventType)) return;
     await _sendPayload(eventType: eventType, eventData: data);
   }
 
@@ -106,9 +128,14 @@ class TelemetryService {
   /// failed three times from three operations that each failed once. Use
   /// [recordSyncPass] for anything operation-shaped.
   Future<void> recordSyncResult({required bool success, int itemsCount = 0, String? error}) async {
+    final errorCode = success
+        ? null
+        : ((error?.trim().isNotEmpty ?? false)
+            ? 'operations_pending_retry'
+            : 'unknown');
     await recordEvent(success ? 'sync_completed' : 'sync_failed', {
-      'items_count': itemsCount,
-      if (error != null) 'error': error.substring(0, min(200, error.length)),
+      'items_count': max(0, itemsCount),
+      if (errorCode != null) 'error_code': errorCode,
     });
   }
 
@@ -128,10 +155,43 @@ class TelemetryService {
     await recordEvent('sync_pass_completed', summary.toTelemetryData());
   }
 
-  Future<void> recordCrash({required String summary}) async {
-    await recordEvent('crash_recorded', {
-      'summary': summary.substring(0, min(300, summary.length)),
-    });
+  /// Reports one crash identity at most once per installation.
+  ///
+  /// [crashKey] is expected to be the SHA-256 [CrashLogEntry.reportKey]. The
+  /// optional [summary] parameter is retained for source compatibility with
+  /// older callers, but is hashed locally and is never sent to the server.
+  Future<void> recordCrash({
+    String? crashKey,
+    String? summary,
+    bool nativeCrash = true,
+  }) async {
+    if (kIsWeb) return;
+    final key = (crashKey != null && crashKey.trim().isNotEmpty)
+        ? crashKey.trim().toLowerCase()
+        : sha256.convert(utf8.encode(summary ?? '')).toString();
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(key)) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_kLastReportedCrashKey) == key) return;
+    } catch (_) {}
+
+    final sent = await _sendPayload(
+      eventType: 'crash_recorded',
+      eventData: {
+        'crash_key': key,
+        'kind': nativeCrash ? 'native' : 'dart',
+      },
+    );
+    if (!sent) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kLastReportedCrashKey, key);
+    } catch (_) {
+      // The event was accepted; marker persistence is best-effort on a broken
+      // preferences store and the next launch may retry it.
+    }
   }
 
   Future<void> recordUpdateDownloaded({required String version, required int build}) async {
@@ -141,7 +201,7 @@ class TelemetryService {
     });
   }
 
-  Future<void> _sendPayload({
+  Future<bool> _sendPayload({
     required String eventType,
     Map<String, dynamic>? eventData,
   }) async {
@@ -184,10 +244,12 @@ class TelemetryService {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setInt(_kLastPingKey, _lastPingTime!.millisecondsSinceEpoch);
         } catch (_) {}
+        return true;
       }
     } catch (_) {
       // Telemetry failures are strictly non-fatal and fail silently
     }
+    return false;
   }
 
   String _generateInstallId() {

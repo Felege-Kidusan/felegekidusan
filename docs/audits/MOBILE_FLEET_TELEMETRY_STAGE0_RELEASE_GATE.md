@@ -2,9 +2,9 @@
 
 **Status:** Implemented as a read-only preflight and controlled staging runbook.
 **Date:** 2026-10-06
-**Scope:** Verify the existing end-to-end telemetry and server-observed sync path before changing analytics semantics or ingestion behavior.
+**Scope:** Verify the end-to-end telemetry, integrity-hardened ingestion, and server-observed sync path before production sign-off.
 
-This gate does **not** change mobile sync behavior, telemetry identifiers, API routes, admin authorization, dashboard boundaries, or database schema. It creates no fake telemetry and no synthetic monitor rows.
+This gate does **not** change mobile sync behavior, API routes, admin authorization, or dashboard boundaries. The deployment under test may include the additive telemetry-integrity migration `060`; the gate itself is read-only and creates no fake telemetry or synthetic monitor rows.
 
 ## Evidence labels
 
@@ -31,11 +31,13 @@ This gate does **not** change mobile sync behavior, telemetry identifiers, API r
 5. Do not use production credentials in command history or release artifacts.
 6. Do not insert fabricated rows to make the dashboard appear populated.
 
-The source commit currently under test is:
+The analytics baseline commit is:
 
 ```text
-f437e45f7391795fddb801c3f017cb56f9ed7e94
+7676303f56d77d3c2ba03b92030981ee6eee4fff
 ```
+
+The integrity-hardening commit under test must be recorded in the release evidence after it is pushed.
 
 ## 2. Read-only schema preflight
 
@@ -59,6 +61,7 @@ It verifies migrations:
 
 - `051_app_telemetry.sql`
 - `059_api_sync_attempts.sql`
+- `060_telemetry_integrity_hardening.sql`
 
 It checks:
 
@@ -170,7 +173,7 @@ With an authorized `school_admin` and `super_admin` account:
 
 ## 8. Current implementation and next gate
 
-The first analytics-correctness patch now implements the source-level parts of this plan:
+The analytics-correctness patch implements the source-level scope and count changes:
 
 1. legacy dashboard filters use one installation cohort scope;
 2. lifetime counters are labeled as lifetime counters for that cohort;
@@ -178,4 +181,12 @@ The first analytics-correctness patch now implements the source-level parts of t
 4. `sync_pass_completed` counts are translated into legacy success/failure counters with a hard per-request cap;
 5. the device directory receives the same selected range as the overview.
 
-The next required evidence is still staging execution: verify the query scopes and count translation against real controlled rows, then add database-backed tests using an approved disposable schema. Crash-report deduplication and public-ingestion hardening remain separate, reviewable changes.
+The integrity-hardening patch adds a separate trust-boundary layer:
+
+1. crash reports use a hash-only identity and a persisted client marker;
+2. duplicate crash delivery is transactionally idempotent through migration `060`;
+3. telemetry events, counts, installation IDs, and request bodies are bounded and typed;
+4. IP hashes use an HMAC secret when configured;
+5. the existing sync monitor and mobile sync behavior remain unchanged.
+
+The next required evidence is still staging execution: apply `060`, verify the query scopes, count translation, crash deduplication, malformed-input rejection, and monitor reconciliation against real controlled rows. No production sign-off is implied by static verification.

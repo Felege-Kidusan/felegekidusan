@@ -102,8 +102,10 @@ Future<void> runBootstrap() async {
           within: const Duration(hours: 24),
         );
         if (recentCrash != null) {
-          await TelemetryService.instance
-              .recordCrash(summary: recentCrash.body);
+          await TelemetryService.instance.recordCrash(
+            crashKey: recentCrash.reportKey,
+            nativeCrash: recentCrash.nativeCrash,
+          );
         }
       } catch (_) {}
     });
