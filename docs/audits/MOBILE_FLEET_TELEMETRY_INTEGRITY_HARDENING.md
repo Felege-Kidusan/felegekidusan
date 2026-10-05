@@ -16,7 +16,7 @@ unbounded or misleading fleet data.
 This slice addresses:
 
 - repeated counting of the same native crash on every app launch;
-- raw crash/error text crossing the mobile/server boundary;
+- raw crash/error text being retained as durable telemetry payloads;
 - arbitrary public event names becoming durable event types;
 - unbounded request bodies and weak installation-id validation;
 - one installation evading the IP bucket by changing networks;
@@ -47,11 +47,15 @@ Only the 64-character hexadecimal key and a controlled kind (`native` or
 `dart`) are eligible for telemetry.
 
 The raw diagnostic body remains available to the local Diagnostics screen and
-is not included in the crash event payload.
+is not included in the current crash event payload.
 
 `TelemetryService` stores the last successfully accepted crash key in
 `SharedPreferences`. A key is written only after the server returns HTTP 200.
 A failed request therefore remains eligible for retry.
+
+For rollout compatibility, the server accepts a bounded legacy `summary`
+field from older clients but converts it to `legacy_summary_present: true` and
+never stores the text. New clients do not send that field.
 
 ### 3.2 Server-side crash idempotency
 
@@ -90,8 +94,8 @@ The route now:
 - accepts typed event objects only;
 - rejects unknown event fields;
 - validates count fields as bounded non-negative integers;
-- rejects raw crash summaries;
-- validates crash keys as SHA-256 hex and crash kind as `native` or `dart`;
+- normalizes bounded legacy crash summaries without retaining their text;
+- validates current crash keys as SHA-256 hex and crash kind as `native` or `dart`;
 - validates update and legacy sync payload fields;
 - applies an additional 60-per-minute installation bucket alongside the
   existing 120-per-minute IP bucket;
@@ -168,7 +172,8 @@ No fabricated telemetry or monitoring rows are authorized for this drill.
 - Flutter analyzer/test execution is unavailable because the Flutter/Dart
   toolchain is unavailable in this workspace.
 - Existing production rows have no dedupe key and are not backfilled. The new
-  key prevents duplicates for newly hardened crash events only.
+  key prevents duplicates for newly hardened crash events only; legacy summary
+  events remain compatible but are not exactly-once deduplicated.
 - The fallback to `JWT_SECRET` is retained for deployments that have not yet
   added `TELEMETRY_HASH_SECRET`; staging should configure the dedicated secret
   before production rollout.

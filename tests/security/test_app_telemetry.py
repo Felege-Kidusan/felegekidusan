@@ -62,7 +62,8 @@ class AppTelemetrySecurityTests(unittest.TestCase):
     def test_telemetry_route_rejects_untyped_or_raw_event_payloads(self):
         self.assertIn("Telemetry event_data must be an object.", self.route_telemetry)
         self.assertIn("Unsupported telemetry event field.", self.route_telemetry)
-        self.assertIn("Raw summaries are deliberately rejected", self.route_telemetry)
+        self.assertIn("rollout compatibility", self.route_telemetry)
+        self.assertIn("legacy_summary_present", self.route_telemetry)
         self.assertIn("Crash telemetry requires a hash key and kind.", self.route_telemetry)
         self.assertIn("dedupe_key", self.route_telemetry)
         self.assertIn("duplicateCrash", self.route_telemetry)
