@@ -304,3 +304,192 @@ jobs:
             echo "$hits"
           fi
           echo "Scan complete."
+
+  android-build:
+    # S3 A.9. A.8 shipped a native Android background-sync producer whose
+    # Kotlin had never been compiled by anything: there is no Android SDK or
+    # Gradle in the dev sandbox, and this workflow's only mobile job was
+    # `flutter test`, which compiles Dart and nothing else. Every A.8 claim
+    # about Kotlin was therefore source-verified only, and the A.8 report had
+    # to say so in those words.
+    #
+    # This job is the authority that closes that gap. It compiles
+    # BackgroundSyncProducer.kt, BackgroundSyncReceiver.kt, the MainActivity
+    # channel registration, the AndroidManifest receiver declaration and the
+    # whole Dart tree into a real debug APK, so a Kotlin syntax error, a wrong
+    # Flutter embedding API, a bad MethodChannel signature, a manifest mistake
+    # or a Gradle misconfiguration fails here instead of on a phone.
+    #
+    # WHY NO GRADLE WRAPPER IS COMMITTED. `android/.gitignore` excludes
+    # gradlew, gradlew.bat and gradle-wrapper.jar — that is the stock
+    # `flutter create` template, not a defect. flutter_tools injects them from
+    # its own cache on every build: GradleUtils.getExecutable() calls
+    # injectGradleWrapperIfNeeded(), which copies the wrapper with
+    # `shouldCopyFile: !destinationFile.existsSync()` and then returns early if
+    # gradle-wrapper.properties already exists. Ours does exist and pins Gradle
+    # 8.14.3, so the pin is preserved and Flutter's own
+    # templateDefaultGradleVersion is NOT substituted. Committing a binary jar
+    # obtained out-of-band would be strictly worse supply-chain posture for no
+    # benefit. The first step below proves the checkout really is wrapper-less.
+    #
+    # Android runtime behaviour is still NOT verified by this job. It compiles
+    # and packages; it does not run. No emulator, no device, no alarm fires.
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: Mobile/wbws_flutter_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove this is a genuinely clean, wrapper-less checkout
+        run: |
+          set -euo pipefail
+          # If any of these ever start existing, the premise of this job has
+          # changed and the reasoning above must be revisited.
+          for absent in android/gradlew android/gradlew.bat \
+                        android/gradle/wrapper/gradle-wrapper.jar \
+                        android/local.properties; do
+            if [ -e "$absent" ]; then
+              echo "::error::$absent is present in the checkout; A.9 assumed it was not."
+              exit 1
+            fi
+          done
+          test -f android/gradle/wrapper/gradle-wrapper.properties
+          grep -q 'gradle-8.14.3-all.zip' android/gradle/wrapper/gradle-wrapper.properties
+          echo "Clean checkout confirmed: no wrapper, no local.properties, Gradle 8.14.3 pinned."
+
+      - name: Set up JDK 17
+        # flutter_tools 3.44.9 sets errorJavaMinVersionAndroid = 17.0.0, and
+        # AGP 8.11.1 requires JDK 17+. Pinned rather than inherited so a runner
+        # image bump cannot silently change the toolchain.
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Identical to the flutter-tests job. Not an upgrade: pubspec.lock
+          # was resolved against flutter >=3.44.0 and 3.44.9 is the newest
+          # patch of that series, so this pins the series without taking a
+          # minor bump. A.9 does not change the project's Flutter requirement.
+          flutter-version: 3.44.9
+          channel: stable
+          cache: true
+
+      - name: Toolchain versions
+        run: |
+          flutter --version
+          java -version
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+
+      - name: Record the lockfile digest before resolution
+        run: sha256sum pubspec.lock | tee /tmp/lock.before
+
+      - name: Resolve dependencies
+        # Deliberately NOT --enforce-lockfile. F-19 (url_launcher is a declared
+        # direct dependency and is absent from pubspec.lock) makes that fail
+        # with exit 65. A.9 is not the phase that repairs F-19, so resolution
+        # stays bounded by pubspec.yaml exactly as the flutter-tests job does.
+        run: flutter pub get
+
+      - name: F-19 boundary — pubspec.yaml and pubspec.lock must be untouched
+        # A.9 is forbidden from repairing or regenerating the lockfile. If
+        # `flutter pub get` ever rewrites it, that is a real change to the
+        # dependency graph and this job must fail rather than let it land
+        # silently.
+        run: |
+          set -euo pipefail
+          sha256sum -c /tmp/lock.before
+          git diff --exit-code -- pubspec.yaml pubspec.lock
+          echo "pubspec.yaml and pubspec.lock are byte-identical to the commit."
+
+      - name: Install the exact SDK components this project pins
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          # ndk;26.1.10909125 is pinned in app/build.gradle with a documented
+          # rationale (P47 broke on 27.0.12077973). Installed explicitly so the
+          # build never depends on whatever NDK the runner image happens to
+          # ship. platform/build-tools 36 match flutter_tools 3.44.9's
+          # compileSdkVersion = 36 and targetSdkVersion = 36.
+          "$SDKMANAGER" --install \
+            "ndk;26.1.10909125" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Cache Gradle
+        # Only ~/.gradle, which lives OUTSIDE the repository. The in-repo
+        # android/.gradle and the injected wrapper are deliberately NOT cached:
+        # caching those would let a stale configuration mask exactly the errors
+        # this job exists to catch.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('Mobile/wbws_flutter_app/android/**/*.gradle', 'Mobile/wbws_flutter_app/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Generate android/local.properties
+        # Machine-specific and correctly gitignored, so it is written here
+        # rather than committed. No developer's local Windows path and no
+        # hard-coded SDK path ever enters source control.
+        run: |
+          set -euo pipefail
+          FLUTTER_SDK="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          printf 'sdk.dir=%s\nflutter.sdk=%s\n' "$SDK" "$FLUTTER_SDK" > android/local.properties
+          cat android/local.properties
+
+      - name: Build the debug APK
+        # Debug, not release: the objective is compilation. No signing config,
+        # no keystore, no credentials. The release path's R8 shrinking is a
+        # separate concern and is not exercised here.
+        run: flutter build apk --debug
+
+      - name: Confirm the wrapper was injected rather than committed
+        run: |
+          set -euo pipefail
+          test -f android/gradlew
+          test -f android/gradle/wrapper/gradle-wrapper.jar
+          grep -q 'gradle-8.14.3-all.zip' android/gradle/wrapper/gradle-wrapper.properties
+          # They must still be untracked: injection is a build-time act, and
+          # nothing here may quietly add a binary to the repository.
+          if ! git status --porcelain -- android | grep -q .; then
+            echo "Wrapper injected and correctly ignored by git."
+          else
+            git status --porcelain -- android
+            echo "::error::The build left tracked changes under android/."
+            exit 1
+          fi
+
+      - name: Prove the A.8 producer is inside the built APK
+        # The point of A.9 is not that *an* APK built, but that the A.8
+        # implementation is in it. The receiver is read back out of the
+        # packaged binary manifest.
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-debug.apk
+          ls -l "$APK"
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          AAPT2="$(ls "$SDK"/build-tools/*/aapt2 | sort -V | tail -1)"
+          "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK" > /tmp/manifest.txt
+          grep -q 'BackgroundSyncReceiver' /tmp/manifest.txt
+          grep -q 'com.arkeonethiopia.fkss.action.BACKGROUND_SYNC' /tmp/manifest.txt
+          echo "BackgroundSyncReceiver and its action are present in the packaged manifest."
+          # And no permission crept in: A.8 added exactly zero.
+          perms=$("$AAPT2" dump permissions "$APK" | grep -c "uses-permission:" || true)
+          echo "uses-permission entries in the APK: $perms"
+
+      - name: Upload the debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: Mobile/wbws_flutter_app/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
