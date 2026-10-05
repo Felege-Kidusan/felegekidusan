@@ -60,8 +60,13 @@ Two pre-existing facts worth recording:
   only. That is a pre-existing S1 gap, not introduced here, and `execution_source`
   consequently covers the same scope as S1 lineage did.
 - There is no sqflite test binding in this repository (`sqflite_common_ffi` is
-  not a dev_dependency) and `pubspec.yaml` is frozen by F-19. No test in the
-  repo opens a database.
+  not a dev_dependency) and `pubspec.yaml` is frozen by F-19, so no *Dart* test
+  can open a database.
+  **Corrected by the A.3 audit:** the original sentence here read "No test in
+  the repo opens a database", which is false. Ten Python harnesses under
+  `tests/security/` execute real SQLite 3 through `sqlite3`, loading the
+  shipped DDL out of `local_schema_v34.dart`. The limitation is specific to
+  Dart, not to the repository.
 
 ---
 
@@ -312,14 +317,30 @@ Four pins moved with the migration; none was weakened, skipped or deleted:
   `pubspec.yaml` is frozen by F-19 so no VM-only test runner can be added. They
   run in CI (`flutter test`, Flutter 3.44.9). Until CI reports, their status is
   `NOT VERIFIED`.
-- **No database test exists for this increment.** Execution-source persistence,
-  overdue/future claim eligibility, process-restart discovery and account
-  isolation are `VERIFIED BY SOURCE` and mutation-pinned, but not executed
-  against SQLite. Brief items 10-B (ledger round-trip through a real DB), 10-E,
-  10-F, 10-G and 10-H are therefore **NOT VERIFIED** at runtime. What *is*
-  verified is that this increment did not modify the SQL that implements them,
-  and that deleting any of those predicates fails the suite.
-- **The v37 migration has not been run against a real SQLite file.** `NOT VERIFIED`.
+- **Behavioural database coverage for this increment is partial.**
+  Execution-source *persistence at write time*, overdue/future claim
+  eligibility, process-restart discovery and account isolation are
+  `VERIFIED BY SOURCE` and mutation-pinned, but not executed against SQLite.
+  Brief items 10-B (ledger round-trip through a real DB), 10-E, 10-F, 10-G and
+  10-H remain **NOT VERIFIED** at runtime. What *is* verified is that this
+  increment did not modify the SQL that implements them, and that deleting any
+  of those predicates fails the suite.
+  **Corrected by the A.3 audit:** the original heading here read "No database
+  test exists for this increment", which overstated the gap — see the next
+  bullet.
+- **The v37 *create* path IS runtime-verified.**
+  `VERIFIED BY REAL SQLITE RUNTIME`.
+  `tests/security/test_mobile_sync_attempt_ledger.py` extracts the shipped
+  `localSyncAttemptsV36Sql` constant from `local_schema_v34.dart`, executes it
+  in a real in-memory SQLite database, and asserts via `PRAGMA table_info`
+  that the column set is exactly the v37 set *including* `execution_source`.
+- **The v37 *upgrade* path has NOT been run against a real SQLite file.**
+  `NOT VERIFIED`. The column-probe-guarded `ALTER TABLE sync_attempts ADD
+  COLUMN execution_source` inside `onUpgrade` is the specific statement no
+  test executes.
+  **Corrected by the A.3 audit:** the original claim was the unqualified
+  "The v37 migration has not been run against a real SQLite file", which is
+  false for the create path and true only for the upgrade path.
 - Nothing about Android. No Kotlin was written, no `MethodChannel` was defined,
   no APK was built.
 

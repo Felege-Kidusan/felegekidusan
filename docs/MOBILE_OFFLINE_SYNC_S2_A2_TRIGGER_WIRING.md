@@ -126,9 +126,15 @@ This is recorded here rather than being changed silently.
 
 No Dart test can cover the trigger wiring. `SyncService` initialises
 `ApiService()` and `LocalDb()` as **field initialisers**, so merely
-constructing the class pulls in sqflite; no test in this repository opens a
-database, and `sqflite_common_ffi` is not a dev dependency (`pubspec.yaml` is
-frozen by F-19). This is a real gap, stated rather than papered over.
+constructing the class pulls in sqflite; no *Dart* test can open a database,
+and `sqflite_common_ffi` is not a dev dependency (`pubspec.yaml` is frozen by
+F-19). This is a real gap, stated rather than papered over.
+
+**Corrected by the A.3 audit:** this paragraph originally said "no test in
+this repository opens a database". That is false — ten Python harnesses under
+`tests/security/` execute real SQLite 3. The constraint is that no *Dart*
+test can, which is what makes the *wiring* (a Dart-level concern)
+unreachable by behavioural test.
 
 Actual coverage is therefore:
 
@@ -182,8 +188,13 @@ Both were found by running the harness rather than trusting its output:
 - **Hymn `sync_attempts` gap.** `claimNextHymnOperation` still opens no
   `sync_attempts` row, so `execution_source` does **not** cover the hymn path.
   Unchanged by A.2. Tracked, not fixed.
-- **Database claims remain `VERIFIED BY SOURCE`.** The v37 migration has never
-  executed against a real SQLite file.
+- **Database verification is mixed, not uniformly `VERIFIED BY SOURCE`.**
+  The v37 **create** path is `VERIFIED BY REAL SQLITE RUNTIME`
+  (`test_mobile_sync_attempt_ledger.py` runs the shipped ledger DDL in real
+  SQLite and asserts `execution_source` is present). The v37 **upgrade**
+  path — the guarded `ALTER TABLE` in `onUpgrade` — is `NOT VERIFIED`.
+  **Corrected by the A.3 audit:** the original claim was the unqualified
+  "The v37 migration has never executed against a real SQLite file".
 - **Dart test counts are CI-verified for pass/fail only.** GitHub returns
   403 on job logs for non-admins, so the per-test count cannot be retrieved.
 - **Native Android integration is still pending** — no workmanager package,
