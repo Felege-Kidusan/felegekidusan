@@ -8,9 +8,13 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import io.flutter.FlutterInjector
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * S3 — A.8. The native producer of `SyncExecutionSource.background`.
@@ -94,6 +98,10 @@ object BackgroundSyncProducer {
     /** Native -> Dart. */
     private const val METHOD_RUN = "runBackgroundSync"
 
+    /** Dart -> native cold-start handshake. */
+    private const val METHOD_BACKGROUND_READY = "backgroundReady"
+    private const val KEY_READY = "ready"
+
     private const val KEY_UNIQUE_WORK_NAME = "uniqueWorkName"
     private const val KEY_NOT_BEFORE = "notBeforeEpochMs"
     private const val KEY_REQUIRES_NETWORK = "requiresNetwork"
@@ -134,6 +142,15 @@ object BackgroundSyncProducer {
      */
     @Volatile
     private var channel: MethodChannel? = null
+
+    /** A cold engine is temporary and singleton-per-invocation. */
+    private val coldLock = Any()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var coldEngine: FlutterEngine? = null
+    private var coldChannel: MethodChannel? = null
+    private var coldFinish: (() -> Unit)? = null
+    private var coldWatchdog: Runnable? = null
+    private var coldCompleted = AtomicBoolean(false)
 
     fun attach(channel: MethodChannel) {
         this.channel = channel
@@ -258,26 +275,98 @@ object BackgroundSyncProducer {
     // ── native -> Dart ──────────────────────────────────────────────────
 
     /**
-     * Invoked by [BackgroundSyncReceiver]. Hands the opportunity to the Dart
-     * entry point and returns.
+     * Invoked by [BackgroundSyncReceiver]. A live Activity engine takes the
+     * existing A.8 warm route. If no engine is attached, create exactly one
+     * temporary engine, run the preserved Dart entry point, and destroy it
+     * after the same MethodChannel callback completes.
      *
-     * [onFinished] is the broadcast's own completion, not the drain's. It runs
-     * when Dart acknowledges or when [BROADCAST_HOLD_MS] elapses, whichever is
-     * first, and is guaranteed to run exactly once.
+     * The callback is the broadcast's completion, not a success assertion.
+     * Any bootstrap, channel, sync or timeout failure finishes without marking
+     * durable work successful; LocalDb's existing retry/recovery path remains
+     * authoritative.
      */
-    fun deliver(onFinished: () -> Unit) {
+    fun deliver(context: Context, onFinished: () -> Unit) {
         val target = channel
-        if (target == null) {
-            // Process was started by this broadcast and no FlutterEngine
-            // exists. Do nothing, and deliberately do NOT re-arm: that would
-            // be a wake loop with no progress. The work is durable and drains
-            // on next launch.
-            Log.i(TAG, "woke with no live FlutterEngine; nothing to do")
-            onFinished()
+        if (target != null) {
+            invokeBackground(target, onFinished)
             return
         }
 
-        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+        synchronized(coldLock) {
+            if (coldEngine != null) {
+                // Another wake-up is already using the one temporary engine.
+                // Do not create a second isolate or a second database owner.
+                onFinished()
+                return
+            }
+
+            try {
+                val appContext = context.applicationContext
+                val engine = FlutterEngine(appContext, emptyArray(), true)
+                val cold = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL)
+                cold.setMethodCallHandler { call, result ->
+                    handleCold(appContext, call, result)
+                }
+                coldEngine = engine
+                coldChannel = cold
+                coldFinish = onFinished
+                coldCompleted = AtomicBoolean(false)
+
+                val loader = FlutterInjector.instance().flutterLoader()
+                val entrypoint = DartExecutor.DartEntrypoint(
+                    loader.findAppBundlePath(),
+                    "backgroundSyncMain",
+                )
+                engine.dartExecutor.executeDartEntrypoint(entrypoint)
+
+                val watchdog = Runnable {
+                    Log.w(TAG, "cold background engine timed out")
+                    finishCold("timeout")
+                }
+                coldWatchdog = watchdog
+                mainHandler.postDelayed(watchdog, BROADCAST_HOLD_MS)
+            } catch (t: Throwable) {
+                Log.w(TAG, "cold background engine creation failed", t)
+                finishCold("engine_creation_failed")
+            }
+        }
+    }
+
+    /** Handles the Dart -> native readiness handshake on the cold channel. */
+    private fun handleCold(
+        context: Context,
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        if (call.method == METHOD_BACKGROUND_READY) {
+            val ready = call.argument<Boolean>(KEY_READY) == true
+            result.success(null)
+            if (ready) {
+                mainHandler.post { invokeCold() }
+            } else {
+                finishCold("bootstrap_not_ready")
+            }
+            return
+        }
+        handle(context, call, result)
+    }
+
+    /** Invokes the same A.8 background method after Dart installed its bridge. */
+    private fun invokeCold() {
+        val target = coldChannel
+        if (target == null) {
+            finishCold("missing_cold_channel")
+            return
+        }
+        invokeBackground(target) { finishCold("dart_callback") }
+    }
+
+    /**
+     * Sends the one explicit background invocation. Warm and cold engines use
+     * this exact payload and callback contract.
+     */
+    private fun invokeBackground(target: MethodChannel, onFinished: () -> Unit) {
+        val finished = AtomicBoolean(false)
         val finishOnce = {
             if (finished.compareAndSet(false, true)) onFinished()
         }
@@ -285,12 +374,9 @@ object BackgroundSyncProducer {
         watchdog.postDelayed({ finishOnce() }, BROADCAST_HOLD_MS)
 
         val arguments = mapOf(
-            // EXPLICIT provenance. This single field is the entire contract;
-            // Dart refuses the call if it says anything but "background".
             KEY_SOURCE to SOURCE_BACKGROUND,
             KEY_INVOCATION_ID to UUID.randomUUID().toString(),
         )
-
         target.invokeMethod(METHOD_RUN, arguments, object : MethodChannel.Result {
             override fun success(result: Any?) {
                 Log.i(TAG, "background drain acknowledged: $result")
@@ -305,11 +391,39 @@ object BackgroundSyncProducer {
             }
 
             override fun notImplemented() {
-                // Dart side of the bridge is not installed in this build.
                 Log.w(TAG, "background entry point not implemented")
                 watchdog.removeCallbacksAndMessages(null)
                 finishOnce()
             }
         })
+    }
+
+    /** Destroys the temporary engine and completes the receiver exactly once. */
+    private fun finishCold(reason: String) {
+        val engine: FlutterEngine?
+        val cold: MethodChannel?
+        val finish: (() -> Unit)?
+        val watchdog: Runnable?
+        synchronized(coldLock) {
+            engine = coldEngine
+            cold = coldChannel
+            finish = coldFinish
+            watchdog = coldWatchdog
+            coldEngine = null
+            coldChannel = null
+            coldFinish = null
+            coldWatchdog = null
+        }
+        watchdog?.let { mainHandler.removeCallbacks(it) }
+        cold?.setMethodCallHandler(null)
+        try {
+            engine?.destroy()
+        } catch (t: Throwable) {
+            Log.w(TAG, "cold background engine cleanup failed", t)
+        }
+        if (finish != null && coldCompleted.compareAndSet(false, true)) {
+            Log.i(TAG, "cold background engine finished: $reason")
+            finish.invoke()
+        }
     }
 }

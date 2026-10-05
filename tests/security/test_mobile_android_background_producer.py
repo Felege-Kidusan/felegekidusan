@@ -216,11 +216,11 @@ class AndroidBackgroundProducerSource(unittest.TestCase):
 
     # ── duplicate and engine-less callbacks ─────────────────────────────
 
-    def test_an_engine_less_wake_does_nothing_and_does_not_re_arm(self):
-        self.assertIn("if (target == null)", self.producer)
-        null_branch = self.producer.split("if (target == null)", 1)[1].split("}", 1)[0]
-        self.assertIn("onFinished()", null_branch)
-        self.assertNotIn("schedule(", null_branch)
+    def test_an_engine_less_wake_starts_one_temporary_engine(self):
+        self.assertIn("FlutterEngine(appContext, emptyArray(), true)", self.producer)
+        self.assertIn("if (coldEngine != null)", self.producer)
+        self.assertIn("executeDartEntrypoint(entrypoint)", self.producer)
+        self.assertNotIn("schedule(context", self.producer.split("fun deliver", 1)[1])
 
     def test_the_broadcast_completion_runs_exactly_once(self):
         self.assertIn("AtomicBoolean(false)", self.producer)
@@ -383,13 +383,19 @@ class NoSecondEngineOrDrain(unittest.TestCase):
             self.assertNotIn(forbidden, lock, forbidden)
             self.assertNotIn(forbidden, spec, forbidden)
 
-    def test_no_headless_engine_or_second_isolate_was_introduced(self):
-        # The A.8 stop condition: a second Dart isolate would mean a second
-        # LocalDb singleton and a parallel sqflite connection.
-        for forbidden in ("FlutterEngine(", "DartExecutor", "FlutterCallbackInformation",
-                          "GeneratedPluginRegistrant", "FlutterMain"):
-            self.assertNotIn(forbidden, self.producer, forbidden)
-        for forbidden in ("PluginUtilities", "getCallbackHandle", "vm:entry-point", "Isolate.spawn"):
+    def test_cold_engine_is_explicit_but_the_bridge_has_no_second_drain(self):
+        # A.12 deliberately permits one temporary engine. The architectural
+        # negative remains on the Dart bridge: it must not add a second
+        # isolate callback, LocalDb, claim or drain implementation.
+        for required in (
+            "FlutterEngine(appContext, emptyArray(), true)",
+            "DartExecutor.DartEntrypoint",
+            "FlutterInjector",
+            "engine?.destroy()",
+        ):
+            self.assertIn(required, self.producer, required)
+        for forbidden in ("PluginUtilities", "getCallbackHandle", "Isolate.spawn",
+                          "LocalDb().claimNext", "_drain("):
             self.assertNotIn(forbidden, self.bridge, forbidden)
 
 

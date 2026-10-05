@@ -50,6 +50,10 @@ class BackgroundSyncChannel {
   /// Native -> Dart. The OS granted the opportunity; run the drain.
   static const String methodRunBackgroundSync = 'runBackgroundSync';
 
+  /// Dart -> native. A cold-start entry point has installed its bridge and is
+  /// ready for the native side to invoke [methodRunBackgroundSync].
+  static const String methodBackgroundReady = 'backgroundReady';
+
   // ── Argument keys. Named constants rather than inline strings so that a
   // rename cannot silently desynchronise the two sides of the contract.
   static const String keyUniqueWorkName = 'uniqueWorkName';
