@@ -186,8 +186,8 @@ SELECT TABLE_NAME,
 
 SELECT 'informational' AS result_type,
        'legacy telemetry retention' AS check_name,
-       'No repository cleanup job is defined for app_telemetry_events or app_downloads' AS observed,
-       'Define and verify a retention policy before production sign-off' AS action;
+       'CLI job admin/backend/mobile_telemetry_retention.php deletes bounded 90-day telemetry/download batches' AS observed,
+       'Define and verify a retention job before production sign-off' AS action;
 
 SELECT 'informational' AS result_type,
        'sync-monitor retention' AS check_name,
