@@ -31,7 +31,7 @@
  * Usage: SSMS_AUDIT_TESTING=1 php tests/e2e/idempotency_lifecycle.php <scenario>
  * Scenarios: all | success | duplicate | concurrent | precommit_failure
  *            | postcommit_crash | lease_expiry | replay | error_pinning
- *            | comm_append | attendance_converge
+ *            | comm_append | attendance_converge | atomic_completion
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -267,6 +267,116 @@ function expireLease(string $recordHash): void
     $stmt->close();
 }
 
+/**
+ * S2/F-20 FIX PATH: the same append-only write, but the idempotency record is
+ * finalised INSIDE the business transaction via completeWithinTransaction().
+ *
+ * This mirrors exactly what MezmurHymnService::saveHymn() now does through its
+ * $beforeCommit hook. complete() is deliberately NEVER called afterwards —
+ * that models the worker dying in the old F-20 window. If the fix works, the
+ * record is already 'completed' when the process dies, so the retry replays.
+ *
+ * @param bool $rollback roll the transaction back instead of committing, to
+ *                       prove the completion is rolled back WITH the effect.
+ */
+function messageWriteAtomic(
+    int $userId,
+    string $key,
+    array $payload,
+    bool $rollback = false
+): array {
+    $svc = service();
+    $begin = $svc->begin($userId, $key, 'POST /api/v1/notifications/message', requestHash($payload));
+    if (($begin['state'] ?? '') !== 'acquired') {
+        return $begin;
+    }
+    $c = db();
+    $c->begin_transaction();
+    $stmt = $c->prepare('INSERT INTO probe_messages (thread_id, sender_id, body) VALUES (?, ?, ?)');
+    $stmt->bind_param('iis', $payload['thread_id'], $userId, $payload['body']);
+    $stmt->execute();
+    $stmt->close();
+
+    $body = json_encode(['status' => 'success', 'atomic' => true]);
+    $marked = $svc->completeWithinTransaction($begin, $body, 201);
+
+    if ($rollback) {
+        $c->rollback();
+        return ['state' => 'rolled_back', 'reservation' => $begin, 'marked' => $marked];
+    }
+    $c->commit();
+    // Worker dies here. complete() is never reached — the F-20 window.
+    return ['state' => 'committed_then_crashed', 'reservation' => $begin, 'marked' => $marked, 'body' => $body];
+}
+
+// ── Scenario I — S2/F-20: atomic completion closes the window ──────────────
+function scenarioAtomicCompletion(array $payload): void
+{
+    $msg = ['thread_id' => 9, 'body' => 'append-only payload'];
+    $scope = 'POST /api/v1/notifications/message';
+
+    // I-1 REGRESSION BASELINE: the legacy order still reproduces the bug, so
+    // this scenario can never silently stop testing anything.
+    resetSchema();
+    messageWrite(1, 'op-legacy-1', $msg, 'after_commit');
+    check(countRows('probe_messages') === 1, 'I-1: legacy path wrote 1 append-only row');
+    $legacyHash = recordHashFor(1, 'op-legacy-1', $scope);
+    check((recordState($legacyHash)['record_state'] ?? '') === 'processing',
+        'I-1: legacy path leaves the record processing after a durable commit');
+    expireLease($legacyHash);
+    $legacyRetry = service()->begin(1, 'op-legacy-1', $scope, requestHash($msg));
+    check(($legacyRetry['state'] ?? '') === 'acquired',
+        'I-1: legacy path RE-ACQUIRES after lease expiry (F-20 reproduced)');
+
+    // I-2 THE FIX: completion inside the transaction.
+    resetSchema();
+    $r = messageWriteAtomic(1, 'op-atomic-1', $msg);
+    check($r['state'] === 'committed_then_crashed', 'I-2: committed, then the worker died before complete()');
+    check($r['marked'] === true, 'I-2: completeWithinTransaction() marked the record');
+    check(countRows('probe_messages') === 1, 'I-2: exactly one append-only row is durable');
+
+    $hash = recordHashFor(1, 'op-atomic-1', $scope);
+    $rec = recordState($hash);
+    check(($rec['record_state'] ?? '') === 'completed',
+        'I-2: THE FIX — the record is already completed, because it committed WITH the effect');
+    check((int)($rec['status_code'] ?? 0) === 201, 'I-2: the real status code survived the crash');
+    check($rec['response_body'] === $r['body'], 'I-2: the real response body survived the crash');
+
+    // The decisive assertion: after lease expiry the operation REPLAYS.
+    expireLease($hash);
+    $retry = service()->begin(1, 'op-atomic-1', $scope, requestHash($msg));
+    check(($retry['state'] ?? '') === 'replay',
+        'I-2: after lease expiry the retry REPLAYS instead of re-executing — F-20 CLOSED');
+    check(countRows('probe_messages') === 1,
+        'I-2: still exactly one row — no second business effect');
+    check(($retry['body'] ?? '') === $r['body'], 'I-2: the replay returns the original body');
+
+    // I-3 ROLLBACK SAFETY: the completion must die with the effect, otherwise
+    // the fix would trade duplicate writes for silently lost writes.
+    resetSchema();
+    $rb = messageWriteAtomic(1, 'op-atomic-2', $msg, true);
+    check($rb['state'] === 'rolled_back', 'I-3: the business transaction rolled back');
+    check($rb['marked'] === true, 'I-3: the UPDATE reported success before the rollback');
+    check(countRows('probe_messages') === 0, 'I-3: no business row survived');
+    $hash2 = recordHashFor(1, 'op-atomic-2', $scope);
+    check((recordState($hash2)['record_state'] ?? '') === 'processing',
+        'I-3: the completion was rolled back TOO — the record is processing again');
+
+    expireLease($hash2);
+    $redo = service()->begin(1, 'op-atomic-2', $scope, requestHash($msg));
+    check(($redo['state'] ?? '') === 'acquired',
+        'I-3: the rolled-back operation is correctly re-executable');
+
+    // I-4 complete() after atomic completion must be a harmless no-op.
+    resetSchema();
+    $r4 = messageWriteAtomic(1, 'op-atomic-3', $msg);
+    service()->complete($r4['reservation'], json_encode(['status' => 'success', 'late' => true]), 200);
+    $rec4 = recordState(recordHashFor(1, 'op-atomic-3', $scope));
+    check($rec4['response_body'] === $r4['body'],
+        'I-4: a late complete() cannot overwrite the atomically stored body');
+    check((int)($rec4['status_code'] ?? 0) === 201, 'I-4: a late complete() cannot overwrite the status code');
+}
+
 $PAYLOAD = ['class_id' => 7, 'date' => '2026-03-01', 'records' => [
     ['member_id' => 101, 'status' => 'present'],
     ['member_id' => 102, 'status' => 'absent'],
@@ -476,6 +586,7 @@ switch ($SCENARIO) {
     case 'comm_append':         scenarioCommAppend(); break;
     case 'replay':              scenarioReplay($PAYLOAD); break;
     case 'error_pinning':       scenarioErrorPinning($PAYLOAD); break;
+    case 'atomic_completion':   scenarioAtomicCompletion($PAYLOAD); break;
     case 'all':
         scenarioSuccess($PAYLOAD);
         scenarioDuplicate($PAYLOAD);
@@ -486,6 +597,7 @@ switch ($SCENARIO) {
         scenarioCommAppend();
         scenarioReplay($PAYLOAD);
         scenarioErrorPinning($PAYLOAD);
+        scenarioAtomicCompletion($PAYLOAD);
         break;
     default:
         fwrite(STDERR, "unknown scenario: $SCENARIO\n");

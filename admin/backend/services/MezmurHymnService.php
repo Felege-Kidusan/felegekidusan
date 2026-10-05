@@ -1157,7 +1157,7 @@ final class MezmurHymnService
      * @param array{id?:int|string,title?:string,category?:string,lyrics?:string,status?:string,length?:string,language?:string,categories?:mixed,zemarians?:mixed,base_revision?:int|string|null} $input
      * @return array{ok:bool,conflict?:bool,item?:array|null,message:string,created?:bool}
      */
-    public static function saveHymn(\mysqli $conn, array $input, int $actorId): array
+    public static function saveHymn(\mysqli $conn, array $input, int $actorId, ?callable $beforeCommit = null): array
     {
         $id        = (int)($input['id'] ?? 0);
         $title     = trim((string)($input['title'] ?? ''));
@@ -1426,6 +1426,27 @@ final class MezmurHymnService
             self::syncHymnCategories($conn, $newId, $categoryIds);
             self::syncHymnZemarians($conn, $newId, $zemarianIds);
             self::reindexHymnWords($conn, $newId, $title, $lyrics);
+            // S2/F-20: let the caller finalise its idempotency record INSIDE
+            // this transaction. Creating a hymn is the one append-only write in
+            // this service whose uniqueness guard (sql/031 uq_mezmur_hymns_title)
+            // is CONDITIONAL — that migration refuses to create the index when
+            // case-insensitive duplicate titles already exist, and says so
+            // itself. Where the index is absent a post-commit crash followed by
+            // lease expiry re-executes this INSERT and produces a SECOND hymn.
+            // Completing the idempotency record here makes the business effect
+            // and its completion one atomic outcome, which closes that window
+            // whether or not the index exists. A missing callback or a false
+            // return leaves pre-S2 behaviour exactly as it was.
+            if ($beforeCommit !== null) {
+                try {
+                    $beforeCommit([
+                        'created' => true,
+                        'item' => self::getHymn($conn, $newId),
+                    ]);
+                } catch (\Throwable $hookError) {
+                    // Never let idempotency bookkeeping abort a valid business write.
+                }
+            }
             $conn->commit();
         } catch (\Throwable $e) {
             try { $conn->rollback(); } catch (\Throwable $r) {}

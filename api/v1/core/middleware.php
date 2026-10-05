@@ -194,6 +194,35 @@ function apiIdempotencyBegin(
     err('Idempotency service is temporarily unavailable. Please retry safely.', 503);
 }
 
+/**
+ * Atomically finalise the in-flight idempotency reservation inside the caller's
+ * ALREADY-OPEN business transaction (S2, F-20).
+ *
+ * Call this as the last statement before the business COMMIT, for routes whose
+ * business effect is NOT convergent under re-execution. After it returns true
+ * the later apiIdempotencyStore() is a no-op, because complete() only matches
+ * rows still in `processing`.
+ *
+ * Returns false when atomic completion was not possible (file-backend fallback,
+ * oversized body, or already finalised); the caller simply proceeds, leaving
+ * pre-S2 behaviour intact.
+ *
+ * MUST only be called with a transaction open, otherwise the UPDATE autocommits
+ * and reintroduces the very window it exists to close.
+ */
+function apiIdempotencyCompleteAtomically(string $json, int $code): bool {
+    $pack = $GLOBALS['_fkss_idem'] ?? null;
+    if (!is_array($pack)
+        || !(($pack['service'] ?? null) instanceof \App\Services\ApiIdempotencyService)
+        || !is_array($pack['reservation'] ?? null)) {
+        return false;
+    }
+    if ($code === 429) {
+        return false;
+    }
+    return $pack['service']->completeWithinTransaction($pack['reservation'], $json, $code);
+}
+
 function apiIdempotencyStore(string $json, int $code): void {
     $pack = $GLOBALS['_fkss_idem'] ?? null;
     unset($GLOBALS['_fkss_idem']);
