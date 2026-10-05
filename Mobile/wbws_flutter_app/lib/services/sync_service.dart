@@ -340,9 +340,39 @@ class SyncService {
     if (!_ownsGeneration(generation)) {
       return _pausedResult(synced: synced, failed: failed);
     }
-    if (nextAttempt != null && (force || ConnectivityService().hasLink)) {
-      final wait = nextAttempt.difference(DateTime.now().toUtc());
-      nudge(delay: wait <= Duration.zero ? Duration.zero : wait);
+    if (nextAttempt != null) {
+      // S2 Goal A.4 — THE opportunity request. This is the one place in the
+      // app that knows, authoritatively, both that durable work remains and
+      // when it next becomes eligible: `nextAttempt` is read from the outbox
+      // itself (legacy tables UNION pending_hymn_ops), not guessed.
+      //
+      // It asks the platform for a future execution opportunity. It does not
+      // claim, does not drain, does not queue and does not decide
+      // eligibility — when the opportunity is eventually granted it re-enters
+      // through `_coordinator.execute()` -> `runSyncNow()` -> this same
+      // drain, and the claim query decides what is actually due.
+      //
+      // `notBefore` is advisory: the OS may run us late, early or twice, and
+      // the claim still admits only rows whose `next_attempt_at` has passed.
+      //
+      // NOTE this is deliberately OUTSIDE the connectivity check below. The
+      // foreground nudge is pointless without a link, but an opportunity is
+      // most valuable exactly then: `requiresNetwork: true` lets the OS wake
+      // us when connectivity returns, which is the case the in-app timer
+      // cannot cover because the process may not be alive.
+      //
+      // unawaited + catchError: a scheduling failure must never fail or delay
+      // a drain. The coordinator resets its own pending flag before
+      // rethrowing, so the next drain simply requests again.
+      unawaited(
+        _coordinator
+            .requestOpportunity(notBefore: nextAttempt)
+            .catchError((Object _) {}),
+      );
+      if (force || ConnectivityService().hasLink) {
+        final wait = nextAttempt.difference(DateTime.now().toUtc());
+        nudge(delay: wait <= Duration.zero ? Duration.zero : wait);
+      }
     }
 
     // S1 telemetry semantics. The pre-S1 event said `success: failed == 0`
