@@ -156,10 +156,10 @@ $sum = $atMetrics['summary'] ?? [];
     <div class="sec-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
         <div>
             <h2 class="sec-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.4rem;color:#f8fafc">
-                <i class="fa-solid fa-chart-line" style="color:#38bdf8"></i> Fleet Analytics &amp; Sync Monitoring
+                <i class="fa-solid fa-chart-line" style="color:#38bdf8"></i> Mobile Fleet Telemetry &amp; Analytics
             </h2>
             <p class="sec-desc" style="color:#94a3b8;font-size:0.875rem">
-                Fleet installations, version/device telemetry, and server-observed synchronization operations
+                Fleet installations, version/device telemetry, and server-observed sync operations
             </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
@@ -168,60 +168,9 @@ $sum = $atMetrics['summary'] ?? [];
     </div>
     <p id="telemetry-status" role="status" hidden style="margin:-0.75rem 0 1rem;padding:0.75rem 1rem;border:1px solid rgba(248,113,113,.35);border-radius:6px;background:rgba(127,29,29,.18);color:#fecaca"></p>
 
-    <!-- SERVER-OBSERVED SYNC MONITORING -->
-    <div class="at-card" style="margin-bottom:1.5rem;border-top:3px solid #f59e0b">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
-            <div>
-                <h3 style="margin:0;color:#f8fafc;font-size:1.1rem"><i class="fa-solid fa-wave-square" style="color:#f59e0b"></i> Web / Admin Sync Monitoring</h3>
-                <p style="margin:.35rem 0 0;color:#94a3b8;font-size:.78rem">Read-only server-observed lifecycle, idempotency and request correlation. Local pending work is not counted as zero.</p>
-            </div>
-            <button type="button" class="btn btn-outline btn-sm" onclick="if(window.SyncMonitorUI)window.SyncMonitorUI.refresh()"><i class="fa-solid fa-rotate"></i> Refresh Monitor</button>
-        </div>
-        <p id="sync-monitor-status" role="status" hidden style="margin:0 0 1rem;padding:.65rem .8rem;border:1px solid rgba(248,113,113,.35);border-radius:6px;background:rgba(127,29,29,.18);color:#fecaca;font-size:.78rem"></p>
-        <div class="at-kpi-grid" style="margin-bottom:1rem">
-            <?php foreach ([
-                ['pending','Pending','Not server-observable','#64748b'],
-                ['retrying','Retrying','Not server-observable','#64748b'],
-                ['failed','Failed / rejected','Server responses','#f87171'],
-                ['in_flight','In flight','Open server reservations','#38bdf8'],
-                ['stale','Stale','Open > 15 minutes','#f59e0b'],
-                ['recent_successful','Recent successful','Completed server responses','#4ade80'],
-            ] as $card): ?>
-                <div class="at-kpi-card" style="border-left:4px solid <?= $card[3] ?>">
-                    <div class="at-kpi-label"><i class="fa-solid fa-circle" style="color:<?= $card[3] ?>;font-size:.5rem"></i> <?= htmlspecialchars($card[1]) ?></div>
-                    <div class="at-kpi-num" id="sync-kpi-<?= $card[0] ?>">—</div>
-                    <div class="at-kpi-sub" id="sync-kpi-<?= $card[0] ?>-sub"><?= htmlspecialchars($card[2]) ?></div>
-                </div>
-            <?php endforeach; ?>
-        </div>
-        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.9rem">
-            <select id="sync-monitor-range" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.refresh()">
-                <option value="1h">Last hour</option><option value="24h">Last 24 hours</option><option value="7d" selected>Last 7 days</option><option value="30d">Last 30 days</option><option value="all">All retained</option>
-            </select>
-            <select id="sync-monitor-status-filter" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.loadAttempts(1)">
-                <option value="">All statuses</option><option value="in_flight">In flight</option><option value="stale">Stale</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="rejected">Rejected</option><option value="replayed">Replayed</option>
-            </select>
-            <select id="sync-monitor-domain-filter" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.loadAttempts(1)">
-                <option value="">All domains</option><option value="attendance">Attendance</option><option value="grades">Grades</option><option value="hr">HR</option><option value="mezmur">Mezmur</option><option value="notifications">Notifications</option><option value="users">Users</option><option value="other">Other</option>
-            </select>
-            <select id="sync-monitor-source-filter" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.loadAttempts(1)">
-                <option value="">All sources</option><option value="foreground">Foreground</option><option value="background">Background</option><option value="not_observed">Source not observed</option>
-            </select>
-            <input id="sync-monitor-search" class="ar-input" style="width:220px;padding:.4rem .65rem;font-size:.78rem" placeholder="Search request or operation id" oninput="SyncMonitorUI.search(this.value)">
-        </div>
-        <div class="at-table-wrap">
-            <table>
-                <thead><tr><th>Status</th><th>Started</th><th>Domain / operation</th><th>User</th><th>Attempt</th><th>Source</th><th>HTTP / outcome</th><th>Detail</th></tr></thead>
-                <tbody id="sync-monitor-table-body"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr></tbody>
-            </table>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.8rem;font-size:.75rem;color:#94a3b8">
-            <span id="sync-monitor-page-info">—</span>
-            <div style="display:flex;gap:.4rem"><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-prev" onclick="SyncMonitorUI.page(-1)">Prev</button><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-next" onclick="SyncMonitorUI.page(1)">Next</button></div>
-        </div>
-        <div id="sync-monitor-detail" hidden style="margin-top:1rem;padding:.9rem;border:1px solid #334155;border-radius:.5rem;background:#0f172a;font-size:.78rem"></div>
-    </div>
-
+    <!-- Server-observed sync health and recent operations are integrated into
+         the existing fleet analytics section below; there is one dashboard
+         surface rather than a second sync dashboard. -->
     <!-- Filter Control Bar -->
     <div class="at-card" style="margin-bottom:1.5rem;padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
@@ -272,6 +221,59 @@ $sum = $atMetrics['summary'] ?? [];
             <div class="at-kpi-num" id="kpi-crashes"><?= number_format((int)($sum['total_crashes'] ?? 0)) ?></div>
             <div class="at-kpi-sub"><span id="kpi-launches"><?= number_format((int)($sum['total_launches'] ?? 0)) ?></span> total app sessions</div>
         </div>
+
+        <?php foreach ([
+            ['pending','Pending','Not server-observable','#64748b'],
+            ['retrying','Retrying','Retry schedule not server-observable','#64748b'],
+            ['failed','Failed / rejected','Server responses','#f87171'],
+            ['in_flight','In flight','Open server reservations','#38bdf8'],
+            ['stale','Stale','Open > 15 minutes','#f59e0b'],
+            ['recent_successful','Recent successful','Completed server responses','#4ade80'],
+        ] as $card): ?>
+            <div class="at-kpi-card" style="border-left:4px solid <?= $card[3] ?>">
+                <div class="at-kpi-label"><i class="fa-solid fa-circle" style="color:<?= $card[3] ?>;font-size:.5rem"></i> <?= htmlspecialchars($card[1]) ?></div>
+                <div class="at-kpi-num" id="sync-kpi-<?= $card[0] ?>">—</div>
+                <div class="at-kpi-sub" id="sync-kpi-<?= $card[0] ?>-sub"><?= htmlspecialchars($card[2]) ?></div>
+            </div>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- RECENT SERVER-OBSERVED SYNC OPERATIONS -->
+    <div class="at-card" style="margin-bottom:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
+            <div>
+                <h3 style="margin:0;color:#f8fafc;font-size:1.1rem"><i class="fa-solid fa-wave-square" style="color:#f59e0b"></i> Recent Sync Operations</h3>
+                <p style="margin:.35rem 0 0;color:#94a3b8;font-size:.78rem">Server-observed lifecycle, idempotency, request correlation, and safe outcomes. Local pending work is not counted as zero.</p>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="if(window.SyncMonitorUI)window.SyncMonitorUI.refresh()"><i class="fa-solid fa-rotate"></i> Refresh Sync Operations</button>
+        </div>
+        <p id="sync-monitor-status" role="status" hidden style="margin:0 0 1rem;padding:.65rem .8rem;border:1px solid rgba(248,113,113,.35);border-radius:6px;background:rgba(127,29,29,.18);color:#fecaca;font-size:.78rem"></p>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.9rem">
+            <select id="sync-monitor-range" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.refresh()">
+                <option value="1h">Last hour</option><option value="24h">Last 24 hours</option><option value="7d" selected>Last 7 days</option><option value="30d">Last 30 days</option><option value="all">All retained</option>
+            </select>
+            <select id="sync-monitor-status-filter" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.loadAttempts(1)">
+                <option value="">All statuses</option><option value="in_flight">In flight</option><option value="stale">Stale</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="rejected">Rejected</option><option value="replayed">Replayed</option>
+            </select>
+            <select id="sync-monitor-domain-filter" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.loadAttempts(1)">
+                <option value="">All domains</option><option value="attendance">Attendance</option><option value="grades">Grades</option><option value="hr">HR</option><option value="mezmur">Mezmur</option><option value="notifications">Notifications</option><option value="users">Users</option><option value="other">Other</option>
+            </select>
+            <select id="sync-monitor-source-filter" class="ar-select" style="width:auto;padding:.4rem .65rem;font-size:.78rem" onchange="SyncMonitorUI.loadAttempts(1)">
+                <option value="">All sources</option><option value="foreground">Foreground</option><option value="background">Background</option><option value="not_observed">Source not observed</option>
+            </select>
+            <input id="sync-monitor-search" class="ar-input" style="width:220px;padding:.4rem .65rem;font-size:.78rem" placeholder="Search request or operation id" oninput="SyncMonitorUI.search(this.value)">
+        </div>
+        <div class="at-table-wrap">
+            <table>
+                <thead><tr><th>Status</th><th>Started</th><th>Domain / operation</th><th>User</th><th>Attempt</th><th>Source</th><th>HTTP / outcome</th><th>Detail</th></tr></thead>
+                <tbody id="sync-monitor-table-body"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr></tbody>
+            </table>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.8rem;font-size:.75rem;color:#94a3b8">
+            <span id="sync-monitor-page-info">—</span>
+            <div style="display:flex;gap:.4rem"><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-prev" onclick="SyncMonitorUI.page(-1)">Prev</button><button type="button" class="btn btn-outline btn-sm" id="sync-monitor-next" onclick="SyncMonitorUI.page(1)">Next</button></div>
+        </div>
+        <div id="sync-monitor-detail" hidden style="margin-top:1rem;padding:.9rem;border:1px solid #334155;border-radius:.5rem;background:#0f172a;font-size:.78rem"></div>
     </div>
 
     <!-- Two-Column Analytics Grid -->
