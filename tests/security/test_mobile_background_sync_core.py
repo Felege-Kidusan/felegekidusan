@@ -654,13 +654,16 @@ class ConstructorInjectionA5(unittest.TestCase):
         self.assertIn("notBefore", self.behavior_code)
         self.assertIn("cancelCount", self.behavior_code)
 
-    # -- E: F-19 stays frozen --------------------------------------------
-    def test_no_test_only_dependency_was_added(self):
-        for banned in ("sqflite_common_ffi", "mockito", "mocktail",
-                       "workmanager", "get_it"):
+    # -- E: A.11 adds only the documented SQLite test binding --------------
+    def test_only_the_documented_sqlite_test_binding_is_added(self):
+        self.assertIn("sqflite: ^2.3.0", self.pubspec)
+        dev_dependencies = self.pubspec.split("dev_dependencies:", 1)[1]
+        self.assertIn("sqflite_common_ffi: 2.3.4+4", dev_dependencies)
+        self.assertIn("sqlite3: 2.9.4", dev_dependencies)
+        for banned in ("mockito", "mocktail", "workmanager", "get_it"):
             self.assertNotIn(
                 banned, self.pubspec,
-                f"pubspec.yaml is frozen by F-19 ({banned})",
+                f"A.11 must not add an unrelated dependency ({banned})",
             )
             self.assertNotIn(banned, self.behavior_code)
 

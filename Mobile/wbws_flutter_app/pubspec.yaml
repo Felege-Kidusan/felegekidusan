@@ -89,6 +89,16 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.8
 
+  # A.11 only: runs the production sqflite LocalDb against native SQLite in
+  # Dart tests. This is test-only; Android production continues to use
+  # sqflite/sqflite_android. Pinned to the last FFI release compatible with
+  # the A.10 sqflite_common lock, avoiding unrelated dependency churn.
+  sqflite_common_ffi: 2.3.4+4
+  # sqflite_common_ffi 2.3.4+4 imports sqlite3/open.dart on all analyzer
+  # targets; sqlite3 3.x removed that compatibility entry point. Keep the
+  # native SQLite driver on the compatible 2.x line for this test-only path.
+  sqlite3: 2.9.4
+
 flutter:
   uses-material-design: true
   
