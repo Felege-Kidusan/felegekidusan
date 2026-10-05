@@ -340,17 +340,43 @@ Ten harnesses under `tests/security/` execute real SQLite 3:
 `test_mobile_sync_recovery_center`, `test_mobile_v34_sqlite_runtime`,
 `test_review_transition_hardening`, `test_save_path_lock_race`.
 
+> **CORRECTION — S2 Goal A.7 (documentation/verification only).**
+>
+> The label `VERIFIED BY REAL SQLITE RUNTIME` used in the four rows below was
+> **overstated by omission**. It is true that a real SQLite engine executes
+> real production DDL — but a reader can fairly read "real SQLite runtime" as
+> "the app's own database runtime ran", and that did not happen and still has
+> not. Two different things were being collapsed into one phrase:
+>
+> | Phrase | What it actually means | True here? |
+> |---|---|---|
+> | **real SQLite database execution** | a real `sqlite3` engine executes real DDL/SQL extracted from production source, with real rows, real `PRAGMA` introspection and real constraint enforcement | **YES** |
+> | **actual sqflite platform-runtime execution** | the production Dart path (`LocalDb` → sqflite `openDatabase`/`transaction`) actually runs | **NO** |
+>
+> sqflite needs an Android/iOS platform binding, or `sqflite_common_ffi`, which
+> is not in `pubspec.lock` and cannot be added because F-19 freezes
+> `pubspec.yaml`/`pubspec.lock`. No Dart test in this repository opens a
+> database. So in every row below the **SQL is production's**, extracted at
+> test time and never retyped, while the **Dart control flow around it is
+> reproduced** by the Python harness and pinned separately against source.
+>
+> The claims themselves are unchanged and were not overturned — only their
+> label was too generous. The rows are relabelled accordingly below. A.6
+> recorded this inconsistency in its §3; A.7 is where it is fixed. Nothing in
+> the original audit's findings is withdrawn.
+
+
 | Claim | Status |
 |---|---|
-| v34 tables, columns, indexes, claim interleavings | **VERIFIED BY REAL SQLITE RUNTIME** — `test_mobile_v34_sqlite_runtime.py` loads production DDL from `local_schema_v34.dart` and executes it |
-| `sync_attempts` **create** path incl. `execution_source` | **VERIFIED BY REAL SQLITE RUNTIME** — `test_mobile_sync_attempt_ledger.py` runs the shipped `localSyncAttemptsV36Sql`, asserts the exact column set via `PRAGMA table_info` |
-| `sync_attempts` uniqueness constraints (`attempt_uid`, per-op identity) | **VERIFIED BY REAL SQLITE RUNTIME** — provokes real `sqlite3.IntegrityError` |
-| `sync_attempts` indexes | **VERIFIED BY REAL SQLITE RUNTIME** — 5 index statements executed |
-| v36→v37 **upgrade** `ALTER TABLE` | **NOT VERIFIED** — the guarded `ALTER` in `onUpgrade` is executed by no test |
+| v34 tables, columns, indexes, claim interleavings | **VERIFIED BY REAL SQLITE DATABASE EXECUTION** (not sqflite platform runtime — see correction above) — `test_mobile_v34_sqlite_runtime.py` loads production DDL from `local_schema_v34.dart` and executes it |
+| `sync_attempts` **create** path incl. `execution_source` | **VERIFIED BY REAL SQLITE DATABASE EXECUTION** (not sqflite platform runtime — see correction above) — `test_mobile_sync_attempt_ledger.py` runs the shipped `localSyncAttemptsV36Sql`, asserts the exact column set via `PRAGMA table_info` |
+| `sync_attempts` uniqueness constraints (`attempt_uid`, per-op identity) | **VERIFIED BY REAL SQLITE DATABASE EXECUTION** (not sqflite platform runtime — see correction above) — provokes real `sqlite3.IntegrityError` |
+| `sync_attempts` indexes | **VERIFIED BY REAL SQLITE DATABASE EXECUTION** (not sqflite platform runtime — see correction above) — 5 index statements executed |
+| v36→v37 **upgrade** `ALTER TABLE` | **NOT VERIFIED** at the time of this audit — the guarded `ALTER` in `onUpgrade` was executed by no test. *Amended by S2 Goal A.6:* now **VERIFIED BY REAL SQLITE DATABASE EXECUTION** against a derived-and-pinned v36 fixture (`test_mobile_v36_to_v37_upgrade.py`); the Dart `onUpgrade` method itself is still not executed |
 | `localDatabaseSchemaVersion = 37` pin | **VERIFIED BY TEST** (source assertion, 4 pinned files) |
 | Legacy outbox claim query predicates | **VERIFIED BY SOURCE** + mutation-pinned (M4, M5, M6) |
 | `execution_source` written at claim time | **VERIFIED BY SOURCE** + mutation-pinned (M1, M2, M3) |
-| `execution_source` round-trip through a real DB write/read | **NOT VERIFIED** |
+| `execution_source` round-trip through a real DB write/read | **NOT VERIFIED** at the time of this audit. *Amended by S2 Goal A.6 and A.7:* values are now written and read back in real SQLite, including `foreground`/`background` rows produced by the hymn claim's extracted SQL (`test_mobile_hymn_attempt_ledger.py`) |
 | Owner / session predicates at runtime | **VERIFIED BY SOURCE**; `activeSessionMatches` not exercised against a real DB |
 | sqflite transaction semantics | **NOT VERIFIED** — the Python harnesses use `sqlite3`, not sqflite |
 
