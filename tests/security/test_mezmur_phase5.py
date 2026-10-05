@@ -2345,7 +2345,9 @@ class MezmurOfflineHymnTests(unittest.TestCase):
     # ── sync engine integration ───────────────────────────────
     def test_sync_engine_drains_hymn_outbox_and_pulls(self):
         self.assertIn("HymnStore()", self.sync)
-        self.assertIn("pushPending()", self.sync)
+        # S2 Goal A.7: the drain now also hands the hymn push the provenance
+        # of the execution, so the pin follows the call it was always about.
+        self.assertIn("pushPending(source: source)", self.sync)
         self.assertIn("pullChanges()", self.sync)
         self.assertIn("pendingHymns", self.sync)
         self.assertIn("hymn change", self.sync)

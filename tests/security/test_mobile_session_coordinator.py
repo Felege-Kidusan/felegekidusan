@@ -277,7 +277,11 @@ def test_generation_supersedes_late_http_and_whole_worker_chains() -> None:
     assert "_doFetch(generation)" in CATALOG
     assert "classes(expectedGeneration: generation)" in WARM_STORE
     assert "final generation = sessionGenerationProvider?.call() ?? 0" in HYMNS
-    assert "await hymnStore.pushPending()" in SYNC
+    # S2 Goal A.7 tightened this call: the drain is the authoritative
+    # execution boundary, so it now also hands the hymn push the provenance
+    # of the drain. The generation guard this test exists for is unchanged,
+    # and the pin is strictly stronger than the bare call it replaces.
+    assert "await hymnStore.pushPending(source: source)" in SYNC
     assert "await hymnStore.pullChanges()" in SYNC
     assert "response.sessionSuperseded || !_ownsGeneration(generation)" in HYMNS
 

@@ -1,4 +1,4 @@
-"""S2 Goal A.1 + A.2 + A.4 + A.5 + A.6 — mutation harness for the background sync core.
+"""S2 Goal A.1 + A.2 + A.4 + A.5 + A.6 + A.7 — mutation harness for the background sync core.
 
 Each entry breaks ONE invariant the architecture tests claim to protect, runs
 tests/security/test_mobile_background_sync_core.py, then restores the file
@@ -33,13 +33,24 @@ TEST=["tests/security/test_mobile_background_sync_core.py",
       # A.6: the v36->v37 upgrade suite. Registered here so M36-M41 are run
       # against it; without this the migration mutations would report CAUGHT
       # or SURVIVED on a suite that never looks at the migration.
-      "tests/security/test_mobile_v36_to_v37_upgrade.py"]
+      "tests/security/test_mobile_v36_to_v37_upgrade.py",
+      # A.7: the hymn attempt-ledger suite. Registered for the same reason as
+      # A.6's: M42-M60 touch the hymn claim/settle path, which none of the
+      # other three suites looks at, so without this they would report
+      # nothing useful.
+      "tests/security/test_mobile_hymn_attempt_ledger.py"]
 
 MUT=[
  ("M1 remove execution-source propagation into the claim",
   f"{LIB}/sync_service.dart","        executionSource: source,\n",""),
- ("M2 drop the source before the ledger write",
-  f"{LIB}/local_db.dart","          executionSource: executionSource,\n",""),
+ # A.7 finding: this anchor stopped being unique the moment the hymn claim
+ # grew its own _openSyncAttempt call at the same indentation. Re-anchored to
+ # the legacy call's own preceding argument, which only the legacy site has.
+ ("M2 drop the source before the LEGACY ledger write",
+  f"{LIB}/local_db.dart",
+  "          authorizationVersion: authorizationVersion,\n"
+  "          executionSource: executionSource,\n",
+  "          authorizationVersion: authorizationVersion,\n"),
  ("M3 stop writing the durable column",
   f"{LIB}/local_db.dart","        'execution_source': executionSource.storageValue,\n",""),
  # A.3 finding M-1: this anchor used to be the bare predicate, which occurs
@@ -185,6 +196,101 @@ MUT=[
   f"{LIB}/local_db.dart",
   "if (await _tableExists(db, 'sync_attempts')) {",
   "if (true) {"),
+ # ── S2 Goal A.7 — hymn attempt-ledger lineage ───────────────────────────────
+ # Targets named by the brief: removing executionSource propagation, skipping
+ # sync_attempts creation, wrong source, wrong client_op_id, wrong attempt
+ # number, wrong owner lineage, an attempt without a successful claim,
+ # duplicate lineage, and bypassing the ledger. The hymn claim's SQL is
+ # extracted by the A.7 suite at runtime, so M57-M60 are caught behaviourally
+ # against real SQLite; the Dart control flow around it is caught by the
+ # source pins, which is the pairing A.6 proved is necessary.
+ ("M42 the hymn claim stops accepting an execution source",
+  f"{LIB}/local_db.dart",
+  "    SyncExecutionSource executionSource = SyncExecutionSource.foreground,\n"
+  "  }) async {\n    final db = await database;\n    final hasAttemptLedger",
+  "  }) async {\n    final db = await database;\n    final hasAttemptLedger"),
+ ("M43 the drain stops handing the hymn push its provenance",
+  f"{LIB}/sync_service.dart",
+  "hymnStore.pushPending(source: source)","hymnStore.pushPending()"),
+ ("M44 HymnStore invents its own provenance instead of being told",
+  f"{LIB}/hymn_store.dart",
+  "          executionSource: source,\n",
+  "          executionSource: SyncExecutionSource.background,\n"),
+ ("M45 the hymn claim skips sync_attempts creation entirely",
+  f"{LIB}/local_db.dart",
+  "      if (hasAttemptLedger && clientOpId.isNotEmpty) {",
+  "      if (false) {"),
+ ("M46 an attempt can be opened for an operation that was not claimed",
+  f"{LIB}/local_db.dart",
+  "        throw StateError('Hymn operation claim was not atomic.');\n",""),
+ ("M47 the hymn attempt is filed under the legacy domain",
+  f"{LIB}/local_db.dart",
+  "          domain: 'pending_hymn_ops',\n",
+  "          domain: 'pending_attendance',\n"),
+ ("M48 the attempt records the pre-increment attempt number",
+  f"{LIB}/local_db.dart",
+  "          attemptNumber: attemptNumber,\n",
+  "          attemptNumber: _asIntLocal(row['attempt_count']),\n"),
+ ("M49 the attempt records the wrong operation identity",
+  f"{LIB}/local_db.dart",
+  "      final clientOpId = '${row['client_op_id'] ?? ''}';\n",
+  "      final clientOpId = '${row['op'] ?? ''}';\n"),
+ ("M50 the attempt records the drainer's owner, not the operation's",
+  f"{LIB}/local_db.dart",
+  "          ownerUserId: rowOwner == null ? ownerUserId : _asIntLocal(rowOwner),\n",
+  "          ownerUserId: ownerUserId,\n"),
+ ("M51 the attempt records the drainer's authorization version",
+  f"{LIB}/local_db.dart",
+  "          authorizationVersion: rowAuthorizationVersion == null\n"
+  "              ? authorizationVersion\n"
+  "              : _asIntLocal(rowAuthorizationVersion),\n",
+  "          authorizationVersion: authorizationVersion,\n"),
+ ("M52 a replayed claim is allowed to duplicate lineage",
+  f"{LIB}/local_db.dart",
+  "        'retry_decision': SyncRetryDecision.pending.storageValue,\n"
+  "      },\n      conflictAlgorithm: ConflictAlgorithm.ignore,\n",
+  "        'retry_decision': SyncRetryDecision.pending.storageValue,\n"
+  "      },\n      conflictAlgorithm: ConflictAlgorithm.replace,\n"),
+ ("M53 the hymn settlement never closes its attempt",
+  f"{LIB}/local_db.dart",
+  "      if (updated == 1 &&\n          attemptClosure != null &&",
+  "      if (false &&\n          attemptClosure != null &&"),
+ ("M54 a settlement that did not apply still closes an attempt",
+  f"{LIB}/local_db.dart",
+  "if (updated == 1 &&","if (updated >= 0 &&"),
+ ("M55 one hymn settlement path leaves its attempt open forever",
+  f"{LIB}/hymn_store.dart",
+  "          attemptClosure: SyncAttemptClosure(\n            category: category,",
+  "          unusedClosure: SyncAttemptClosure(\n            category: category,"),
+ ("M56 the attempt's entity_ref leaks the operation payload",
+  f"{LIB}/local_db.dart",
+  "          entityRef: {\n            'op': operation,",
+  "          entityRef: {\n            'payload_json': '${row['payload_json']}',\n"
+  "            'op': operation,"),
+ ("M57 the hymn claim stops incrementing attempt_count",
+  f"{LIB}/local_db.dart",
+  "        \"UPDATE pending_hymn_ops SET sync_state = 'in_flight', \"\n"
+  "        'attempt_count = attempt_count + 1, last_attempt_at = ?, '\n",
+  "        \"UPDATE pending_hymn_ops SET sync_state = 'in_flight', \"\n"
+  "        'attempt_count = attempt_count, last_attempt_at = ?, '\n"),
+ ("M58 the hymn claim stops clearing next_attempt_at",
+  f"{LIB}/local_db.dart",
+  "        \"UPDATE pending_hymn_ops SET sync_state = 'in_flight', \"\n"
+  "        'attempt_count = attempt_count + 1, last_attempt_at = ?, '\n"
+  "        'next_attempt_at = NULL '\n",
+  "        \"UPDATE pending_hymn_ops SET sync_state = 'in_flight', \"\n"
+  "        'attempt_count = attempt_count + 1, last_attempt_at = ?, '\n"
+  "        'failure_code = NULL '\n"),
+ ("M59 hymn coalescing is dropped from the candidate SELECT",
+  f"{LIB}/local_db.dart",
+  "           AND NOT EXISTS (\n"
+  "             SELECT 1 FROM pending_hymn_ops earlier\n",
+  "           AND NOT EXISTS (\n"
+  "             SELECT 1 FROM pending_hymn_ops earlier WHERE 1 = 0 AND\n"),
+ ("M60 hymn ordering is reversed",
+  f"{LIB}/local_db.dart",
+  "         ORDER BY candidate.id\n         LIMIT 1\n",
+  "         ORDER BY candidate.id DESC\n         LIMIT 1\n"),
 ]
 # Anchor-uniqueness gate (the A.3 lesson, finding M-1, made permanent).
 # str.replace(old, new, 1) edits the FIRST match, so an anchor that occurs more

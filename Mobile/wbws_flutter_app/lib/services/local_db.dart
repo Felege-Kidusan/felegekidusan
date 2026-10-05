@@ -6221,8 +6221,13 @@ class LocalDb {
     required int ownerUserId,
     required int authorizationVersion,
     DateTime? now,
+    // S2 Goal A.7: the provenance of the drain performing this claim. The
+    // authoritative execution boundary passes it down; it is never inferred
+    // here from who called us.
+    SyncExecutionSource executionSource = SyncExecutionSource.foreground,
   }) async {
     final db = await database;
+    final hasAttemptLedger = await _tableExists(db, 'sync_attempts');
     final claimedAt = (now ?? DateTime.now()).toUtc();
     final claimedAtText = claimedAt.toIso8601String();
     return db.transaction((txn) async {
@@ -6296,13 +6301,59 @@ class LocalDb {
       if (affected != 1) {
         throw StateError('Hymn operation claim was not atomic.');
       }
+      final clientOpId = '${row['client_op_id'] ?? ''}';
+      final operation = '${row['op'] ?? ''}';
+      final attemptNumber = _asIntLocal(row['attempt_count']) + 1;
+      final entityKey = '${row['entity_key'] ?? ''}'.trim();
+
+      // S2 Goal A.7 lineage: hymn operations join the SAME durable attempt
+      // ledger the legacy outbox has written since S1. The row is opened
+      // inside the claim transaction, after the claim has already proven
+      // atomic, so there can be no attempt row without a successful claim and
+      // no claimed operation whose attempt went unrecorded across a process
+      // death. _openSyncAttempt inserts with ConflictAlgorithm.ignore, so a
+      // replayed claim of the same (client_op_id, attempt_number) is a no-op
+      // instead of duplicated lineage.
+      //
+      // Rows predating client_op_id carry no transmission identity, and
+      // sync_attempts keys on it; inventing one would be fabricated lineage,
+      // so those rows claim exactly as before and stay unledgered.
+      if (hasAttemptLedger && clientOpId.isNotEmpty) {
+        final rowOwner = row['created_by_user_id'];
+        final rowAuthorizationVersion = row['created_authorization_version'];
+        await _openSyncAttempt(
+          txn,
+          clientOpId: clientOpId,
+          attemptNumber: attemptNumber,
+          attemptUid: newAttemptUid(),
+          domain: 'pending_hymn_ops',
+          startedAt: claimedAt,
+          // Natural key only — never the operation payload.
+          entityRef: {
+            'op': operation,
+            if (entityKey.isNotEmpty) 'entity_key': entityKey,
+          },
+          // The claimed operation's OWN lineage, not the drainer's. Hymn
+          // operations are shared, so the session draining one may differ
+          // from the session that created it; the legacy path records the
+          // claimed row's owner and this preserves that meaning. Falls back
+          // to the claiming session only for rows written before these
+          // columns carried a value.
+          ownerUserId: rowOwner == null ? ownerUserId : _asIntLocal(rowOwner),
+          authorizationVersion: rowAuthorizationVersion == null
+              ? authorizationVersion
+              : _asIntLocal(rowAuthorizationVersion),
+          executionSource: executionSource,
+        );
+      }
+
       return HymnOutboxClaim(
         rowId: rowId,
-        operation: '${row['op'] ?? ''}',
+        operation: operation,
         payloadJson: '${row['payload_json'] ?? ''}',
-        clientOpId: '${row['client_op_id'] ?? ''}',
+        clientOpId: clientOpId,
         runtimeGeneration: runtimeGeneration,
-        attemptCount: _asIntLocal(row['attempt_count']) + 1,
+        attemptCount: attemptNumber,
         claimedAt: claimedAt,
       );
     });
@@ -6313,11 +6364,15 @@ class LocalDb {
     required HymnSettlement settlement,
     required int currentRuntimeGeneration,
     DateTime? now,
+    // S2 Goal A.7: how this attempt ended. Optional so a caller that does not
+    // participate in the ledger settles exactly as before.
+    SyncAttemptClosure? attemptClosure,
   }) async {
     if (claim.runtimeGeneration != currentRuntimeGeneration) {
       return HymnSettlementResult.supersededSession;
     }
     final db = await database;
+    final hasAttemptLedger = await _tableExists(db, 'sync_attempts');
     final settledAt = (now ?? DateTime.now()).toUtc().toIso8601String();
     final values = <String, Object?>{
       'failure_code': settlement.failureCode,
@@ -6392,7 +6447,7 @@ class LocalDb {
         executor: txn,
       );
       if (!sessionMatches) return -1;
-      return txn.update(
+      final updated = await txn.update(
         'pending_hymn_ops',
         values,
         where: "id = ? AND synced = 0 AND sync_state = 'in_flight' "
@@ -6403,6 +6458,24 @@ class LocalDb {
           claim.claimedAt.toUtc().toIso8601String(),
         ],
       );
+      // S2 Goal A.7 lineage: close this attempt in the same transaction that
+      // settles the row, and only when the settlement actually applied — a
+      // superseded settlement never closes an attempt it did not own. Only
+      // the matching open attempt is touched, so a later success can never
+      // rewrite an earlier failure.
+      if (updated == 1 &&
+          attemptClosure != null &&
+          hasAttemptLedger &&
+          claim.clientOpId.isNotEmpty) {
+        await _closeSyncAttempt(
+          txn,
+          clientOpId: claim.clientOpId,
+          attemptNumber: claim.attemptCount,
+          closure: attemptClosure,
+          finishedAt: DateTime.parse(settledAt),
+        );
+      }
+      return updated;
     });
     if (affected < 0) return HymnSettlementResult.supersededSession;
     return affected == 1

@@ -9,6 +9,8 @@ import 'connectivity_service.dart';
 import 'hymn_outbox_models.dart';
 import 'local_db.dart';
 import 'outbox_policy.dart';
+import 'sync_attempt_models.dart';
+import 'sync_execution.dart';
 import 'lyrics_search.dart';
 import 'amharic_text.dart' as amharic;
 import 'taxonomy_names.dart';
@@ -920,7 +922,14 @@ class HymnStore extends ChangeNotifier {
     unawaited(pushPending().catchError((_) => 0));
   }
 
-  Future<int> pushPending() async {
+  /// S2 Goal A.7: [source] is the provenance of this drain, supplied by the
+  /// authoritative execution boundary that started it (foreground by default
+  /// for user-initiated and internal re-runs). It is threaded to the claim so
+  /// every hymn transmission lands in the durable attempt ledger tagged with
+  /// how it was executed.
+  Future<int> pushPending({
+    SyncExecutionSource source = SyncExecutionSource.foreground,
+  }) async {
     if (!canEdit ||
         !_drainsAllowed ||
         !_api.isLoggedIn ||
@@ -946,6 +955,7 @@ class HymnStore extends ChangeNotifier {
           runtimeGeneration: generation,
           ownerUserId: _api.userId,
           authorizationVersion: _api.authorizationVersion,
+          executionSource: source,
         );
         if (!_ownsGeneration(generation)) break;
         if (claim == null) {
@@ -971,6 +981,12 @@ class HymnStore extends ChangeNotifier {
                   'This saved change is unreadable and needs attention.',
             ),
             currentRuntimeGeneration: generation,
+            attemptClosure: const SyncAttemptClosure(
+              category: SyncErrorCategory.serializationError,
+              decision: SyncRetryDecision.userActionRequired,
+              failureMessage:
+                  'This saved change is unreadable and needs attention.',
+            ),
           );
           if (settled == HymnSettlementResult.supersededSession) break;
           continue;
@@ -991,13 +1007,13 @@ class HymnStore extends ChangeNotifier {
         if (response.sessionSuperseded || !_ownsGeneration(generation)) break;
 
         final canonical = _itemFrom(response.data);
-        final decision = classifyOutboxResponse(
-          response.toOutboxEvidence(
-            automaticAttemptCount: claim.attemptCount,
-            hasCanonicalConflictItem:
-                claim.operation == 'hymn_save' && canonical != null,
-          ),
+        final evidence = response.toOutboxEvidence(
+          automaticAttemptCount: claim.attemptCount,
+          hasCanonicalConflictItem:
+              claim.operation == 'hymn_save' && canonical != null,
         );
+        final decision = classifyOutboxResponse(evidence);
+        final category = classifySyncErrorCategory(evidence);
         if (decision == OutboxDecision.supersededSession) break;
         if (decision == OutboxDecision.supersededLocal) continue;
 
@@ -1027,6 +1043,14 @@ class HymnStore extends ChangeNotifier {
                     'Server result saved; local reconciliation will retry.',
               ),
               currentRuntimeGeneration: generation,
+              attemptClosure: SyncAttemptClosure(
+                category: SyncErrorCategory.localDatabaseError,
+                decision: SyncRetryDecision.retryScheduled,
+                httpStatus: response.statusCode,
+                failureMessage:
+                    'Server result saved; local reconciliation will retry.',
+                serverRef: response.serverRequestId,
+              ),
             );
             if (retained == HymnSettlementResult.supersededSession) break;
             continue;
@@ -1038,6 +1062,22 @@ class HymnStore extends ChangeNotifier {
           claim: claim,
           settlement: settlement,
           currentRuntimeGeneration: generation,
+          attemptClosure: SyncAttemptClosure(
+            category: category,
+            decision: describeRetryDecision(
+              decision: decision,
+              category: category,
+              serverDictatedDelay: response.retryAfterSeconds != null,
+              // classifyOutboxResponse escalates an unknown failure to
+              // needsAttention only once the automatic budget is spent.
+              unknownBudgetExhausted: claim.attemptCount >= 5,
+            ),
+            httpStatus: response.statusCode,
+            failureMessage:
+                decision == OutboxDecision.accepted ? null : response.message,
+            nextAttemptAt: settlement.nextAttemptAt,
+            serverRef: response.serverRequestId,
+          ),
         );
         if (result == HymnSettlementResult.supersededSession) break;
         if (result == HymnSettlementResult.supersededLocal) continue;
