@@ -483,7 +483,7 @@ class SyncService {
 
       touchedOperations.add(claim.operation.clientOpId);
       attemptsMade++;
-      final response = await _sendLegacyClaim(claim);
+      final response = await _sendLegacyClaim(claim, source);
       if (!_ownsGeneration(generation) || response.sessionSuperseded) {
         return _LegacyDrainStats(
           synced: synced,
@@ -588,7 +588,8 @@ class SyncService {
     );
   }
 
-  Future<ApiResponse> _sendLegacyClaim(LegacyClaimSnapshot claim) {
+  Future<ApiResponse> _sendLegacyClaim(
+      LegacyClaimSnapshot claim, SyncExecutionSource source) {
     final operation = claim.operation;
     final attemptUid = claim.attemptUid;
     final rows = claim.records
@@ -607,9 +608,15 @@ class SyncService {
             .toList(growable: false);
         return operation.packetKind == LegacyPacketKind.submitted
             ? _api.submitAttendance(classId, date, records,
-                clientOpId: operation.clientOpId, attemptUid: attemptUid)
+                clientOpId: operation.clientOpId,
+                attemptUid: attemptUid,
+                attemptNumber: claim.attemptCount,
+                executionSource: source.storageValue)
             : _api.saveAttendance(classId, date, records,
-                clientOpId: operation.clientOpId, attemptUid: attemptUid);
+                clientOpId: operation.clientOpId,
+                attemptUid: attemptUid,
+                attemptNumber: claim.attemptCount,
+                executionSource: source.storageValue);
       case LegacyOperationKind.grades:
         final assessmentId = _asInt(operation.naturalKey['assessment_id']);
         final grades = rows
@@ -622,9 +629,15 @@ class SyncService {
             .toList(growable: false);
         return operation.packetKind == LegacyPacketKind.submitted
             ? _api.submitGrades(assessmentId, grades,
-                clientOpId: operation.clientOpId, attemptUid: attemptUid)
+                clientOpId: operation.clientOpId,
+                attemptUid: attemptUid,
+                attemptNumber: claim.attemptCount,
+                executionSource: source.storageValue)
             : _api.saveGrades(assessmentId, grades,
-                clientOpId: operation.clientOpId, attemptUid: attemptUid);
+                clientOpId: operation.clientOpId,
+                attemptUid: attemptUid,
+                attemptNumber: claim.attemptCount,
+                executionSource: source.storageValue);
       case LegacyOperationKind.mezmur:
         final date = '${operation.naturalKey['date'] ?? ''}';
         final section = '${operation.naturalKey['section'] ?? ''}';
@@ -644,6 +657,8 @@ class SyncService {
               : 'draft',
           clientOpId: operation.clientOpId,
           attemptUid: attemptUid,
+          attemptNumber: claim.attemptCount,
+          executionSource: source.storageValue,
         );
       case LegacyOperationKind.hr:
         final date = '${operation.naturalKey['date'] ?? ''}';
@@ -664,6 +679,8 @@ class SyncService {
               : 'draft',
           clientOpId: operation.clientOpId,
           attemptUid: attemptUid,
+          attemptNumber: claim.attemptCount,
+          executionSource: source.storageValue,
         );
     }
   }

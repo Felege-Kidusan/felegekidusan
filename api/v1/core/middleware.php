@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../../../admin/backend/services/SecurityRateLimiter.php';
 require_once __DIR__ . '/../../../admin/backend/services/ApiIdempotencyService.php';
+require_once __DIR__ . '/../../../admin/backend/services/ApiSyncAttemptMonitorService.php';
 
 /**
  * Handle CORS preflight and set response headers
@@ -34,7 +35,7 @@ function handleCors() {
     }
     // If Origin is set but NOT in our list → no CORS header = browser blocks it
     
-    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-App-Version, X-App-Build');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Attempt-Id, X-Client-Attempt-Number, X-Execution-Source, X-App-Version, X-App-Build');
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     header('X-Content-Type-Options: nosniff');
     header('X-API-Version: 1.0');
@@ -128,6 +129,34 @@ function apiIdempotencyRequestHash(string $method, string $scope): string {
     return hash('sha256', $method . "\0" . $scope . "\0" . $canonical);
 }
 
+function apiSyncMonitorAttemptNumber(): ?int {
+    $raw = trim((string)($_SERVER['HTTP_X_CLIENT_ATTEMPT_NUMBER'] ?? ''));
+    if ($raw === '' || !preg_match('/^[0-9]{1,6}$/D', $raw)) {
+        return null;
+    }
+    $value = (int)$raw;
+    return $value >= 1 && $value <= 100000 ? $value : null;
+}
+
+function apiSyncMonitorExecutionSource(): ?string {
+    $value = trim((string)($_SERVER['HTTP_X_EXECUTION_SOURCE'] ?? ''));
+    return in_array($value, ['foreground', 'background'], true) ? $value : null;
+}
+
+/** @return array<string,mixed> */
+function apiSyncMonitorContext(int $userId, string $scope, string $clientOpId): array {
+    return [
+        'user_id' => $userId,
+        'scope' => $scope,
+        'client_op_id' => $clientOpId,
+        'attempt_uid' => function_exists('apiClientAttemptId') ? apiClientAttemptId() : '',
+        'attempt_number' => apiSyncMonitorAttemptNumber(),
+        'execution_source' => apiSyncMonitorExecutionSource(),
+        'request_id' => function_exists('apiRequestId') ? apiRequestId() : '',
+        'entity_ref' => $GLOBALS['_fkss_sync_entity_ref'] ?? null,
+    ];
+}
+
 function apiIdempotencyBegin(
     int $userId,
     ?string $fromBody = null,
@@ -163,12 +192,28 @@ function apiIdempotencyBegin(
         ?? apiIdempotencyRequestHash(strtoupper($method), $scope);
     $service = apiIdempotencyService();
     $result = $service->begin($userId, $key, $scope, $requestHash);
+    $monitorContext = apiSyncMonitorContext($userId, $scope, $key);
+    $monitor = null;
+    global $conn;
 
     if (($result['state'] ?? '') === 'acquired') {
-        $GLOBALS['_fkss_idem'] = ['service' => $service, 'reservation' => $result];
+        $monitor = \App\Services\ApiSyncAttemptMonitorService::recordStart($conn, $monitorContext);
+        $GLOBALS['_fkss_idem'] = [
+            'service' => $service,
+            'reservation' => $result,
+            'monitor_id' => $monitor,
+        ];
         return;
     }
     if (($result['state'] ?? '') === 'replay') {
+        \App\Services\ApiSyncAttemptMonitorService::recordEvent(
+            $conn,
+            $monitorContext,
+            'replayed',
+            'replayed',
+            (int)($result['status_code'] ?? 200),
+            'replayed'
+        );
         while (ob_get_level() > 0) {
             @ob_end_clean();
         }
@@ -176,21 +221,31 @@ function apiIdempotencyBegin(
             http_response_code((int)($result['status_code'] ?? 200));
             header('Content-Type: application/json; charset=utf-8');
             header('Idempotency-Replayed: true');
+            header('X-Request-Id: ' . apiRequestId());
         }
         echo (string)($result['body'] ?? '');
         exit;
     }
     if (($result['state'] ?? '') === 'conflict') {
+        \App\Services\ApiSyncAttemptMonitorService::recordEvent(
+            $conn, $monitorContext, 'rejected', 'conflict', 409, 'not_retryable', 'conflict', 'IDEMPOTENCY_CONFLICT'
+        );
         err('This idempotency key was already used with a different request.', 409,
             ['code' => 'IDEMPOTENCY_CONFLICT']);
     }
     if (($result['state'] ?? '') === 'processing') {
+        \App\Services\ApiSyncAttemptMonitorService::recordEvent(
+            $conn, $monitorContext, 'rejected', 'processing', 409, 'retryable', 'conflict', 'IDEMPOTENCY_IN_PROGRESS'
+        );
         if (!headers_sent()) {
             header('Retry-After: ' . max(1, (int)($result['retry_after'] ?? 1)));
         }
         err('A request with this idempotency key is still processing.', 409,
             ['code' => 'IDEMPOTENCY_IN_PROGRESS']);
     }
+    \App\Services\ApiSyncAttemptMonitorService::recordEvent(
+        $conn, $monitorContext, 'failed', 'unavailable', 503, 'retryable', 'server', 'IDEMPOTENCY_UNAVAILABLE'
+    );
     err('Idempotency service is temporarily unavailable. Please retry safely.', 503);
 }
 
@@ -220,7 +275,17 @@ function apiIdempotencyCompleteAtomically(string $json, int $code): bool {
     if ($code === 429) {
         return false;
     }
-    return $pack['service']->completeWithinTransaction($pack['reservation'], $json, $code);
+    $completed = $pack['service']->completeWithinTransaction($pack['reservation'], $json, $code);
+    $monitorId = (int)($pack['monitor_id'] ?? 0);
+    if ($monitorId > 0 && $completed) {
+        global $conn;
+        if ($conn instanceof \mysqli) {
+            \App\Services\ApiSyncAttemptMonitorService::completeWithinTransaction(
+                $conn, $monitorId, $json, $code
+            );
+        }
+    }
+    return $completed;
 }
 
 function apiIdempotencyStore(string $json, int $code): void {
@@ -234,9 +299,19 @@ function apiIdempotencyStore(string $json, int $code): void {
 
     if ($code === 429) {
         $pack['service']->abandon($pack['reservation']);
+        $monitorId = (int)($pack['monitor_id'] ?? 0);
+        global $conn;
+        if ($monitorId > 0 && $conn instanceof \mysqli) {
+            \App\Services\ApiSyncAttemptMonitorService::complete($conn, $monitorId, $json, $code, 'abandoned');
+        }
         return;
     }
     $pack['service']->complete($pack['reservation'], $json, $code);
+    $monitorId = (int)($pack['monitor_id'] ?? 0);
+    global $conn;
+    if ($monitorId > 0 && $conn instanceof \mysqli) {
+        \App\Services\ApiSyncAttemptMonitorService::complete($conn, $monitorId, $json, $code);
+    }
 }
 
 /** Shared multi-instance limiter used by every API boundary. */
