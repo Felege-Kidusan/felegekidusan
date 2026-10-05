@@ -10,6 +10,7 @@ import 'services/local_db.dart';
 import 'services/session_models.dart';
 import 'services/session_service.dart';
 import 'screens/lock/lock_screen.dart';
+import 'services/background_sync_bridge.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/device_tier_service.dart';
@@ -75,6 +76,16 @@ Future<void> runBootstrap() async {
     runApp(OfflineDataProtectionFailureApp(detail: detail));
     return;
   }
+
+  // S3 A.8 — install the Android background sync producer. This is the first
+  // real producer of SyncExecutionSource.background: it replaces the
+  // NoopBackgroundSyncScheduler with the AlarmManager-backed one and registers
+  // the Dart entry point the OS calls back into. Deliberately AFTER the
+  // bootstrap above, so the session is already reconciled before any wake-up
+  // can be granted, and deliberately outside its try/catch: this must never be
+  // able to stop the app from starting. It is a no-op on every non-Android
+  // host.
+  await installAndroidBackgroundSyncProducer();
 
   runApp(const FKSSApp());
 
