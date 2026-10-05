@@ -128,5 +128,11 @@ function getBody() {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw, true);
     if (!is_array($data)) $data = $_POST;
+    // Keep only a bounded, allow-listed entity projection for the optional
+    // server sync monitor. The request body itself is never retained here.
+    if (class_exists('\\App\\Services\\ApiSyncAttemptMonitorService')) {
+        $GLOBALS['_fkss_sync_entity_ref'] =
+            \\App\\Services\\ApiSyncAttemptMonitorService::entityReference($data);
+    }
     return $data;
 }

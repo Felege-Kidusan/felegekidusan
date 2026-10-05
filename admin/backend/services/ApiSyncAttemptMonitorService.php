@@ -1,0 +1,342 @@
+<?php
+/**
+ * Server-observed sync attempt monitoring.
+ *
+ * This service deliberately stores a bounded, allow-listed projection of a
+ * request. It never stores authorization headers, tokens, raw bodies, response
+ * bodies, passwords, secrets, or private notes. The monitor is advisory to the
+ * business transaction: a bookkeeping failure must not turn a valid business
+ * response into a different response.
+ */
+namespace App\Services;
+
+use mysqli;
+
+final class ApiSyncAttemptMonitorService
+{
+    public const STALE_AFTER_MINUTES = 15;
+    private const RETENTION_DAYS = 90;
+    private const MAX_ENTITY_REFERENCE = 255;
+
+    /** @var array<int,string> */
+    private const SAFE_SOURCES = ['foreground', 'background'];
+
+    /**
+     * Extract only bounded identifiers and dates useful to an administrator.
+     * Free text, record values, notes, lyrics and other body content are never
+     * copied into the monitoring row.
+     */
+    public static function entityReference(array $payload): ?string
+    {
+        $allowed = [
+            'id', 'class_id', 'assessment_id', 'member_id', 'record_id',
+            'hymn_id', 'category_id', 'zemarian_id', 'submission_id',
+            'date', 'section', 'kind', 'program_type',
+        ];
+        $parts = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $payload) || is_array($payload[$key]) || is_object($payload[$key])) {
+                continue;
+            }
+            $value = trim((string)$payload[$key]);
+            if ($value === '' || strlen($value) > 64) {
+                continue;
+            }
+            if (in_array($key, ['date'], true) && !preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value)) {
+                continue;
+            }
+            if (in_array($key, ['section', 'kind', 'program_type'], true)
+                && !preg_match('/^[A-Za-z0-9_. -]{1,64}$/D', $value)) {
+                continue;
+            }
+            if (!in_array($key, ['date', 'section', 'kind', 'program_type'], true)
+                && !preg_match('/^-?\d{1,18}$/D', $value)) {
+                continue;
+            }
+            $parts[] = $key . '=' . $value;
+        }
+        if (isset($payload['records']) && is_array($payload['records'])) {
+            $parts[] = 'records_count=' . min(count($payload['records']), 500000);
+        }
+        if (!$parts) {
+            return null;
+        }
+        return substr(implode(';', $parts), 0, self::MAX_ENTITY_REFERENCE);
+    }
+
+    /**
+     * Record an acquired idempotent request. Returns the monitor row id or null
+     * when the optional monitoring table is unavailable or the insert fails.
+     */
+    public static function recordStart(?mysqli $conn, array $context): ?int
+    {
+        $source = self::validatedSource($context['execution_source'] ?? null);
+        $attemptNumber = self::validatedAttemptNumber($context['attempt_number'] ?? null);
+        $completedAt = null;
+        return self::insert($conn, $context, 'in_flight', 'acquired', 'pending', null, null, null, $completedAt, $source, $attemptNumber);
+    }
+
+    /** Record a replay/conflict/processing event without exposing response data. */
+    public static function recordEvent(
+        ?mysqli $conn,
+        array $context,
+        string $status,
+        string $idempotencyState,
+        int $httpStatus,
+        string $retryDecision,
+        ?string $errorCategory = null,
+        ?string $errorCode = null
+    ): ?int {
+        $now = date('Y-m-d H:i:s');
+        $source = self::validatedSource($context['execution_source'] ?? null);
+        $attemptNumber = self::validatedAttemptNumber($context['attempt_number'] ?? null);
+        return self::insert(
+            $conn,
+            $context,
+            $status,
+            $idempotencyState,
+            $retryDecision,
+            $errorCategory,
+            self::safeErrorCode($errorCode),
+            $httpStatus,
+            $now,
+            $source,
+            $attemptNumber
+        );
+    }
+
+    /**
+     * Complete a monitor row inside the caller's transaction. No commit is
+     * performed here. A false return is intentionally non-fatal; the normal
+     * post-commit completion path will make a best effort.
+     */
+    public static function completeWithinTransaction(
+        ?mysqli $conn,
+        int $monitorId,
+        string $json,
+        int $statusCode,
+        string $idempotencyState = 'completed'
+    ): bool {
+        if ($monitorId <= 0 || !($conn instanceof mysqli)) {
+            return false;
+        }
+        $idempotencyState = in_array($idempotencyState, ['completed', 'abandoned'], true)
+            ? $idempotencyState
+            : 'completed';
+        [$status, $retryDecision, $category, $errorCode] = self::outcome($statusCode, $json);
+        try {
+            $stmt = $conn->prepare(
+                "UPDATE api_sync_attempts
+                 SET status=?, idempotency_state=?, retry_decision=?,
+                     error_category=?, error_code=?, http_status=?, completed_at=NOW(),
+                     updated_at=NOW()
+                 WHERE id=? AND status='in_flight'"
+            );
+            $stmt->bind_param('sssssii', $status, $idempotencyState, $retryDecision, $category, $errorCode, $statusCode, $monitorId);
+            $stmt->execute();
+            $changed = $stmt->affected_rows === 1;
+            $stmt->close();
+            return $changed;
+        } catch (\Throwable $ignored) {
+            return false;
+        }
+    }
+
+    /** Complete a row after the business transaction has returned. */
+    public static function complete(
+        ?mysqli $conn,
+        int $monitorId,
+        string $json,
+        int $statusCode,
+        string $idempotencyState = 'completed'
+    ): void {
+        if ($monitorId <= 0 || !($conn instanceof mysqli)) {
+            return;
+        }
+        $idempotencyState = in_array($idempotencyState, ['completed', 'abandoned'], true)
+            ? $idempotencyState
+            : 'completed';
+        [$status, $retryDecision, $category, $errorCode] = self::outcome($statusCode, $json);
+        try {
+            $stmt = $conn->prepare(
+                "UPDATE api_sync_attempts
+                 SET status=?, idempotency_state=?, retry_decision=?,
+                     error_category=?, error_code=?, http_status=?, completed_at=NOW(),
+                     updated_at=NOW()
+                 WHERE id=? AND status='in_flight'"
+            );
+            $stmt->bind_param('sssssii', $status, $idempotencyState, $retryDecision, $category, $errorCode, $statusCode, $monitorId);
+            $stmt->execute();
+            $stmt->close();
+            self::maybePrune($conn);
+        } catch (\Throwable $ignored) {
+            // Observability must not alter the already-produced API response.
+        }
+    }
+
+    /** Return a conservative safe classification of a response. */
+    private static function outcome(int $statusCode, string $json): array
+    {
+        $statusCode = max(100, min($statusCode, 599));
+        if ($statusCode >= 200 && $statusCode < 300) {
+            return ['completed', 'not_required', null, null];
+        }
+        $retryable = in_array($statusCode, [408, 425, 429, 500, 502, 503, 504], true);
+        $status = $statusCode >= 500 || $statusCode === 429 ? 'failed' : 'rejected';
+        $retryDecision = $retryable ? 'retryable' : 'not_retryable';
+        $category = self::errorCategory($statusCode);
+        $code = null;
+        $decoded = json_decode($json, true);
+        if (is_array($decoded) && isset($decoded['code']) && is_scalar($decoded['code'])) {
+            $code = self::safeErrorCode((string)$decoded['code']);
+        }
+        return [$status, $retryDecision, $category, $code];
+    }
+
+    private static function errorCategory(int $statusCode): string
+    {
+        if ($statusCode === 401) return 'authentication';
+        if ($statusCode === 403) return 'authorization';
+        if ($statusCode === 409) return 'conflict';
+        if ($statusCode === 408 || $statusCode === 425 || $statusCode === 429) return 'throttled_or_timeout';
+        if ($statusCode >= 500) return 'server';
+        if ($statusCode >= 400) return 'client';
+        return 'unknown';
+    }
+
+    private static function safeErrorCode(?string $value): ?string
+    {
+        $value = trim((string)$value);
+        if ($value === '' || strlen($value) > 64 || !preg_match('/^[A-Za-z0-9_.-]+$/D', $value)) {
+            return null;
+        }
+        return $value;
+    }
+
+    private static function validatedSource($value): ?string
+    {
+        $value = trim((string)$value);
+        return in_array($value, self::SAFE_SOURCES, true) ? $value : null;
+    }
+
+    private static function validatedAttemptNumber($value): ?int
+    {
+        if ($value === null || $value === '' || !filter_var($value, FILTER_VALIDATE_INT)) {
+            return null;
+        }
+        $value = (int)$value;
+        return $value >= 1 && $value <= 100000 ? $value : null;
+    }
+
+    private static function validatedId($value): ?int
+    {
+        if ($value === null || $value === '' || !filter_var($value, FILTER_VALIDATE_INT)) {
+            return null;
+        }
+        $value = (int)$value;
+        return $value > 0 ? $value : null;
+    }
+
+    /** @return array{domain:string,operation:string} */
+    private static function routeParts(array $context): array
+    {
+        $scope = trim((string)($context['scope'] ?? ''));
+        $route = preg_replace('/^[A-Z]+\s+/', '', $scope) ?: $scope;
+        $route = '/' . ltrim($route, '/');
+        if (strpos($route, '/api/v1/') !== 0) {
+            $route = '/api/v1/' . ltrim($route, '/');
+        }
+        $path = trim(parse_url($route, PHP_URL_PATH) ?: '', '/');
+        $domain = strtolower((string)(explode('/', $path)[2] ?? explode('/', $path)[0] ?? 'unknown'));
+        if ($domain === '') $domain = 'unknown';
+        return [
+            'domain' => substr($domain, 0, 48),
+            'operation' => substr($route, 0, 160),
+        ];
+    }
+
+    private static function insert(
+        ?mysqli $conn,
+        array $context,
+        string $status,
+        string $idempotencyState,
+        string $retryDecision,
+        ?string $errorCategory,
+        ?string $errorCode,
+        ?int $httpStatus,
+        ?string $completedAt,
+        ?string $executionSource,
+        ?int $attemptNumber
+    ): ?int {
+        if (!($conn instanceof mysqli)) {
+            return null;
+        }
+        $requestId = trim((string)($context['request_id'] ?? ''));
+        $clientOpId = trim((string)($context['client_op_id'] ?? ''));
+        $attemptUid = trim((string)($context['attempt_uid'] ?? ''));
+        $userId = self::validatedId($context['user_id'] ?? null);
+        $route = self::routeParts($context);
+        if (!preg_match('/^req_[A-Za-z0-9_-]{8,64}$/D', $requestId)
+            || ($clientOpId !== '' && !preg_match('/^[A-Za-z0-9._-]{1,80}$/D', $clientOpId))
+            || ($attemptUid !== '' && !preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $attemptUid))
+            || $userId === null) {
+            return null;
+        }
+        $clientOpId = $clientOpId !== '' ? $clientOpId : null;
+        $attemptUid = $attemptUid !== '' ? $attemptUid : null;
+        $entityRef = isset($context['entity_ref']) ? substr((string)$context['entity_ref'], 0, self::MAX_ENTITY_REFERENCE) : null;
+        $startedAt = date('Y-m-d H:i:s');
+        try {
+            $stmt = $conn->prepare(
+                'INSERT INTO api_sync_attempts
+                 (client_op_id, attempt_uid, attempt_number, execution_source, request_id,
+                  user_id, domain, operation, entity_ref, status, idempotency_state,
+                  retry_decision, error_category, error_code, http_status, started_at,
+                  completed_at, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            );
+            $stmt->bind_param(
+                'ssississssssssiss',
+                $clientOpId,
+                $attemptUid,
+                $attemptNumber,
+                $executionSource,
+                $requestId,
+                $userId,
+                $route['domain'],
+                $route['operation'],
+                $entityRef,
+                $status,
+                $idempotencyState,
+                $retryDecision,
+                $errorCategory,
+                $errorCode,
+                $httpStatus,
+                $startedAt,
+                $completedAt
+            );
+            $stmt->execute();
+            $id = (int)$stmt->insert_id;
+            $stmt->close();
+            self::maybePrune($conn);
+            return $id > 0 ? $id : null;
+        } catch (\Throwable $ignored) {
+            return null;
+        }
+    }
+
+    private static function maybePrune(?mysqli $conn): void
+    {
+        try {
+            if (random_int(1, 100) !== 1) return;
+            $conn->query(
+                "DELETE FROM api_sync_attempts
+                 WHERE created_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL " . self::RETENTION_DAYS . " DAY)
+                   AND status <> 'in_flight'
+                 ORDER BY id ASC LIMIT 5000"
+            );
+        } catch (\Throwable $ignored) {
+            // Cleanup is best effort and never participates in a business result.
+        }
+    }
+}

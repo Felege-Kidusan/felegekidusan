@@ -722,7 +722,9 @@ class ApiService {
       {Map<String, dynamic>? body,
       bool auth = true,
       String? idempotencyKey,
-      String? attemptUid}) async {
+      String? attemptUid,
+      int? attemptNumber,
+      String? executionSource}) async {
     final generation = _requestGeneration;
     try {
       final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
@@ -739,6 +741,13 @@ class ApiService {
       final attempt = (attemptUid ?? '').trim();
       if (attempt.isNotEmpty) {
         headers['X-Client-Attempt-Id'] = attempt;
+      }
+      if (attemptNumber != null && attemptNumber > 0) {
+        headers['X-Client-Attempt-Number'] = '$attemptNumber';
+      }
+      final source = (executionSource ?? '').trim();
+      if (source == 'foreground' || source == 'background') {
+        headers['X-Execution-Source'] = source;
       }
       var response = await _http
           .post(
@@ -762,6 +771,12 @@ class ApiService {
           headers = _headers(withAuth: true);
           if (key.isNotEmpty) headers['Idempotency-Key'] = key;
           if (attempt.isNotEmpty) headers['X-Client-Attempt-Id'] = attempt;
+          if (attemptNumber != null && attemptNumber > 0) {
+            headers['X-Client-Attempt-Number'] = '$attemptNumber';
+          }
+          if (source == 'foreground' || source == 'background') {
+            headers['X-Execution-Source'] = source;
+          }
           response = await _http
               .post(
                 uri,
@@ -1468,7 +1483,10 @@ class ApiService {
 
   Future<ApiResponse> saveAttendance(
           int classId, String date, List<Map<String, dynamic>> records,
-          {String? clientOpId, String? attemptUid}) =>
+          {String? clientOpId,
+          String? attemptUid,
+          int? attemptNumber,
+          String? executionSource}) =>
       post('/attendance',
           body: {
             'class_id': classId,
@@ -1476,11 +1494,16 @@ class ApiService {
             'records': records,
           },
           idempotencyKey: clientOpId,
-          attemptUid: attemptUid);
+          attemptUid: attemptUid,
+          attemptNumber: attemptNumber,
+          executionSource: executionSource);
 
   Future<ApiResponse> submitAttendance(
           int classId, String date, List<Map<String, dynamic>> records,
-          {String? clientOpId, String? attemptUid}) =>
+          {String? clientOpId,
+          String? attemptUid,
+          int? attemptNumber,
+          String? executionSource}) =>
       post('/attendance/submit',
           body: {
             'class_id': classId,
@@ -1488,7 +1511,9 @@ class ApiService {
             'records': records,
           },
           idempotencyKey: clientOpId,
-          attemptUid: attemptUid);
+          attemptUid: attemptUid,
+          attemptNumber: attemptNumber,
+          executionSource: executionSource);
 
   // ── Mezmur department (date-based, section-grouped) ─────────
   Future<ApiResponse> getMezmurDays(
@@ -1525,7 +1550,9 @@ class ApiService {
       {String? section,
       String kind = 'draft',
       String? clientOpId,
-      String? attemptUid}) {
+      String? attemptUid,
+      int? attemptNumber,
+      String? executionSource}) {
     return post('/mezmur/sheet',
         body: {
           'date': date,
@@ -1534,7 +1561,9 @@ class ApiService {
           if (section != null && section.isNotEmpty) 'kind': kind,
         },
         idempotencyKey: clientOpId,
-        attemptUid: attemptUid);
+        attemptUid: attemptUid,
+        attemptNumber: attemptNumber,
+        executionSource: executionSource);
   }
 
   /// Active sections with member counts (for the [Section ▾] picker).
@@ -1562,7 +1591,9 @@ class ApiService {
       {String? section,
       String kind = 'draft',
       String? clientOpId,
-      String? attemptUid}) {
+      String? attemptUid,
+      int? attemptNumber,
+      String? executionSource}) {
     return post('/hr/sheet',
         body: {
           'date': date,
@@ -1571,7 +1602,9 @@ class ApiService {
           if (section != null && section.isNotEmpty) 'kind': kind,
         },
         idempotencyKey: clientOpId,
-        attemptUid: attemptUid);
+        attemptUid: attemptUid,
+        attemptNumber: attemptNumber,
+        executionSource: executionSource);
   }
 
   /// Active sections with member counts (for the [Section ▾] picker).
@@ -1791,25 +1824,35 @@ class ApiService {
 
   Future<ApiResponse> saveGrades(
           int assessmentId, List<Map<String, dynamic>> grades,
-          {String? clientOpId, String? attemptUid}) =>
+          {String? clientOpId,
+          String? attemptUid,
+          int? attemptNumber,
+          String? executionSource}) =>
       post('/grades/save',
           body: {
             'assessment_id': assessmentId,
             'grades': grades,
           },
           idempotencyKey: clientOpId,
-          attemptUid: attemptUid);
+          attemptUid: attemptUid,
+          attemptNumber: attemptNumber,
+          executionSource: executionSource);
 
   Future<ApiResponse> submitGrades(
           int assessmentId, List<Map<String, dynamic>> grades,
-          {String? clientOpId, String? attemptUid}) =>
+          {String? clientOpId,
+          String? attemptUid,
+          int? attemptNumber,
+          String? executionSource}) =>
       post('/grades/submit',
           body: {
             'assessment_id': assessmentId,
             'grades': grades,
           },
           idempotencyKey: clientOpId,
-          attemptUid: attemptUid);
+          attemptUid: attemptUid,
+          attemptNumber: attemptNumber,
+          executionSource: executionSource);
 
   Future<ApiResponse> getGradeSummary(int classId, {int? subjectId}) {
     final params = <String, String>{'class_id': '$classId'};
