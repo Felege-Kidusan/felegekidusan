@@ -106,6 +106,12 @@ single-threaded Dart isolate. Verified by reading both methods, not assumed.
 
 ### Finding B-1 — `requestOpportunity()` has no production caller
 
+> **CLOSED by S2 Goal A.4 (commit `01e3162`).** `requestOpportunity()` now has
+> exactly one production call site, at the tail of `_drain()` in
+> `sync_service.dart`. The audit below describes the state at `742c992` and is
+> retained unchanged as the record that motivated A.4. See
+> `MOBILE_OFFLINE_SYNC_S2_A4_OPPORTUNITY_WIRING.md`.
+
 **Classification: intentional / legitimate for this phase, but a native-phase
 prerequisite.**
 
