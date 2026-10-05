@@ -81,6 +81,25 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+        <!--
+            S3 A.8 — the background sync wake-up.
+
+            exported="false": nothing outside this app may trigger a sync.
+            No new permission is required for this receiver or for the
+            inexact setAndAllowWhileIdle alarm that drives it; in particular
+            SCHEDULE_EXACT_ALARM and RECEIVE_BOOT_COMPLETED are deliberately
+            NOT requested. See BackgroundSyncProducer for why reboot
+            reconstruction would buy nothing for this mechanism.
+        -->
+        <receiver
+            android:name=".BackgroundSyncReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.arkeonethiopia.fkss.action.BACKGROUND_SYNC" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

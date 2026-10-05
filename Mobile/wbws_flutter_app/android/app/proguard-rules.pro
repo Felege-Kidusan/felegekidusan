@@ -40,3 +40,11 @@
 # ExoPlayer / media3 keep the manifest-declared playback classes reachable.
 -dontwarn androidx.media3.**
 -keep class androidx.media3.** { *; }
+
+# ── S3 A.8 background sync producer ──
+# BackgroundSyncReceiver is instantiated by the OS from the manifest and
+# BackgroundSyncProducer is reached from it and from the platform channel, so
+# R8 must not rename or remove either. The release build runs minifyEnabled +
+# shrinkResources, so without these an alarm would fire into a stripped class.
+-keep class com.arkeonethiopia.fkss.BackgroundSyncReceiver { *; }
+-keep class com.arkeonethiopia.fkss.BackgroundSyncProducer { *; }
