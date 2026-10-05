@@ -1,4 +1,4 @@
-"""S2 Goal A.1 + A.2 + A.4 + A.5 — mutation harness for the background sync core.
+"""S2 Goal A.1 + A.2 + A.4 + A.5 + A.6 — mutation harness for the background sync core.
 
 Each entry breaks ONE invariant the architecture tests claim to protect, runs
 tests/security/test_mobile_background_sync_core.py, then restores the file
@@ -29,7 +29,11 @@ REQUEST_BLOCK=(
   "      );\n")
 
 TEST=["tests/security/test_mobile_background_sync_core.py",
-      "tests/security/test_mobile_session_coordinator.py"]
+      "tests/security/test_mobile_session_coordinator.py",
+      # A.6: the v36->v37 upgrade suite. Registered here so M36-M41 are run
+      # against it; without this the migration mutations would report CAUGHT
+      # or SURVIVED on a suite that never looks at the migration.
+      "tests/security/test_mobile_v36_to_v37_upgrade.py"]
 
 MUT=[
  ("M1 remove execution-source propagation into the claim",
@@ -156,6 +160,31 @@ MUT=[
   "        _db = db ?? LocalDb();",
   "  factory SyncService.withCollaborators({ApiService? api, LocalDb? db}) =>\n"
   "      _instance;"),
+ # ── S2 Goal A.6 — the v36->v37 upgrade path ────────────────────────────
+ ("M36 the v37 migration operation is removed entirely",
+  f"{LIB}/local_db.dart",
+  "                await db.execute(\n"
+  "                  'ALTER TABLE sync_attempts ADD COLUMN execution_source '\n"
+  "                  \"TEXT NOT NULL DEFAULT 'foreground'\",\n"
+  "                );\n", ""),
+ ("M37 the migration keys off the wrong source version",
+  f"{LIB}/local_db.dart",
+  "          if (oldVersion < 37) {","          if (oldVersion < 36) {"),
+ ("M38 the added column loses NOT NULL and its backfill default",
+  f"{LIB}/local_db.dart",
+  "\"TEXT NOT NULL DEFAULT 'foreground'\",","\"TEXT\","),
+ ("M39 the migration adds the wrong column",
+  f"{LIB}/local_db.dart",
+  "'ALTER TABLE sync_attempts ADD COLUMN execution_source '",
+  "'ALTER TABLE sync_attempts ADD COLUMN execution_src '"),
+ ("M40 the column probe is inverted so the branch silently skips",
+  f"{LIB}/local_db.dart",
+  "if (!columns.contains('execution_source')) {",
+  "if (columns.contains('execution_source')) {"),
+ ("M41 the table probe is dropped from the v37 branch",
+  f"{LIB}/local_db.dart",
+  "if (await _tableExists(db, 'sync_attempts')) {",
+  "if (true) {"),
 ]
 # Anchor-uniqueness gate (the A.3 lesson, finding M-1, made permanent).
 # str.replace(old, new, 1) edits the FIRST match, so an anchor that occurs more
