@@ -230,7 +230,14 @@ capability. Of the four S3 blockers:
    **OPEN.**
 2. **Hymn operations invisible to the `sync_attempts` ledger** (MEDIUM,
    observability-only). **OPEN.**
-3. **The v36→v37 upgrade path has never been executed.** **OPEN.**
+3. **The v36→v37 upgrade path has never been executed.** **SUBSTANTIALLY
+   REDUCED by S2 Goal A.6** — the migration's SQL is now extracted from
+   production and executed against a real SQLite database (populated and
+   empty v36 fixtures, data survival, backfill, indexes, constraints and
+   post-upgrade writes all proven). **Not formally closed:** the Dart
+   `onUpgrade` function itself is still not executed, because sqflite needs a
+   platform binding and `sqflite_common_ffi` is barred by F-19. See
+   `MOBILE_OFFLINE_SYNC_S2_A6_MIGRATION_RUNTIME.md`.
 4. **The wiring had source-level pins only.** **CLOSED for the coordinator and
    trigger path** (§4); still open for the offline-connectivity case and for
    everything SQL (§5).
