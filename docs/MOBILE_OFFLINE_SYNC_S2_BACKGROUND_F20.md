@@ -361,3 +361,21 @@ Not yet assessable — Goal A has not been started and mutation testing has not
 been run. The final gate line (`S2 STATUS: READY_FOR_S3` or `NOT_READY_FOR_S3`)
 will be emitted when the phase completes. Stating it now would be a false
 signal.
+
+## §33 — Goal A.2 complete (trigger wiring)
+
+The existing legitimate triggers now reach the drain through the A.1
+boundary: `nudge` goes via `runSyncNow` (carrying the generation it captured
+when its timer was armed), `startAutoSync` reaches execution only through
+`nudge` and was not modified, and `stopAutoSync` cancels the background
+opportunity without touching durable work.
+
+The coordinator deliberately adds **no** second execution guard —
+`_inflight`/`_queued` already coalesce correctly, including the mid-drain
+case that a drop-if-busy guard would break.
+
+Details, the pin that was tightened, the two A.1 harness defects found, and
+the remaining open items:
+`docs/MOBILE_OFFLINE_SYNC_S2_A2_TRIGGER_WIRING.md`.
+
+Numbers: mutation 22 of 22 caught · Python 2041 / 0 skipped · F-20 67 PASS.
