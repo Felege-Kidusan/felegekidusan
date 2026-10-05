@@ -41,6 +41,7 @@ class ColdStartDartContract(unittest.TestCase):
         self.channel = strip_comments(
             read(SERVICES, "android_background_sync_scheduler.dart")
         )
+        self.local_db = strip_comments(read(SERVICES, "local_db.dart"))
 
     def test_release_safe_entry_point_is_preserved(self):
         self.assertIn("@pragma('vm:entry-point')", self.main)
@@ -79,6 +80,10 @@ class ColdStartDartContract(unittest.TestCase):
     def test_background_source_is_still_strict(self):
         self.assertIn("if (source != SyncExecutionSource.background) return null;", self.bridge)
         self.assertIn("methodRunBackgroundSync = 'runBackgroundSync'", self.channel)
+
+    def test_production_local_db_allows_independent_engine_connections(self):
+        self.assertIn("singleInstance: false", self.local_db)
+        self.assertIn("openDatabase(", self.local_db)
 
 
 class ColdStartAndroidContract(unittest.TestCase):
