@@ -8,6 +8,7 @@ import 'package:fkss_app/services/api_service.dart';
 import 'package:fkss_app/services/background_sync_bridge.dart';
 import 'package:fkss_app/services/legacy_outbox_models.dart';
 import 'package:fkss_app/services/local_db.dart';
+import 'package:fkss_app/services/session_models.dart';
 import 'package:fkss_app/services/sync_execution.dart';
 import 'package:fkss_app/services/sync_service.dart';
 
