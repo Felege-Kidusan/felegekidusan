@@ -23,8 +23,32 @@ class MainActivity : AudioServiceFragmentActivity() {
     private val lockChannelName = "fkss.app/app_lock"
     private val deviceChannelName = "fkss.app/device"
 
+    /**
+     * S3 A.8 — kept so the engine's background-sync channel can be unbound
+     * when the engine goes away. A stale channel must never be invoked by a
+     * later alarm.
+     */
+    private var backgroundSyncChannel: MethodChannel? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // S3 A.8 — the background sync producer. Both directions of the
+        // contract live on this one channel: Dart asks AlarmManager to
+        // schedule or cancel an opportunity, and when the alarm fires
+        // BackgroundSyncReceiver invokes the Dart entry point back through
+        // the same channel. No sync logic is implemented natively; see
+        // BackgroundSyncProducer for the architectural rules it obeys.
+        //
+        // applicationContext, not `this`: the PendingIntent and the alarm
+        // must outlive this Activity.
+        val syncChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BackgroundSyncProducer.CHANNEL)
+        syncChannel.setMethodCallHandler { call, result ->
+            BackgroundSyncProducer.handle(applicationContext, call, result)
+        }
+        BackgroundSyncProducer.attach(syncChannel)
+        backgroundSyncChannel = syncChannel
 
         // P65 — device capability snapshot (ABI, RAM class, OS): drives
         // the low-end device tier (image-cache budgets) and the ABI-aware
@@ -144,5 +168,19 @@ class MainActivity : AudioServiceFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * S3 A.8 — unbind before the engine is destroyed, so an alarm that fires
+     * after the app's UI is gone finds no channel and does nothing, instead
+     * of invoking a dead isolate.
+     */
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        backgroundSyncChannel?.let {
+            it.setMethodCallHandler(null)
+            BackgroundSyncProducer.detach(it)
+        }
+        backgroundSyncChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 }
