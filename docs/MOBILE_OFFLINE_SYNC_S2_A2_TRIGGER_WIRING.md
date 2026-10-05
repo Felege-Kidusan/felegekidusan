@@ -200,6 +200,13 @@ PHP lint ....... no PHP files changed
 Dart ........... no Dart test files changed; CI is the gate
 ```
 
+**CI gate (the only thing that compiles Dart):** GitHub Actions run `37289357695`
+("Backend checks" #59) on `551a143` — all four jobs `success`, including
+**Flutter unit tests**. Because `flutter test` fails the job on any failing
+test, this proves the modified `sync_service.dart` compiles and A.1's
+`sync_execution_test.dart` still passes against it. The per-test count stays
+unverifiable: job logs return 403 to non-admins.
+
 The Python-suite and F-20 figures were measured on this exact change set
 before an environment rollback destroyed the local toolchain; they were
 re-confirmed after the rebuild. The mutation and targeted-suite figures were
