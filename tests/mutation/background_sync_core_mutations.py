@@ -1,4 +1,4 @@
-"""S2 Goal A.1 + A.2 — mutation harness for the background sync core.
+"""S2 Goal A.1 + A.2 + A.4 — mutation harness for the background sync core.
 
 Each entry breaks ONE invariant the architecture tests claim to protect, runs
 tests/security/test_mobile_background_sync_core.py, then restores the file
@@ -21,6 +21,13 @@ Run:  python3 tests/mutation/background_sync_core_mutations.py
 import subprocess, shutil, os, sys
 ROOT="/home/user/SSMS"
 LIB=os.path.join(ROOT,"Mobile/wbws_flutter_app/lib/services")
+REQUEST_BLOCK=(
+  "      unawaited(\n"
+  "        _coordinator\n"
+  "            .requestOpportunity(notBefore: nextAttempt)\n"
+  "            .catchError((Object _) {}),\n"
+  "      );\n")
+
 TEST=["tests/security/test_mobile_background_sync_core.py",
       "tests/security/test_mobile_session_coordinator.py"]
 
@@ -31,9 +38,16 @@ MUT=[
   f"{LIB}/local_db.dart","          executionSource: executionSource,\n",""),
  ("M3 stop writing the durable column",
   f"{LIB}/local_db.dart","        'execution_source': executionSource.storageValue,\n",""),
- ("M4 ignore next_retry_at eligibility",
+ # A.3 finding M-1: this anchor used to be the bare predicate, which occurs
+ # TWICE in local_db.dart (the claim query and hasDueLegacyOutbox). It hit the
+ # right one only because the claim happens to appear first in the file. It is
+ # now anchored to the claim's own preceding line at the claim's indentation,
+ # which is unique, so reordering the file can no longer silently re-target it.
+ ("M4 ignore next_retry_at eligibility in the claim",
   f"{LIB}/local_db.dart",
-  "'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '","''"),
+  "        \"AND sync_state IN ('pending', 'retry_wait') \"\n"
+  "        'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '\n",
+  "        \"AND sync_state IN ('pending', 'retry_wait') \"\n"),
  ("M5 bypass the owner isolation predicate",
   f"{LIB}/local_db.dart",
   "        'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '\n        'AND owner_user_id = ? '\n",
@@ -89,15 +103,56 @@ MUT=[
  ("M22 logout destroys durable work instead of just the wake-up",
   f"{LIB}/sync_service.dart","    unawaited(_coordinator.cancelOpportunity());",
   "    unawaited(_coordinator.cancelOpportunity());\n    unawaited(_db.deleteAllPendingOperations());"),
+ # ── S2 Goal A.4 — the opportunity scheduler is reachable (finding B-1) ──
+ ("M23 the drain stops requesting a background opportunity",
+  f"{LIB}/sync_service.dart", REQUEST_BLOCK, ""),
+ ("M24 the trigger drains directly instead of requesting an opportunity",
+  f"{LIB}/sync_service.dart", REQUEST_BLOCK,
+  "      unawaited(_drain(generation: generation, force: force, source: source));\n"),
+ ("M25 the trigger claims directly instead of requesting an opportunity",
+  f"{LIB}/sync_service.dart", REQUEST_BLOCK,
+  "      unawaited(_db.claimNextLegacyOperation(\n"
+  "        kind: LegacyOperationKind.attendance,\n"
+  "        ownerUserId: _api.userId,\n"
+  "        authorizationVersion: _api.authorizationVersion,\n"
+  "        runtimeGeneration: generation,\n"
+  "      ));\n"),
+ ("M26 the trigger bypasses the coordinator and calls the scheduler itself",
+  f"{LIB}/sync_service.dart", REQUEST_BLOCK,
+  "      unawaited(_backgroundScheduler\n"
+  "          .ensureScheduled(BackgroundSyncRequest(notBefore: nextAttempt)));\n"),
+ ("M27 a second scheduling mechanism replaces the Noop seam",
+  f"{LIB}/sync_service.dart",
+  "  BackgroundSyncScheduler _backgroundScheduler =\n"
+  "      const NoopBackgroundSyncScheduler();",
+  "  BackgroundSyncScheduler _backgroundScheduler = _TimerBackedScheduler();"),
+ ("M28 the opportunity is gated on connectivity (loses the offline wake-up)",
+  f"{LIB}/sync_service.dart",
+  REQUEST_BLOCK + "      if (force || ConnectivityService().hasLink) {\n",
+  "      if (force || ConnectivityService().hasLink) {\n" + REQUEST_BLOCK),
 ]
+# Anchor-uniqueness gate (the A.3 lesson, finding M-1, made permanent).
+# str.replace(old, new, 1) edits the FIRST match, so an anchor that occurs more
+# than once silently mutates whichever site happens to come first in the file.
+# That is not a caught mutation, it is a mis-targeted one. Refuse to run.
+_ambiguous=[]
+for _name,_path,_old,_new in MUT:
+    _n=open(_path).read().count(_old)
+    if _n!=1: _ambiguous.append(f"{_name}: anchor occurs {_n} times in {os.path.basename(_path)}")
+if _ambiguous:
+    print("AMBIGUOUS ANCHORS -- results would be untrustworthy:")
+    for _m in _ambiguous: print("  "+_m)
+    sys.exit(1)
+print(f"anchors unique: {len(MUT)}/{len(MUT)}")
+
 # Baseline gate. Without this a test that fails on CLEAN source reports every
 # mutation as "caught" while actually proving nothing -- which happened once
 # here (M21), so the harness now refuses to run on a red baseline.
 _b=subprocess.run(["python3","-m","pytest",*TEST,"-q","-p","no:cacheprovider"],
                   cwd=ROOT,capture_output=True,text=True)
 if _b.returncode!=0:
-    print("BASELINE RED -- results would be meaningless\\n"+_b.stdout[-2000:]); sys.exit(1)
-print("baseline green\\n")
+    print("BASELINE RED -- results would be meaningless\n"+_b.stdout[-2000:]); sys.exit(1)
+print("baseline green\n")
 
 caught=survived=skipped=0
 for name,path,old,new in MUT:

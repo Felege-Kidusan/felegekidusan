@@ -377,5 +377,151 @@ class TriggerWiringA2(unittest.TestCase):
                                 "existing syncAll callers must keep working")
 
 
+class OpportunitySchedulingA4(unittest.TestCase):
+    """S2 Goal A.4 — the opportunity scheduler is actually reachable.
+
+    A.3 finding B-1: `requestOpportunity()` existed but had ZERO production
+    callers, so the scheduling half of the coordinator was inert and a native
+    scheduler would never have been asked for anything. These pins close that
+    and keep it closed.
+
+    As in A.2, the wiring itself is not reachable by a Dart test: SyncService
+    builds ApiService()/LocalDb() as field initialisers, so constructing it
+    needs sqflite and no Dart test can open a database. Coordinator behaviour
+    (including opportunity de-duplication) IS covered behaviourally by
+    test/sync_execution_test.dart in CI.
+    """
+
+    def setUp(self):
+        self.sync_service = strip_comments(read(LIB, "sync_service.dart"))
+        self.execution = strip_comments(read(LIB, "sync_execution.dart"))
+
+    # -- Test A: the request exists and reaches the coordinator ----------
+    def test_b1_is_closed_a_production_caller_exists(self):
+        self.assertIn(
+            "_coordinator\n            .requestOpportunity(",
+            self.sync_service,
+            "B-1: requestOpportunity() must have a production caller",
+        )
+
+    def test_the_request_goes_through_the_coordinator_not_the_scheduler(self):
+        """The trigger must never talk to the platform seam directly."""
+        self.assertNotIn("_backgroundScheduler.ensureScheduled", self.sync_service)
+        self.assertNotIn("_backgroundScheduler.cancel", self.sync_service)
+        calls = re.findall(r"\.requestOpportunity\(", self.sync_service)
+        self.assertEqual(len(calls), 1, "exactly one opportunity request site")
+
+    def test_the_request_uses_the_authoritative_outbox_time(self):
+        """notBefore must come from the outbox, not from a guessed literal."""
+        self.assertRegex(
+            self.sync_service,
+            r"requestOpportunity\(\s*notBefore:\s*nextAttempt\s*\)",
+            "the opportunity must be scheduled from the outbox's own "
+            "next_attempt_at, never from an invented delay",
+        )
+        self.assertIn("final nextAttempt = await _db.nextOutboxAttemptAt(",
+                      self.sync_service)
+        # and it must not invent its own clock
+        block = self.sync_service.split("if (nextAttempt != null)", 1)[1]
+        block = block.split("if (force ||", 1)[0]
+        for clock in ("Duration(", "pow(", "backoff", "retryLadder"):
+            self.assertNotIn(clock, block)
+
+    def test_the_request_is_not_gated_on_connectivity(self):
+        """The offline case is the one the in-app timer cannot cover.
+
+        The foreground nudge is correctly skipped without a link. An
+        opportunity must still be requested, because `requiresNetwork: true`
+        lets the platform run us when connectivity returns — possibly after
+        this process is gone.
+        """
+        body = self.sync_service.split("if (nextAttempt != null)", 1)[1]
+        request = body.index("requestOpportunity(")
+        gate = body.index("if (force || ConnectivityService().hasLink)")
+        self.assertLess(
+            request, gate,
+            "the opportunity request must precede (and sit outside) the "
+            "connectivity gate",
+        )
+
+    def test_the_request_cannot_fail_or_delay_the_drain(self):
+        block = self.sync_service.split("if (nextAttempt != null)", 1)[1]
+        block = block.split("if (force ||", 1)[0]
+        self.assertIn("unawaited(", block)
+        self.assertIn("catchError", block)
+
+    # -- Test B: no second coalescing mechanism --------------------------
+    def test_no_new_coalescing_flag_was_introduced(self):
+        """Opportunity de-duplication belongs to the coordinator alone."""
+        for invented in ("_opportunityRequested", "_opportunityQueued",
+                         "_scheduledPending", "_wakeupPending",
+                         "_backgroundQueued"):
+            self.assertNotIn(invented, self.sync_service)
+        self.assertIn("bool _opportunityPending = false;", self.execution)
+
+    def test_existing_execution_coalescing_is_untouched(self):
+        for existing in ("if (_inflight != null)", "_queued = true",
+                         "await _inflight!.future"):
+            self.assertIn(existing, self.sync_service)
+
+    # -- Test C: the scheduler contract --------------------------------
+    def test_the_scheduler_is_still_the_noop_implementation(self):
+        self.assertIn(
+            "BackgroundSyncScheduler _backgroundScheduler =\n"
+            "      const NoopBackgroundSyncScheduler();",
+            self.sync_service,
+            "A.4 must not install a native scheduler",
+        )
+
+    def test_no_native_scheduling_leaked_into_this_phase(self):
+        for forbidden in ("workmanager", "WorkManager", "MethodChannel",
+                          "platform_channel", "AndroidIntent", "Kotlin"):
+            self.assertNotIn(forbidden, self.sync_service)
+            self.assertNotIn(forbidden, self.execution)
+
+    def test_the_request_carries_no_payload_or_identity(self):
+        """A scheduler request may outlive the session that created it."""
+        block = self.sync_service.split("if (nextAttempt != null)", 1)[1]
+        block = block.split("if (force ||", 1)[0]
+        for leak in ("userId", "token", "ownerUserId", "generation",
+                     "clientOpId", "payload"):
+            self.assertNotIn(leak, block)
+
+    # -- Test D/E: no bypass of drain or claim ---------------------------
+    def test_the_trigger_does_not_drain_directly(self):
+        block = self.sync_service.split("if (nextAttempt != null)", 1)[1]
+        block = block.split("if (force ||", 1)[0]
+        for bypass in ("_drain(", "_syncAllForGeneration(", "runSyncNow("):
+            self.assertNotIn(bypass, block)
+
+    def test_the_trigger_does_not_claim_directly(self):
+        block = self.sync_service.split("if (nextAttempt != null)", 1)[1]
+        block = block.split("if (force ||", 1)[0]
+        for bypass in ("claimNext", "settleLegacyOperation", "rawQuery",
+                       "next_attempt_at", "owner_user_id"):
+            self.assertNotIn(bypass, block)
+
+    def test_still_exactly_one_drain_and_one_claim(self):
+        self.assertEqual(len(re.findall(r"await _drain\(", self.sync_service)), 1)
+        claim_sites = 0
+        for folder, _dirs, files in os.walk(os.path.join(APP, "lib")):
+            for name in files:
+                if name.endswith(".dart"):
+                    claim_sites += strip_comments(
+                        read(folder, name)
+                    ).count("claimNextLegacyOperation(")
+        self.assertEqual(claim_sites, 2, "one definition + one call site")
+
+    # -- Test F: the foreground contract is unchanged --------------------
+    def test_foreground_retry_timing_is_unchanged(self):
+        """The nudge condition and delay must be byte-identical to A.3."""
+        self.assertIn(
+            "if (force || ConnectivityService().hasLink) {\n"
+            "        final wait = nextAttempt.difference(DateTime.now().toUtc());\n"
+            "        nudge(delay: wait <= Duration.zero ? Duration.zero : wait);",
+            self.sync_service,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
