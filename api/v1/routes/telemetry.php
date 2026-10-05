@@ -164,22 +164,35 @@ if ($eventType === 'sync_pass_completed') {
     );
 } elseif ($eventType === 'crash' || $eventType === 'crash_recorded') {
     $data = is_array($eventDataInput) ? $eventDataInput : [];
-    // Raw summaries are deliberately rejected. Updated clients send only a
-    // hash identity; old callers must not persist stack traces at this boundary.
-    $assertAllowedKeys($data, ['crash_key', 'kind']);
+    // Current clients send only a hash identity. A bounded legacy summary is
+    // accepted for rollout compatibility, but is discarded and never reaches
+    // durable event_data; it also has no dedupe key and cannot affect the new
+    // exact-once crash path.
+    $assertAllowedKeys($data, ['crash_key', 'kind', 'summary']);
     $crashKey = $data['crash_key'] ?? null;
     $kind = $data['kind'] ?? null;
-    if (!is_string($crashKey)
-        || !preg_match('/^[0-9a-f]{64}$/i', $crashKey)
-        || !is_string($kind)
-        || !in_array($kind, ['native', 'dart'], true)) {
-        err('Crash telemetry requires a hash key and kind.', 422);
+    if ($crashKey !== null) {
+        if (!is_string($crashKey)
+            || !preg_match('/^[0-9a-f]{64}$/i', $crashKey)
+            || !is_string($kind)
+            || !in_array($kind, ['native', 'dart'], true)) {
+            err('Crash telemetry requires a hash key and kind.', 422);
+        }
+        $crashDedupeKey = strtolower($crashKey);
+        $normalisedEventData = [
+            'crash_key' => $crashDedupeKey,
+            'kind' => $kind,
+        ];
+    } else {
+        $legacySummary = $data['summary'] ?? null;
+        if (!is_string($legacySummary) || strlen($legacySummary) > 300) {
+            err('Legacy crash telemetry summary is invalid.', 422);
+        }
+        $normalisedEventData = [
+            'kind' => 'legacy',
+            'legacy_summary_present' => true,
+        ];
     }
-    $crashDedupeKey = strtolower($crashKey);
-    $normalisedEventData = [
-        'crash_key' => $crashDedupeKey,
-        'kind' => $kind,
-    ];
 } elseif ($eventType === 'update_downloaded') {
     $data = is_array($eventDataInput) ? $eventDataInput : [];
     $assertAllowedKeys($data, ['target_version', 'target_build']);
@@ -194,16 +207,23 @@ if ($eventType === 'sync_pass_completed') {
 } elseif ($eventType === 'sync_completed' || $eventType === 'sync_failed'
     || $eventType === 'sync_success' || $eventType === 'sync_error') {
     $data = is_array($eventDataInput) ? $eventDataInput : [];
-    $assertAllowedKeys($data, ['items_count', 'error_code']);
+    $assertAllowedKeys($data, ['items_count', 'error_code', 'error']);
     $normalisedEventData = [
         'items_count' => $readEventCount($data, 'items_count'),
     ];
     if (array_key_exists('error_code', $data)) {
         if (!is_string($data['error_code'])
-            || !in_array($data['error_code'], ['operations_pending_retry', 'unknown'], true)) {
+            || !in_array($data['error_code'], ['operations_pending_retry', 'unknown', 'legacy_error'], true)) {
             err('Invalid telemetry error_code.', 422);
         }
         $normalisedEventData['error_code'] = $data['error_code'];
+    } elseif (array_key_exists('error', $data)) {
+        if (!is_string($data['error']) || strlen($data['error']) > 200) {
+            err('Legacy telemetry error is invalid.', 422);
+        }
+        // Preserve the old client's successful response without retaining its
+        // free-form error text in the event table.
+        $normalisedEventData['error_code'] = 'legacy_error';
     }
 } else {
     $data = is_array($eventDataInput) ? $eventDataInput : [];
