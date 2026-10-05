@@ -14,10 +14,10 @@ import android.content.Intent
  * `goAsync()` keeps the broadcast's wakelock held while Dart starts the
  * drain, which matters because the device may be in Doze when the alarm
  * fires. It is released as soon as Dart acknowledges, or after
- * BROADCAST_HOLD_MS, whichever comes first. The DRAIN is not bounded by it:
- * once invoked, the drain continues on the live engine's event loop. This
- * receiver never waits for sync to finish, and never learns whether it
- * succeeded.
+ * BROADCAST_HOLD_MS, whichever comes first. On a warm engine the drain may
+ * continue on the live engine's event loop after the broadcast is released;
+ * on a cold engine timeout destroys the temporary engine and is a failure, not
+ * a success. This receiver never performs sync logic itself.
  *
  * This class contains no sync logic of any kind by design — no database, no
  * claim, no retry, no session, no connectivity check.

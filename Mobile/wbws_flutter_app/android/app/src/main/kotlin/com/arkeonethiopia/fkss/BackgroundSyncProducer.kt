@@ -43,16 +43,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * ---------------------------------------------------
  * Recorded in full in
  * docs/MOBILE_OFFLINE_SYNC_S3_A8_PHASE1_ANDROID_BACKGROUND_PRODUCER_ADR.md.
- * In short: WorkManager and android_alarm_manager_plus are pub packages, and
- * the dependency graph is broken by F-19 (url_launcher is declared in
- * pubspec.yaml and absent from pubspec.lock, so --enforce-lockfile cannot
- * succeed) with no Flutter SDK available to regenerate the lock. Every
- * mechanism that survives process death — those two, plus a hand-written
- * headless FlutterEngine or JobScheduler — additionally requires a SECOND
- * Dart isolate, which means a second LocalDb singleton and a parallel sqflite
- * connection whose cross-isolate behaviour no test in this repository has
- * ever exercised. A.8 names that a stop condition.
- *
+ * In short: AlarmManager is the smallest trigger that needs no new dependency,
+ * scheduler, worker, permission or retry system. A.12 explicitly adds the
+ * bounded temporary FlutterEngine below for the process-dead case; it is one
+ * engine per wake-up, not a permanent service or a second sync architecture.
  * `setAndAllowWhileIdle` needs NO permission (unlike `setExactAndAllowWhileIdle`,
  * which needs SCHEDULE_EXACT_ALARM from API 31), fires during Doze, and needs
  * no foreground service and no notification. So this costs zero new
@@ -63,11 +57,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    broadcast reaches the live FlutterEngine and the drain runs. This is the
  *    case this class serves, and it is a real gap today because Dart `Timer`s
  *    are frozen while the app is idle/Doze-suspended whereas this alarm is not.
- *  - PROCESS KILLED (low memory, swipe-away on some OEMs): the manifest-declared
- *    receiver still starts the process, but there is no FlutterEngine, so
- *    [deliver] does nothing and deliberately does not re-arm — re-arming would
- *    be a wake loop that never makes progress. The durable outbox is untouched
- *    and drains on next launch.
+ *  - PROCESS KILLED (low memory, swipe-away on some OEMs): the
+ *    manifest-declared receiver starts the process and [deliver] creates one
+ *    temporary FlutterEngine/isolate. The preserved Dart entry point runs the
+ *    existing background route, then the engine is destroyed. If bootstrap,
+ *    channel setup, sync or timeout fails, the wake-up is not reported as a
+ *    successful durable sync; the outbox remains authoritative and retryable.
  *  - FORCE-STOPPED by the user: Android cancels the app's alarms and will not
  *    deliver broadcasts until the user launches the app again. That is
  *    platform behaviour; there is no supported workaround and none is
@@ -129,9 +124,10 @@ object BackgroundSyncProducer {
 
     /**
      * How long the receiver may hold the broadcast open. Kept under the ~10s
-     * soft limit Android gives a BroadcastReceiver. The Dart drain is NOT
-     * bounded by this: once invoked it continues on the live engine's event
-     * loop. Finishing early only releases the broadcast's wakelock.
+     * soft limit Android gives a BroadcastReceiver. Warm-engine Dart work can
+     * continue on its live event loop after this hold expires; cold-engine work
+     * treats this bound as a timeout and destroys the temporary engine without
+     * claiming success. Finishing releases the broadcast's wakelock.
      */
     private const val BROADCAST_HOLD_MS = 8_000L
 

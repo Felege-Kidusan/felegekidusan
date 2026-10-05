@@ -44,7 +44,10 @@ TEST=["tests/security/test_mobile_background_sync_core.py",
       # A.8: the Android background producer suite. M61-M70 mutate Kotlin,
       # the AndroidManifest and the Dart bridge, which none of the other
       # suites reads, so without this they would all report SURVIVED.
-      "tests/security/test_mobile_android_background_producer.py"]
+      "tests/security/test_mobile_android_background_producer.py",
+      # A.12: the cold entry point, temporary engine lifecycle, readiness,
+      # cleanup and independent LocalDb connection contracts.
+      "tests/security/test_mobile_android_cold_start.py"]
 
 MUT=[
  ("M1 remove execution-source propagation into the claim",
@@ -350,6 +353,39 @@ MUT=[
   '            android:name=".BackgroundSyncReceiver"\n'
   '            android:enabled="true"\n'
   '            android:exported="true">\n'),
+
+ # ── A.12 — the bounded cold-start engine and preserved Dart entrypoint ──
+ # These mutate the new entrypoint, plugin registration, readiness handshake,
+ # and cleanup. They are caught by the Android/Dart source-contract suite;
+ # Android runtime execution remains separately classified as pending.
+ ("M71 the cold Dart entry point loses release retention",
+  f"{ROOT}/Mobile/wbws_flutter_app/lib/main.dart",
+  "@pragma('vm:entry-point')\n",
+  ""),
+ ("M72 the cold engine invokes the wrong Dart entry point",
+  f"{KT}/BackgroundSyncProducer.kt",
+  '                    "backgroundSyncMain",\n',
+  '                    "main",\n'),
+ ("M73 the cold engine skips automatic plugin registration",
+  f"{KT}/BackgroundSyncProducer.kt",
+  "FlutterEngine(appContext, emptyArray(), true)",
+  "FlutterEngine(appContext, emptyArray(), false)"),
+ ("M74 readiness no longer gates cold background invocation",
+  f"{KT}/BackgroundSyncProducer.kt",
+  "                mainHandler.post { invokeCold() }\n",
+  "                invokeCold()\n"),
+ ("M75 cold engine cleanup stops destroying the engine",
+  f"{KT}/BackgroundSyncProducer.kt",
+  "            engine?.destroy()\n",
+  "            engine?.let { }\n"),
+ ("M76 independent cold and warm connections collapse into one instance",
+  f"{LIB}/local_db.dart",
+  "      singleInstance: false,\n",
+  "      singleInstance: true,\n"),
+ ("M77 cold channel handlers survive engine destruction",
+  f"{KT}/BackgroundSyncProducer.kt",
+  "        cold?.setMethodCallHandler(null)\n",
+  "        cold?.setMethodCallHandler { _, _ -> }\n"),
 ]
 # Anchor-uniqueness gate (the A.3 lesson, finding M-1, made permanent).
 # str.replace(old, new, 1) edits the FIRST match, so an anchor that occurs more

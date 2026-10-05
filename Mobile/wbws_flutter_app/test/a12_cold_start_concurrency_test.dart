@@ -180,7 +180,16 @@ Future<void> _inspectWorker(Map<String, Object?> message) async {
     );
     final attempts = await raw.query(
       'sync_attempts',
-      columns: ['attempt_number', 'execution_source', 'retry_decision'],
+      columns: [
+        'attempt_number',
+        'attempt_uid',
+        'client_op_id',
+        'execution_source',
+        'owner_user_id',
+        'created_authorization_version',
+        'entity_ref',
+        'retry_decision',
+      ],
       orderBy: 'attempt_number',
     );
     final integrity = await raw.rawQuery('PRAGMA integrity_check');
@@ -264,10 +273,19 @@ void main() {
       final attempts = (inspected['attempts'] as List).cast<Map>();
       expect(attempts, hasLength(2));
       expect(attempts[0]['attempt_number'], 1);
+      expect(attempts[0]['attempt_uid'], isNotEmpty);
       expect(attempts[0]['execution_source'], 'foreground');
+      expect(attempts[0]['owner_user_id'], 701);
+      expect(attempts[0]['created_authorization_version'], 8);
       expect(attempts[0]['retry_decision'], 'INTERRUPTED');
       expect(attempts[1]['attempt_number'], 2);
+      expect(attempts[1]['attempt_uid'], isNotEmpty);
+      expect(attempts[1]['attempt_uid'], isNot(attempts[0]['attempt_uid']));
+      expect(attempts[1]['client_op_id'], attempts[0]['client_op_id']);
+      expect(attempts[1]['entity_ref'], attempts[0]['entity_ref']);
       expect(attempts[1]['execution_source'], 'background');
+      expect(attempts[1]['owner_user_id'], 701);
+      expect(attempts[1]['created_authorization_version'], 8);
       expect(attempts[1]['retry_decision'], 'COMPLETED');
       expect(inspected['integrity'], 'ok');
     } finally {
