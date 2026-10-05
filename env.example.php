@@ -42,6 +42,7 @@ define('BACKUP_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_2'); // encrypts
 define('HEALTH_KEY',         'REPLACE_WITH_A_LONG_RANDOM_STRING_3'); // HTTP Basic/X-Health-Key health credential
 define('MONITOR_SECRET_KEY', 'REPLACE_WITH_A_LONG_RANDOM_STRING_4'); // password for the error-monitor dashboard (/monitor/)
 define('TELEMETRY_HASH_SECRET', 'REPLACE_WITH_A_LONG_RANDOM_STRING_5'); // HMAC salt for rotating telemetry IP hashes
+// define('TELEMETRY_RETENTION_LOCK_PATH', '/home/YOUR_ACCOUNT/ssms_mobile_telemetry_retention.lock');
 
 // ---- Mobile authorization-scope rollout (TEMPORARY / OPTIONAL) ----
 // Build 24+ always receives live role/status/assignment revalidation. Older

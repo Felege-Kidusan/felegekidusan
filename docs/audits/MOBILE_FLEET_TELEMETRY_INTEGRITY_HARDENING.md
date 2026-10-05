@@ -177,5 +177,6 @@ No fabricated telemetry or monitoring rows are authorized for this drill.
 - The fallback to `JWT_SECRET` is retained for deployments that have not yet
   added `TELEMETRY_HASH_SECRET`; staging should configure the dedicated secret
   before production rollout.
-- No retention/pruning job is added in this slice; the existing 90-day
-  telemetry-retention requirement remains a separate follow-up.
+- Retention is now implemented as a separate CLI-only phase in
+  `admin/backend/mobile_telemetry_retention.php`; cron installation and runtime
+  execution remain unverified.
