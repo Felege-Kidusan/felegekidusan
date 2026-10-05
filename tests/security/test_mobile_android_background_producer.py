@@ -170,6 +170,16 @@ class AndroidBackgroundProducerSource(unittest.TestCase):
             self.assertNotIn(forbidden, self.producer, forbidden)
             self.assertNotIn(forbidden, self.receiver, forbidden)
 
+    def test_the_scheduling_message_actually_forwards_all_three_fields(self):
+        body = re.search(r"Future<void> ensureScheduled\(BackgroundSyncRequest request\) \{(.*?)\n  \}",
+                         self.scheduler, re.S)
+        self.assertIsNotNone(body, "ensureScheduled must be one readable block")
+        sent = body.group(1)
+        self.assertIn("keyUniqueWorkName:", sent)
+        self.assertIn("keyNotBeforeEpochMs:", sent)
+        self.assertIn("request.notBefore?.toUtc().millisecondsSinceEpoch", sent)
+        self.assertIn("keyRequiresNetwork: request.requiresNetwork", sent)
+
     # ── callback invocation and provenance ──────────────────────────────
 
     def test_the_receiver_only_acts_on_its_own_action(self):
@@ -338,6 +348,14 @@ class NoSecondEngineOrDrain(unittest.TestCase):
         self.assertEqual(1, self.bridge.count("runSyncNow"))
         for forbidden in ("_drain", "pushPending", "claimNext", "LocalDb(", "HymnStore"):
             self.assertNotIn(forbidden, self.bridge, forbidden)
+
+    def test_the_bridge_never_freezes_a_generation(self):
+        # A wake-up may be granted long after it was requested. runSyncNow
+        # must be called WITHOUT a captured generation so the drain validates
+        # against whichever session is current at execution time; pinning one
+        # here would let a previous account's scheduled work run.
+        self.assertIn("SyncService().runSyncNow(source: source)", self.bridge)
+        self.assertNotIn("generation:", self.bridge)
 
     def test_the_bridge_adds_no_second_session_or_auth_gate(self):
         for forbidden in ("isLoggedIn", "activeSessionGate", "sessionGenerationProvider",

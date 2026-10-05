@@ -21,6 +21,8 @@ Run:  python3 tests/mutation/background_sync_core_mutations.py
 import subprocess, shutil, os, sys
 ROOT="/home/user/SSMS"
 LIB=os.path.join(ROOT,"Mobile/wbws_flutter_app/lib/services")
+ANDROID=os.path.join(ROOT,"Mobile/wbws_flutter_app/android/app")
+KT=os.path.join(ANDROID,"src/main/kotlin/com/arkeonethiopia/fkss")
 REQUEST_BLOCK=(
   "      unawaited(\n"
   "        _coordinator\n"
@@ -38,7 +40,11 @@ TEST=["tests/security/test_mobile_background_sync_core.py",
       # A.6's: M42-M60 touch the hymn claim/settle path, which none of the
       # other three suites looks at, so without this they would report
       # nothing useful.
-      "tests/security/test_mobile_hymn_attempt_ledger.py"]
+      "tests/security/test_mobile_hymn_attempt_ledger.py",
+      # A.8: the Android background producer suite. M61-M70 mutate Kotlin,
+      # the AndroidManifest and the Dart bridge, which none of the other
+      # suites reads, so without this they would all report SURVIVED.
+      "tests/security/test_mobile_android_background_producer.py"]
 
 MUT=[
  ("M1 remove execution-source propagation into the claim",
@@ -291,6 +297,59 @@ MUT=[
   f"{LIB}/local_db.dart",
   "         ORDER BY candidate.id\n         LIMIT 1\n",
   "         ORDER BY candidate.id DESC\n         LIMIT 1\n"),
+
+ # ── S3 A.8 — the native Android background producer ──────────────────
+ # These mutate Kotlin, the AndroidManifest and the Dart bridge. They are
+ # caught by source-contract assertions, which is the only kind of evidence
+ # available: no Kotlin compiler, Gradle wrapper or Android SDK exists here
+ # or in CI.
+ ("M61 the native producer sends FOREGROUND provenance",
+  f"{KT}/BackgroundSyncProducer.kt",
+  '    private const val SOURCE_BACKGROUND = "background"\n',
+  '    private const val SOURCE_BACKGROUND = "foreground"\n'),
+ ("M62 Dart accepts any provenance the native side claims",
+  f"{LIB}/background_sync_bridge.dart",
+  "    if (source != SyncExecutionSource.background) return null;\n",
+  "    if (source == null) return null;\n"),
+ ("M63 the background callback bypasses the coordinator",
+  f"{LIB}/background_sync_bridge.dart",
+  "      SyncService().runSyncNow(source: source);\n",
+  "      SyncService().syncAll();\n"),
+ ("M64 scheduling ignores notBefore and always wakes immediately",
+  f"{KT}/BackgroundSyncProducer.kt",
+  "        val triggerAt = if (notBeforeEpochMs == null || notBeforeEpochMs < now) now\n"
+  "        else notBeforeEpochMs\n",
+  "        val triggerAt = now\n"),
+ ("M65 cancellation becomes a no-op",
+  f"{KT}/BackgroundSyncProducer.kt",
+  "        alarms.cancel(pending)\n",
+  ""),
+ ("M66 the network requirement is dropped from the scheduling message",
+  f"{LIB}/android_background_sync_scheduler.dart",
+  "      BackgroundSyncChannel.keyRequiresNetwork: request.requiresNetwork,\n",
+  ""),
+ ("M67 the bridge freezes a generation so stale scheduled work can execute",
+  f"{LIB}/background_sync_bridge.dart",
+  "  static Future<SyncResult> runViaSyncService(SyncExecutionSource source) =>\n",
+  "  static Future<SyncResult> runViaSyncService(SyncExecutionSource source,\n"
+  "          {int generation: 0}) =>\n"),
+ ("M68 a second drain path is introduced in the bridge",
+  f"{LIB}/background_sync_bridge.dart",
+  "    final result = await _runDrain(invocation.source);\n",
+  "    await LocalDb().claimNextHymnOperation();\n"
+  "    final result = await _runDrain(invocation.source);\n"),
+ ("M69 the receiver stops checking its own action",
+  f"{KT}/BackgroundSyncReceiver.kt",
+  "        if (intent.action != BackgroundSyncProducer.ACTION_WAKE) return\n",
+  ""),
+ ("M70 the wake-up receiver becomes exported to other apps",
+  f"{ANDROID}/src/main/AndroidManifest.xml",
+  '            android:name=".BackgroundSyncReceiver"\n'
+  '            android:enabled="true"\n'
+  '            android:exported="false">\n',
+  '            android:name=".BackgroundSyncReceiver"\n'
+  '            android:enabled="true"\n'
+  '            android:exported="true">\n'),
 ]
 # Anchor-uniqueness gate (the A.3 lesson, finding M-1, made permanent).
 # str.replace(old, new, 1) edits the FIRST match, so an anchor that occurs more
