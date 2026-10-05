@@ -1,9 +1,9 @@
 # S3 / A.10 — F-19 dependency / lockfile remediation
 
-**Status at authoring:** local remediation complete; GitHub Actions verification is
-pending push authentication. The supplied GitHub credential was rejected with
-`401 Bad credentials`, so the A.10 commits cannot yet be published to
-`origin/main` from this workspace.
+**Status: PASS — F-19 CLOSED.**
+
+The repaired lockfile passed local and clean-checkout verification, and GitHub
+Actions run `37344522032` passed all five jobs on commit `dbd8d1c`.
 
 ## 1. Original F-19 condition
 
@@ -145,6 +145,17 @@ git diff --exit-code -- pubspec.yaml pubspec.lock
 The old bounded F-19 exception has been removed. A future lockfile mismatch now
 fails CI before tests or the Android build proceed.
 
+GitHub Actions run `37344522032` completed successfully with 5/5 jobs green:
+
+```text
+Flutter unit tests: 587 passed
+Security/regression: 2235 passed / 926 subtests / 0 skipped
+PHP syntax: 308 files / 0 errors
+F-20 lifecycle: 67/67
+Migration numbering: unique
+Android debug APK: built and A.8 artifact checks passed
+```
+
 The A.9 Android SDK, JDK, Gradle, AGP, Kotlin, NDK, wrapper, APK inspection,
 and artifact-upload steps remain unchanged.
 
@@ -157,11 +168,13 @@ Flutter tests: 587 passed
 Enforce-lockfile: passed
 Normal pub get: passed
 Clean-checkout dependency verification: passed
+A.8/A.1-A.8 targeted Python tests: 110 passed
+Mutation harness: 70/70 caught, 70/70 anchors unique
 ```
 
-The existing A.8 source-contract and mutation checks were not changed. Android
-APK and the full MariaDB/PHP CI suites require GitHub Actions and will be
-verified after the commits are pushed.
+The existing A.8 source-contract and mutation checks were not changed. The
+full MariaDB/PHP suites and Android APK were verified by GitHub Actions run
+`37344522032` after the remediation was pushed.
 
 ## 9. Scope preservation
 
@@ -183,21 +196,20 @@ SQLite runtime verification, or background-sync redesign was added.
 
 ## 10. Commits
 
-Local commits created:
+Published commits:
 
 ```text
-c81b951 fix(S3/A.10): repair Flutter dependency lockfile
-25b3a58 ci(S3/A.10): enforce the committed Flutter lockfile
+f19be7d fix(S3/A.10): repair Flutter dependency lockfile
+661c4d0 ci(S3/A.10): enforce the committed Flutter lockfile
+dbd8d1c docs(S3/A.10): record F-19 lockfile remediation
 ```
-
-Documentation is being added as a separate increment. Push and authoritative CI
-verification remain pending valid GitHub authentication.
 
 ## 11. Remaining findings
 
-1. The supplied GitHub credential is invalid or revoked; GitHub returned `401
-   Bad credentials` for both API authentication and Git push.
-2. The remediation has not yet been observed in a GitHub Actions clean runner.
-3. A.9 APK regression, F-20, security/regression, PHP syntax, and migration
-   checks must be re-confirmed after the remediation commits reach GitHub.
-4. SQLite runtime verification remains explicitly out of scope for A.10.
+1. `flutter pub get` reports 66 newer versions available under the existing
+   dependency constraints. No upgrade was performed; this is informational.
+2. The Android build logs retain the existing non-fatal NDK 27 plugin warnings;
+   the pinned NDK 26.1.10909125 still produces a successful APK. No NDK change
+   was made in A.10.
+3. SQLite runtime verification remains explicitly out of scope for A.10.
+4. Android runtime behavior remains outside the A.9 build-only verification.
