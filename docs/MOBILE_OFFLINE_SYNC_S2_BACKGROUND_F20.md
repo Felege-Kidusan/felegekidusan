@@ -263,8 +263,25 @@ E2E-VERDICT: PASS (atomic_completion: 19 checks)
 E2E-VERDICT: PASS (all: 67 checks)     # 48 pre-existing + 19 new
 ```
 
-**Full suite: `2012 passed, 926 subtests passed, 0 failed, 0 skipped` in 85.52 s.**
+**Full suite: `2012 passed, 926 subtests passed, 0 failed, 0 skipped`.**
 No regression against the S1 baseline of 2012 (`VERIFIED IN CI`).
+
+### Verification log
+
+This result was produced **twice**, on either side of an environment rollback
+that destroyed the local toolchain and the unpushed commits:
+
+| Run | Lint | Harness | Suite |
+|---|---|---|---|
+| Before rollback #12 | 4 files clean | 67 PASS | 2012 passed / 0 skipped, 85.52 s |
+| After rebuild, on pushed commit `b6b8db9` | 5 files clean | 67 PASS | 2012 passed / 0 skipped, 72.56 s |
+
+The second run is the authoritative one: it was executed against the exact
+tree that is now on `origin/main`. The commit message for `b6b8db9` says
+"re-verification pending a toolchain rebuild" because the push was deliberately
+made *before* verification — the preceding rollback had already destroyed two
+verified-but-unpushed commits, so getting the work onto the remote took
+priority over tidiness. That caveat is now discharged by the table above.
 
 ---
 
