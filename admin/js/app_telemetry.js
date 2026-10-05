@@ -167,9 +167,6 @@
       setTxt('kpi-downloads-today', (sum.downloads_today || 0).toLocaleString());
       setTxt('kpi-adoption', (sum.adoption_percentage || 0) + '%');
       setTxt('kpi-latest-ver', 'v' + (sum.latest_version || '1.5.1'));
-      setTxt('kpi-sync-rate', (sum.sync_health_percentage || 100) + '%');
-      setTxt('kpi-sync-success', (sum.sync_success || 0).toLocaleString());
-      setTxt('kpi-sync-fail', (sum.sync_fail || 0).toLocaleString());
       setTxt('kpi-crashes', (sum.total_crashes || 0).toLocaleString());
       setTxt('kpi-launches', (sum.total_launches || 0).toLocaleString());
 

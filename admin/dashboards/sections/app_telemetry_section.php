@@ -156,10 +156,10 @@ $sum = $atMetrics['summary'] ?? [];
     <div class="sec-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
         <div>
             <h2 class="sec-title" style="display:flex;align-items:center;gap:0.5rem;font-size:1.4rem;color:#f8fafc">
-                <i class="fa-solid fa-chart-line" style="color:#38bdf8"></i> Mobile Fleet Telemetry &amp; Analytics
+                <i class="fa-solid fa-chart-line" style="color:#38bdf8"></i> Fleet Analytics &amp; Sync Monitoring
             </h2>
             <p class="sec-desc" style="color:#94a3b8;font-size:0.875rem">
-                Real-time active installations, version adoption, device hardware classes &amp; sync reliability
+                Fleet installations, version/device telemetry, and server-observed synchronization operations
             </p>
         </div>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
@@ -265,12 +265,6 @@ $sum = $atMetrics['summary'] ?? [];
             <div class="at-kpi-label"><i class="fa-solid fa-code-branch" style="color:#f59e0b"></i> Version Adoption</div>
             <div class="at-kpi-num" id="kpi-adoption"><?= htmlspecialchars((string)($sum['adoption_percentage'] ?? 0)) ?>%</div>
             <div class="at-kpi-sub">On latest build <span style="color:#f59e0b;font-weight:600" id="kpi-latest-ver">v<?= htmlspecialchars((string)($sum['latest_version'] ?? '')) ?></span></div>
-        </div>
-
-        <div class="at-kpi-card" style="border-left:4px solid #10b981">
-            <div class="at-kpi-label"><i class="fa-solid fa-rotate" style="color:#10b981"></i> Sync Health Rate</div>
-            <div class="at-kpi-num" id="kpi-sync-rate"><?= htmlspecialchars((string)($sum['sync_health_percentage'] ?? 100)) ?>%</div>
-            <div class="at-kpi-sub"><span id="kpi-sync-success"><?= number_format((int)($sum['sync_success'] ?? 0)) ?></span> ok · <span style="color:#f87171" id="kpi-sync-fail"><?= number_format((int)($sum['sync_fail'] ?? 0)) ?></span> err</div>
         </div>
 
         <div class="at-kpi-card" style="border-left:4px solid #ec4899">

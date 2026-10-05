@@ -91,6 +91,8 @@ class SyncMonitoringContractTests(unittest.TestCase):
         self.assertIn("displayCount", self.ui)
         self.assertIn("raw === null || raw === undefined ? '—'", self.ui)
         self.assertIn("pending/retrying", self.docs)
+        self.assertNotIn('id="kpi-sync-rate"', self.dashboard)
+        self.assertIn("single sync-health surface", self.docs)
 
 
 if __name__ == "__main__":
