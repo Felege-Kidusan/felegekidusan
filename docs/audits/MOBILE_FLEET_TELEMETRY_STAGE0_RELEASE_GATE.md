@@ -87,7 +87,7 @@ Use the real staging application and controlled account. Record only timestamps,
 
 ### Important expected limitation
 
-The current mobile sync event is `sync_pass_completed`, containing count-only data. The legacy installation counters currently recognize older `sync_completed`/`sync_failed` event types, not the new pass-summary event. Record this comparison explicitly; it is a known analytics-contract finding and is not evidence that the server-observed monitor failed.
+The current mobile sync event is `sync_pass_completed`, containing count-only data. The telemetry ingestion patch now translates its reviewed `succeeded`, `waiting_retry`, and `needs_attention` counts into the legacy installation counters with a per-request cap. Confirm this translation against one real staging pass; it is still not evidence that the server-observed monitor failed.
 
 ## 4. Raw-row and API reconciliation
 
@@ -168,14 +168,14 @@ With an authorized `school_admin` and `super_admin` account:
 - An unauthorized account can read telemetry or monitor data.
 - Release evidence contains payloads, tokens, member data, or secrets.
 
-## 8. Next implementation after this gate
+## 8. Current implementation and next gate
 
-Once the gate produces evidence, the next source patch should address the highest confirmed analytics contract issue:
+The first analytics-correctness patch now implements the source-level parts of this plan:
 
-1. make legacy dashboard filters consistent;
-2. separate lifetime counters from time-window totals;
-3. deprecate or correct the legacy sync-counter presentation;
-4. explicitly reconcile `sync_pass_completed` with legacy analytics;
-5. add database-backed tests for the corrected query scopes.
+1. legacy dashboard filters use one installation cohort scope;
+2. lifetime counters are labeled as lifetime counters for that cohort;
+3. the old aggregate sync percentage returns `null` when no counters exist;
+4. `sync_pass_completed` counts are translated into legacy success/failure counters with a hard per-request cap;
+5. the device directory receives the same selected range as the overview.
 
-The crash-report deduplication and public-ingestion hardening should follow as separate, reviewable changes. Do not combine them with the filter patch.
+The next required evidence is still staging execution: verify the query scopes and count translation against real controlled rows, then add database-backed tests using an approved disposable schema. Crash-report deduplication and public-ingestion hardening remain separate, reviewable changes.

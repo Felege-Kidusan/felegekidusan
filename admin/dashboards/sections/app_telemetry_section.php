@@ -16,9 +16,14 @@ $atMetrics = [
         'total_launches' => 0,
         'sync_success' => 0,
         'sync_fail' => 0,
-        'sync_health_percentage' => 100,
+        'sync_health_percentage' => null,
         'total_crashes' => 0,
         'adoption_percentage' => 0,
+        'scope' => [
+            'range' => '7d',
+            'installation_basis' => 'last_seen_at cohort',
+            'counter_basis' => 'lifetime installation counters for the selected cohort',
+        ],
     ],
     'versions' => [],
     'os_versions' => [],
@@ -28,7 +33,7 @@ $atMetrics = [
 
 if (isset($conn) && $conn instanceof mysqli) {
     try {
-        $atMetrics = \App\Services\AppTelemetryService::getFleetMetrics($conn);
+        $atMetrics = \App\Services\AppTelemetryService::getFleetMetrics($conn, ['range' => '7d']);
     } catch (Throwable $e) {}
 }
 
@@ -199,6 +204,7 @@ $sum = $atMetrics['summary'] ?? [];
         </div>
     </div>
     <p id="telemetry-status" role="status" hidden style="margin:-0.75rem 0 1rem;padding:0.75rem 1rem;border:1px solid rgba(248,113,113,.35);border-radius:6px;background:rgba(127,29,29,.18);color:#fecaca"></p>
+    <p id="telemetry-scope" role="status" style="margin:-0.75rem 0 1rem;color:#94a3b8;font-size:0.75rem">Installation metrics use the selected last-seen window. Launch, crash, and legacy sync counters are lifetime counters for that selected cohort.</p>
 
     <!-- Server-observed sync health and recent operations are integrated into
          the existing fleet analytics section below; there is one dashboard
@@ -225,9 +231,9 @@ $sum = $atMetrics['summary'] ?? [];
     <!-- Executive KPI Metrics Grid -->
     <div class="at-kpi-grid">
         <div class="at-kpi-card" style="border-left:4px solid #38bdf8">
-            <div class="at-kpi-label"><i class="fa-solid fa-mobile-screen-button" style="color:#38bdf8"></i> Total Installed Devices</div>
+            <div class="at-kpi-label"><i class="fa-solid fa-mobile-screen-button" style="color:#38bdf8"></i> Devices in Selected Window</div>
             <div class="at-kpi-num" id="kpi-total-devices"><?= number_format((int)($sum['total_installations'] ?? 0)) ?></div>
-            <div class="at-kpi-sub">Unique installation IDs recorded</div>
+            <div class="at-kpi-sub">Installation IDs matching the selected cohort</div>
         </div>
 
         <div class="at-kpi-card" style="border-left:4px solid #4ade80">
@@ -249,9 +255,9 @@ $sum = $atMetrics['summary'] ?? [];
         </div>
 
         <div class="at-kpi-card" style="border-left:4px solid #ec4899">
-            <div class="at-kpi-label"><i class="fa-solid fa-bug" style="color:#ec4899"></i> Fleet Crashes</div>
+            <div class="at-kpi-label"><i class="fa-solid fa-bug" style="color:#ec4899"></i> Legacy Crash Counters</div>
             <div class="at-kpi-num" id="kpi-crashes"><?= number_format((int)($sum['total_crashes'] ?? 0)) ?></div>
-            <div class="at-kpi-sub"><span id="kpi-launches"><?= number_format((int)($sum['total_launches'] ?? 0)) ?></span> total app sessions</div>
+            <div class="at-kpi-sub"><span id="kpi-launches"><?= number_format((int)($sum['total_launches'] ?? 0)) ?></span> lifetime launch pings in cohort</div>
         </div>
 
         <?php foreach ([
@@ -380,7 +386,7 @@ $sum = $atMetrics['summary'] ?? [];
                         <th>ABI / Arch</th>
                         <th>RAM / Class</th>
                         <th>Launches</th>
-                        <th>Syncs (Ok / Fail)</th>
+                        <th>Legacy Sync Counters (Ok / Fail)</th>
                         <th>Last Active</th>
                     </tr>
                 </thead>
