@@ -66,7 +66,8 @@ def test_manual_legacy_discard_is_exact_and_cannot_delete_a_replacement() -> Non
 def test_hymn_failures_are_retained_and_exactly_settled() -> None:
     hymn = source(SERVICES / "hymn_store.dart")
     db = source(SERVICES / "local_db.dart")
-    push = hymn[hymn.index("Future<int> pushPending()"):
+    # S2 Goal A.7 gave pushPending an execution-source parameter.
+    push = hymn[hymn.index("Future<int> pushPending({"):
                 hymn.index("Map<String, dynamic>? _itemFrom")]
     assert "claimNextHymnOperation" in push
     assert "settleHymnOperation" in push

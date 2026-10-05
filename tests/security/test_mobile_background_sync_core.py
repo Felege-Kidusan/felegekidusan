@@ -91,8 +91,15 @@ class BackgroundSyncCoreArchitecture(unittest.TestCase):
         self.assertIn("executionSource: source", service,
                       "the drain must hand its source to the claim")
         db = strip_comments(self.local_db)
-        self.assertIn("executionSource: executionSource", db,
-                      "the claim must hand the source to the attempt ledger")
+        # S2 Goal A.7 added a SECOND ledger call site (the hymn claim), at
+        # which point a bare substring check became satisfiable by either one
+        # alone — deleting the legacy propagation stopped being caught. Both
+        # claims that open an attempt must hand the source down.
+        self.assertEqual(
+            db.count("executionSource: executionSource"), 2,
+            "the legacy claim AND the hymn claim must each hand the source "
+            "to the attempt ledger",
+        )
         self.assertIn("'execution_source': executionSource.storageValue", db,
                       "the source must be written as a durable column value")
 

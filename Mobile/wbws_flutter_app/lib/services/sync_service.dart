@@ -315,9 +315,12 @@ class SyncService {
 
     // Shared hymn operations use the same typed classifier and durable state,
     // but remain deliberately outside private-owner inventory and purge.
+    // S2 Goal A.7: this drain is the authoritative execution boundary, so it
+    // hands the hymn push the same `source` the legacy kinds were given — the
+    // provenance is decided here once, never re-derived further down.
     try {
       final hymnStore = HymnStore();
-      final pushed = await hymnStore.pushPending();
+      final pushed = await hymnStore.pushPending(source: source);
       if (!_ownsGeneration(generation)) {
         return _pausedResult(synced: synced, failed: failed);
       }
