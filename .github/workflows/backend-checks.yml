@@ -518,9 +518,35 @@ jobs:
           grep -q 'BackgroundSyncReceiver' /tmp/manifest.txt
           grep -q 'com.arkeonethiopia.fkss.action.BACKGROUND_SYNC' /tmp/manifest.txt
           echo "BackgroundSyncReceiver and its action are present in the packaged manifest."
-          # And no permission crept in: A.8 added exactly zero.
-          perms=$("$AAPT2" dump permissions "$APK" | grep -c "uses-permission:" || true)
-          echo "uses-permission entries in the APK: $perms"
+
+          # The receiver must stay private. A.8's threat model depends on it:
+          # an exported receiver would let any app on the device trigger a sync.
+          if grep -A6 'BackgroundSyncReceiver' /tmp/manifest.txt | grep -q 'exported.*0xffffffff'; then
+            echo "::error::BackgroundSyncReceiver is exported in the built APK."
+            exit 1
+          fi
+          echo "Receiver is not exported in the packaged manifest."
+
+          # The build succeeding already proves the Kotlin compiled, but read
+          # the classes back out of the dex so the artifact itself is the
+          # evidence rather than the build log.
+          mkdir -p /tmp/dex && unzip -o -q "$APK" 'classes*.dex' -d /tmp/dex
+          for cls in BackgroundSyncProducer BackgroundSyncReceiver MainActivity; do
+            if grep -aq "Lcom/arkeonethiopia/fkss/$cls;" /tmp/dex/classes*.dex; then
+              echo "  dex contains com.arkeonethiopia.fkss.$cls"
+            else
+              echo "::error::$cls is missing from the APK's dex."
+              exit 1
+            fi
+          done
+
+          # A.8 added exactly zero permissions. The merged manifest carries
+          # more than the app declares because plugin manifests merge in, so
+          # list them by name instead of asserting a bare count.
+          echo "--- uses-permission in the merged APK manifest ---"
+          "$AAPT2" dump permissions "$APK" | grep "uses-permission:" \
+            | sed "s/.*name='//;s/'.*//" | sort | tee /tmp/perms.txt
+          echo "total: $(wc -l < /tmp/perms.txt)   declared by the app: 9"
 
       - name: Upload the debug APK
         if: success()
