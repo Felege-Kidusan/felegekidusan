@@ -59,6 +59,25 @@ class AppTelemetrySecurityTests(unittest.TestCase):
         self.assertIn("active_7d", self.telemetry_service)
         self.assertIn("adoption_percentage", self.telemetry_service)
 
+    def test_sync_pass_counts_reconcile_with_legacy_installation_counters(self):
+        self.assertIn("$eventType === 'sync_pass_completed'", self.route_telemetry)
+        self.assertIn("$eventDataInput['succeeded']", self.route_telemetry)
+        self.assertIn("$eventDataInput['waiting_retry']", self.route_telemetry)
+        self.assertIn("$eventDataInput['needs_attention']", self.route_telemetry)
+        self.assertIn("min(100000", self.route_telemetry)
+        self.assertIn("$eventType === 'sync_pass_completed' ? $syncPassSuccess", self.route_telemetry)
+        self.assertIn("$eventType === 'sync_pass_completed' ? $syncPassFail", self.route_telemetry)
+
+    def test_installation_metrics_and_device_list_share_one_cohort_scope(self):
+        self.assertIn("appendInstallationFilters", self.telemetry_service)
+        self.assertIn("$cohortWhereClause", self.telemetry_service)
+        self.assertIn("'installation_basis' => 'last_seen_at cohort'", self.telemetry_service)
+        self.assertIn("'counter_basis' => 'lifetime installation counters for the selected cohort'", self.telemetry_service)
+        self.assertIn("'range'   => !empty($_GET['range'])", self.api_telemetry)
+        self.assertIn("'&range=' + encodeURIComponent(state.range)", self.telemetry_js)
+        self.assertIn("Devices in Selected Window", self.telemetry_section)
+        self.assertIn("Legacy Crash Counters", self.telemetry_section)
+
     def test_flutter_telemetry_service_generates_uuid_and_persists_safely(self):
         self.assertIn("FlutterSecureStorage", self.flutter_telemetry)
         self.assertIn("SharedPreferences", self.flutter_telemetry)

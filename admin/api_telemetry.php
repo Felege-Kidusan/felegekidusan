@@ -56,6 +56,7 @@ try {
             $filters = [
                 'version' => !empty($_GET['version']) ? (string)$_GET['version'] : null,
                 'brand'   => !empty($_GET['brand']) ? (string)$_GET['brand'] : null,
+                'range'   => !empty($_GET['range']) ? (string)$_GET['range'] : '7d',
                 'search'  => !empty($_GET['search']) ? (string)$_GET['search'] : null,
             ];
             $page = max(1, (int)($_GET['page'] ?? 1));

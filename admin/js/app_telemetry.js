@@ -126,6 +126,7 @@
       }
 
       var query = '?action=get_installations&page=' + state.page + '&limit=' + state.limit +
+        '&range=' + encodeURIComponent(state.range) +
         (state.version ? '&version=' + encodeURIComponent(state.version) : '') +
         (state.search ? '&search=' + encodeURIComponent(state.search) : '');
 
@@ -169,6 +170,12 @@
       setTxt('kpi-latest-ver', 'v' + (sum.latest_version || '1.5.1'));
       setTxt('kpi-crashes', (sum.total_crashes || 0).toLocaleString());
       setTxt('kpi-launches', (sum.total_launches || 0).toLocaleString());
+
+      var scope = sum.scope || {};
+      var scopeText = 'Installation metrics use the ' + (scope.range || state.range || 'all') +
+        ' last-seen cohort. Launch, crash, and legacy sync counters are lifetime counters for that cohort.';
+      var scopeEl = document.getElementById('telemetry-scope');
+      if (scopeEl) scopeEl.textContent = scopeText;
 
       // Version bars
       var verBox = document.getElementById('telemetry-version-bars');

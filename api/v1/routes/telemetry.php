@@ -44,9 +44,26 @@ $isLowRam = !empty($input['is_low_ram']) ? 1 : 0;
 $roleHint = !empty($input['role_hint']) ? substr(trim((string)$input['role_hint']), 0, 32) : null;
 
 $eventType = substr(trim((string)($input['event_type'] ?? ($action === 'event' ? 'event' : 'launch'))), 0, 48);
-$eventData = isset($input['event_data']) && is_array($input['event_data'])
-    ? json_encode($input['event_data'], JSON_UNESCAPED_UNICODE)
-    : (is_string($input['event_data'] ?? null) ? substr((string)$input['event_data'], 0, 2048) : null);
+$eventDataInput = $input['event_data'] ?? null;
+$eventData = is_array($eventDataInput)
+    ? json_encode($eventDataInput, JSON_UNESCAPED_UNICODE)
+    : (is_string($eventDataInput) ? substr($eventDataInput, 0, 2048) : null);
+
+// S1 pass summaries contain operation counts rather than one legacy
+// sync_completed/sync_failed flag. Keep the installation counters compatible
+// by translating only the reviewed count fields, with a hard cap so a public
+// caller cannot add an unbounded number in one request.
+$syncPassSuccess = 0;
+$syncPassFail = 0;
+if ($eventType === 'sync_pass_completed' && is_array($eventDataInput)) {
+    $succeededValue = $eventDataInput['succeeded'] ?? 0;
+    $waitingRetryValue = $eventDataInput['waiting_retry'] ?? 0;
+    $needsAttentionValue = $eventDataInput['needs_attention'] ?? 0;
+    $syncPassSuccess = min(100000, max(0, is_scalar($succeededValue) ? (int)$succeededValue : 0));
+    $waitingRetry = min(100000, max(0, is_scalar($waitingRetryValue) ? (int)$waitingRetryValue : 0));
+    $needsAttention = min(100000, max(0, is_scalar($needsAttentionValue) ? (int)$needsAttentionValue : 0));
+    $syncPassFail = min(100000, $waitingRetry + $needsAttention);
+}
 
 $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
 $ipHash = hash('sha256', $ip . '::' . date('Ymd'));
@@ -58,8 +75,12 @@ try {
 
     // Upsert installation record
     $incLaunch = ($eventType === 'launch' || $eventType === 'heartbeat') ? 1 : 0;
-    $incSyncSuccess = ($eventType === 'sync_success' || $eventType === 'sync_completed') ? 1 : 0;
-    $incSyncFail = ($eventType === 'sync_failed' || $eventType === 'sync_error') ? 1 : 0;
+    $incSyncSuccess = ($eventType === 'sync_success' || $eventType === 'sync_completed')
+        ? 1
+        : ($eventType === 'sync_pass_completed' ? $syncPassSuccess : 0);
+    $incSyncFail = ($eventType === 'sync_failed' || $eventType === 'sync_error')
+        ? 1
+        : ($eventType === 'sync_pass_completed' ? $syncPassFail : 0);
     $incCrash = ($eventType === 'crash' || $eventType === 'crash_recorded') ? 1 : 0;
 
     $stmt = $conn->prepare("INSERT INTO app_installations (
