@@ -198,5 +198,184 @@ class BackgroundSyncCoreArchitecture(unittest.TestCase):
             )
 
 
+class TriggerWiringA2(unittest.TestCase):
+    """S2 Goal A.2 — every legitimate trigger reaches the one boundary.
+
+    Dart-level tests cannot cover this: SyncService initialises ApiService()
+    and LocalDb() as field initialisers, so constructing it requires sqflite,
+    and no test in this repository opens a database. These pins are therefore
+    the real coverage for the wiring itself; the coordinator's own behaviour
+    is covered by test/sync_execution_test.dart in CI.
+    """
+
+    def setUp(self):
+        self.sync_service = strip_comments(read(LIB, "sync_service.dart"))
+
+    def _method(self, name):
+        """Extract one method by brace matching, skipping the parameter list.
+
+        Dart named parameters are themselves brace-delimited, so the body
+        brace can only be located after the signature's parentheses close.
+        """
+        body = self.sync_service
+        start = body.index(name)
+        i, depth = body.index("(", start), 0
+        while i < len(body):
+            if body[i] == "(":
+                depth += 1
+            elif body[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        i += 1
+        brace, semi = body.find("{", i), body.find(";", i)
+        if semi != -1 and (brace == -1 or semi < brace):
+            return body[start:semi + 1]          # arrow-bodied member
+        depth, j = 0, brace
+        while j < len(body):
+            if body[j] == "{":
+                depth += 1
+            elif body[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    return body[start:j + 1]
+            j += 1
+        raise AssertionError("unbalanced braces for " + name)
+
+    def _body(self, name):
+        """Statements inside a method, excluding its (brace-using) params."""
+        text = self._method(name)
+        i, depth = text.index("("), 0
+        while i < len(text):
+            if text[i] == "(":
+                depth += 1
+            elif text[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        return text[text.index("{", i) + 1:]
+
+    # -- A: startAutoSync ------------------------------------------------
+    def test_start_auto_sync_reaches_the_boundary(self):
+        body = self._method("void startAutoSync()")
+        self.assertIn("nudge(", body)
+        self.assertNotIn("_syncAllForGeneration", body)
+        self.assertNotIn("_drain(", body)
+
+    # -- B: nudge --------------------------------------------------------
+    def test_nudge_goes_through_run_sync_now_not_the_private_drain(self):
+        body = self._method("void nudge(")
+        self.assertIn("runSyncNow(", body)
+        self.assertNotIn("_syncAllForGeneration(", body,
+                         "nudge must not reach around the boundary")
+
+    def test_nudge_hands_over_its_captured_generation(self):
+        body = self._method("void nudge(")
+        self.assertIn("final generation = sessionGenerationProvider", body)
+        self.assertIn("generation: generation", body)
+
+    # -- C: one authoritative drain --------------------------------------
+    def test_only_the_private_executor_calls_the_drain(self):
+        calls = re.findall(r"await _drain\(", self.sync_service)
+        self.assertEqual(len(calls), 1, "exactly one _drain call site")
+        self.assertIn("await _drain(",
+                      self._method("Future<SyncResult> _syncAllForGeneration("))
+
+    def test_every_trigger_converges_on_run_sync_now(self):
+        self.assertIn("return _coordinator.execute(source);",
+                      self._method("Future<SyncResult> runSyncNow("))
+        self.assertIn("_syncAllForGeneration(generation",
+                      self._method("Future<SyncResult> _executeCoordinatedDrain("))
+
+    def test_no_trigger_calls_the_executor_directly(self):
+        """Declaration + the coordinator's runner + internal recursion."""
+        hits = re.findall(r"_syncAllForGeneration\(", self.sync_service)
+        self.assertEqual(len(hits), 3,
+                         "a new direct call bypasses the boundary")
+
+    # -- D: coalescing is the EXISTING mechanism, not a second guard ------
+    def test_existing_inflight_coalescing_is_intact(self):
+        executor = self._method("Future<SyncResult> _syncAllForGeneration(")
+        self.assertIn("if (_inflight != null)", executor)
+        self.assertIn("_queued = true", executor)
+        self.assertIn("await _inflight!.future", executor)
+
+    def test_coordinator_adds_no_second_execution_guard(self):
+        """A 'busy, drop it' guard here would swallow work saved mid-drain.
+
+        The existing mechanism deliberately does the opposite: a request
+        arriving during a drain sets _queued so another pass runs.
+        """
+        execution = strip_comments(read(LIB, "sync_execution.dart"))
+        coordinator = execution.split("class BackgroundSyncCoordinator", 1)[1]
+        execute = coordinator.split("Future<R> execute(", 1)[1].split("\n  }", 1)[0]
+        for guard in ("_running", "_busy", "inflight", "if (_active"):
+            self.assertNotIn(guard, execute)
+
+    # -- E: execution source ---------------------------------------------
+    def test_foreground_triggers_are_labelled_foreground(self):
+        self.assertIn(
+            "runSyncNow(source: SyncExecutionSource.foreground, force: force)",
+            self.sync_service, "syncAll must stay foreground")
+        self.assertIn("source: SyncExecutionSource.foreground",
+                      self._method("void nudge("))
+
+    def test_nothing_in_the_engine_claims_to_be_background(self):
+        self.assertNotIn(
+            "SyncExecutionSource.background", self.sync_service,
+            "no foreground trigger may mislabel itself as background; that "
+            "label belongs to the future native caller")
+
+    # -- F: no duplicated eligibility ------------------------------------
+    def test_the_boundary_does_not_re_decide_eligibility(self):
+        execution = strip_comments(read(LIB, "sync_execution.dart"))
+        for predicate in ("next_attempt_at", "owner_user_id",
+                          "created_authorization_version", "SELECT",
+                          "claimNext"):
+            self.assertNotIn(predicate, execution)
+        runner = self._method("Future<SyncResult> _executeCoordinatedDrain(")
+        for predicate in ("next_attempt_at", "owner_user_id", "claimNext"):
+            self.assertNotIn(predicate, runner)
+
+    # -- G: account / session safety -------------------------------------
+    def test_logout_cancels_the_wake_up_and_not_the_work(self):
+        body = self._method("void stopAutoSync()")
+        self.assertIn("cancelOpportunity()", body)
+        for destructive in ("delete", "DELETE", "clearOutbox", "purge"):
+            self.assertNotIn(destructive, body)
+
+    def test_ownership_guard_still_precedes_execution(self):
+        """The guard must be the FIRST statement, not merely present.
+
+        Mutation M21 survived an earlier version of this assertion: the
+        method re-checks ownership at several later points, so a substring
+        search still matched after the ENTRY guard had been deleted. The
+        entry guard is the one that stops a drain beginning at all under a
+        superseded session.
+        """
+        first = self._body(
+            "Future<SyncResult> _syncAllForGeneration(").strip().splitlines()[0].strip()
+        self.assertEqual(
+            first, "if (!_ownsGeneration(generation) || !_api.isLoggedIn) {",
+            "the ownership + auth guard must open the executor")
+
+    # -- H: compatibility -------------------------------------------------
+    def test_sync_all_signature_is_unchanged_for_existing_callers(self):
+        self.assertIn("Future<SyncResult> syncAll({bool force = false})",
+                      self.sync_service)
+
+    def test_existing_ui_callers_were_not_rewritten(self):
+        """A.2 is architectural: no screen should have been touched."""
+        callers = 0
+        for folder, _dirs, files in os.walk(os.path.join(APP, "lib", "screens")):
+            for name in files:
+                if name.endswith(".dart"):
+                    callers += strip_comments(read(folder, name)).count("syncAll(")
+        self.assertGreaterEqual(callers, 15,
+                                "existing syncAll callers must keep working")
+
+
 if __name__ == "__main__":
     unittest.main()

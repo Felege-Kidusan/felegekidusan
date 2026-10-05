@@ -256,7 +256,17 @@ def test_generation_supersedes_late_http_and_whole_worker_chains() -> None:
     ):
         assert f"{service}.sessionGenerationProvider = () => _generation" in SESSION
 
-    assert "_syncAllForGeneration(generation)" in SYNC
+    # S2 Goal A.2: nudge now reaches the drain through the coordinated
+    # execution boundary (runSyncNow) instead of calling the private method
+    # directly. The pinned property is unchanged and is asserted more
+    # strictly than before: nudge must still CAPTURE the generation when the
+    # timer is armed, and must HAND that captured value across the boundary.
+    # Re-reading the generation at fire time would re-validate against
+    # whichever session is current when the timer expires, defeating the
+    # guard that stops a timer armed under user A draining under user B.
+    assert "runSyncNow(" in SYNC
+    assert "generation: generation" in SYNC
+    assert "_syncAllForGeneration(generation" in SYNC
     assert "_drain(generation: generation" in SYNC
     assert "response.sessionSuperseded" in SYNC
     assert "!_ownsGeneration(generation)" in SYNC

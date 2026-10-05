@@ -1,4 +1,4 @@
-"""S2 Goal A.1 — mutation harness for the background sync core.
+"""S2 Goal A.1 + A.2 — mutation harness for the background sync core.
 
 Each entry breaks ONE invariant the architecture tests claim to protect, runs
 tests/security/test_mobile_background_sync_core.py, then restores the file
@@ -21,7 +21,8 @@ Run:  python3 tests/mutation/background_sync_core_mutations.py
 import subprocess, shutil, os, sys
 ROOT="/home/user/SSMS"
 LIB=os.path.join(ROOT,"Mobile/wbws_flutter_app/lib/services")
-TEST="tests/security/test_mobile_background_sync_core.py"
+TEST=["tests/security/test_mobile_background_sync_core.py",
+      "tests/security/test_mobile_session_coordinator.py"]
 
 MUT=[
  ("M1 remove execution-source propagation into the claim",
@@ -59,64 +60,45 @@ MUT=[
   f"{LIB}/sync_service.dart",
   "  Future<SyncResult> syncAll({bool force = false}) =>\n      runSyncNow(source: SyncExecutionSource.foreground, force: force);",
   "  Future<SyncResult> syncAll({bool force = false}) =>\n      _syncAllForGeneration(sessionGenerationProvider?.call() ?? 0, force: force);"),
-]
-caught=survived=skipped=0
-for name,path,old,new in MUT:
-    src=open(path).read()
-    if old not in src:
-        print(f"SKIP   {name} :: anchor absent"); skipped+=1; continue
-    shutil.copy(path,path+".bak")
-    open(path,"w").write(src.replace(old,new,1))
-    r=subprocess.run(["python3","-m","pytest",TEST,"-q","-p","no:cacheprovider"],
-                     cwd=ROOT,capture_output=True,text=True)
-    shutil.move(path+".bak",path)
-    if r.returncode!=0:
-        print(f"CAUGHT {name}"); caught+=1
-    else:
-        print(f"SURVIVED {name}"); survived+=1
-print(f"\nMUTATION: {len(MUT)} attempted / {caught} caught / {survived} survived / {skipped} skipped")
-import subprocess, shutil, os, sys
-ROOT="/home/user/SSMS"
-LIB=os.path.join(ROOT,"Mobile/wbws_flutter_app/lib/services")
-TEST="tests/security/test_mobile_background_sync_core.py"
-
-MUT=[
- ("M1 remove execution-source propagation into the claim",
-  f"{LIB}/sync_service.dart","        executionSource: source,\n",""),
- ("M2 drop the source before the ledger write",
-  f"{LIB}/local_db.dart","          executionSource: executionSource,\n",""),
- ("M3 stop writing the durable column",
-  f"{LIB}/local_db.dart","        'execution_source': executionSource.storageValue,\n",""),
- ("M4 ignore next_retry_at eligibility",
-  f"{LIB}/local_db.dart",
-  "'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '","''"),
- ("M5 bypass the owner isolation predicate",
-  f"{LIB}/local_db.dart",
-  "        'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '\n        'AND owner_user_id = ? '\n",
-  "        'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) '\n"),
- ("M6 bypass the authorization-version guard",
-  f"{LIB}/local_db.dart","        'AND created_authorization_version = ? '\n",""),
- ("M7 route background through a second claim site",
-  f"{LIB}/hymn_store.dart","final claim = await _db.claimNextHymnOperation(",
-  "final claim = await _db.claimNextLegacyOperation("),
- ("M8 make the execution core depend on the platform",
-  f"{LIB}/sync_execution.dart","library;","library;\nimport 'dart:io';"),
- ("M9 let a scheduler request carry a payload",
-  f"{LIB}/sync_execution.dart","  final DateTime? notBefore;",
-  "  final DateTime? notBefore;\n  final List<String> payload = const [];"),
- ("M10 give the coordinator its own queue",
-  f"{LIB}/sync_execution.dart","  bool _opportunityPending = false;",
-  "  bool _opportunityPending = false;\n  final List<String> _pendingOps = [];"),
- ("M11 un-guard the v37 migration (double ALTER)",
-  f"{LIB}/local_db.dart","if (!columns.contains('execution_source')) {","if (true) {"),
- ("M12 revert the schema version",
-  f"{LIB}/local_schema_v34.dart","const localDatabaseSchemaVersion = 37;",
-  "const localDatabaseSchemaVersion = 36;"),
- ("M13 syncAll stops delegating to the unified entry",
+ ("M14 nudge bypasses the coordinated boundary",
+  f"{LIB}/sync_service.dart",
+  "      runSyncNow(\n        source: SyncExecutionSource.foreground,\n        generation: generation,\n      );",
+  "      _syncAllForGeneration(generation);"),
+ ("M15 nudge re-reads the generation at fire time instead of carrying it",
+  f"{LIB}/sync_service.dart","        generation: generation,\n",""),
+ ("M16 runSyncNow skips the coordinator",
+  f"{LIB}/sync_service.dart","    return _coordinator.execute(source);",
+  "    return _executeCoordinatedDrain(source);"),
+ ("M17 logout stops cancelling the background wake-up",
+  f"{LIB}/sync_service.dart","    unawaited(_coordinator.cancelOpportunity());",""),
+ ("M18 the coordinator gains a drop-if-busy guard (swallows mid-drain work)",
+  f"{LIB}/sync_execution.dart",
+  "    _opportunityPending = false;\n    return _runDrain(source);",
+  "    _opportunityPending = false;\n    if (_running) return _runDrain(source);\n    return _runDrain(source);"),
+ ("M19 a foreground trigger mislabels itself as background",
   f"{LIB}/sync_service.dart",
   "  Future<SyncResult> syncAll({bool force = false}) =>\n      runSyncNow(source: SyncExecutionSource.foreground, force: force);",
-  "  Future<SyncResult> syncAll({bool force = false}) =>\n      _syncAllForGeneration(sessionGenerationProvider?.call() ?? 0, force: force);"),
+  "  Future<SyncResult> syncAll({bool force = false}) =>\n      runSyncNow(source: SyncExecutionSource.background, force: force);"),
+ ("M20 startAutoSync reaches around nudge straight into the drain",
+  f"{LIB}/sync_service.dart","    nudge(delay: const Duration(milliseconds: 800));",
+  "    _syncAllForGeneration(sessionGenerationProvider?.call() ?? 0);"),
+ ("M21 the executor drops its ownership guard",
+  f"{LIB}/sync_service.dart",
+  "    if (!_ownsGeneration(generation) || !_api.isLoggedIn) {\n      return SyncResult(synced: 0, failed: 0, message: 'Not logged in');",
+  "    if (!_api.isLoggedIn) {\n      return SyncResult(synced: 0, failed: 0, message: 'Not logged in');"),
+ ("M22 logout destroys durable work instead of just the wake-up",
+  f"{LIB}/sync_service.dart","    unawaited(_coordinator.cancelOpportunity());",
+  "    unawaited(_coordinator.cancelOpportunity());\n    unawaited(_db.deleteAllPendingOperations());"),
 ]
+# Baseline gate. Without this a test that fails on CLEAN source reports every
+# mutation as "caught" while actually proving nothing -- which happened once
+# here (M21), so the harness now refuses to run on a red baseline.
+_b=subprocess.run(["python3","-m","pytest",*TEST,"-q","-p","no:cacheprovider"],
+                  cwd=ROOT,capture_output=True,text=True)
+if _b.returncode!=0:
+    print("BASELINE RED -- results would be meaningless\\n"+_b.stdout[-2000:]); sys.exit(1)
+print("baseline green\\n")
+
 caught=survived=skipped=0
 for name,path,old,new in MUT:
     src=open(path).read()
@@ -124,7 +106,7 @@ for name,path,old,new in MUT:
         print(f"SKIP   {name} :: anchor absent"); skipped+=1; continue
     shutil.copy(path,path+".bak")
     open(path,"w").write(src.replace(old,new,1))
-    r=subprocess.run(["python3","-m","pytest",TEST,"-q","-p","no:cacheprovider"],
+    r=subprocess.run(["python3","-m","pytest",*TEST,"-q","-p","no:cacheprovider"],
                      cwd=ROOT,capture_output=True,text=True)
     shutil.move(path+".bak",path)
     if r.returncode!=0:
