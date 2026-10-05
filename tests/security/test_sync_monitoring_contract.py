@@ -94,6 +94,9 @@ class SyncMonitoringContractTests(unittest.TestCase):
         self.assertNotIn('id="kpi-sync-rate"', self.dashboard)
         self.assertNotIn('Web / Admin Sync Monitoring', self.dashboard)
         self.assertIn('Recent Sync Operations', self.dashboard)
+        self.assertIn('background-color: #0f172a !important', self.dashboard)
+        self.assertIn('color: #f8fafc !important', self.dashboard)
+        self.assertIn('color-scheme: dark', self.dashboard)
         self.assertIn("single sync-health surface", self.docs)
 
 

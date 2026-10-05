@@ -149,6 +149,38 @@ $sum = $atMetrics['summary'] ?? [];
 #section-app_telemetry tr:hover td {
     background: rgba(255, 255, 255, 0.02);
 }
+/* The shared .ar-* controls are scoped to App Release. Keep telemetry
+   controls on the same dark admin surface instead of browser-white defaults. */
+#section-app_telemetry .ar-input,
+#section-app_telemetry .ar-select {
+    box-sizing: border-box;
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border: 1px solid #475569 !important;
+    border-radius: 0.5rem;
+    color-scheme: dark;
+    font-family: inherit;
+}
+#section-app_telemetry .ar-input::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1;
+}
+#section-app_telemetry .ar-input:focus,
+#section-app_telemetry .ar-select:focus {
+    outline: none !important;
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22) !important;
+}
+#section-app_telemetry .ar-select option {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+}
+#section-app_telemetry .ar-input:disabled,
+#section-app_telemetry .ar-select:disabled {
+    background-color: #1e293b !important;
+    color: #cbd5e1 !important;
+    opacity: 1;
+}
 </style>
 
 <!-- ═══ MOBILE FLEET TELEMETRY & ANALYTICS ═══ -->
