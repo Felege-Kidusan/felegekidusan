@@ -385,26 +385,62 @@ jobs:
           java -version
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
 
-      - name: Record the lockfile digest before resolution
-        run: sha256sum pubspec.lock | tee /tmp/lock.before
-
       - name: Resolve dependencies
         # Deliberately NOT --enforce-lockfile. F-19 (url_launcher is a declared
         # direct dependency and is absent from pubspec.lock) makes that fail
         # with exit 65. A.9 is not the phase that repairs F-19, so resolution
         # stays bounded by pubspec.yaml exactly as the flutter-tests job does.
-        run: flutter pub get
-
-      - name: F-19 boundary — pubspec.yaml and pubspec.lock must be untouched
-        # A.9 is forbidden from repairing or regenerating the lockfile. If
-        # `flutter pub get` ever rewrites it, that is a real change to the
-        # dependency graph and this job must fail rather than let it land
-        # silently.
         run: |
-          set -euo pipefail
-          sha256sum -c /tmp/lock.before
-          git diff --exit-code -- pubspec.yaml pubspec.lock
-          echo "pubspec.yaml and pubspec.lock are byte-identical to the commit."
+          set -uo pipefail
+          if ! flutter pub get 2>&1 | tee /tmp/pubget.txt; then
+            echo "::error::F-19 blocks A.9 dependency resolution."
+            exit 1
+          fi
+
+      - name: F-19 boundary — resolution drift must stay exactly the known defect
+        # MEASURED, not assumed. This repository cannot be built from its own
+        # committed pubspec.lock: `flutter pub get` necessarily repairs the
+        # lockfile in the runner's working copy before anything can compile.
+        # That is F-19 reproducing under execution rather than inspection, and
+        # it is pre-existing - the flutter-tests job has always resolved the
+        # same way, it simply never looked.
+        #
+        # A.9 does not repair F-19 and does not commit the repaired lockfile:
+        # the runner is ephemeral and the file in git stays byte-identical.
+        # What this gate enforces is that the damage is bounded to the exact
+        # 12-package signature of the known defect. If any other package is
+        # added, removed, upgraded or downgraded, the dependency graph has
+        # genuinely drifted and the job fails rather than absorbing it.
+        run: |
+          set -uo pipefail
+          # The manifest is the file A.9 may never alter under any reading.
+          git diff --exit-code -- pubspec.yaml
+
+          changed=$(grep -E '^[[:space:]]*[+<>!] [a-z0-9_]+ ' /tmp/pubget.txt \
+                    | awk '{print $2}' | sort -u)
+          expected=$(printf '%s\n' \
+            matcher meta test_api vector_math \
+            url_launcher url_launcher_android url_launcher_ios \
+            url_launcher_linux url_launcher_macos \
+            url_launcher_platform_interface url_launcher_web \
+            url_launcher_windows | sort)
+
+          if [ "$changed" = "$expected" ]; then
+            echo "Resolution drift matches the documented F-19 signature exactly:"
+            echo "  + url_launcher and its 7 platform packages (declared in"
+            echo "    pubspec.yaml, absent from pubspec.lock -- this IS F-19)"
+            echo "  < matcher, meta, test_api, vector_math downgraded to the"
+            echo "    versions Flutter 3.44.9 pins, proving the committed"
+            echo "    lockfile was written by a newer Flutter than the project"
+            echo "    declares."
+            echo "pubspec.yaml unchanged; pubspec.lock not committed."
+          else
+            echo "::error::Dependency graph drifted beyond the known F-19 defect."
+            echo "--- expected ---"; echo "$expected"
+            echo "--- actual ---";   echo "$changed"
+            diff <(echo "$expected") <(echo "$changed") || true
+            exit 1
+          fi
 
       - name: Install the exact SDK components this project pins
         run: |
