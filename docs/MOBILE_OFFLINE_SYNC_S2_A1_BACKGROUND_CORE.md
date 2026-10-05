@@ -329,7 +329,15 @@ Four pins moved with the migration; none was weakened, skipped or deleted:
   test exists for this increment", which overstated the gap — see the next
   bullet.
 - **The v37 *create* path IS runtime-verified.**
-  `VERIFIED BY REAL SQLITE RUNTIME`.
+  `VERIFIED BY REAL SQLITE DATABASE EXECUTION` — **not** actual sqflite
+  platform-runtime execution.
+  **Corrected by S2 Goal A.7:** this bullet originally read
+  `VERIFIED BY REAL SQLITE RUNTIME`, which a reader could fairly take to mean
+  the app's own database runtime ran. It did not: a real `sqlite3` engine
+  executes production's DDL, but the production Dart path through sqflite is
+  never executed (F-19 freezes pubspec, `sqflite_common_ffi` is absent). The
+  claim stands; only its label was too generous. See the correction note in
+  `MOBILE_OFFLINE_SYNC_S2_A3_READINESS_AUDIT.md` §10.
   `tests/security/test_mobile_sync_attempt_ledger.py` extracts the shipped
   `localSyncAttemptsV36Sql` constant from `local_schema_v34.dart`, executes it
   in a real in-memory SQLite database, and asserts via `PRAGMA table_info`

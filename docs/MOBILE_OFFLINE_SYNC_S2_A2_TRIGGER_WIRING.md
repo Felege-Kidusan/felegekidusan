@@ -188,8 +188,15 @@ Both were found by running the harness rather than trusting its output:
 - **Hymn `sync_attempts` gap.** `claimNextHymnOperation` still opens no
   `sync_attempts` row, so `execution_source` does **not** cover the hymn path.
   Unchanged by A.2. Tracked, not fixed.
+  **CLOSED by S2 Goal A.7:** the hymn claim now accepts a
+  `SyncExecutionSource` and opens an attempt via the existing
+  `_openSyncAttempt` inside the existing claim transaction; the settlement
+  closes it via the existing `_closeSyncAttempt`. See
+  `MOBILE_OFFLINE_SYNC_S2_A7_HYMN_ATTEMPT_LEDGER.md`.
 - **Database verification is mixed, not uniformly `VERIFIED BY SOURCE`.**
-  The v37 **create** path is `VERIFIED BY REAL SQLITE RUNTIME`
+  The v37 **create** path is `VERIFIED BY REAL SQLITE DATABASE EXECUTION`
+  (**corrected by S2 Goal A.7** from `VERIFIED BY REAL SQLITE RUNTIME`, which
+  overstated it — the production sqflite runtime is never executed)
   (`test_mobile_sync_attempt_ledger.py` runs the shipped ledger DDL in real
   SQLite and asserts `execution_source` is present). The v37 **upgrade**
   path — the guarded `ALTER TABLE` in `onUpgrade` — is `NOT VERIFIED`.
