@@ -11,6 +11,7 @@ import 'legacy_outbox_models.dart';
 import 'local_db.dart';
 import 'outbox_policy.dart';
 import 'sync_attempt_models.dart';
+import 'sync_execution.dart';
 import 'telemetry_service.dart';
 
 /// Outbox worker — Gmail / WhatsApp / Drive pattern.
@@ -89,12 +90,36 @@ class SyncService {
     });
   }
 
-  Future<SyncResult> syncAll({bool force = false}) => _syncAllForGeneration(
-      sessionGenerationProvider?.call() ?? 0,
-      force: force);
+  /// S2 Goal A.1 — THE authoritative execution entry point.
+  ///
+  /// Every trigger converges here: the existing foreground callers via
+  /// [syncAll]/[nudge], and the future Android worker via
+  /// `BackgroundSyncCoordinator.execute`. There is deliberately no second
+  /// drain, no "background variant" and no parallel engine — the only thing a
+  /// background caller changes is the [source] label attached to the attempts
+  /// it produces.
+  ///
+  /// Everything that decides *what* is eligible stays exactly where it was:
+  /// the claim query in `LocalDb.claimNextLegacyOperation` enforces
+  /// `next_attempt_at <= now`, owner and authorization-version isolation, and
+  /// the session-generation guard. A background trigger cannot widen any of
+  /// that, because it does not get its own query.
+  Future<SyncResult> runSyncNow({
+    SyncExecutionSource source = SyncExecutionSource.foreground,
+    bool force = false,
+  }) =>
+      _syncAllForGeneration(
+        sessionGenerationProvider?.call() ?? 0,
+        force: force,
+        source: source,
+      );
+
+  Future<SyncResult> syncAll({bool force = false}) =>
+      runSyncNow(source: SyncExecutionSource.foreground, force: force);
 
   Future<SyncResult> _syncAllForGeneration(int generation,
-      {bool force = false}) async {
+      {bool force = false,
+      SyncExecutionSource source = SyncExecutionSource.foreground}) async {
     if (!_ownsGeneration(generation) || !_api.isLoggedIn) {
       return SyncResult(synced: 0, failed: 0, message: 'Not logged in');
     }
@@ -114,7 +139,7 @@ class SyncService {
             message: 'Sync paused until this account is active again.');
       }
       if (!sameGeneration && _inflight == null) {
-        return _syncAllForGeneration(generation, force: force);
+        return _syncAllForGeneration(generation, force: force, source: source);
       }
       return r;
     }
@@ -129,7 +154,8 @@ class SyncService {
         pass++;
         final useForce = force || _forceNext;
         _forceNext = false;
-        final next = await _drain(generation: generation, force: useForce);
+        final next = await _drain(generation: generation,
+            force: useForce, source: source);
         r = SyncResult(
           synced: r.synced + next.synced,
           failed: next.failed,
@@ -177,7 +203,9 @@ class SyncService {
   }
 
   Future<SyncResult> _drain(
-      {required int generation, required bool force}) async {
+      {required int generation,
+      required bool force,
+      required SyncExecutionSource source}) async {
     if (!_ownsGeneration(generation)) return _pausedResult();
     if (!_drainsAllowed) return _releasePausedResult();
 
@@ -192,7 +220,7 @@ class SyncService {
         await _emitStatus();
         return _releasePausedResult(synced: synced, failed: failed);
       }
-      final result = await _drainLegacyKind(kind, generation);
+      final result = await _drainLegacyKind(kind, generation, source);
       synced += result.synced;
       failed += result.failed;
       passSummary = passSummary.merge(result.summary);
@@ -300,7 +328,8 @@ class SyncService {
   }
 
   Future<_LegacyDrainStats> _drainLegacyKind(
-      LegacyOperationKind kind, int generation) async {
+      LegacyOperationKind kind, int generation,
+      [SyncExecutionSource source = SyncExecutionSource.foreground]) async {
     var synced = 0;
     var failed = 0;
     var supersededLocal = false;
@@ -332,6 +361,7 @@ class SyncService {
         ownerUserId: _api.userId,
         authorizationVersion: _api.authorizationVersion,
         runtimeGeneration: generation,
+        executionSource: source,
       );
       if (!_ownsGeneration(generation)) {
         return _LegacyDrainStats(

@@ -12,6 +12,7 @@ library;
 
 import 'outbox_policy.dart';
 import 'session_models.dart';
+import 'sync_execution.dart';
 
 /// Why one transmission attempt ended the way it did.
 ///
@@ -313,6 +314,9 @@ final class SyncAttemptRecord {
   final DateTime? nextAttemptAt;
   final String? serverRef;
 
+  /// S2 Goal A.1 — which trigger ran the drain that produced this attempt.
+  final SyncExecutionSource executionSource;
+
   const SyncAttemptRecord({
     required this.clientOpId,
     required this.attemptNumber,
@@ -328,6 +332,7 @@ final class SyncAttemptRecord {
     this.failureMessage,
     this.nextAttemptAt,
     this.serverRef,
+    this.executionSource = SyncExecutionSource.foreground,
   });
 
   bool get isOpen => finishedAt == null;
@@ -364,6 +369,8 @@ final class SyncAttemptRecord {
       failureMessage: row['failure_message'] as String?,
       nextAttemptAt: _time(row['next_attempt_at']),
       serverRef: row['server_ref'] as String?,
+      executionSource:
+          SyncExecutionSource.fromStorage(row['execution_source']),
     );
   }
 }

@@ -223,8 +223,9 @@ class TestCoordinatorContract:
     def test_schema_version_was_bumped_for_the_new_table(self):
         # The v35 step is unchanged history and must remain reachable; only
         # the current-version pin moves when a later migration lands (v36
-        # added the S1 operation/attempt ledger).
-        assert "const localDatabaseSchemaVersion = 36;" in self.schema
+        # added the S1 operation/attempt ledger; v37 added its
+        # execution_source column).
+        assert "const localDatabaseSchemaVersion = 37;" in self.schema
         assert "if (oldVersion < 35)" in self.local_db
         assert "await db.execute(localSyncStateV35Sql);" in self.local_db
 
