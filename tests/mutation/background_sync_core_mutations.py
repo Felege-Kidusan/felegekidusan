@@ -1,4 +1,4 @@
-"""S2 Goal A.1 + A.2 + A.4 — mutation harness for the background sync core.
+"""S2 Goal A.1 + A.2 + A.4 + A.5 — mutation harness for the background sync core.
 
 Each entry breaks ONE invariant the architecture tests claim to protect, runs
 tests/security/test_mobile_background_sync_core.py, then restores the file
@@ -130,6 +130,32 @@ MUT=[
   f"{LIB}/sync_service.dart",
   REQUEST_BLOCK + "      if (force || ConnectivityService().hasLink) {\n",
   "      if (force || ConnectivityService().hasLink) {\n" + REQUEST_BLOCK),
+ # ── S2 Goal A.5 — the constructor-injection seam ───────────────────────
+ ("M29 the API collaborator stops being injectable",
+  f"{LIB}/sync_service.dart","_api = api ?? ApiService()","_api = ApiService()"),
+ ("M30 the DB collaborator stops being injectable",
+  f"{LIB}/sync_service.dart","_db = db ?? LocalDb()","_db = LocalDb()"),
+ ("M31 a method rebuilds the API instead of using the injected field",
+  f"{LIB}/sync_service.dart",
+  "    if (activeSessionGate?.call() == false || !_drainsAllowed) return;\n"
+  "    if (!_api.isLoggedIn) return;",
+  "    if (activeSessionGate?.call() == false || !_drainsAllowed) return;\n"
+  "    if (!ApiService().isLoggedIn) return;"),
+ ("M32 a method rebuilds the DB instead of using the injected field",
+  f"{LIB}/sync_service.dart",
+  "    final nextAttempt = await _db.nextOutboxAttemptAt(",
+  "    final nextAttempt = await LocalDb().nextOutboxAttemptAt("),
+ ("M33 a due backlog stops queueing another pass",
+  f"{LIB}/sync_service.dart","    if (hasMoreDueLegacy) _queued = true;\n",""),
+ ("M34 a request arriving mid-drain is swallowed instead of queued",
+  f"{LIB}/sync_service.dart","      if (sameGeneration) _queued = true;\n",""),
+ ("M35 the injecting constructor becomes a factory returning the singleton",
+  f"{LIB}/sync_service.dart",
+  "  SyncService.withCollaborators({ApiService? api, LocalDb? db})\n"
+  "      : _api = api ?? ApiService(),\n"
+  "        _db = db ?? LocalDb();",
+  "  factory SyncService.withCollaborators({ApiService? api, LocalDb? db}) =>\n"
+  "      _instance;"),
 ]
 # Anchor-uniqueness gate (the A.3 lesson, finding M-1, made permanent).
 # str.replace(old, new, 1) edits the FIRST match, so an anchor that occurs more

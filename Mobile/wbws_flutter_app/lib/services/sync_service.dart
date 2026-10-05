@@ -21,10 +21,36 @@ import 'telemetry_service.dart';
 class SyncService {
   static final SyncService _instance = SyncService._internal();
   factory SyncService() => _instance;
-  SyncService._internal();
+  SyncService._internal()
+      : _api = ApiService(),
+        _db = LocalDb();
 
-  final _api = ApiService();
-  final _db = LocalDb();
+  /// S2 Goal A.5 — the behavioural test seam, and nothing more.
+  ///
+  /// WHY A SECOND CONSTRUCTOR RATHER THAN PARAMETERS ON `SyncService()`.
+  /// `SyncService()` is a `factory` returning `_instance`. Adding optional
+  /// parameters there would compile and then silently ignore them for every
+  /// call after the first, because the cached instance is returned unchanged
+  /// — a test could pass a fake, get the production singleton back, and still
+  /// appear to pass. A separate named constructor makes substitution explicit
+  /// and impossible to get wrong.
+  ///
+  /// Production is untouched: `SyncService()` still returns the same single
+  /// instance built with the real [ApiService] and [LocalDb], so no existing
+  /// caller changes. This constructor exists so focused tests can drive the
+  /// REAL coordinator, `runSyncNow`, `nudge`, `_drain` and the A.4 opportunity
+  /// request without a database. It is deliberately NOT a dependency-injection
+  /// framework: exactly two collaborators are injectable, because exactly two
+  /// are what stands between these code paths and a test.
+  ///
+  /// Each call returns a FRESH instance, which is what gives tests isolated
+  /// `_inflight`/`_queued`/coordinator state.
+  SyncService.withCollaborators({ApiService? api, LocalDb? db})
+      : _api = api ?? ApiService(),
+        _db = db ?? LocalDb();
+
+  final ApiService _api;
+  final LocalDb _db;
   final _random = Random();
   Timer? _retryTimer;
   StreamSubscription<bool>? _radioSub;

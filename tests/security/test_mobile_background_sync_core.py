@@ -385,11 +385,13 @@ class OpportunitySchedulingA4(unittest.TestCase):
     scheduler would never have been asked for anything. These pins close that
     and keep it closed.
 
-    As in A.2, the wiring itself is not reachable by a Dart test: SyncService
-    builds ApiService()/LocalDb() as field initialisers, so constructing it
-    needs sqflite and no Dart test can open a database. Coordinator behaviour
-    (including opportunity de-duplication) IS covered behaviourally by
-    test/sync_execution_test.dart in CI.
+    SUPERSEDED NOTE (A.5): this class previously recorded that the wiring was
+    unreachable by any Dart test because SyncService built ApiService()/
+    LocalDb() as field initialisers. A.5 added `SyncService.withCollaborators`,
+    and test/sync_service_behavior_test.dart now executes this wiring for real.
+    These source pins are deliberately KEPT: behavioural tests and source/
+    mutation invariants protect different things, and the mutation harness
+    anchors on this text.
     """
 
     def setUp(self):
@@ -521,6 +523,175 @@ class OpportunitySchedulingA4(unittest.TestCase):
             "        nudge(delay: wait <= Duration.zero ? Duration.zero : wait);",
             self.sync_service,
         )
+
+
+
+class ConstructorInjectionA5(unittest.TestCase):
+    """S2 Goal A.5 — the behavioural test seam, and its limits.
+
+    Through A.4 every statement about runSyncNow/nudge/_drain/the opportunity
+    request was source-verified only, because SyncService constructed its
+    ApiService and LocalDb as field initialisers and therefore could not be
+    instantiated by a test at all. A.5 introduces exactly one seam so the REAL
+    class can be driven by test/sync_service_behavior_test.dart.
+
+    These pins exist to stop the seam from quietly becoming something else: a
+    DI framework, a second construction path, or a hole through which the
+    production default disappears.
+    """
+
+    def setUp(self):
+        self.raw = read(LIB, "sync_service.dart")
+        self.sync_service = strip_comments(self.raw)
+        self.behavior_test = read(APP, "test", "sync_service_behavior_test.dart")
+        # Comment-stripped: the file's own doc comment HONESTLY names
+        # sqflite_common_ffi/mockito to explain what it does not use, and a
+        # raw substring scan would read that prose as a dependency. The A.3
+        # lesson applies to this suite as much as to the source it pins.
+        self.behavior_code = strip_comments(self.behavior_test)
+        self.pubspec = read(APP, "pubspec.yaml")
+
+    # -- A: the seam exists and is a constructor, not a framework --------
+    def test_an_injecting_constructor_exists(self):
+        self.assertRegex(
+            self.sync_service,
+            r"SyncService\.withCollaborators\(\s*\{\s*ApiService\?\s+api,"
+            r"\s*LocalDb\?\s+db,?\s*\}\s*\)",
+            "A.5 requires a named constructor taking both collaborators",
+        )
+
+    def test_both_collaborators_keep_their_production_defaults(self):
+        self.assertIn("_api = api ?? ApiService()", self.sync_service)
+        self.assertIn("_db = db ?? LocalDb()", self.sync_service)
+
+    def test_the_fields_are_final_and_explicitly_typed(self):
+        self.assertRegex(self.sync_service, r"final\s+ApiService\s+_api\s*;")
+        self.assertRegex(self.sync_service, r"final\s+LocalDb\s+_db\s*;")
+
+    def test_no_dependency_injection_framework_was_introduced(self):
+        for banned in ("get_it", "GetIt", "riverpod", "Riverpod",
+                       "provider.dart", "ServiceLocator", "serviceLocator"):
+            self.assertNotIn(
+                banned, self.sync_service,
+                f"A.5 is constructor injection, not a framework ({banned})",
+            )
+
+    def test_no_abstract_interface_was_invented_for_the_collaborators(self):
+        for banned in ("abstract class ApiService", "abstract class LocalDb",
+                       "ApiServiceInterface", "LocalDbInterface"):
+            self.assertNotIn(banned, self.sync_service)
+
+    # -- B: production construction is untouched -------------------------
+    def test_the_production_singleton_survives(self):
+        self.assertIn("static final SyncService _instance", self.sync_service)
+        self.assertIn("factory SyncService() => _instance;", self.sync_service)
+
+    def test_the_private_constructor_still_builds_the_real_collaborators(self):
+        self.assertRegex(
+            self.sync_service,
+            r"SyncService\._internal\(\)\s*:\s*_api\s*=\s*ApiService\(\)\s*,"
+            r"\s*_db\s*=\s*LocalDb\(\)\s*;",
+            "SyncService() must still produce the real ApiService and LocalDb",
+        )
+
+    def test_the_factory_did_not_gain_parameters(self):
+        # A factory returning a cached instance would silently ignore them,
+        # which is precisely the trap A.5 avoids by using a second constructor.
+        self.assertNotRegex(
+            self.sync_service, r"factory SyncService\(\s*\{")
+
+    # -- C: no hidden second construction path ---------------------------
+    def test_collaborators_are_constructed_only_as_constructor_defaults(self):
+        api_sites = re.findall(r"ApiService\(\)", self.sync_service)
+        db_sites = re.findall(r"LocalDb\(\)", self.sync_service)
+        self.assertEqual(
+            len(api_sites), 2,
+            "exactly two ApiService() constructions: _internal and the "
+            "withCollaborators default",
+        )
+        self.assertEqual(len(db_sites), 2, "same for LocalDb()")
+
+    def test_no_method_body_rebuilds_a_collaborator(self):
+        # Delete the two constructors' initialiser lists outright; whatever is
+        # left is, by definition, a construction in a method body, which would
+        # bypass the injected instance. A per-line heuristic cannot do this:
+        # an initialiser list spans lines, so `_db = LocalDb();` sits on a line
+        # carrying neither ':' nor '??'.
+        body = re.sub(
+            r"SyncService\._internal\(\)\s*:.*?;", "", self.sync_service,
+            flags=re.S)
+        body = re.sub(
+            r"SyncService\.withCollaborators\([^)]*\)\s*:.*?;", "", body,
+            flags=re.S)
+        self.assertNotIn(
+            "ApiService()", body,
+            "ApiService is constructed outside the constructor defaults")
+        self.assertNotIn(
+            "LocalDb()", body,
+            "LocalDb is constructed outside the constructor defaults")
+
+    # -- D: the behavioural test drives the REAL objects -----------------
+    def test_the_behavioural_test_uses_the_real_sync_service(self):
+        self.assertIn("SyncService.withCollaborators(", self.behavior_code)
+
+    def test_the_behavioural_test_does_not_reimplement_the_coordinator(self):
+        for banned in ("class FakeCoordinator", "class _FakeCoordinator",
+                       "BackgroundSyncCoordinator<SyncResult>("):
+            self.assertNotIn(
+                banned, self.behavior_code,
+                "A.5 must exercise the real coordinator, not a copy of it",
+            )
+
+    def test_the_behavioural_test_exercises_the_a4_request(self):
+        self.assertIn("requiresNetwork", self.behavior_code)
+        self.assertIn("notBefore", self.behavior_code)
+        self.assertIn("cancelCount", self.behavior_code)
+
+    # -- E: F-19 stays frozen --------------------------------------------
+    def test_no_test_only_dependency_was_added(self):
+        for banned in ("sqflite_common_ffi", "mockito", "mocktail",
+                       "workmanager", "get_it"):
+            self.assertNotIn(
+                banned, self.pubspec,
+                f"pubspec.yaml is frozen by F-19 ({banned})",
+            )
+            self.assertNotIn(banned, self.behavior_code)
+
+    def test_the_behavioural_test_opens_no_database(self):
+        for banned in ("databaseFactory", "openDatabase", "sqflite"):
+            self.assertNotIn(banned, self.behavior_code)
+
+    # -- F: A.4 and A.2 invariants survived the refactor -----------------
+    def test_the_opportunity_request_is_still_the_only_one(self):
+        self.assertEqual(
+            len(re.findall(r"\.requestOpportunity\(", self.sync_service)), 1)
+
+    def test_there_is_still_exactly_one_drain(self):
+        self.assertEqual(
+            len(re.findall(r"await _drain\(", self.sync_service)), 1)
+
+    def test_both_queued_assignments_survive(self):
+        # The pre-A.5 pins asserted the SUBSTRING "_queued = true", which two
+        # separate sites satisfy. Deleting either one individually therefore
+        # went unnoticed (mutations M33/M34 proved it). Pin each site.
+        self.assertEqual(
+            self.sync_service.count("if (hasMoreDueLegacy) _queued = true;"), 1,
+            "a due backlog must still queue another pass",
+        )
+        self.assertEqual(
+            self.sync_service.count("if (sameGeneration) _queued = true;"), 1,
+            "a request arriving mid-drain must be queued, never swallowed",
+        )
+
+    def test_the_coalescing_flags_were_not_multiplied(self):
+        self.assertIn("_inflight", self.sync_service)
+        self.assertIn("_queued", self.sync_service)
+        for banned in ("_draining", "_busy", "_opportunityQueued",
+                       "_secondPass"):
+            self.assertNotIn(banned, self.sync_service)
+
+    def test_the_noop_scheduler_is_still_the_default_seam(self):
+        self.assertIn("const NoopBackgroundSyncScheduler()", self.sync_service)
 
 
 if __name__ == "__main__":
