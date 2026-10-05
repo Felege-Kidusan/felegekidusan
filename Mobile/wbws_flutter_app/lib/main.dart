@@ -11,6 +11,7 @@ import 'services/session_models.dart';
 import 'services/session_service.dart';
 import 'screens/lock/lock_screen.dart';
 import 'services/background_sync_bridge.dart';
+import 'services/android_background_sync_scheduler.dart';
 import 'services/connectivity_service.dart';
 import 'services/app_update_service.dart';
 import 'services/device_tier_service.dart';
