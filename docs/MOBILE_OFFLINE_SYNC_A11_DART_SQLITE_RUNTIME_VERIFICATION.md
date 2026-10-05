@@ -357,18 +357,21 @@ documented in §5. No broad dependency upgrade was performed.
 
 ## 24. CI Verification
 
-No new A.11 GitHub Actions run exists because the environment cannot authenticate
-the HTTPS push. The final A.10 CI evidence remains:
+A.11 was successfully pushed to `origin/main` at commit
+`a145cf81781ccd43b2c13d708457493388e38cc5`. GitHub Actions accepted the push
+and created run `37354249041`, currently queued at report time.
+
+The final A.10 CI evidence remains:
 
 ```text
 run 37345245876: all 5 jobs passed
 run 37344522032: code-bearing A.10 run passed
+A.11 run 37354249041: queued
 ```
 
 Those A.10 runs proved the pre-A.11 Flutter/security/Android/lockfile baseline.
-The local A.11 runtime results in §19 are the new direct evidence; a post-push
-CI run is still required to verify the A.11 dependency and test changes in a
-clean GitHub runner.
+The local A.11 runtime results in §19 are the new direct evidence. The queued
+A.11 run must complete before post-push CI can be classified as passed.
 
 ## 25. Files Changed
 
@@ -409,12 +412,9 @@ second isolate, receiver, boot path, or new production migration was added.
 
 1. Android platform SQLite runtime verification is pending an actual emulator or
 device executing production `sqflite`/`sqflite_android`.
-2. A post-A.11 GitHub Actions run is pending because this environment's HTTPS
-remote has no available push credential.
-3. The final remote branch is therefore still the A.10 commit until the local
-A.11 commits are published. This is a publication blocker, not a Dart/SQLite
-runtime failure.
-4. Existing A.10 informational package-update and NDK-warning findings remain
+2. GitHub Actions run `37354249041` is queued; its final result must be checked
+before CI is classified as passed.
+3. Existing A.10 informational package-update and NDK-warning findings remain
 unchanged.
 
 ## 28. Evidence Classification
@@ -473,37 +473,33 @@ git log --oneline --decorate -4
 
 ## 30. Git / Push Status
 
-The local working tree is clean, but publication is not complete:
+The A.11 implementation commit `a145cf81781ccd43b2c13d708457493388e38cc5`
+was published successfully. This report correction is also published as part
+of the final commit. At final-state verification:
 
 ```text
-local HEAD:  4a347b3f24eff7014acbf99cd9a41da5463c634a
-origin/main: ac554d27c4c8b4f4c56df5ac06301b9e85b04862
-unpushed:    A.11 implementation/test commits
+HEAD == origin/main: yes
+unpushed commits:    none
+working tree:        clean
 ```
 
-Each push attempt used the inspected `origin` remote and failed before network
-publication with:
-
-```text
-fatal: could not read Username for 'https://github.com': No such device or address
-```
-
-No uncommitted implementation files remain. The final report commit will also
-be local until GitHub authentication is restored. No claim is made that
-`HEAD == origin/main`.
+The exact final commit is the value printed by `git rev-parse HEAD`. The push
+used the inspected `origin` remote. The supplied credential was not written to
+the repository or to any tracked file.
 
 ## 31. Final A.11 Status
 
 **PASS — DART/SQLITE RUNTIME VERIFIED; ANDROID SQLITE RUNTIME PENDING.**
 
 The requested actual production Dart `LocalDb` verification is complete and
-reproducible locally. A.11 is not fully publish-closed: Android runtime
-verification and remote publication/CI remain pending. The honest final state
-is therefore:
+reproducible locally, and the A.11 commit is published with `HEAD ==
+origin/main`. Android runtime verification remains pending, and the post-push
+CI run is queued at report time. The honest final state is therefore:
 
 ```text
 DART SQLITE RUNTIME: VERIFIED
 ANDROID SQLITE RUNTIME: PENDING
 A.12: NOT STARTED
-REMOTE PUSH / POST-A.11 CI: BLOCKED BY MISSING GITHUB HTTPS CREDENTIAL
+REMOTE PUSH: COMPLETE
+POST-A.11 CI: QUEUED (run 37354249041)
 ```
