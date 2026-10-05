@@ -64,10 +64,10 @@ Future<void> _workerMain(Map<String, Object?> message) async {
         authorizationVersion: 8,
         runtimeGeneration: 41,
         executionSource: SyncExecutionSource.foreground,
-        now: DateTime.utc(2026, 10, 5, 10),
       );
       if (claim == null) {
-        reply.send(<String, Object?>{'ok': false, 'error': 'holder did not claim'});
+        reply.send(
+            <String, Object?>{'ok': false, 'error': 'holder did not claim'});
         return;
       }
       final commands = ReceivePort();
@@ -95,7 +95,7 @@ Future<void> _workerMain(Map<String, Object?> message) async {
             decision: SyncRetryDecision.completed,
             httpStatus: 200,
           ),
-          now: DateTime.utc(2026, 10, 5, 10, 0, 3),
+          now: DateTime.now().toUtc(),
         );
         reply.send(<String, Object?>{
           'ok': true,
@@ -112,10 +112,17 @@ Future<void> _workerMain(Map<String, Object?> message) async {
       authorizationVersion: 8,
       runtimeGeneration: 41,
       executionSource: SyncExecutionSource.background,
-      now: DateTime.utc(2026, 10, 5, 10, 0, 1),
     );
     if (claim == null) {
-      reply.send(<String, Object?>{'ok': false, 'error': 'competitor did not claim'});
+      final raw = await db.database;
+      final rows = await raw.query('pending_attendance');
+      final attempts = await raw.query('sync_attempts');
+      reply.send(<String, Object?>{
+        'ok': false,
+        'error': 'competitor did not claim',
+        'rows': rows,
+        'attempts': attempts,
+      });
       return;
     }
     final settled = await db.settleLegacyOperation(
@@ -129,8 +136,9 @@ Future<void> _workerMain(Map<String, Object?> message) async {
         decision: SyncRetryDecision.completed,
         httpStatus: 200,
       ),
-      now: DateTime.utc(2026, 10, 5, 10, 0, 2),
+      now: DateTime.now().toUtc(),
     );
+    await (await db.database).close();
     reply.send(<String, Object?>{
       'ok': true,
       'phase': 'competitor_settlement',
@@ -193,6 +201,7 @@ void main() {
     final directory = await Directory.systemTemp.createTemp('a12-concurrency-');
     try {
       final holderReplies = ReceivePort();
+      final holderMessages = StreamIterator<dynamic>(holderReplies);
       final holderIsolate = await Isolate.spawn<Map<String, Object?>>(
         _workerMain,
         <String, Object?>{
@@ -201,9 +210,11 @@ void main() {
           'reply': holderReplies.sendPort,
         },
       );
-      final holder = Map<Object?, Object?>.from(
-        await holderReplies.first.timeout(const Duration(seconds: 30)) as Map,
+      expect(
+        await holderMessages.moveNext().timeout(const Duration(seconds: 30)),
+        isTrue,
       );
+      final holder = Map<Object?, Object?>.from(holderMessages.current as Map);
       expect(holder['ok'], true, reason: '${holder['error']}');
       expect(holder['phase'], 'claimed');
       expect(holder['attempt'], 1);
@@ -216,7 +227,12 @@ void main() {
         'directory': p.normalize(directory.path),
         'mode': 'competitor',
       });
-      expect(competitor['ok'], true, reason: '${competitor['error']}');
+      expect(
+        competitor['ok'],
+        true,
+        reason:
+            '${competitor['error']} rows=${competitor['rows']} attempts=${competitor['attempts']}',
+      );
       expect(competitor['phase'], 'competitor_settlement');
       expect(competitor['result'], 'applied');
       expect(competitor['source'], 'background');
@@ -224,10 +240,15 @@ void main() {
 
       final control = holder['control'] as SendPort;
       control.send('settle');
-      final stale = await holderReplies.first.timeout(const Duration(seconds: 30));
-      final staleResult = Map<Object?, Object?>.from(stale as Map);
+      expect(
+        await holderMessages.moveNext().timeout(const Duration(seconds: 30)),
+        isTrue,
+      );
+      final staleResult =
+          Map<Object?, Object?>.from(holderMessages.current as Map);
       expect(staleResult['ok'], true, reason: '${staleResult['error']}');
       expect(staleResult['result'], 'supersededLocal');
+      await holderMessages.cancel();
       holderReplies.close();
       holderIsolate.kill(priority: Isolate.immediate);
 

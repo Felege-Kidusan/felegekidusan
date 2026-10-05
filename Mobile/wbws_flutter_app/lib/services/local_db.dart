@@ -102,6 +102,11 @@ class LocalDb {
     // server remains the source of truth for everything synced.
     return await openDatabase(
       path,
+      // A warm UI engine and a cold background engine may open the production
+      // database concurrently. Do not collapse those independent connections
+      // into sqflite's per-isolate singleton; SQLite transactions arbitrate
+      // the shared file and LocalDb's claim/lease protocol arbitrates work.
+      singleInstance: false,
       version: localDatabaseSchemaVersion,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
