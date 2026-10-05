@@ -2,7 +2,7 @@
 ///
 /// This file intentionally has no Flutter dependency. The runtime SQLite
 /// migration harness reads these declarations as its schema source of truth.
-const localDatabaseSchemaVersion = 36;
+const localDatabaseSchemaVersion = 37;
 
 final class LocalColumnSpec {
   final String table;
@@ -93,7 +93,11 @@ const localSyncAttemptsV36Sql = '''
     retry_decision TEXT NOT NULL DEFAULT 'PENDING',
     failure_message TEXT,
     next_attempt_at TEXT,
-    server_ref TEXT
+    server_ref TEXT,
+    -- S2 Goal A.1: which kind of trigger ran the drain that produced this
+    -- attempt. 'foreground' is the correct value for every row written
+    -- before v37, because no background execution path existed.
+    execution_source TEXT NOT NULL DEFAULT 'foreground'
   )
 ''';
 

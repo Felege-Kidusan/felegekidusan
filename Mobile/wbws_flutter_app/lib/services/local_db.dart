@@ -15,6 +15,7 @@ import 'hymn_outbox_models.dart';
 import 'legacy_outbox_models.dart';
 import 'local_schema_v34.dart';
 import 'sync_attempt_models.dart';
+import 'sync_execution.dart';
 import 'session_models.dart';
 import 'sync_recovery_models.dart';
 
@@ -566,6 +567,27 @@ class LocalDb {
             // fabricated evidence.
             await _createSyncAttemptLedger(db);
           }
+          if (oldVersion < 37) {
+            // S2 Goal A.1 — execution provenance on the S1 attempt ledger.
+            //
+            // Guarded by a column probe because v36 installs may have been
+            // created by _createSyncAttemptLedger (which now ships the column)
+            // rather than by this ALTER, and adding it twice is an error.
+            //
+            // The DEFAULT backfills existing rows with 'foreground'. That is
+            // not a placeholder: every attempt recorded before this version
+            // was necessarily produced by an in-app drain, because no
+            // background execution path existed to produce any other kind.
+            if (await _tableExists(db, 'sync_attempts')) {
+              final columns = await _columnNames(db, 'sync_attempts');
+              if (!columns.contains('execution_source')) {
+                await db.execute(
+                  'ALTER TABLE sync_attempts ADD COLUMN execution_source '
+                  "TEXT NOT NULL DEFAULT 'foreground'",
+                );
+              }
+            }
+          }
         },
       onOpen: (db) async {
         // No HTTP request survives its issuing process. Recover durable claims
@@ -838,6 +860,7 @@ class LocalDb {
     Map<String, Object?>? entityRef,
     int? ownerUserId,
     int? authorizationVersion,
+    SyncExecutionSource executionSource = SyncExecutionSource.foreground,
   }) async {
     await txn.insert(
       'sync_attempts',
@@ -846,6 +869,8 @@ class LocalDb {
         'attempt_number': attemptNumber,
         'attempt_uid': attemptUid,
         'domain': domain,
+        // S2 Goal A.1: provenance of the drain that opened this attempt.
+        'execution_source': executionSource.storageValue,
         // Natural key only — never the records payload.
         'entity_ref': entityRef == null ? null : jsonEncode(entityRef),
         'owner_user_id': ownerUserId,
@@ -3504,6 +3529,7 @@ class LocalDb {
     required int authorizationVersion,
     required int runtimeGeneration,
     DateTime? now,
+    SyncExecutionSource executionSource = SyncExecutionSource.foreground,
   }) async {
     final db = await database;
     final spec = _legacySpecFor(kind);
@@ -3632,6 +3658,7 @@ class LocalDb {
           entityRef: naturalKey,
           ownerUserId: ownerUserId,
           authorizationVersion: authorizationVersion,
+          executionSource: executionSource,
         );
       }
 

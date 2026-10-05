@@ -136,16 +136,22 @@ class SyncAttemptSchemaTests(unittest.TestCase):
                 "started_at", "finished_at", "duration_ms", "http_status",
                 "error_category", "retry_decision", "failure_message",
                 "next_attempt_at", "server_ref",
+                # S2 Goal A.1 — execution provenance.
+                "execution_source",
             },
         )
 
     def test_the_schema_version_pin_moved_with_the_migration(self) -> None:
         schema = _schema_source()
         db = DB_FILE.read_text(encoding="utf-8")
-        self.assertIn("const localDatabaseSchemaVersion = 36;", schema)
+        # Only the current-version pin moves when a later migration lands.
+        # v37 (S2 Goal A.1) added sync_attempts.execution_source.
+        self.assertIn("const localDatabaseSchemaVersion = 37;", schema)
         # The migration must be reachable from onUpgrade AND onCreate, or a
-        # fresh install and an upgraded install diverge.
+        # fresh install and an upgraded install diverge. The v36 step is
+        # unchanged history and must remain reachable.
         self.assertIn("if (oldVersion < 36)", db)
+        self.assertIn("if (oldVersion < 37)", db)
         self.assertEqual(db.count("_createSyncAttemptLedger(db)"), 2)
 
     def test_attempt_identity_is_unique_per_operation(self) -> None:
