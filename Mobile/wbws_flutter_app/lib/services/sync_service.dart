@@ -55,6 +55,41 @@ class SyncService {
   SyncStatus get lastStatus => _lastStatus;
   String lastError = '';
 
+  // ── S2 Goal A.2 — the coordinated execution boundary ────────────────
+  // The scheduler is the seam the future native layer attaches to. Until
+  // then it is a no-op, so nothing here depends on a platform plugin.
+  BackgroundSyncScheduler _backgroundScheduler =
+      const NoopBackgroundSyncScheduler();
+  set backgroundScheduler(BackgroundSyncScheduler scheduler) {
+    _backgroundScheduler = scheduler;
+    _coordinatorInstance = null;
+  }
+
+  BackgroundSyncCoordinator<SyncResult>? _coordinatorInstance;
+  BackgroundSyncCoordinator<SyncResult> get _coordinator =>
+      _coordinatorInstance ??= BackgroundSyncCoordinator<SyncResult>(
+        scheduler: _backgroundScheduler,
+        runDrain: _executeCoordinatedDrain,
+      );
+
+  // Arguments the A.1 `runDrain` typedef cannot carry. Safe because
+  // `execute()` invokes the runner SYNCHRONOUSLY with no await in between,
+  // in a single-threaded isolate, so no other caller can interleave.
+  // Extending the typedef instead would force edits to every fake closure
+  // in sync_execution_test.dart, risking A.1's green CI with no local Dart
+  // compiler to check it. This mirrors the class's existing _forceNext idiom.
+  int? _pendingGeneration;
+  bool _pendingForce = false;
+
+  Future<SyncResult> _executeCoordinatedDrain(SyncExecutionSource source) {
+    final generation =
+        _pendingGeneration ?? (sessionGenerationProvider?.call() ?? 0);
+    final force = _pendingForce;
+    _pendingGeneration = null;
+    _pendingForce = false;
+    return _syncAllForGeneration(generation, force: force, source: source);
+  }
+
   void startAutoSync() {
     if (activeSessionGate?.call() == false || !_drainsAllowed) return;
     if (_started) {
@@ -77,6 +112,10 @@ class SyncService {
     _started = false;
     _queued = false;
     _forceNext = false;
+    // Cancel any pending background wake-up. This drops the OPPORTUNITY only:
+    // pending operations stay in the durable outbox, still owned by their
+    // original user, and drain when that user is active again.
+    unawaited(_coordinator.cancelOpportunity());
   }
 
   void nudge({Duration delay = const Duration(milliseconds: 300)}) {
@@ -86,7 +125,11 @@ class SyncService {
     _retryTimer?.cancel();
     final generation = sessionGenerationProvider?.call() ?? 0;
     _retryTimer = Timer(delay, () {
-      _syncAllForGeneration(generation);
+      // Through the coordinator, carrying the generation captured above.
+      runSyncNow(
+        source: SyncExecutionSource.foreground,
+        generation: generation,
+      );
     });
   }
 
@@ -104,15 +147,21 @@ class SyncService {
   /// `next_attempt_at <= now`, owner and authorization-version isolation, and
   /// the session-generation guard. A background trigger cannot widen any of
   /// that, because it does not get its own query.
+  /// S2 Goal A.2 — [generation] lets a caller that CAPTURED the session
+  /// generation earlier (notably [nudge], when its timer was armed) hand
+  /// that value over. Re-reading it here would re-validate against whichever
+  /// session is current when the timer fires, defeating the guard that stops
+  /// a timer armed under user A from draining under user B. Callers acting
+  /// immediately omit it and keep call-time semantics.
   Future<SyncResult> runSyncNow({
     SyncExecutionSource source = SyncExecutionSource.foreground,
     bool force = false,
-  }) =>
-      _syncAllForGeneration(
-        sessionGenerationProvider?.call() ?? 0,
-        force: force,
-        source: source,
-      );
+    int? generation,
+  }) {
+    _pendingGeneration = generation;
+    _pendingForce = force;
+    return _coordinator.execute(source);
+  }
 
   Future<SyncResult> syncAll({bool force = false}) =>
       runSyncNow(source: SyncExecutionSource.foreground, force: force);
