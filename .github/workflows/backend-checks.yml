@@ -223,6 +223,37 @@ jobs:
           fi
           echo "No tests skipped."
 
+      - name: F-20 idempotency lifecycle (real MariaDB)
+        # The "Create test databases" step above provisions ssms_idem_e2e and
+        # its comment names this harness as the reason - but no step ever ran
+        # it. The database was being created for nobody, and F-20's 67 checks
+        # were only ever verified by hand on a developer machine. That is the
+        # same shape as finding P: infrastructure that looks like coverage
+        # while verifying nothing.
+        #
+        # This harness DROPs and re-creates its tables, which is why it
+        # refuses to start unless SSMS_AUDIT_TESTING is exactly 1, and why it
+        # is pointed at the disposable ssms_idem_e2e rather than the shared
+        # comm database.
+        env:
+          SSMS_AUDIT_TESTING: '1'
+          SSMS_DB_NAME: ssms_idem_e2e
+        run: |
+          set -uo pipefail
+          php tests/e2e/idempotency_lifecycle.php all 2>&1 | tee /tmp/idem.out
+          rc=${PIPESTATUS[0]}
+          verdict=$(grep -oE 'E2E-VERDICT: [A-Z]+ \([a-z]+: [0-9]+ checks\)' /tmp/idem.out | tail -1)
+          if [ -z "$verdict" ]; then
+            echo "::error::The F-20 harness produced no verdict line; treating as failure."
+            exit 1
+          fi
+          echo "$verdict"
+          case "$verdict" in
+            *PASS*) ;;
+            *) echo "::error::F-20 idempotency lifecycle failed."; exit 1 ;;
+          esac
+          [ "$rc" -eq 0 ] || { echo "::error::harness exited ${rc}"; exit 1; }
+
   flutter-tests:
     # S0.5. The mobile offline/sync/session state machine is the most
     # concurrency-sensitive code in the product and had never been executed by
