@@ -207,6 +207,39 @@ class _OfflineDataProtectionFailureAppState
   }
 }
 
+/// A.12 — temporary Dart entry point used only by the Android cold-start
+/// FlutterEngine. It intentionally does not call [runApp] or install the
+/// foreground scheduler. The engine gets the same MethodChannel bridge, the
+/// session coordinator reconciles durable credentials/generation, and the
+/// native side then invokes the existing background route.
+@pragma('vm:entry-point')
+Future<void> backgroundSyncMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel(BackgroundSyncChannel.name);
+  BackgroundSyncBridge(channel: channel).install();
+
+  var ready = false;
+  try {
+    await SessionCoordinator().bootstrap();
+    ready = SessionCoordinator().isActive;
+  } catch (_) {
+    // A cold-start bootstrap failure is a failed opportunity, never evidence
+    // that durable work succeeded. Native destroys the temporary engine
+    // without invoking the sync path, leaving the outbox retryable.
+    ready = false;
+  }
+
+  try {
+    await channel.invokeMethod<void>(
+      BackgroundSyncChannel.methodBackgroundReady,
+      <String, Object?>{'ready': ready},
+    );
+  } catch (_) {
+    // Native timeout/teardown owns the final lifecycle if the handshake cannot
+    // be delivered. Do not create a second retry or scheduler here.
+  }
+}
+
 class FKSSApp extends StatefulWidget {
   const FKSSApp({super.key});
 

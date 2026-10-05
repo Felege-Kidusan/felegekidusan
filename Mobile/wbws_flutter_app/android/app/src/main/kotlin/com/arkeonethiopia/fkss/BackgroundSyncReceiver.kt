@@ -29,7 +29,7 @@ class BackgroundSyncReceiver : BroadcastReceiver() {
 
         val pendingResult = goAsync()
         try {
-            BackgroundSyncProducer.deliver { pendingResult.finish() }
+            BackgroundSyncProducer.deliver(context) { pendingResult.finish() }
         } catch (t: Throwable) {
             // A receiver that throws takes the process down with it, and the
             // P65 crash trap would record it as an app crash. A wake-up that
