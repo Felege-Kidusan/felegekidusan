@@ -69,6 +69,72 @@ final class ApiIdempotencyService
         return $this->beginFile($recordHash, $ownerToken, $userId, $key, $scope, $requestHash);
     }
 
+    /**
+     * Finalise a reservation INSIDE the caller's open transaction (S2, F-20).
+     *
+     * `complete()` is an autocommitted statement that runs *after* the business
+     * transaction has already committed, which leaves a gap: a worker that dies
+     * in that gap leaves a durable business effect behind a record that still
+     * reads `processing`, and after the lease expires the same operation is
+     * re-acquired and executed a second time.
+     *
+     * When the completion is performed inside the business transaction the gap
+     * cannot exist, because the two outcomes are the same outcome:
+     *
+     *   commit   -> business effect AND completed record are both durable,
+     *               so the retry replays instead of re-executing;
+     *   rollback -> neither exists, the record stays `processing`, and the
+     *               retry correctly re-executes after the lease expires.
+     *
+     * Deliberately NOT done here:
+     *   - no commit/rollback: the caller owns the transaction;
+     *   - no expiry sweep: a probabilistic DELETE has no business inside
+     *     someone else's transaction and would widen its lock footprint;
+     *   - no file fallback: it cannot participate in a database transaction,
+     *     so callers must treat `false` as "not atomically completed" and let
+     *     the normal post-response path run.
+     *
+     * The later `complete()` call from apiSendJson() is a safe no-op, because
+     * its WHERE clause requires `record_state='processing'`.
+     *
+     * @return bool true when the record was atomically marked completed.
+     */
+    public function completeWithinTransaction(
+        array $reservation,
+        string $json,
+        int $statusCode
+    ): bool {
+        if (strlen($json) > self::MAX_RESPONSE_BYTES) {
+            return false;
+        }
+        $recordHash = (string)($reservation['record_hash'] ?? '');
+        $ownerToken = (string)($reservation['owner_token'] ?? '');
+        if ($recordHash === '' || $ownerToken === '') {
+            return false;
+        }
+        if (($reservation['backend'] ?? '') !== 'database'
+            || !($this->database instanceof \mysqli)) {
+            return false;
+        }
+        $statusCode = max(100, min($statusCode, 599));
+        try {
+            $statement = $this->database->prepare(
+                "UPDATE api_idempotency_records
+                 SET record_state='completed', status_code=?, response_body=?,
+                     lease_expires_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+                 WHERE record_hash=? AND owner_token=? AND record_state='processing'"
+            );
+            $statement->bind_param('isss', $statusCode, $json, $recordHash, $ownerToken);
+            $statement->execute();
+            $changed = $statement->affected_rows;
+            $statement->close();
+            return $changed === 1;
+        } catch (\Throwable $error) {
+            // Never break the business transaction for a bookkeeping write.
+            return false;
+        }
+    }
+
     public function complete(array $reservation, string $json, int $statusCode): void
     {
         if (strlen($json) > self::MAX_RESPONSE_BYTES) {

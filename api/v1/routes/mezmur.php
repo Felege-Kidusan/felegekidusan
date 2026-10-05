@@ -325,7 +325,28 @@ try {
         if (isApiRateLimited('mezmur_hymn_write', 30)) {
             err('Too many hymn changes. Please wait a moment.', 429);
         }
-        $result = MezmurHymnService::saveHymn($conn, $input, (int)$auth['uid']);
+        // S2/F-20: for the CREATE path saveHymn invokes this hook as the last
+        // statement before its COMMIT, so the idempotency record is finalised in
+        // the same transaction as the INSERT. Commit => both durable and a retry
+        // replays; rollback => neither, and a retry correctly re-runs. The body
+        // built here is byte-identical to the one ok() would emit, so a replay is
+        // indistinguishable from the original response.
+        $atomicComplete = static function (array $pending): void {
+            $envelope = ['status' => 'success'];
+            $envelope['data'] = [
+                'saved' => true,
+                'created' => true,
+                'item' => $pending['item'],
+            ];
+            if (defined('MEZMUR_API_VERSION')) {
+                $envelope['server_meta'] = ['mezmur' => MEZMUR_API_VERSION];
+            }
+            $json = json_encode($envelope, JSON_UNESCAPED_UNICODE);
+            if ($json !== false) {
+                apiIdempotencyCompleteAtomically($json, 201);
+            }
+        };
+        $result = MezmurHymnService::saveHymn($conn, $input, (int)$auth['uid'], $atomicComplete);
         if (empty($result['ok'])) {
             mezmurWriteError($result);
         }
