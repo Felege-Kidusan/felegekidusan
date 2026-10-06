@@ -139,6 +139,15 @@ class DeptTakerService
         string $username,
         string $password
     ): array {
+        // HR attendance was RETIRED (2026-10-07): no new HR taker
+        // accounts are created. Existing accounts keep working (login,
+        // retirement notice); reports live on the HR web dashboard.
+        if ($requestedRole === self::ROLE_HR_TAKER) {
+            return [
+                'ok' => false,
+                'message' => 'HR attendance was retired — no new HR taker accounts are created. Existing accounts keep working.',
+            ];
+        }
         $creatorRole = (string)($auth['role'] ?? '');
         $managed = self::managedRoles($creatorRole);
         if (!in_array($requestedRole, $managed, true)) {

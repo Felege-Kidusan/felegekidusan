@@ -117,12 +117,14 @@ class MemberDirectoryScalingTests(unittest.TestCase):
         self.assertIn('data-member-picker-target="pdfMemberId"', info)
         self.assertIn('data-member-picker-status="active"', info)
         self.assertIn("input.dataset.memberPickerStatus", self.picker_js)
-        # HR takers moved to the department-owned pipeline (2026-08):
-        # no embedded member roster AND no member-link picker — the
-        # governed api_dept_takers.php owns account creation, so there
-        # is nothing to scale and nothing to autofill.
-        self.assertIn("api_dept_takers.php", hr)
-        self.assertIn("hr_attendance_taker", hr)
+        # HR attendance was RETIRED (2026-10-07): the HR dashboard has
+        # no taker management at all anymore — creation is refused
+        # server-side in DeptTakerService and existing accounts are
+        # administered by the super admin. Nothing to scale, nothing
+        # to autofill.
+        self.assertNotIn("api_dept_takers.php", hr)
+        self.assertNotIn("hr_attendance_taker", hr)
+        self.assertNotIn("attakerModal", hr)
         self.assertNotIn("backend/user-save.php", hr)
         self.assertNotIn('data-member-picker-target="attakerMemberId"', hr)
 

@@ -111,7 +111,14 @@ class AttendanceIntegrityTests(unittest.TestCase):
         for source in (self.teacher, self.taker):
             self.assertIn("/admin/js/attendance-sheet.js", source)
             self.assertIn("AttendanceSheet.collect", source)
-            self.assertIn("sheet.unmarked.length > 0", source)
+            # Default-absent (2026-10-07): every row renders with an
+            # explicit status (absent unless marked) and the client-side
+            # completeness gate is gone — the sheet is complete by
+            # construction. The shared collect() still reports unmarked
+            # rows truthfully, and the server still validates the full
+            # roster on every write (fail-closed backstop).
+            self.assertIn("normalizeStatus(s.status) || 'absent'", source)
+            self.assertNotIn("sheet.unmarked.length > 0", source)
             self.assertIn('data-attendance-status="excused"', source)
             self.assertNotIn("let status = 'present'", source)
             self.assertNotIn("s.status || 'present'", source)

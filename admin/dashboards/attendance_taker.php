@@ -297,10 +297,6 @@ $csrfToken = generateCsrfToken();
                                 <span class="w-3 h-3 bg-blue-500 rounded-full"></span>
                                 <span class="text-sm">Excused: <strong id="countExcused">0</strong></span>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <span class="w-3 h-3 bg-slate-400 rounded-full"></span>
-                                <span class="text-sm">Unmarked: <strong id="countUnmarked">0</strong></span>
-                            </div>
                         </div>
                         
                         <div class="table-container">
@@ -480,7 +476,10 @@ $csrfToken = generateCsrfToken();
             }
             
             tbody.innerHTML = students.map((s, i) => {
-                const status = AttendanceSheet.normalizeStatus(s.status);
+                // Default-absent (2026-10-07): every student loads as
+                // ABSENT; the taker (or a scan) marks presence. Presence
+                // is never inferred — absent is the conservative default.
+                const status = AttendanceSheet.normalizeStatus(s.status) || 'absent';
                 return `
                 <tr data-member-id="${s.member_id || s.id}">
                     <td>${i + 1}</td>
@@ -519,7 +518,6 @@ $csrfToken = generateCsrfToken();
             document.getElementById('countAbsent').textContent = summary.absent;
             document.getElementById('countLate').textContent = summary.late;
             document.getElementById('countExcused').textContent = summary.excused;
-            document.getElementById('countUnmarked').textContent = summary.unmarked;
         }
         
         function saveAttendance() {
@@ -528,10 +526,9 @@ $csrfToken = generateCsrfToken();
             if (!classId) return;
 
             const sheet = AttendanceSheet.collect(document.getElementById('attendanceBody'));
-            if (sheet.unmarked.length > 0) {
-                showToast(`Mark attendance for all students (${sheet.unmarked.length} remaining).`, 'error');
-                return;
-            }
+            // Default-absent: the sheet is complete by construction (every
+            // row carries an explicit status), so Save is always available.
+            // The server still validates the complete roster on write.
             if (sheet.records.length === 0) {
                 showToast('There are no attendance records to save.', 'error');
                 return;

@@ -58,9 +58,14 @@ class CsrfSingleSourceTests(unittest.TestCase):
         # The page defines exactly one trusted token source.
         self.assertIn("const CSRF_TOKEN = '<?= generateCsrfToken() ?>';", hr)
         self.assertNotIn("<?= $csrfToken", hr)
-        # Taker modal + HrSub review console both consume the constant.
+        # Remaining write forms (member registration / edit) consume the
+        # page constant. The retired surfaces no longer post at all:
+        # HrSub became a read-only history view and the taker modal is
+        # gone with HR attendance (2026-10-07).
         self.assertIn("formData.append('csrf_token', CSRF_TOKEN);", hr)
-        self.assertIn("const csrfToken = CSRF_TOKEN;", hr)
+        self.assertNotIn("HrSub.submitReview", hr)
+        self.assertNotIn("apiPost(", hr)
+        self.assertNotIn("attakerForm", hr)
 
 
 class HrConsoleSurfaceTests(unittest.TestCase):
