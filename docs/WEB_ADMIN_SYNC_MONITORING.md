@@ -6,10 +6,11 @@
 
 - validated client operation id and `X-Client-Attempt-Id`, when supplied;
 - validated `X-Client-Attempt-Number` and `X-Execution-Source` for the narrow mobile sync write calls that now send them;
+- validated fleet context — `X-App-Version`, `X-App-Build`, and (for sync writes from builds that send it) the anonymous `X-Installation-Id` — so failures can be sliced by build and joined to the telemetry device directory;
 - server-generated `X-Request-Id`, authenticated user ID, route/domain, safe allow-listed entity references, HTTP status, safe error category/code, idempotency state, retry classification, and timestamps;
 - in-flight, completed, failed, rejected, and replayed lifecycle observations.
 
-The table never stores tokens, authorization headers, passwords, secrets, raw request/response bodies, notes, lyrics, or private response content. `installation_id` is **NOT YET SERVER-OBSERVABLE** because the current sync request contract does not transmit one.
+The table never stores tokens, authorization headers, passwords, secrets, raw request/response bodies, notes, lyrics, or private response content. `installation_id` is server-observed only for sync writes sent by app builds that transmit `X-Installation-Id` (the same anonymous UUID the telemetry channel uses); attempts from older builds record NULL and display as "not observed".
 
 A monitor row that remains in flight is conservative: it is not converted to success merely because the business transaction may have committed. Existing idempotency completion is reused. The Mezmur atomic route path also attempts monitor completion inside the existing transaction; other routes retain the existing post-commit completion hook. A post-commit worker crash can therefore leave an intentionally ambiguous/stale monitoring row, which is visible rather than falsely resolved.
 
@@ -26,7 +27,7 @@ The monitoring layer is route-agnostic but only sees writes that call the existi
 | Mezmur library outbox writes | idempotent `POST /api/v1/mezmur/*` writes that call `apiIdempotencyBegin` | Server-observed operation/idempotency/request correlation; source/attempt number remain **NOT YET SERVER-OBSERVABLE** for those library calls |
 | Other authenticated API writes | Any route using `apiIdempotencyBegin` | Server-observed only when a valid idempotency key is present; do not infer mobile origin |
 
-The following are explicitly **NOT YET SERVER-OBSERVABLE** as local mobile state: unsent/pending outbox rows, the next scheduled retry, installation/device identity, local lease ownership, local database contents, and whether a client will retry after a retryable response. The dashboard displays `—` for pending/retrying instead of inventing zeroes.
+The following are explicitly **NOT YET SERVER-OBSERVABLE** as local mobile state: unsent/pending outbox rows, the next scheduled retry, local lease ownership, local database contents, and whether a client will retry after a retryable response. Installation/device identity is server-observed only on sync writes from builds that send `X-Installation-Id`. The dashboard displays `—` for pending/retrying instead of inventing zeroes.
 
 ## Admin read-only surface
 

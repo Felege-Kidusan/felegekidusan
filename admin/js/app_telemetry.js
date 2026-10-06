@@ -323,6 +323,27 @@
       value('sync-kpi-in_flight-sub', 'Server reservations currently open');
       value('sync-kpi-stale-sub', 'Threshold: ' + (data.stale_after_minutes || 15) + ' minutes');
       value('sync-kpi-recent_successful-sub', 'Completed; replayed: ' + (counts.replayed || 0));
+      renderBuildBreakdown(data.by_app_build || []);
+    }
+
+    // Per-build failure rates: the earliest signal of a regressing build.
+    // A build failing at >= 5% in the window is highlighted red.
+    function renderBuildBreakdown(builds) {
+      var el = document.getElementById('sync-build-breakdown');
+      if (!el) return;
+      if (!builds.length) {
+        el.innerHTML = 'Failure rate by app build: no server-observed attempts in this range yet.';
+        return;
+      }
+      var parts = builds.map(function (b) {
+        var attempts = Number(b.attempts || 0);
+        var failed = Number(b.failed || 0);
+        var rate = attempts > 0 ? (failed / attempts) * 100 : 0;
+        var label = b.app_build === null || b.app_build === undefined ? 'not observed' : 'build ' + escapeHtml(String(b.app_build));
+        var color = attempts > 0 && rate >= 5 ? '#f87171' : '#cbd5e1';
+        return '<span style="color:' + color + '">' + label + ' <strong>' + rate.toFixed(2) + '%</strong> (' + failed + '/' + attempts + ' failed)</span>';
+      });
+      el.innerHTML = '<span style="color:#64748b">Failure rate by app build:</span> ' + parts.join(' · ');
     }
 
     function refresh() {
@@ -354,14 +375,14 @@
         '&source=' + encodeURIComponent(selected('sync-monitor-source-filter')) +
         '&search=' + encodeURIComponent(monitorState.query || '');
       var body = document.getElementById('sync-monitor-table-body');
-      if (body) body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr>';
+      if (body) body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr>';
       get(query).then(function (res) {
         if (res.status !== 'success' || !res.data) throw new Error('unavailable');
         monitorState.pages = (res.data.pagination || {}).pages || 1;
         renderAttempts(res.data);
         monitorError('');
       }).catch(function () {
-        if (body) body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#f87171">Server-observed attempt data is unavailable.</td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#f87171">Server-observed attempt data is unavailable.</td></tr>';
       });
     }
 
@@ -370,7 +391,7 @@
       var items = data.items || [];
       if (!body) return;
       if (!items.length) {
-        body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No server-observed attempts match these filters.</td></tr>';
+        body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#94a3b8">No server-observed attempts match these filters.</td></tr>';
       } else {
         var html = '';
         items.forEach(function (row) {
@@ -379,6 +400,8 @@
           if (row.attempt_uid) attempt += '<div style="font-size:.65rem;color:#64748b;font-family:monospace">' + escapeHtml(String(row.attempt_uid).slice(0, 12)) + '…</div>';
           var outcome = row.http_status ? escapeHtml(row.http_status) : '—';
           if (row.error_code) outcome += '<div style="font-size:.65rem;color:#fca5a5">' + escapeHtml(row.error_code) + '</div>';
+          var app = row.app_version ? escapeHtml(row.app_version) : 'not observed';
+          if (row.app_version) app += '<div style="font-size:.65rem;color:#94a3b8">build ' + escapeHtml(String(row.app_build || '?')) + '</div>';
           html += '<tr>' +
             '<td><span style="color:' + statusColor + ';font-weight:700">' + escapeHtml(row.status) + '</span></td>' +
             '<td style="white-space:nowrap;font-size:.72rem">' + escapeHtml(row.started_at) + '</td>' +
@@ -386,6 +409,7 @@
             '<td>' + escapeHtml(row.user_id) + '</td>' +
             '<td>' + attempt + '</td>' +
             '<td>' + escapeHtml(row.execution_source || 'not observed') + '</td>' +
+            '<td>' + app + '</td>' +
             '<td>' + outcome + '<div style="font-size:.65rem;color:#94a3b8">' + escapeHtml(row.retry_decision || '') + '</div></td>' +
             '<td><button type="button" class="btn btn-outline btn-sm" onclick="SyncMonitorUI.detail(' + Number(row.id) + ')">View</button></td>' +
             '</tr>';
@@ -416,6 +440,8 @@
           ['Request ID', row.request_id], ['Client operation ID', row.client_op_id || 'not observed'],
           ['Attempt ID', row.attempt_uid || 'not observed'], ['Attempt number', row.attempt_number || 'not observed'],
           ['Execution source', row.execution_source || 'not observed'], ['Authenticated user ID', row.user_id],
+          ['App version', row.app_version || 'not observed'], ['App build', row.app_build || 'not observed'],
+          ['Installation', row.installation_id ? escapeHtml(String(row.installation_id).slice(0, 13)) + '…' : 'not observed'],
           ['Entity reference', row.entity_ref || 'not observed'], ['HTTP status', row.http_status || 'not observed'],
           ['Idempotency state', row.idempotency_state], ['Retry decision', row.retry_decision],
           ['Error category', row.error_category || 'none'], ['Safe error code', row.error_code || 'none'],

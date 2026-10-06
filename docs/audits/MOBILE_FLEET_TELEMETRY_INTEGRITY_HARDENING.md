@@ -74,6 +74,14 @@ transaction. A duplicate crash-key insert is treated as an accepted no-op and
 does not increment `crash_count`, including when the first response was lost
 and the client retries.
 
+Counter semantics (interpretation note): `crash_count` and the "Legacy Crash
+Counters" KPI count **process-level failures** — every `crash_recorded` event
+the server accepts — not only user-facing UI crashes. A background-sync
+infrastructure failure that escapes `BackgroundSyncReceiver`'s own guards is
+also a process-level failure and lands in these counters; the receiver catches
+its own `Throwable` precisely so the *guarded* path does not. Read the KPI as
+"the process died/failed", never as "the user saw a crash".
+
 Migration ordering:
 
 ```text

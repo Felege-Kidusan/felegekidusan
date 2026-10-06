@@ -44,12 +44,43 @@ final class ApiSyncAttemptAdminService
             ],
             'range' => $filters['range'] ?? self::DEFAULT_RANGE,
             'stale_after_minutes' => ApiSyncAttemptMonitorService::STALE_AFTER_MINUTES,
+            'by_app_build' => self::byAppBuild($conn, $whereSql, $types, $params),
             'not_server_observable' => [
                 'pending' => 'The server cannot see local outbox rows that have not transmitted.',
                 'retrying' => 'The server can classify a retryable failure, but cannot see a future client retry until it arrives.',
-                'installation_id' => 'The current sync request contract does not transmit an installation identifier.',
+                'installation_id' => 'App builds that do not send X-Installation-Id have attempts recorded without an installation identifier (shown as not observed).',
             ],
         ];
+    }
+
+    /**
+     * Per-build attempt/failure breakdown in the filtered window — the
+     * baseline for spotting a regressing build. Builds appear once clients
+     * that send X-App-Build write attempts; older clients group under null.
+     * @param array<int,mixed> $params
+     * @return array<int,array<string,mixed>>
+     */
+    private static function byAppBuild(mysqli $conn, string $whereSql, string $types, array $params): array
+    {
+        $rows = self::all($conn, "SELECT
+            app_build, COUNT(*) AS attempts,
+            SUM(status IN ('failed','rejected')) AS failed
+            FROM api_sync_attempts{$whereSql}
+            GROUP BY app_build
+            ORDER BY attempts DESC
+            LIMIT 20", $types, $params);
+        $out = [];
+        foreach ($rows as $row) {
+            $attempts = (int)($row['attempts'] ?? 0);
+            $failed = (int)($row['failed'] ?? 0);
+            $out[] = [
+                'app_build' => $row['app_build'] !== null ? (int)$row['app_build'] : null,
+                'attempts' => $attempts,
+                'failed' => $failed,
+                'failure_rate' => $attempts > 0 ? round(($failed / $attempts) * 100, 2) : 0.0,
+            ];
+        }
+        return $out;
     }
 
     /** @return array<string,mixed> */
@@ -74,7 +105,8 @@ final class ApiSyncAttemptAdminService
             request_id, user_id, domain, operation, entity_ref,
             CASE WHEN status='in_flight' AND started_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL " . ApiSyncAttemptMonitorService::STALE_AFTER_MINUTES . " MINUTE) THEN 'stale' ELSE status END AS status,
             idempotency_state, retry_decision, error_category, error_code,
-            http_status, started_at, completed_at,
+            http_status, app_version, app_build, installation_id,
+            started_at, completed_at,
             TIMESTAMPDIFF(MICROSECOND, started_at, COALESCE(completed_at, CURRENT_TIMESTAMP)) DIV 1000 AS duration_ms
             FROM api_sync_attempts{$whereSql}
             ORDER BY started_at DESC, id DESC LIMIT ?, ?", $listTypes, $listParams);
@@ -101,7 +133,8 @@ final class ApiSyncAttemptAdminService
             request_id, user_id, domain, operation, entity_ref,
             CASE WHEN status='in_flight' AND started_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL " . ApiSyncAttemptMonitorService::STALE_AFTER_MINUTES . " MINUTE) THEN 'stale' ELSE status END AS status,
             idempotency_state, retry_decision, error_category, error_code,
-            http_status, started_at, completed_at,
+            http_status, app_version, app_build, installation_id,
+            started_at, completed_at,
             TIMESTAMPDIFF(MICROSECOND, started_at, COALESCE(completed_at, CURRENT_TIMESTAMP)) DIV 1000 AS duration_ms
             FROM api_sync_attempts WHERE id=? LIMIT 1", 'i', [$id]);
         return $rows ? self::safeRow($rows[0]) : null;
@@ -175,6 +208,9 @@ final class ApiSyncAttemptAdminService
             'error_category' => $row['error_category'] !== null ? (string)$row['error_category'] : null,
             'error_code' => $row['error_code'] !== null ? (string)$row['error_code'] : null,
             'http_status' => $row['http_status'] !== null ? (int)$row['http_status'] : null,
+            'app_version' => $row['app_version'] !== null ? (string)$row['app_version'] : null,
+            'app_build' => $row['app_build'] !== null ? (int)$row['app_build'] : null,
+            'installation_id' => $row['installation_id'] !== null ? (string)$row['installation_id'] : null,
             'started_at' => (string)($row['started_at'] ?? ''),
             'completed_at' => $row['completed_at'] !== null ? (string)$row['completed_at'] : null,
             'duration_ms' => (int)($row['duration_ms'] ?? 0),
