@@ -86,7 +86,15 @@ if ($method === 'GET' && $action === 'download') {
         if (isset($conn) && $conn instanceof mysqli) {
             $ver = (string)($rel['latest_version'] ?? '1.0.0');
             $bld = (int)($rel['latest_build'] ?? 1);
-            $ipHash = hash('sha256', ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0') . '::' . date('Ymd'));
+            // Same keyed, UTC-day-rotating identity as the telemetry route
+            // (routes/telemetry.php). An unkeyed digest of "ip::day" is
+            // trivially reversible for IPv4, and a local-time day boundary
+            // would rotate on a different edge than every other ip_hash the
+            // subsystem writes.
+            $ipHashSecret = defined('TELEMETRY_HASH_SECRET') && TELEMETRY_HASH_SECRET !== ''
+                ? TELEMETRY_HASH_SECRET
+                : JWT_SECRET;
+            $ipHash = hash_hmac('sha256', ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0') . '::' . gmdate('Ymd'), $ipHashSecret);
             $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
             $stmt = $conn->prepare("INSERT INTO app_downloads (version, build, abi, ip_hash, user_agent, downloaded_at) VALUES (?, ?, ?, ?, ?, NOW())");
             if ($stmt) {

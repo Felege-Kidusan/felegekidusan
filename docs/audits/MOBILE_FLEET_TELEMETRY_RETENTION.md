@@ -154,3 +154,15 @@ request-time behavior.
 - [ ] The cron log remains outside the web root.
 - [ ] Staging execution and aggregate reconciliation are recorded.
 - [ ] Production sign-off includes the actual installed cron evidence.
+
+## 7. Growth awareness: `app_installations` (retained by design)
+
+`app_installations` rows are never deleted by this job: the table is the
+lifetime counter basis for fleet KPIs (total installs, device/model/OS
+distributions), and the pinned contract test forbids this job from deleting
+anything outside the two approved telemetry tables. Growth is bounded by real
+installs. The postdrill report surfaces an informational count of
+installations unseen for 395+ days so an operator can make an explicit,
+documented retention decision if a fleet is ever decommissioned at scale.
+That decision is deliberately NOT automated here — pruning would silently
+change the basis of every lifetime KPI.

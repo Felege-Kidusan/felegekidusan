@@ -72,8 +72,7 @@ final class ApiSyncAttemptMonitorService
     {
         $source = self::validatedSource($context['execution_source'] ?? null);
         $attemptNumber = self::validatedAttemptNumber($context['attempt_number'] ?? null);
-        $completedAt = null;
-        return self::insert($conn, $context, 'in_flight', 'acquired', 'pending', null, null, null, $completedAt, $source, $attemptNumber);
+        return self::insert($conn, $context, 'in_flight', 'acquired', 'pending', null, null, null, $source, $attemptNumber);
     }
 
     /** Record a replay/conflict/processing event without exposing response data. */
@@ -87,7 +86,6 @@ final class ApiSyncAttemptMonitorService
         ?string $errorCategory = null,
         ?string $errorCode = null
     ): ?int {
-        $now = date('Y-m-d H:i:s');
         $source = self::validatedSource($context['execution_source'] ?? null);
         $attemptNumber = self::validatedAttemptNumber($context['attempt_number'] ?? null);
         return self::insert(
@@ -99,7 +97,6 @@ final class ApiSyncAttemptMonitorService
             $errorCategory,
             self::safeErrorCode($errorCode),
             $httpStatus,
-            $now,
             $source,
             $attemptNumber
         );
@@ -219,6 +216,41 @@ final class ApiSyncAttemptMonitorService
         return in_array($value, self::SAFE_SOURCES, true) ? $value : null;
     }
 
+    /** Fleet context column: version-shaped string, ≤32 chars, or null. */
+    private static function validatedAppVersion($value): ?string
+    {
+        $value = trim((string)$value);
+        if ($value === '' || strlen($value) > 32) {
+            return null;
+        }
+        return preg_match('/^[A-Za-z0-9][A-Za-z0-9._ -]{0,31}$/D', $value) ? $value : null;
+    }
+
+    /** Fleet context column: build int 1..4294967295, or null. */
+    private static function validatedAppBuild($value): ?int
+    {
+        if ($value === null || $value === '' || !filter_var($value, FILTER_VALIDATE_INT)) {
+            return null;
+        }
+        $value = (int)$value;
+        return ($value >= 1 && $value <= 4294967295) ? $value : null;
+    }
+
+    /**
+     * Fleet context column: the anonymous installation UUID, validated with
+     * the same shape the public telemetry route enforces, or null. This is
+     * the join key between the sync-failure and telemetry channels.
+     */
+    private static function validatedInstallationId($value): ?string
+    {
+        $value = strtolower(trim((string)$value));
+        if ($value === ''
+            || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $value)) {
+            return null;
+        }
+        return $value;
+    }
+
     private static function validatedAttemptNumber($value): ?int
     {
         if ($value === null || $value === '' || !filter_var($value, FILTER_VALIDATE_INT)) {
@@ -264,7 +296,6 @@ final class ApiSyncAttemptMonitorService
         ?string $errorCategory,
         ?string $errorCode,
         ?int $httpStatus,
-        ?string $completedAt,
         ?string $executionSource,
         ?int $attemptNumber
     ): ?int {
@@ -285,18 +316,27 @@ final class ApiSyncAttemptMonitorService
         $clientOpId = $clientOpId !== '' ? $clientOpId : null;
         $attemptUid = $attemptUid !== '' ? $attemptUid : null;
         $entityRef = isset($context['entity_ref']) ? substr((string)$context['entity_ref'], 0, self::MAX_ENTITY_REFERENCE) : null;
-        $startedAt = date('Y-m-d H:i:s');
+        $appVersion = self::validatedAppVersion($context['app_version'] ?? null);
+        $appBuild = self::validatedAppBuild($context['app_build'] ?? null);
+        $installationId = self::validatedInstallationId($context['installation_id'] ?? null);
         try {
             $stmt = $conn->prepare(
                 'INSERT INTO api_sync_attempts
                  (client_op_id, attempt_uid, attempt_number, execution_source, request_id,
                   user_id, domain, operation, entity_ref, status, idempotency_state,
-                  retry_decision, error_category, error_code, http_status, started_at,
+                  retry_decision, error_category, error_code, http_status, app_version,
+                  app_build, installation_id, started_at,
                   completed_at, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW(), NOW())'
             );
+            // started_at and completed_at are written by the database session
+            // clock — the same clock that later completes rows
+            // (completed_at=NOW()) and drives the staleness window and range
+            // filters in ApiSyncAttemptAdminService. A PHP-side timestamp
+            // would skew duration_ms and every range comparison by the
+            // PHP/DB timezone offset.
             $stmt->bind_param(
-                'ssississssssssiss',
+                'ssississssssssisis',
                 $clientOpId,
                 $attemptUid,
                 $attemptNumber,
@@ -312,8 +352,9 @@ final class ApiSyncAttemptMonitorService
                 $errorCategory,
                 $errorCode,
                 $httpStatus,
-                $startedAt,
-                $completedAt
+                $appVersion,
+                $appBuild,
+                $installationId
             );
             $stmt->execute();
             $id = (int)$stmt->insert_id;

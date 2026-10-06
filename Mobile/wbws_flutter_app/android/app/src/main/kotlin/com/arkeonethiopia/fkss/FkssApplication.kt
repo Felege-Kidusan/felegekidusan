@@ -45,10 +45,11 @@ class FkssApplication : Application() {
     private fun appendCrash(t: Throwable) {
         val log = getDatabasePath(LOG_NAME)
         log.parentFile?.mkdirs()
-        // Bounded: same cap the Dart reader assumes; rotate when full so
-        // a crash loop cannot fill the sandbox.
+        // Bounded: same cap the Dart reader assumes. When full, keep the
+        // newest half instead of wiping — a crash loop must not erase the
+        // identities of prior crashes that never got a launch to report them.
         if (log.exists() && log.length() > MAX_LOG_BYTES) {
-            log.delete()
+            trimLogTail(log)
         }
         // Header format is the contract the Dart parser knows:
         // `=== CRASH <epochMillis> ===`
@@ -57,6 +58,40 @@ class FkssApplication : Application() {
             "=== CRASH ${System.currentTimeMillis()} ===$line" +
                 "${t.stackTraceToString()}$line$line"
         )
+    }
+
+    /**
+     * Keeps the newest half of the log, cut at a section boundary so the
+     * Dart parser never sees a truncated header line. The trap must never
+     * throw; on any failure this falls back to the legacy bounded full reset
+     * (still capped, still crash-delivery-safe).
+     */
+    private fun trimLogTail(log: File) {
+        try {
+            val bytes = log.readBytes()
+            val keep = (MAX_LOG_BYTES / 2).toInt()
+            if (bytes.size <= keep) return
+            val window = bytes.copyOfRange(bytes.size - keep, bytes.size)
+            // Align the cut to the next section header (a line starting with
+            // `=== `), the boundary crash_log_service.dart parses on.
+            var cut = -1
+            var i = 0
+            while (i + 5 <= window.size) {
+                if (window[i] == '\n'.code.toByte() &&
+                    window[i + 1] == '='.code.toByte() &&
+                    window[i + 2] == '='.code.toByte() &&
+                    window[i + 3] == '='.code.toByte() &&
+                    window[i + 4] == ' '.code.toByte()
+                ) {
+                    cut = i + 1
+                    break
+                }
+                i++
+            }
+            log.writeBytes(if (cut >= 0) window.copyOfRange(cut, window.size) else window)
+        } catch (_: Throwable) {
+            log.delete()
+        }
     }
 
     companion object {

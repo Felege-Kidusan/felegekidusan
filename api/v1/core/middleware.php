@@ -35,7 +35,7 @@ function handleCors() {
     }
     // If Origin is set but NOT in our list → no CORS header = browser blocks it
     
-    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Attempt-Id, X-Client-Attempt-Number, X-Execution-Source, X-App-Version, X-App-Build');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Attempt-Id, X-Client-Attempt-Number, X-Execution-Source, X-App-Version, X-App-Build, X-Installation-Id');
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     header('X-Content-Type-Options: nosniff');
     header('X-API-Version: 1.0');
@@ -143,6 +143,41 @@ function apiSyncMonitorExecutionSource(): ?string {
     return in_array($value, ['foreground', 'background'], true) ? $value : null;
 }
 
+/** Fleet context: app version header (validated, never required). */
+function apiSyncMonitorAppVersion(): ?string {
+    $value = trim((string)($_SERVER['HTTP_X_APP_VERSION'] ?? ''));
+    if ($value === '' || strlen($value) > 32) {
+        return null;
+    }
+    // Version-shaped strings only: no punctuation beyond separators.
+    return preg_match('/^[A-Za-z0-9][A-Za-z0-9._ -]{0,31}$/D', $value) ? $value : null;
+}
+
+/** Fleet context: app build header (validated, never required). */
+function apiSyncMonitorAppBuild(): ?int {
+    $raw = trim((string)($_SERVER['HTTP_X_APP_BUILD'] ?? ''));
+    if ($raw === '' || !preg_match('/^[0-9]{1,10}$/D', $raw)) {
+        return null;
+    }
+    $value = (int)$raw;
+    return ($value >= 1 && $value <= 4294967295) ? $value : null;
+}
+
+/**
+ * Fleet context: anonymous installation id. Same UUID shape and validation
+ * the public telemetry route applies to its installation_id field, so the
+ * two channels become joinable on one stable anonymous identity. Absent or
+ * malformed header = null = not observed (never a request rejection).
+ */
+function apiSyncMonitorInstallationId(): ?string {
+    $value = strtolower(trim((string)($_SERVER['HTTP_X_INSTALLATION_ID'] ?? '')));
+    if ($value === ''
+        || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $value)) {
+        return null;
+    }
+    return $value;
+}
+
 /** @return array<string,mixed> */
 function apiSyncMonitorContext(int $userId, string $scope, string $clientOpId): array {
     return [
@@ -154,6 +189,9 @@ function apiSyncMonitorContext(int $userId, string $scope, string $clientOpId): 
         'execution_source' => apiSyncMonitorExecutionSource(),
         'request_id' => function_exists('apiRequestId') ? apiRequestId() : '',
         'entity_ref' => $GLOBALS['_fkss_sync_entity_ref'] ?? null,
+        'app_version' => apiSyncMonitorAppVersion(),
+        'app_build' => apiSyncMonitorAppBuild(),
+        'installation_id' => apiSyncMonitorInstallationId(),
     ];
 }
 

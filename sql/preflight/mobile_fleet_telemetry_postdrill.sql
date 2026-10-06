@@ -128,6 +128,17 @@ SELECT 'informational' AS result_type,
        'Do not modify api_sync_attempts from this report' AS action
   FROM api_sync_attempts;
 
+-- app_installations is the lifetime counter basis and is intentionally never
+-- deleted by the retention job. This row keeps growth visible so an operator
+-- can make an explicit, documented decision; this report never prunes it.
+SELECT 'informational' AS result_type,
+       'installations unseen for 395+ days (retained by design)' AS check_name,
+       CAST(COUNT(*) AS CHAR) AS observed,
+       'Growth awareness only - lifetime counter basis' AS expected,
+       'If unbounded, make an explicit retention decision and document it' AS action
+  FROM app_installations
+ WHERE last_seen_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 395 DAY);
+
 -- ── Aggregate-only gate output ──────────────────────────────────────────────
 SELECT check_name, observed_value, expected_value, result, action
   FROM ssms_mobile_fleet_postdrill

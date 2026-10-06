@@ -10,6 +10,7 @@ import '../utils/config.dart';
 import 'connectivity_service.dart';
 import 'outbox_policy.dart';
 import 'session_models.dart';
+import 'telemetry_service.dart';
 
 /// API response wrapper
 class ApiResponse {
@@ -749,6 +750,15 @@ class ApiService {
       if (source == 'foreground' || source == 'background') {
         headers['X-Execution-Source'] = source;
       }
+      // Fleet context: the anonymous installation identity telemetry already
+      // uses, so the server can slice sync failures by device cohort. Only
+      // on sync writes (idempotent / attempt-observed calls); a server that
+      // does not know the header simply ignores it.
+      String? installId;
+      if (auth && (key.isNotEmpty || attempt.isNotEmpty)) {
+        installId = await TelemetryService.instance.getInstallationId();
+        if (installId.isNotEmpty) headers['X-Installation-Id'] = installId;
+      }
       var response = await _http
           .post(
             uri,
@@ -776,6 +786,9 @@ class ApiService {
           }
           if (source == 'foreground' || source == 'background') {
             headers['X-Execution-Source'] = source;
+          }
+          if (installId != null && installId.isNotEmpty) {
+            headers['X-Installation-Id'] = installId;
           }
           response = await _http
               .post(

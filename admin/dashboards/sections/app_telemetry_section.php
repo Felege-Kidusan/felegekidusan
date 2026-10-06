@@ -257,7 +257,7 @@ $sum = $atMetrics['summary'] ?? [];
         <div class="at-kpi-card" style="border-left:4px solid #ec4899">
             <div class="at-kpi-label"><i class="fa-solid fa-bug" style="color:#ec4899"></i> Legacy Crash Counters</div>
             <div class="at-kpi-num" id="kpi-crashes"><?= number_format((int)($sum['total_crashes'] ?? 0)) ?></div>
-            <div class="at-kpi-sub"><span id="kpi-launches"><?= number_format((int)($sum['total_launches'] ?? 0)) ?></span> lifetime launch pings in cohort</div>
+            <div class="at-kpi-sub">Process-level failures (incl. background sync) · <span id="kpi-launches"><?= number_format((int)($sum['total_launches'] ?? 0)) ?></span> lifetime launch pings</div>
         </div>
 
         <?php foreach ([
@@ -275,6 +275,7 @@ $sum = $atMetrics['summary'] ?? [];
             </div>
         <?php endforeach; ?>
     </div>
+    <p id="sync-build-breakdown" style="margin:.6rem 0 1.2rem;color:#94a3b8;font-size:.78rem">Failure rate by app build: loading…</p>
 
     <!-- RECENT SERVER-OBSERVED SYNC OPERATIONS -->
     <div class="at-card" style="margin-bottom:1.5rem">
@@ -303,7 +304,7 @@ $sum = $atMetrics['summary'] ?? [];
         </div>
         <div class="at-table-wrap">
             <table>
-                <thead><tr><th>Status</th><th>Started</th><th>Domain / operation</th><th>User</th><th>Attempt</th><th>Source</th><th>HTTP / outcome</th><th>Detail</th></tr></thead>
+                <thead><tr><th>Status</th><th>Started</th><th>Domain / operation</th><th>User</th><th>Attempt</th><th>Source</th><th>App</th><th>HTTP / outcome</th><th>Detail</th></tr></thead>
                 <tbody id="sync-monitor-table-body"><tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">Loading server-observed attempts…</td></tr></tbody>
             </table>
         </div>
