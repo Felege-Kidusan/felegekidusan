@@ -170,6 +170,65 @@ class SuperAdminUiUxTests(unittest.TestCase):
         self.assertIn("/admin/js/super_admin.js?v=20261006", self.dash)
         self.assertIn("/admin/js/failure_intelligence.js?v=20261006", self.dash)
 
+    # ── UX-1 bug CLASS guard: scoped analytics classes must not leak ───────
+    # The at-*/ar-* classes are scoped under #section-app_telemetry /
+    # #section-app_release (and, since the fix, #section-failure_intelligence).
+    # Any NEW consumer of these exact tokens outside the owners renders
+    # unstyled — the exact bug the live screenshots reported. This pin fails
+    # when a new consumer appears, forcing a conscious decision (own scoped
+    # styles, like failure_intelligence_section.php, or an allowlist entry).
+
+    OWNERS = {
+        "admin/dashboards/sections/app_telemetry_section.php",
+        "admin/dashboards/sections/app_release_section.php",
+        "admin/dashboards/sections/failure_intelligence_section.php",
+        "admin/js/app_telemetry.js",  # renders inside #section-app_telemetry
+        "admin/js/app_release.js",    # renders inside #section-app_release
+        "admin/js/failure_intelligence.js",  # inside #section-failure_intelligence
+        "admin/js/academic_tracking.js",      # self-scoped: injects its own
+        # '.at-card' rules under its own container id (verified: lines with
+        # "#' + containerId + ' .at-card{"); unrelated name collision only.
+    }
+    SCOPED_TOKENS = (
+        "at-card", "at-kpi-card", "at-kpi-num", "at-kpi-label", "at-kpi-sub",
+        "at-kpi-grid", "at-bar-track", "at-bar-fill", "at-filter-btn",
+        "at-table-wrap", "ar-select", "ar-input", "ar-table", "ar-form-group",
+    )
+
+    def test_scoped_analytics_classes_have_no_unowned_consumers(self):
+        import re
+        pattern = re.compile(
+            r'class="[^"]*\b(?:%s)\b[^"]*"' % "|".join(self.SCOPED_TOKENS)
+        )
+        offenders = []
+        for path in (ROOT / "admin").rglob("*"):
+            if path.suffix not in (".php", ".js") or not path.is_file():
+                continue
+            rel = str(path.relative_to(ROOT))
+            if rel in self.OWNERS or "backend/pdf/" in rel:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if pattern.search(text):
+                offenders.append(rel)
+        self.assertEqual(
+            offenders, [],
+            "New consumer(s) of the scoped at-*/ar-* analytics classes found. "
+            "These classes are styled ONLY under their owning section ids — "
+            "using them elsewhere reproduces the unstyled-section bug "
+            "(see failure_intelligence_section.php for the scoped-style fix).",
+        )
+
+    def test_academic_tracking_still_self_scopes_its_at_card(self):
+        # Unrelated name collision: academic_tracking.js renders .at-card
+        # buttons on edu_dept, but injects its own scoped rules under its
+        # container id. If that injection is ever removed, its cards go
+        # unstyled — pin the injection itself.
+        js = (ROOT / "admin/js/academic_tracking.js").read_text(encoding="utf-8")
+        self.assertIn(".at-card{cursor:pointer", js)
+
 
 if __name__ == "__main__":
     unittest.main()
