@@ -5,6 +5,26 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.0 (build 26) — Faster attendance & HR retirement
+
+Taking attendance is now faster: every student starts as Absent, so you
+only mark the ones who attended — tap Present/Late/Excused or scan their
+QR card; Save is always available. Pausing mid-marking no longer causes
+sync errors, and HR attendance has been retired: HR now views combined
+attendance reports from the Education and Mezmur departments.
+
+- Class and Mezmur sheets open with everyone marked Absent (the safe
+  default) — presence is never assumed; only a tap or a QR scan marks it.
+- Save and Submit are always available; the old "mark every student"
+  blocker is gone.
+- QR scan marks Present instantly and tells you kindly when a member is
+  already registered.
+- Drafts now sync exactly what you marked — no more rejected syncs when
+  you pause mid-sheet.
+- HR attendance removed: HR staff see combined Education + Mezmur
+  reports on the school web dashboard; everything recorded before the
+  change stays saved and readable.
+
 ## 1.5.1 (build 25) — App lock rate limiting, update pipeline & security hardening
 
 - App lock passcode rate limiting now features real-time countdown throttling and dynamic multi-digit indicator dots.

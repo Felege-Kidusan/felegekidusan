@@ -20,19 +20,19 @@
  *   cp FKSS-arm64-v8a.apk    /home/arkeonet/fkss_releases/fkss-arm64.apk
  *
  * After each new build, raise latest_version / latest_build to match
- * pubspec.yaml (currently 1.5.1+25). Raise min_build only after the staged
+ * pubspec.yaml (currently 1.6.0+26). Raise min_build only after the staged
  * compatibility window and adoption checks in the release runbook.
  */
 return [
-    'latest_version' => '1.5.1',
-    'latest_build'   => 25,
+    'latest_version' => '1.6.0',
+    'latest_build'   => 26,
     'min_version'    => '1.0.0',
     'min_build'      => 1,
     'force_update'   => false,
     // Emergency containment: set false to pause outbound app outbox drains.
     // Local SQLite saves and queued rows continue and must not be deleted.
     'background_drains_enabled' => true,
-    'release_notes'  => 'Owner-safe recovery, live access reconciliation, and durable outbox controls.',
+    'release_notes'  => 'Attendance is now faster: every student starts as Absent, so you only mark the ones who attended (tap or QR scan). Mid-marking sync errors are fixed, and HR attendance was retired — HR now reads combined Education + Mezmur reports.',
     'banner_text'    => '',
     'banner_kind'    => 'info',
     // Universal APK (both 32-bit and 64-bit phones) — ALWAYS publish.
