@@ -260,7 +260,10 @@ For create, edit, category, singer, status, and lyrics operations, exercise each
 
 ### G. Exact legacy-operation races
 
-Repeat for attendance, grades, Mezmur attendance, and HR attendance:
+Repeat for attendance, grades, Mezmur attendance, and HR attendance
+(HR attendance was retired 2026-10-07 — skip it for current builds; the
+drain still settles old queued packets against a 410, which is the
+honest terminal state):
 
 1. Stall draft A, save changed draft B, accept A: B remains pending and later sends as B.
 2. Stall A, replace with B, reject A: B receives no A error.

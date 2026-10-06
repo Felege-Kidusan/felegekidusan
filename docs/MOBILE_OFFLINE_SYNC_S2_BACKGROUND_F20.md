@@ -118,6 +118,13 @@ Definitions used:
 | 13 | `POST /mezmur/zemarian-status` `:547` | idempotent UPDATE | RECOVERABLE | `VERIFIED BY SOURCE` |
 | 14 | `POST /mezmur/audio-presign` `:578` | `MezmurMediaService::beginUpload` | **NOT CLASSIFIED** | see §5 |
 | 15 | `POST /mezmur/audio-confirm` `:611` | UPDATE (`confirmUpload`,`setDuration`) | RECOVERABLE | `VERIFIED BY SOURCE` |
+
+> **Update 2026-10-07 (attendance rework):** routes 3 (`POST /hr/sheet`)
+> and 7 (`POST /hr/submission-review`) are **retired** — both now answer
+> 410 `HR_ATTENDANCE_RETIRED` with no business effect, which is trivially
+> idempotent. Rows 1–2 (attendance drafts) now merge-upsert partial
+> sheets instead of requiring a complete roster; row 4 (mezmur drafts)
+> likewise. Decision record: `docs/ATTENDANCE_REWORK_2026-10.md`.
 | 16 | `POST /mezmur/audio-remove` `:635` | UPDATE | RECOVERABLE | `VERIFIED BY SOURCE` |
 | 17 | `POST /mezmur/lyrics-synced` `:656` | UPDATE | RECOVERABLE | `VERIFIED BY SOURCE` |
 | 18 | `POST /mezmur/submission-review` `:717` | state transition | RECOVERABLE | `VERIFIED BY SOURCE` |

@@ -962,3 +962,49 @@ test_hr_attendance_domain.py and tests/smoke/hr_phase6_smoke.php.
 Verified: endpoint CLI probe (reads, review approve/no-note guard,
 CSRF deny, unauth deny, cross-dept deny), PHP smoke ALL PASSED,
 mezmur smoke still ALL PASSED, suite 412/412.
+
+---
+
+## 2026-10-07 — ATTENDANCE REWORK: default-absent, honest drafts, HR retirement
+
+Decision record + client contract: docs/ATTENDANCE_REWORK_2026-10.md.
+Deploy verification: DEPLOYMENT_RUNBOOK.md STAGE 7B. No migrations.
+Commits: c3f7e7c (A, server drafts), 6385e94 (B, HR retirement),
+c742580 (C, mobile), 9803203 (D, web).
+
+Root cause fixed: mobile autosave deliberately persists PARTIAL drafts,
+but the server demanded a complete roster for every save — so any
+teacher pausing mid-marking produced a guaranteed 422 "rejected" sync
+attempt on the dashboard. A paused sheet is a normal workflow state,
+not an error.
+
+- Default-ABSENT everywhere (user decision): every student/member loads
+  absent; the teacher (or QR scan) marks presence. Presence is never
+  inferred on any platform; untouched sheet = all-absent day.
+- Server: drafts merge-upsert partial sheets (ON DUPLICATE KEY UPDATE
+  on the existing unique keys, never deleting unmentioned rows);
+  submits still require the complete roster (roster-drift protection);
+  422s carry machine codes INCOMPLETE_SHEET vs ROSTER_MISMATCH. Same
+  split for Education (attendance) and Mezmur (mezmur_attendance).
+- HR attendance RETIRED: mobile writes and review writes answer 410
+  HR_ATTENDANCE_RETIRED (every role, not overridable); reads stay —
+  history preserved, nothing dropped. The old entries above describing
+  the HR phase-6 build remain as history.
+- Mobile: HR attendance screen/tab/entry points removed (retirement
+  notice homes; outbox drain kept so old queued packets settle honestly
+  against the 410); class + mezmur sheets default-absent with
+  always-available Save/Submit; QR = present with friendly duplicate
+  feedback for already-present members.
+- Web: attendance_taker.php + teacher.php default-absent parity (server
+  complete-roster backstop intact); hr-dept.php review console is a
+  read-only history view; taker console + QR-roster button removed;
+  NEW governed read-only api_hr_reports.php + "Attendance Reports"
+  section (combined Education + Mezmur); DeptTakerService refuses new
+  hr_attendance_taker accounts.
+- Tests: test_attendance_rework_phase_{a,c,d}.py (41 new pins),
+  test_hr_attendance_domain.py rewritten to the retired contract, and
+  consciously updated neighboring pins (disclosed in each commit).
+
+Verified per phase: php -l sweep 988 files / 0 fails; full pytest
+suite green except the pre-existing MariaDB-dependent GuardFailsClosed
+e2e subtests (proven byte-identical on the unmodified baseline).
