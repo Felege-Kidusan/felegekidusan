@@ -1,11 +1,21 @@
 <?php
 /**
- * School API v1 — HR department attendance (section-based).
+ * School API v1 — HR department attendance (section-based). RETIRED.
  *
  *   GET  /hr/sections            — sections with member counts
  *   GET  /hr/sheet?date=…&section=… — roster + marks + packet state
- *   POST /hr/sheet               — draft save / submit (transactional)
  *   GET  /hr/days                — recorded-day history
+ *   GET  /hr/submissions[/id]    — historical packet queue (read-only)
+ *   POST /hr/sheet               — RETIRED (410 HR_ATTENDANCE_RETIRED)
+ *   POST /hr/submission-review   — RETIRED (410 HR_ATTENDANCE_RETIRED)
+ *
+ * Product decision (2026-10-07): HR no longer takes attendance. The
+ * department reads combined Education + Mezmur attendance reports
+ * instead. Everything already recorded stays readable (no data is
+ * destroyed); every write path — recording and review — is retired
+ * with an honest 410 for every role, so old app versions surface a
+ * clear message through the outbox attention banner instead of
+ * silently losing sheets.
  *
  * Isolation rule (2026-08-28): this is HR's OWN attendance domain —
  * its own takers (hr_attendance_taker), its own tables. Data is never
@@ -16,7 +26,7 @@
 
 $auth = apiRequireAuth();
 
-if (!defined('HR_API_VERSION')) define('HR_API_VERSION', 'phase6-hr26');
+if (!defined('HR_API_VERSION')) define('HR_API_VERSION', 'hr-retired-1');
 
 // Taking & viewing: HR's own takers + HR staff + admins.
 // Nobody else — not edu, not mezmur, not info. The Information
@@ -71,70 +81,14 @@ try {
         ok($out);
     }
 
-    // ── POST /hr/sheet ──────────────────────────────────────────
+    // ── POST /hr/sheet — RETIRED ────────────────────────────────
+    // Product decision (2026-10-07): HR no longer takes attendance.
+    // Old apps receive an honest 410 (classified needs-attention with
+    // this exact message) instead of silent data loss. Applies to every
+    // role — retirement is not overridable.
     if ($method === 'POST' && $action === 'sheet') {
-        $input = getBody();
-        $date = (string)($input['date'] ?? '');
-        $records = $input['records'] ?? [];
-        $section = trim((string)($input['section'] ?? ''));
-        if (!is_array($records) || $records === []) err('records array is required.');
-        if (count($records) > 500000) err('Sheet is too large.');
-        if ($section === '') err('A section is required.');
-
-        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
-        if (isApiRateLimited('hr_sheet_save', 30)) {
-            err('Too many sheet saves. Please wait a moment.', 429);
-        }
-
-        if (!HrSubmissionService::takerMayWrite($conn, $auth, $date, $section)) {
-            err('This attendance is already submitted. Only administrators can change it.', 409,
-                ['code' => 'ALREADY_SUBMITTED']);
-        }
-        $kind = strtolower(trim((string)($input['kind'] ?? 'draft')));
-        $packetStatus = $kind === 'submitted'
-            ? HrSubmissionService::STATUS_SUBMITTED
-            : HrSubmissionService::STATUS_DRAFT;
-
-        $counts = HrSubmissionService::countsFromRecords($records);
-        $packet = [];
-        $conn->begin_transaction();
-        try {
-            // Caller owns the transaction (rows + packet commit together).
-            $summary = HrAttendanceService::saveSectionSheet($conn, $date, $section, $records, (int)$auth['uid'], false);
-            $packet = HrSubmissionService::upsert($conn, [
-                'taker_id' => (int)$auth['uid'],
-                'date' => $date,
-                'section' => $section,
-                'status' => $packetStatus,
-                'member_count' => $summary['marked'],
-                'present' => $counts['present'],
-                'late' => $counts['late'],
-                'absent' => $counts['absent'],
-                'excused' => $counts['excused'],
-                'client_op_id' => (string)($input['client_op_id'] ?? ''),
-            ]);
-            if (empty($packet['ok'])) {
-                throw new \DomainException($packet['message'] ?? 'Could not update the attendance workflow.');
-            }
-            $conn->commit();
-        } catch (\DomainException $error) {
-            $conn->rollback();
-            // Domain messages are controlled service wording, never
-            // diagnostics (kept behind a variable for the disclosure lint).
-            $safeMessage = $error->getMessage();
-            err($safeMessage, 409, ['code' => 'WORKFLOW_REJECTED']);
-        } catch (\Throwable $error) {
-            $conn->rollback();
-            error_log('API hr sheet save failed: ' . $error->getMessage());
-            err('Could not save attendance. Nothing was changed. Please try again.', 500);
-        }
-        ok([
-            'saved' => true,
-            'summary' => $summary,
-            'submission_id' => $packet['id'] ?? 0,
-            'submission_status' => $packet['status'] ?? 'draft',
-            'v' => HR_API_VERSION,
-        ]);
+        err('HR attendance was retired. HR no longer takes attendance — update the app to see the new attendance reports.', 410,
+            ['code' => 'HR_ATTENDANCE_RETIRED']);
     }
 
     // ════════════════════════════════════════════════════════════
@@ -172,25 +126,12 @@ try {
         ok(['submission' => $item]);
     }
 
-    // ── POST /hr/submission-review — decide a packet ─────────────
+    // ── POST /hr/submission-review — RETIRED ─────────────────────
+    // Reviewing retired with the domain itself: historical packets are
+    // frozen as read-only records. Reads above stay available.
     if ($method === 'POST' && $action === 'submission-review') {
-        if (!HrSubmissionService::canReview($auth)) {
-            err('Only the HR department can review packets.', 403);
-        }
-        if (isApiRateLimited('hr_submission_review', 30)) {
-            err('Too many reviews. Please wait a moment.', 429);
-        }
-        $input = getBody();
-        apiIdempotencyBegin((int)$auth['uid'], (string)($input['client_op_id'] ?? ''));
-        $result = HrSubmissionService::reviewPacket(
-            $conn,
-            (int)($input['id'] ?? 0),
-            (string)($input['status'] ?? ''),
-            (string)($input['notes'] ?? ''),
-            (int)$auth['uid']
-        );
-        if (empty($result['ok'])) err((string)($result['message'] ?? 'Review failed.'), 409);
-        ok($result);
+        err('Reviewing HR attendance was retired with HR attendance itself. History stays readable.', 410,
+            ['code' => 'HR_ATTENDANCE_RETIRED']);
     }
 
     err('Unknown HR attendance endpoint.', 404);

@@ -31,10 +31,14 @@ class ReviewGatewayTests(unittest.TestCase):
         self.assertIn("MezmurSubmissionService::reviewPacket(", self.mez)
 
     def test_hr_review_endpoints_role_gated(self):
+        # HR attendance was RETIRED (2026-10-07): the review READS stay
+        # role-gated for history; the review WRITE is an honest 410.
         self.assertIn("GET' && $action === 'submissions'", self.hr)
-        self.assertIn("POST' && $action === 'submission-review'", self.hr)
+        self.assertIn("GET' && $action === 'submission'", self.hr)
         self.assertIn("HrSubmissionService::canReview($auth)", self.hr)
-        self.assertIn("HrSubmissionService::reviewPacket(", self.hr)
+        self.assertIn("POST' && $action === 'submission-review'", self.hr)
+        self.assertIn("['code' => 'HR_ATTENDANCE_RETIRED']", self.hr)
+        self.assertNotIn("HrSubmissionService::reviewPacket(", self.hr)
 
     def test_edu_review_mirrors_web_console_rules(self):
         # Same statuses + reason rule as api_communication.php.

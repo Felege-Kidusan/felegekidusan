@@ -108,11 +108,15 @@ class F8ServerCodes(unittest.TestCase):
                              'hymn conflict protocol is out of F8 scope')
 
     def test_hr_lock_and_domain_rejections(self):
+        # HR attendance writes were RETIRED (2026-10-07, product decision):
+        # both POST handlers answer 410 HR_ATTENDANCE_RETIRED. The old
+        # write-lock codes are gone with the write path itself; the global
+        # DomainException catch (drain-reachable) remains for reads.
         self.assertEqual(
-            self.hr.count("['code' => 'ALREADY_SUBMITTED']"), 1)
+            self.hr.count("['code' => 'HR_ATTENDANCE_RETIRED']"), 2)
         self.assertEqual(
-            self.hr.count("['code' => 'WORKFLOW_REJECTED']"), 2,
-            'save-route catch + global catch both drain-reachable')
+            self.hr.count("['code' => 'WORKFLOW_REJECTED']"), 1,
+            'global catch stays drain-reachable for read errors')
 
 
 class F8ClientClassifier(unittest.TestCase):

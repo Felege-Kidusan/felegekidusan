@@ -1,20 +1,27 @@
-"""HR attendance domain — schema + services (Phase B part 1, 2026-08-28).
+"""HR attendance domain — RETIRED contract (server phase, 2026-10-07).
 
-Product rule: HR takes section-based attendance with its OWN takers on
-its OWN tables — never combined with Education or Mezmur. Mechanics
-clone the mezmur section-sheet workflow (which clones the edu packet
-workflow). The Information department will read it through the
-governed analytics path only (Phase C).
+Product decision (2026-10-07): HR no longer takes attendance; the
+department reads combined Education + Mezmur attendance reports
+instead. Server retirement (this phase):
 
-Locked contracts:
-  • sql/026 creates hr_attendance / hr_submissions / hr_attendance_audit
-    idempotently with UNIQUE(date,member) + UNIQUE(date,section)
-  • HrAttendanceService never references mezmur/edu tables
-  • HrSubmissionService carries the full packet state machine
-    (draft/incomplete/submitted/approved/rejected/revision_needed),
-    note-required returns/rejects, admin-only lock overrides
-  • reviewers are hr_dept + admins; taker attribution enforced by
-    DeptTakerService + routes, not by the service internals
+  • Every write path returns an honest 410 with code
+    HR_ATTENDANCE_RETIRED — recording (POST /api/v1/hr/sheet) and
+    review (POST /api/v1/hr/submission-review, admin console
+    submission_review). Applies to every role; not overridable.
+  • Old app versions surface the 410 through the outbox attention
+    banner (outbox_policy classifies 410 as needs-attention) with the
+    server's exact message — no silent data loss.
+  • History is preserved and readable: hr_* tables, GET sheet/days/
+    sections/submissions stay available. Nothing is dropped.
+
+Still-true legacy contracts kept under pin: sql/026 schema (history
+tables), HrAttendanceService / HrSubmissionService internals (now
+read-only by entry-point policy), isolation from other departments.
+
+The Flutter contracts below remain from the pre-retirement app and
+stay green until Phase C removes the HR attendance UI — the outbox
+HR drain deliberately stays so queued packets on upgraded devices
+settle honestly against the 410 instead of hanging forever.
 """
 
 from pathlib import Path
@@ -108,7 +115,7 @@ class HrDomainContracts(unittest.TestCase):
 
 
 class HrEndpointContracts(unittest.TestCase):
-    """Phase B part 2: governed console endpoint + mobile v1 route."""
+    """Retired server contract (2026-10-07): writes 410, reads live."""
 
     @classmethod
     def setUpClass(cls):
@@ -117,6 +124,39 @@ class HrEndpointContracts(unittest.TestCase):
         cls.router = (ROOT / "api/v1/index.php").read_text(encoding="utf-8")
         cls.acl = (ROOT / "admin/access_control.php").read_text(encoding="utf-8")
 
+    # ── mobile v1 route: reads stay, writes are retired ─────────
+    def test_mobile_route_write_paths_are_retired(self):
+        # Both POST handlers return an honest 410 with the machine code.
+        self.assertEqual(self.v1.count("['code' => 'HR_ATTENDANCE_RETIRED']"), 2)
+        self.assertIn("err('HR attendance was retired. HR no longer takes attendance", self.v1)
+        self.assertIn("err('Reviewing HR attendance was retired", self.v1)
+        self.assertEqual(self.v1.count(", 410,"), 2)
+        # No write entry points remain in the route at all.
+        self.assertNotIn("HrAttendanceService::saveSectionSheet", self.v1)
+        self.assertNotIn("HrSubmissionService::upsert", self.v1)
+        self.assertNotIn("HrSubmissionService::reviewPacket", self.v1)
+        self.assertNotIn("begin_transaction", self.v1)
+        self.assertNotIn("apiIdempotencyBegin", self.v1)
+
+    def test_mobile_route_reads_stay_available(self):
+        # History is preserved and readable for old apps + the archive.
+        for action in ("sections", "days", "sheet", "submissions", "submission"):
+            self.assertIn("'%s'" % action, self.v1)
+        self.assertIn("HrAttendanceService::fetchSectionSheet", self.v1)
+        self.assertIn("HrSubmissionService::listPackets", self.v1)
+        self.assertIn("HrSubmissionService::detail", self.v1)
+
+    def test_mobile_route_roles_and_isolation(self):
+        self.assertIn("hr_attendance_taker", self.v1)
+        self.assertIn("['hr_attendance_taker', 'hr_dept', 'school_admin', 'super_admin']", self.v1)
+        # Retirement version handshake (was phase6-hr26).
+        self.assertIn("'hr-retired-1'", self.v1)
+        self.assertNotIn("phase6-hr26", self.v1)
+        # never touches other departments' tables or routes
+        self.assertNotIn("mezmur_", self.v1)
+        self.assertNotIn("attendance_days", self.v1)
+
+    # ── web console: read-only history surface ──────────────────
     def test_console_endpoint_guards(self):
         # auth: session re-check + role re-check (defense in depth)
         self.assertIn("admin_logged_in", self.console)
@@ -127,24 +167,20 @@ class HrEndpointContracts(unittest.TestCase):
         self.assertIn("set_exception_handler", self.console)
         # schema probe points operators at the right migration
         self.assertIn("sql/026_hr_attendance.sql", self.console)
-        # version handshake + review-only posture
-        self.assertIn("phase6-hr26", self.console)
+        # version handshake (was phase6-hr26)
+        self.assertIn("'hr-retired-1'", self.console)
+        self.assertNotIn("phase6-hr26", self.console)
+        # read actions stay
         for action in ("sections", "submissions_list", "submission_detail",
-                       "days_list", "takers_list", "submission_review"):
+                       "days_list", "takers_list"):
             self.assertIn("'%s'" % action, self.console)
 
-    def test_mobile_route_roles_and_isolation(self):
-        self.assertIn("hr_attendance_taker", self.v1)
-        self.assertIn("['hr_attendance_taker', 'hr_dept', 'school_admin', 'super_admin']", self.v1)
-        # transactional rows + packet, idempotent, rate limited
-        self.assertIn("begin_transaction", self.v1)
-        self.assertIn("apiIdempotencyBegin", self.v1)
-        self.assertIn("isApiRateLimited", self.v1)
-        self.assertIn("takerMayWrite", self.v1)
-        self.assertIn("phase6-hr26", self.v1)
-        # never touches other departments' tables or routes
-        self.assertNotIn("mezmur_", self.v1)
-        self.assertNotIn("attendance_days", self.v1)
+    def test_console_review_action_is_retired(self):
+        self.assertIn("http_response_code(410)", self.console)
+        self.assertIn("'HR_ATTENDANCE_RETIRED'", self.console)
+        self.assertIn("read-only history now", self.console)
+        # The review write no longer reaches the service.
+        self.assertNotIn("HrSubmissionService::reviewPacket", self.console)
 
     def test_router_and_acl_registration(self):
         self.assertIn("'hr'            => 'hr.php'", self.router)

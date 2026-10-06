@@ -1,11 +1,14 @@
 <?php
 /**
  * ════════════════════════════════════════════════════════════
- * HR Department Attendance API (web console)
+ * HR Department Attendance API (web console) — RETIRED WRITES
  * ════════════════════════════════════════════════════════════
- * Review-only console surface for HR's OWN section-based
- * attendance domain. Recording happens on the mobile app
- * (api/v1); this endpoint lists, inspects and reviews packets.
+ * Read-only history surface for HR's OWN section-based attendance
+ * domain. Product decision (2026-10-07): HR no longer takes
+ * attendance — the department reads combined Education + Mezmur
+ * reports instead. Recording was mobile-only and is retired at
+ * api/v1/routes/hr.php (410); the review write is retired here.
+ * Nothing is deleted: recorded history stays readable.
  *
  * Isolation rule (2026-08-28): HR data is never combined with
  * Education or Mezmur. This file only touches hr_* tables via
@@ -16,16 +19,16 @@
  *      super_admin / school_admin / hr_dept.
  *   2. This file re-checks login + role itself.
  *   3. CSRF token required on every POST.
- *   4. Per-user rate limiting (review writes tight).
+ *   4. Per-user rate limiting.
  *   5. Exceptions never leak internals.
  *
  * Actions:
  *   GET  sections          → sections with member counts
- *   GET  submissions_list  → packets (+stats insight strip)
+ *   GET  submissions_list  → historical packets (+stats strip)
  *   GET  submission_detail → packet + member rows
  *   GET  days_list         → recorded-day history
  *   GET  takers_list       → HR's own taker accounts
- *   POST submission_review → approve / reject / return-with-note
+ *   POST submission_review → RETIRED (410 HR_ATTENDANCE_RETIRED)
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -38,7 +41,7 @@ require_once __DIR__ . '/backend/services/HrSubmissionService.php';
 use App\Services\HrAttendanceService;
 use App\Services\HrSubmissionService;
 
-if (!defined('HR_ATTENDANCE_API_VERSION')) define('HR_ATTENDANCE_API_VERSION', 'phase6-hr26');
+if (!defined('HR_ATTENDANCE_API_VERSION')) define('HR_ATTENDANCE_API_VERSION', 'hr-retired-1');
 
 function hr_att_respond(array $payload): void
 {
@@ -144,20 +147,15 @@ try {
         }
 
         case 'submission_review': {
-            if (!HrSubmissionService::canReview(['role' => $role])) {
-                hr_att_respond(['status' => 'error', 'message' => 'You do not have permission to review HR submissions.']);
-            }
-            $result = HrSubmissionService::reviewPacket(
-                $conn,
-                (int)($_POST['submission_id'] ?? 0),
-                (string)($_POST['new_status'] ?? ''),
-                (string)($_POST['notes'] ?? ''),
-                $adminId
-            );
-            if (!$result['ok']) {
-                hr_att_respond(['status' => 'error', 'message' => $result['message']]);
-            }
-            hr_att_respond(['status' => 'success', 'message' => $result['message']]);
+            // Retired with HR attendance itself (2026-10-07): packets are
+            // read-only history now. The console's review buttons surface
+            // this message until the Phase D console rework removes them.
+            http_response_code(410);
+            hr_att_respond([
+                'status' => 'error',
+                'message' => 'HR attendance was retired — packets are read-only history now.',
+                'code' => 'HR_ATTENDANCE_RETIRED',
+            ]);
         }
 
         default:
