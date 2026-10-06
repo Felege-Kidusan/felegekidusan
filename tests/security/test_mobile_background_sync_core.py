@@ -380,7 +380,10 @@ class TriggerWiringA2(unittest.TestCase):
             for name in files:
                 if name.endswith(".dart"):
                     callers += strip_comments(read(folder, name)).count("syncAll(")
-        self.assertGreaterEqual(callers, 15,
+        # 15 callers until HR attendance was retired (2026-10-07): the
+        # deleted hr_attendance.dart carried one syncAll trigger. The
+        # remaining callers are untouched.
+        self.assertGreaterEqual(callers, 14,
                                 "existing syncAll callers must keep working")
 
 

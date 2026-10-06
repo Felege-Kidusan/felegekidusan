@@ -97,8 +97,13 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
 
   bool get _locked => _submitting || PacketLock.isLocked(_packetStatus);
 
-  int get _unmarked =>
-      _members.where((m) => _statusOf(m['status']).isEmpty).length;
+  /// Default-absent (2026-10-07): every member loads as ABSENT and
+  /// the taker (or a QR scan) marks presence. An unresolved status
+  /// resolves to the conservative absent — presence is never assumed.
+  String _orAbsent(String status) => status.isEmpty ? 'absent' : status;
+
+  int _countStatus(String status) =>
+      _members.where((m) => _statusOf(m['status']) == status).length;
 
   /// Display label for a section wire value: the server groups members
   /// without a manual section assignment under the em-dash placeholder;
@@ -330,8 +335,8 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
       // Server payloads carry 'mark'; the local offline cache carries
       // 'status' — accept both so cached marks survive a reopen.
       row['status'] = locked
-          ? _statusOf(row['mark'] ?? row['status'])
-          : _firstStatus([pendingMap[mid], row['mark'], row['status']]);
+          ? _orAbsent(_statusOf(row['mark'] ?? row['status']))
+          : _orAbsent(_firstStatus([pendingMap[mid], row['mark'], row['status']]));
       row['notes'] = locked
           ? '${row['notes'] ?? ''}'
           : (pendingNotes[mid] ?? '${row['notes'] ?? ''}');
@@ -360,13 +365,11 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
         .toList();
   }
 
-  bool _requireCompleteSheet() {
-    if (_unmarked == 0) return true;
-    setState(() {
-      _error = 'Mark attendance for every member ($_unmarked remaining).';
-    });
-    return false;
-  }
+  // Default-absent (2026-10-07): the sheet is complete by construction —
+  // every member carries an explicit status (absent unless marked), so
+  // Save and Submit are always available. The old "mark every member"
+  // gate is gone; the server still enforces the complete roster on
+  // submit (roster-drift protection) and merge-upserts drafts.
 
   Future<void> _persistLocal() async {
     final section = _selectedSection;
@@ -385,17 +388,16 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     _autoSave.run(const Duration(milliseconds: 700), _autoSaveNow);
   }
 
-  /// Persist the currently-marked rows as a draft packet right now
-  /// (partial drafts are valid; last write wins). Dead battery after
+  /// Persist the currently-marked rows as a draft packet right now.
+  /// With default-absent the sheet is complete by construction —
+  /// every member carries an explicit status. Dead battery after
   /// this point loses nothing; the outbox delivers when able.
   Future<void> _autoSaveNow() async {
     final section = _selectedSection;
     if (section == null || _members.isEmpty || _locked) return;
-    final marked =
-        _records().where((r) => '${r['status'] ?? ''}'.isNotEmpty).toList();
-    if (marked.isEmpty) return;
+    final records = _records();
     try {
-      await _db.saveMezmurLocal(_selectedDate, section, marked,
+      await _db.saveMezmurLocal(_selectedDate, section, records,
           packetKind: 'draft');
     } catch (_) {
       return;
@@ -439,10 +441,12 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     }
     final m = _members[idx];
     final existing = _statusOf(m['status']);
-    if (existing.isNotEmpty) {
+    if (existing == 'present' || existing == 'late') {
       return QrFeedback.duplicate(
           name: '${m['student_name'] ?? ''}', status: existing);
     }
+    // Default-absent: an absent (or excused) mark is not a check-in.
+    // The scan is physical presence — it wins.
     setState(() => m['status'] = 'present');
     _dirty.value = true;
     await _autoSaveNow();
@@ -453,7 +457,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   Future<void> _save() async {
     final section = _selectedSection;
     if (section == null || _members.isEmpty || _locked) return;
-    if (!_requireCompleteSheet()) return;
     _autoSave.cancel();
     try {
       await _db.saveMezmurLocal(_selectedDate, section, _records(),
@@ -480,7 +483,6 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
   Future<void> _submit() async {
     final section = _selectedSection;
     if (section == null || _members.isEmpty || _locked) return;
-    if (!_requireCompleteSheet()) return;
     _autoSave.cancel();
     _submitting = true;
     try {
@@ -760,11 +762,11 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
     );
   }
 
-  /// Animated "marked so far" progress strip (fills as takers mark).
+  /// Animated presence strip (fills as present marks land — QR or P).
   Widget _progressStrip() {
     final total = _members.length;
-    final marked = total - _unmarked;
-    final frac = total == 0 ? 0.0 : marked / total;
+    final present = _countStatus('present');
+    final frac = total == 0 ? 0.0 : present / total;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
       child: Column(
@@ -773,8 +775,8 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             child: Text(
-              '$marked / $total marked',
-              key: ValueKey(marked),
+              '$present / $total present',
+              key: ValueKey(present),
               style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -976,7 +978,9 @@ class MezmurAttendanceScreenState extends State<MezmurAttendanceScreen> {
               child: Row(
                 children: [
                   Text(
-                    '${_members.length} members · $_unmarked unmarked',
+                    '${_members.length} members · '
+                    '${_countStatus('present')} present · '
+                    '${_countStatus('absent')} absent',
                     style:
                         TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   ),

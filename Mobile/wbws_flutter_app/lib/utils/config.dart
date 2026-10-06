@@ -140,13 +140,13 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
-    // ---- HR ATTENDANCE TAKER (department-owned) ----
-    // HR's own section-based attendance (hr_attendance on the server).
-    // Never shares data or takers with Education or Mezmur.
+    // ---- HR ATTENDANCE TAKER (retired 2026-10-07) ----
+    // HR no longer takes attendance; the taker home is a retirement
+    // notice and reports live on the web dashboard. Home + Profile
+    // only — no attendance tab anymore.
     case UserRoles.hrTaker:
       return const [
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
-        NavTab(id: 'hr_attendance', label: 'Attendance', icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
@@ -183,11 +183,12 @@ List<NavTab> _baseTabsForRole(String role) {
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
-    // ---- HR DEPARTMENT (Phase 9: mobile reviews) ----
+    // ---- HR DEPARTMENT (attendance retired 2026-10-07) ----
+    // HR reads combined Education + Mezmur reports on the web dashboard;
+    // the mobile review inbox is gone with the workflow it reviewed.
     case UserRoles.hrDept:
       return const [
         NavTab(id: 'home', label: 'Home', icon: Icons.home_outlined, activeIcon: Icons.home_rounded),
-        NavTab(id: 'reviews', label: 'Reviews', icon: Icons.inbox_outlined, activeIcon: Icons.inbox_rounded),
         NavTab(id: 'profile', label: 'Profile', icon: Icons.person_outline, activeIcon: Icons.person_rounded),
       ];
 
@@ -245,7 +246,6 @@ List<NavTab> getTabsForRole(
     if (tab.id == 'attendance') return attendanceEnabled;
     if (tab.id == 'grades') return gradesEnabled;
     if (tab.id == 'mezmur_attendance') return mezmurEnabled;
-    if (tab.id == 'hr_attendance') return attendanceEnabled;
     return true;
   }).toList(growable: false);
 }

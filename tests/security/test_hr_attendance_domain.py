@@ -18,10 +18,11 @@ Still-true legacy contracts kept under pin: sql/026 schema (history
 tables), HrAttendanceService / HrSubmissionService internals (now
 read-only by entry-point policy), isolation from other departments.
 
-The Flutter contracts below remain from the pre-retirement app and
-stay green until Phase C removes the HR attendance UI — the outbox
-HR drain deliberately stays so queued packets on upgraded devices
-settle honestly against the 410 instead of hanging forever.
+Phase C (2026-10-07) removed the HR attendance UI: the screen, its
+tab, its read clients and the mobile review routing are gone; the
+taker/dept homes are retirement notices. The outbox HR drain
+deliberately stays so queued packets on upgraded devices settle
+honestly against the 410 instead of hanging forever.
 """
 
 from pathlib import Path
@@ -188,28 +189,54 @@ class HrEndpointContracts(unittest.TestCase):
 
 
 class HrMobileContracts(unittest.TestCase):
-    """Flutter side: HR sheet UX clone + separate offline outbox."""
+    """Flutter side (Phase C, 2026-10-07): HR attendance UI removed.
+
+    The screen and its entry points are gone; the outbox drain stays
+    so packets queued by old app versions settle honestly against
+    the server's 410 instead of hanging forever."""
 
     @classmethod
     def setUpClass(cls):
         app = ROOT / "Mobile/wbws_flutter_app/lib"
-        cls.screen = (app / "screens/hr/hr_attendance.dart").read_text(encoding="utf-8")
         cls.localdb = (app / "services/local_db.dart").read_text(encoding="utf-8")
         cls.sync = (app / "services/sync_service.dart").read_text(encoding="utf-8")
         cls.api = (app / "services/api_service.dart").read_text(encoding="utf-8")
         cls.config = (app / "utils/config.dart").read_text(encoding="utf-8")
         cls.shell = (app / "screens/shell/app_shell.dart").read_text(encoding="utf-8")
+        cls.nav = (app / "services/app_nav.dart").read_text(encoding="utf-8")
+        cls.taker_home = (app / "screens/hr/hr_taker_home.dart").read_text(encoding="utf-8")
+        cls.dept_home = (app / "screens/hr/hr_home.dart").read_text(encoding="utf-8")
 
-    def test_screen_clones_teacher_workflow_on_hr_endpoints(self):
-        self.assertIn("getHrSections", self.screen)
-        self.assertIn("getHrSheet", self.screen)
-        # Telegram-send model: SQLite write IS the save
-        self.assertIn("saveHrLocal", self.screen)
-        self.assertIn("PacketLock", self.screen)
-        self.assertIn("showEthiopianDatePicker", self.screen)
-        self.assertIn("sql/026_hr_attendance.sql", self.screen)
+    def test_hr_attendance_screen_and_entry_points_removed(self):
+        self.assertFalse(
+            (ROOT / "Mobile/wbws_flutter_app/lib/screens/hr/hr_attendance.dart").exists())
+        self.assertNotIn("HrAttendanceScreen", self.shell)
+        self.assertNotIn("'hr_attendance'", self.config)
+        self.assertNotIn("openHrAttendance", self.nav)
+        self.assertNotIn("openHrAttendance", self.taker_home)
+        # Read clients went with the screen; the drain transport stays.
+        for gone in ("getHrDays", "getHrSheet", "getHrSections"):
+            self.assertNotIn(gone, self.api)
+        self.assertIn("saveHrSheet", self.api)
+        self.assertIn("/hr/sheet", self.api)
 
-    def test_offline_outbox_is_separate_from_mezmur(self):
+    def test_taker_home_is_a_retirement_notice(self):
+        # Existing accounts keep working: the home stays (bell included)
+        # and explains the retirement instead of linking a sheet.
+        self.assertIn("HrTakerHomeScreen", self.shell)
+        self.assertIn("HR attendance was retired", self.taker_home)
+        self.assertIn("NotificationBellButton", self.taker_home)
+        self.assertIn("web dashboard", self.taker_home)
+
+    def test_dept_home_points_at_web_reports(self):
+        self.assertIn("HrDeptHomeScreen", self.shell)
+        self.assertIn("Attendance reports moved to the dashboard", self.dept_home)
+        self.assertIn("NotificationBellButton", self.dept_home)
+        # The mobile review inbox went with the workflow it reviewed.
+        self.assertNotIn("ReviewInboxScreen(dept: 'hr')", self.dept_home)
+        self.assertNotIn("ReviewInboxScreen(dept: 'hr')", self.shell)
+
+    def test_offline_outbox_drain_survives_for_old_queued_packets(self):
         for table in ("pending_hr", "cached_hr_sheet", "cached_hr_sections"):
             self.assertIn(table, self.localdb)
         # Current schema version is centralized; v12 HR DDL must remain in
@@ -222,14 +249,6 @@ class HrMobileContracts(unittest.TestCase):
         self.assertIn("saveHrSheet", self.sync)
         self.assertIn("settleLegacyOperation", self.sync)
         self.assertIn("pendingHr", self.sync)
-
-    def test_api_client_and_navigation(self):
-        for method in ("getHrDays", "getHrSheet", "saveHrSheet", "getHrSections"):
-            self.assertIn(method, self.api)
-        self.assertIn("/hr/sheet", self.api)
-        self.assertIn("hr_attendance", self.config)
-        self.assertIn("hr_attendance", self.shell)
-        self.assertIn("HrAttendanceScreen", self.shell)
 
 
 if __name__ == "__main__":

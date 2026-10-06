@@ -193,18 +193,18 @@ def test_comm_and_hymn_actions_return_applied_or_stale_from_exact_cas() -> None:
     assert "discardHymnRecoveryOperation" in recovery
 
 
-def test_all_four_submit_flows_keep_exact_ref_and_block_late_autosave() -> None:
+def test_all_three_submit_flows_keep_exact_ref_and_block_late_autosave() -> None:
+    # HR attendance was retired (2026-10-07): its screen is deleted, so
+    # the submit-flow contract now covers the three live flows.
     files = {
         "attendance": SCREENS / "attendance" / "attendance_screen.dart",
         "grades": SCREENS / "teacher" / "teacher_grades.dart",
         "mezmur": SCREENS / "mezmur" / "mezmur_attendance.dart",
-        "hr": SCREENS / "hr" / "hr_attendance.dart",
     }
     pending_lookup = {
         "attendance": "getPendingAttendanceRecords",
         "grades": "getPendingGradeRecords",
         "mezmur": "getPendingMezmurRecords",
-        "hr": "getPendingHrRecords",
     }
     for name, path in files.items():
         text = source(path)
@@ -219,9 +219,8 @@ def test_all_four_submit_flows_keep_exact_ref_and_block_late_autosave() -> None:
 
     attendance = source(files["attendance"])
     mezmur = source(files["mezmur"])
-    hr = source(files["hr"])
     grades = source(files["grades"])
-    for text in (attendance, mezmur, hr):
+    for text in (attendance, mezmur):
         submit = between(text, "Future<void> _submit", "Future<void> _undoSubmit")
         assert "_autoSave.cancel();" in submit
         assert "_submitting = true;" in submit

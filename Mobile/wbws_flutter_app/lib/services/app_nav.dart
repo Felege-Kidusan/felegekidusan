@@ -23,9 +23,6 @@ class AppNav {
   /// are absent from the current role/feature scope.
   void openTab(String id) => _tab.add(id);
 
-  /// Switch to the HR department's own attendance tab (section sheets).
-  void openHrAttendance() => _tab.add('hr_attendance');
-
   void markAttendanceLoaded() => _lastAttendanceLoad = DateTime.now();
   void markGradesLoaded() => _lastGradesLoad = DateTime.now();
 

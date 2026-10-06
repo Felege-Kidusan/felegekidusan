@@ -15,7 +15,6 @@ import '../teacher/teacher_home.dart';
 import '../teacher/teacher_grades.dart';
 import '../att_taker/att_taker_home.dart';
 import '../hr/hr_taker_home.dart';
-import '../hr/hr_attendance.dart';
 import '../hr/hr_home.dart';
 import '../reviews/review_inbox_screen.dart';
 import '../admin/admin_home.dart';
@@ -57,7 +56,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final _attendanceKey = GlobalKey<AttendanceScreenState>();
   final _mezmurHomeKey = GlobalKey<MezmurHomeScreenState>();
   final _mezmurAttKey = GlobalKey<MezmurAttendanceScreenState>();
-  final _hrAttKey = GlobalKey<HrAttendanceScreenState>();
   final _gradesKey = GlobalKey<TeacherGradesScreenState>();
   final Map<String, Widget> _openedTabs = {};
 
@@ -198,10 +196,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           _gradesKey.currentState?.refresh();
         }
         break;
-      case 'hr_attendance':
-        // Refresh the HR section list when the radio comes back.
-        _hrAttKey.currentState?.refresh();
-        break;
     }
   }
 
@@ -234,7 +228,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _mezmurHomeKey.currentState?.refresh();
         break;
       case UserRoles.hrTaker:
-        break; // HR taker home is static guidance; the sheet lives in the Attendance tab.
+        break; // HR attendance was retired (2026-10-07); the taker home is a static notice.
     }
   }
 
@@ -254,8 +248,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return AttendanceScreen(key: _attendanceKey);
       case 'mezmur_attendance':
         return MezmurAttendanceScreen(key: _mezmurAttKey);
-      case 'hr_attendance':
-        return HrAttendanceScreen(key: _hrAttKey);
       case 'mezmur_hymns':
         // P31: while the hymn library is showing, the library owns the
         // bottom of the screen — the main bar is hidden and a back
@@ -268,13 +260,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case 'members':
         return const MemberListScreen();
       case 'reviews':
+        // HR is gone from review routing: HR attendance was retired
+        // (2026-10-07) and its mobile inbox with it — reports live on
+        // the web dashboard now.
         switch (_api.userRole) {
           case UserRoles.eduDept:
             return const ReviewInboxScreen(dept: 'edu');
           case UserRoles.mezmurDept:
             return const ReviewInboxScreen(dept: 'mezmur');
-          case UserRoles.hrDept:
-            return const ReviewInboxScreen(dept: 'hr');
           default:
             return const ReviewHubScreen();
         }

@@ -4790,6 +4790,10 @@ class LocalDb {
   // two departments' data never touch each other on the phone either.
   // ============================================================
 
+  // HR attendance was RETIRED (2026-10-07): no screen creates new HR
+  // packets anymore. Kept for four-outbox symmetry (owner/scope stamping,
+  // notBefore, rejected-replacement) — the outbox drain still settles
+  // packets queued by old app versions against the server's honest 410.
   Future<LegacyOperationRef> saveHrLocal(String date, String section,
       List<Map<String, dynamic>> records,
       {String packetKind = 'draft', DateTime? notBefore}) async {
