@@ -111,6 +111,99 @@ List<CrashLogEntry> parseCrashLog(String raw) {
   return entries;
 }
 
+/// Bounded, privacy-safe location identity for a crash entry: the exception
+/// class plus up to three first-party frame names (file + function only).
+///
+/// Hard contract, mirrored by the server route (api/v1/routes/telemetry.php):
+///   * `signature_class` and each frame: allow-listed charset, ≤ 120 chars;
+///   * at most 3 frames;
+///   * total JSON payload ≤ 512 bytes;
+///   * never messages, argument values, absolute paths, or user data —
+///     only WHERE the failure happened, so a crash key becomes readable
+///     without its stack crossing the device trust boundary as text.
+class CrashSignature {
+  const CrashSignature({required this.signatureClass, required this.frames});
+
+  final String signatureClass;
+  final List<String> frames;
+
+  Map<String, dynamic> toTelemetryData(String crashKey) => {
+        'crash_key': crashKey,
+        'signature_class': signatureClass,
+        'frames': frames,
+      };
+}
+
+const int _kMaxSignaturePartLength = 120;
+const int _kMaxSignatureFrames = 3;
+const int _kMaxSignatureJsonBytes = 512;
+
+String _sanitizeSignaturePart(String raw) {
+  final cleaned =
+      raw.replaceAll(RegExp(r'[^A-Za-z0-9 .:_/<>()$#-]'), '').trim();
+  return cleaned.length > _kMaxSignaturePartLength
+      ? cleaned.substring(0, _kMaxSignaturePartLength)
+      : cleaned;
+}
+
+/// Builds the signature for [entry]; null when the body carries nothing
+/// usable. Pure and deterministic: the same entry always yields the same
+/// signature, so it matches whatever the server already holds for the
+/// entry's [CrashLogEntry.reportKey].
+CrashSignature? buildCrashSignature(CrashLogEntry entry) {
+  final body = entry.body.trim();
+  if (body.isEmpty) return null;
+
+  // Exception class: the text before the first ':' on the first body line
+  // ("java.lang.UnsatisfiedLinkError: …", "SqfliteException: …").
+  final firstLine = body.split('\n').first;
+  var signatureClass = _sanitizeSignaturePart(
+    firstLine.contains(':') ? firstLine.split(':').first : firstLine,
+  );
+  if (signatureClass.isEmpty) signatureClass = 'Unknown';
+
+  // First-party frames: Dart frames reference the app's own package;
+  // native frames reference the app's own Kotlin/Java namespace. Anything
+  // else (framework, engine, OS) is deliberately excluded.
+  final frames = <String>[];
+  final fileLocation = RegExp(r'([A-Za-z0-9_]+\.dart):(\d+)');
+  final nativeLocation = RegExp(r'([A-Za-z0-9_]+\.(?:kt|java)):(\d+)');
+  final nativeSymbol = RegExp(r'\.([A-Za-z0-9_]+)\(');
+  final dartSymbol = RegExp(r'([A-Za-z0-9_.$]+)\s+\(');
+  for (final line in body.split('\n').skip(1)) {
+    if (frames.length >= _kMaxSignatureFrames) break;
+    final isDart = line.contains('package:fkss_app/');
+    final isNative = line.contains('com.arkeonethiopia');
+    if (!isDart && !isNative) continue;
+    String frame;
+    final match = isDart
+        ? fileLocation.firstMatch(line)
+        : nativeLocation.firstMatch(line);
+    if (match != null) {
+      final location = '${match.group(1)}:${match.group(2)}';
+      final symbol =
+          (isNative ? nativeSymbol : dartSymbol).firstMatch(line)?.group(1) ?? '';
+      frame = _sanitizeSignaturePart(
+        symbol.isEmpty ? location : '$location $symbol',
+      );
+    } else {
+      frame = _sanitizeSignaturePart(line.trim());
+    }
+    if (frame.isNotEmpty && !frames.contains(frame)) frames.add(frame);
+  }
+
+  // Enforce the total JSON budget by dropping frames from the end — the
+  // class alone can never exceed it (≤ 120 of 512 bytes).
+  var signature = CrashSignature(signatureClass: signatureClass, frames: frames);
+  while (frames.isNotEmpty &&
+      utf8.encode(jsonEncode(signature.toTelemetryData('0' * 64))).length >
+          _kMaxSignatureJsonBytes) {
+    frames.removeLast();
+    signature = CrashSignature(signatureClass: signatureClass, frames: frames);
+  }
+  return signature;
+}
+
 class CrashLogService {
   CrashLogService._();
 

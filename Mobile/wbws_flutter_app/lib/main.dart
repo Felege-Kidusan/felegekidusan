@@ -106,6 +106,10 @@ Future<void> runBootstrap() async {
             crashKey: recentCrash.reportKey,
             nativeCrash: recentCrash.nativeCrash,
           );
+          // The readable companion (class + first-party frames), sent
+          // ungated: the server's exact-once key makes repeats no-ops and
+          // backfills signatures for keys older builds already reported.
+          await TelemetryService.instance.recordCrashSignature(recentCrash);
         }
       } catch (_) {}
     });
