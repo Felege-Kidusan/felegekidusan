@@ -26,6 +26,15 @@ class FailureIntelligencePhase5Tests(unittest.TestCase):
             ROOT / "admin/backend/services/FailureAlertService.php"
         ).read_text(encoding="utf-8")
         cls.contract = (ROOT / "docs/FAILURE_INTELLIGENCE.md").read_text(encoding="utf-8")
+        cls.client_doc = (
+            ROOT / "Mobile/wbws_flutter_app/docs/FAILURE_INTELLIGENCE_CLIENT.md"
+        ).read_text(encoding="utf-8")
+        cls.crash_service = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/crash_log_service.dart"
+        ).read_text(encoding="utf-8")
+        cls.api_service_dart = (
+            ROOT / "Mobile/wbws_flutter_app/lib/services/api_service.dart"
+        ).read_text(encoding="utf-8")
 
     # ── The preflight is read-only for all business data ─────────────────────
 
@@ -118,6 +127,39 @@ class FailureIntelligencePhase5Tests(unittest.TestCase):
         self.assertIn("SYNC_BUDGET_RATE_THRESHOLD = 10.0", self.alert_service)
         self.assertIn("COOLDOWN_HOURS_CONDITION = 24", self.alert_service)
         self.assertIn("COOLDOWN_HOURS_BUDGET = 6", self.alert_service)
+
+    # ── Client contract documentation (plan Phase 5: client docs) ───────────
+
+    def test_client_doc_documents_the_installation_header(self):
+        self.assertIn("X-Installation-Id", self.client_doc)
+        # Scoped to sync writes, reusing the telemetry identity.
+        self.assertIn("sync writes", self.client_doc)
+        self.assertIn("TelemetryService.instance.getInstallationId()", self.client_doc)
+        # The doc may not drift from the actual client code.
+        self.assertIn("headers['X-Installation-Id'] = installId", self.api_service_dart)
+        self.assertIn(
+            "if (auth && (key.isNotEmpty || attempt.isNotEmpty))", self.api_service_dart
+        )
+
+    def test_client_doc_signature_caps_match_the_code(self):
+        for pin in ("120", "512", "first-party", "crash_log_service.dart",
+                    "crash_signature_test.dart"):
+            self.assertIn(pin, self.client_doc)
+        # The doc's caps must equal the code's constants, by name and value.
+        for constant in (
+            "_kMaxSignaturePartLength = 120",
+            "_kMaxSignatureFrames = 3",
+            "_kMaxSignatureJsonBytes = 512",
+        ):
+            self.assertIn(constant, self.crash_service)
+        self.assertIn("At most **3**", self.client_doc)
+
+    def test_client_doc_states_exact_once_guarantee_unchanged(self):
+        self.assertIn("exact-once guarantee", self.client_doc)
+        self.assertIn("untouched", self.client_doc)
+        self.assertIn("Idempotency-Key", self.client_doc)
+        # Cross-references the server-side contract document.
+        self.assertIn("docs/FAILURE_INTELLIGENCE.md", self.client_doc)
 
 
 if __name__ == "__main__":
