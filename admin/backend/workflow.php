@@ -35,6 +35,7 @@ $DEPT_ROLES = \App\Services\NotificationCenterService::ROLE_LABELS;
  * Which departments should be notified for each event type
  */
 $NOTIFICATION_MATRIX = [
+    'failure_alert' => ['super_admin'],
     'member_registered' => ['super_admin', 'school_admin', 'edu_dept'],
     'member_updated' => ['super_admin', 'school_admin'],
     'member_archived' => ['super_admin', 'school_admin', 'edu_dept', 'finance_dept'],

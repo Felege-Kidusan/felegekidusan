@@ -307,6 +307,32 @@
     });
   }
 
+  function loadAlerts() {
+    get('?action=get_failure_alerts&limit=15').then(function (res) {
+      if (res.status !== 'success' || !res.data) return;
+      var body = document.getElementById('fi-alerts-body');
+      if (!body) return;
+      var items = res.data.items || [];
+      if (!items.length) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1rem;color:#94a3b8">No alerts have fired yet.</td></tr>';
+        return;
+      }
+      var sevColors = { low: '#94a3b8', medium: '#f59e0b', high: '#f87171', critical: '#ec4899' };
+      var kindLabels = { crash_new: 'New crash', velocity: 'Build velocity', sync_budget: 'Error budget' };
+      body.innerHTML = items.map(function (a) {
+        return '<tr>' +
+          '<td><span style="color:' + (sevColors[a.severity] || '#94a3b8') + ';font-weight:700;font-size:.72rem">' + escapeHtml(a.severity) + '</span></td>' +
+          '<td style="font-size:.72rem;color:#94a3b8">' + escapeHtml(kindLabels[a.kind] || a.kind) + '</td>' +
+          '<td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(a.title) + '">' + escapeHtml(a.title) + '</td>' +
+          '<td style="font-size:.68rem;color:#94a3b8;white-space:nowrap">' + escapeHtml(a.last_sent_at) + '</td>' +
+          '<td style="color:#94a3b8">' + Number(a.sent_count || 1) + '×</td>' +
+          '</tr>';
+      }).join('');
+    }).catch(function () {
+      // Alerts are supplementary; failure to list them is not worth a banner.
+    });
+  }
+
   function loadIssues(page) {
     if (page) state.page = Math.min(Math.max(1, page), state.pages || 1);
     var source = encodeURIComponent(document.getElementById('fi-source-filter') ? document.getElementById('fi-source-filter').value : '');
@@ -345,6 +371,7 @@
     });
     loadIssues(1);
     loadReports(1);
+    loadAlerts();
   }
 
   function init() {
