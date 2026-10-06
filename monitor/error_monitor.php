@@ -415,6 +415,21 @@ class ArkeonErrorMonitor {
             }
             $errorId = $this->db->insert_id;
             $stmt->close();
+            // Failure-intelligence bookkeeping (migration 064). Advisory and
+            // never-throw: the error row is already persisted, and issue
+            // grouping must never jeopardize the monitor's own write.
+            try {
+                if (!class_exists('\\App\\Services\\FailureIssueService')) {
+                    require_once dirname(__DIR__) . '/admin/backend/services/FailureIssueService.php';
+                }
+                \App\Services\FailureIssueService::recordServerError($this->db, [
+                    'error_type' => $errorType,
+                    'file_path' => $filePath,
+                    'line_number' => $lineNumber,
+                ]);
+            } catch (Throwable $ignored) {
+                // Grouping is best-effort; the arkeon row stands on its own.
+            }
             return $errorId;
         } catch (Throwable $error) {
             $this->logToFile('Monitor persistence failed. Verify migration 011.');
