@@ -553,7 +553,7 @@
       html += '<div style="font-size:.75rem;font-weight:700;color:#94a3b8;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:0.75px">Active Artifacts</div>';
 
       if (!hasUniversal && !hasArm64 && !hasArm32) {
-        html += '<div style="padding:1rem;background:#0f172a;border:1px dashed #334155;border-radius:0.5rem;font-size:.825rem;color:#94a3b8;text-align:center"><i class="fa-solid fa-box-open" style="font-size:1.25rem;display:block;margin-bottom:0.4rem;color:#64748b"></i>No APK binary uploaded yet. Use the upload card on the right to publish a build.</div>';
+        html += '<div style="padding:1rem;background:#0f172a;border:1px dashed #334155;border-radius:0.5rem;font-size:.825rem;color:#94a3b8;text-align:center"><i class="fa-solid fa-box-open" style="font-size:1.25rem;display:block;margin-bottom:0.4rem;color:#7c8aa5"></i>No APK binary uploaded yet. Use the upload card on the right to publish a build.</div>';
       } else {
         if (hasUniversal) {
           var u = data.artifacts_detail.universal;
@@ -589,7 +589,7 @@
             '<i class="fa-solid fa-cube" style="color:#38bdf8;font-size:.8rem"></i> ' + escapeHtml(label) +
             '<span style="font-size:.75rem;color:#94a3b8;font-weight:400">(' + escapeHtml(art.size_formatted) + ')</span>' +
           '</div>' +
-          '<div style="font-size:.7rem;color:#cbd5e1;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.2rem" title="SHA-256: ' + escapeHtml(art.sha256) + '"><span style="color:#64748b">SHA-256:</span> ' + escapeHtml(art.sha256) + '</div>' +
+          '<div style="font-size:.7rem;color:#cbd5e1;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.2rem" title="SHA-256: ' + escapeHtml(art.sha256) + '"><span style="color:#7c8aa5">SHA-256:</span> ' + escapeHtml(art.sha256) + '</div>' +
         '</div>' +
         '<div style="display:flex;gap:.35rem;margin-left:.75rem">' +
           '<button type="button" class="btn btn-outline btn-sm" style="padding:.35rem .6rem;font-size:.75rem;color:#f87171;border-color:rgba(239,68,68,0.4);background:#1e293b" onclick="AppReleaseUI.deleteApk(\'' + escapeHtml(abi) + '\')" title="Delete artifact"><i class="fa-solid fa-trash"></i></button>' +

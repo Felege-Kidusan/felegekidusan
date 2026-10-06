@@ -37,11 +37,11 @@ foreach (MemberCategory::letters() as $idcLetter) {
 .idc-pane{display:none}
 .idc-pane.active{display:block}
 .idc-table{width:100%;border-collapse:collapse;font-size:.8rem}
-.idc-table th{text-align:left;font-size:.62rem;text-transform:uppercase;letter-spacing:.08em;color:#64748b;padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.08)}
+.idc-table th{text-align:left;font-size:.62rem;text-transform:uppercase;letter-spacing:.08em;color:#7c8aa5;padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.08)}
 .idc-table td{padding:.55rem .6rem;border-bottom:1px solid rgba(255,255,255,.05);color:#cbd5e1;vertical-align:middle}
 .idc-table tr:hover td{background:rgba(255,255,255,.025)}
 .idc-codechip{display:inline-block;font-family:ui-monospace,monospace;font-weight:700;letter-spacing:.06em;padding:.15rem .5rem;border-radius:.4rem;background:rgba(59,130,246,.15);color:#93c5fd}
-.idc-muted{color:#64748b;font-size:.72rem}
+.idc-muted{color:#7c8aa5;font-size:.72rem}
 .idc-rowform{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;align-items:end;margin-bottom:.4rem}
 .idc-actions{display:flex;gap:.4rem;flex-wrap:wrap}
 .idc-msg{margin-top:.75rem;font-size:.78rem;min-height:1.2em}

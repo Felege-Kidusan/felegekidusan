@@ -209,7 +209,7 @@
           data.os_versions.forEach(function (os) {
             osHtml += '<div style="margin-bottom:0.85rem">' +
               '<div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:500;color:#f8fafc">' +
-                '<span>Android ' + escapeHtml(os.os_version) + ' <span style="font-size:0.7rem;color:#64748b">(SDK ' + escapeHtml(os.sdk_int) + ')</span></span>' +
+                '<span>Android ' + escapeHtml(os.os_version) + ' <span style="font-size:0.7rem;color:#7c8aa5">(SDK ' + escapeHtml(os.sdk_int) + ')</span></span>' +
                 '<span style="color:#4ade80">' + escapeHtml(os.count) + ' (' + escapeHtml(os.percentage) + '%)</span>' +
               '</div>' +
               '<div class="at-bar-track">' +
@@ -249,7 +249,7 @@
               '<div style="font-weight:600;color:#f8fafc;display:flex;align-items:center;gap:0.4rem">' +
                 '<i class="fa-solid fa-mobile" style="color:#38bdf8"></i> ' + escapeHtml(deviceName) +
               '</div>' +
-              '<div style="font-size:0.675rem;color:#64748b;font-family:monospace;margin-top:0.15rem" title="ID: ' + escapeHtml(row.installation_id) + '">' +
+              '<div style="font-size:0.675rem;color:#7c8aa5;font-family:monospace;margin-top:0.15rem" title="ID: ' + escapeHtml(row.installation_id) + '">' +
                 escapeHtml(row.installation_id.substring(0, 16)) + '...' +
               '</div>' +
             '</td>' +
@@ -258,7 +258,7 @@
             '<td><span style="font-family:monospace;font-size:0.75rem;color:#cbd5e1">' + escapeHtml(row.abi || 'universal') + '</span></td>' +
             '<td>' + ramText + '</td>' +
             '<td>' + escapeHtml(row.launch_count) + '</td>' +
-            '<td><span style="color:#4ade80">' + escapeHtml(row.sync_success_count) + '</span> / <span style="color:' + (row.sync_fail_count > 0 ? '#f87171' : '#64748b') + '">' + escapeHtml(row.sync_fail_count) + '</span></td>' +
+            '<td><span style="color:#4ade80">' + escapeHtml(row.sync_success_count) + '</span> / <span style="color:' + (row.sync_fail_count > 0 ? '#f87171' : '#7c8aa5') + '">' + escapeHtml(row.sync_fail_count) + '</span></td>' +
             '<td>' + formatRelativeTime(row.minutes_ago) + '</td>' +
           '</tr>';
         });
@@ -343,7 +343,7 @@
         var color = attempts > 0 && rate >= 5 ? '#f87171' : '#cbd5e1';
         return '<span style="color:' + color + '">' + label + ' <strong>' + rate.toFixed(2) + '%</strong> (' + failed + '/' + attempts + ' failed)</span>';
       });
-      el.innerHTML = '<span style="color:#64748b">Failure rate by app build:</span> ' + parts.join(' · ');
+      el.innerHTML = '<span style="color:#7c8aa5">Failure rate by app build:</span> ' + parts.join(' · ');
     }
 
     function refresh() {
@@ -397,7 +397,7 @@
         items.forEach(function (row) {
           var statusColor = row.status === 'completed' || row.status === 'replayed' ? '#4ade80' : (row.status === 'in_flight' ? '#38bdf8' : (row.status === 'stale' ? '#f59e0b' : '#f87171'));
           var attempt = row.attempt_number ? '#' + escapeHtml(row.attempt_number) : 'not observed';
-          if (row.attempt_uid) attempt += '<div style="font-size:.65rem;color:#64748b;font-family:monospace">' + escapeHtml(String(row.attempt_uid).slice(0, 12)) + '…</div>';
+          if (row.attempt_uid) attempt += '<div style="font-size:.65rem;color:#7c8aa5;font-family:monospace">' + escapeHtml(String(row.attempt_uid).slice(0, 12)) + '…</div>';
           var outcome = row.http_status ? escapeHtml(row.http_status) : '—';
           if (row.error_code) outcome += '<div style="font-size:.65rem;color:#fca5a5">' + escapeHtml(row.error_code) + '</div>';
           var app = row.app_version ? escapeHtml(row.app_version) : 'not observed';
@@ -449,7 +449,7 @@
         ];
         panel.innerHTML = '<div style="display:flex;justify-content:space-between;gap:1rem;margin-bottom:.6rem"><strong style="color:#f8fafc">Safe attempt detail</strong><button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById(\'sync-monitor-detail\').hidden=true">Close</button></div>' +
           '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.45rem .9rem">' +
-          fields.map(function (pair) { return '<div><span style="color:#64748b">' + escapeHtml(pair[0]) + '</span><br><span style="color:#e2e8f0;word-break:break-word">' + escapeHtml(pair[1]) + '</span></div>'; }).join('') + '</div>';
+          fields.map(function (pair) { return '<div><span style="color:#7c8aa5">' + escapeHtml(pair[0]) + '</span><br><span style="color:#e2e8f0;word-break:break-word">' + escapeHtml(pair[1]) + '</span></div>'; }).join('') + '</div>';
         panel.hidden = false;
       }).catch(function () { monitorError('The selected attempt could not be loaded.'); });
     }
