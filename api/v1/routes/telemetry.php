@@ -104,7 +104,8 @@ $eventType = trim($eventTypeValue);
 $allowedEventTypes = [
     'event', 'launch', 'heartbeat',
     'sync_success', 'sync_completed', 'sync_failed', 'sync_error',
-    'sync_pass_completed', 'crash', 'crash_recorded', 'update_downloaded',
+    'sync_pass_completed', 'crash', 'crash_recorded', 'crash_signature',
+    'update_downloaded',
 ];
 if ($eventType === '' || strlen($eventType) > 48
     || !in_array($eventType, $allowedEventTypes, true)) {
@@ -192,6 +193,45 @@ if ($eventType === 'sync_pass_completed') {
             'kind' => 'legacy',
             'legacy_summary_present' => true,
         ];
+    }
+} elseif ($eventType === 'crash_signature') {
+    // The readable companion to a crash identity: WHERE the crash happened,
+    // in bounded, privacy-safe form — exception class plus up to three
+    // first-party frame names (file + function only). Never messages,
+    // argument values, or user data; the same SHA-256 crash_key as the
+    // crash event makes delivery exact-once per installation.
+    $data = is_array($eventDataInput) ? $eventDataInput : [];
+    $assertAllowedKeys($data, ['crash_key', 'signature_class', 'frames']);
+    $crashKey = $data['crash_key'] ?? null;
+    if (!is_string($crashKey) || !preg_match('/^[0-9a-f]{64}$/i', $crashKey)) {
+        err('Crash signature requires a hash key.', 422);
+    }
+    $signatureClass = $data['signature_class'] ?? null;
+    if (!is_string($signatureClass)
+        || !preg_match('/^[A-Za-z0-9 .:_\/<>()$#-]{1,120}$/D', $signatureClass)) {
+        err('Invalid crash signature class.', 422);
+    }
+    $framesInput = $data['frames'] ?? null;
+    if (!is_array($framesInput) || count($framesInput) > 3) {
+        err('Invalid crash signature frames.', 422);
+    }
+    $signatureFrames = [];
+    foreach ($framesInput as $frame) {
+        if (!is_string($frame)
+            || !preg_match('/^[A-Za-z0-9 .:_\/<>()$#-]{1,120}$/D', $frame)) {
+            err('Invalid crash signature frame.', 422);
+        }
+        $signatureFrames[] = $frame;
+    }
+    $crashDedupeKey = strtolower($crashKey);
+    $normalisedEventData = [
+        'crash_key' => $crashDedupeKey,
+        'class' => $signatureClass,
+        'frames' => $signatureFrames,
+    ];
+    $encoded = json_encode($normalisedEventData, JSON_UNESCAPED_UNICODE);
+    if (!is_string($encoded) || strlen($encoded) > 512) {
+        err('Crash signature is too large.', 422);
     }
 } elseif ($eventType === 'update_downloaded') {
     $data = is_array($eventDataInput) ? $eventDataInput : [];
@@ -281,6 +321,62 @@ try {
             }
         } finally {
             $evStmt->close();
+        }
+    }
+
+    // Maintain the crash-signature companion table (migration 063).
+    // Best-effort by design: if that migration has not been applied yet,
+    // the event itself is still recorded and committed — signature
+    // bookkeeping must never alter the telemetry outcome. A statement-level
+    // failure here does not abort the surrounding transaction.
+    if ($eventInserted && $crashDedupeKey !== null) {
+        try {
+            if ($eventType === 'crash_signature') {
+                $sigStmt = $conn->prepare(
+                    'INSERT INTO app_crash_signatures
+                     (crash_key, signature_class, signature_frames, first_seen_at,
+                      last_seen_at, total_events, app_version_last, app_build_last)
+                     VALUES (?, ?, ?, NOW(), NOW(), 0, ?, ?)
+                     ON DUPLICATE KEY UPDATE
+                        signature_class = VALUES(signature_class),
+                        signature_frames = VALUES(signature_frames),
+                        last_seen_at = NOW(),
+                        app_version_last = VALUES(app_version_last),
+                        app_build_last = VALUES(app_build_last)'
+                );
+                if ($sigStmt) {
+                    $framesJson = json_encode($signatureFrames ?? [], JSON_UNESCAPED_UNICODE);
+                    $sigStmt->bind_param(
+                        'ssssi',
+                        $crashDedupeKey,
+                        $signatureClass,
+                        $framesJson,
+                        $appVersion,
+                        $appBuild
+                    );
+                    $sigStmt->execute();
+                    $sigStmt->close();
+                }
+            } elseif ($eventType === 'crash' || $eventType === 'crash_recorded') {
+                $cntStmt = $conn->prepare(
+                    'INSERT INTO app_crash_signatures
+                     (crash_key, signature_class, signature_frames, first_seen_at,
+                      last_seen_at, total_events, app_version_last, app_build_last)
+                     VALUES (?, \'\', NULL, NOW(), NOW(), 1, ?, ?)
+                     ON DUPLICATE KEY UPDATE
+                        total_events = total_events + 1,
+                        last_seen_at = NOW(),
+                        app_version_last = VALUES(app_version_last),
+                        app_build_last = VALUES(app_build_last)'
+                );
+                if ($cntStmt) {
+                    $cntStmt->bind_param('ssi', $crashDedupeKey, $appVersion, $appBuild);
+                    $cntStmt->execute();
+                    $cntStmt->close();
+                }
+            }
+        } catch (Throwable $ignored) {
+            // Signature aggregation is advisory; never fail the event for it.
         }
     }
 

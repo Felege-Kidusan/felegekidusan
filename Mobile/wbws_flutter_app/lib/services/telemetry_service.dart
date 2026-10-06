@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/config.dart';
+import 'crash_log_service.dart';
 import 'device_tier_service.dart';
 import 'sync_attempt_models.dart';
 
@@ -39,6 +40,7 @@ class TelemetryService {
     'sync_pass_completed',
     'crash',
     'crash_recorded',
+    'crash_signature',
     'update_downloaded',
   };
 
@@ -192,6 +194,24 @@ class TelemetryService {
       // The event was accepted; marker persistence is best-effort on a broken
       // preferences store and the next launch may retry it.
     }
+  }
+
+  /// Sends the bounded crash signature for [entry] — WHERE the crash
+  /// happened, in privacy-safe form (exception class + first-party frame
+  /// names; no messages, no values, no PII).
+  ///
+  /// Deliberately not gated by the last-reported marker: the server's
+  /// exact-once key (installation + `crash_signature` + crash key) makes
+  /// repeat deliveries accepted no-ops, so signatures also arrive for crash
+  /// keys that were first reported by older app builds.
+  Future<void> recordCrashSignature(CrashLogEntry entry) async {
+    if (kIsWeb) return;
+    final signature = buildCrashSignature(entry);
+    if (signature == null) return;
+    await _sendPayload(
+      eventType: 'crash_signature',
+      eventData: signature.toTelemetryData(entry.reportKey),
+    );
   }
 
   Future<void> recordUpdateDownloaded({required String version, required int build}) async {

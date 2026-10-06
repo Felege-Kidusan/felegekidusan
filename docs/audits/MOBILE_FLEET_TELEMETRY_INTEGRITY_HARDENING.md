@@ -82,6 +82,40 @@ also a process-level failure and lands in these counters; the receiver catches
 its own `Throwable` precisely so the *guarded* path does not. Read the KPI as
 "the process died/failed", never as "the user saw a crash".
 
+### Crash signatures (readable WHERE, privacy-preserving)
+
+The crash key is deliberately opaque, which also means the fleet dashboard
+cannot say where a crash happened. The `crash_signature` event is the bounded
+companion: the app derives, from the same local log entry, the exception
+class plus up to three **first-party** frame names (Dart frames under
+`package:fkss_app/`, native frames under `com.arkeonethiopia`) as
+`file.ext:line symbol` strings — nothing else.
+
+Contract (enforced on both sides, pinned by test):
+
+- `crash_key`: the same SHA-256 report key as the crash event, used as the
+  event `dedupe_key`, so delivery is exact-once per installation per crash
+  identity — the same chain, the same guarantees, including the
+  "server committed, response lost" retry case.
+- `signature_class` and each frame: allow-listed charset
+  `[A-Za-z0-9 .:_/<>()$#-]`, at most 120 characters each; at most 3 frames;
+  total `event_data` JSON at most 512 bytes (frames are dropped from the
+  end if the budget would be exceeded).
+- Never included: exception messages, argument values, variable values,
+  absolute paths, user data. The class is the exception *type*, not its
+  message. An unknown charset or oversized part is rejected with 422.
+- The client sends the signature ungated (no local marker): the server-side
+  exact-once key makes repeats accepted no-ops, and signatures therefore
+  also arrive for crash keys first reported by older app builds.
+- Server side, `app_crash_signatures` (migration 063) keeps one row per
+  crash key: the signature text plus durable lifetime aggregates
+  (`total_events`, first/last seen, last reporting version/build) that
+  survive the 90-day event retention. Signature bookkeeping is
+  best-effort inside the telemetry transaction — it can never fail the
+  event insert — and occurrence/affected-installation counts are computed
+  at read time (indexed by `event_type, dedupe_key, installation_id`),
+  because a distinct-count cannot be maintained correctly by upsert.
+
 Migration ordering:
 
 ```text
