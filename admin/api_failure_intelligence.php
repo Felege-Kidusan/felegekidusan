@@ -17,8 +17,10 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/backend/services/FailureIssueService.php';
+require_once __DIR__ . '/backend/services/FailureAlertService.php';
 
 use App\Services\FailureIssueService;
+use App\Services\FailureAlertService;
 
 // 1. Strict authentication & role check — fleet-wide data is super_admin.
 if (empty($_SESSION['admin_id']) || empty($_SESSION['admin_logged_in'])) {
@@ -188,6 +190,19 @@ try {
                 echo json_encode(['status' => 'error', 'message' => 'Report not found.']);
                 exit;
             }
+            echo json_encode(['status' => 'success', 'data' => $data], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'get_failure_alerts': {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+                http_response_code(405);
+                header('Allow: GET');
+                echo json_encode(['status' => 'error', 'message' => 'Read-only endpoint.']);
+                exit;
+            }
+            $limit = (int)($_GET['limit'] ?? 15);
+            $data = ['items' => FailureAlertService::getRecentAlerts($conn, $limit)];
             echo json_encode(['status' => 'success', 'data' => $data], JSON_UNESCAPED_UNICODE);
             exit;
         }

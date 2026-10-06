@@ -41,6 +41,21 @@
     </div>
 
     <div class="at-card" style="margin-bottom:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem">
+            <div>
+                <h3 style="margin:0;color:#f8fafc;font-size:1.1rem"><i class="fa-solid fa-bell" style="color:#facc15"></i> Recent Alerts</h3>
+                <p style="margin:.35rem 0 0;color:#94a3b8;font-size:.78rem">Symptom-based alerts on a 15-minute schedule: new crash identities (≥5 installs/24h), build velocity vs fleet baseline (2×), and the multi-window sync error budget. Delivered to the notification center (super_admin) and Telegram when configured.</p>
+            </div>
+        </div>
+        <div style="overflow-x:auto">
+            <table class="ar-table" style="width:100%;border-collapse:collapse;font-size:.8rem">
+                <thead><tr><th>Severity</th><th>Kind</th><th>Alert</th><th>Last sent</th><th>Sent</th></tr></thead>
+                <tbody id="fi-alerts-body"><tr><td colspan="5" style="text-align:center;padding:1rem;color:#94a3b8">No alerts have fired yet.</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="at-card" style="margin-bottom:1.5rem">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
             <div>
                 <h3 style="margin:0;color:#f8fafc;font-size:1.1rem"><i class="fa-solid fa-layer-group" style="color:#f87171"></i> Failure Issues</h3>

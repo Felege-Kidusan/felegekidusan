@@ -81,12 +81,45 @@ error samples shown in the dashboard were already redacted at capture by
 the monitor. The admin API is read-mostly and double-gated (session +
 super_admin role + access_control ROLE_MAP).
 
+## Alerting (Phase 4)
+
+Three symptom-based conditions, evaluated by
+`admin/backend/failure_alert_check.php` (CLI-only, flock, fail-closed,
+**every 15 minutes** — cron: `0,15,30,45 * * * *`):
+
+| Condition | Fires when | Cooldown |
+|---|---|---|
+| `crash_new` | a crash identity **first seen < 24h ago** hits ≥ 5 distinct installations in 24h | 24h per identity |
+| `velocity` | a build **first seen < 7 days ago** fails at ≥ 2× the trailing 30-day rate of the rest of the fleet (noise floors: ≥ 20 attempts, ≥ 5%) | 24h per build |
+| `sync_budget` | fleet sync-failure rate ≥ 10% over **both** the last 1h and 6h (≥ 20 attempts per window — multi-window suppresses blips) | 6h |
+
+Channels: the existing notification center (`sendNotification`, type
+`failure_alert`, `target_roles = super_admin`; the notifications priority
+enum is low/normal/high/urgent — alert severity `critical` maps to
+`urgent`) and, when configured, the same Telegram bot the error monitor
+uses (`MONITOR_TELEGRAM_*` constants, identical gating). Every payload
+carries the **remediation one-liner** for its dominant failure category
+(issue override → seeded catalog → fallback line): alert + runbook, per
+SRE practice.
+
+The cooldown ledger and alert history live in `failure_alerts`
+(migration 065): one row per firing condition (`alert_key`:
+`crash_new:<key>` / `velocity:<build>` / `sync_budget:default`), with
+`last_sent_at`, `sent_count`, and the bounded payload. The dashboard's
+**Recent Alerts** card lists this history (`get_failure_alerts`).
+
+Thresholds are the user-approved defaults, defined as constants in
+`FailureAlertService` (5 installs, 7-day build age, 30-day baseline, 2×
+multiplier, 10% budget, 20-attempt floors, 24h/6h cooldowns) and pinned
+by `tests/security/test_failure_intelligence_phase4.py`.
+
 ## Deploy order
 
-1. Apply `sql/062`, `sql/063`, `sql/064` (all repeat-safe).
+1. Apply `sql/062`, `sql/063`, `sql/064`, `sql/065` (all repeat-safe).
 2. Deploy the server code.
-3. Install the nightly cron after the existing retention job:
-   `47 3 * * * php .../admin/backend/failure_issue_reconcile.php`
+3. Install the two CLI crons after the existing retention job:
+   - nightly (03:47): `php .../admin/backend/failure_issue_reconcile.php`
+   - every 15 min: `php .../admin/backend/failure_alert_check.php`
 4. Ship the app release (carries `X-Installation-Id` + crash signatures).
 
 Older servers + newer clients, and newer servers + older clients, remain
