@@ -117,10 +117,14 @@ by `tests/security/test_failure_intelligence_phase4.py`.
 
 1. Apply `sql/062`, `sql/063`, `sql/064`, `sql/065` (all repeat-safe).
 2. Deploy the server code.
-3. Install the two CLI crons after the existing retention job:
+3. Run the read-only staging preflight and keep the output as release
+   evidence (it fail-closes with `SIGNAL SQLSTATE '45000'` on any BLOCK
+   row — schema, indexes, seed count, channel tables):
+   `mariadb ... < sql/preflight/failure_intelligence_preflight.sql`
+4. Install the two CLI crons after the existing retention job:
    - nightly (03:47): `php .../admin/backend/failure_issue_reconcile.php`
    - every 15 min: `php .../admin/backend/failure_alert_check.php`
-4. Ship the app release (carries `X-Installation-Id` + crash signatures).
+5. Ship the app release (carries `X-Installation-Id` + crash signatures).
 
 Older servers + newer clients, and newer servers + older clients, remain
 compatible: every hook tolerates a missing table (issue bookkeeping is

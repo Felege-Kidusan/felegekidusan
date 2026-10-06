@@ -418,7 +418,7 @@ final class FailureIssueService
 
         $stmt = $conn->prepare(
             'INSERT INTO failure_reports
-             (issue_id, severity, window_start, window_end, trigger, report_markdown, generated_by)
+             (issue_id, severity, window_start, window_end, `trigger`, report_markdown, generated_by)
              VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         if (!$stmt) return null;
@@ -457,7 +457,7 @@ final class FailureIssueService
         $total = (int)($totalRow['c'] ?? 0);
         $offset = ($page - 1) * $limit;
         $rows = self::all($conn,
-            "SELECT r.id, r.issue_id, r.severity, r.window_start, r.window_end, r.trigger,
+            "SELECT r.id, r.issue_id, r.severity, r.window_start, r.window_end, r.`trigger`,
                     r.generated_by, r.created_at, i.title AS issue_title, i.source
              FROM failure_reports r
              JOIN failure_issues i ON i.id = r.issue_id
@@ -479,7 +479,7 @@ final class FailureIssueService
     {
         if ($id <= 0) return null;
         $rows = self::all($conn,
-            'SELECT r.id, r.issue_id, r.severity, r.window_start, r.window_end, r.trigger,
+            'SELECT r.id, r.issue_id, r.severity, r.window_start, r.window_end, r.`trigger`,
                     r.report_markdown, r.generated_by, r.created_at, i.title AS issue_title, i.source
              FROM failure_reports r
              JOIN failure_issues i ON i.id = r.issue_id
