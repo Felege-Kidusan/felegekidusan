@@ -1,0 +1,152 @@
+# ============================================================================
+# Production integrity — repository hygiene gate for the production repository
+# ----------------------------------------------------------------------------
+# Added 2026-10-07 (production migration Step 1).
+#
+# WHY THIS EXISTS
+# backend-checks.yml (carried over unchanged from the development repository,
+# suraman21/SSMS) proves the CODE works: PHP lint, the security and regression
+# suite against a real MariaDB with a zero-skip policy, Flutter unit tests,
+# migration numbering, and an Android debug build. It was never asked to prove
+# anything about the REPOSITORY itself, because the development repository is
+# a working tree where local experiments are expected.
+#
+# Felege-Kidusan/felegekidusan is the PRODUCTION repository. Its main branch
+# is what a future deployment step will ship to the school's server, so it
+# carries additional invariants that must hold at every commit, not just at
+# the tip:
+#
+#   1. No credential or environment files may ever be tracked here. Real
+#      production secrets live only in the server-side .fkss_env.php above
+#      the web root (see env.example.php for the key inventory) and, later,
+#      in GitHub/cPanel environment mechanisms - never in git.
+#   2. No generated or machine-local artifacts: built APK/IPA binaries,
+#      keystores, certificates, private keys, local.properties.
+#   3. No secret-shaped material anywhere in the pushed history - a secret
+#      committed and later deleted still ships with every clone.
+#   4. No workflow in this repository may read repository secrets. Like
+#      backend-checks.yml, CI here runs checks only; it deploys nothing.
+#      Deployment is a later, explicitly approved migration step.
+#
+# This workflow needs no secrets, no database and no credentials.
+# ============================================================================
+
+name: Production integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository-integrity:
+    name: Repository integrity (secrets, artifacts, history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the invariants below apply to every commit ever
+          # pushed to this repository, not only to the tip.
+          fetch-depth: 0
+
+      - name: No credential, environment or artifact files are tracked
+        run: |
+          set -euo pipefail
+          # The same categories .gitignore already excludes locally; this job
+          # turns the exclusion into a hard, visible gate for the production
+          # repository. env.example.php is the documented template and does
+          # NOT match: it ends in .example.php, not _env.php.
+          forbidden=$(git ls-files | grep -Ei \
+            '(^|/)(\.fkss_env\.php|\.wbws_env\.php|[^/]*_env\.php|\.fkss_app_release\.php|app_release\.local\.php|\.env(\..*)?|.*\.(jks|keystore|pem|p12|pkcs12|crt|cer|key|apk|aab|ipa)|id_rsa[^/]*|id_ed25519[^/]*|id_ecdsa[^/]*|\.netrc|\.git-credentials|android/local\.properties)$' \
+            || true)
+          if [ -n "$forbidden" ]; then
+            echo "::error::Credential/artifact files must not be tracked in the production repository:"
+            echo "$forbidden"
+            exit 1
+          fi
+          echo "No credential or artifact files are tracked."
+
+      - name: No secret-shaped material in the current tree
+        run: |
+          set -euo pipefail
+          # High-signal patterns only: GitHub token formats and private-key
+          # blocks. The patterns are assembled at runtime so that this file
+          # itself never contains the literal marker strings the history scan
+          # below hunts for - a literal pattern here would make this job flag
+          # its own commit.
+          p="gh"
+          tree_regex="${p}p_[A-Za-z0-9]{20,}|${p}o_[A-Za-z0-9]{20,}|${p}u_[A-Za-z0-9]{20,}|${p}s_[A-Za-z0-9]{20,}|${p}r_[A-Za-z0-9]{20,}|github""_pat_[A-Za-z0-9_]{20,}|BEGIN (RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY"
+          if git grep -nE "$tree_regex" -- .; then
+            echo "::error::Secret-shaped material found in the tracked tree (see matches above)."
+            exit 1
+          fi
+          echo "The tracked tree is free of token and private-key patterns."
+
+      - name: No secret-shaped material anywhere in history
+        run: |
+          set -euo pipefail
+          # Pickaxe over every commit on every branch: a secret pushed and
+          # later removed in a follow-up commit still exists in history and
+          # still ships with every clone of the production repository. The
+          # needles are assembled at runtime for the same self-match reason
+          # as above.
+          n1="gh""p_"
+          n2="github""_pat_"
+          n3='PRIVATE KEY''-----'
+          status=0
+          for n in "$n1" "$n2" "$n3"; do
+            hits=$(git log --all --oneline -S"$n" || true)
+            if [ -n "$hits" ]; then
+              echo "::error::History contains commit(s) touching a secret marker (first 3 chars: ${n:0:3})."
+              echo "$hits" | head -5
+              status=1
+            fi
+          done
+          if [ "$status" -eq 0 ]; then
+            echo "The full history is free of token and private-key markers."
+          fi
+          exit $status
+
+      - name: No oversized tracked files
+        run: |
+          set -euo pipefail
+          # Branding and splash PNGs are legitimately version-controlled
+          # (about 1 MB each). Anything far beyond that scale is an accident:
+          # a database dump, a video, a build artifact that dodged the
+          # filename rule above.
+          limit=$((15 * 1024 * 1024))
+          status=0
+          while IFS= read -r -d '' f; do
+            size=$(stat -c '%s' "$f")
+            if [ "$size" -gt "$limit" ]; then
+              echo "::error file=${f}::${f} is ${size} bytes; the limit is ${limit}."
+              status=1
+            fi
+          done < <(git ls-files -z)
+          if [ "$status" -eq 0 ]; then
+            echo "No tracked file exceeds 15 MiB."
+          fi
+          exit $status
+
+      - name: No workflow reads repository secrets
+        run: |
+          set -euo pipefail
+          # Reading 'secrets.<NAME>' is how a workflow touches repository
+          # secrets. No workflow in this repository needs any today, and the
+          # day one legitimately does (for example a future approved
+          # deployment step), relaxing this check must be part of that
+          # reviewed change - never a side effect.
+          if grep -rnE 'secrets\.[A-Z_]+' .github/workflows/; then
+            echo "::error::A workflow references repository secrets. Deployment and secrets are a later, explicitly approved migration step."
+            exit 1
+          fi
+          echo "No workflow reads repository secrets."
