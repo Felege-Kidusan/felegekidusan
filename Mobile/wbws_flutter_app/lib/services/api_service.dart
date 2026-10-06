@@ -1582,23 +1582,12 @@ class ApiService {
   /// Active sections with member counts (for the [Section ▾] picker).
   Future<ApiResponse> getMezmurSections() => get('/mezmur/sections');
 
-  // ── HR department attendance (section-based, HR's own domain) ──
-  // Isolation rule: HR data never mixes with Education or Mezmur.
-  // Available to hr_attendance_taker / hr_dept / admins only.
-  Future<ApiResponse> getHrDays({int page = 1, String? from, String? to}) {
-    final params = <String, String>{'page': '$page'};
-    if (from != null && from.isNotEmpty) params['from'] = from;
-    if (to != null && to.isNotEmpty) params['to'] = to;
-    return get('/hr/days', params: params);
-  }
-
-  Future<ApiResponse> getHrSheet(String date, {String? section}) {
-    final params = <String, String>{'date': date};
-    if (section != null && section.isNotEmpty) params['section'] = section;
-    return get('/hr/sheet', params: params);
-  }
-
-  /// Section-scoped save. [kind] = 'draft' | 'submitted'.
+  // ── HR department attendance — RETIRED (2026-10-07) ──
+  // HR no longer takes attendance (reports live on the web dashboard);
+  // the server answers 410 HR_ATTENDANCE_RETIRED to writes. The read
+  // clients went with the HR screens; saveHrSheet stays as the outbox
+  // drain transport so packets queued by OLD app versions settle
+  // honestly against the 410 instead of hanging forever.
   Future<ApiResponse> saveHrSheet(
       String date, List<Map<String, dynamic>> records,
       {String? section,
@@ -1619,9 +1608,6 @@ class ApiService {
         attemptNumber: attemptNumber,
         executionSource: executionSource);
   }
-
-  /// Active sections with member counts (for the [Section ▾] picker).
-  Future<ApiResponse> getHrSections() => get('/hr/sections');
 
   Future<ApiResponse> getMezmurHymns(
       {int page = 1,

@@ -88,6 +88,14 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     return '';
   }
 
+  /// Default-absent (2026-10-07): every student loads as ABSENT and
+  /// the teacher (or a QR scan) marks presence. An unresolved status
+  /// resolves to the conservative absent — presence is never assumed.
+  String _orAbsent(String status) => status.isEmpty ? 'absent' : status;
+
+  int _countStatus(String status) =>
+      _students.where((s) => _statusOf(s['status']) == status).length;
+
   @override
   void initState() {
     super.initState();
@@ -238,7 +246,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
         students.add({
           ...s,
           'member_id': mid,
-          'status': _firstStatus([pendingMap[mid], s['status'], s['att_status']]),
+          'status': _orAbsent(_firstStatus([pendingMap[mid], s['status'], s['att_status']])),
           'notes': pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? '',
         });
       }
@@ -256,7 +264,7 @@ class AttendanceScreenState extends State<AttendanceScreen> {
             'father_name': s['father_name'] ?? '',
             'member_code': s['member_code'] ?? '',
             'gender': s['gender'] ?? '',
-            'status': _statusOf(pendingMap[mid]),
+            'status': _orAbsent(_statusOf(pendingMap[mid])),
             'notes': pendingNotes[mid] ?? '',
           });
         }
@@ -292,8 +300,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           'member_code': s['member_code'] ?? '',
           'gender': s['gender'] ?? '',
           'status': lockedEarly
-              ? _statusOf(s['att_status'])
-              : _firstStatus([pendingMap[mid], s['att_status']]),
+              ? _orAbsent(_statusOf(s['att_status']))
+              : _orAbsent(_firstStatus([pendingMap[mid], s['att_status']])),
           'notes': lockedEarly ? (s['notes'] ?? s['note'] ?? '') : (pendingNotes[mid] ?? s['notes'] ?? s['note'] ?? ''),
         };
       }).toList();
@@ -347,15 +355,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
 
   bool get _locked => _submitting || PacketLock.isLocked(_packetStatus);
 
-  bool _requireCompleteSheet() {
-    final unmarked = _students.where((student) => _statusOf(student['status']).isEmpty).length;
-    if (unmarked == 0) return true;
-    setState(() {
-      _error = 'Mark attendance for every student ($unmarked remaining).';
-      _successMsg = null;
-    });
-    return false;
-  }
+  // Default-absent (2026-10-07): the sheet is complete by construction —
+  // every student carries an explicit status (absent unless marked), so
+  // Save and Submit are always available. The old "mark every student"
+  // gate is gone; the server still enforces the complete roster on
+  // submit (roster-drift protection) and merge-upserts drafts.
 
   /// Telegram-send model: the SQLite write IS the save (~5 ms). Delivery is
   /// the SyncService outbox's job and is never awaited from a button tap —
@@ -364,7 +368,6 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _saveAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) return;
-    if (!_requireCompleteSheet()) return;
     _autoSave.cancel();
 
     final records = _records();
@@ -406,7 +409,6 @@ class AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _submitAttendance() async {
     if (_selectedClassId == null || _students.isEmpty) return;
     if (_locked) return;
-    if (!_requireCompleteSheet()) return;
     // Cancel a delayed draft before creating the submitted generation. If an
     // autosave already entered LocalDb, its serialized write completes first.
     _autoSave.cancel();
@@ -499,18 +501,17 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     _autoSave.run(const Duration(milliseconds: 700), _autoSaveNow);
   }
 
-  /// SQLite write IS the save: persist the currently-marked rows as a
-  /// draft packet now (no completeness gate — drafts may be partial).
-  /// A dead battery after this point loses nothing; the outbox syncs.
+  /// Persist the currently-marked rows as a draft packet now. With
+  /// default-absent the sheet is complete by construction — every
+  /// student carries an explicit status. A dead battery after this
+  /// point loses nothing; the outbox syncs.
   Future<void> _autoSaveNow() async {
     final classId = _selectedClassId;
     if (classId == null || _students.isEmpty || _locked) return;
-    final marked =
-        _records().where((r) => '${r['status'] ?? ''}'.isNotEmpty).toList();
-    if (marked.isEmpty) return;
+    final records = _records();
     try {
       await _db.saveAttendanceLocal(
-          classId, _selectedClassName ?? '', _selectedDate, marked,
+          classId, _selectedClassName ?? '', _selectedDate, records,
           packetKind: 'draft');
     } catch (_) {
       return; // storage refused; the manual Save surfaces the error
@@ -556,10 +557,12 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     }
     final s = _students[idx];
     final existing = _statusOf(s['status']);
-    if (existing.isNotEmpty) {
+    if (existing == 'present' || existing == 'late') {
       return QrFeedback.duplicate(
           name: '${s['student_name'] ?? ''}', status: existing);
     }
+    // Default-absent: an absent (or excused) mark is not a check-in.
+    // The scan is physical presence — it wins.
     setState(() => s['status'] = 'present');
     _dirty.value = true;
     await _autoSaveNow(); // scan = instantly durable
@@ -809,7 +812,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
                 children: [
                   Text(
                     '${_students.length} students · '
-                    '${_students.where((student) => _statusOf(student['status']).isEmpty).length} unmarked',
+                    '${_countStatus('present')} present · '
+                    '${_countStatus('absent')} absent',
                     style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   ),
                   const Spacer(),
@@ -1033,12 +1037,11 @@ class AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  /// Animated "marked so far" progress strip (fills as marks land).
+  /// Animated presence strip (fills as present marks land — QR or P).
   Widget _progressStrip() {
     final total = _students.length;
-    final marked =
-        _students.where((s) => _statusOf(s['status']).isNotEmpty).length;
-    final frac = total == 0 ? 0.0 : marked / total;
+    final present = _countStatus('present');
+    final frac = total == 0 ? 0.0 : present / total;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
       child: Column(
@@ -1047,8 +1050,8 @@ class AttendanceScreenState extends State<AttendanceScreen> {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             child: Text(
-              '$marked / $total marked',
-              key: ValueKey(marked),
+              '$present / $total present',
+              key: ValueKey(present),
               style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,

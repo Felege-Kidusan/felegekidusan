@@ -120,8 +120,11 @@ class AttendanceIntegrityTests(unittest.TestCase):
         self.assertNotIn("Attendance saved!", self.taker)
 
     def test_flutter_offline_flow_never_infers_present(self):
-        self.assertIn("_requireCompleteSheet", self.mobile_screen)
+        # Default-absent (2026-10-07): the sheet loads with every student
+        # ABSENT; presence is never inferred or defaulted anywhere.
+        self.assertNotIn("_requireCompleteSheet", self.mobile_screen)
         self.assertIn("_firstStatus", self.mobile_screen)
+        self.assertIn("_orAbsent", self.mobile_screen)
         self.assertIn("Attendance must explicitly mark every student", self.local_db)
         self.assertIn("await db.transaction((txn) async", self.local_db)
         self.assertNotIn("?? 'present'", self.mobile_screen)

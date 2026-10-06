@@ -54,7 +54,6 @@ class MobileScanSurfaceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.edu = rd("Mobile/wbws_flutter_app/lib/screens/attendance/attendance_screen.dart")
         cls.mez = rd("Mobile/wbws_flutter_app/lib/screens/mezmur/mezmur_attendance.dart")
-        cls.hr = rd("Mobile/wbws_flutter_app/lib/screens/hr/hr_attendance.dart")
         cls.svc = rd("Mobile/wbws_flutter_app/lib/services/qr_attendance.dart")
         cls.wid = rd("Mobile/wbws_flutter_app/lib/widgets/qr_scan_sheet.dart")
 
@@ -69,11 +68,12 @@ class MobileScanSurfaceTests(unittest.TestCase):
             rd("Mobile/wbws_flutter_app/ios/Runner/Info.plist"),
         )
 
-    def test_all_three_screens_have_scan_and_autosave(self):
+    def test_both_live_screens_have_scan_and_autosave(self):
+        # HR attendance was retired (2026-10-07) — its screen is gone;
+        # Education + Mezmur remain the two scan surfaces.
         for src, save in (
             (self.edu, "saveAttendanceLocal"),
             (self.mez, "saveMezmurLocal"),
-            (self.hr, "saveHrLocal"),
         ):
             self.assertIn("QrScanSheet.open", src)
             self.assertIn("_handleQrScan", src)
@@ -120,7 +120,8 @@ class MobileScanSurfaceTests(unittest.TestCase):
     def test_section_picker_reads_server_items_and_labels_unassigned(self):
         # Server emits 'items'; takers must read it (with legacy fallback)
         # and render the em-dash placeholder as a friendly label.
-        for src in (self.mez, self.hr):
+        # (HR's section picker was retired with HR attendance, 2026-10-07.)
+        for src in (self.mez,):
             self.assertIn("res.data!['items'] ?? res.data!['sections']", src)
             self.assertIn("_sectionLabel", src)
             self.assertIn("\u12eb\u120d\u1270\u1218\u12f0\u1261", src)

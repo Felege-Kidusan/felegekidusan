@@ -115,7 +115,7 @@ class MobilePhase4Tests(unittest.TestCase):
             "TeacherActionBar", "SubmittedBar", "PacketLock",
             "showQuickConfirm", "showUndoToast", "StatusBanner.error",
             "StudentListSkeleton", "EmptyState", "HapticFeedback",
-            "_requireCompleteSheet", "saveMezmurLocal",
+            "_orAbsent", "saveMezmurLocal",
         ]:
             self.assertIn(symbol, self.att)
 

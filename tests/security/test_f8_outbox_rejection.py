@@ -34,8 +34,7 @@ SCREENS = {
                'teacher_grades.dart'),
     'mezmur': (f'{ROOT}/Mobile/wbws_flutter_app/lib/screens/mezmur/'
                'mezmur_attendance.dart'),
-    'hr': (f'{ROOT}/Mobile/wbws_flutter_app/lib/screens/hr/'
-           'hr_attendance.dart'),
+    # HR attendance was retired (2026-10-07); its screen is deleted.
 }
 
 
@@ -408,7 +407,9 @@ class F8HonestUi(unittest.TestCase):
         self.assertIn('rejected: inventory.needsAttention,', s)
         self.assertIn('final inventory = await _db.getOutboxInventory();', s)
 
-    def test_all_four_screens_wire_the_banner(self):
+    def test_all_live_screens_wire_the_banner(self):
+        # HR's screen was retired (2026-10-07); the remaining three keep
+        # the rejected-attention banner wired.
         for name, path in SCREENS.items():
             src = read(path)
             self.assertIn("import '../../widgets/sync_attention.dart';",

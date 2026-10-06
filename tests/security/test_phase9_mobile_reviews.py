@@ -86,7 +86,9 @@ class MobileSurfaceTests(unittest.TestCase):
         self.assertIn("case 'reviews':", self.shell)
         self.assertIn("ReviewInboxScreen(dept: 'edu')", self.shell)
         self.assertIn("ReviewInboxScreen(dept: 'mezmur')", self.shell)
-        self.assertIn("ReviewInboxScreen(dept: 'hr')", self.shell)
+        # HR's mobile review inbox was retired with HR attendance
+        # (2026-10-07); reports live on the web dashboard.
+        self.assertNotIn("ReviewInboxScreen(dept: 'hr')", self.shell)
         self.assertIn("ReviewHubScreen", self.shell)
         self.assertIn("HrDeptHomeScreen", self.shell)
 

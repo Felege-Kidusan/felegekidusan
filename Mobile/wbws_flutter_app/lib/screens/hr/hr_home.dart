@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
-import '../reviews/review_inbox_screen.dart';
 import '../../widgets/notification_bell_button.dart';
 
-/// HR department home (Phase 9) — the department's mobile surface is
-/// its review inbox; everything else stays on the web console.
+/// HR department home — RETIRED ATTENDANCE (2026-10-07).
+///
+/// HR no longer takes or reviews attendance: the department reads
+/// combined Education + Mezmur attendance reports on the school web
+/// dashboard instead. The mobile review inbox is gone with the
+/// workflow it reviewed; this home stays for login, profile and
+/// notifications.
 class HrDeptHomeScreen extends StatefulWidget {
   const HrDeptHomeScreen({super.key});
 
@@ -30,48 +34,34 @@ class _HrDeptHomeScreenState extends State<HrDeptHomeScreen> {
                   fontWeight: FontWeight.w800,
                   letterSpacing: 1)),
           const SizedBox(height: 12),
-          Material(
-            color: AppTheme.cardLight,
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const ReviewInboxScreen(dept: 'hr'))),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(Icons.inbox_rounded,
-                          color: AppTheme.primary, size: 26),
-                    ),
-                    const SizedBox(width: 14),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Attendance Reviews',
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800)),
-                          SizedBox(height: 3),
-                          Text(
-                              'Approve or return the packets your takers submit.',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.textSecondary)),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right_rounded),
-                  ],
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppTheme.cardLight,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.borderLight),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Icon(Icons.insights_outlined, color: AppTheme.primary),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('Attendance reports moved to the dashboard',
+                        style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
+                  ),
+                ]),
+                const SizedBox(height: 10),
+                Text(
+                  'HR no longer takes or reviews attendance. Combined '
+                  'attendance reports from the Education and Mezmur '
+                  'departments are on the school web dashboard '
+                  '(HR → Attendance Reports). Everything recorded before '
+                  'the change stays saved and readable there.',
+                  style: TextStyle(fontSize: 12.5, height: 1.55, color: AppTheme.textSecondary),
                 ),
-              ),
+              ],
             ),
           ),
           const SizedBox(height: 20),
