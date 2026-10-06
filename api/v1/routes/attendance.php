@@ -17,14 +17,18 @@ $year = getCurrentAcademicYear();
 $yearId = $year ? (int)$year['id'] : 0;
 
 /**
- * Resolve and validate a complete, explicit sheet against the current server
- * roster. This protects mobile and future integrations from stale/partial
- * payloads and keeps the HTTP adapter separate from domain validation.
+ * Resolve and validate an explicit sheet against the current server roster.
+ * Draft saves pass $requireComplete = false: a partial sheet is a normal
+ * workflow state (the mobile app's instant autosave persists partial
+ * drafts), so it must not be rejected as an error — only unknown students
+ * are. Submits pass true and must carry the complete roster. This protects
+ * mobile and future integrations from stale/partial payloads and keeps the
+ * HTTP adapter separate from domain validation.
  *
  * @param array<int,mixed> $records
  * @return array<int,array{member_id:int,status:string,note:string}>
  */
-function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records): array {
+function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, array $records, bool $requireComplete): array {
     if (!class_exists('\\App\\Services\\AttendanceRecordService')
         || !class_exists('\\App\\Services\\EnrollmentService')) {
         err('Attendance validation is temporarily unavailable.', 503);
@@ -41,7 +45,13 @@ function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, ar
         $scope['year_id'] ?? null
     );
     try {
-        return \App\Services\AttendanceRecordService::normalizeCompleteSheet($records, $roster);
+        return \App\Services\AttendanceRecordService::normalizeSheet($records, $roster, $requireComplete);
+    } catch (\App\Services\AttendanceSheetInvalid $error) {
+        // Controlled service message (hardcoded strings) + the machine code
+        // so sync monitoring can tell an expected workflow state
+        // (INCOMPLETE_SHEET) from a real mismatch (ROSTER_MISMATCH).
+        $safeMessage = $error->getMessage();
+        err($safeMessage, 422, ['code' => $error->getErrorCode()]);
     } catch (\DomainException $error) {
         $safeMessage = $error->getMessage();
         err($safeMessage, 422);
@@ -49,8 +59,10 @@ function apiValidateAttendanceSheet(\mysqli $conn, int $classId, int $yearId, ar
 }
 
 /**
- * Persist a validated sheet. The route owns the transaction so the attendance
- * rows and Education workflow packet commit or roll back as one unit.
+ * Persist a validated sheet. Drafts merge (partial-safe upsert, never
+ * deletes unmarked rows); submits replace (the complete sheet is the
+ * authority). The route owns the transaction so the attendance rows and
+ * Education workflow packet commit or roll back as one unit.
  *
  * @param array<int,array{member_id:int,status:string,note:string}> $records
  */
@@ -60,16 +72,26 @@ function apiReplaceAttendanceRows(
     string $date,
     ?int $yearId,
     int $userId,
-    array $records
+    array $records,
+    bool $merge = false
 ): int {
-    return \App\Services\AttendanceRecordService::replaceSheet(
-        $conn,
-        $classId,
-        $date,
-        $yearId,
-        $userId,
-        $records
-    );
+    return $merge
+        ? \App\Services\AttendanceRecordService::mergeSheet(
+            $conn,
+            $classId,
+            $date,
+            $yearId,
+            $userId,
+            $records
+        )
+        : \App\Services\AttendanceRecordService::replaceSheet(
+            $conn,
+            $classId,
+            $date,
+            $yearId,
+            $userId,
+            $records
+        );
 }
 
 // ============================================================
@@ -208,7 +230,9 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
     if (isApiRateLimited('attendance_save', 30)) {
         err('Too many attendance saves. Please wait a moment.', 429);
     }
-    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records);
+    // Draft: a partial sheet is a normal workflow state (instant autosave);
+    // unknown students are still rejected. See apiValidateAttendanceSheet.
+    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records, false);
 
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
@@ -232,7 +256,8 @@ if ($method === 'POST' && ($action === '' || $action === null)) {
             $date,
             $yearIdOrNull,
             $userId,
-            $records
+            $records,
+            true // draft merge: upsert submitted rows, never delete unmarked
         );
         $packet = \App\Services\SubmissionService::upsertAttendance($conn, [
             'teacher_id' => $userId,
@@ -293,7 +318,10 @@ if ($method === 'POST' && $action === 'submit') {
     if (isApiRateLimited('attendance_submit', 20)) {
         err('Too many submits. Please wait a moment.', 429);
     }
-    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records);
+    // Submit: the complete sheet is still required — a submission must be a
+    // full, explicit record for the day (default-absent clients satisfy this
+    // by construction; the guard still protects against roster drift).
+    $records = apiValidateAttendanceSheet($conn, $classId, $yearId, $records, true);
     if (class_exists('\\App\\Services\\SubmissionService')
         && !\App\Services\SubmissionService::teacherMayWriteAttendance($conn, $auth, $classId, $date)) {
         err('This day’s attendance is already submitted. Only Education can change it.', 409,

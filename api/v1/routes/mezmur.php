@@ -197,7 +197,10 @@ try {
             $conn->begin_transaction();
             try {
                 // Caller owns the transaction (rows + packet commit together).
-                $summary = MezmurAttendanceService::saveSectionSheet($conn, $date, $section, $records, (int)$auth['uid'], false);
+                // Drafts merge partial sheets (autosave reality); submitted
+                // sheets must be complete and replace the day's marks.
+                $requireComplete = $packetStatus === MezmurSubmissionService::STATUS_SUBMITTED;
+                $summary = MezmurAttendanceService::saveSectionSheet($conn, $date, $section, $records, (int)$auth['uid'], false, $requireComplete);
                 $packet = MezmurSubmissionService::upsert($conn, [
                     'taker_id' => (int)$auth['uid'],
                     'date' => $date,
