@@ -67,11 +67,11 @@ class SearchAutofillHardeningTests(unittest.TestCase):
         hr = self.sources["admin/dashboards/hr-dept.php"]
         info = self.sources["admin/dashboards/info-dept.php"]
         self.assertIn('type="search" inputmode="search" id="idCardMemberSearch"', hr)
-        # HR's taker modal lost its member-link picker when takers moved
-        # to the department-owned pipeline (2026-08), so only the ID-card
-        # search remains; the username field must not autofill.
+        # HR's taker modal was removed entirely with the HR attendance
+        # retirement (2026-10-07); the ID-card search is the only
+        # search-type input left on the page.
         self.assertEqual(1, hr.count('type="search" inputmode="search"'))
-        self.assertIn('id="attakerUsername" autocomplete="off"', hr)
+        self.assertNotIn('id="attakerUsername"', hr)
         # Info dept lost its taker modal when taker management was
         # removed entirely (read-only department); its remaining
         # search-type input is the PDF member-report picker.

@@ -151,8 +151,11 @@ class ConsolePrintButtonTests(unittest.TestCase):
         mezjs = rd("frontend/js/mezmur.js")
         self.assertIn("printQrRoster", edu)
         self.assertIn("api_qr_roster.php?dept=edu", edu)
-        self.assertIn("printHrQrRoster", hr)
-        self.assertIn("api_qr_roster.php?dept=hr", hr)
+        # HR's QR-roster button was retired with HR attendance
+        # (2026-10-07) — no HR takers scan anymore. The governed
+        # endpoint keeps serving Education and Mezmur.
+        self.assertNotIn("printHrQrRoster", hr)
+        self.assertNotIn("api_qr_roster.php?dept=hr", hr)
         self.assertIn("Mezmur.printQrRoster", mez)
         self.assertIn("api_qr_roster.php?dept=mezmur", mezjs)
 
