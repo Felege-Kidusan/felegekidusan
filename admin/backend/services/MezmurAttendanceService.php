@@ -352,6 +352,40 @@ final class MezmurAttendanceService
         $ins->close();
     }
 
+    /**
+     * Draft-merge write: upsert one row per submitted member on the
+     * uq_mezmur_attendance_date_member unique key (migration 023). Rows the
+     * payload did not mention keep their existing marks.
+     */
+    private static function upsertRows(\mysqli $conn, string $date, array $submitted, array $notesByMember, int $userId): void
+    {
+        $sql = "INSERT INTO mezmur_attendance (session_id, attendance_date, member_id, status, marked_by, notes)
+                VALUES (NULL,?,?,?,?,?)
+                ON DUPLICATE KEY UPDATE
+                    status = VALUES(status),
+                    notes = VALUES(notes),
+                    marked_by = VALUES(marked_by)";
+        $ins = $conn->prepare($sql);
+        if (!$ins) {
+            throw new \RuntimeException('Could not write attendance.');
+        }
+        $batch = 0;
+        foreach ($submitted as $memberId => $status) {
+            $note = $notesByMember[$memberId] ?? null;
+            $ins->bind_param('sisis', $date, $memberId, $status, $userId, $note);
+            $ins->execute();
+            // Recycle the statement periodically on very large rosters.
+            if (++$batch % 500 === 0) {
+                $ins->close();
+                $ins = $conn->prepare($sql);
+                if (!$ins) {
+                    throw new \RuntimeException('Could not write attendance.');
+                }
+            }
+        }
+        $ins->close();
+    }
+
     // ── section roster ─────────────────────────────────────────
 
     /** Roster of one section (the taker's "class list"). */
@@ -475,17 +509,24 @@ final class MezmurAttendanceService
     }
 
     /**
-     * Complete section-sheet save (transactional replace for the
-     * section's members on that date). Submitted member set must
-     * exactly equal the live section roster.
+     * Section-sheet save (transactional, section's members on that date).
+     * With $requireComplete = true (default) the submitted member set must
+     * exactly equal the live section roster and the save REPLACES the
+     * section's marks. With false (draft saves) a PARTIAL sheet is accepted:
+     * only submitted rows are upserted (merge, never deletes) — the mobile
+     * app's instant autosave deliberately persists partial drafts, and a
+     * taker pausing mid-marking is a normal workflow state, not a sync
+     * error. Members not on the section roster are rejected in both modes.
      *
      * @param list<array{member_id:int|string,status:string,notes?:string}> $records
      * @param bool $ownTransaction false when the caller already opened a
      *                             transaction (e.g. to commit the packet
      *                             upsert atomically with the rows).
+     * @param bool $requireComplete true = full sheet + replace; false =
+     *                             partial draft + merge.
      * @return array{marked:int,present:int,late:int,absent:int,excused:int}
      */
-    public static function saveSectionSheet(\mysqli $conn, string $date, string $section, array $records, int $userId, bool $ownTransaction = true): array
+    public static function saveSectionSheet(\mysqli $conn, string $date, string $section, array $records, int $userId, bool $ownTransaction = true, bool $requireComplete = true): array
     {
         if (!self::validDate($date)) {
             throw new \DomainException('Invalid attendance date.');
@@ -515,7 +556,13 @@ final class MezmurAttendanceService
                 $notesByMember[$mid] = mb_substr($note, 0, 500);
             }
         }
-        if (count($submitted) !== count($roster) || array_diff($roster, array_keys($submitted)) !== [] || array_diff(array_keys($submitted), $roster) !== []) {
+        // A submitted member who is not on the section roster is always a
+        // mismatch — drafts and submits alike.
+        if (array_diff(array_keys($submitted), $roster) !== []) {
+            throw new \DomainException('Some members are not on this section roster. Reload and try again.');
+        }
+        if ($requireComplete
+            && (count($submitted) !== count($roster) || array_diff($roster, array_keys($submitted)) !== [])) {
             throw new \DomainException('The sheet is out of date with the current roster. Reload and try again.');
         }
 
@@ -531,19 +578,27 @@ final class MezmurAttendanceService
             $conn->begin_transaction();
         }
         try {
-            // Delete only this section's rows for the date.
-            $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
-            $del = $conn->prepare(
-                "DELETE a FROM mezmur_attendance a
-                 JOIN members m ON m.id = a.member_id
-                 WHERE a.attendance_date = ?
-                   AND ($secExpr = ? OR m.current_section = ?)"
-            );
-            $del->bind_param('sss', $date, $canonical, $section);
-            $del->execute();
-            $del->close();
+            if ($requireComplete) {
+                // Complete sheet = the authority: delete only this section's
+                // rows for the date, then insert.
+                $secExpr = MemberCategory::sqlSectionExpr('m', 'current_section', 'age_group');
+                $del = $conn->prepare(
+                    "DELETE a FROM mezmur_attendance a
+                     JOIN members m ON m.id = a.member_id
+                     WHERE a.attendance_date = ?
+                       AND ($secExpr = ? OR m.current_section = ?)"
+                );
+                $del->bind_param('sss', $date, $canonical, $section);
+                $del->execute();
+                $del->close();
 
-            self::insertRows($conn, $date, $submitted, $notesByMember, $userId);
+                self::insertRows($conn, $date, $submitted, $notesByMember, $userId);
+            } else {
+                // Draft merge: upsert only the submitted rows on the
+                // (attendance_date, member_id) unique key (migration 023);
+                // marks the payload did not mention are never deleted.
+                self::upsertRows($conn, $date, $submitted, $notesByMember, $userId);
+            }
             if ($ownTransaction) {
                 $conn->commit();
             }

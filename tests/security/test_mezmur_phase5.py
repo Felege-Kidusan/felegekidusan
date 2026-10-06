@@ -163,7 +163,10 @@ class MezmurPhase5Tests(unittest.TestCase):
         self.assertIn("$conn->begin_transaction();", self.route)
         self.assertIn("$conn->commit();", self.route)
         self.assertIn("$conn->rollback();", self.route)
-        self.assertIn("false);", self.route)  # ownTransaction=false
+        # ownTransaction=false — the route owns the transaction. (Attendance
+        # rework Phase A extended the call: drafts now also pass
+        # $requireComplete so partial autosave drafts merge instead of 422.)
+        self.assertIn("false, $requireComplete);", self.route)
         # legacy date-only save kept for older clients (break nothing)
         self.assertIn("MezmurAttendanceService::saveSheet($conn, $date, $records", self.route)
 

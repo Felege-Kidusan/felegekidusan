@@ -9,6 +9,32 @@
  */
 namespace App\Services;
 
+/**
+ * Thrown when an attendance sheet fails validation. Carries a stable
+ * machine-readable code so sync monitoring can distinguish an expected
+ * workflow state (INCOMPLETE_SHEET on a submit) from a genuine contract
+ * violation (ROSTER_MISMATCH) without parsing human message text.
+ */
+class AttendanceSheetInvalid extends \DomainException
+{
+    public const CODE_INCOMPLETE_SHEET = 'INCOMPLETE_SHEET';
+    public const CODE_ROSTER_MISMATCH = 'ROSTER_MISMATCH';
+
+    /** @var string */
+    private $errorCode;
+
+    public function __construct(string $message, string $errorCode)
+    {
+        parent::__construct($message);
+        $this->errorCode = $errorCode;
+    }
+
+    public function getErrorCode(): string
+    {
+        return $this->errorCode;
+    }
+}
+
 final class AttendanceRecordService
 {
     public const MAX_RECORDS = 2000;
@@ -16,12 +42,34 @@ final class AttendanceRecordService
     public const VALID_STATUSES = ['present', 'absent', 'late', 'excused'];
 
     /**
+     * Complete-sheet contract (submits and full-sheet editors). Delegates to
+     * normalizeSheet() with the completeness requirement enforced.
+     *
      * @param array<int,mixed> $records
      * @param array<int,mixed> $roster
      * @return array<int,array{member_id:int,status:string,note:string}>
-     * @throws \DomainException when a sheet is invalid or incomplete
+     * @throws AttendanceSheetInvalid|\DomainException
      */
     public static function normalizeCompleteSheet(array $records, array $roster): array
+    {
+        return self::normalizeSheet($records, $roster, true);
+    }
+
+    /**
+     * Validate a sheet against the current server roster. Every submitted
+     * record must be explicit, valid, duplicate-free, and on the roster.
+     * When $requireComplete is false (draft saves), a PARTIAL sheet is
+     * accepted — the mobile app's instant autosave deliberately persists
+     * partial drafts, and a teacher pausing mid-marking is a normal
+     * workflow state, not a sync error. Submissions still require the
+     * complete roster.
+     *
+     * @param array<int,mixed> $records
+     * @param array<int,mixed> $roster
+     * @return array<int,array{member_id:int,status:string,note:string}>
+     * @throws AttendanceSheetInvalid|\DomainException
+     */
+    public static function normalizeSheet(array $records, array $roster, bool $requireComplete): array
     {
         if ($records === []) {
             throw new \DomainException('Attendance records are required.');
@@ -103,14 +151,91 @@ final class AttendanceRecordService
             );
         }
 
-        if (array_diff_key($rosterIds, $submittedIds) !== []
-            || array_diff_key($submittedIds, $rosterIds) !== []) {
-            throw new \DomainException(
-                'The class roster changed or some students are unmarked. Refresh and mark every student.'
+        // A submitted student who is not on the roster is always a mismatch,
+        // for drafts and submits alike — never write marks for other classes.
+        if (array_diff_key($submittedIds, $rosterIds) !== []) {
+            throw new AttendanceSheetInvalid(
+                'Some students are not on this class roster. Refresh the class and try again.',
+                AttendanceSheetInvalid::CODE_ROSTER_MISMATCH
+            );
+        }
+
+        if ($requireComplete
+            && array_diff_key($rosterIds, $submittedIds) !== []) {
+            throw new AttendanceSheetInvalid(
+                'Some students are unmarked. Refresh and mark every student before submitting.',
+                AttendanceSheetInvalid::CODE_INCOMPLETE_SHEET
             );
         }
 
         return $normalized;
+    }
+
+    /**
+     * Merge one (possibly partial) class/day sheet — draft semantics. Upserts
+     * only the submitted rows on the existing unique key
+     * (member_id, class_id, attendance_date) and NEVER deletes rows the
+     * payload did not mention, so a partial autosave draft can never erase
+     * previously saved marks. The caller MUST own the database transaction
+     * so attendance and its workflow packet can commit together.
+     *
+     * @param array<int,array{member_id:int,status:string,note:string}> $records
+     */
+    public static function mergeSheet(
+        \mysqli $conn,
+        int $classId,
+        string $date,
+        ?int $academicYearId,
+        int $recordedBy,
+        array $records
+    ): int {
+        if ($classId <= 0 || $recordedBy <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new \InvalidArgumentException('Invalid attendance persistence context.');
+        }
+
+        $upsert = $conn->prepare(
+            'INSERT INTO attendance
+                (member_id, class_id, academic_year_id, attendance_date, status, notes, recorded_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                notes = VALUES(notes),
+                recorded_by = VALUES(recorded_by),
+                academic_year_id = VALUES(academic_year_id)'
+        );
+        if (!$upsert) {
+            throw new \RuntimeException('Could not prepare attendance merge.');
+        }
+
+        $saved = 0;
+        try {
+            foreach ($records as $record) {
+                $memberId = (int)$record['member_id'];
+                $status = (string)$record['status'];
+                $note = (string)$record['note'];
+                if (!in_array($status, self::VALID_STATUSES, true)) {
+                    throw new \InvalidArgumentException('Unvalidated attendance status.');
+                }
+                $upsert->bind_param(
+                    'iiisssi',
+                    $memberId,
+                    $classId,
+                    $academicYearId,
+                    $date,
+                    $status,
+                    $note,
+                    $recordedBy
+                );
+                if (!$upsert->execute()) {
+                    throw new \RuntimeException('Could not save an attendance record.');
+                }
+                $saved++;
+            }
+        } finally {
+            $upsert->close();
+        }
+
+        return $saved;
     }
 
     /**
