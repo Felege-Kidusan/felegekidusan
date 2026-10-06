@@ -413,6 +413,40 @@ Use the **ROLE-BY-ROLE TEST CHECKLIST** in `FOUNDATION_VERIFICATION.md` (Section
 
 ---
 
+## STAGE 7B — Attendance rework verification (2026-10, one-time)
+
+No migrations are needed for the rework (all merge paths use existing
+unique keys; HR tables stay as a read-only archive). Verify behavior
+after the code deploy. Full contract: `docs/ATTENDANCE_REWORK_2026-10.md`.
+
+```
+[ ] 7B.1 Default-absent sanity (teacher, mobile app + web taker):
+         open a fresh day → EVERY student shows ABSENT, Save/Submit are
+         enabled immediately; tapping Save with nothing marked succeeds
+         (an all-absent day — the chosen conservative default).
+
+[ ] 7B.2 Draft merge: with a teacher mid-marking, watch the web Sync
+         Monitor — paused partial autosaves must NOT produce new 422
+         INCOMPLETE_SHEET rejected rows from updated clients. A residual
+         422 with code ROSTER_MISMATCH means real roster drift (reload).
+
+[ ] 7B.3 QR: scan a member card → marked Present instantly; scan again
+         → friendly "already present" (Amharic), no duplicate row.
+
+[ ] 7B.4 HR retirement: an OLD HR taker app (if any) shows the honest
+         "HR attendance was retired" attention message after sync (410,
+         code HR_ATTENDANCE_RETIRED). HR dashboard → "Attendance
+         History" is read-only (view/export only); "Attendance Reports"
+         shows Education + Mezmur cards and member search. Creating an
+         HR taker account is refused server-side.
+
+[ ] 7B.5 Optional cleanup: deactivate remaining hr_attendance_taker
+         accounts (Users page) once no old devices remain; expect the
+         410 attention burst to decay to zero.
+```
+
+---
+
 ## STAGE 8 — First real academic year (only when you're ready to enroll)
 
 ```
