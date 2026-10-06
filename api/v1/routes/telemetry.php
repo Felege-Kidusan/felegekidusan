@@ -375,6 +375,22 @@ try {
                     $cntStmt->close();
                 }
             }
+
+            // Failure-issue registry (migration 064), same never-throw rules:
+            // a crash identity (or its signature) creates/updates one issue.
+            if (!class_exists('\\App\\Services\\FailureIssueService')) {
+                require_once __DIR__ . '/../../../admin/backend/services/FailureIssueService.php';
+            }
+            if ($eventType === 'crash_signature') {
+                \App\Services\FailureIssueService::recordCrashIssue(
+                    $conn,
+                    $crashDedupeKey,
+                    $signatureClass,
+                    $signatureFrames ?? []
+                );
+            } else {
+                \App\Services\FailureIssueService::recordCrashIssue($conn, $crashDedupeKey, '', []);
+            }
         } catch (Throwable $ignored) {
             // Signature aggregation is advisory; never fail the event for it.
         }

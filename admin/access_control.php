@@ -209,6 +209,7 @@ if (!defined('ACCESS_CONTROL_LOADED')) {
             // ---- Mobile App Releases & Telemetry: SUPER ADMIN & SCHOOL ADMIN ----
             'api_app_release.php' => ['super_admin'],
             'api_telemetry.php'   => ['super_admin', 'school_admin'],
+            'api_failure_intelligence.php' => ['super_admin'],
 
             // ---- Identity & Codes hub: SUPER ADMIN ONLY ----
             'api_identity.php'  => ['super_admin'],

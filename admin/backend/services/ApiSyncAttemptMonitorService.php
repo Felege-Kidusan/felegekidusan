@@ -12,6 +12,13 @@ namespace App\Services;
 
 use mysqli;
 
+// Failure-issue bookkeeping (migration 064). Loaded via class_exists so this
+// file stays loadable even if the failure intelligence files are absent from
+// an older deployment.
+if (!class_exists('\\App\\Services\\FailureIssueService')) {
+    require_once __DIR__ . '/FailureIssueService.php';
+}
+
 final class ApiSyncAttemptMonitorService
 {
     public const STALE_AFTER_MINUTES = 15;
@@ -20,6 +27,9 @@ final class ApiSyncAttemptMonitorService
 
     /** @var array<int,string> */
     private const SAFE_SOURCES = ['foreground', 'background'];
+
+    /** Terminal statuses that count as failures for issue tracking. */
+    private const FAILURE_STATUSES = ['failed', 'rejected'];
 
     /**
      * Extract only bounded identifiers and dates useful to an administrator.
@@ -133,6 +143,12 @@ final class ApiSyncAttemptMonitorService
             $stmt->execute();
             $changed = $stmt->affected_rows === 1;
             $stmt->close();
+            // Failure-intelligence bookkeeping (advisory, never-throw). Inside
+            // the caller's transaction by necessity — if that transaction
+            // rolls back, the issue upsert rolls back with it (consistent).
+            if ($changed && in_array($status, self::FAILURE_STATUSES, true)) {
+                self::recordFailureIssueForAttempt($conn, $monitorId);
+            }
             return $changed;
         } catch (\Throwable $ignored) {
             return false;
@@ -164,7 +180,12 @@ final class ApiSyncAttemptMonitorService
             );
             $stmt->bind_param('sssssii', $status, $idempotencyState, $retryDecision, $category, $errorCode, $statusCode, $monitorId);
             $stmt->execute();
+            $changed = $stmt->affected_rows === 1;
             $stmt->close();
+            // Failure-intelligence bookkeeping, post-commit (never-throw).
+            if ($changed && in_array($status, self::FAILURE_STATUSES, true)) {
+                self::recordFailureIssueForAttempt($conn, $monitorId);
+            }
             self::maybePrune($conn);
         } catch (\Throwable $ignored) {
             // Observability must not alter the already-produced API response.
@@ -359,10 +380,56 @@ final class ApiSyncAttemptMonitorService
             $stmt->execute();
             $id = (int)$stmt->insert_id;
             $stmt->close();
+            // Failure-intelligence bookkeeping (advisory, never-throw):
+            // direct failure/rejected inserts (idempotency conflicts).
+            if ($id > 0 && in_array($status, self::FAILURE_STATUSES, true)) {
+                FailureIssueService::recordSyncFailure($conn, [
+                    'domain' => $route['domain'],
+                    'operation' => $route['operation'],
+                    'error_category' => $errorCategory,
+                    'error_code' => $errorCode,
+                    'user_id' => $userId,
+                    'installation_id' => $installationId ?? null,
+                    'app_version' => $appVersion ?? null,
+                    'app_build' => $appBuild ?? null,
+                ]);
+            }
             self::maybePrune($conn);
             return $id > 0 ? $id : null;
         } catch (\Throwable $ignored) {
             return null;
+        }
+    }
+
+    /**
+     * Failure-intelligence bookkeeping for an attempt that just completed as
+     * failed/rejected. Reads the row's own columns (single indexed lookup)
+     * and hands them to FailureIssueService. Advisory: never throws, never
+     * alters the attempt or the caller's transaction result.
+     */
+    private static function recordFailureIssueForAttempt(?mysqli $conn, int $monitorId): void
+    {
+        try {
+            if (!($conn instanceof mysqli) || $monitorId <= 0) {
+                return;
+            }
+            $stmt = $conn->prepare(
+                'SELECT domain, operation, error_category, error_code, user_id,
+                        installation_id, app_version, app_build
+                 FROM api_sync_attempts WHERE id = ? LIMIT 1'
+            );
+            if (!$stmt) {
+                return;
+            }
+            $stmt->bind_param('i', $monitorId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if ($row !== null) {
+                FailureIssueService::recordSyncFailure($conn, $row);
+            }
+        } catch (\Throwable $ignored) {
+            // Observability must not alter the already-produced API response.
         }
     }
 
