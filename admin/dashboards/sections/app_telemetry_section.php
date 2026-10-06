@@ -68,7 +68,7 @@ $sum = $atMetrics['summary'] ?? [];
     transition: transform 0.15s ease, border-color 0.15s ease;
 }
 #section-app_telemetry .at-kpi-card:hover {
-    border-color: #475569;
+    border-color: #7c8aa5;
     transform: translateY(-2px);
 }
 #section-app_telemetry .at-kpi-num {
@@ -88,7 +88,7 @@ $sum = $atMetrics['summary'] ?? [];
 }
 #section-app_telemetry .at-kpi-sub {
     font-size: 0.7rem;
-    color: #64748b;
+    color: #7c8aa5;
     margin-top: 0.35rem;
 }
 #section-app_telemetry .at-bar-track {
@@ -117,7 +117,7 @@ $sum = $atMetrics['summary'] ?? [];
 }
 #section-app_telemetry .at-filter-btn:hover {
     color: #f8fafc;
-    border-color: #64748b;
+    border-color: #7c8aa5;
 }
 #section-app_telemetry .at-filter-btn.active {
     background: #38bdf8;
@@ -161,7 +161,7 @@ $sum = $atMetrics['summary'] ?? [];
     box-sizing: border-box;
     background-color: #0f172a !important;
     color: #f8fafc !important;
-    border: 1px solid #475569 !important;
+    border: 1px solid #7c8aa5 !important;
     border-radius: 0.5rem;
     color-scheme: dark;
     font-family: inherit;
@@ -261,8 +261,8 @@ $sum = $atMetrics['summary'] ?? [];
         </div>
 
         <?php foreach ([
-            ['pending','Pending','Not server-observable','#64748b'],
-            ['retrying','Retrying','Retry schedule not server-observable','#64748b'],
+            ['pending','Pending','Not server-observable','#7c8aa5'],
+            ['retrying','Retrying','Retry schedule not server-observable','#7c8aa5'],
             ['failed','Failed / rejected','Server responses','#f87171'],
             ['in_flight','In flight','Open server reservations','#38bdf8'],
             ['stale','Stale','Open > 15 minutes','#f59e0b'],
@@ -353,7 +353,7 @@ $sum = $atMetrics['summary'] ?? [];
                     <?php foreach ($atMetrics['os_versions'] as $os): ?>
                         <div style="margin-bottom:0.85rem">
                             <div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:500;color:#f8fafc">
-                                <span>Android <?= htmlspecialchars($os['os_version']) ?> <span style="font-size:0.7rem;color:#64748b">(SDK <?= htmlspecialchars($os['sdk_int']) ?>)</span></span>
+                                <span>Android <?= htmlspecialchars($os['os_version']) ?> <span style="font-size:0.7rem;color:#7c8aa5">(SDK <?= htmlspecialchars($os['sdk_int']) ?>)</span></span>
                                 <span style="color:#4ade80"><?= htmlspecialchars($os['count']) ?> (<?= htmlspecialchars($os['percentage']) ?>%)</span>
                             </div>
                             <div class="at-bar-track">

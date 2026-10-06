@@ -34,9 +34,22 @@
     document.querySelectorAll('.nav-link, .mobile-nav-btn, .wbws-bnav-btn').forEach(function (b) {
       b.classList.remove('active');
     });
-    document.querySelectorAll('[data-section="' + id + '"]').forEach(function (b) {
-      b.classList.add('active');
+    document.querySelectorAll('[data-section]').forEach(function (b) {
+      if (b.getAttribute('data-section') === id) {
+        b.classList.add('active');
+        b.setAttribute('aria-current', 'page');
+      } else {
+        b.removeAttribute('aria-current');
+      }
     });
+    // Move focus to the newly shown section so keyboard and screen-reader
+    // users land where the visual context just changed instead of staying
+    // on the far end of the page. The container is not a tab stop.
+    var pane2 = document.getElementById('section-' + id);
+    if (pane2) {
+      pane2.tabIndex = -1;
+      try { pane2.focus({ preventScroll: true }); } catch (e) { pane2.focus(); }
+    }
     document.body.classList.toggle('branding-on', id === 'branding');
     var pane = document.querySelector('main.main .content');
     if (pane) pane.scrollTop = 0;
@@ -102,6 +115,9 @@
   var boot = window.SA_BOOT || {};
   var start = ALLOWED[boot.section] ? boot.section : 'overview';
   showPanel(start);
+  document.querySelectorAll('[data-section]').forEach(function (b) {
+    if (b.getAttribute('data-section') === start) b.setAttribute('aria-current', 'page');
+  });
   if (start === 'app_release' && window.AppReleaseUI) {
     window.AppReleaseUI.init();
   }

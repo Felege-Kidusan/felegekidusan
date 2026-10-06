@@ -600,9 +600,12 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Super Admin - <?= SCHOOL_NAME_SHORT ?></title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛪</text></svg>">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- No Tailwind Play CDN: this page uses zero utility classes (audited
+         file-by-file, including every include), and the runtime compiler is
+         render-blocking and fights the chrome CSS (the sa-section-lock block
+         below exists because of it). Do not re-add without re-auditing. -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-    <link rel="stylesheet" href="/admin/css/super_admin.css?v=20260819h">
+    <link rel="stylesheet" href="/admin/css/super_admin.css?v=20261006a">
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css">
 <?php include __DIR__ . "/../theme.php"; ?>
@@ -623,7 +626,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     <aside class="sb">
         <div class="brand">
             <div class="brand-logo"><i class="fa-solid fa-shield-halved"></i></div>
-            <div><div class="brand-txt"><?= ADMIN_PANEL_TITLE ?></div><div class="brand-sub eth"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት</div></div>
+            <div><div class="brand-txt"><?= ADMIN_PANEL_TITLE ?></div><div class="brand-sub eth" lang="am"><?= SCHOOL_NAME_SHORT_AM ?> ሰንበት ት/ቤት</div></div>
         </div>
         
         <nav class="nav-sec">
@@ -799,7 +802,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 <?php foreach ($users as $u): ?>
                                 <tr>
                                     <td><?= $u['id'] ?></td>
-                                    <td><?= e($u['username']) ?><br><small style="color:#64748b"><?= e($u['full_name']) ?></small></td>
+                                    <td><?= e($u['username']) ?><br><small style="color:#7c8aa5"><?= e($u['full_name']) ?></small></td>
                                     <td><?= e($u['role']) ?></td>
                                     <td><span class="badge <?= $u['is_active'] ? 'badge-active' : 'badge-inactive' ?>"><?= $u['is_active'] ? 'Active' : 'Inactive' ?></span></td>
                                     <td class="actions">
@@ -822,7 +825,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-building"></i> Departments</h2><p class="sec-desc">Department dashboards overview</p></div>
                 <div class="grid-4">
                     <?php foreach ($departments as $d): ?>
-                    <div class="dept-card"><div class="dept-icon" style="background:<?= $d['color'] ?>"><i class="fa-solid <?= $d['icon'] ?>"></i></div><div class="dept-name"><?= $d['name'] ?></div><div class="dept-amharic eth"><?= $d['amharic'] ?></div></div>
+                    <div class="dept-card"><div class="dept-icon" style="background:<?= $d['color'] ?>"><i class="fa-solid <?= $d['icon'] ?>"></i></div><div class="dept-name"><?= $d['name'] ?></div><div class="dept-amharic eth" lang="am"><?= $d['amharic'] ?></div></div>
                     <?php endforeach; ?>
                 </div>
             </section>
@@ -847,10 +850,10 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="10"/>
                                 <circle cx="60" cy="60" r="52" fill="none" stroke="<?=$scoreColor?>" stroke-width="10" stroke-linecap="round" stroke-dasharray="<?=round($overallScore*3.267)?> 327" style="transition:stroke-dasharray 1s ease"/>
                             </svg>
-                            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center"><span style="font-size:2rem;font-weight:800;color:<?=$scoreColor?>"><?=$overallScore?></span><span style="font-size:.6rem;color:#64748b">/ 100</span></div>
+                            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center"><span style="font-size:2rem;font-weight:800;color:<?=$scoreColor?>"><?=$overallScore?></span><span style="font-size:.6rem;color:#7c8aa5">/ 100</span></div>
                         </div>
                         <div style="font-size:.85rem;font-weight:600;color:<?=$scoreColor?>"><?=$scoreLabel?></div>
-                        <div style="font-size:.65rem;color:#64748b;margin-top:.2rem">Health Score</div>
+                        <div style="font-size:.65rem;color:#7c8aa5;margin-top:.2rem">Health Score</div>
                     </div>
                     <div class="grid-4" style="align-content:start">
                         <div class="stat-card"><div class="stat-header"><div class="stat-title">PHP Version</div><span class="health-badge health-<?=version_compare(phpversion(),'8.0','>=') ? 'good' : 'warning'?>"><?=version_compare(phpversion(),'8.0','>=') ? 'Current' : 'Upgrade'?></span></div><div class="stat-value" style="font-size:1.3rem"><?=phpversion()?></div></div>
@@ -878,7 +881,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                             <?php foreach ($securityChecks as $sc): ?>
                             <div class="health-item">
                                 <span class="health-name"><i class="fa-solid <?=$sc['pass']?'fa-check-circle':'fa-times-circle'?>" style="color:<?=$sc['pass']?'#4ade80':'#f87171'?>;margin-right:.5rem"></i><?=$sc['name']?></span>
-                                <span style="font-size:.7rem;color:<?=$sc['pass']?'#4ade80':'#f87171'?>"><?=$sc['pass']?'Passed':'Failed'?><?php if(!$sc['pass']):?> <span style="color:#64748b">· <?=$sc['tip']?></span><?php endif;?></span>
+                                <span style="font-size:.7rem;color:<?=$sc['pass']?'#4ade80':'#f87171'?>"><?=$sc['pass']?'Passed':'Failed'?><?php if(!$sc['pass']):?> <span style="color:#7c8aa5">· <?=$sc['tip']?></span><?php endif;?></span>
                             </div>
                             <?php endforeach; ?>
                         </div>
@@ -890,12 +893,12 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
                                     <span style="font-size:.6rem;color:#94a3b8"><?=$mg['cnt']?></span>
                                     <div style="width:100%;height:<?=$h?>px;background:linear-gradient(to top,var(--p),var(--pl));border-radius:4px 4px 0 0;min-height:4px;transition:height .5s"></div>
-                                    <span style="font-size:.55rem;color:#475569"><?=substr($mg['month'],5)?></span>
+                                    <span style="font-size:.55rem;color:#7c8aa5"><?=substr($mg['month'],5)?></span>
                                 </div>
                                 <?php endforeach; ?>
                             </div>
                             <?php else: ?>
-                            <p style="color:#64748b;font-size:.8rem;text-align:center;padding:2rem 0">No registration data available</p>
+                            <p style="color:#7c8aa5;font-size:.8rem;text-align:center;padding:2rem 0">No registration data available</p>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -949,14 +952,14 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 <thead><tr><th>Table</th><th>Rows</th><th>Size</th><th>Auto Inc.</th><th>Last Updated</th></tr></thead>
                                 <tbody>
                                 <?php if(empty($tableStats)): ?>
-                                <tr><td colspan="5" style="text-align:center;color:#64748b;padding:1.5rem">No table data available</td></tr>
+                                <tr><td colspan="5" style="text-align:center;color:#7c8aa5;padding:1.5rem">No table data available</td></tr>
                                 <?php else: foreach ($tableStats as $ts): $szKb=(float)($ts['size_kb']??0); ?>
                                 <tr>
                                     <td style="font-weight:500;color:#e2e8f0"><i class="fa-solid fa-table" style="color:#4ade80;margin-right:.35rem;font-size:.7rem"></i><?=htmlspecialchars($ts['table_name']??'')?></td>
                                     <td><?=number_format((int)($ts['table_rows']??0))?></td>
                                     <td><?=$szKb > 1024 ? round($szKb/1024,1).' MB' : $szKb.' KB'?></td>
-                                    <td style="color:#64748b"><?=$ts['auto_increment'] ?? '—'?></td>
-                                    <td style="color:#64748b;font-size:.75rem"><?=$ts['update_time'] ? date('M j, H:i', strtotime($ts['update_time'])) : '—'?></td>
+                                    <td style="color:#7c8aa5"><?=$ts['auto_increment'] ?? '—'?></td>
+                                    <td style="color:#7c8aa5;font-size:.75rem"><?=$ts['update_time'] ? date('M j, H:i', strtotime($ts['update_time'])) : '—'?></td>
                                 </tr>
                                 <?php endforeach; endif; ?>
                                 </tbody>
@@ -978,11 +981,11 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 $maxSz = max(array_map(fn($t) => (float)($t['size_kb']??0), $topTables));
                                 foreach ($topTables as $tt): $sz = (float)($tt['size_kb']??0); $pct = $maxSz > 0 ? round($sz/$maxSz*100) : 0; ?>
                             <div style="margin-bottom:.6rem">
-                                <div style="display:flex;justify-content:space-between;margin-bottom:.2rem"><span style="font-size:.7rem;color:#e2e8f0"><?=htmlspecialchars($tt['table_name']??'')?></span><span style="font-size:.7rem;color:#64748b"><?=$sz > 1024 ? round($sz/1024,1).' MB' : $sz.' KB'?></span></div>
+                                <div style="display:flex;justify-content:space-between;margin-bottom:.2rem"><span style="font-size:.7rem;color:#e2e8f0"><?=htmlspecialchars($tt['table_name']??'')?></span><span style="font-size:.7rem;color:#7c8aa5"><?=$sz > 1024 ? round($sz/1024,1).' MB' : $sz.' KB'?></span></div>
                                 <div style="background:rgba(0,0,0,.3);border-radius:4px;height:6px;overflow:hidden"><div style="height:100%;width:<?=$pct?>%;background:linear-gradient(90deg,var(--p),var(--pl));border-radius:4px"></div></div>
                             </div>
                             <?php endforeach; else: ?>
-                            <p style="color:#64748b;font-size:.8rem;text-align:center;padding:1rem">No data</p>
+                            <p style="color:#7c8aa5;font-size:.8rem;text-align:center;padding:1rem">No data</p>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -1001,7 +1004,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                     <td style="font-weight:500;color:#e2e8f0"><i class="fa-solid fa-file-code" style="color:<?=$fi['exists']?'#4ade80':'#f87171'?>;margin-right:.4rem;font-size:.7rem"></i><?=htmlspecialchars($fi['name'])?></td>
                                     <td><span class="health-badge health-<?=$fi['exists']?'good':'error'?>"><?=$fi['exists']?'OK':'Missing'?></span></td>
                                     <td style="color:#94a3b8"><?=$fi['exists'] ? ($fi['size'] > 1024 ? round($fi['size']/1024,1).' KB' : $fi['size'].' B') : '—'?></td>
-                                    <td style="color:#64748b;font-size:.75rem"><?=$fi['modified']?></td>
+                                    <td style="color:#7c8aa5;font-size:.75rem"><?=$fi['modified']?></td>
                                 </tr>
                                 <?php endforeach; ?>
                                 </tbody>
@@ -1040,7 +1043,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 ];
                             }
                             if (empty($htRules)): ?>
-                            <p style="color:#64748b;font-size:.8rem;text-align:center;padding:1rem">.htaccess not found</p>
+                            <p style="color:#7c8aa5;font-size:.8rem;text-align:center;padding:1rem">.htaccess not found</p>
                             <?php else: foreach ($htRules as $rule => $present): ?>
                             <div class="health-item"><span class="health-name"><?=$rule?></span><span class="health-badge health-<?=$present?'good':'warning'?>"><?=$present?'Present':'Missing'?></span></div>
                             <?php endforeach; endif; ?>
@@ -1052,7 +1055,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <div class="health-panel" id="htab-errors">
                     <div class="card">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-                            <h3 class="card-title" style="margin:0"><i class="fa-solid fa-bug"></i> Error Log <?php if($errorLogSize > 0):?><span style="font-size:.7rem;color:#64748b;font-weight:400;margin-left:.5rem">(<?=$errorLogSize > 1024*1024 ? round($errorLogSize/1024/1024,1).' MB' : round($errorLogSize/1024,1).' KB'?>)</span><?php endif;?></h3>
+                            <h3 class="card-title" style="margin:0"><i class="fa-solid fa-bug"></i> Error Log <?php if($errorLogSize > 0):?><span style="font-size:.7rem;color:#7c8aa5;font-weight:400;margin-left:.5rem">(<?=$errorLogSize > 1024*1024 ? round($errorLogSize/1024/1024,1).' MB' : round($errorLogSize/1024,1).' KB'?>)</span><?php endif;?></h3>
                             <?php if (!empty($errorLogLines)): ?>
                             <form method="POST" style="display:inline"><?=csrfField()?><input type="hidden" name="section" value="health"><button type="submit" name="clear_error_log_inline" class="btn btn-sm btn-danger" onclick="return confirm('Clear error log?')"><i class="fa-solid fa-trash"></i> Clear</button></form>
                             <?php endif; ?>
@@ -1070,7 +1073,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <div class="grid-2" style="margin-top:1rem">
                         <div class="card">
                             <h3 class="card-title"><i class="fa-solid fa-clock-rotate-left"></i> Recent Activity</h3>
-                            <?php if(empty($recentLogs)):?><p style="color:#64748b;font-size:.8rem;text-align:center;padding:1rem">No activity</p>
+                            <?php if(empty($recentLogs)):?><p style="color:#7c8aa5;font-size:.8rem;text-align:center;padding:1rem">No activity</p>
                             <?php else: foreach (array_slice($recentLogs,0,6) as $rl): ?>
                             <div class="log-item"><div class="log-icon"><i class="fa-solid fa-circle-dot"></i></div><div><div class="log-action"><?=htmlspecialchars($rl['action']??'')?></div><div class="log-meta"><?=htmlspecialchars($rl['username']??'System')?> · <?=$rl['created_at']??''?></div></div></div>
                             <?php endforeach; endif; ?>
@@ -1157,7 +1160,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                         </div>
                         <label style="display:flex;align-items:center;justify-content:center;min-height:120px;cursor:pointer;background:repeating-conic-gradient(#1a1f2e 0% 25%, #131720 0% 50%) 50%/14px 14px;position:relative" id="brandPreview_<?= $key ?>">
                             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" style="display:none" onchange="brandUpload('<?= $key ?>',this)">
-                            <div style="color:#64748b;font-size:.7rem;text-align:center;padding:.5rem" id="brandEmpty_<?= $key ?>">
+                            <div style="color:#7c8aa5;font-size:.7rem;text-align:center;padding:.5rem" id="brandEmpty_<?= $key ?>">
                                 <i class="fa-solid fa-cloud-arrow-up" style="font-size:1.8rem;display:block;margin-bottom:.35rem;opacity:.35"></i>
                                 Click to upload
                             </div>
@@ -1165,7 +1168,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                         </label>
                         <div style="padding:.45rem .65rem;border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:.4rem;min-height:28px">
                             <button onclick="brandRemove('<?= $key ?>')" class="brand-rm" title="Remove" style="display:none" id="brandRm_<?= $key ?>"><i class="fa-solid fa-trash"></i></button>
-                            <span style="font-size:.6rem;color:#64748b;flex:1" id="brandInfo_<?= $key ?>"></span>
+                            <span style="font-size:.6rem;color:#7c8aa5;flex:1" id="brandInfo_<?= $key ?>"></span>
                         </div>
                     </div>
                     <?php endforeach; ?>
@@ -1183,7 +1186,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                 <div class="sec-header"><h2 class="sec-title"><i class="fa-solid fa-clock-rotate-left"></i> Activity Logs</h2><p class="sec-desc"><?= count($activityLogs) ?> recent entries</p></div>
                 <div class="card">
                     <?php if (empty($activityLogs)): ?>
-                    <p style="text-align:center;color:#64748b;padding:2rem">No logs yet</p>
+                    <p style="text-align:center;color:#7c8aa5;padding:2rem">No logs yet</p>
                     <?php else: foreach ($activityLogs as $log): ?>
                     <div class="log-item"><div class="log-icon"><i class="fa-solid fa-circle-dot"></i></div><div><div class="log-action"><?= e($log['action']) ?></div><div class="log-details"><?= esc($log['details'], '') ?></div><div class="log-meta"><?= esc($log['username'], 'System') ?> • <?= $log['created_at'] ?></div></div></div>
                     <?php endforeach; endif; ?>
@@ -1206,7 +1209,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     </div>
                     <div class="card"><h3 class="card-title"><i class="fa-solid fa-folder-open"></i> Backups (<?= count($backupFiles) ?>)</h3>
                         <?php if (empty($backupFiles)): ?>
-                        <p style="color:#64748b;font-size:.8rem">No backups yet</p>
+                        <p style="color:#7c8aa5;font-size:.8rem">No backups yet</p>
                         <?php else: foreach (array_slice($backupFiles, 0, 5) as $f): ?>
                         <div class="backup-item"><div class="backup-info"><div class="backup-icon"><i class="fa-solid fa-file-code"></i></div><div><div class="backup-name"><?= e($f['name']) ?></div><div class="backup-meta"><?= e($f['size']) ?> • <?= e($f['date']) ?> • <?= !empty($f['encrypted']) ? 'Encrypted' : 'Legacy plaintext' ?></div></div></div><a href="/admin/tools/download_backup.php?file=<?= urlencode($f['name']) ?>" class="btn btn-primary btn-sm" title="Download backup"><i class="fa-solid fa-download"></i></a></div>
                         <?php endforeach; endif; ?>
@@ -1220,7 +1223,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                     <div><h2 class="sec-title"><i class="fa-solid fa-stethoscope"></i> System Health</h2><p class="sec-desc">Deep code analysis, data integrity, performance & diagnostics</p></div>
                     <div style="text-align:right">
                         <a href="?section=syshealth&refresh_health=1" class="btn btn-sm" style="white-space:nowrap"><i class="fa-solid fa-rotate"></i> Refresh Now</a>
-                        <div style="font-size:.65rem;color:#64748b;margin-top:.35rem"><?= $healthCacheFromCache ? ('Cached ' . max(0, (int)round($healthCacheAge / 60)) . ' min ago') : 'Freshly scanned' ?></div>
+                        <div style="font-size:.65rem;color:#7c8aa5;margin-top:.35rem"><?= $healthCacheFromCache ? ('Cached ' . max(0, (int)round($healthCacheAge / 60)) . ' min ago') : 'Freshly scanned' ?></div>
                     </div>
                 </div>
 
@@ -1252,7 +1255,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                                 <?php foreach ($apiEndpoints as $ep): ?>
                                 <tr>
                                     <td style="font-weight:500;color:#e2e8f0"><?=htmlspecialchars($ep['name'])?></td>
-                                    <td style="color:#64748b;font-size:.75rem"><?=htmlspecialchars($ep['file'])?></td>
+                                    <td style="color:#7c8aa5;font-size:.75rem"><?=htmlspecialchars($ep['file'])?></td>
                                     <td><span class="health-badge health-<?=$ep['exists']?'good':'error'?>"><?=$ep['exists']?'Online':'Missing'?></span></td>
                                     <td style="color:#94a3b8"><?=$ep['lines']?></td>
                                     <td><i class="fa-solid <?=$ep['has_csrf']?'fa-check-circle':'fa-times-circle'?>" style="color:<?=$ep['has_csrf']?'#4ade80':'#f87171'?>"></i></td>
@@ -1313,7 +1316,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                         <h3 class="card-title"><i class="fa-solid fa-users"></i> User Role Distribution</h3>
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem">
                             <?php $roleColors = ['super_admin'=>'#ef4444','school_admin'=>'#f59e0b','hr_dept'=>'#ec4899','info_dept'=>'#10b981','edu_dept'=>'#3b82f6','finance_dept'=>'#8b5cf6','material_dept'=>'#ec4899','mezmur_dept'=>'#06b6d4','teacher'=>'#84cc16','attendance_taker'=>'#84cc16'];
-                            foreach ($userAnalytics['roles'] as $ur): $rc = $roleColors[$ur['role']] ?? '#64748b'; ?>
+                            foreach ($userAnalytics['roles'] as $ur): $rc = $roleColors[$ur['role']] ?? '#7c8aa5'; ?>
                             <div style="background:rgba(0,0,0,.2);border-radius:.6rem;padding:.75rem;text-align:center;border:1px solid rgba(255,255,255,.05)">
                                 <div style="width:36px;height:36px;border-radius:50%;background:<?=$rc?>20;color:<?=$rc?>;display:flex;align-items:center;justify-content:center;margin:0 auto .4rem;font-size:.85rem;font-weight:700"><?=$ur['c']?></div>
                                 <div style="font-size:.7rem;color:#94a3b8"><?=str_replace('_',' ',ucwords($ur['role'],'_'))?></div>
@@ -1363,7 +1366,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
                         <div class="card">
                             <h3 class="card-title"><i class="fa-solid fa-code"></i> Code Security Scan</h3>
                             <?php if (empty($codeIssues)): ?>
-                            <div style="text-align:center;padding:1.5rem;color:#4ade80"><i class="fa-solid fa-shield-check" style="font-size:2.5rem;margin-bottom:.5rem;display:block"></i><p style="font-size:.9rem;font-weight:600">No issues detected!</p><p style="font-size:.75rem;color:#64748b;margin-top:.2rem">All scanned files pass security checks</p></div>
+                            <div style="text-align:center;padding:1.5rem;color:#4ade80"><i class="fa-solid fa-shield-check" style="font-size:2.5rem;margin-bottom:.5rem;display:block"></i><p style="font-size:.9rem;font-weight:600">No issues detected!</p><p style="font-size:.75rem;color:#7c8aa5;margin-top:.2rem">All scanned files pass security checks</p></div>
                             <?php else: foreach ($codeIssues as $ci): ?>
                             <div style="display:flex;align-items:flex-start;gap:.6rem;padding:.6rem;background:rgba(<?=$ci['type']==='danger'?'239,68,68':'245,158,11'?>,.08);border-radius:.5rem;margin-bottom:.5rem;border-left:3px solid <?=$ci['type']==='danger'?'#f87171':'#fbbf24'?>">
                                 <i class="fa-solid fa-<?=$ci['type']==='danger'?'circle-xmark':'triangle-exclamation'?>" style="color:<?=$ci['type']==='danger'?'#f87171':'#fbbf24'?>;margin-top:.1rem"></i>
@@ -1447,9 +1450,12 @@ $navItems = [
         ['icon' => 'fa-solid fa-gauge-high', 'label' => 'Home', 'attrs' => 'data-section="overview"', 'active' => (($activeSection ?? '') === 'overview')],
         ['icon' => 'fa-solid fa-users', 'label' => 'Users', 'attrs' => 'data-section="users"', 'active' => (($activeSection ?? '') === 'users')],
         ['icon' => 'fa-solid fa-building', 'label' => 'Depts', 'attrs' => 'data-section="departments"', 'active' => (($activeSection ?? '') === 'departments')],
+        ['icon' => 'fa-solid fa-id-badge', 'label' => 'Identity', 'attrs' => 'data-section="identity"', 'active' => (($activeSection ?? '') === 'identity')],
     ],
     [
         ['icon' => 'fa-solid fa-mobile-screen-button', 'label' => 'Release', 'attrs' => 'data-section="app_release"', 'active' => (($activeSection ?? '') === 'app_release')],
+        ['icon' => 'fa-solid fa-chart-line', 'label' => 'Fleet', 'attrs' => 'data-section="app_telemetry"', 'active' => (($activeSection ?? '') === 'app_telemetry')],
+        ['icon' => 'fa-solid fa-triangle-exclamation', 'label' => 'Failures', 'attrs' => 'data-section="failure_intelligence"', 'active' => (($activeSection ?? '') === 'failure_intelligence')],
         ['icon' => 'fa-solid fa-heart-pulse', 'label' => 'Health', 'attrs' => 'data-section="health"', 'active' => (($activeSection ?? '') === 'health')],
         ['icon' => 'fa-solid fa-gear', 'label' => 'Settings', 'attrs' => 'data-section="settings"', 'active' => (($activeSection ?? '') === 'settings')],
         ['icon' => 'fa-solid fa-palette', 'label' => 'Brand', 'attrs' => 'data-section="branding"', 'active' => (($activeSection ?? '') === 'branding')],
@@ -1492,8 +1498,8 @@ require __DIR__ . '/../components/bottom_nav.php';
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
     <script src="/admin/js/app_release.js?v=20260928b"></script>
     <script src="/admin/js/app_telemetry.js?v=20260928b"></script>
-    <script src="/admin/js/failure_intelligence.js?v=20261006a"></script>
-    <script src="/admin/js/super_admin.js?v=20260928b"></script>
+    <script src="/admin/js/failure_intelligence.js?v=20261006b"></script>
+    <script src="/admin/js/super_admin.js?v=20261006a"></script>
     <script>
         // Calendar mode save
         async function saveCalendarMode(mode){
@@ -1567,7 +1573,7 @@ require __DIR__ . '/../components/bottom_nav.php';
                             let t=a.original_name||'';
                             const kb=parseInt(a.file_size,10)||0;
                             if(kb>=1024)t+=(t?' · ':'')+Math.max(1,Math.round(kb/1024))+' KB';
-                            info.textContent=t; info.style.color='#64748b';
+                            info.textContent=t; info.style.color='#7c8aa5';
                         }
                         _setPreviewImg(key, a.web_url);
                         if(key==='card_bg' && typeof window.reloadIdDesignerPreview==='function'){
@@ -1577,7 +1583,7 @@ require __DIR__ . '/../components/bottom_nav.php';
                         img.src=''; img.style.display='none';
                         if(empty){empty.style.display='block'; empty.innerHTML='<i class="fa-solid fa-cloud-arrow-up" style="font-size:1.8rem;display:block;margin-bottom:.35rem;opacity:.35"></i>Click to upload';}
                         if(rm)rm.style.display='none';
-                        if(info){info.textContent=''; info.style.color='#64748b';}
+                        if(info){info.textContent=''; info.style.color='#7c8aa5';}
                         _clearPreviewImg(key);
                     }
                 });

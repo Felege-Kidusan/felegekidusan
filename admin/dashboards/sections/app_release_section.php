@@ -51,7 +51,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
 }
 #section-app_release .ar-input::placeholder,
 #section-app_release .ar-textarea::placeholder {
-    color: #64748b;
+    color: #7c8aa5;
     opacity: 1;
 }
 #section-app_release .ar-input:focus,
@@ -86,7 +86,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
     transition: border-color 0.15s ease;
 }
 #section-app_release .ar-toggle-card:hover {
-    border-color: #475569;
+    border-color: #7c8aa5;
 }
 #section-app_release .ar-toggle-card input[type="checkbox"] {
     width: 1.15rem;
@@ -202,7 +202,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
                         if (empty($details)): 
                         ?>
                             <div style="padding:1rem;background:#0f172a;border:1px dashed #334155;border-radius:0.5rem;font-size:.825rem;color:#94a3b8;text-align:center">
-                                <i class="fa-solid fa-box-open" style="font-size:1.25rem;display:block;margin-bottom:0.4rem;color:#64748b"></i>No APK binary uploaded yet. Use the upload card on the right to publish a build.
+                                <i class="fa-solid fa-box-open" style="font-size:1.25rem;display:block;margin-bottom:0.4rem;color:#7c8aa5"></i>No APK binary uploaded yet. Use the upload card on the right to publish a build.
                             </div>
                         <?php else: ?>
                             <?php foreach ($details as $abi => $art): ?>
@@ -213,7 +213,7 @@ $arRelease = \App\Services\AppReleaseManager::getReleaseInfo($arProjectRoot);
                                             <span style="font-size:.75rem;color:#94a3b8;font-weight:400">(<?= htmlspecialchars($art['size_formatted'] ?? '') ?>)</span>
                                         </div>
                                         <div style="font-size:.7rem;color:#cbd5e1;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.2rem" title="SHA-256: <?= htmlspecialchars($art['sha256'] ?? '') ?>">
-                                            <span style="color:#64748b">SHA-256:</span> <?= htmlspecialchars($art['sha256'] ?? '') ?>
+                                            <span style="color:#7c8aa5">SHA-256:</span> <?= htmlspecialchars($art['sha256'] ?? '') ?>
                                         </div>
                                     </div>
                                     <div style="display:flex;gap:.35rem;margin-left:.75rem">

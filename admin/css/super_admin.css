@@ -7,6 +7,8 @@
 
 :root{--p:#16a34a;--pl:#22c55e}
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Inter',system-ui,sans-serif}
+/* Preflight-independent media hygiene (no Tailwind CDN on this page anymore). */
+img,video{max-width:100%;height:auto}
 .eth{font-family:'Noto Serif Ethiopic',serif}
 html,body{height:100%;overflow:hidden}
 body{display:flex;background:#0a0f1a;color:#e2e8f0}
@@ -20,10 +22,10 @@ body{display:flex;background:#0a0f1a;color:#e2e8f0}
 .brand{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem}
 .brand-logo{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--p),var(--pl));display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;box-shadow:0 6px 20px rgba(34,197,94,.4)}
 .brand-txt{font-size:.95rem;font-weight:700;color:#f8fafc}
-.brand-sub{font-size:.65rem;color:#64748b;margin-top:2px}
+.brand-sub{font-size:.65rem;color:#7c8aa5;margin-top:2px}
 
 .nav-sec{margin-bottom:1.25rem}
-.nav-title{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:.5rem;padding-left:.6rem}
+.nav-title{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:#7c8aa5;margin-bottom:.5rem;padding-left:.6rem}
 .nav-list{list-style:none}
 .nav-link{display:flex;align-items:center;gap:.65rem;padding:.65rem .75rem;border-radius:.6rem;color:#94a3b8;text-decoration:none;font-size:.8rem;transition:background-color .15s,color .15s;cursor:pointer;border:none;background:none;width:100%;text-align:left}
 .nav-link:hover{background:rgba(255,255,255,.05);color:#e2e8f0}
@@ -34,14 +36,14 @@ body{display:flex;background:#0a0f1a;color:#e2e8f0}
 .user-card{display:flex;align-items:center;gap:.6rem;padding:.6rem;background:rgba(255,255,255,.03);border-radius:.6rem;margin-bottom:.6rem}
 .user-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--p),var(--pl));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem}
 .user-name{font-size:.8rem;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.user-role{font-size:.65rem;color:#64748b}
+.user-role{font-size:.65rem;color:#7c8aa5}
 .logout-btn{display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;padding:.55rem;border-radius:.6rem;border:1px solid #ef4444;color:#fca5a5;background:transparent;font-size:.75rem;cursor:pointer;transition:background-color .15s,color .15s;text-decoration:none}
 .logout-btn:hover{background:#ef4444;color:#fff}
 
 .main{flex:1;display:flex;flex-direction:column;height:100%;min-width:0;overflow:hidden}
 .topbar{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;background:rgba(15,23,42,.95);border-bottom:1px solid rgba(255,255,255,.05);position:relative;z-index:20;flex-shrink:0;flex-wrap:wrap;gap:.75rem}
 .topbar h1{font-size:1.15rem;font-weight:700;color:#f8fafc}
-.topbar-sub{font-size:.75rem;color:#64748b;margin-top:2px}
+.topbar-sub{font-size:.75rem;color:#7c8aa5;margin-top:2px}
 .status-badge{display:flex;align-items:center;gap:.35rem;padding:.35rem .65rem;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:999px;font-size:.7rem;color:#4ade80}
 .status-dot{width:7px;height:7px;border-radius:50%;background:#4ade80;animation:sa-pulse 2s infinite}
 @keyframes sa-pulse{0%,100%{opacity:1}50%{opacity:.5}}
@@ -65,7 +67,7 @@ main.main .content > section.section.active{display:block!important}
 .sec-header{margin-bottom:1.25rem}
 .sec-title{font-size:1.3rem;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:.6rem}
 .sec-title i{color:var(--pl)}
-.sec-desc{font-size:.8rem;color:#64748b;margin-top:.2rem}
+.sec-desc{font-size:.8rem;color:#7c8aa5;margin-top:.2rem}
 
 .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
@@ -78,7 +80,7 @@ main.main .content > section.section.active{display:block!important}
 .stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1rem}
 .stat-title{font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em}
 .stat-value{font-size:1.75rem;font-weight:700;color:#f8fafc;line-height:1}
-.stat-label{font-size:.7rem;color:#64748b;margin-top:.4rem}
+.stat-label{font-size:.7rem;color:#7c8aa5;margin-top:.4rem}
 
 .card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:.85rem;padding:1.25rem;margin-bottom:1rem}
 .card-title{font-size:.95rem;font-weight:600;color:#f1f5f9;margin-bottom:.85rem;display:flex;align-items:center;gap:.45rem}
@@ -87,7 +89,7 @@ main.main .content > section.section.active{display:block!important}
 .dept-card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:.85rem;padding:1rem}
 .dept-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;margin-bottom:.75rem}
 .dept-name{font-size:.9rem;font-weight:600;color:#f1f5f9}
-.dept-amharic{font-size:.75rem;color:#64748b;margin-top:.2rem}
+.dept-amharic{font-size:.75rem;color:#7c8aa5;margin-top:.2rem}
 
 .health-item{display:flex;align-items:center;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid rgba(255,255,255,.05)}
 .health-item:last-child{border-bottom:none}
@@ -103,6 +105,12 @@ main.main .content > section.section.active{display:block!important}
 .form-input,.form-select{width:100%;padding:.6rem .85rem;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:.6rem;color:#e2e8f0;font-size:.85rem}
 .form-input:focus,.form-select:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 3px rgba(34,197,94,.2)}
 .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1.25rem;border-radius:999px;font-size:.8rem;font-weight:600;cursor:pointer;text-decoration:none;border:none}
+/* Keyboard focus must be visible on the dark chrome (WCAG 2.4.7) — mouse
+   clicks never show it (:focus-visible). */
+.nav-link:focus-visible,.btn:focus-visible,.logout-btn:focus-visible,.mobile-nav-btn:focus-visible,.wbws-bnav-btn:focus-visible,.health-tab:focus-visible,.sys-tab:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+/* Section containers receive programmatic focus on switch (see
+   super_admin.js) — not a keyboard stop, so suppress the outline. */
+.section:focus{outline:none}
 .btn-primary{background:linear-gradient(135deg,var(--p),var(--pl));color:#fff}
 .btn-sm{padding:.45rem .85rem;font-size:.7rem}
 .btn-danger{background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff}
@@ -116,14 +124,14 @@ main.main .content > section.section.active{display:block!important}
 .log-item{display:flex;gap:.75rem;padding:.6rem;background:rgba(0,0,0,.2);border-radius:.6rem;margin-bottom:.4rem}
 .log-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(34,197,94,.15);color:#4ade80}
 .log-action{font-size:.8rem;font-weight:500;color:#f1f5f9}
-.log-details{font-size:.7rem;color:#64748b;margin-top:.15rem}
-.log-meta{font-size:.65rem;color:#475569;margin-top:.2rem}
+.log-details{font-size:.7rem;color:#7c8aa5;margin-top:.15rem}
+.log-meta{font-size:.65rem;color:#7c8aa5;margin-top:.2rem}
 
 .backup-item{display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:rgba(0,0,0,.2);border-radius:.6rem;margin-bottom:.4rem}
 .backup-info{display:flex;align-items:center;gap:.6rem}
 .backup-icon{width:36px;height:36px;border-radius:8px;background:rgba(59,130,246,.15);color:#60a5fa;display:flex;align-items:center;justify-content:center}
 .backup-name{font-size:.8rem;font-weight:500;color:#f1f5f9}
-.backup-meta{font-size:.7rem;color:#64748b}
+.backup-meta{font-size:.7rem;color:#7c8aa5}
 
 table{width:100%;border-collapse:collapse;font-size:.8rem}
 th,td{padding:.6rem .5rem;text-align:left;border-bottom:1px solid rgba(255,255,255,.05)}
@@ -137,7 +145,7 @@ th{color:#94a3b8;font-weight:500;font-size:.7rem;text-transform:uppercase}
 
 .pw-wrap{position:relative}
 .pw-wrap input{width:100%;padding-right:2.5rem}
-.pw-toggle{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);background:none;border:none;color:#64748b;font-size:.7rem;cursor:pointer}
+.pw-toggle{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);background:none;border:none;color:#94a3b8;font-size:.7rem;cursor:pointer}
 
 @media(max-width:768px){
     html,body{height:auto;overflow:auto;overflow-x:hidden}
@@ -151,7 +159,7 @@ th{color:#94a3b8;font-weight:500;font-size:.7rem;text-transform:uppercase}
 
 .mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:linear-gradient(180deg,#1e293b,#0f172a);border-top:1px solid rgba(255,255,255,.1);padding:.4rem;z-index:50}
 .mobile-nav-inner{display:flex;justify-content:space-around}
-.mobile-nav-btn{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.4rem .6rem;color:#64748b;font-size:.6rem;background:none;border:none;cursor:pointer;border-radius:.6rem;text-decoration:none}
+.mobile-nav-btn{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.4rem .6rem;color:#7c8aa5;font-size:.6rem;background:none;border:none;cursor:pointer;border-radius:.6rem;text-decoration:none}
 .mobile-nav-btn i{font-size:1rem}
 .mobile-nav-btn.active{color:var(--pl);background:rgba(34,197,94,.1)}
 
@@ -164,3 +172,11 @@ th{color:#94a3b8;font-weight:500;font-size:.7rem;text-transform:uppercase}
 .sys-tab:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
 .sys-tab.active{background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(99,102,241,.3)}
 @media(max-width:640px){.health-panel .grid-2,.sys-panel .grid-2,.sys-panel .grid-3{grid-template-columns:1fr}#section-health>div:first-child{grid-template-columns:1fr}}
+
+/* Reduced motion (WCAG 2.3.3 / constitution §22): kill the ambient pulse
+   and micro-transitions for users who ask the OS for less motion. The same
+   pattern already lives in admin/css/account.css and comm.css. */
+@media(prefers-reduced-motion:reduce){
+    .status-dot{animation:none}
+    .nav-link,.btn,.logout-btn,.brand-rm,.health-tab,.sys-tab,.mobile-nav-btn,.wbws-bnav-btn{transition:none}
+}

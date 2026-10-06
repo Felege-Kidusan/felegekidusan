@@ -103,7 +103,7 @@
         var status = issue.status || 'open';
         html += '<tr>' +
           '<td><div style="font-weight:600;color:#f8fafc;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(issue.title) + '">' + escapeHtml(issue.title) + '</div>' +
-          '<div style="font-size:.65rem;color:#64748b">' + escapeHtml(issue.category || 'uncategorised') + (issue.regression_count > 0 ? ' · <span style="color:#f87171;font-weight:700">regressed ' + issue.regression_count + '×</span>' : '') + '</div></td>' +
+          '<div style="font-size:.65rem;color:#7c8aa5">' + escapeHtml(issue.category || 'uncategorised') + (issue.regression_count > 0 ? ' · <span style="color:#f87171;font-weight:700">regressed ' + issue.regression_count + '×</span>' : '') + '</div></td>' +
           '<td><span style="color:' + (SOURCE_COLORS[source] || '#94a3b8') + ';font-weight:700;font-size:.72rem">' + (SOURCE_LABELS[source] || source) + '</span></td>' +
           '<td>' + Number(issue.affected || 0).toLocaleString() + '</td>' +
           '<td>' + Number(issue.occurrences || 0).toLocaleString() + '</td>' +
@@ -129,7 +129,7 @@
       return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="' + escapeHtml(d.day) + ': ' + d.c + '">' +
         '<span style="font-size:.58rem;color:#94a3b8">' + d.c + '</span>' +
         '<div style="width:70%;height:' + height + 'px;background:linear-gradient(180deg,#f87171,#7f1d1d);border-radius:2px 2px 0 0"></div>' +
-        '<span style="font-size:.55rem;color:#64748b">' + escapeHtml(String(d.day).slice(5)) + '</span>' +
+        '<span style="font-size:.55rem;color:#7c8aa5">' + escapeHtml(String(d.day).slice(5)) + '</span>' +
         '</div>';
     });
     return '<div style="display:flex;align-items:flex-end;gap:2px;height:76px">' + bars.join('') + '</div>';
@@ -173,7 +173,7 @@
       if (ev.samples && ev.samples.length) {
         evidenceHtml += '<h4 style="margin:.9rem 0 .3rem;color:#f8fafc;font-size:.85rem">Latest server samples (redacted at capture)</h4>' +
           ev.samples.map(function (s) {
-            return '<div style="font-size:.72rem;color:#cbd5e1;margin-bottom:.35rem;padding:.4rem .5rem;border-left:2px solid #f59e0b;background:rgba(30,41,59,.5);border-radius:0 4px 4px 0">[' + escapeHtml(s.severity) + '] ' + escapeHtml(s.message) + '<br><span style="color:#64748b">' + escapeHtml(s.file_path) + ':' + s.line_number + ' · ' + escapeHtml(s.created_at) + '</span></div>';
+            return '<div style="font-size:.72rem;color:#cbd5e1;margin-bottom:.35rem;padding:.4rem .5rem;border-left:2px solid #f59e0b;background:rgba(30,41,59,.5);border-radius:0 4px 4px 0">[' + escapeHtml(s.severity) + '] ' + escapeHtml(s.message) + '<br><span style="color:#7c8aa5">' + escapeHtml(s.file_path) + ':' + s.line_number + ' · ' + escapeHtml(s.created_at) + '</span></div>';
           }).join('');
       }
 
@@ -189,14 +189,14 @@
         '<button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById(\'fi-issue-detail\').hidden=true">Close</button>' +
         '</div></div>' +
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.5rem .9rem;margin-bottom:.9rem;font-size:.78rem">' +
-        '<div><span style="color:#64748b">24h</span><br><span style="color:#e2e8f0">' + d.occurrences_24h + ' occurrences · ' + d.affected_24h + ' affected</span></div>' +
-        '<div><span style="color:#64748b">7d</span><br><span style="color:#e2e8f0">' + d.occurrences_7d + ' occurrences · ' + d.affected_7d + ' affected</span></div>' +
-        '<div><span style="color:#64748b">Lifetime</span><br><span style="color:#e2e8f0">' + d.total_occurrences + ' since ' + escapeHtml(d.first_seen_at) + '</span></div>' +
-        (d.resolved_at ? '<div><span style="color:#64748b">Resolved</span><br><span style="color:#e2e8f0">' + escapeHtml(d.resolved_at) + ' by ' + escapeHtml(d.resolved_by || '?') + '</span></div>' : '') +
+        '<div><span style="color:#7c8aa5">24h</span><br><span style="color:#e2e8f0">' + d.occurrences_24h + ' occurrences · ' + d.affected_24h + ' affected</span></div>' +
+        '<div><span style="color:#7c8aa5">7d</span><br><span style="color:#e2e8f0">' + d.occurrences_7d + ' occurrences · ' + d.affected_7d + ' affected</span></div>' +
+        '<div><span style="color:#7c8aa5">Lifetime</span><br><span style="color:#e2e8f0">' + d.total_occurrences + ' since ' + escapeHtml(d.first_seen_at) + '</span></div>' +
+        (d.resolved_at ? '<div><span style="color:#7c8aa5">Resolved</span><br><span style="color:#e2e8f0">' + escapeHtml(d.resolved_at) + ' by ' + escapeHtml(d.resolved_by || '?') + '</span></div>' : '') +
         '</div>' +
         '<h4 style="margin:.4rem 0 .4rem;color:#f8fafc;font-size:.85rem">When (last 14 days)</h4>' + renderTimeline(d.timeline) +
         evidenceHtml +
-        '<h4 style="margin:1rem 0 .4rem;color:#f8fafc;font-size:.85rem">How to fix it <span style="color:#64748b;font-weight:400;font-size:.7rem">(' + escapeHtml(rem.source_of_truth === 'admin_override' ? 'admin override' : (rem.source_of_truth === 'catalog_seed' ? 'seeded catalog' : 'not catalogued yet')) + ')</span></h4>' +
+        '<h4 style="margin:1rem 0 .4rem;color:#f8fafc;font-size:.85rem">How to fix it <span style="color:#7c8aa5;font-weight:400;font-size:.7rem">(' + escapeHtml(rem.source_of_truth === 'admin_override' ? 'admin override' : (rem.source_of_truth === 'catalog_seed' ? 'seeded catalog' : 'not catalogued yet')) + ')</span></h4>' +
         '<div style="display:grid;gap:.5rem">' +
         (rem.cause ? '<div style="font-size:.78rem;color:#cbd5e1"><strong style="color:#f8fafc">Cause:</strong> ' + escapeHtml(rem.cause) + '</div>' : '') +
         (rem.steps ? '<div style="font-size:.78rem;color:#cbd5e1;white-space:pre-line"><strong style="color:#f8fafc">Fix steps:</strong>' + "\n" + escapeHtml(rem.steps) + '</div>' : '<div style="font-size:.75rem;color:#f87171">No cause or fix steps recorded — add them below; they will be attached to every future report for this issue.</div>') +
