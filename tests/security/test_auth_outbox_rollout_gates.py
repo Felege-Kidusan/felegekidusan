@@ -26,19 +26,19 @@ class Build24ReleaseGateTest(unittest.TestCase):
         cls.comm = (MOBILE / "lib/services/comm_outbox_service.dart").read_text(encoding="utf-8")
         cls.hymn = (MOBILE / "lib/services/hymn_store.dart").read_text(encoding="utf-8")
 
-    def test_release_version_sources_are_build_26(self):
-        # Bumped 2026-10-07 for the attendance rework release (build 26):
-        # default-absent UX, draft-merge sync fix, HR retirement.
+    def test_release_version_sources_are_build_27(self):
+        # Bumped 2026-10-07 for the felegekidusan.com production cutover
+        # release (build 27): new API address + Android network config.
         pubspec = (MOBILE / "pubspec.yaml").read_text(encoding="utf-8")
         config = (MOBILE / "lib/utils/config.dart").read_text(encoding="utf-8")
         notes = (MOBILE / "RELEASE_NOTES.md").read_text(encoding="utf-8")
-        self.assertRegex(pubspec, r"(?m)^version:\s*1\.6\.0\+26\s*$")
-        self.assertIn("appVersion = '1.6.0'", config)
-        self.assertIn("appBuild = 26", config)
-        self.assertIn("## 1.6.0 (build 26)", notes)
+        self.assertRegex(pubspec, r"(?m)^version:\s*1\.6\.1\+27\s*$")
+        self.assertIn("appVersion = '1.6.1'", config)
+        self.assertIn("appBuild = 27", config)
+        self.assertIn("## 1.6.1 (build 27)", notes)
         for source in (self.release, self.release_example):
-            self.assertRegex(source, r"'latest_version'\s*=>\s*'1\.6\.0'")
-            self.assertRegex(source, r"'latest_build'\s*=>\s*26")
+            self.assertRegex(source, r"'latest_version'\s*=>\s*'1\.6\.1'")
+            self.assertRegex(source, r"'latest_build'\s*=>\s*27")
 
     def test_release_config_exposes_a_strict_drain_switch(self):
         self.assertIn("'background_drains_enabled' => true", self.release)

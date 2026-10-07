@@ -5,6 +5,18 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.1 (build 27) — New address: felegekidusan.com
+
+The system now lives at its own address: felegekidusan.com. This update
+points the app at the new address so it keeps working after the old
+address (felegekidusan.arkeonethiopia.com) is retired.
+
+- The app now connects to https://felegekidusan.com/api/v1 — the same
+  system, the same account and the same data; only the address changes.
+- The Android network security configuration now lists felegekidusan.com.
+- Everything else is unchanged: attendance, mezmur, messages, offline
+  sync and automatic updates work exactly as before.
+
 ## 1.6.0 (build 26) — Faster attendance & HR retirement
 
 Taking attendance is now faster: every student starts as Absent, so you

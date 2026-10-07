@@ -32,6 +32,15 @@ define('DB_NAME', 'REPLACE_WITH_YOUR_DB_NAME');
 define('DB_USER', 'REPLACE_WITH_YOUR_DB_USER');
 define('DB_PASS', 'REPLACE_WITH_YOUR_DB_PASSWORD');
 
+// ---- Site identity (optional — see school_config.php) ----
+// Define the deployment's public domain here to override the development
+// default in school_config.php. SITE_URL, ADMIN_URL, the API's CORS
+// origins, QR-card payloads and the uptime check all derive from this
+// single value, so this one line is the whole domain configuration.
+// No scheme, no www, no trailing slash:
+// define('SITE_DOMAIN', 'felegekidusan.com');
+
+
 // ---- Security keys ----
 // Generate long random strings. On the server you can run:
 //   php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
