@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// FKSS App — Configuration Constants
 class AppConfig {
-  static const String apiBaseUrl = 'https://felegekidusan.arkeonethiopia.com/api/v1';
+  static const String apiBaseUrl = 'https://felegekidusan.com/api/v1';
 
   /// Site root (apiBaseUrl without the /api/v1 suffix) — the origin that
   /// serves RELATIVE upload URLs (category/singer covers, hymn art
@@ -20,8 +20,8 @@ class AppConfig {
   // drifting is what hid updates from phones before P65).
   // Mirrored from pubspec.yaml and pinned by the release-gate test because
   // API headers and update decisions need these values before package lookup.
-  static const String appVersion = '1.6.0';
-  static const int appBuild = 26;
+  static const String appVersion = '1.6.1';
+  static const int appBuild = 27;
   static const String tokenKey = 'fkss_token';
   static const String refreshTokenKey = 'fkss_refresh_token';
   static const String userDataKey = 'fkss_user';

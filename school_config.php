@@ -111,8 +111,15 @@ define('MEMBER_CODE_FORMAT', '');
 // │  Site domain, used in CORS, QR codes, links, cron paths     │
 // └─────────────────────────────────────────────────────────────┘
 
-// Primary domain (no trailing slash)
-define('SITE_DOMAIN', 'felegekidusan.arkeonethiopia.com');
+// Primary domain (no trailing slash).
+// ENVIRONMENT-FIRST (production cutover 2026-10): config.php loads the
+// environment file (.fkss_env.php) BEFORE this file, so each deployment
+// owns its domain there — production defines SITE_DOMAIN in
+// /home/felegeki/.fkss_env.php. The fallback below only applies when the
+// environment did not provide one, so development keeps today's value.
+if (!defined('SITE_DOMAIN')) {
+    define('SITE_DOMAIN', 'felegekidusan.arkeonethiopia.com');
+}
 
 // Full site URL
 define('SITE_URL', 'https://' . SITE_DOMAIN);
