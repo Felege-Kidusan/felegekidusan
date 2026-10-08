@@ -1015,21 +1015,52 @@ switch ($action) {
             $classId = $targetClassIds[0];
             $subjectId = $explicitSubjectIds[0];
 
-            $stmt = $conn->prepare("
-                SELECT COALESCE(SUM(weight_percentage), 0) as total 
-                FROM assessments 
-                WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
-            ");
-            $stmt->bind_param("iii", $classId, $subjectId, $currentYear['id']);
+            // ── Semester resolution comes FIRST: the 100% budget is per
+            // semester (1.6.6), so the target term decides which budget
+            // the new weight is charged against. Default = current
+            // semester; explicit override must be an ACTIVE-year semester
+            // (back-fill after a flip).
+            $termId = null; $termName = null;
+            $ct = _subj_current_term($conn);
+            if ($ct) { $termId = (int)$ct['id']; $termName = (string)$ct['term_name']; }
+            $postedTermId = (int)($_POST['term_id'] ?? 0);
+            if ($postedTermId > 0) {
+                $vt = _subj_term_of_active_year($conn, $postedTermId);
+                if (!$vt) {
+                    echo json_encode(['status' => 'error', 'message' => 'That semester is not part of the active academic year.']);
+                    exit;
+                }
+                $termId = (int)$vt['id'];
+                $termName = (string)$vt['term_name'];
+            }
+
+            // Per-semester 100% budget (year-wide fallback only when no
+            // semester exists yet — legacy databases).
+            if ($termId !== null) {
+                $stmt = $conn->prepare("
+                    SELECT COALESCE(SUM(weight_percentage), 0) as total 
+                    FROM assessments 
+                    WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND term_id = ?
+                ");
+                $stmt->bind_param("iiii", $classId, $subjectId, $currentYear['id'], $termId);
+            } else {
+                $stmt = $conn->prepare("
+                    SELECT COALESCE(SUM(weight_percentage), 0) as total 
+                    FROM assessments 
+                    WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
+                ");
+                $stmt->bind_param("iii", $classId, $subjectId, $currentYear['id']);
+            }
             $stmt->execute();
             $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
             $stmt->close();
             
             if ($currentTotal + $weight > 100) {
                 $remaining = 100 - $currentTotal;
+                $scopeLabel = $termName !== null ? "in {$termName}" : 'for this subject';
                 echo json_encode([
                     'status' => 'error', 
-                    'message' => "Cannot add {$weight}%. Current total is {$currentTotal}%, only {$remaining}% remaining."
+                    'message' => "Cannot add {$weight}%. Assessments {$scopeLabel} already total {$currentTotal}%, only {$remaining}% remaining this semester."
                 ]);
                 exit;
             }
@@ -1043,23 +1074,6 @@ switch ($action) {
             $stmt->execute();
             $nextOrder = (int)$stmt->get_result()->fetch_assoc()['next_order'];
             $stmt->close();
-            
-            $termId = null; $termName = null;
-            $ct = _subj_current_term($conn);
-            if ($ct) { $termId = (int)$ct['id']; $termName = (string)$ct['term_name']; }
-            // Fence override: the creator may explicitly target another
-            // semester of the ACTIVE year (back-fill after a flip). Anything
-            // else — foreign year, closed year, invented id — is rejected.
-            $postedTermId = (int)($_POST['term_id'] ?? 0);
-            if ($postedTermId > 0) {
-                $vt = _subj_term_of_active_year($conn, $postedTermId);
-                if (!$vt) {
-                    echo json_encode(['status' => 'error', 'message' => 'That semester is not part of the active academic year.']);
-                    exit;
-                }
-                $termId = (int)$vt['id'];
-                $termName = (string)$vt['term_name'];
-            }
             
             $stmt = $conn->prepare("
                 INSERT INTO assessments 
@@ -1078,9 +1092,10 @@ switch ($action) {
                 $newId = $conn->insert_id;
                 $stmt->close();
                 $newTotal = $currentTotal + $weight;
+                $scopeLabel = $termName !== null ? "Semester total ({$termName}) now: {$newTotal}%" : "Total weight now: {$newTotal}%";
                 echo json_encode([
                     'status' => 'success', 
-                    'message' => "Assessment created! Total weight now: {$newTotal}%",
+                    'message' => "Assessment created! {$scopeLabel}",
                     'assessment_id' => $newId,
                     'new_total' => $newTotal,
                     'term_id' => $termId,
@@ -1265,11 +1280,21 @@ switch ($action) {
             $allSubjectsRequested = true;
         }
 
-        // Get current term
+        // Target semester: the current one by default, or an explicit
+        // ACTIVE-year semester (back-fill). The template replaces ONLY that
+        // semester's un-graded scheme — the other semester's assessments
+        // are untouched (1.6.6; previously this wiped the whole year).
         $termId = null;
-        $termResult = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
-        if ($termResult && $term = $termResult->fetch_assoc()) {
-            $termId = (int)$term['id'];
+        $ct = _subj_current_term($conn);
+        if ($ct) { $termId = (int)$ct['id']; }
+        $postedTermIdTpl = (int)($_POST['term_id'] ?? 0);
+        if ($postedTermIdTpl > 0) {
+            $vt = _subj_term_of_active_year($conn, $postedTermIdTpl);
+            if (!$vt) {
+                echo json_encode(['status' => 'error', 'message' => 'That semester is not part of the active academic year.']);
+                exit;
+            }
+            $termId = (int)$vt['id'];
         }
 
         $createdBy = (int)$_SESSION['admin_id'];
@@ -1301,14 +1326,27 @@ switch ($action) {
                 }
 
                 foreach ($subjectIdsForClass as $sid) {
-                    // Check if existing assessments have grades recorded
-                    $stmt = $conn->prepare("
-                        SELECT COUNT(*) as grade_count 
-                        FROM academic_records ar
-                        JOIN assessments a ON ar.assessment_id = a.id
-                        WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
-                    ");
-                    $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    // Check if the TARGET semester's assessments (or legacy
+                    // no-semester ones) have grades recorded — graded work is
+                    // never overwritten. Other semesters are not this
+                    // template's business.
+                    if ($termId !== null) {
+                        $stmt = $conn->prepare("
+                            SELECT COUNT(*) as grade_count 
+                            FROM academic_records ar
+                            JOIN assessments a ON ar.assessment_id = a.id
+                            WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ? AND (a.term_id = ? OR a.term_id IS NULL)
+                        ");
+                        $stmt->bind_param("iiii", $cid, $sid, $currentYear['id'], $termId);
+                    } else {
+                        $stmt = $conn->prepare("
+                            SELECT COUNT(*) as grade_count 
+                            FROM academic_records ar
+                            JOIN assessments a ON ar.assessment_id = a.id
+                            WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
+                        ");
+                        $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    }
                     $stmt->execute();
                     $hasGrades = (int)$stmt->get_result()->fetch_assoc()['grade_count'] > 0;
                     $stmt->close();
@@ -1318,9 +1356,17 @@ switch ($action) {
                         continue; // Do not overwrite existing graded assessments
                     }
 
-                    // Delete previous un-graded assessments for this class-subject
-                    $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
-                    $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    // Delete the target semester's previous un-graded scheme
+                    // for this class-subject (plus legacy no-semester rows,
+                    // which count in every report and must not linger beside
+                    // a fresh scheme).
+                    if ($termId !== null) {
+                        $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND (term_id = ? OR term_id IS NULL)");
+                        $stmt->bind_param("iiii", $cid, $sid, $currentYear['id'], $termId);
+                    } else {
+                        $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
+                        $stmt->bind_param("iii", $cid, $sid, $currentYear['id']);
+                    }
                     $stmt->execute();
                     $stmt->close();
 
@@ -1383,8 +1429,9 @@ switch ($action) {
             exit;
         }
         
-        // Get current assessment info
-        $stmt = $conn->prepare("SELECT class_id, subject_id, academic_year_id, weight_percentage FROM assessments WHERE id = ?");
+        // Get current assessment info (term_id needed for the per-semester
+        // budget — 1.6.6)
+        $stmt = $conn->prepare("SELECT class_id, subject_id, academic_year_id, weight_percentage, term_id FROM assessments WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $current = $stmt->get_result()->fetch_assoc();
@@ -1394,13 +1441,38 @@ switch ($action) {
             exit;
         }
         
-        // Calculate new total (excluding current assessment)
-        $stmt = $conn->prepare("
-            SELECT COALESCE(SUM(weight_percentage), 0) as total 
-            FROM assessments 
-            WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND id != ?
-        ");
-        $stmt->bind_param("iiii", $current['class_id'], $current['subject_id'], $current['academic_year_id'], $id);
+        // Effective target semester for the 100% budget: an explicit
+        // (validated below) term move charges the DESTINATION semester;
+        // otherwise the assessment's current semester. NULL (legacy
+        // no-semester test) falls back to the year-wide budget.
+        $postedTermIdUpd = isset($_POST['term_id']) && $_POST['term_id'] !== '' ? (int)$_POST['term_id'] : 0;
+        $budgetTermId = $current['term_id'] !== null ? (int)$current['term_id'] : null;
+        if ($postedTermIdUpd > 0) {
+            $vtBudget = _subj_term_of_active_year($conn, $postedTermIdUpd);
+            if (!$vtBudget) {
+                echo json_encode(['status' => 'error', 'message' => 'That semester is not part of the active academic year. No changes were saved.']);
+                exit;
+            }
+            $budgetTermId = (int)$vtBudget['id'];
+        }
+        
+        // Calculate new total (excluding current assessment), scoped to the
+        // target semester
+        if ($budgetTermId !== null) {
+            $stmt = $conn->prepare("
+                SELECT COALESCE(SUM(weight_percentage), 0) as total 
+                FROM assessments 
+                WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND term_id = ? AND id != ?
+            ");
+            $stmt->bind_param("iiiii", $current['class_id'], $current['subject_id'], $current['academic_year_id'], $budgetTermId, $id);
+        } else {
+            $stmt = $conn->prepare("
+                SELECT COALESCE(SUM(weight_percentage), 0) as total 
+                FROM assessments 
+                WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND id != ?
+            ");
+            $stmt->bind_param("iiii", $current['class_id'], $current['subject_id'], $current['academic_year_id'], $id);
+        }
         $stmt->execute();
         $otherTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
         
@@ -1408,7 +1480,7 @@ switch ($action) {
             $remaining = 100 - $otherTotal;
             echo json_encode([
                 'status' => 'error', 
-                'message' => "Cannot set {$weight}%. Other assessments total {$otherTotal}%, max allowed: {$remaining}%"
+                'message' => "Cannot set {$weight}%. Other assessments in that semester total {$otherTotal}%, max allowed: {$remaining}% this semester."
             ]);
             exit;
         }

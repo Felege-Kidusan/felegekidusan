@@ -1822,8 +1822,9 @@ class ApiService {
             if (termId != null) 'term_id': '$termId',
           });
 
-  Future<ApiResponse> createAssessment(Map<String, dynamic> data) =>
-      post('/grades/assessments', body: data);
+  // 1.6.6: createAssessment() was removed — assessments are created and
+  // managed by the Education Department (web console). The mobile API
+  // endpoint refuses teacher creation with 403 by design.
 
   Future<ApiResponse> getGradeStudents(int assessmentId) =>
       get('/grades/students', params: {'assessment_id': '$assessmentId'});
