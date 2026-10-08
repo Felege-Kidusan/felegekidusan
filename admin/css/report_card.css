@@ -1,210 +1,197 @@
-/* FKSS report cards — high contrast on screen and on paper. */
-#sec-reportcards,
-#sec-reports{
-  --rc-maroon:#600000;
-  --rc-maroon-dark:#3b0000;
-  --rc-gold:#F0C000;
-  --rc-ink:#1a0a0a;
-  --rc-muted:#4a2c2c;
-  color:var(--rc-ink);
-}
-#sec-reportcards h2,#sec-reports h2{color:#3b0000!important}
-#sec-reportcards .rc-stat,
-#sec-reports .rc-stat{
-  background:#fff;
-  border:2px solid #600000;
-  border-radius:10px;
-  padding:.85rem .9rem;
-  color:#1a0a0a;
-  -webkit-print-color-adjust:exact;
-  print-color-adjust:exact;
-}
-#sec-reportcards .rc-stat b,
-#sec-reports .rc-stat b{
-  display:block;font-size:1.55rem;font-weight:800;color:#600000;line-height:1.15
-}
-#sec-reportcards .rc-stat span,
-#sec-reports .rc-stat span{
-  display:block;font-size:.68rem;font-weight:700;color:#3b0000;text-transform:uppercase;letter-spacing:.04em;margin-top:.2rem
-}
-#sec-reportcards .dt th{background:#600000!important;color:#F0C000!important;font-weight:700}
-#sec-reportcards .dt td{color:#1a0a0a;border-bottom:1px solid #d4b896}
-#sec-reportcards .dt tr:hover td{background:#fff8e1}
-
-.rc-sem{
-  border:3px solid #600000;border-radius:10px;padding:.85rem 1rem;margin-bottom:1rem;
-  background:#fff8e8;color:#1a0a0a;
-  -webkit-print-color-adjust:exact;print-color-adjust:exact;
-}
-.rc-sem-title{font-size:.72rem;font-weight:800;color:#3b0000;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem}
-.rc-sem-nums{display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;align-items:baseline;margin:.35rem 0 .55rem}
-.rc-sem-nums .done{font-size:1.55rem;font-weight:800;color:#600000}
-.rc-sem-nums .left{font-size:1.55rem;font-weight:800;color:#8a1a1a}
-.rc-sem-nums small{display:block;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-
-.rc-donebar{height:16px;border:2px solid #3b0000;border-radius:4px;overflow:hidden;display:flex;background:#fff;margin-top:.35rem}
-.rc-donebar i{display:block;height:100%;background:#600000;min-width:0}
-.rc-donebar em{display:block;height:100%;background:#F0C000;flex:1}
-.rc-done-lbl{font-size:.78rem;font-weight:800;color:#1a0a0a;margin-top:.35rem}
-.rc-done-lbl .left{color:#8a1a1a}
-.rc-done-miss{font-size:.68rem;color:#8a1a1a;margin-top:.2rem;font-weight:700}
-.rc-items{margin:.45rem 0 0;padding:0;list-style:none}
-.rc-items li{display:flex;justify-content:space-between;gap:.6rem;font-size:.72rem;font-weight:700;padding:.18rem 0;border-top:1px solid #e8d4a8}
-.rc-items .ok{color:#065f46}
-.rc-items .wait{color:#8a1a1a}
-
-.rc-subj-card{border:2px solid #600000;border-radius:10px;padding:.75rem .85rem;background:#fff;color:#1a0a0a}
-.rc-subj-card .nm{font-weight:800;font-size:.9rem;color:#3b0000}
-.rc-subj-card .av{font-size:1.25rem;font-weight:800;color:#600000}
-.rc-subj-card .av small{display:block;font-size:.62rem;font-weight:700;color:#3b0000;text-transform:uppercase}
-
-.rc-print-banner{display:none}
+/* ═══════════════════════════════════════════════════════════════════════
+   Student Report Card — A4 landscape statement layout (1.6.9)
+   Reference: report-card-optimized-v3 (user-approved), with a readability
+   pass: every data value ≥ 7.6pt, labels ≥ 6.4pt, line-height 1.3,
+   tabular numerals. Left column: profile, metrics, subject summary,
+   attendance, scale & signatures. Right column: assessment ledger.
+   ═══════════════════════════════════════════════════════════════════ */
 
 .rc-sheet{
-  --rc-maroon:#600000;--rc-maroon-dark:#400000;--rc-gold:#F0C000;--rc-ink:#1a0a0a;--rc-muted:#4a2c2c;
-  background:#fff;color:var(--rc-ink);border:2px solid #600000;border-radius:4px;overflow:hidden;
-  font-family:'Poppins','Noto Serif Ethiopic',serif;
+  --maroon:#6f171e; --maroon-dark:#521016; --gold:#c7a347; --gold-soft:#ead9a4;
+  --ink:#2f2a28; --muted:#6e655d; --paper:#fbfaf6; --ivory:#f4efe4;
+  --line:#d8cec0; --green:#2c735d; --soft:#fdf9f0;
+  position:relative; background:var(--paper); color:var(--ink);
+  font-family:"Noto Sans Ethiopic","Abyssinica SIL","DejaVu Sans",Arial,sans-serif;
+  font-size:9pt; line-height:1.28;
+  width:100%; margin:auto; padding:5mm 7mm 6mm;
+  font-variant-numeric:tabular-nums;
 }
+.rc-sheet,.rc-sheet *,.rc-sheet *:before,.rc-sheet *:after{box-sizing:border-box}
+.rc-sheet:before{
+  content:""; position:absolute; inset:4mm; border:1px solid var(--gold-soft); pointer-events:none;
+}
+.rc-sheet .am{font-family:"Noto Sans Ethiopic","Abyssinica SIL",serif}
+
+/* ── header band ─────────────────────────────────────────────────── */
 .rc-head{
-  background:#600000;color:#fff;padding:1.05rem 1.25rem 1rem;
-  display:flex;gap:1rem;align-items:center;border-bottom:5px solid #F0C000;
+  display:grid; grid-template-columns:20mm 1fr 46mm; align-items:center; gap:3.5mm;
+  padding:1.8mm 4mm 1.6mm; background:var(--maroon); color:#fff;
+  border-radius:2.2mm 2.2mm 0 0; position:relative; min-height:16mm;
 }
-.rc-logo{width:68px;height:68px;object-fit:contain;flex-shrink:0;background:#fff;border-radius:50%;padding:4px;border:2px solid #F0C000}
-.rc-head-text{flex:1;text-align:center;min-width:0}
-.rc-invoc{font-size:.62rem;letter-spacing:.04em;margin-bottom:.15rem;color:#F0C000}
-.rc-school-am{font-family:'Noto Serif Ethiopic',serif;font-weight:700;font-size:1.05rem;line-height:1.3;color:#fff}
-.rc-school-en{font-size:.68rem;margin-top:.1rem;color:#fff}
-.rc-parish{font-size:.6rem;margin-top:.15rem;color:#F0C000}
-.rc-title-row{
-  margin-top:.55rem;padding-top:.45rem;border-top:1px solid #F0C000;
-  font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:.72rem;color:#F0C000;
+.rc-head:after{
+  content:""; position:absolute; left:4mm; right:4mm; bottom:1.4mm; height:.5mm; background:var(--gold);
 }
-.rc-subhead{font-size:.68rem;margin-top:.2rem;color:#fff}
-.rc-body{padding:1rem 1.15rem 1.15rem;color:#1a0a0a}
-.rc-meta{
-  display:grid;grid-template-columns:1fr 1fr;gap:.35rem .9rem;
-  font-size:.8rem;background:#fff8e8;border:2px solid #600000;
-  border-radius:8px;padding:.75rem .9rem;margin-bottom:.85rem;color:#1a0a0a;
+.rc-logo{width:14mm; height:14mm; object-fit:contain; background:#fff8d8; border:1mm solid var(--gold); border-radius:50%; padding:.7mm}
+.rc-head-main{text-align:center}
+.rc-invoc{font-size:6.8pt; color:#f3e4b9; margin-bottom:.2mm}
+.rc-school-am{font-size:11pt; font-weight:700}
+.rc-school-en{font-size:9.5pt; font-weight:800; letter-spacing:.5px; margin-top:.3mm}
+.rc-parish{font-size:6.8pt; color:#f3e4b9; margin-top:.3mm}
+.rc-head-title{text-align:right; text-transform:uppercase; letter-spacing:.8px; color:#fff8dc; font-size:8pt; font-weight:800}
+.rc-head-title b{display:block; color:#fff; font-size:9.5pt; margin-bottom:.8mm}
+.rc-head-title span{display:block; font-size:7pt; letter-spacing:.3px; color:#f2dfad; text-transform:none; margin-top:.3mm}
+
+/* ── two-column content ──────────────────────────────────────────── */
+.rc-content{display:grid; grid-template-columns:39% 1fr; gap:3mm; padding-top:2mm; align-items:start}
+
+/* ── cards (left column) ─────────────────────────────────────────── */
+.rc-card{border:1px solid var(--line); border-radius:1.5mm; background:#fffdf9; overflow:hidden; margin-bottom:1.6mm}
+.rc-card-head{
+  display:flex; justify-content:space-between; align-items:baseline;
+  background:var(--ivory); border-bottom:1px solid var(--line);
+  padding:1.1mm 2.2mm .9mm; color:var(--maroon-dark);
+  text-transform:uppercase; letter-spacing:.6px; font-size:7pt; font-weight:900;
 }
-.rc-meta strong{color:#600000;font-weight:800;font-size:.65rem;display:block;text-transform:uppercase;letter-spacing:.04em}
-.rc-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:.9rem}
-.rc-kpi{border:2px solid #600000;border-radius:8px;padding:.55rem .4rem;text-align:center;background:#fff;color:#1a0a0a}
-.rc-kpi b{display:block;font-size:1.2rem;font-weight:800;color:#600000;line-height:1.2}
-.rc-kpi span{display:block;font-size:.58rem;color:#3b0000;text-transform:uppercase;letter-spacing:.05em;margin-top:.15rem;font-weight:700}
-.rc-kpi.grade-A b{color:#065f46}.rc-kpi.grade-B b{color:#075985}
-.rc-kpi.grade-C b{color:#92400e}.rc-kpi.grade-D b{color:#9a3412}.rc-kpi.grade-F b{color:#991b1b}
-.rc-table{width:100%;border-collapse:collapse;font-size:.76rem;margin-bottom:.75rem;color:#1a0a0a}
+.rc-card-head .am{font-weight:700; text-transform:none; letter-spacing:0; color:var(--maroon); font-size:7.5pt}
+.rc-card-body{padding:1.3mm}
+
+.rc-identity{display:grid; grid-template-columns:1fr 1fr; gap:.7mm 3mm}
+.rc-field{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rc-field label{color:var(--muted); font-size:6.4pt; text-transform:uppercase; letter-spacing:.4px; font-weight:800; margin-right:.8mm}
+.rc-field strong{font-size:8.6pt; color:var(--ink)}
+.rc-field-wide{grid-column:1 / -1}
+.rc-soft{font-weight:400; color:var(--muted); font-size:7.5pt}
+
+.rc-metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:1.4mm; margin-bottom:1.6mm}
+.rc-metric{min-height:11.5mm; border:1px solid var(--line); border-radius:1.2mm; padding:1.1mm .7mm; text-align:center; background:#fff}
+.rc-mv{font-size:12.5pt; line-height:1; font-weight:900; color:var(--maroon)}
+.rc-mv-g{color:var(--gold)}
+.rc-of{font-size:7.6pt; font-weight:600}
+.rc-ml{margin-top:.9mm; color:var(--muted); font-size:6.6pt; text-transform:uppercase; font-weight:800; letter-spacing:.25px}
+
+/* ── tables ──────────────────────────────────────────────────────── */
+.rc-table{width:100%; border-collapse:collapse; table-layout:fixed}
+/* summary: let the subject column take the space it needs; the four
+   numeric columns only need a mark each */
+.rc-table.rc-summary{table-layout:auto}
+.rc-summary th:not(:first-child),.rc-summary td:not(:first-child){white-space:nowrap; padding-left:.6mm; padding-right:.6mm}
 .rc-table th{
-  background:#600000;color:#F0C000;font-size:.6rem;letter-spacing:.06em;text-transform:uppercase;
-  font-weight:800;padding:.45rem .5rem;text-align:left;
+  background:var(--maroon); color:#fff7df; text-align:left;
+  font-size:6.8pt; text-transform:uppercase; letter-spacing:.25px; padding:1mm 1.2mm;
 }
 .rc-table th.num,.rc-table td.num{text-align:center}
-.rc-table td{padding:.42rem .5rem;border-bottom:1px solid #c4a574;vertical-align:top;color:#1a0a0a}
-.rc-table tbody tr:nth-child(even){background:#fff8e8}
-.rc-table .am{font-family:'Noto Serif Ethiopic',serif;font-weight:700}
-.rc-chips{display:flex;flex-wrap:wrap;gap:3px}
-.rc-chip{display:inline-block;background:#600000;color:#F0C000;padding:1px 6px;border-radius:4px;font-size:.58rem;font-weight:700}
+.rc-table td{padding:.5mm 1.2mm; border-bottom:1px solid #e3dacc; font-size:7.8pt; vertical-align:middle}
+.rc-table tbody tr:nth-child(even){background:var(--soft)}
+.rc-subj-cell span{font-weight:700}
+.rc-subj-cell small{color:var(--muted); font-size:6.6pt; font-weight:400}
+.rc-total-row td{background:var(--ivory); font-weight:800; color:var(--maroon-dark)}
+.rc-badge{
+  display:inline-grid; place-items:center; min-width:4.8mm; height:4.8mm; border-radius:50%;
+  background:var(--maroon); color:#fff; font-weight:900; font-size:7pt; padding:0 1mm;
+}
+.rc-badge-off{background:#8a7d74}
+
+/* ── attendance & reflections ────────────────────────────────────── */
+.rc-att{display:grid; grid-template-columns:31% 69%; gap:2.2mm; align-items:center}
+.rc-att-big .rc-big{font-size:12pt; font-weight:900; color:var(--green); line-height:1}
+.rc-progress{height:2mm; background:#e4eee8; border-radius:5mm; overflow:hidden; margin-top:1mm; display:flex}
+.rc-progress span{display:block; height:100%; background:var(--green)}
+.rc-progress i{display:block; height:100%; background:#d9a441}
+.rc-att-detail{font-size:8pt}
+.rc-att-detail strong{font-size:8.6pt}
+.rc-note{font-size:6.8pt; color:var(--muted); margin-top:.4mm}
+.rc-note-mid{margin-top:.8mm}
+.rc-statline{display:flex; justify-content:space-between; color:var(--muted); font-size:7pt; margin-top:.8mm}
+.rc-statline b{color:var(--green)}
+.rc-two{display:grid; grid-template-columns:1fr 1fr; gap:1.8mm; padding-top:0}
+.rc-insight{min-height:7mm; border:1px solid var(--line); border-radius:1.2mm; padding:1mm 1.3mm; background:#fff}
+.rc-insight label{display:block; color:var(--muted); font-size:6.4pt; text-transform:uppercase; font-weight:800; letter-spacing:.25px}
+.rc-insight strong{display:block; margin-top:.7mm; color:var(--maroon-dark); font-size:8pt}
+.rc-scale-line{font-size:7.6pt; color:var(--ink)}
+.rc-scale-line b{color:var(--maroon)}
+.rc-signs{display:grid; grid-template-columns:1fr 1fr; gap:6mm; padding-top:1.8mm}
+.rc-sign{border-top:1px solid var(--muted); padding-top:.8mm; color:var(--muted); text-align:center; font-size:7.5pt}
+
+/* ── assessment ledger (right column) ────────────────────────────── */
+.rc-ledger{border:1px solid var(--line); border-radius:1.5mm; background:#fffdf9; overflow:hidden}
+.rc-ledg-title{
+  display:flex; justify-content:space-between; align-items:baseline;
+  background:var(--ivory); border-bottom:1px solid var(--line);
+  padding:1mm 2.2mm .8mm; color:var(--maroon-dark);
+  text-transform:uppercase; letter-spacing:.6px; font-size:7pt; font-weight:900;
+}
+.rc-ledg-title .am{font-weight:700; text-transform:none; letter-spacing:0; color:var(--maroon); font-size:7.5pt}
+.rc-legend{
+  display:flex; justify-content:space-between; gap:3mm; padding:.8mm 1.6mm;
+  background:#fffaf0; border-bottom:1px solid var(--line); color:var(--muted); font-size:6.6pt;
+}
+.rc-legend b{color:var(--maroon-dark)}
+.rc-ledg-grid{display:grid; grid-template-columns:17% 34% 7.5% 34% 7.5%}
+.rc-ledg-grid-term{grid-template-columns:24% 64% 12%}
+.rc-ledg-head{background:var(--maroon); color:#fff7df; text-transform:uppercase; font-size:6.8pt; font-weight:900; letter-spacing:.2px}
+.rc-ledg-head>div{padding:.9mm 1.2mm; border-right:1px solid rgba(255,255,255,.25)}
+.rc-ledg-head>div:last-child{border:0}
+.rc-ledg-head .rc-c{text-align:center}
+.rc-ledg-row{display:grid; grid-template-columns:17% 34% 7.5% 34% 7.5%; border-bottom:1px solid var(--line)}
+.rc-ledg-row-term{grid-template-columns:24% 64% 12%}
+.rc-ledg-row:nth-child(even){background:var(--soft)}
+.rc-ledg-row:last-child{border-bottom:0}
+.rc-ledg-row>div{padding:.6mm 1.1mm; border-right:1px solid #e3dacc; min-height:7mm}
+.rc-ledg-row>div:last-child{border:0}
+.rc-ledg-subj span{font-weight:800; color:var(--maroon-dark); font-size:8.2pt; line-height:1.15}
+.rc-ledg-subj small{display:block; color:var(--muted); font-size:6.8pt; font-weight:400; margin-top:.6mm; line-height:1.15}
+.rc-dur{font-size:6.4pt; color:#6d28d9; font-weight:700; margin-top:.5mm}
+.rc-sem-cell{display:grid; grid-template-columns:44% 22% 16% 16%; align-content:start}
+.rc-slot{display:contents}
+.rc-slot span{font-size:7.6pt; line-height:1.18; padding:.18mm 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rc-slot-name{font-weight:600; color:var(--ink)}
+.rc-slot-score{font-weight:700; color:var(--ink); text-align:center}
+.rc-slot-wt,.rc-slot-pct{color:var(--muted); text-align:center}
+.rc-slot-off .rc-slot-name{color:#a39286; font-style:italic; font-weight:400}
+.rc-slot-off .rc-slot-score,.rc-slot-off .rc-slot-wt,.rc-slot-off .rc-slot-pct{color:#b3a698}
+.rc-ledg-total{display:flex; align-items:center; justify-content:center; text-align:center; font-weight:900; font-size:9pt; color:var(--maroon)}
+.rc-ledg-foot{
+  display:flex; justify-content:space-between; gap:3mm; padding:.9mm 1.6mm;
+  background:var(--ivory); font-size:6.8pt; color:var(--muted);
+}
+.rc-ledg-foot b{color:var(--maroon)}
+
+/* ── footer ──────────────────────────────────────────────────────── */
+.rc-foot{
+  display:flex; justify-content:space-between; align-items:center;
+  color:var(--muted); font-size:7pt; border-top:1px solid var(--line); padding-top:.8mm; margin-top:1.4mm;
+}
+.rc-foot strong{color:var(--maroon)}
+
+/* ── states / legacy helpers ─────────────────────────────────────── */
+.rc-empty{text-align:center; color:var(--muted); font-size:8.5pt; padding:6mm 2mm}
+.rc-actions{display:flex; justify-content:flex-end; gap:.5rem; padding:.85rem 1rem; background:#fff; border-top:1px solid #e7d5c8}
+.rc-donebar{height:3px; background:#eee; border-radius:2px; overflow:hidden; margin-top:2px; max-width:120px}
+.rc-donebar i{display:block; height:100%; background:#6d28d9}
+.rc-donebar em{display:none}
 .rc-letter{
-  display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;
-  font-weight:800;font-size:.65rem;color:#fff;background:#3b0000;
+  display:inline-flex; width:22px; height:22px; border-radius:50%; align-items:center; justify-content:center;
+  font-weight:800; font-size:.65rem; color:#fff; background:#3b0000;
 }
-.rc-letter.A{background:#065f46}.rc-letter.B{background:#075985}
-.rc-letter.C{background:#92400e}.rc-letter.D{background:#9a3412}.rc-letter.F{background:#991b1b}
-.rc-total td{background:#600000;color:#F0C000;font-weight:800;border-bottom:none}
-.rc-att{background:#fff8e8;border:2px solid #600000;border-radius:8px;padding:.65rem .75rem;margin-bottom:.75rem}
-.rc-att-label{font-size:.68rem;font-weight:800;color:#3b0000;margin-bottom:.3rem}
-.rc-att-bar{display:flex;height:8px;border-radius:2px;overflow:hidden;background:#e8dcc4;border:1px solid #3b0000}
-.rc-hl{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.75rem;font-size:.74rem}
-.rc-hl div{border:2px solid #600000;border-radius:8px;padding:.5rem .65rem;color:#1a0a0a}
-.rc-hl strong{display:block;font-size:.58rem;color:#600000;text-transform:uppercase;letter-spacing:.04em}
-.rc-scale{font-size:.62rem;color:#3b0000;margin-bottom:.85rem;font-weight:600}
-.rc-signs{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1.1rem;padding-top:.4rem}
-.rc-sign{text-align:center;font-size:.68rem;color:#3b0000;font-weight:700}
-.rc-sign-line{border-top:2px solid #3b0000;margin:2.1rem 1rem .35rem}
-.rc-foot{margin-top:.85rem;padding-top:.5rem;border-top:2px solid #600000;font-size:.6rem;color:#3b0000;text-align:center;font-weight:600}
-.rc-empty{text-align:center;color:#3b0000;padding:1.2rem .5rem;font-size:.8rem}
-.rc-actions{display:flex;justify-content:flex-end;gap:.5rem;padding:.15rem 0 0}
-#rcPrintRoot{position:absolute;left:-9999px;top:0;width:210mm}
 
+/* ── responsive screen ───────────────────────────────────────────── */
+/* Screen-only: Chromium's print layout evaluates width media queries
+   against the portrait paper width (794px for A4), which would wrongly
+   stack the columns on the landscape printed page. */
+@media screen and (max-width:900px){
+  .rc-content{grid-template-columns:1fr}
+  .rc-head{grid-template-columns:14mm 1fr}
+  .rc-head-title{grid-column:1 / -1; text-align:center; margin-top:1.5mm}
+}
+
+/* ── print: exact A4 landscape ───────────────────────────────────── */
 @media print{
-  html,body{
-    -webkit-print-color-adjust:exact;print-color-adjust:exact;
-    background:#fff!important;color:#1a0a0a!important;
+  @page{size:A4 landscape; margin:0}
+  body.rc-print-mode #rcPrintRoot .rc-sheet{
+    width:297mm; min-height:207mm; page-break-after:always; break-after:page; border-radius:0;
   }
-  #ai-fab,#ai-win,#ai-fab *,#ai-win *,
-  #impersonateBar,.wbws-bnav,.wbws-mob-header,.bn,.sb,.no-print,
-  aside,header,nav,.mo,#ayContextBar,.ay-bar{
-    display:none!important;visibility:hidden!important;opacity:0!important;
-  }
-  body,main{background:#fff!important;color:#1a0a0a!important;padding:0!important;margin:0!important}
-  body:has(#sec-reportcards.act) .sec:not(#sec-reportcards),
-  body:has(#sec-reports.active) .section:not(#sec-reports){display:none!important}
-
-  .rc-print-banner{
-    display:block!important;border:3px solid #600000;padding:.7rem .9rem;margin:0 0 .85rem;
-    color:#1a0a0a;font-weight:800;
-  }
-  .rc-print-banner .am{font-family:'Noto Serif Ethiopic',serif;font-size:1.05rem;color:#600000}
-  .rc-print-banner .en{font-size:.75rem;color:#3b0000}
-
-  #sec-reportcards .sc,#sec-reports .sc,
-  #sec-reportcards .rc-stat,#sec-reports .rc-stat,
-  #sec-reportcards .rc-subj-card,#sec-reportcards .rc-sem,
-  #sec-reportcards .dt th,#sec-reportcards .dt td{
-    background:#fff!important;color:#1a0a0a!important;
-    border:2px solid #600000!important;
-    -webkit-print-color-adjust:exact;print-color-adjust:exact;
-    box-shadow:none!important;
-  }
-  #sec-reportcards .sc div,#sec-reportcards .sc span,
-  #sec-reports .sc div,#sec-reports .sc span{color:#1a0a0a!important;opacity:1!important}
-  #sec-reportcards .rc-stat b,#sec-reportcards .sc [style*="font-size:1"],
-  #sec-reports .rc-stat b{color:#600000!important;font-weight:800!important}
-  #sec-reportcards .dt th{
-    background:#600000!important;color:#F0C000!important;
-    -webkit-print-color-adjust:exact;print-color-adjust:exact;
-  }
-  #sec-reportcards .dt td{color:#1a0a0a!important;border-bottom:1px solid #3b0000!important}
-
-  .rc-donebar,.rc-donebar i,.rc-donebar em,.rc-head,.rc-table th,.rc-total td,.rc-chip,.rc-letter{
-    -webkit-print-color-adjust:exact;print-color-adjust:exact;
-  }
-  .rc-done-lbl,.rc-done-miss,.rc-items,.rc-subj-card .nm,.rc-subj-card .av{color:#1a0a0a!important}
-  .rc-done-lbl .left,.rc-items .wait{color:#8a1a1a!important}
-
-  body.rc-print-mode main{overflow:visible!important}
-  body.rc-print-mode #rcPrintRoot{position:static;left:auto;width:auto}
-  body.rc-print-mode #rcPrintRoot .rc-sheet{border:2px solid #600000;page-break-after:always;break-after:page}
-  body.rc-print-mode #rcPrintRoot .rc-sheet:last-child{page-break-after:auto;break-after:auto}
-  body.rc-print-mode #sec-reportcards,body.rc-print-mode #sec-reports{display:none!important}
+  body.rc-print-mode #rcPrintRoot .rc-sheet:last-child{page-break-after:auto; break-after:auto}
+  body.rc-print-mode #sec-reportcards, body.rc-print-mode #sec-reports{display:none!important}
   .rc-actions{display:none!important}
-  @page{size:A4;margin:10mm}
-}
-
-@media(max-width:640px){
-  .rc-kpis{grid-template-columns:1fr 1fr}
-  .rc-meta,.rc-hl,.rc-signs{grid-template-columns:1fr}
-  .rc-head{flex-direction:column;text-align:center}
-}
-
-/* ── 1.6.8 detailed annual report card — statement table ─────────────────
-   One consolidated table: subject header rows, thin semester dividers, one
-   compact row per assessment, shaded semester subtotals, bold annual rows.
-   The professional transcript pattern: tabular marks, instant readability,
-   one printed page. */
-.rc-table.rc-detail{margin:10px 0 2px}
-.rc-table.rc-detail tbody tr:nth-child(even){background:transparent}
-.rc-table.rc-detail td{padding:.22rem .5rem;font-size:.7rem}
-.rc-subj-row td{background:#faf3ec;border-bottom:1px solid #c4a574;border-top:2px solid #c4a574;font-weight:700;font-size:.74rem;padding:.4rem .5rem}
-.rc-subj-en{font-size:.58rem;color:#8a7260;font-weight:400}
-.rc-sem-row td{background:#f3e7f6;color:#6d28d9;font-size:.56rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:.14rem .5rem}
-.rc-a-row td{border-bottom:1px dotted #dcc9ab}
-.rc-subtotal td{background:#fdf3dc;font-weight:700}
-.rc-annual-row td{background:#600000;color:#F0C000;font-weight:800}
-.rc-annual-row b{color:#fff}
-.rc-annual-row .rc-letter{background:#F0C000;color:#600000}
-.rc-dash-row td{color:#a39286;font-style:italic}
-.rc-table.rc-summary{margin-top:6px}
-@media print{
-  .rc-subj-row,.rc-annual-row{break-inside:avoid}
+  .rc-ledg-row{break-inside:avoid}
 }

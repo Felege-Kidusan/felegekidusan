@@ -5,6 +5,33 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.9 (build 35) — Report card: A4 landscape redesign
+
+The report card is now a proper one-page A4 **landscape** document with a
+readable type scale, following the approved reference design:
+
+- **Two-column layout** — left: student profile, key metrics (overall,
+  grade, rank, attendance), annual subject summary, attendance &
+  reflections, grade scale and signature lines; right: the full
+  **assessment ledger**.
+- **Assessment ledger** — every assessment of both semesters on one
+  aligned grid (name | score/max | weight | weighted %) per subject,
+  with each semester's total from 100% in its own column. Semester-only
+  subjects show "Not offered this semester" in their off semester.
+- **Readable type** — data values 7.6–9.5pt, metric figures 14.5pt,
+  Amharic subject names bold; tabular numerals keep columns aligned
+  (the reference's 5–7pt text was too small to read comfortably).
+- **Same data contract** — annual = average of the two semester totals,
+  "—" where a subject does not run; the summary table (Subject | 1st
+  sem. | 2nd sem. | Annual | Grade) is unchanged in meaning.
+- **Print** — `@page A4 landscape`, one card per page; semester views
+  get the matching single-semester skin.
+- The dashboards' report-card windows were widened so the landscape
+  sheet fits on screen.
+
+Web admin only — the app itself is unchanged; the version bump keeps the
+single-version convention.
+
 ## 1.6.8 (build 34) — Report card layout: statement table
 
 The annual report card's detailed section is now ONE consolidated table

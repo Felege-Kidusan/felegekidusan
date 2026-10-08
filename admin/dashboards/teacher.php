@@ -149,7 +149,7 @@ $csrfToken = generateCsrfToken();
     </style>
 <?= wbws_calendar_scripts($conn ?? null) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261008b">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261009">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="min-h-screen">
@@ -641,7 +641,7 @@ $csrfToken = generateCsrfToken();
                 
                 <!-- REPORT CARD MODAL -->
                 <div id="reportCardModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);backdrop-filter:blur(4px);z-index:100;overflow-y:auto;padding:1rem">
-                    <div style="max-width:700px;width:100%;margin:1rem auto;background:#fff;border-radius:20px;overflow:hidden" id="reportCardContent"></div>
+                    <div style="max-width:1120px;width:100%;margin:1rem auto;background:#fff;border-radius:20px;overflow:hidden" id="reportCardContent"></div>
                 </div>
 
                 <!-- ═══ PROFILE TAB ═══ -->
@@ -653,7 +653,7 @@ $csrfToken = generateCsrfToken();
     </div>
     
     <div id="toastContainer"></div>
-    <script src="/admin/js/report_card.js?v=20261008b"></script>
+    <script src="/admin/js/report_card.js?v=20261009"></script>
     <script src="/admin/js/attendance-sheet.js?v=20260824"></script>
     <script>
         let currentAssessment = null;
