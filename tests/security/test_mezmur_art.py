@@ -303,11 +303,11 @@ class MezmurArtTests(unittest.TestCase):
 
     def test_app_version_bumped_in_both_places(self):
         # Build metadata is mirrored for request headers/update decisions and
-        # must move with pubspec on every release (1.6.5+31, 2026-10-08
+        # must move with pubspec on every release (1.6.6+32, 2026-10-08
         # ghost-hymn fix).
-        self.assertIn("appVersion = '1.6.5'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
-        self.assertIn("appBuild = 31", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
-        self.assertIn("version: 1.6.5+31", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
+        self.assertIn("appVersion = '1.6.6'", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
+        self.assertIn("appBuild = 32", (FLUTTER / "lib/utils/config.dart").read_text(encoding="utf-8"))
+        self.assertIn("version: 1.6.6+32", (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
