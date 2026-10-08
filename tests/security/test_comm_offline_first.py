@@ -177,9 +177,9 @@ class OfflineFirstClientTests(unittest.TestCase):
         # Bumped 2026-10-07 for the ghost-hymn fix release.
         config = (MOBILE / "utils/config.dart").read_text(encoding="utf-8")
         pubspec = (ROOT / "Mobile/wbws_flutter_app/pubspec.yaml").read_text(encoding="utf-8")
-        self.assertIn("appVersion = '1.6.3'", config)
-        self.assertIn("appBuild = 29", config)
-        self.assertIn("version: 1.6.3+29", pubspec)
+        self.assertIn("appVersion = '1.6.4'", config)
+        self.assertIn("appBuild = 30", config)
+        self.assertIn("version: 1.6.4+30", pubspec)
 
 
 if __name__ == "__main__":
