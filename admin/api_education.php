@@ -1166,8 +1166,21 @@ switch ($action) {
                 }
             }
         } catch (Exception $e) {
-            reportInternalError('Academic year save failed', $e);
-            echo json_encode(['status'=>'error','message'=>'Unable to save the academic year.']);
+            // PHP 8.1+ mysqli raises SQL errors as exceptions (MYSQLI_REPORT_
+            // ERROR|STRICT default), so the friendly errno branches below the
+            // execute() calls are unreachable — every SQL failure lands HERE.
+            // Map the two expectable errors to actionable messages and attach
+            // the log reference (reportInternalError) so any residual failure
+            // points straight at its log line instead of failing blindly.
+            $ref = reportInternalError('Academic year save failed', $e);
+            $code = ($e instanceof mysqli_sql_exception) ? (int)$e->getCode() : 0;
+            if ($code === 1062) {
+                echo json_encode(['status'=>'error','message'=>'An academic year with this name already exists — please choose a different year name.']);
+            } elseif ($code === 1366) {
+                echo json_encode(['status'=>'error','message'=>'The year name contains characters this database table cannot store (charset mismatch). Run sql/066_academic_year_charset_repair.sql on the database, then try again. (ref SSMS:'.$ref.')']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>'Unable to save the academic year. (ref SSMS:'.$ref.($code !== 0 ? ', SQL '.$code : '').')']);
+            }
         }
         break;
 
@@ -1350,8 +1363,14 @@ switch ($action) {
                 }
             }
         } catch (Exception $e) {
-            reportInternalError('Academic term save failed', $e);
-            echo json_encode(['status'=>'error','message'=>'Unable to save the semester.']);
+            // Same exception-mode hardening as save_academic_year above.
+            $ref = reportInternalError('Academic term save failed', $e);
+            $code = ($e instanceof mysqli_sql_exception) ? (int)$e->getCode() : 0;
+            if ($code === 1366) {
+                echo json_encode(['status'=>'error','message'=>'The semester name contains characters this database table cannot store (charset mismatch). Run sql/066_academic_year_charset_repair.sql on the database, then try again. (ref SSMS:'.$ref.')']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>'Unable to save the semester. (ref SSMS:'.$ref.($code !== 0 ? ', SQL '.$code : '').')']);
+            }
         }
         break;
 

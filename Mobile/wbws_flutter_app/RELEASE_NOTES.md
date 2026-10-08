@@ -30,6 +30,12 @@ Web admin (felegekidusan.com/admin):
   inside a semester's saved dates.
 - **Year-end reminder** — when the active year's end date has just passed,
   the School Admin dashboard suggests running the Year Rollover.
+- **Year save charset repair** — the production database's academic_years
+  table was still latin1 (restored from the old server), so saving a year
+  with the default Amharic name failed with a generic error. Run
+  `sql/066_academic_year_charset_repair.sql` once (phpMyAdmin) to convert
+  the table to utf8mb4; the save path now also reports the real cause and a
+  log reference if anything ever fails again.
 
 ## 1.6.2 (build 28) — Automatic hymn list rebuild after the server move
 
