@@ -250,15 +250,17 @@ class CalculationEquivalenceTests(_TrackingBase):
         self.assertEqual(70, music["final_percentage"])
         self.assertIsNone(music["semester_2_score"], "a semester-only subject has no semester 2")
 
-    def test_a_full_year_subject_uses_the_configured_weights(self):
-        """Geez 80/90 at 40/60 is 86.0 — not the 85.0 a mean would give."""
+    def test_a_full_year_subject_annual_is_the_semester_average(self):
+        """1.6.7 (Decision A, 2026-10-08): Geez 80/90 is 85.0 — the plain
+        average of the two semester totals. The stored 40/60 weights are
+        still reported (history/config) but are no longer applied."""
         got = self.detail(S_FULL)
         geez = [s for s in got["subjects"] if s["subject_name_en"] == "Geez"][0]
         self.assertEqual("FULL_YEAR", geez["duration_type"])
         self.assertEqual(80, geez["semester_1_score"])
         self.assertEqual(90, geez["semester_2_score"])
-        self.assertEqual(86, geez["final_percentage"],
-                         "the year's 40/60 weights must be applied, not a mean")
+        self.assertEqual(85, geez["final_percentage"],
+                         "annual = (S1 + S2) / 2 — the weights are superseded")
         self.assertEqual({"s1": 40, "s2": 60}, geez["semester_weights"])
 
     def test_a_pending_full_year_subject_is_null_and_never_zero(self):
