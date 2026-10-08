@@ -89,6 +89,15 @@ define('ROOT_PATH', __DIR__);
 define('ADMIN_PATH', __DIR__ . '/admin');
 define('UPLOADS_PATH', __DIR__ . '/admin/uploads');
 
+// ── Asset cache-busting version ─────────────────────────────────────────────
+// Appended as ?v= to local stylesheet links (mobile.css chain) so a release
+// always invalidates every browser's cached CSS. The Academic-Year modal bug
+// (2026-10-08) shipped as fresh HTML + a months-old cached mobile.css: the
+// z-index design tokens never loaded and the page chrome painted ABOVE the
+// open modal, making its Save button unclickable. Bump this on every release
+// that touches any local CSS/JS asset.
+define('SSMS_ASSET_VER', '20261008');
+
 require_once ADMIN_PATH . '/backend/services/FeatureGate.php';
 
 if (!function_exists('feature_enabled')) {

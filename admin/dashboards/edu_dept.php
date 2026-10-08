@@ -134,7 +134,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 }
 </style>
 <?= wbws_calendar_scripts($conn) ?>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 <link rel="stylesheet" href="/admin/css/report_card.css?v=20260819c">
 <?php include __DIR__ . "/../theme.php"; ?>
 <style id="p70-edu-mobile">
@@ -739,7 +739,7 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 
 <!-- ═══ SETTINGS (Academic Year + Semesters) ═══ -->
 <div id="sec-settings" class="sec">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-calendar" style="color:#7c3aed"></i> Academic Year Setup</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዘመን እና ሴሚስተር አስተዳደር</p></div><span style="font-size:.72rem;color:#64748b;background:#f1f5f9;padding:.45rem .75rem;border-radius:8px"><i class="fa-solid fa-lock" style="color:#94a3b8"></i> Managed by School Admin</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-calendar" style="color:#7c3aed"></i> Academic Year Setup</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዘመን እና ሴሚስተር አስተዳደር</p></div><span style="font-size:.72rem;color:#64748b;background:#f1f5f9;padding:.45rem .75rem;border-radius:8px"><i class="fa-solid fa-calendar-days" style="color:#94a3b8"></i> Year: School Admin &nbsp;·&nbsp; <i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters: Education Dept</span></div>
 <?php if($currentYear): ?>
 <div class="crd" style="padding:1rem;margin-bottom:1rem;border-left:4px solid #7c3aed;background:#faf5ff">
 <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
@@ -3273,17 +3273,24 @@ async function viewYearTerms(yearId,yearName){
     try{const d=await getAPI(`/admin/api_education.php?action=get_terms&year_id=${yearId}`);
     if(d.status==='success'){const terms=d.terms||[];
     window._termData={};terms.forEach(t=>window._termData[t.id]=t);
-    document.getElementById('termArea').innerHTML=`<div class="crd" style="padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem"><h3 style="font-size:.9rem;font-weight:600;color:#1e293b"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters — <span class="amharic">${esc(yearName)}</span></h3><span style="font-size:.62rem;color:#94a3b8"><i class="fa-solid fa-lock"></i> View only — managed by School Admin</span></div>
+    /* 2026-10-08: semesters are now MANAGED here (Education Dept) — the year
+       itself stays with the School Admin. The management functions below were
+       already wired; the view-only lock has been lifted. */
+    document.getElementById('termArea').innerHTML=`<div class="crd" style="padding:1rem"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem"><h3 style="font-size:.9rem;font-weight:600;color:#1e293b"><i class="fa-solid fa-calendar-week" style="color:#7c3aed"></i> Semesters — <span class="amharic">${esc(yearName)}</span></h3><button class="btn btn-p btn-xs" type="button" onclick="openTermModal(${parseInt(yearId)},null)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>
     ${terms.length?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem">${terms.map(t=>`<div class="crd" style="padding:1rem;border-left:4px solid ${t.is_current==1?'#7c3aed':'#e2e8f0'}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
     <div><span class="amharic" style="font-weight:700;font-size:.9rem;color:#1e293b">${esc(t.term_name)}</span><br><span style="font-size:.65rem;color:#94a3b8">Semester ${t.term_number}</span></div>
-    ${t.is_current==1?'<span class="ch ch-ok">Current</span>':'<span class="ch ch-w">Not current</span>'}
+    ${t.is_current==1?'<span class="ch ch-ok">Current</span>':`<button class="btn btn-o btn-xs" type="button" onclick="doSetCurrentTerm(${parseInt(t.id)})" title="Make this the current semester (active year only)">Set Current</button>`}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-bottom:.5rem">
     <div style="background:#f8fafc;padding:.4rem .6rem;border-radius:6px"><div style="font-size:.55rem;color:#94a3b8;text-transform:uppercase">Start Date</div><div style="font-size:.75rem;font-weight:600;color:#1e293b">${t.start_date?fD(t.start_date):'<span style=color:#dc2626>Not Set</span>'}</div></div>
     <div style="background:#f8fafc;padding:.4rem .6rem;border-radius:6px"><div style="font-size:.55rem;color:#94a3b8;text-transform:uppercase">End Date</div><div style="font-size:.75rem;font-weight:600;color:#1e293b">${t.end_date?fD(t.end_date):'<span style=color:#dc2626>Not Set</span>'}</div></div>
     </div>
-    </div>`).join('')}</div>`:'<div style="text-align:center;color:#94a3b8;font-size:.8rem;padding:1rem"><i class="fa-solid fa-calendar-xmark" style="font-size:1.5rem;margin-bottom:.5rem;display:block"></i>No semesters configured yet.<br>Your School Admin can add them.</div>'}
+    <div style="display:flex;gap:.4rem">
+    <button class="btn btn-o btn-xs" type="button" onclick="openTermModal(${parseInt(yearId)},${parseInt(t.id)})"><i class="fa-solid fa-pen"></i> Edit</button>
+    <button class="btn btn-o btn-xs" type="button" style="color:#dc2626" onclick="doDeleteTerm(${parseInt(t.id)})"><i class="fa-solid fa-trash"></i> Delete</button>
+    </div>
+    </div>`).join('')}</div>`:'<div style="text-align:center;color:#94a3b8;font-size:.8rem;padding:1rem"><i class="fa-solid fa-calendar-xmark" style="font-size:1.5rem;margin-bottom:.5rem;display:block"></i>No semesters configured yet.<br>Click "Add Semester" to create the first one.</div>'}
     </div>`;
     window._currentTermYearId=yearId;window._currentTermYearName=yearName;
     }}catch(e){toast('Error loading semesters','err');}

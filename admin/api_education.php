@@ -60,13 +60,26 @@ if ($__role === 'hr_dept' && !in_array($action, ['get_classes'], true)) {
     exit;
 }
 
-// TIER 1 — Academic YEAR / SEMESTER management: School Admin & Super Admin ONLY.
-// (Education dept can VIEW the year for context but cannot create/change it.)
-$__yearActions = ['save_academic_year', 'set_current_year', 'reopen_year', 'delete_year', 'save_term', 'delete_term', 'set_current_term'];
-if (in_array($action, $__yearActions, true)
+// TIER 1a — Academic YEAR lifecycle (create/activate/delete the year itself):
+// School Admin (owner) & Super Admin (break-glass) ONLY. The year is the
+// system-wide container, so it stays with the school's owner role.
+$__yearLifecycleActions = ['save_academic_year', 'set_current_year', 'reopen_year', 'delete_year'];
+if (in_array($action, $__yearLifecycleActions, true)
         && !in_array($__role, ['super_admin', 'school_admin'], true)) {
     http_response_code(403);
-    echo json_encode(['status' => 'error', 'message' => 'Only a School Admin or Super Admin can manage academic years and semesters.']);
+    echo json_encode(['status' => 'error', 'message' => 'Only a School Admin or Super Admin can manage the academic year.']);
+    exit;
+}
+
+// TIER 1b — SEMESTER (term) management inside an existing year: the Education
+// Department runs the semester calendar (dates, current semester), with the
+// School Admin and Super Admin able to do the same. The year itself (above)
+// remains School-Admin-only.
+$__termActions = ['save_term', 'delete_term', 'set_current_term'];
+if (in_array($action, $__termActions, true)
+        && !in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
+    http_response_code(403);
+    echo json_encode(['status' => 'error', 'message' => 'Only the Education Department, School Admin or Super Admin can manage semesters.']);
     exit;
 }
 
@@ -165,6 +178,36 @@ function edu_scrub_phone(array $rows, bool $mask): array
 }
 
 // Education schema is deployment-managed by migrations 004, 006, and 013.
+
+// ── Date integrity helpers (2026-10-08) ─────────────────────────────────────
+// Year and semester start/end dates used to be stored with ZERO validation:
+// any string was accepted, end-before-start was accepted. They are still
+// OPTIONAL (Ethiopian schools often create the year before the Ministry of
+// Education publishes exact dates), but when present they must be real ISO
+// dates in a sane order, and a semester must sit inside its year.
+function _ay_valid_date_str($s): bool {
+    if (!is_string($s) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) return false;
+    $p = explode('-', $s);
+    return checkdate((int)$p[1], (int)$p[2], (int)$p[0]);
+}
+/**
+ * Returns null when the pair is acceptable, or an error message string.
+ * Empty strings are allowed (dates are optional) and normalized to null by
+ * reference so callers bind NULL for the DATE columns.
+ */
+function _ay_check_date_pair(&$start, &$end, string $what): ?string {
+    if ($start !== '' && !_ay_valid_date_str($start)) {
+        return "$what start date is not a valid date (expected YYYY-MM-DD).";
+    }
+    if ($end !== '' && !_ay_valid_date_str($end)) {
+        return "$what end date is not a valid date (expected YYYY-MM-DD).";
+    }
+    if ($start !== '' && $end !== '' && $end < $start) {
+        return "$what end date must be on or after the start date.";
+    }
+    return null;
+}
+
 
 // ── STEP 3: write-protection ────────────────────────────────────────────────
 // Year-scoped writes stamp the ACTIVE year and are refused while time-travelling
@@ -924,6 +967,10 @@ switch ($action) {
         $isCurrent = (int)($_POST['is_current'] ?? 0);
         if (!$name) { echo json_encode(['status'=>'error','message'=>'Year name required']); exit; }
 
+    // ── Date integrity: optional but, when present, valid and ordered ──
+    $dateErr = _ay_check_date_pair($start, $end, 'Academic year');
+    if ($dateErr !== null) { echo json_encode(['status'=>'error','message'=>$dateErr]); exit; }
+
     // ── Semester weights (migration 056) ────────────────────────────────────
     // Optional: only touched when BOTH fields are posted, so existing callers
     // that know nothing about weights never overwrite a configured split.
@@ -1017,7 +1064,18 @@ switch ($action) {
                 $stmt->bind_param("sisssi", $name, $ecYearVal, $yearGcVal, $startDate, $endDate, $id);
             }
                 if ($stmt->execute()) {
-                    echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id]);
+                    // Non-blocking sanity note: overlapping year dates are
+                    // tolerated (mid-year corrections happen) but surfaced.
+                    $warnings = [];
+                    try {
+                        $ov = $conn->prepare("SELECT year_name FROM academic_years WHERE id<>? AND start_date IS NOT NULL AND end_date IS NOT NULL AND start_date<=? AND end_date>=?");
+                        $ov->bind_param('iss', $id, $endDate, $startDate);
+                        $ov->execute();
+                        $wr = $ov->get_result();
+                        while ($w = $wr->fetch_assoc()) $warnings[] = 'Dates overlap with '.$w['year_name'].' — allowed, but check that it is intended.';
+                        $ov->close();
+                    } catch (Exception $eOv) {}
+                    echo json_encode(['status'=>'success','message'=>'Academic year updated','id'=>$id,'warnings'=>$warnings]);
                 } else {
                     if ($stmt->errno == 1062) {
                         echo json_encode(['status'=>'error','message'=>'An academic year with this name already exists — please choose a different year name.']);
@@ -1087,7 +1145,17 @@ switch ($action) {
                     $msg = $activated
                         ? 'Academic year created and set as the ACTIVE year (first year).'
                         : 'Academic year created with 2 semesters. Use "Set Active" to make it the current year.';
-                    echo json_encode(['status'=>'success','message'=>$msg,'id'=>$newId,'activated'=>$activated]);
+                    // Non-blocking sanity note (same rule as the update path).
+                    $warnings = [];
+                    try {
+                        $ov = $conn->prepare("SELECT year_name FROM academic_years WHERE id<>? AND start_date IS NOT NULL AND end_date IS NOT NULL AND start_date<=? AND end_date>=?");
+                        $ov->bind_param('iss', $newId, $endDate, $startDate);
+                        $ov->execute();
+                        $wr = $ov->get_result();
+                        while ($w = $wr->fetch_assoc()) $warnings[] = 'Dates overlap with '.$w['year_name'].' — allowed, but check that it is intended.';
+                        $ov->close();
+                    } catch (Exception $eOv) {}
+                    echo json_encode(['status'=>'success','message'=>$msg,'id'=>$newId,'activated'=>$activated,'warnings'=>$warnings]);
                 } else {
                     if ($stmt->errno == 1062) {
                         echo json_encode(['status'=>'error','message'=>'An academic year with this name already exists — please choose a different year name.']);
@@ -1222,6 +1290,40 @@ switch ($action) {
         $tstartVal = ($tstart !== '') ? $tstart : null;
         $tendVal = ($tend !== '') ? $tend : null;
         if (!$tname) { echo json_encode(['status'=>'error','message'=>'Semester name required']); exit; }
+
+        // ── Date integrity: optional, but valid and ordered when present ──
+        $dateErr = _ay_check_date_pair($tstart, $tend, 'Semester');
+        if ($dateErr !== null) { echo json_encode(['status'=>'error','message'=>$dateErr]); exit; }
+        $tstartVal = ($tstart !== '') ? $tstart : null;
+        $tendVal = ($tend !== '') ? $tend : null;
+
+        // ── Containment: a semester's dates must sit inside its year's dates
+        //    (checked only when BOTH the semester and the year carry dates —
+        //    PowerSchool / Microsoft SDS rule). Blank semester dates stay OK:
+        //    schools often set the year before the term calendar is published.
+        if ($tstartVal !== null && $tendVal !== null) {
+            $parentYearId = $ayid;
+            if ($tid > 0 && $parentYearId <= 0) {
+                try {
+                    $py = $conn->prepare("SELECT academic_year_id FROM academic_terms WHERE id=? LIMIT 1");
+                    $py->bind_param('i', $tid); $py->execute();
+                    $row = $py->get_result()->fetch_assoc(); $py->close();
+                    $parentYearId = (int)($row['academic_year_id'] ?? 0);
+                } catch (Exception $ePy) {}
+            }
+            if ($parentYearId > 0) {
+                try {
+                    $yr = $conn->prepare("SELECT year_name, start_date, end_date FROM academic_years WHERE id=? LIMIT 1");
+                    $yr->bind_param('i', $parentYearId); $yr->execute();
+                    $yrow = $yr->get_result()->fetch_assoc(); $yr->close();
+                    if ($yrow && $yrow['start_date'] && $yrow['end_date']
+                            && ($tstartVal < $yrow['start_date'] || $tendVal > $yrow['end_date'])) {
+                        echo json_encode(['status'=>'error','message'=>'Semester dates must fall within the year\'s dates ('.$yrow['start_date'].' to '.$yrow['end_date'].').']);
+                        exit;
+                    }
+                } catch (Exception $eYr) {}
+            }
+        }
         try {
             if ($tid > 0) {
                 // UPDATE existing term
@@ -1256,12 +1358,42 @@ switch ($action) {
     case 'set_current_term':
         $tid = (int)($_POST['term_id'] ?? 0);
         if (!$tid) { echo json_encode(['status'=>'error','message'=>'Term ID required']); exit; }
-        $conn->query("UPDATE academic_terms SET is_current=0");
-        $stmt = $conn->prepare("UPDATE academic_terms SET is_current=1 WHERE id = ?");
-        $stmt->bind_param("i", $tid);
-        $stmt->execute();
-        $stmt->close();
-        echo json_encode(['status'=>'success','message'=>'Current semester updated']);
+        // 2026-10-08 fix: the flag used to be cleared GLOBALLY and could be
+        // set on a semester of ANY year — including a closed one — while the
+        // active year ran. Now the target must belong to the ACTIVE year, the
+        // reset is scoped to that year, and the action is refused while
+        // time-travelling (viewing a past year).
+        if (function_exists('ay_block_if_readonly')) ay_block_if_readonly($conn);
+        $activeId = 0;
+        if (function_exists('ay_resolve')) {
+            $activeId = (int)ay_resolve($conn)['active_id'];
+        }
+        if ($activeId <= 0) {
+            try {
+                $ar = $conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");
+                if ($ar) $activeId = (int)($ar->fetch_assoc()['id'] ?? 0);
+            } catch (Exception $eAr) {}
+        }
+        if ($activeId <= 0) { echo json_encode(['status'=>'error','message'=>'No active academic year is set. A School Admin must set the current year first.']); exit; }
+        try {
+            $tr = $conn->prepare("SELECT academic_year_id, term_name FROM academic_terms WHERE id=? LIMIT 1");
+            $tr->bind_param('i', $tid); $tr->execute();
+            $trow = $tr->get_result()->fetch_assoc(); $tr->close();
+            if (!$trow) { echo json_encode(['status'=>'error','message'=>'That semester does not exist.']); exit; }
+            if ((int)$trow['academic_year_id'] !== $activeId) {
+                echo json_encode(['status'=>'error','message'=>'Only a semester of the ACTIVE academic year can be set as the current one.']);
+                exit;
+            }
+            $conn->query("UPDATE academic_terms SET is_current=0 WHERE academic_year_id=".(int)$activeId);
+            $stmt = $conn->prepare("UPDATE academic_terms SET is_current=1 WHERE id = ?");
+            $stmt->bind_param('i', $tid);
+            $stmt->execute();
+            $stmt->close();
+            echo json_encode(['status'=>'success','message'=>'Current semester updated']);
+        } catch (Exception $eCur) {
+            error_log('set_current_term failed: '.$eCur->getMessage());
+            echo json_encode(['status'=>'error','message'=>'Could not update the current semester. No changes were made.']);
+        }
         break;
 
     case 'delete_term':

@@ -587,7 +587,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             font-weight: 700;
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body class="bg-slate-100">
