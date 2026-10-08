@@ -72,20 +72,29 @@ class RendererPinned(unittest.TestCase):
     def test_annual_view_branches_on_the_term(self):
         self.assertIn("const isAnnualView = !(data.term && data.term.id);", self.js)
 
-    def test_detailed_blocks_list_assessments_one_by_one(self):
-        self.assertIn("function assessmentLine(a)", self.js)
-        self.assertIn("rc-detail-row", self.js)
+    def test_detail_is_one_consolidated_statement_table(self):
+        self.assertIn("function assessmentRow(a)", self.js)
+        self.assertIn("function semesterBlock(label, detail, sub, isS1)", self.js)
+        self.assertIn("rc-a-row", self.js)
+        self.assertIn("'<table class=\"rc-table rc-detail\">'", self.js)
+        self.assertIn("<th>Subject / Assessment</th>", self.js)
+
+    def test_semesters_are_labeled_bilingually(self):
         self.assertIn("'1st Semester · 1ኛ ሴሚስተር'", self.js)
         self.assertIn("'2nd Semester · 2ኛ ሴሚስተር'", self.js)
 
     def test_each_semester_total_is_shown_from_100(self):
-        self.assertIn("rc-sem-total", self.js)
-        self.assertIn("semTotal(total) + ' / 100%", self.js)
+        self.assertIn("' total (from 100)</td>'", self.js)
+        self.assertIn("semTotal(total)", self.js)
 
     def test_semester_only_subjects_show_a_dash_not_a_zero(self):
         self.assertIn("Not offered this semester", self.js)
-        self.assertIn("rc-dash", self.js)
+        self.assertIn("rc-dash-row", self.js)
         self.assertIn("SEMESTER_ONLY", self.js)
+
+    def test_annual_row_explains_the_method(self):
+        self.assertIn("Annual — average of the two semesters", self.js)
+        self.assertIn("continues next semester", self.js)
 
     def test_summary_table_columns(self):
         self.assertIn("<th>Subject</th><th class=\"num\">1st Semester</th>", self.js)
@@ -93,14 +102,25 @@ class RendererPinned(unittest.TestCase):
         self.assertIn("<th class=\"num\">Annual (average)</th>", self.js)
 
     def test_term_views_keep_the_existing_table(self):
-        self.assertIn("isAnnualView\n          ? '<div class=\"rc-detail-wrap\">'", self.js)
+        self.assertIn("' style=\"display:none\"'", self.js)
 
 
 class StylesPinned(unittest.TestCase):
-    def test_detail_styles_exist(self):
+    def test_statement_table_styles_exist(self):
         css = read("admin/css/report_card.css")
-        for cls in (".rc-detail-wrap", ".rc-subj", ".rc-sem-hd", ".rc-sem-total", ".rc-detail-row.rc-dash"):
+        for cls in (
+            ".rc-table.rc-detail",
+            ".rc-subj-row",
+            ".rc-sem-row",
+            ".rc-subtotal",
+            ".rc-annual-row",
+            ".rc-dash-row",
+        ):
             self.assertIn(cls, css)
+
+    def test_detail_rows_are_compact(self):
+        css = read("admin/css/report_card.css")
+        self.assertIn(".rc-table.rc-detail td{padding:.22rem .5rem", css)
 
 
 if __name__ == "__main__":
