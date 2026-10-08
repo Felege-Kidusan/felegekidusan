@@ -187,23 +187,24 @@
   .rc-head{flex-direction:column;text-align:center}
 }
 
-/* ── 1.6.7 detailed annual report card (semester-based model) ─────────────
-   Per subject: assessments one by one under their semester, each semester
-   closing from 100%; then the summary table. Semester-only subjects show a
-   dash in the semester they do not run. */
-.rc-detail-wrap{display:flex;flex-direction:column;gap:8px;margin:10px 0}
-.rc-subj{border:1px solid #e7d5c8;border-radius:10px;overflow:hidden}
-.rc-subj-hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;background:#faf3ec;padding:6px 10px;border-bottom:1px solid #e7d5c8;font-weight:700;font-size:.72rem}
-.rc-subj-hd .am{color:#3b0000}
+/* ── 1.6.8 detailed annual report card — statement table ─────────────────
+   One consolidated table: subject header rows, thin semester dividers, one
+   compact row per assessment, shaded semester subtotals, bold annual rows.
+   The professional transcript pattern: tabular marks, instant readability,
+   one printed page. */
+.rc-table.rc-detail{margin:10px 0 2px}
+.rc-table.rc-detail tbody tr:nth-child(even){background:transparent}
+.rc-table.rc-detail td{padding:.22rem .5rem;font-size:.7rem}
+.rc-subj-row td{background:#faf3ec;border-bottom:1px solid #c4a574;border-top:2px solid #c4a574;font-weight:700;font-size:.74rem;padding:.4rem .5rem}
 .rc-subj-en{font-size:.58rem;color:#8a7260;font-weight:400}
-.rc-sem{padding:5px 10px 7px}
-.rc-sem+.rc-sem{border-top:1px dashed #e7d5c8}
-.rc-sem-hd{display:flex;justify-content:space-between;align-items:center;font-size:.62rem;font-weight:700;color:#6d28d9;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
-.rc-sem-total{color:#3b0000;background:#f3e3d3;border-radius:8px;padding:1px 8px;font-size:.62rem}
-.rc-detail-row{display:flex;justify-content:space-between;gap:10px;font-size:.68rem;padding:2px 0;border-bottom:1px dotted #eee}
-.rc-detail-row:last-child{border-bottom:none}
-.rc-detail-row.rc-dash{color:#a39286;font-style:italic}
+.rc-sem-row td{background:#f3e7f6;color:#6d28d9;font-size:.56rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:.14rem .5rem}
+.rc-a-row td{border-bottom:1px dotted #dcc9ab}
+.rc-subtotal td{background:#fdf3dc;font-weight:700}
+.rc-annual-row td{background:#600000;color:#F0C000;font-weight:800}
+.rc-annual-row b{color:#fff}
+.rc-annual-row .rc-letter{background:#F0C000;color:#600000}
+.rc-dash-row td{color:#a39286;font-style:italic}
 .rc-table.rc-summary{margin-top:6px}
 @media print{
-  .rc-subj{break-inside:avoid}
+  .rc-subj-row,.rc-annual-row{break-inside:avoid}
 }
