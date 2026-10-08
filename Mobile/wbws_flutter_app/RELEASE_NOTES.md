@@ -5,6 +5,18 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.2 (build 28) — Automatic hymn list rebuild after the server move
+
+The app now rebuilds its hymn library from the current system whenever the
+system's dataset changes identity — fixing hymns from the old system that
+kept appearing after the move to felegekidusan.com.
+
+- Hymns that came from the old system's database are removed
+  automatically on the first sync; no reinstall or manual clearing.
+- Any hymn edits still waiting to upload are kept and re-sent to the
+  current system.
+- Accounts, logins, downloads and settings are untouched.
+
 ## 1.6.1 (build 27) — New address: felegekidusan.com
 
 The system now lives at its own address: felegekidusan.com. This update

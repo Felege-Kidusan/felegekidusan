@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/../core/app_release.php';
+require_once __DIR__ . '/../../../admin/backend/services/SyncInstanceService.php';
 
 $action = $ROUTE['id'] ?? 'config';
 
@@ -28,6 +29,16 @@ if ($method === 'GET' && ($action === 'config' || $action === '' || $action === 
         ];
     }
     ok([
+        // 1.6.2: dataset identity for the mobile sync engine (the
+        // sync-anchor pattern). When this value changes — new dataset,
+        // restore, migration — clients purge their server-derived caches
+        // and re-pull the authoritative corpus, which removes rows the
+        // delta stream can never tombstone. Empty when the DB is
+        // unreachable: the endpoint stays useful and clients skip the
+        // epoch check.
+        'sync_instance_id' => \App\Services\SyncInstanceService::instanceId(
+            isset($conn) && $conn instanceof \mysqli ? $conn : null
+        ),
         'latest_version' => $rel['latest_version'],
         'latest_build' => $rel['latest_build'],
         'min_version' => $rel['min_version'],

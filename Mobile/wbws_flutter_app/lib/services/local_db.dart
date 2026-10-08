@@ -6738,6 +6738,55 @@ class LocalDb {
     );
   }
 
+  /// 1.6.2 sync anchor: the dataset identity this local corpus was
+  /// built from (see server SyncInstanceService). Empty when never set.
+  Future<String> getHymnSyncInstanceId() async {
+    final db = await database;
+    final rows = await db.query('hymn_sync_meta',
+        where: "key = 'sync_instance_id'", whereArgs: []);
+    return rows.isEmpty ? '' : '${rows.first['value'] ?? ''}';
+  }
+
+  Future<void> setHymnSyncInstanceId(String instanceId) async {
+    final db = await database;
+    await db.insert(
+      'hymn_sync_meta',
+      {'key': 'sync_instance_id', 'value': instanceId},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 1.6.2 sync-anchor reset: the server's dataset identity changed, so
+  /// every server-derived hymn row belongs to a previous dataset (a
+  /// "ghost" the delta stream can never remove — deletions only travel
+  /// as tombstones inside one dataset's own timeline). Deletes the
+  /// corpus minus ids with unpushed local edits (the outbox still owns
+  /// those and re-pushes them), clears the delta cursor so the next
+  /// pull rebuilds from the authoritative dataset, and drops orphaned
+  /// taxonomy join rows. The search index self-heals on the next open
+  /// (P38). Returns the number of hymn rows removed.
+  Future<int> resetHymnSyncForInstanceChange(Set<int> protectIds) async {
+    final db = await database;
+    var removed = 0;
+    await db.transaction((txn) async {
+      await txn.delete('hymn_sync_meta', where: "key = 'cursor'");
+      if (protectIds.isEmpty) {
+        removed = await txn.delete('cached_hymns');
+      } else {
+        final marks = List.filled(protectIds.length, '?').join(',');
+        removed = await txn.delete('cached_hymns',
+            where: 'id NOT IN ($marks)', whereArgs: protectIds.toList());
+      }
+      await txn.rawDelete(
+          'DELETE FROM cached_hymn_categories WHERE hymn_id NOT IN '
+          '(SELECT id FROM cached_hymns)');
+      await txn.rawDelete(
+          'DELETE FROM cached_hymn_zemarians WHERE hymn_id NOT IN '
+          '(SELECT id FROM cached_hymns)');
+    });
+    return removed;
+  }
+
   // ============================================================
   // SESSION OWNERSHIP + PRIVATE-DATA INVENTORY (v34)
   // ============================================================
