@@ -5,6 +5,32 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.3 (build 29) — Academic Year admin fixes (web admin; no app changes)
+
+This release is a web-admin maintenance release — the app itself is unchanged
+from 1.6.2, and the version is bumped only to keep the single-version
+convention. If you still have the 1.6.2 APK, no action is needed.
+
+Web admin (felegekidusan.com/admin):
+
+- **Academic Year modal fixed** — on some browsers the "Add Year" form was
+  covered by the page (the table and sidebar drew over it and the Save button
+  could not be clicked). All admin pages now force-refresh their stylesheets
+  on every release, and the modal stacking no longer depends on the shared
+  stylesheet loading.
+- **Year dates** — start/end dates are now validated (real dates, end after
+  start) and pre-filled with the national calendar suggestion
+  (Meskerem 16 → Sene 30). Semester dates must fall inside the year's dates.
+- **Semesters are managed by the Education Department** — the Edu Dept
+  dashboard can now add, edit, delete and set the current semester. Creating
+  the academic year itself stays with the School Admin.
+- **Current semester** — can now only be set on a semester of the active
+  year (previously it could be set on a past year's semester by mistake).
+  The semester list also shows a "dates suggest now" hint when today falls
+  inside a semester's saved dates.
+- **Year-end reminder** — when the active year's end date has just passed,
+  the School Admin dashboard suggests running the Year Rollover.
+
 ## 1.6.2 (build 28) — Automatic hymn list rebuild after the server move
 
 The app now rebuilds its hymn library from the current system whenever the

@@ -20,6 +20,11 @@ $_aiCsrf = generateCsrfToken();
 ?>
 <!-- AI Chatbot Widget -->
 <style>
+/* Cache-hardening fallback (values = themes/design-system.css). The canonical
+   scale lives there via mobile.css @import; this inline copy guarantees modal
+   stacking even when a browser serves a stale cached mobile.css (no ?v= before
+   2026-10-08) or the import fails. Keep in sync with themes/design-system.css. */
+:root{--z-content:1;--z-sticky:100;--z-header:200;--z-nav:900;--z-dock:950;--z-fab:1000;--z-toast:1100;--z-overlay:1200;--z-impersonate:1300;--z-tooltip:1400}
 #ai-fab{position:fixed;bottom:24px;right:24px;z-index:var(--z-fab);width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#10b981,#3b82f6);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.35rem;box-shadow:0 6px 24px rgba(16,185,129,.4);transition:transform .2s,box-shadow .2s}
 #ai-fab:hover{transform:scale(1.08);box-shadow:0 10px 34px rgba(16,185,129,.5)}
 #ai-fab .fab-badge{position:absolute;top:-2px;right:-2px;width:13px;height:13px;border-radius:50%;background:#22c55e;border:2px solid #0f1629;display:none}

@@ -239,6 +239,11 @@ select.inp{cursor:pointer}
 .tl-time{font-size:.58rem;color:var(--dim)}
 
 /* MODAL, TOAST, BOTTOM NAV */
+/* Cache-hardening fallback (values = themes/design-system.css). The canonical
+   scale lives there via mobile.css @import; this inline copy guarantees modal
+   stacking even when a browser serves a stale cached mobile.css (no ?v= before
+   2026-10-08) or the import fails. Keep in sync with themes/design-system.css. */
+:root{--z-content:1;--z-sticky:100;--z-header:200;--z-nav:900;--z-dock:950;--z-fab:1000;--z-toast:1100;--z-overlay:1200;--z-impersonate:1300;--z-tooltip:1400}
 .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:var(--z-overlay);align-items:center;justify-content:center;padding:1rem}
 .mo.show{display:flex}
 .md{background:var(--sb);border:1px solid var(--cb);border-radius:18px;padding:1.25rem;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.4)}
@@ -260,7 +265,7 @@ select.inp{cursor:pointer}
 @media(max-width:768px){aside{display:none}main{max-width:100%;padding:1rem .85rem 5rem}.bn{display:block}.sg{grid-template-columns:repeat(2,1fr);gap:.5rem}.sc .val{font-size:1.1rem}.two-col{grid-template-columns:1fr!important}.three-col{grid-template-columns:1fr!important}.search-box{width:100%}.topbar{flex-direction:column;align-items:stretch}.topbar-right{justify-content:flex-end}.dept-grid{grid-template-columns:1fr 1fr}}
 @media print{aside,.bn,.no-print,.topbar-right{display:none!important}main{max-width:100%;padding:0}body{background:#fff;color:#000}body::before{display:none}.sc,.cd{border:1px solid #ddd;background:#fff;color:#000}.sc .val,.ct{color:#000}}
 </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
@@ -421,6 +426,7 @@ renderSidebarUserCard($fullName, 'School Admin', $todayFormatted, $initials, 'li
 <!-- ═══ ACADEMIC YEAR ═══ -->
 <div id="section-academicyear" class="cs">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem;flex-wrap:wrap;gap:.5rem"><div><h2 style="font-size:1.1rem;font-weight:700;color:var(--bright)"><i class="fa-solid fa-calendar-days" style="color:var(--purple)"></i> Academic Year & Semesters</h2><p style="font-size:.72rem;color:var(--dim)">Create the school year, set the active one, and manage semesters. Only one year is <b>Active</b> at a time.</p></div><div style="display:flex;gap:.4rem;flex-wrap:wrap"><button class="btn bo bs" onclick="toggleYearHelp()" title="Explain what each button here does"><i class="fa-solid fa-circle-question"></i> Help</button><button class="btn bo bs" onclick="openRolloverModal()" title="Start the next school year and move students forward in one safe step"><i class="fa-solid fa-rotate"></i> Year Rollover</button><button class="btn bp bs" onclick="openYearModal()"><i class="fa-solid fa-plus"></i> Add Year</button></div></div>
+<div id="rolloverHint" style="display:none;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:.7rem .9rem;margin-bottom:.85rem;font-size:.76rem;display:none;align-items:center;gap:.7rem;flex-wrap:wrap"><i class="fa-solid fa-calendar-check" style="color:var(--warn)"></i><span id="rolloverHintText" style="color:var(--text);flex:1;min-width:200px"></span><button class="btn bp bs" onclick="openRolloverModal()"><i class="fa-solid fa-rotate"></i> Run Year Rollover</button><button class="btn bo bs" onclick="document.getElementById('rolloverHint').style.display='none'" title="Hide until the page is opened again">Dismiss</button></div>
 <div id="yearHelp" style="display:none;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:.85rem 1rem;margin-bottom:.85rem;font-size:.76rem;line-height:1.5">
 <div style="font-weight:700;color:var(--bright);margin-bottom:.4rem"><i class="fa-solid fa-circle-info" style="color:#60a5fa"></i> What each control does</div>
 <ul style="margin:0;padding-left:1.1rem;color:var(--dim)">
@@ -523,8 +529,7 @@ renderProfileTabSection('section-profile', 'cs');
 <div id="yearWeightMsg" style="font-size:.68rem;margin-top:.35rem"></div>
 <div style="font-size:.68rem;color:var(--dim);margin-top:.3rem">Used only for subjects marked <b>Full Year</b>, which combine both semesters into one annual result. Subjects marked <b>Semester Only</b> are unaffected. The two values must total exactly 100%. Each year keeps its own weights, so past years stay reproducible.</div>
 </div>
-<input type="hidden" id="yearCurrent" value="0">
-<div style="font-size:.68rem;color:var(--dim);background:rgba(59,130,246,.08);border-left:3px solid #60a5fa;padding:.45rem .6rem;border-radius:4px">A new year is created as <b>Upcoming</b> and two semesters are added automatically. It stays inactive until you use the <b>Set Active</b> (✓) button on the year list — that safely closes the current year and switches over. <b>The very first year</b> you create becomes active automatically.</div>
+<div style="font-size:.68rem;color:var(--dim);background:rgba(59,130,246,.08);border-left:3px solid #60a5fa;padding:.45rem .6rem;border-radius:4px">A new year is created as <b>Upcoming</b> and two semesters are added automatically. It stays inactive until you use the <b>Set Active</b> (✓) button on the year list — that safely closes the current year and switches over. <b>The very first year</b> you create becomes active automatically. Start/end dates are optional but when set they must be valid, and semester dates must fall inside them.</div>
 <button class="btn bp" onclick="saveYear()"><i class="fa-solid fa-save"></i> Save Academic Year</button>
 </div></div></div>
 
@@ -864,7 +869,7 @@ function exportMemberPDF(m){
     table.f{width:100%;border-collapse:collapse}table.f td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:10pt}
     .lbl{color:#6b7280;font-size:8pt;text-transform:uppercase;letter-spacing:0.5px;display:block}.val{color:#111827;font-weight:500}
     .footer{margin-top:16px;padding-top:6px;border-top:2px solid #16a34a;color:#94a3b8;font-size:8pt;text-align:center}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head><body>
     <div class="toolbar no-print"><button class="btn-g" onclick="window.print()">🖨️ Print / Save as PDF</button><button class="btn-o" onclick="window.close()">← Close</button><span style="color:#64748b;font-size:11px;margin-left:8px">Tip: Select "Save as PDF" in print dialog</span></div>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Profile</h1><p>Official Member Record • Generated: ${genStamp()}</p></div>
@@ -898,7 +903,7 @@ function exportMemberWord(m){
     table.fields{width:100%;border-collapse:collapse;font-size:10pt}table.fields td{padding:5px 8px;border-bottom:1px solid #f3f4f6}
     .label{color:#6b7280;font-size:8pt;text-transform:uppercase;letter-spacing:0.5px}.value{color:#111827;font-weight:500;font-size:10pt}
     .footer{margin-top:16px;padding-top:8px;border-top:2px solid #16a34a;color:#9ca3af;font-size:8pt;text-align:center}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head><body>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> Member Profile</h1><p><?= SCHOOL_TAGLINE ?> — Official Record</p></div>
     <div class="profile-card"><div class="avatar">${(m.student_name||'?')[0].toUpperCase()}</div><div>
@@ -1012,7 +1017,7 @@ function exportPDFPro(data){
     .status{padding:2px 6px;border-radius:8px;font-size:7pt;font-weight:600}
     .s-active{background:#d1fae5;color:#065f46}.s-warning{background:#fef3c7;color:#92400e}.s-inactive{background:#fee2e2;color:#991b1b}
     .footer{text-align:center;padding:8px;font-size:7pt;color:#94a3b8;border-top:2px solid #16a34a;margin-top:10px}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head><body>
     <div class="toolbar no-print"><button class="btn-g" onclick="window.print()">🖨️ Print / Save as PDF</button><button class="btn-o" onclick="window.close()">← Close</button><span style="color:#64748b;font-size:11px;margin-left:8px">Tip: In print dialog, select "Save as PDF"</span></div>
     <div class="header"><h1><?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Report</h1>
@@ -1068,7 +1073,7 @@ function exportWordPro(data){
     .badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:6.5pt;font-weight:600}
     .bg-active{background:#d1fae5;color:#065f46}.bg-warning{background:#fef3c7;color:#92400e}.bg-inactive{background:#fee2e2;color:#991b1b}
     .footer{margin-top:20px;padding-top:6px;border-top:2px solid #16a34a;color:#9ca3af;font-size:7pt;text-align:center}
-    </style><link rel="stylesheet" href="/admin/css/mobile.css">
+    </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head><body>
     <div class="header"><h1>⛪ <?= SCHOOL_NAME_SHORT ?> <?= SCHOOL_TYPE ?> — Member Report</h1>
     <p>${isFiltered?'Filtered Report: '+data.length+' of '+allMembers.length+' members':'Complete Report: '+data.length+' members'}</p>
@@ -1156,7 +1161,7 @@ function genCustomReport(){
         table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#06b6d4;color:white;padding:6px 10px;text-align:left;font-size:8pt}
         td{padding:5px 10px;border-bottom:1px solid #e5e7eb;font-size:9pt}tr:nth-child(even){background:#f8fafc}
         .footer{margin-top:15px;padding-top:5px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:7pt;text-align:center}
-        </style><link rel="stylesheet" href="/admin/css/mobile.css">
+        </style><link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head><body><div class="header"><h1>⛪ ${title}</h1><p>${allMembers.length} members analyzed • ${genDate()}</p></div>
         <table><tr>${h.slice(0,3).map(x=>'<th>'+x+'</th>').join('')}</tr>
         ${r.map((x,i)=>'<tr'+(i%2?' style="background:#f8fafc"':'')+'>'+x.slice(0,3).map(c=>'<td>'+esc(c+'')+'</td>').join('')+'</tr>').join('')}</table>
@@ -1168,6 +1173,23 @@ function genCustomReport(){
 
 // HELPERS
 /* ─── Academic Year & Semester management (school_admin) ─── */
+<?php
+// Editable date suggestions per EC year, from the national calendar pattern:
+// semester 1 starts Meskerem 16 (≈ Sep 26), the year ends Sene 30 (≈ Jul 7).
+// Computed with the real converter server-side so JS never re-implements the
+// Ethiopian calendar. The admin adjusts when the Ministry publishes exact dates.
+$__ecDefaults = [];
+try {
+    $__curEc = (int)ethio_date_format($today, 'Y');
+    foreach (range($__curEc - 2, $__curEc + 6) as $__ey) {
+        $__ecDefaults[(string)$__ey] = [
+            'start' => ethiopian_to_gregorian($__ey, 1, 16)->format('Y-m-d'),
+            'end'   => ethiopian_to_gregorian($__ey, 12, 30)->format('Y-m-d'),
+        ];
+    }
+} catch (Throwable $__e) { $__ecDefaults = []; }
+?>
+const EC_YEAR_DEFAULTS=<?= json_encode($__ecDefaults) ?>;
 window._yearData={};window._termData={};window._termYearId=0;
 async function loadYears(){
     const tb=document.getElementById('yearBody');if(!tb)return;
@@ -1175,6 +1197,7 @@ async function loadYears(){
         const r=await fetch('/admin/api_education.php?action=get_academic_years',{credentials:'same-origin'});const d=await r.json();
         if(d.status==='success'){
             const y=d.years||[];window._yearData={};y.forEach(x=>window._yearData[x.id]=x);
+            updateRolloverHint(y);
             tb.innerHTML=y.length?y.map(x=>{
                 const st=(x.status||(x.is_current==1?'active':'upcoming'));
                 const badge=st==='active'?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Active</span>':(st==='closed'?'<span class="bg" style="background:rgba(128,128,128,.15);color:var(--dim)">Closed</span>':'<span class="bg" style="background:rgba(59,130,246,.15);color:#60a5fa">Upcoming</span>');
@@ -1185,6 +1208,28 @@ async function loadYears(){
             }).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">No academic years yet. Click "Add Year".</td></tr>';
         }else tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Could not load</td></tr>';
     }catch(e){tb.innerHTML='<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--dim)">Error loading years</td></tr>';}
+}
+/* Year-end reminder (PowerSchool EOY pattern): if the ACTIVE year carries an
+   end_date that has passed within the last 30 days, nudge the admin to run the
+   Year Rollover. Never runs anything automatically. */
+function updateRolloverHint(years){
+    const hint=document.getElementById('rolloverHint'),txt=document.getElementById('rolloverHintText');
+    if(!hint||!txt)return;
+    let show=false,msg='';
+    try{
+        const act=years.find(x=>(x.status||(x.is_current==1?'active':'upcoming'))==='active');
+        if(act&&act.end_date){
+            const today=new Date();today.setHours(0,0,0,0);
+            const end=new Date(act.end_date+'T00:00:00');
+            const days=Math.floor((today-end)/86400000);
+            if(days>=0&&days<=30){
+                show=true;
+                msg='The active year ('+act.year_name+') ended '+fmtDate(act.end_date)+(days===0?' today':' '+days+' day'+(days===1?'':'s')+' ago')+' — run the Year Rollover to start the next school year.';
+            }
+        }
+    }catch(e){}
+    txt.textContent=msg;
+    hint.style.display=show?'flex':'none';
 }
 function syncGcFromEc(){
     // GC year is DERIVED from the Ethiopian year (E → GC span E+7 / E+8),
@@ -1224,11 +1269,11 @@ function openYearModal(){
     document.getElementById('yearName').value=ecYear+' ዓ.ም.';
     document.getElementById('yearEc').value=ecYear;
     syncGcFromEc(); // derive GC from EC, not the browser clock
-    document.getElementById('yearStart').value='';
-    document.getElementById('yearEnd').value='';
-    document.getElementById('yearCurrent').checked=true;
-    /* Starting point only - the stored default from migration 056. Staff can
-       change it here, and each year keeps whatever it was saved with. */
+    /* Prefill the dates with the national-calendar suggestion for this EC year
+       (Meskerem 16 → Sene 30). Fully editable; clearing them stays allowed. */
+    const ecDef=window.EC_YEAR_DEFAULTS?.[String(ecYear)];
+    document.getElementById('yearStart').value=ecDef?ecDef.start:'';
+    document.getElementById('yearEnd').value=ecDef?ecDef.end:'';
     document.getElementById('yearS1Weight').value=50;
     document.getElementById('yearS2Weight').value=50;
     updateWeightTotal();
@@ -1242,7 +1287,6 @@ function editYearById(id){const y=window._yearData?.[id];if(!y)return;
     document.getElementById('yearGc').value=y.year_gc||'';
     document.getElementById('yearStart').value=y.start_date||'';
     document.getElementById('yearEnd').value=y.end_date||'';
-    document.getElementById('yearCurrent').checked=y.is_current==1;
     /* Show what this year is actually stored with, not an assumed 50/50. */
     document.getElementById('yearS1Weight').value=(y.s1_weight_pct!==undefined&&y.s1_weight_pct!==null)?parseFloat(y.s1_weight_pct):50;
     document.getElementById('yearS2Weight').value=(y.s2_weight_pct!==undefined&&y.s2_weight_pct!==null)?parseFloat(y.s2_weight_pct):50;
@@ -1258,13 +1302,12 @@ async function saveYear(){
     fd.append('year_gc',document.getElementById('yearGc').value);
     fd.append('start_date',document.getElementById('yearStart').value);
     fd.append('end_date',document.getElementById('yearEnd').value);
-    fd.append('is_current',document.getElementById('yearCurrent').checked?1:0);
     if(!updateWeightTotal()){toast('Semester weights must total exactly 100%','e');return;}
     fd.append('s1_weight_pct',document.getElementById('yearS1Weight').value);
     fd.append('s2_weight_pct',document.getElementById('yearS2Weight').value);
     fd.append('csrf_token',CSRF);
     try{const r=await fetch('/admin/api_education.php',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json();
-    if(d.status==='success'){toast('Academic year saved!','s');document.getElementById('yearModal').classList.remove('show');loadYears();}
+    if(d.status==='success'){toast('Academic year saved!','s');(d.warnings||[]).forEach(w=>toast(w,'e'));document.getElementById('yearModal').classList.remove('show');loadYears();}
     else toast(d.message||'Save failed','e');}catch(e){toast('Network error','e');}
 }
 async function setCurrentYear(id){
@@ -1344,7 +1387,12 @@ async function viewTerms(yearId){
     try{const r=await fetch('/admin/api_education.php?action=get_terms&year_id='+yearId,{credentials:'same-origin'});const d=await r.json();
     const terms=d.terms||[];window._termData={};terms.forEach(t=>window._termData[t.id]=t);
     const yn=window._yearData?.[yearId]?.year_name||'';
-    area.innerHTML=`<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.5rem"><div class="ct" style="margin:0"><i class="fa-solid fa-calendar-week" style="color:var(--purple)"></i> Semesters — <span class="amharic">${esc(yn)}</span></div><button class="btn bp bs" onclick="openTermModal(0)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>${terms.length?`<div class="tw"><table><thead><tr><th>Name</th><th>#</th><th>Start</th><th>End</th><th>Current</th><th>Actions</th></tr></thead><tbody>${terms.map(t=>`<tr><td class="amharic" style="font-weight:600">${esc(t.term_name)}</td><td>${esc(String(t.term_number||''))}</td><td style="font-size:.72rem">${fmtDate(t.start_date)}</td><td style="font-size:.72rem">${fmtDate(t.end_date)}</td><td>${t.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':`<button class="btn bo bs" onclick="setCurrentTerm(${parseInt(t.id)})">Set</button>`}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="openTermModal(${parseInt(t.id)})"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" style="color:var(--bad)" onclick="deleteTerm(${parseInt(t.id)})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div>`:'<div style="text-align:center;color:var(--dim);font-size:.78rem;padding:1rem">No semesters yet.</div>'}</div>`;
+    /* "Dates suggest now" hint: only for the ACTIVE year, only when today
+       falls inside a semester's saved date window. Dates suggest — the
+       admin still decides (Banner/Canvas current-term pattern). */
+    const isActiveYear=Object.values(window._yearData||{}).some(x=>parseInt(x.id)===parseInt(yearId)&&((x.status||(x.is_current==1?'active':'upcoming'))==='active'));
+    const tToday=new Date();tToday.setHours(0,0,0,0);
+    area.innerHTML=`<div class="cd"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;flex-wrap:wrap;gap:.5rem"><div class="ct" style="margin:0"><i class="fa-solid fa-calendar-week" style="color:var(--purple)"></i> Semesters — <span class="amharic">${esc(yn)}</span></div><button class="btn bp bs" onclick="openTermModal(0)"><i class="fa-solid fa-plus"></i> Add Semester</button></div>${terms.length?`<div class="tw"><table><thead><tr><th>Name</th><th>#</th><th>Start</th><th>End</th><th>Current</th><th>Actions</th></tr></thead><tbody>${terms.map(t=>{const inWin=isActiveYear&&t.start_date&&t.end_date&&tToday>=new Date(t.start_date+'T00:00:00')&&tToday<=new Date(t.end_date+'T00:00:00');return `<tr><td class="amharic" style="font-weight:600">${esc(t.term_name)}</td><td>${esc(String(t.term_number||''))}</td><td style="font-size:.72rem">${fmtDate(t.start_date)}</td><td style="font-size:.72rem">${fmtDate(t.end_date)}</td><td>${t.is_current==1?'<span class="bg" style="background:rgba(16,185,129,.15);color:var(--ok)">Current</span>':`<button class="btn bo bs" onclick="setCurrentTerm(${parseInt(t.id)})">Set</button>${inWin?'<div style="font-size:.6rem;color:var(--warn);margin-top:.25rem" title="Today falls inside this semester\'s saved dates">📅 dates suggest now</div>':''}`}</td><td style="white-space:nowrap"><button class="btn bo bs" onclick="openTermModal(${parseInt(t.id)})"><i class="fa-solid fa-pen"></i></button> <button class="btn bo bs" style="color:var(--bad)" onclick="deleteTerm(${parseInt(t.id)})"><i class="fa-solid fa-trash"></i></button></td></tr>`}).join('')}</tbody></table></div>`:'<div style="text-align:center;color:var(--dim);font-size:.78rem;padding:1rem">No semesters yet.</div>'}</div>`;
     }catch(e){area.innerHTML='<div class="cd" style="text-align:center;padding:1rem;color:var(--dim)">Error loading semesters</div>';}
 }
 function openTermModal(termId){
