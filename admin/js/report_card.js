@@ -61,90 +61,45 @@
     const isAnnualView = !(data.term && data.term.id);
     const logo = brand.logo || '/themes/fkss/assets/logos/school_logo.png';
     // If the logo ever fails to load, fall back to an inline gold-cross seal
-    // so the header grid keeps its three columns (never display:none).
+    // so the cover keeps its structure (never display:none).
     const logoFallback = "data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27><text x=%2720%27 y=%2728%27 font-size=%2728%27 text-anchor=%27middle%27 fill=%27%23c7a347%27>+%3C/text></svg>";
-    const period = [yr.year_name, tm && tm.term_name].filter(Boolean).join(' · ');
 
-    // ── 1.6.9: A4-landscape statement layout (reference design, readability
-    // pass). Left column: profile, metrics, subject summary, attendance,
-    // scale & signatures. Right column: the assessment ledger — every
-    // assessment one row per semester, aligned numeric columns, semester
-    // totals, annual in the summary table.
-    function semTotal(v) {
-      return v != null ? Number(v).toFixed(1) + '%' : '—';
+    // ── 1.6.10: foldable report card (approved design). One A4 portrait
+    // sheet for the inside face (profile + metrics + attendance on the top
+    // half, the single totals table + signatures on the bottom half) and
+    // one for the outside face (back cover on top, front cover below).
+    // Print double-sided (duplex, flip on SHORT edge), fold along the
+    // middle — a classic A5 school report card booklet. Per-assessment
+    // detail is intentionally GONE: totals only, one table.
+    function num(v) {
+      return v != null && v !== '' ? Number(v).toFixed(1) : null;
+    }
+    function cell(v) {
+      const n = num(v);
+      return n === null ? '<span class="rc-dash">—</span>' : n;
     }
 
-    function durationNote(sub) {
-      const dt = sub.duration_type || '';
-      const st = sub.subject_status || '';
-      let label = '';
-      if (st === 'CONTINUING') {
-        label = 'Full year — continues next semester';
-      } else if (dt === 'FULL_YEAR') {
-        label = 'Full year';
-      } else if (dt === 'SEMESTER_ONLY') {
-        label = 'Semester only';
-      }
-      if (!label) return '';
-      return '<div class="rc-dur">' + esc(label) + '</div>';
-    }
-
-    // ── left column ──────────────────────────────────────────────────
+    // ── inside top: profile + metrics ─────────────────────────────────
     const profileHtml =
-      '<section class="rc-card"><div class="rc-card-head"><span>Student profile</span><span class="am">የተማሪ መረጃ</span></div>' +
-      '<div class="rc-card-body rc-identity">' +
-        '<div class="rc-field"><label>Name / ስም</label><strong class="am">' + esc(s.student_name || '') + '</strong></div>' +
-        '<div class="rc-field"><label>Student ID</label><strong>' + esc(s.member_code || '—') + '</strong></div>' +
-        '<div class="rc-field"><label>Father / አባት</label><strong class="am">' + esc(s.father_name || '') + '</strong></div>' +
-        '<div class="rc-field"><label>Gender / ጾታ</label><strong>' + esc(s.gender === 'male' ? 'Male' : (s.gender === 'female' ? 'Female' : '—')) + '</strong></div>' +
-        '<div class="rc-field rc-field-wide"><label>Class / ክፍል</label><strong class="am">' + esc(cl.class_name || '') +
-          (cl.class_name_en ? ' <span class="rc-soft">(' + esc(cl.class_name_en) + ')</span>' : '') + '</strong>' +
-          (s.christian_name ? '<label>Christian name</label><strong class="am">' + esc(s.christian_name) + '</strong>' : '') + '</div>' +
-      '</div></section>';
+      '<div class="rc-card rc-profile">' +
+        '<div class="rc-card-head"><span>Student profile</span><span class="am">የተማሪ መረጃ</span></div>' +
+        '<div class="rc-card-body">' +
+          '<div class="rc-plabel">Name · <span class="am">ስም</span></div>' +
+          '<div class="rc-pvalue am rc-pname">' + esc(s.student_name || '') + '</div>' +
+          '<div class="rc-prow"><div><div class="rc-plabel">Father · <span class="am">አባት</span></div><div class="rc-pvalue am">' + esc(s.father_name || '—') + '</div></div>' +
+          '<div><div class="rc-plabel">Christian name</div><div class="rc-pvalue am">' + esc(s.christian_name || '—') + '</div></div></div>' +
+          '<div class="rc-prow"><div><div class="rc-plabel">Student ID</div><div class="rc-pvalue">' + esc(s.member_code || '—') + '</div></div>' +
+          '<div><div class="rc-plabel">Gender · <span class="am">ጾታ</span></div><div class="rc-pvalue">' + esc(s.gender === 'male' ? 'Male' : (s.gender === 'female' ? 'Female' : '—')) + '</div></div></div>' +
+        '</div>' +
+      '</div>';
 
     const metricsHtml =
       '<div class="rc-metrics">' +
-        '<div class="rc-metric"><div class="rc-mv">' + (oa != null ? esc(oa) + '%' : '—') + '</div><div class="rc-ml">Overall average</div></div>' +
+        '<div class="rc-metric"><div class="rc-mv">' + (oa != null ? num(oa) + '%' : '—') + '</div><div class="rc-ml">Overall average</div></div>' +
         '<div class="rc-metric"><div class="rc-mv rc-mv-g">' + esc(og || '—') + '</div><div class="rc-ml">Grade</div></div>' +
         '<div class="rc-metric"><div class="rc-mv">' + (rank ? esc(rank) + (data.rank_tied ? '=' : '') + '<span class="rc-of">/' + esc(total) + '</span>' : '—') + '</div><div class="rc-ml">Class rank</div></div>' +
-        '<div class="rc-metric"><div class="rc-mv">' + esc(att.rate || 0) + '%</div><div class="rc-ml">Attendance</div></div>' +
+        '<div class="rc-metric"><div class="rc-mv rc-mv-gr">' + esc(att.rate || 0) + '%</div><div class="rc-ml">Attendance</div></div>' +
       '</div>';
-
-    const summaryRows = subjects.length
-      ? subjects.map(function (sub) {
-          const s1 = sub.semester_1_score != null ? Number(sub.semester_1_score).toFixed(1) + '%' : '—';
-          const s2 = sub.semester_2_score != null ? Number(sub.semester_2_score).toFixed(1) + '%' : '—';
-          const fin = sub.final_percentage != null ? Number(sub.final_percentage).toFixed(1) + '%' : '—';
-          const badge = sub.grade_letter
-            ? '<span class="rc-badge">' + esc(sub.grade_letter) + '</span>'
-            : '<span class="rc-badge rc-badge-off">—</span>';
-          return '<tr>' +
-            '<td class="rc-subj-cell"><span class="am">' + esc(sub.subject_name || '') + '</span>' +
-              (sub.subject_name_en ? ' <small>' + esc(sub.subject_name_en) + '</small>' : '') + '</td>' +
-            (isAnnualView
-              ? '<td class="num">' + s1 + '</td><td class="num">' + s2 + '</td>'
-              : '<td class="num">' + (sub.average != null ? Number(sub.average).toFixed(1) + '%' : '—') + '</td>') +
-            '<td class="num"><b>' + fin + '</b></td>' +
-            '<td class="num">' + badge + '</td>' +
-            '</tr>';
-        }).join('') +
-        '<tr class="rc-total-row"><td>Overall</td>' +
-        (isAnnualView ? '<td class="num">—</td><td class="num">—</td>' : '<td class="num">—</td>') +
-        '<td class="num"><b>' + (oa != null ? Number(oa).toFixed(1) + '%' : '—') + '</b></td>' +
-        '<td class="num"><span class="rc-badge">' + esc(og || '—') + '</span></td></tr>'
-      : '<tr><td colspan="5" class="rc-empty">No subjects yet.</td></tr>';
-
-    const summaryHtml =
-      '<section class="rc-card"><div class="rc-card-head"><span>' +
-      (isAnnualView ? 'Annual subject summary' : 'Subject summary') + '</span><span class="am">' +
-      (isAnnualView ? 'ዓመታዊ ውጤት' : 'ውጤት') + '</span></div>' +
-      '<table class="rc-table rc-summary"><thead><tr>' +
-        '<th>Subject</th>' +
-        (isAnnualView
-          ? '<th class="num">1st sem.</th><th class="num">2nd sem.</th><th class="num">Annual</th>'
-          : '<th class="num">Average</th><th class="num">Result</th>') +
-        '<th class="num">Grade</th>' +
-      '</tr></thead><tbody>' + summaryRows + '</tbody></table></section>';
 
     const attTotal = Number(att.total) || 0;
     const presence = attTotal > 0
@@ -153,134 +108,151 @@
     const attBar = attTotal > 0
       ? '<div class="rc-progress"><span style="width:' + (att.present / attTotal * 100) + '%"></span><i style="width:' + (att.late / attTotal * 100) + '%"></i></div>'
       : '<div class="rc-progress"></div>';
-    const attendanceHtml =
-      '<section class="rc-card"><div class="rc-card-head"><span>Attendance &amp; reflections</span><span class="am">ክትትል</span></div>' +
-      '<div class="rc-card-body rc-att">' +
-        '<div class="rc-att-big"><div class="rc-big">' + esc(att.rate || 0) + '%</div>' + attBar + '</div>' +
-        '<div class="rc-att-detail">' +
-          '<strong>' + esc(att.present || 0) + ' present</strong>' +
-          '<div class="rc-note">' + esc(att.absent || 0) + ' absent · ' + esc(att.late || 0) + ' late' +
-            ((att.excused || 0) ? ' · ' + esc(att.excused) + ' excused' : '') + ' / ' + esc(att.total || 0) + ' days</div>' +
-          '<div class="rc-statline"><span>Presence</span><b>' + esc(presence) + '</b></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="rc-card-body rc-two">' +
-        '<div class="rc-insight"><label>Strongest subject</label><strong class="am">' + esc((hl.strongest && hl.strongest.subject_name) || '—') +
-          (hl.strongest && hl.strongest.average != null ? ' · ' + hl.strongest.average + '%' : '') + '</strong></div>' +
-        '<div class="rc-insight"><label>Needs attention</label><strong class="am">' + esc((hl.weakest && hl.weakest.subject_name) || '—') +
-          (hl.weakest && hl.weakest.average != null ? ' · ' + hl.weakest.average + '%' : '') + '</strong></div>' +
-      '</div></section>';
-
-    const scaleTxt = scale.length
-      ? scale.map(function (g) { return '<b>' + esc(g.letter) + '</b> ' + esc(g.min) + '–' + esc(g.max); }).join(' · ')
-      : '<b>A</b> 90–100 · <b>B</b> 80–89 · <b>C</b> 70–79 · <b>D</b> 60–69 · <b>F</b> below 60';
-    const authHtml =
-      '<section class="rc-card"><div class="rc-card-head"><span>Grade scale &amp; authorization</span><span class="am">ማረጋገጫ</span></div>' +
-      '<div class="rc-card-body">' +
-        '<div class="rc-scale-line">' + scaleTxt + ' · Pass mark ' + esc(data.pass_mark != null ? data.pass_mark : 50) + '%</div>' +
-        (isAnnualView ? '<div class="rc-note rc-note-mid">Annual = average of the two semester totals. “—” = not offered that semester.</div>' : '') +
-        '<div class="rc-signs"><div class="rc-sign">Class Teacher</div><div class="rc-sign">' + esc(brand.sig_head || 'Education Department') + '</div></div>' +
-      '</div></section>';
-
-    // ── right column: the assessment ledger ──────────────────────────
-    function slot(a) {
-      const score = a.score != null ? esc(a.score) : '—';
-      const mx = a.max_score != null ? '/' + esc(a.max_score) : '';
-      return '<div class="rc-slot">' +
-        '<span class="rc-slot-name">' + esc(a.assessment_name || '') + '</span>' +
-        '<span class="rc-slot-score">' + score + mx + '</span>' +
-        '<span class="rc-slot-wt">' + esc(a.weight_percentage != null ? a.weight_percentage + '%' : '—') + '</span>' +
-        '<span class="rc-slot-pct">' + esc(a.percentage != null ? a.percentage + '%' : '—') + '</span>' +
-        '</div>';
-    }
-
-    function semesterCell(detail, sub, isS1) {
-      const dt = sub.duration_type || '';
-      const offered = sub.offering_term_number || 0;
-      if (dt === 'SEMESTER_ONLY' && offered && ((isS1 && offered !== 1) || (!isS1 && offered !== 2))) {
-        return '<div class="rc-sem-cell"><div class="rc-slot rc-slot-off"><span class="rc-slot-name">Not offered this semester</span><span class="rc-slot-score">—</span><span class="rc-slot-wt">—</span><span class="rc-slot-pct">—</span></div></div>';
-      }
-      if (dt === 'SEMESTER_ONLY' && !offered && detail && detail.total == null && !(detail.assessments || []).length) {
-        const other = isS1 ? (sub.semester_2_score != null) : (sub.semester_1_score != null);
-        if (other) {
-          return '<div class="rc-sem-cell"><div class="rc-slot rc-slot-off"><span class="rc-slot-name">Not offered this semester</span><span class="rc-slot-score">—</span><span class="rc-slot-wt">—</span><span class="rc-slot-pct">—</span></div></div>';
-        }
-      }
-      const list = (detail && detail.assessments || []).map(slot).join('');
-      return '<div class="rc-sem-cell">' +
-        (list || '<div class="rc-slot rc-slot-off"><span class="rc-slot-name">No scores yet</span><span class="rc-slot-score">—</span><span class="rc-slot-wt">—</span><span class="rc-slot-pct">—</span></div>') +
-        '</div>';
-    }
-
-    function subjectCell(sub) {
-      return '<div class="rc-ledg-subj"><span class="am">' + esc(sub.subject_name || '') + '</span>' +
-        (sub.subject_name_en ? '<small>' + esc(sub.subject_name_en) + '</small>' : '') +
-        durationNote(sub) +
-        ((sub.untagged_mark_rows || 0) > 0 ? '<div class="rc-dur">' + esc(sub.untagged_mark_rows) + ' mark(s) without a semester</div>' : '') +
-        '</div>';
-    }
-
-    let ledgerBody;
-    if (isAnnualView) {
-      ledgerBody = subjects.map(function (sub) {
-        const det = sub.semester_detail || { s1: { assessments: [], total: null }, s2: { assessments: [], total: null } };
-        return '<div class="rc-ledg-row">' +
-          subjectCell(sub) +
-          semesterCell(det.s1, sub, true) +
-          '<div class="rc-ledg-total">' + semTotal(det.s1 && det.s1.total) + '</div>' +
-          semesterCell(det.s2, sub, false) +
-          '<div class="rc-ledg-total">' + semTotal(det.s2 && det.s2.total) + '</div>' +
-          '</div>';
-      }).join('');
-    } else {
-      ledgerBody = subjects.map(function (sub) {
-        return '<div class="rc-ledg-row rc-ledg-row-term">' +
-          subjectCell(sub) +
-          '<div class="rc-sem-cell">' +
-            ((sub.assessments || []).map(slot).join('') ||
-              '<div class="rc-slot rc-slot-off"><span class="rc-slot-name">No scores yet</span><span class="rc-slot-score">—</span><span class="rc-slot-wt">—</span><span class="rc-slot-pct">—</span></div>') +
+    const attHtml =
+      '<div class="rc-card rc-att">' +
+        '<div class="rc-card-head"><span>Attendance &amp; reflections</span><span class="am">ክትትል</span></div>' +
+        '<div class="rc-card-body rc-att-body">' +
+          '<div class="rc-att-left"><div class="rc-big">' + esc(att.rate || 0) + '%</div>' + attBar +
+            '<div class="rc-statline"><span>Presence</span><b>' + esc(presence) + '</b></div></div>' +
+          '<div class="rc-att-right">' +
+            '<div class="rc-attnum"><b>' + esc(att.present || 0) + '</b> present · <b>' + esc(att.absent || 0) + '</b> absent · <b>' + esc(att.late || 0) + '</b> late / <b>' + esc(att.total || 0) + '</b> days</div>' +
+            '<div class="rc-insight"><label>Strongest subject</label><span class="am">' + esc((hl.strongest && hl.strongest.subject_name) || '—') +
+              (hl.strongest && hl.strongest.average != null ? ' · ' + hl.strongest.average + '%' : '') + '</span></div>' +
+            '<div class="rc-insight"><label>Needs attention</label><span class="am">' + esc((hl.weakest && hl.weakest.subject_name) || '—') +
+              (hl.weakest && hl.weakest.average != null ? ' · ' + hl.weakest.average + '%' : '') + '</span></div>' +
           '</div>' +
-          '<div class="rc-ledg-total">' + semTotal(sub.average) + '</div>' +
-          '</div>';
-      }).join('');
+        '</div>' +
+      '</div>';
+
+    const insideTop =
+      '<div class="rc-panel rc-panel-top">' +
+        '<div class="rc-top-grid">' + profileHtml + metricsHtml + '</div>' + attHtml +
+      '</div>';
+
+    // ── inside bottom: the one totals table ───────────────────────────
+    function subjectRow(sub) {
+      const annual = num(sub.final_percentage);
+      const continuing = sub.subject_status === 'CONTINUING' || (sub.duration_type === 'FULL_YEAR' && annual === null && (sub.semester_1_score != null || sub.semester_2_score != null));
+      const semOnly = sub.duration_type === 'SEMESTER_ONLY';
+      const grade = sub.grade_letter
+        ? '<span class="rc-badge">' + esc(sub.grade_letter) + '</span>'
+        : '<span class="rc-badge rc-badge-off">—</span>';
+      const annualCell = annual === null
+        ? (continuing ? '<span class="rc-dash">—&thinsp;*</span>' : '<span class="rc-dash">—</span>')
+        : '<b>' + annual + (semOnly ? '&thinsp;†' : '') + '</b>';
+      return '<tr>' +
+        '<td class="rc-subj-cell"><span class="am">' + esc(sub.subject_name || '') + '</span>' +
+          (sub.subject_name_en ? ' <small>· ' + esc(sub.subject_name_en) + '</small>' : '') +
+          (semOnly ? ' <em class="rc-tag">semester subject</em>' : '') + '</td>' +
+        (isAnnualView
+          ? '<td class="num">' + cell(sub.semester_1_score) + '</td><td class="num">' + cell(sub.semester_2_score) + '</td>'
+          : '<td class="num">' + cell(sub.average) + '</td>') +
+        '<td class="num rc-annual-cell">' + annualCell + '</td>' +
+        '<td class="num">' + grade + '</td>' +
+        '</tr>';
     }
 
-    const ledgerHtml =
-      '<section class="rc-ledger"><div class="rc-ledg-title"><span>Assessment ledger · ' +
-        (isAnnualView ? 'both semesters' : esc(tm.term_name || 'Semester')) + '</span><span class="am">የፈተና ዝርዝር</span></div>' +
-      '<div class="rc-legend"><span><b>Name</b> · score/max · <b>weight</b> · weighted %</span>' +
-        '<span><b>—</b> = no score entered</span></div>' +
-      (isAnnualView
-        ? '<div class="rc-ledg-grid rc-ledg-head"><div>Subject</div><div>1st semester · 1ኛ ሴሚስተር</div><div class="rc-c">Total</div><div>2nd semester · 2ኛ ሴሚስተር</div><div class="rc-c">Total</div></div>'
-        : '<div class="rc-ledg-grid rc-ledg-grid-term rc-ledg-head"><div>Subject</div><div>Assessments</div><div class="rc-c">Total</div></div>') +
-      (ledgerBody || '<div class="rc-ledg-row"><div class="rc-empty">No subjects or scores for this class yet.</div></div>') +
-      '<div class="rc-ledg-foot"><span><b>Total</b> = semester result from 100%</span>' +
-        '<span><b>Annual</b> = average of the semester totals</span>' +
-        '<span><b>A4</b> landscape</span></div>' +
-      '</section>';
+    const tableRows = subjects.length
+      ? subjects.map(subjectRow).join('') +
+        '<tr class="rc-total-row"><td>Overall · <span class="am">አጠቃላይ</span></td>' +
+        (isAnnualView ? '<td class="num"><span class="rc-dash">—</span></td><td class="num"><span class="rc-dash">—</span></td>' : '<td class="num"><span class="rc-dash">—</span></td>') +
+        '<td class="num"><b>' + (oa != null ? num(oa) + '%' : '—') + '</b></td>' +
+        '<td class="num"><span class="rc-badge rc-badge-gold">' + esc(og || '—') + '</span></td></tr>'
+      : '<tr><td colspan="5" class="rc-empty">No subjects yet.</td></tr>';
 
-    // ── page frame ───────────────────────────────────────────────────
-    return '<article class="rc-sheet rc-a4l">' +
-      '<header class="rc-head">' +
-        '<img class="rc-logo" src="' + esc(logo) + '" alt="" onerror="this.onerror=null;this.src=\'' + logoFallback + '\'">' +
-        '<div class="rc-head-main">' +
-          (brand.invocation ? '<div class="rc-invoc am">' + esc(brand.invocation) + '</div>' : '') +
-          '<div class="rc-school-am am">' + esc(brand.school_am || '') + '</div>' +
-          '<div class="rc-school-en">' + esc(brand.school_en || '') + '</div>' +
-          (brand.parish_en ? '<div class="rc-parish">' + esc(brand.parish_en) + '</div>' : '') +
+    const periodRight = [yr.year_name, tm && tm.term_name].filter(Boolean).join(' · ');
+    const notesHtml = isAnnualView
+      ? '<div class="rc-notes">Semester results are out of 100. <b>*</b>&thinsp;full-year subject still in progress — its annual result appears after the 2nd semester closes. <b>†</b>&thinsp;semester subject runs one semester only; that semester&rsquo;s result is its annual result. <b>—</b>&thinsp;= not offered / no result yet.</div>'
+      : '<div class="rc-notes">Semester results are out of 100. <b>—</b>&thinsp;= not offered / no result yet. Annual figures are published on the annual card after the 2nd semester closes.</div>';
+
+    const insideBottom =
+      '<div class="rc-panel rc-panel-bottom">' +
+        '<div class="rc-tbl-title"><span>' + (isAnnualView ? 'Annual subject summary' : 'Subject results') + ' · <span class="am">' + (isAnnualView ? 'ዓመታዊ ውጤት' : 'ውጤት') + '</span></span>' +
+          '<span class="rc-tbl-period">' + esc(periodRight) + '</span></div>' +
+        '<table class="rc-table rc-summary">' +
+          '<thead><tr>' +
+            '<th>Subject · <span class="am">ትምህርት</span></th>' +
+            (isAnnualView
+              ? '<th class="num">1st sem.</th><th class="num">2nd sem.</th><th class="num">Annual</th>'
+              : '<th class="num">Result</th><th class="num">Annual</th>') +
+            '<th class="num">Grade</th>' +
+          '</tr></thead>' +
+          '<tbody>' + tableRows + '</tbody>' +
+        '</table>' +
+        notesHtml +
+        '<div class="rc-signs">' +
+          '<div class="rc-sign">Class Teacher · <span class="am">አስተዳዳሪ</span> — signature &amp; date</div>' +
+          '<div class="rc-sign">Education Department · <span class="am">የትምህርት ክፍል</span> — signature &amp; date</div>' +
         '</div>' +
-        '<div class="rc-head-title"><b>Student Report Card</b>' +
-          '<span>' + esc(period) + (data.issued_on ? ' · Issued ' + esc(data.issued_on) : '') + '</span>' +
-          '<span class="am">' + (isAnnualView ? 'ዓመታዊ የተማሪ ሪፖርት ካርድ' : 'የሴሚስተር ሪፖርት ካርድ') + '</span></div>' +
-      '</header>' +
-      '<section class="rc-content">' +
-        '<div class="rc-col-left">' + profileHtml + metricsHtml + summaryHtml + attendanceHtml + authHtml + '</div>' +
-        '<div class="rc-col-right">' + ledgerHtml + '</div>' +
+      '</div>';
+
+    // ── outside top: back cover ───────────────────────────────────────
+    const scaleItems = scale.length
+      ? scale.map(function (g) {
+          return '<div><span class="rc-badge' + (g.letter === 'F' ? ' rc-badge-f' : '') + '">' + esc(g.letter) + '</span> ' + esc(g.min) + ' – ' + esc(g.max) + '</div>';
+        }).join('')
+      : '<div><span class="rc-badge">A</span> 90 – 100</div><div><span class="rc-badge">B</span> 80 – 89</div><div><span class="rc-badge">C</span> 70 – 79</div><div><span class="rc-badge">D</span> 60 – 69</div><div><span class="rc-badge rc-badge-f">F</span> below 60</div>';
+    const readHtml = isAnnualView
+      ? 'Each semester closes out of <b>100</b>. The <b>annual</b> result is the average of the two semesters. A <b>semester subject</b> runs one semester — that result is its annual result. <b>—</b> means not offered or no result yet.'
+      : 'The semester closes out of <b>100</b>. Annual figures are the average of the two semesters and are published on the annual card once both close.';
+    const backCover =
+      '<div class="rc-panel rc-panel-top rc-back">' +
+        '<div class="rc-back-grid">' +
+          '<div class="rc-card"><div class="rc-card-head"><span>Grade scale</span><span class="am">የደረጃ መለኪያ</span></div>' +
+            '<div class="rc-card-body rc-scale">' + scaleItems + '<div class="rc-scale-pass">Pass mark <b>' + esc(data.pass_mark != null ? data.pass_mark : 50) + '%</b></div></div></div>' +
+          '<div class="rc-card"><div class="rc-card-head"><span>How to read</span><span class="am">አንባብ</span></div>' +
+            '<div class="rc-card-body rc-read">' + readHtml + '</div></div>' +
+        '</div>' +
+        '<div class="rc-back-grid2">' +
+          '<div class="rc-card rc-office"><div class="rc-card-head"><span>Office use</span><span class="am">ለጽሕፈት ቤት</span></div>' +
+            '<div class="rc-card-body">' +
+              '<div class="rc-office-line"><span>Received by / name</span><span class="rc-office-date">Date</span></div>' +
+              '<div class="rc-office-line"><span>Parent / guardian signature</span><span class="rc-office-date">Date</span></div>' +
+            '</div></div>' +
+          '<div class="rc-stamp">School stamp<span class="am">ማህተም</span></div>' +
+        '</div>' +
+        '<div class="rc-back-foot"><span><b>' + esc(brand.school_en || '') + '</b>' + (brand.parish_en ? ' · ' + esc(brand.parish_en) : '') + '</span>' +
+          '<span>' + (data.issued_on ? 'Issued ' + esc(data.issued_on) + ' · ' : '') + 'Confidential — deliver to parent / guardian</span></div>' +
+      '</div>';
+
+    // ── outside bottom: front cover ───────────────────────────────────
+    const frontCover =
+      '<div class="rc-panel rc-panel-bottom rc-front">' +
+        '<div class="rc-cover-frame">' +
+          '<div class="rc-cover-logo"><img src="' + esc(logo) + '" alt="" onerror="this.onerror=null;this.src=\'' + logoFallback + '\'"></div>' +
+          '<div class="rc-cover-names">' +
+            (brand.invocation ? '<div class="rc-invoc am">' + esc(brand.invocation) + '</div>' : '') +
+            '<div class="rc-school-am am">' + esc(brand.school_am || '') + '</div>' +
+            '<div class="rc-school-en">' + esc(brand.school_en || '') + '</div>' +
+            (brand.parish_en ? '<div class="rc-parish">' + esc(brand.parish_en) + '</div>' : '') +
+          '</div>' +
+          '<div class="rc-cover-title">' +
+            '<div class="rc-cover-t1">' + (isAnnualView ? 'Student<br>Report Card' : 'Semester<br>Report Card') + '</div>' +
+            '<div class="am rc-cover-t2">' + (isAnnualView ? 'የተማሪ ሪፖርት ካርድ' : 'የሴሚስተር ሪፖርት ካርድ') + '</div>' +
+            '<div class="rc-cover-badge">' + esc(periodRight || '') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="rc-cover-strip">' +
+          '<div><div class="rc-plabel">Student · <span class="am">ተማሪ</span></div><div class="am rc-strip-name">' + esc(s.student_name || '') + '</div></div>' +
+          '<div><div class="rc-plabel">Class · <span class="am">ክፍል</span></div><div class="am rc-strip-class">' + esc(cl.class_name || '') + (cl.class_name_en ? ' <small>(' + esc(cl.class_name_en) + ')</small>' : '') + '</div></div>' +
+          '<div class="rc-strip-id"><div class="rc-plabel">Student ID</div><div class="rc-strip-code">' + esc(s.member_code || '—') + '</div></div>' +
+        '</div>' +
+      '</div>';
+
+    const sheetLabel = function (n, inner) {
+      return '<div class="rc-sheet-label no-print"><span>' + n + '</span> ' + inner + '</div>';
+    };
+    const fold = '<div class="rc-fold no-print"><span>fold line</span></div>';
+
+    return '<article class="rc-sheet rc-book">' +
+      '<section class="rc-book-page">' +
+        sheetLabel('Sheet 1 · inside face', 'profile + results (duplex: print side 1)') +
+        insideTop + fold + insideBottom +
       '</section>' +
-      '<footer class="rc-foot">' +
-        '<span><strong>' + esc(brand.school_en || '') + '</strong>' + (brand.parish_en ? ' · ' + esc(brand.parish_en) : '') + '</span>' +
-        '<span>' + esc(s.member_code ? 'Student ID ' + s.member_code : '') + ' · Confidential academic record</span>' +
-      '</footer>' +
+      '<section class="rc-book-page">' +
+        sheetLabel('Sheet 2 · outside face', 'back cover (top) + front cover (bottom) — duplex: flip on SHORT edge, then fold') +
+        backCover + fold + frontCover +
+      '</section>' +
     '</article>';
   }
 
