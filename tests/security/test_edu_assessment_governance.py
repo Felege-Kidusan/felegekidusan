@@ -39,8 +39,13 @@ class EduAssessmentGovernanceTests(unittest.TestCase):
         self.assertIn("Only the Education department can create assessments", self.api_grades)
 
     def test_total_weight_enforcement(self):
-        """Total weight sum is enforced <= 100% in api_subjects."""
-        self.assertIn("Total weight for this class-subject would exceed 100%", self.api_grades)
+        """Total weight sum is enforced <= 100% — per SEMESTER since 1.6.6."""
+        # mobile single-create: per-semester budget with a semester-aware message
+        self.assertIn("only {$remaining}% remains", self.api_grades)
+        self.assertIn("AND term_id = ?", self.api_grades)
+        # mobile batch template: weights validated before any delete
+        self.assertIn("exceeds the 100% semester budget", self.api_grades)
+        # web template: total validated
         self.assertIn("Total template weight is", self.api_subjects)
 
     # ── 2. Batch Assigning Across Multiple Classes & Subjects ───────

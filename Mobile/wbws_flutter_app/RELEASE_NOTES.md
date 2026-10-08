@@ -5,6 +5,32 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.6 (build 32) — Per-semester 100% weight budget (term-close model, release 2)
+
+The 100% assessment budget is now **per semester** for every subject, on
+every surface — each semester's report closes from 100% and the next
+semester starts from 0, so a subject's assessments must total 100% *in
+each semester*, not 100% across the year.
+
+- **Website (Education Department)** — creating, updating or moving a
+  test charges the budget of the semester it lands in (create/update
+  accept the same validated semester override as before); messages now
+  name the semester ("Assessments in 1ኛ ሴሚስተር already total 90%, only
+  10% remaining this semester"). Applying a template to a semester
+  replaces only THAT semester's un-graded scheme — the other semester's
+  assessments and marks are untouched (previously it wiped the whole
+  year, which also blocked Semester 2 templates after Semester 1 had
+  grades).
+- **Mobile API** — the same per-semester budget on every creation path,
+  including the batch template apply, which previously had **no weight
+  validation at all**. Template items are validated (each weight 1–100,
+  total ≤ 100%) before anything is deleted.
+- **Teachers never create assessments** — reaffirmed and tightened: the
+  department-only 403 gate stays, and the dead "New Assessment" dialog
+  that lingered in the teacher app (unreachable code) plus its API
+  client method were removed. Assessment setup is the Education
+  Department's job, on the web console.
+
 ## 1.6.5 (build 31) — Semester close & reopen (term-close model, release 1)
 
 The school's reporting model is semester-based: when the Education
