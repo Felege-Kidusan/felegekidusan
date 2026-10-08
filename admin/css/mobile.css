@@ -4,7 +4,7 @@
  * School Native Mobile Experience — Complete Responsive CSS
  * ============================================================
  * Version: 2.0 — Full native app feel
- * Include: <link rel="stylesheet" href="/admin/css/mobile.css">
+ * Include: <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
  * ============================================================
  */
 
@@ -223,7 +223,11 @@
     .mc,
     .modal-content,
     .modal,
-    [class*="modal-body"] {
+    [class*="modal-body"],
+    /* .md is the dialog class used by the school_admin-style dashboards
+       (school_admin, finance, material). Without this rule those dialogs kept
+       their desktop card styling inside a bottom-aligned overlay on phones. */
+    .mo > .md {
         width: 100% !important;
         max-width: 100vw !important;
         max-height: 92vh !important;

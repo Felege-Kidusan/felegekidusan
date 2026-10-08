@@ -263,7 +263,7 @@ $member['emergency_phone'] = $member['guardian_phone1'] ?? '---';
             top: 0;
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head>
 <body class="flex flex-col items-center p-6">
 

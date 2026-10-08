@@ -404,7 +404,7 @@ $currentStatus = (int) field_value('is_active', $editUser, $oldForm, 1);
             border:1px solid #fecaca;
         }
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head>
 <body>
     <aside class="sidebar">

@@ -607,7 +607,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
     <link rel="stylesheet" href="/admin/css/super_admin.css?v=20261006a">
 <?= wbws_calendar_scripts($conn) ?>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 <?php include __DIR__ . "/../theme.php"; ?>
     <style id="sa-section-lock">
         /* Last in head so Tailwind/theme cannot stack every page. */

@@ -133,6 +133,11 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .empty i{font-size:2.5rem;color:var(--border);margin-bottom:0.75rem;display:block}
 
 /* Modal */
+/* Cache-hardening fallback (values = themes/design-system.css). The canonical
+   scale lives there via mobile.css @import; this inline copy guarantees modal
+   stacking even when a browser serves a stale cached mobile.css (no ?v= before
+   2026-10-08) or the import fails. Keep in sync with themes/design-system.css. */
+:root{--z-content:1;--z-sticky:100;--z-header:200;--z-nav:900;--z-dock:950;--z-fab:1000;--z-toast:1100;--z-overlay:1200;--z-impersonate:1300;--z-tooltip:1400}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(45,32,24,0.5);z-index:var(--z-overlay);align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto}
 .modal-bg.open{display:flex}
 .modal{background:#fff;border-radius:1rem;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);border-top:5px solid var(--gold);margin:auto}

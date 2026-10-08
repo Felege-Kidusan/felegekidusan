@@ -452,6 +452,11 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
 /* Save Footer */
 .mm-footer { 
     position: fixed; bottom: 0; left: 0; right: 0; padding: 16px; 
+/* Cache-hardening fallback (values = themes/design-system.css). The canonical
+   scale lives there via mobile.css @import; this inline copy guarantees modal
+   stacking even when a browser serves a stale cached mobile.css (no ?v= before
+   2026-10-08) or the import fails. Keep in sync with themes/design-system.css. */
+:root{--z-content:1;--z-sticky:100;--z-header:200;--z-nav:900;--z-dock:950;--z-fab:1000;--z-toast:1100;--z-overlay:1200;--z-impersonate:1300;--z-tooltip:1400}
     background: #fff; border-top: 1px solid #e2e8f0; box-shadow: 0 -4px 12px rgba(0,0,0,.05); z-index: var(--z-dock); 
 }
 .mm-save { 
