@@ -91,6 +91,11 @@ if (isset($conn)) {
         .btn-outline:hover{background:#f8fafc}
         .btn-danger{background:#ef4444;color:#fff}
         
+/* Cache-hardening fallback (values = themes/design-system.css). The canonical
+   scale lives there via mobile.css @import; this inline copy guarantees modal
+   stacking even when a browser serves a stale cached mobile.css (no ?v= before
+   2026-10-08) or the import fails. Keep in sync with themes/design-system.css. */
+:root{--z-content:1;--z-sticky:100;--z-header:200;--z-nav:900;--z-dock:950;--z-fab:1000;--z-toast:1100;--z-overlay:1200;--z-impersonate:1300;--z-tooltip:1400}
         .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:var(--z-overlay);padding:1rem}
         .modal.open{display:flex}
         .modal-content{background:#fff;border-radius:1rem;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;animation:slideUp .3s ease}
@@ -122,7 +127,7 @@ if (isset($conn)) {
         .tab-btn{padding:.5rem 1rem;border-radius:.5rem;font-size:.8rem;font-weight:500;cursor:pointer;border:1px solid transparent;background:transparent;color:#64748b;transition:all .15s}
         .tab-btn.active{background:#dcfce7;color:#166534;border-color:#bbf7d0}
     </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 </head>
 <body>
     <aside class="sidebar">

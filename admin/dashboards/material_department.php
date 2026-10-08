@@ -57,13 +57,18 @@ main{flex:1;padding:1.5rem 2rem 6rem;overflow-y:auto;max-width:calc(100vw - 260p
 .inp{background:rgba(255,255,255,0.06);border:1px solid var(--cb);border-radius:10px;padding:.55rem .85rem;color:#f1f5f9;font-size:.8rem;outline:none}.inp:focus{border-color:var(--ac)}
 .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1rem;border-radius:10px;font-size:.8rem;font-weight:600;cursor:pointer;border:none;transition:all .2s}.bp{background:linear-gradient(135deg,var(--ac),var(--ac2));color:#fff}.bo{background:transparent;border:1px solid var(--cb);color:var(--tx)}.bo:hover{border-color:var(--ac);color:var(--ac)}.bs{padding:.35rem .75rem;font-size:.72rem}
 .bg{display:inline-flex;padding:.2rem .55rem;border-radius:99px;font-size:.65rem;font-weight:600}.bg-ok{background:rgba(34,197,94,.15);color:#22c55e}.bg-w{background:rgba(251,191,36,.15);color:#fbbf24}.bg-bd{background:rgba(239,68,68,.15);color:#ef4444}.bg-in{background:rgba(14,165,233,.15);color:#0ea5e9}.bg-p{background:rgba(168,85,247,.15);color:#a855f7}
+/* Cache-hardening fallback (values = themes/design-system.css). The canonical
+   scale lives there via mobile.css @import; this inline copy guarantees modal
+   stacking even when a browser serves a stale cached mobile.css (no ?v= before
+   2026-10-08) or the import fails. Keep in sync with themes/design-system.css. */
+:root{--z-content:1;--z-sticky:100;--z-header:200;--z-nav:900;--z-dock:950;--z-fab:1000;--z-toast:1100;--z-overlay:1200;--z-impersonate:1300;--z-tooltip:1400}
 .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:var(--z-overlay);align-items:center;justify-content:center;padding:1rem}.mo.show{display:flex}.md{background:#1e293b;border:1px solid var(--cb);border-radius:20px;padding:1.5rem;max-width:560px;width:100%;max-height:90vh;overflow-y:auto}.md h3{font-size:1.1rem;font-weight:700;color:#f1f5f9;margin-bottom:1rem}
 .toast{position:fixed;top:1.5rem;right:1.5rem;padding:.75rem 1.25rem;border-radius:12px;color:#fff;font-size:.8rem;font-weight:600;z-index:200;transform:translateX(120%);transition:transform .3s;display:flex;align-items:center;gap:.5rem}.toast.show{transform:translateX(0)}.t-ok{background:#16a34a}.t-err{background:#dc2626}
 .bn{display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(15,23,42,0.95);backdrop-filter:blur(10px);border-top:1px solid var(--cb);padding:.4rem 0;z-index:50}.bni{display:flex;justify-content:space-around;max-width:500px;margin:0 auto}.bn button,.bn a{display:flex;flex-direction:column;align-items:center;gap:.15rem;background:none;border:none;color:var(--dm);font-size:.6rem;padding:.25rem .5rem;cursor:pointer;text-decoration:none}.bn button.active{color:var(--ac)}.bn i{font-size:1.1rem}
 @media(max-width:768px){aside{display:none}main{max-width:100%;padding:1rem 1rem 5rem}.bn{display:block}.sg{grid-template-columns:repeat(2,1fr)}.sc .val{font-size:1.2rem}}
 @media print{aside,.bn,.no-print{display:none!important}main{max-width:100%;padding:0}body{background:#fff;color:#000}}
 </style>
-<link rel="stylesheet" href="/admin/css/mobile.css">
+<link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
 <?php include __DIR__ . "/../theme.php"; ?>
 </head>
 <body>
