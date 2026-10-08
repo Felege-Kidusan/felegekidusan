@@ -175,12 +175,12 @@ class OfflineFirstClientTests(unittest.TestCase):
 
     def test_version_is_162_build_28(self):
         # Bumped 2026-10-07 for the ghost-hymn fix release; raised again
-        # 2026-10-08 for the detailed semester report card (build 33).
+        # 2026-10-08 for the statement-table report card (build 34).
         config = (MOBILE / "utils/config.dart").read_text(encoding="utf-8")
         pubspec = (ROOT / "Mobile/wbws_flutter_app/pubspec.yaml").read_text(encoding="utf-8")
-        self.assertIn("appVersion = '1.6.7'", config)
-        self.assertIn("appBuild = 33", config)
-        self.assertIn("version: 1.6.7+33", pubspec)
+        self.assertIn("appVersion = '1.6.8'", config)
+        self.assertIn("appBuild = 34", config)
+        self.assertIn("version: 1.6.8+34", pubspec)
 
 
 if __name__ == "__main__":
