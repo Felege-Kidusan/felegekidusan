@@ -478,12 +478,14 @@ class ReportsStillUseTheBackendPolicyTests(unittest.TestCase):
     def test_the_report_card_does_not_weight_semesters_itself(self):
         src = (ROOT / "admin/js/report_card.js").read_text(
             encoding="utf-8", errors="replace")
-        start = src.find("function durationNote")
-        self.assertGreater(start, -1)
-        block = src[start:src.find("const subjectRows", start)]
+        # 1.6.10: the renderer is the foldable booklet; it only paints the
+        # server's numbers (semester scores, final_percentage, grade) and
+        # must never compute or weight anything itself.
         for forbidden in ("s1_weight", "s2_weight", "* 0.", "/ 2"):
-            self.assertNotIn(forbidden, block,
+            self.assertNotIn(forbidden, src,
                              "the report card must display, not calculate: %r" % forbidden)
+        self.assertIn("final_percentage", src,
+                      "the renderer paints the backend's final figure")
 
     def test_the_weight_form_sends_values_rather_than_applying_them(self):
         src = SCHOOL_ADMIN_DASHBOARD.read_text(encoding="utf-8", errors="replace")

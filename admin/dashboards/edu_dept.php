@@ -135,7 +135,7 @@ main{padding:0!important;background:#fff!important;color:#1a0a0a!important}
 </style>
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">
-<link rel="stylesheet" href="/admin/css/report_card.css?v=20261009">
+<link rel="stylesheet" href="/admin/css/report_card.css?v=20261009b">
 <?php include __DIR__ . "/../theme.php"; ?>
 <style id="p70-edu-mobile">
 /* ═══════════════════════════════════════════════════════════════════
@@ -1200,7 +1200,7 @@ Classes with low curriculum recorded percentages indicate pending exam score sub
 </div>
 <div id="rcTableArea" style="display:none" class="crd"><div class="tw"><table class="dt"><thead><tr><th>Rank</th><th>Student</th><th>Code</th><th>Obtained</th><th>Average</th><th>Grade</th><th>Attendance</th><th class="no-print">Actions</th></tr></thead><tbody id="rcTableBody"></tbody></table></div></div>
 <div id="rcEmptyMsg" class="crd" style="padding:2rem;text-align:center;color:#94a3b8"><i class="fa-solid fa-chart-bar" style="font-size:2rem;margin-bottom:.5rem;display:block;opacity:.3"></i>Select a class to view performance and open report cards</div>
-<div class="mo" id="rcModal" onclick="if(event.target===this)closeModal('rcModal')"><div class="mc" style="max-width:1120px;padding:0;background:transparent;box-shadow:none">
+<div class="mo" id="rcModal" onclick="if(event.target===this)closeModal('rcModal')"><div class="mc" style="max-width:860px;padding:0;background:transparent;box-shadow:none">
 <div id="rcModalBody" style="background:#fff;border-radius:8px;padding:0 0 .85rem"><p style="text-align:center;color:#94a3b8;padding:2rem"><i class="fa-solid fa-spinner fa-spin"></i> Opening report card…</p></div>
 </div></div>
 </div>
@@ -1557,7 +1557,7 @@ include __DIR__ . '/../components/comm/comm_section.php';
 <script>(function(){const sc=document.getElementById('bnScroll'),sl=document.getElementById('bnScrollL'),sr=document.getElementById('bnScrollR');if(!sc)return;function upd(){sl.classList.toggle('visible',sc.scrollLeft>10);sr.classList.toggle('visible',sc.scrollLeft<sc.scrollWidth-sc.clientWidth-10);}sc.addEventListener('scroll',upd,{passive:true});setTimeout(upd,100);sc.querySelectorAll('.wbws-bnav-btn[data-sec]').forEach(b=>{b.addEventListener('click',function(){const s=this.dataset.sec;if(typeof nav==='function')nav(s);sc.querySelectorAll('.wbws-bnav-btn').forEach(x=>x.classList.remove('active'));this.classList.add('active');});});})();</script>
 
 <div id="toastC"></div>
-<script src="/admin/js/report_card.js?v=20261009"></script>
+<script src="/admin/js/report_card.js?v=20261009b"></script>
 <script>
 let allTeachers=[],currentTeacherId=null,asgRows=[],homeroomClassIds=[],homeroomHolders={};
 const EDU_CLASSES=<?= json_encode(array_map(static function ($c) {

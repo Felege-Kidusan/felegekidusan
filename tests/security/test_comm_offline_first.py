@@ -174,13 +174,12 @@ class OfflineFirstClientTests(unittest.TestCase):
         self.assertIn("txn.delete('comm_threads')", replace)
 
     def test_version_is_162_build_28(self):
-        # Bumped 2026-10-07 for the ghost-hymn fix release; raised again
-        # 2026-10-09 for the A4-landscape report card redesign (build 35).
+        # Bumped 2026-10-09 for the foldable report card redesign (build 36).
         config = (MOBILE / "utils/config.dart").read_text(encoding="utf-8")
         pubspec = (ROOT / "Mobile/wbws_flutter_app/pubspec.yaml").read_text(encoding="utf-8")
-        self.assertIn("appVersion = '1.6.9'", config)
-        self.assertIn("appBuild = 35", config)
-        self.assertIn("version: 1.6.9+35", pubspec)
+        self.assertIn("appVersion = '1.6.10'", config)
+        self.assertIn("appBuild = 36", config)
+        self.assertIn("version: 1.6.10+36", pubspec)
 
 
 if __name__ == "__main__":
