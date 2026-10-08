@@ -891,6 +891,37 @@ switch ($action) {
         }
         unset($a);
 
+        // 1.6.5 term-close model: per-row write state for THIS actor — a
+        // teacher sees which tests sit in a closed semester (term_locked)
+        // and which closed ones the department has reopened for
+        // corrections (term_reopened). Staff rows report term_locked =
+        // false because staff always pass the write gate.
+        $reopenedIds = [];
+        try {
+            $rr = $conn->query("SELECT id FROM academic_terms WHERE is_reopened = 1");
+            if ($rr) {
+                while ($rrow = $rr->fetch_assoc()) $reopenedIds[(int)$rrow['id']] = true;
+            }
+        } catch (Throwable $eReopened) { /* pre-067 database */ }
+        $listAuth = [
+            'uid' => (int)($_SESSION['admin_id'] ?? 0),
+            'usr' => (string)($_SESSION['admin_username'] ?? ''),
+            'rol' => (string)($_SESSION['admin_role'] ?? ''),
+        ];
+        foreach ($assessments as &$a) {
+            if ($a['term_id'] === null) {
+                $a['term_reopened'] = false; // legacy NULL-term: writable, flagged elsewhere
+            } else {
+                $a['term_reopened'] = isset($reopenedIds[(int)$a['term_id']]);
+            }
+            $a['term_locked'] = !\App\Services\SubmissionService::termWritableForTeachers(
+                $conn,
+                $listAuth,
+                $a['term_id']
+            );
+        }
+        unset($a);
+
         // Calculate total percentage per class-subject
         $totals = [];
         foreach ($assessments as $a) {
@@ -1567,6 +1598,33 @@ switch ($action) {
             $assessment['term_id'] = null;
             $assessment['is_current_term'] = null; // legacy: no semester assigned
         }
+        // ── 1.6.5 term-close gate: is THIS actor allowed to write marks
+        // into this assessment's semester? (Teachers: current or reopened
+        // semesters only; staff always pass.) The entry screens use this to
+        // lock the UI before a keystroke is wasted; the save path enforces
+        // the same rule server-side via teacherWriteRefusal().
+        $wAuth = [
+            'uid' => (int)($_SESSION['admin_id'] ?? 0),
+            'usr' => (string)($_SESSION['admin_username'] ?? ''),
+            'rol' => (string)($_SESSION['admin_role'] ?? ''),
+        ];
+        $assessment['term_locked'] = !\App\Services\SubmissionService::termWritableForTeachers(
+            $conn,
+            $wAuth,
+            !empty($assessment['term_id']) ? (int)$assessment['term_id'] : null
+        );
+        if (!empty($assessment['term_id'])) {
+            try {
+                $rst = $conn->prepare("SELECT is_reopened FROM academic_terms WHERE id=? LIMIT 1");
+                if ($rst) {
+                    $rst->bind_param('i', (int)$assessment['term_id']);
+                    $rst->execute();
+                    $rrow = $rst->get_result()->fetch_assoc();
+                    $rst->close();
+                    $assessment['term_reopened'] = $rrow !== null && (int)$rrow['is_reopened'] === 1;
+                }
+            } catch (Throwable $eRr) { /* pre-067 database */ }
+        }
 
         echo json_encode([
             'status' => 'success',
@@ -1622,14 +1680,17 @@ switch ($action) {
         // teacher could silently overwrite an already-submitted or approved
         // mark list from the website even though the app locks it. Enforce
         // the same rule the mobile API applies (staff may always override).
+        // 1.6.5 term-close model: the same gate now also refuses writes into
+        // a CLOSED semester (not current, not reopened by the department).
         $auth = [
             'uid' => (int)($_SESSION['admin_id']),
             'usr' => (string)($_SESSION['admin_username'] ?? ''),
             'rol' => (string)($_SESSION['admin_role'] ?? ''),
         ];
-        if (!\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
+        $refusal = \App\Services\SubmissionService::teacherWriteRefusal($conn, $auth, $assessmentId);
+        if ($refusal !== null) {
             http_response_code(409);
-            echo json_encode(['status' => 'error', 'message' => 'This test is already submitted. Only Education can change scores now.']);
+            echo json_encode(['status' => 'error', 'message' => $refusal]);
             exit;
         }
 
@@ -1725,6 +1786,28 @@ switch ($action) {
         $msg = $successCount > 0
             ? ($packet['message'] ?? "$successCount grade(s) saved successfully")
             : ($errors ? 'No grades could be saved.' : 'Nothing to save.');
+        // 1.6.5: the web save path now audits like the mobile one. Every
+        // successful save leaves an activity_logs row with the semester
+        // context, so "everything is tracked" holds on both surfaces —
+        // including department overrides into closed semesters.
+        if ($successCount > 0) {
+            try {
+                $logDetails = "Saved {$successCount} grade(s) for assessment #{$assessmentId}"
+                    . ($termId !== null ? " (term #{$termId})" : ' (no semester)');
+                $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                $lstmt = $conn->prepare(
+                    "INSERT INTO activity_logs (user_id, username, action, details, entity_type, entity_id, ip_address)
+                     VALUES (?, ?, 'save_grades', ?, 'assessment', ?, ?)"
+                );
+                if ($lstmt) {
+                    $lstmt->bind_param('issis', $auth['uid'], $auth['usr'], $logDetails, $assessmentId, $ip);
+                    $lstmt->execute();
+                    $lstmt->close();
+                }
+            } catch (Exception $eLog) {
+                // auditing must never block a legitimate save
+            }
+        }
         echo json_encode([
             'status' => 'success',
             'message' => $msg,

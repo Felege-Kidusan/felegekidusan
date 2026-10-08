@@ -129,11 +129,12 @@ class SemesterOwnershipSplitPinned(unittest.TestCase):
         self.assertNotIn("edu_dept", seg)
 
     def test_term_actions_allow_education_dept(self):
+        # 1.6.5: the array grew reopen_term / close_term_reopen (same tier).
         self.assertIn(
-            "$__termActions = ['save_term', 'delete_term', 'set_current_term']",
+            "$__termActions = ['save_term', 'delete_term', 'set_current_term', 'reopen_term', 'close_term_reopen']",
             self.api,
         )
-        seg = self.api.split("$__termActions = ['save_term', 'delete_term', 'set_current_term']")[1][:700]
+        seg = self.api.split("'reopen_term', 'close_term_reopen']")[1][:700]
         self.assertIn("'edu_dept'", seg)
 
     def test_edu_dept_ui_manages_semesters(self):

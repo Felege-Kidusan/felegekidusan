@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../core/app_release.php';
 require_once __DIR__ . '/../../../admin/backend/services/SyncInstanceService.php';
+require_once __DIR__ . '/../../../admin/backend/services/SubmissionService.php';
 
 $action = $ROUTE['id'] ?? 'config';
 
@@ -55,6 +56,12 @@ if ($method === 'GET' && ($action === 'config' || $action === '' || $action === 
         // fall back to 'universal' / the legacy fields above). Absent
         // when the server only publishes the universal build.
         'apk_artifacts' => $rel['apk_artifacts'],
+        // 1.6.5: the current semester of the active year, so the app can
+        // show teachers which semester grade entry is running in (hero
+        // box). Null when no active year / current semester is set — the
+        // app hides the chip, never blocks.
+        'current_term' => class_exists('\\App\\Services\\SubmissionService')
+            ? \App\Services\SubmissionService::currentTermOfActiveYear($conn) : null,
         'banner' => $banner,
         'features' => $features,
         'tiles' => $rel['tiles'],

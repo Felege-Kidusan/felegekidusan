@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
-requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types']);
+requirePostActions($action, ['enroll', 'assign_teacher', 'record_grade', 'record_attendance', 'batch_attendance', 'promote', 'unenroll_student', 'save_class', 'delete_class', 'save_academic_year', 'set_current_year', 'delete_year', 'save_term', 'set_current_term', 'reopen_term', 'close_term_reopen', 'delete_term', 'bulk_enroll', 'transfer_student', 'sync_member_types']);
 $__featureActions = [
     'grades' => ['record_grade'],
     'attendance' => ['record_attendance', 'batch_attendance'],
@@ -75,7 +75,7 @@ if (in_array($action, $__yearLifecycleActions, true)
 // Department runs the semester calendar (dates, current semester), with the
 // School Admin and Super Admin able to do the same. The year itself (above)
 // remains School-Admin-only.
-$__termActions = ['save_term', 'delete_term', 'set_current_term'];
+$__termActions = ['save_term', 'delete_term', 'set_current_term', 'reopen_term', 'close_term_reopen'];
 if (in_array($action, $__termActions, true)
         && !in_array($__role, ['super_admin', 'school_admin', 'edu_dept'], true)) {
     http_response_code(403);
@@ -1404,6 +1404,11 @@ switch ($action) {
                 exit;
             }
             $conn->query("UPDATE academic_terms SET is_current=0 WHERE academic_year_id=".(int)$activeId);
+            // 1.6.5 term-close model: flipping the current semester CLOSES
+            // every reopen-for-corrections window of this year. An old
+            // semester can never stay silently writable after the school
+            // has moved on; the department reopens one deliberately.
+            try { $conn->query("UPDATE academic_terms SET is_reopened=0 WHERE academic_year_id=".(int)$activeId." AND is_reopened<>0"); } catch (Exception $eRr) {}
             $stmt = $conn->prepare("UPDATE academic_terms SET is_current=1 WHERE id = ?");
             $stmt->bind_param('i', $tid);
             $stmt->execute();
@@ -1412,6 +1417,52 @@ switch ($action) {
         } catch (Exception $eCur) {
             error_log('set_current_term failed: '.$eCur->getMessage());
             echo json_encode(['status'=>'error','message'=>'Could not update the current semester. No changes were made.']);
+        }
+        break;
+
+    // ── 1.6.5 term-close model: reopen / close correction windows ──────────
+    // A closed semester is read-only for teachers (they can still view it
+    // for analysis). When a correction is needed, the Education Department
+    // reopens the semester: teachers may then edit its assessments exactly
+    // as in the current semester, until the department closes the window
+    // again or a new current semester is set (which re-closes everything).
+    // Same tier as set_current_term (edu_dept / school_admin / super_admin).
+    case 'reopen_term':
+    case 'close_term_reopen':
+        $tid = (int)($_POST['term_id'] ?? 0);
+        $opening = ($action === 'reopen_term');
+        if (!$tid) { echo json_encode(['status'=>'error','message'=>'Term ID required']); exit; }
+        if (function_exists('ay_block_if_readonly')) ay_block_if_readonly($conn);
+        try {
+            $activeId = 0;
+            if (function_exists('ay_resolve')) {
+                $activeId = (int)ay_resolve($conn)['active_id'];
+            }
+            if ($activeId <= 0) {
+                $ar = $conn->query("SELECT id FROM academic_years WHERE is_current=1 LIMIT 1");
+                if ($ar) $activeId = (int)($ar->fetch_assoc()['id'] ?? 0);
+            }
+            if ($activeId <= 0) { echo json_encode(['status'=>'error','message'=>'No active academic year is set.']); exit; }
+            $tr = $conn->prepare("SELECT academic_year_id, term_name, is_current FROM academic_terms WHERE id=? LIMIT 1");
+            $tr->bind_param('i', $tid); $tr->execute();
+            $trow = $tr->get_result()->fetch_assoc(); $tr->close();
+            if (!$trow) { echo json_encode(['status'=>'error','message'=>'That semester does not exist.']); exit; }
+            if ((int)$trow['academic_year_id'] !== $activeId) {
+                echo json_encode(['status'=>'error','message'=>'Only a semester of the ACTIVE academic year can be reopened.']); exit;
+            }
+            if ((int)$trow['is_current'] === 1) {
+                echo json_encode(['status'=>'error','message'=>'The current semester is already open for grade entry.']); exit;
+            }
+            $stmt = $conn->prepare("UPDATE academic_terms SET is_reopened = ? WHERE id = ?");
+            $flag = $opening ? 1 : 0;
+            $stmt->bind_param('ii', $flag, $tid);
+            $stmt->execute(); $stmt->close();
+            echo json_encode(['status'=>'success','message'=>$opening
+                ? ('Semester "'.($trow['term_name'] ?? '').'" reopened for corrections. Teachers can now edit it until it is closed again or a new current semester is set.')
+                : ('Correction window for "'.($trow['term_name'] ?? '').'" closed. The semester is read-only for teachers again.')]);
+        } catch (Exception $eRe) {
+            error_log($action.' failed: '.$eRe->getMessage());
+            echo json_encode(['status'=>'error','message'=>'Could not update the correction window. No changes were made. (If this keeps failing, run sql/067_semester_reopen_flag.sql on the database.)']);
         }
         break;
 
