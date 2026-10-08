@@ -571,57 +571,10 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     );
   }
 
-  void _showCreateAssessmentDialog() {
-    final nameCtrl = TextEditingController();
-    final maxCtrl = TextEditingController(text: '100');
-    final weightCtrl = TextEditingController(text: '100');
-    String type = 'test';
-
-    showModalBottomSheet(
-      context: context, isScrollControlled: true, backgroundColor: AppTheme.cardLight,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, ss) => Padding(
-          padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('New Assessment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            Text('$_selectedClassName', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-            const SizedBox(height: 16),
-            TextField(controller: nameCtrl, decoration: const InputDecoration(hintText: 'Name (e.g., Quiz 1)', prefixIcon: Icon(Icons.edit_outlined, size: 18)), textCapitalization: TextCapitalization.words),
-            const SizedBox(height: 12),
-            Wrap(spacing: 6, children: ['test', 'quiz', 'midterm', 'final', 'assignment'].map((t) =>
-              ChoiceChip(label: Text(t, style: const TextStyle(fontSize: 11)), selected: type == t, selectedColor: AppTheme.primary, onSelected: (_) => ss(() => type = t), side: BorderSide(color: AppTheme.borderLight))).toList()),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: TextField(controller: maxCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Max Score', labelStyle: TextStyle(fontSize: 12)))),
-              const SizedBox(width: 12),
-              Expanded(child: TextField(controller: weightCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Weight %', labelStyle: TextStyle(fontSize: 12)))),
-            ]),
-            const SizedBox(height: 20),
-            SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty) return;
-                final res = await _api.createAssessment({
-                  'class_id': _selectedClassId, 'subject_id': _selectedSubjectId,
-                  'assessment_name': nameCtrl.text.trim(), 'assessment_type': type,
-                  'max_score': double.tryParse(maxCtrl.text) ?? 100, 'weight_percentage': double.tryParse(weightCtrl.text) ?? 100,
-                });
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                if (res.success) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Assessment created!'), backgroundColor: AppTheme.success));
-                  _loadAssessments();
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Failed'), backgroundColor: AppTheme.danger));
-                }
-              },
-              child: const Text('Create Assessment'),
-            )),
-          ]),
-        ),
-      ),
-    );
-  }
+  // 1.6.6: assessment creation was removed from the teacher app —
+  // assessments are created and managed by the Education Department
+  // (the server already refused teacher creation with 403; the dialog
+  // that used to live here was dead code).
 
   void _openGradeEntry(dynamic assessment) {
     final subjectName = _subjects.firstWhere(

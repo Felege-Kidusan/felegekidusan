@@ -517,11 +517,45 @@ if ($action === 'assessments' && $method === 'POST') {
             err("Total template weight is {$totalWeight}%, which exceeds 100%.", 422);
         }
 
+        // 1.6.6 per-semester model: the template targets ONE semester —
+        // the current one by default, or an explicit ACTIVE-year semester
+        // (validated) for back-fill. It replaces only that semester's
+        // un-graded scheme; the other semester is untouched.
         $termId = null;
-        try {
-            $r = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
-            if ($r && $row = $r->fetch_assoc()) $termId = (int)$row['id'];
-        } catch (Exception $e) {}
+        if (class_exists('\\App\\Services\\SubmissionService')) {
+            $ctTpl = \App\Services\SubmissionService::currentTermOfActiveYear($conn);
+            if ($ctTpl) $termId = (int)$ctTpl['id'];
+        }
+        $postedTermIdTpl = (int)($body['term_id'] ?? 0);
+        if ($postedTermIdTpl > 0) {
+            try {
+                $vt = $conn->prepare("SELECT t.id FROM academic_terms t JOIN academic_years y ON y.id = t.academic_year_id WHERE t.id = ? AND y.status = 'active' LIMIT 1");
+                $vt->bind_param('i', $postedTermIdTpl);
+                $vt->execute();
+                $vtr = $vt->get_result()->fetch_assoc();
+                $vt->close();
+                if (!$vtr) err('That semester is not part of the active academic year.', 422);
+                $termId = (int)$vtr['id'];
+            } catch (Exception $eVt) {
+                err('That semester is not part of the active academic year.', 422);
+            }
+        }
+        // 1.6.6: weights are validated before anything is deleted — each
+        // item sane, and the scheme itself cannot exceed the 100% semester
+        // budget (this path previously had NO weight validation at all).
+        {
+            $tplTotal = 0.0;
+            foreach ($items as $it) {
+                $w = (float)($it['weight_percentage'] ?? $it['weight'] ?? 0);
+                if ($w <= 0 || $w > 100) {
+                    err("Each assessment item needs a weight between 1 and 100 (got {$w}%).", 422);
+                }
+                $tplTotal += $w;
+            }
+            if ($tplTotal > 100) {
+                err("Total template weight is {$tplTotal}%, which exceeds the 100% semester budget.", 422);
+            }
+        }
 
         $appliedCount = 0;
         $skippedCount = 0;
@@ -545,13 +579,23 @@ if ($action === 'assessments' && $method === 'POST') {
                 }
 
                 foreach ($sids as $sid) {
-                    $stmt = $conn->prepare("
-                        SELECT COUNT(*) as grade_count 
-                        FROM academic_records ar
-                        JOIN assessments a ON ar.assessment_id = a.id
-                        WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
-                    ");
-                    $stmt->bind_param("iii", $cid, $sid, $yearId);
+                    if ($termId !== null) {
+                        $stmt = $conn->prepare("
+                            SELECT COUNT(*) as grade_count 
+                            FROM academic_records ar
+                            JOIN assessments a ON ar.assessment_id = a.id
+                            WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ? AND (a.term_id = ? OR a.term_id IS NULL)
+                        ");
+                        $stmt->bind_param("iiii", $cid, $sid, $yearId, $termId);
+                    } else {
+                        $stmt = $conn->prepare("
+                            SELECT COUNT(*) as grade_count 
+                            FROM academic_records ar
+                            JOIN assessments a ON ar.assessment_id = a.id
+                            WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
+                        ");
+                        $stmt->bind_param("iii", $cid, $sid, $yearId);
+                    }
                     $stmt->execute();
                     $hasGrades = (int)$stmt->get_result()->fetch_assoc()['grade_count'] > 0;
                     $stmt->close();
@@ -561,8 +605,13 @@ if ($action === 'assessments' && $method === 'POST') {
                         continue;
                     }
 
-                    $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
-                    $stmt->bind_param("iii", $cid, $sid, $yearId);
+                    if ($termId !== null) {
+                        $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND (term_id = ? OR term_id IS NULL)");
+                        $stmt->bind_param("iiii", $cid, $sid, $yearId, $termId);
+                    } else {
+                        $stmt = $conn->prepare("DELETE FROM assessments WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?");
+                        $stmt->bind_param("iii", $cid, $sid, $yearId);
+                    }
                     $stmt->execute();
                     $stmt->close();
 
@@ -627,11 +676,29 @@ if ($action === 'assessments' && $method === 'POST') {
         $type = 'test';
     }
     
+    // 1.6.6: same semester rules as the website — default the current
+    // semester of the active year, allow a validated ACTIVE-year override
+    // (back-fill), and charge the 100% budget PER SEMESTER.
     $termId = null;
-    try {
-        $r = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
-        if ($r && $row = $r->fetch_assoc()) $termId = (int)$row['id'];
-    } catch (Exception $e) {}
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $ctS = \App\Services\SubmissionService::currentTermOfActiveYear($conn);
+        if ($ctS) $termId = (int)$ctS['id'];
+    }
+    $postedTermIdS = (int)($body['term_id'] ?? 0);
+    if ($postedTermIdS > 0) {
+        try {
+            $vt = $conn->prepare("SELECT t.id FROM academic_terms t JOIN academic_years y ON y.id = t.academic_year_id WHERE t.id = ? AND y.status = 'active' LIMIT 1");
+            $vt->bind_param('i', $postedTermIdS);
+            $vt->execute();
+            $vtr = $vt->get_result()->fetch_assoc();
+            $vt->close();
+            if (!$vtr) err('That semester is not part of the active academic year.', 422);
+            $termId = (int)$vtr['id'];
+        } catch (Exception $eVt2) {
+            // Fail closed: if the override cannot be verified, it is refused.
+            err('That semester is not part of the active academic year.', 422);
+        }
+    }
 
     // If single target
     if (count($targetClassIds) === 1 && !$allSubjectsRequested && count($explicitSubjectIds) === 1) {
@@ -648,13 +715,24 @@ if ($action === 'assessments' && $method === 'POST') {
             $stmt->close();
         } catch (Exception $e) {}
 
+        // 1.6.6: the 100% budget is per SEMESTER (year-wide only when no
+        // semester exists — legacy databases).
         try {
-            $stmt = $conn->prepare(
-                "SELECT COALESCE(SUM(weight_percentage), 0) AS total
-                 FROM assessments
-                 WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?"
-            );
-            $stmt->bind_param('iii', $classId, $subjectId, $yearId);
+            if ($termId !== null) {
+                $stmt = $conn->prepare(
+                    "SELECT COALESCE(SUM(weight_percentage), 0) AS total
+                     FROM assessments
+                     WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND term_id = ?"
+                );
+                $stmt->bind_param('iiii', $classId, $subjectId, $yearId, $termId);
+            } else {
+                $stmt = $conn->prepare(
+                    "SELECT COALESCE(SUM(weight_percentage), 0) AS total
+                     FROM assessments
+                     WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?"
+                );
+                $stmt->bind_param('iii', $classId, $subjectId, $yearId);
+            }
             $stmt->execute();
             $currentTotal = (float)$stmt->get_result()->fetch_assoc()['total'];
             $stmt->close();
@@ -663,7 +741,7 @@ if ($action === 'assessments' && $method === 'POST') {
         }
         if ($currentTotal + $weight > 100) {
             $remaining = max(0, 100 - $currentTotal);
-            err("Total weight for this class-subject would exceed 100%. Remaining: {$remaining}%. Please adjust the weight.", 422);
+            err("This semester's assessments already total {$currentTotal}%; only {$remaining}% remains. Please adjust the weight.", 422);
         }
         
         try {
@@ -708,13 +786,25 @@ if ($action === 'assessments' && $method === 'POST') {
             }
 
             foreach ($sids as $sid) {
-                $stmt = $conn->prepare("
-                    SELECT COALESCE(SUM(weight_percentage), 0) as total,
-                           COALESCE(MAX(assessment_order), 0) + 1 as next_order
-                    FROM assessments 
-                    WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
-                ");
-                $stmt->bind_param("iii", $cid, $sid, $yearId);
+                // 1.6.6: per-semester budget (year-wide only when no
+                // semester exists — legacy databases).
+                if ($termId !== null) {
+                    $stmt = $conn->prepare("
+                        SELECT COALESCE(SUM(weight_percentage), 0) as total,
+                               COALESCE(MAX(assessment_order), 0) + 1 as next_order
+                        FROM assessments 
+                        WHERE class_id = ? AND subject_id = ? AND academic_year_id = ? AND term_id = ?
+                    ");
+                    $stmt->bind_param("iiii", $cid, $sid, $yearId, $termId);
+                } else {
+                    $stmt = $conn->prepare("
+                        SELECT COALESCE(SUM(weight_percentage), 0) as total,
+                               COALESCE(MAX(assessment_order), 0) + 1 as next_order
+                        FROM assessments 
+                        WHERE class_id = ? AND subject_id = ? AND academic_year_id = ?
+                    ");
+                    $stmt->bind_param("iii", $cid, $sid, $yearId);
+                }
                 $stmt->execute();
                 $row = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
