@@ -5,6 +5,30 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.7 (build 33) — Detailed semester report card (term-close model, release 3)
+
+The annual report card now shows the semester-based model in full detail
+(each semester closes from 100%; the annual figure is the plain average
+of the two semesters):
+
+- **Detailed section** — for every subject, each assessment is listed one
+  by one under its semester (score, weight, percentage), with that
+  semester's total from 100% right next to the semester heading.
+- **Summary section** — a compact table: Subject | 1st Semester |
+  2nd Semester | Annual (average) | Grade.
+- **Semester-only subjects** show a clear "—" (not offered this semester)
+  in the semester they don't run — never a misleading zero or blank.
+- **Annual = plain average** — the annual score of a full-year subject is
+  (Semester 1 + Semester 2) / 2. The per-year s1/s2 weights are no longer
+  applied (kept in the year settings for history). A full-year subject
+  with only Semester 1 recorded still shows as "continuing", never a
+  half-year average presented as final.
+- Semester report views (choosing a specific semester) keep their
+  existing single-semester layout.
+
+Web admin only — the app itself is unchanged from 1.6.2; the version bump
+keeps the single-version convention.
+
 ## 1.6.6 (build 32) — Per-semester 100% weight budget (term-close model, release 2)
 
 The 100% assessment budget is now **per semester** for every subject, on

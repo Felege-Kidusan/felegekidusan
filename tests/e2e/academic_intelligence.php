@@ -324,7 +324,8 @@ function pre056(): bool
 
 function seed(mysqli $conn): void
 {
-    // 40/60 weights: a full-year annual score is NOT the mean of S1 and S2.
+    // 40/60 weights: kept as a fixture so the (1.6.7+) plain-average annual
+    // demonstrably ignores them — a hard-coded weight would show up here.
     if (pre056()) {
         $conn->query("INSERT INTO academic_years (id, year_name, ec_year, is_current)
                       VALUES (" . Y1 . ", '2017 E.C.', 2017, 1)");
@@ -617,12 +618,14 @@ function scenario_duration_policy_preserved(mysqli $conn): void
         ($byId[S_GEEZ]['subject_status_counts']['CONTINUING'] ?? 0) === 1
     );
 
-    // 40/60 weights, not 50/50: student 101 is 80 (S1) and 90 (S2).
-    //   40/60 -> 0.4*80 + 0.6*90 = 86.0     (50/50 would be 85.0)
-    //   102   -> 0.4*60 + 0.6*50 = 54.0
-    //   103   -> 0.4*30 + 0.6*45 = 39.0
-    // mean(86, 54, 39) = 59.666... -> 59.7
-    check('C1 annual Geez average uses the configured 40/60 weights', 59.7, $byId[S_GEEZ]['average']);
+    // 1.6.7 (Decision A, 2026-10-08): the annual score is the plain average
+    // of the two semester totals — the year's 40/60 weights are no longer
+    // applied (still stored and reported, but not used in the arithmetic).
+    //   101 -> (80 + 90) / 2 = 85.0
+    //   102 -> (60 + 50) / 2 = 55.0
+    //   103 -> (30 + 45) / 2 = 37.5
+    // mean(85, 55, 37.5) = 59.166... -> 59.2
+    check('C1 annual Geez average is the mean of the semester averages', 59.2, $byId[S_GEEZ]['average']);
 
     // Music is semester-1 only: its annual final IS the S1 score, and the
     // semester it did not run in stays absent.
@@ -645,7 +648,7 @@ function scenario_student_perspective(mysqli $conn): void
     // Rank comes from the engine, and demonstrates that an unfinished
     // subject is EXCLUDED rather than scored zero: Dagmawit has only her
     // Music result (85.0) counted because her full-year Geez is still
-    // running, which puts her above Abebe's 78.0. Were the missing Geez
+    // running, which puts her above Abebe's 77.5. Were the missing Geez
     // treated as a zero she would rank last instead of first.
     check('student: rank comes from the report engine', 2, (int)$out['summary']['rank']);
     check('student: attendance rate', 100.0, $out['summary']['attendance_rate']);
@@ -657,7 +660,7 @@ function scenario_student_perspective(mysqli $conn): void
     }
     check('student: Geez semester 1', 80.0, $rows[S_GEEZ]['semester_1_score']);
     check('student: Geez semester 2', 90.0, $rows[S_GEEZ]['semester_2_score']);
-    check('student: Geez final uses 40/60', 86.0, $rows[S_GEEZ]['final_percentage']);
+    check('student: Geez final is the semester average', 85.0, $rows[S_GEEZ]['final_percentage']);
     check('student: Geez is closed', 'CLOSED', $rows[S_GEEZ]['subject_status']);
 
     // Cross-check against the authoritative card for the same student.

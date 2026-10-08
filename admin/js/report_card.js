@@ -81,6 +81,95 @@
           + esc(label) + '</div>';
       }
 
+      // ── 1.6.7 detailed annual layout (semester-based model) ──────────
+      // Annual view: per subject, every assessment listed one by one under
+      // its semester, each semester closing from 100%; then a summary table
+      // (subject | 1st semester | 2nd semester | annual average). Semester-
+      // only subjects show a dash in the semester they do not run.
+      const isAnnualView = !(data.term && data.term.id);
+
+      function semTotal(v) {
+        return v != null ? Number(v).toFixed(1) + '%' : '—';
+      }
+
+      function assessmentLine(a) {
+        const sc = a.score != null ? a.score : '—';
+        const mx = a.max_score != null ? '/' + a.max_score : '';
+        const wt = a.weight_percentage != null ? ' · ' + a.weight_percentage + '%' : '';
+        const pc = a.percentage != null ? ' · ' + a.percentage + '%' : '';
+        return '<div class="rc-detail-row"><span>' + esc(a.assessment_name || '') + '</span><span>'
+          + esc(sc) + esc(mx) + esc(wt) + esc(pc) + '</span></div>';
+      }
+
+      function semesterGroup(label, detail, sub) {
+        const dt = sub.duration_type || '';
+        const offered = sub.offering_term_number || 0;
+        const isS1 = label.indexOf('1') === 0;
+        // A semester-only subject that does not run in this semester shows a
+        // dash — the reader sees at a glance that the subject is semester-
+        // based, not missing marks.
+        if (dt === 'SEMESTER_ONLY' && offered && ((isS1 && offered !== 1) || (!isS1 && offered !== 2))) {
+          return '<div class="rc-sem"><div class="rc-sem-hd">' + esc(label) + '</div>'
+            + '<div class="rc-detail-row rc-dash"><span>Not offered this semester</span><span>—</span></div></div>';
+        }
+        if (dt === 'SEMESTER_ONLY' && !offered && detail && detail.total == null && !detail.assessments.length) {
+          const other = isS1 ? (sub.semester_2_score != null) : (sub.semester_1_score != null);
+          if (other) {
+            return '<div class="rc-sem"><div class="rc-sem-hd">' + esc(label) + '</div>'
+              + '<div class="rc-detail-row rc-dash"><span>Not offered this semester</span><span>—</span></div></div>';
+          }
+        }
+        const list = (detail && detail.assessments || []).map(assessmentLine).join('');
+        const total = detail ? detail.total : null;
+        return '<div class="rc-sem"><div class="rc-sem-hd">' + esc(label)
+          + '<span class="rc-sem-total">' + semTotal(total) + ' / 100%</span></div>'
+          + (list || '<div class="rc-detail-row"><span>No scores yet</span><span>—</span></div>')
+          + '</div>';
+      }
+
+      const detailedBlocks = subjects.length
+        ? subjects.map(function (sub) {
+            const det = sub.semester_detail || null;
+            let blocks;
+            if (det) {
+              blocks = semesterGroup('1st Semester · 1ኛ ሴሚስተር', det.s1, sub)
+                + semesterGroup('2nd Semester · 2ኛ ሴሚስተር', det.s2, sub);
+            } else {
+              // Legacy / term-scoped data without a semester split: keep the
+              // flat assessment list so nothing is hidden.
+              const chips = (sub.assessments || []).map(function (a) {
+                return '<div class="rc-detail-row"><span>' + esc(a.assessment_name || '') + '</span><span>'
+                  + esc(a.score != null ? a.score : '—') + (a.max_score != null ? '/' + a.max_score : '') + '</span></div>';
+              }).join('');
+              blocks = '<div class="rc-sem"><div class="rc-sem-hd">All assessments'
+                + '<span class="rc-sem-total">' + semTotal(sub.average) + '</span></div>'
+                + (chips || '<div class="rc-detail-row"><span>No scores yet</span><span>—</span></div>') + '</div>';
+            }
+            return '<div class="rc-subj">' +
+              '<div class="rc-subj-hd"><span class="am">' + esc(sub.subject_name || '') + '</span>'
+              + (sub.subject_name_en ? '<span class="rc-subj-en">' + esc(sub.subject_name_en) + '</span>' : '')
+              + durationNote(sub) + '</div>' + blocks + '</div>';
+          }).join('')
+        : '<div class="rc-empty">No subjects or scores for this class yet.</div>';
+
+      const summaryRows = subjects.length
+        ? subjects.map(function (sub) {
+            const s1 = sub.semester_1_score != null ? Number(sub.semester_1_score).toFixed(1) + '%' : '—';
+            const s2 = sub.semester_2_score != null ? Number(sub.semester_2_score).toFixed(1) + '%' : '—';
+            const fin = sub.final_percentage != null ? Number(sub.final_percentage).toFixed(1) + '%' : '—';
+            return '<tr>'
+              + '<td class="am">' + esc(sub.subject_name || '') + '</td>'
+              + '<td class="num">' + s1 + '</td>'
+              + '<td class="num">' + s2 + '</td>'
+              + '<td class="num"><b>' + fin + '</b></td>'
+              + '<td class="num"><span class="rc-letter ' + esc(sub.grade_letter || '') + '">' + esc(sub.grade_letter || '—') + '</span></td>'
+              + '</tr>';
+          }).join('') +
+          '<tr class="rc-total"><td>Overall</td><td class="num">—</td><td class="num">—</td>'
+          + '<td class="num">' + (oa != null ? Number(oa).toFixed(1) + '%' : '—') + '</td>'
+          + '<td class="num"><span class="rc-letter ' + esc(og || '') + '">' + esc(og || '—') + '</span></td></tr>'
+        : '<tr><td colspan="5" class="rc-empty">No subjects yet.</td></tr>';
+
       const subjectRows = subjects.length
         ? subjects.map(function (sub) {
             const gl = sub.grade_letter;
@@ -142,7 +231,18 @@
           '<div class="rc-kpi"><b>' + (rank ? esc(rank) + (data.rank_tied ? '=' : '') + '<span style="font-size:.7rem;font-weight:500"> / ' + esc(total) + '</span>' : '—') + '</b><span>Class rank</span></div>' +
           '<div class="rc-kpi"><b>' + esc(att.rate || 0) + '%</b><span>Attendance</span></div>' +
         '</div>' +
-        '<table class="rc-table">' +
+        (isAnnualView
+          ? '<div class="rc-detail-wrap">' + detailedBlocks + '</div>'
+            + '<table class="rc-table rc-summary">' +
+              '<thead><tr>' +
+                '<th>Subject</th><th class="num">1st Semester</th>' +
+                '<th class="num">2nd Semester</th>' +
+                '<th class="num">Annual (average)</th><th class="num">Grade</th>' +
+              '</tr></thead>' +
+              '<tbody>' + summaryRows + '</tbody>' +
+            '</table>'
+          : '') +
+        '<table class="rc-table"' + (isAnnualView ? ' style="display:none"' : '') + '>' +
           '<thead><tr>' +
             '<th>Subject</th><th>Assessments</th>' +
             '<th class="num">Obtained</th><th class="num">Max</th>' +
