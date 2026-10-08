@@ -5,6 +5,28 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.8 (build 34) — Report card layout: statement table
+
+The annual report card's detailed section is now ONE consolidated table
+(the professional transcript pattern) instead of stacked subject cards —
+compact rows, clear hierarchy, fits one printed page:
+
+- **Subject header rows** open each subject (name, English name,
+  full-year / semester-only note).
+- **One row per assessment** — Score | Max | Weight | % — with a thin
+  bilingual semester divider above each group.
+- **Shaded subtotal row per semester** ("1st Semester total (from 100)").
+- **Bold annual row** per subject ("Annual — average of the two
+  semesters") with the grade chip; a still-running subject says
+  "continues next semester".
+- Semester-only subjects keep the explicit "— Not offered this semester"
+  dash in their off semester.
+- The summary table (Subject | 1st Semester | 2nd Semester | Annual) and
+  the semester views are unchanged.
+
+Web admin only — the app itself is unchanged; the version bump keeps the
+single-version convention.
+
 ## 1.6.7 (build 33) — Detailed semester report card (term-close model, release 3)
 
 The annual report card now shows the semester-based model in full detail
