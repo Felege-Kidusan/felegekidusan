@@ -1,169 +1,203 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   Student Report Card — A4 landscape statement layout (1.6.9)
-   Reference: report-card-optimized-v3 (user-approved), with a readability
-   pass: every data value ≥ 7.6pt, labels ≥ 6.4pt, line-height 1.3,
-   tabular numerals. Left column: profile, metrics, subject summary,
-   attendance, scale & signatures. Right column: assessment ledger.
+   Student Report Card — foldable A5 booklet (1.6.10)
+   Approved design: an A4 portrait sheet printed duplex (flip on SHORT
+   edge), folded along the middle → classic school report card.
+     Sheet 1 · inside face  — top: profile + metrics + attendance,
+                              bottom: the ONE totals table + signatures.
+     Sheet 2 · outside face — top: back cover (scale, notes, office use),
+                              bottom: front cover (logo, school, title).
+   No per-assessment detail: totals only. Readability first: data ≥ 8pt,
+   table figures 9.5pt, metric figures 16pt.
    ═══════════════════════════════════════════════════════════════════ */
 
 .rc-sheet{
   --maroon:#6f171e; --maroon-dark:#521016; --gold:#c7a347; --gold-soft:#ead9a4;
-  --ink:#2f2a28; --muted:#6e655d; --paper:#fbfaf6; --ivory:#f4efe4;
+  --ink:#2f2a28; --muted:#746d67; --paper:#fbfaf6; --ivory:#f4efe4;
   --line:#d8cec0; --green:#2c735d; --soft:#fdf9f0;
   position:relative; background:var(--paper); color:var(--ink);
   font-family:"Noto Sans Ethiopic","Abyssinica SIL","DejaVu Sans",Arial,sans-serif;
-  font-size:9pt; line-height:1.28;
-  width:100%; margin:auto; padding:5mm 7mm 6mm;
+  font-size:9pt; line-height:1.3;
+  width:100%; margin:auto;
   font-variant-numeric:tabular-nums;
 }
 .rc-sheet,.rc-sheet *,.rc-sheet *:before,.rc-sheet *:after{box-sizing:border-box}
-.rc-sheet:before{
-  content:""; position:absolute; inset:4mm; border:1px solid var(--gold-soft); pointer-events:none;
-}
 .rc-sheet .am{font-family:"Noto Sans Ethiopic","Abyssinica SIL",serif}
+.rc-dash{color:#b3a698}
 
-/* ── header band ─────────────────────────────────────────────────── */
-.rc-head{
-  display:grid; grid-template-columns:20mm 1fr 46mm; align-items:center; gap:3.5mm;
-  padding:1.8mm 4mm 1.6mm; background:var(--maroon); color:#fff;
-  border-radius:2.2mm 2.2mm 0 0; position:relative; min-height:16mm;
+/* ── the two A4 pages ────────────────────────────────────────────── */
+.rc-book{display:flex; flex-direction:column; gap:10mm}
+.rc-book-page{
+  width:100%; max-width:210mm; margin:0 auto; background:var(--paper);
+  position:relative; display:flex; flex-direction:column;
+  box-shadow:0 4px 18px rgba(0,0,0,.18);
 }
-.rc-head:after{
-  content:""; position:absolute; left:4mm; right:4mm; bottom:1.4mm; height:.5mm; background:var(--gold);
+.rc-sheet-label{
+  text-align:center; font-size:7.5pt; letter-spacing:1.2px; text-transform:uppercase;
+  color:#a39286; padding:0 0 2mm;
 }
-.rc-logo{width:14mm; height:14mm; object-fit:contain; background:#fff8d8; border:1mm solid var(--gold); border-radius:50%; padding:.7mm}
-.rc-head-main{text-align:center}
-.rc-invoc{font-size:6.8pt; color:#f3e4b9; margin-bottom:.2mm}
-.rc-school-am{font-size:11pt; font-weight:700}
-.rc-school-en{font-size:9.5pt; font-weight:800; letter-spacing:.5px; margin-top:.3mm}
-.rc-parish{font-size:6.8pt; color:#f3e4b9; margin-top:.3mm}
-.rc-head-title{text-align:right; text-transform:uppercase; letter-spacing:.8px; color:#fff8dc; font-size:8pt; font-weight:800}
-.rc-head-title b{display:block; color:#fff; font-size:9.5pt; margin-bottom:.8mm}
-.rc-head-title span{display:block; font-size:7pt; letter-spacing:.3px; color:#f2dfad; text-transform:none; margin-top:.3mm}
+.rc-sheet-label b{color:var(--maroon)}
+.rc-fold{
+  border-top:1px dashed #c9b98d; margin:0 12mm; position:relative; height:0;
+}
+.rc-fold span{
+  position:absolute; right:0; top:-7pt; font-size:6.5pt; color:#a39286;
+  letter-spacing:1px; text-transform:uppercase; background:var(--paper); padding-left:2mm;
+}
+.rc-panel{padding:9mm 10mm; flex:1; min-height:148.5mm; display:flex; flex-direction:column}
+.rc-panel-top{border-bottom:1px solid transparent}
 
-/* ── two-column content ──────────────────────────────────────────── */
-.rc-content{display:grid; grid-template-columns:39% 1fr; gap:3mm; padding-top:2mm; align-items:start}
-
-/* ── cards (left column) ─────────────────────────────────────────── */
-.rc-card{border:1px solid var(--line); border-radius:1.5mm; background:#fffdf9; overflow:hidden; margin-bottom:1.6mm}
+/* ── cards ───────────────────────────────────────────────────────── */
+.rc-card{border:1px solid var(--line); border-radius:2mm; background:#fffdf9; overflow:hidden}
 .rc-card-head{
   display:flex; justify-content:space-between; align-items:baseline;
   background:var(--ivory); border-bottom:1px solid var(--line);
-  padding:1.1mm 2.2mm .9mm; color:var(--maroon-dark);
-  text-transform:uppercase; letter-spacing:.6px; font-size:7pt; font-weight:900;
+  padding:1.8mm 3mm 1.5mm; color:var(--maroon-dark);
+  text-transform:uppercase; letter-spacing:1px; font-size:7.5pt; font-weight:900;
 }
-.rc-card-head .am{font-weight:700; text-transform:none; letter-spacing:0; color:var(--maroon); font-size:7.5pt}
-.rc-card-body{padding:1.3mm}
+.rc-card-head .am{font-weight:700; text-transform:none; letter-spacing:0; color:var(--maroon); font-size:8pt}
+.rc-card-body{padding:2.5mm 3mm}
 
-.rc-identity{display:grid; grid-template-columns:1fr 1fr; gap:.7mm 3mm}
-.rc-field{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.rc-field label{color:var(--muted); font-size:6.4pt; text-transform:uppercase; letter-spacing:.4px; font-weight:800; margin-right:.8mm}
-.rc-field strong{font-size:8.6pt; color:var(--ink)}
-.rc-field-wide{grid-column:1 / -1}
-.rc-soft{font-weight:400; color:var(--muted); font-size:7.5pt}
-
-.rc-metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:1.4mm; margin-bottom:1.6mm}
-.rc-metric{min-height:11.5mm; border:1px solid var(--line); border-radius:1.2mm; padding:1.1mm .7mm; text-align:center; background:#fff}
-.rc-mv{font-size:12.5pt; line-height:1; font-weight:900; color:var(--maroon)}
+/* ── inside top: profile + metrics + attendance ──────────────────── */
+.rc-panel-top .rc-profile{width:62mm}
+.rc-top-grid{display:flex; gap:5mm; align-items:stretch}
+.rc-metrics{
+  flex:1; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:3mm;
+}
+.rc-metric{
+  border:1px solid var(--line); border-radius:2mm; background:#fff;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; padding:2mm;
+}
+.rc-mv{font-size:16pt; font-weight:900; color:var(--maroon); line-height:1.05}
 .rc-mv-g{color:var(--gold)}
-.rc-of{font-size:7.6pt; font-weight:600}
-.rc-ml{margin-top:.9mm; color:var(--muted); font-size:6.6pt; text-transform:uppercase; font-weight:800; letter-spacing:.25px}
+.rc-mv-gr{color:var(--green)}
+.rc-of{font-size:9pt; color:var(--muted)}
+.rc-ml{font-size:6.8pt; color:var(--muted); font-weight:800; letter-spacing:.6px; text-transform:uppercase; margin-top:1.2mm}
 
-/* ── tables ──────────────────────────────────────────────────────── */
-.rc-table{width:100%; border-collapse:collapse; table-layout:fixed}
-/* summary: let the subject column take the space it needs; the four
-   numeric columns only need a mark each */
-.rc-table.rc-summary{table-layout:auto}
-.rc-summary th:not(:first-child),.rc-summary td:not(:first-child){white-space:nowrap; padding-left:.6mm; padding-right:.6mm}
-.rc-table th{
-  background:var(--maroon); color:#fff7df; text-align:left;
-  font-size:6.8pt; text-transform:uppercase; letter-spacing:.25px; padding:1mm 1.2mm;
-}
-.rc-table th.num,.rc-table td.num{text-align:center}
-.rc-table td{padding:.5mm 1.2mm; border-bottom:1px solid #e3dacc; font-size:7.8pt; vertical-align:middle}
-.rc-table tbody tr:nth-child(even){background:var(--soft)}
-.rc-subj-cell span{font-weight:700}
-.rc-subj-cell small{color:var(--muted); font-size:6.6pt; font-weight:400}
-.rc-total-row td{background:var(--ivory); font-weight:800; color:var(--maroon-dark)}
-.rc-badge{
-  display:inline-grid; place-items:center; min-width:4.8mm; height:4.8mm; border-radius:50%;
-  background:var(--maroon); color:#fff; font-weight:900; font-size:7pt; padding:0 1mm;
-}
-.rc-badge-off{background:#8a7d74}
+.rc-plabel{font-size:6.5pt; color:var(--muted); font-weight:800; letter-spacing:.5px; text-transform:uppercase}
+.rc-pvalue{font-size:9.5pt; font-weight:700; margin-top:.4mm}
+.rc-pname{font-size:12.5pt; font-weight:800; line-height:1.25}
+.rc-prow{display:flex; gap:4mm; margin-top:2.2mm}
+.rc-prow>div{flex:1; min-width:0}
 
-/* ── attendance & reflections ────────────────────────────────────── */
-.rc-att{display:grid; grid-template-columns:31% 69%; gap:2.2mm; align-items:center}
-.rc-att-big .rc-big{font-size:12pt; font-weight:900; color:var(--green); line-height:1}
-.rc-progress{height:2mm; background:#e4eee8; border-radius:5mm; overflow:hidden; margin-top:1mm; display:flex}
+.rc-att{margin-top:4mm}
+.rc-att-body{display:flex; gap:5mm; align-items:center}
+.rc-att-left{flex:0 0 34mm}
+.rc-big{font-size:13pt; font-weight:900; color:var(--green); line-height:1}
+.rc-progress{height:2.5mm; background:#e4eee8; border-radius:3mm; overflow:hidden; display:flex; margin-top:1.5mm}
 .rc-progress span{display:block; height:100%; background:var(--green)}
 .rc-progress i{display:block; height:100%; background:#d9a441}
-.rc-att-detail{font-size:8pt}
-.rc-att-detail strong{font-size:8.6pt}
-.rc-note{font-size:6.8pt; color:var(--muted); margin-top:.4mm}
-.rc-note-mid{margin-top:.8mm}
-.rc-statline{display:flex; justify-content:space-between; color:var(--muted); font-size:7pt; margin-top:.8mm}
+.rc-statline{display:flex; justify-content:space-between; font-size:7.5pt; color:var(--muted); margin-top:1.2mm}
 .rc-statline b{color:var(--green)}
-.rc-two{display:grid; grid-template-columns:1fr 1fr; gap:1.8mm; padding-top:0}
-.rc-insight{min-height:7mm; border:1px solid var(--line); border-radius:1.2mm; padding:1mm 1.3mm; background:#fff}
-.rc-insight label{display:block; color:var(--muted); font-size:6.4pt; text-transform:uppercase; font-weight:800; letter-spacing:.25px}
-.rc-insight strong{display:block; margin-top:.7mm; color:var(--maroon-dark); font-size:8pt}
-.rc-scale-line{font-size:7.6pt; color:var(--ink)}
-.rc-scale-line b{color:var(--maroon)}
-.rc-signs{display:grid; grid-template-columns:1fr 1fr; gap:6mm; padding-top:1.8mm}
-.rc-sign{border-top:1px solid var(--muted); padding-top:.8mm; color:var(--muted); text-align:center; font-size:7.5pt}
+.rc-att-right{flex:1; display:flex; flex-direction:column; gap:2mm}
+.rc-attnum{font-size:8.5pt}
+.rc-insight{
+  display:flex; justify-content:space-between; align-items:baseline; gap:3mm;
+  border:1px solid var(--line); border-radius:1.5mm; background:#fff; padding:1.5mm 2.5mm;
+}
+.rc-insight label{font-size:6.4pt; color:var(--muted); font-weight:800; letter-spacing:.5px; text-transform:uppercase; white-space:nowrap}
+.rc-insight span{font-size:9pt; font-weight:800; color:var(--maroon-dark); text-align:right}
 
-/* ── assessment ledger (right column) ────────────────────────────── */
-.rc-ledger{border:1px solid var(--line); border-radius:1.5mm; background:#fffdf9; overflow:hidden}
-.rc-ledg-title{
+/* ── inside bottom: the one totals table ─────────────────────────── */
+.rc-tbl-title{
   display:flex; justify-content:space-between; align-items:baseline;
-  background:var(--ivory); border-bottom:1px solid var(--line);
-  padding:1mm 2.2mm .8mm; color:var(--maroon-dark);
-  text-transform:uppercase; letter-spacing:.6px; font-size:7pt; font-weight:900;
+  border-bottom:1.6mm solid var(--maroon); padding-bottom:1.2mm;
 }
-.rc-ledg-title .am{font-weight:700; text-transform:none; letter-spacing:0; color:var(--maroon); font-size:7.5pt}
-.rc-legend{
-  display:flex; justify-content:space-between; gap:3mm; padding:.8mm 1.6mm;
-  background:#fffaf0; border-bottom:1px solid var(--line); color:var(--muted); font-size:6.6pt;
+.rc-tbl-title>span:first-child{font-size:10pt; font-weight:900; color:var(--maroon-dark); letter-spacing:1.2px; text-transform:uppercase}
+.rc-tbl-title .am{color:var(--maroon); font-weight:700; text-transform:none; letter-spacing:0}
+.rc-tbl-period{font-size:7.5pt; color:var(--muted)}
+.rc-table{width:100%; border-collapse:collapse; margin-top:2mm}
+.rc-table th{
+  background:var(--maroon); color:#fff7df; text-align:left;
+  font-size:7pt; text-transform:uppercase; letter-spacing:.6px; padding:1.6mm 2.5mm;
+  border-right:1px solid rgba(255,255,255,.25);
 }
-.rc-legend b{color:var(--maroon-dark)}
-.rc-ledg-grid{display:grid; grid-template-columns:17% 34% 7.5% 34% 7.5%}
-.rc-ledg-grid-term{grid-template-columns:24% 64% 12%}
-.rc-ledg-head{background:var(--maroon); color:#fff7df; text-transform:uppercase; font-size:6.8pt; font-weight:900; letter-spacing:.2px}
-.rc-ledg-head>div{padding:.9mm 1.2mm; border-right:1px solid rgba(255,255,255,.25)}
-.rc-ledg-head>div:last-child{border:0}
-.rc-ledg-head .rc-c{text-align:center}
-.rc-ledg-row{display:grid; grid-template-columns:17% 34% 7.5% 34% 7.5%; border-bottom:1px solid var(--line)}
-.rc-ledg-row-term{grid-template-columns:24% 64% 12%}
-.rc-ledg-row:nth-child(even){background:var(--soft)}
-.rc-ledg-row:last-child{border-bottom:0}
-.rc-ledg-row>div{padding:.6mm 1.1mm; border-right:1px solid #e3dacc; min-height:7mm}
-.rc-ledg-row>div:last-child{border:0}
-.rc-ledg-subj span{font-weight:800; color:var(--maroon-dark); font-size:8.2pt; line-height:1.15}
-.rc-ledg-subj small{display:block; color:var(--muted); font-size:6.8pt; font-weight:400; margin-top:.6mm; line-height:1.15}
-.rc-dur{font-size:6.4pt; color:#6d28d9; font-weight:700; margin-top:.5mm}
-.rc-sem-cell{display:grid; grid-template-columns:44% 22% 16% 16%; align-content:start}
-.rc-slot{display:contents}
-.rc-slot span{font-size:7.6pt; line-height:1.18; padding:.18mm 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.rc-slot-name{font-weight:600; color:var(--ink)}
-.rc-slot-score{font-weight:700; color:var(--ink); text-align:center}
-.rc-slot-wt,.rc-slot-pct{color:var(--muted); text-align:center}
-.rc-slot-off .rc-slot-name{color:#a39286; font-style:italic; font-weight:400}
-.rc-slot-off .rc-slot-score,.rc-slot-off .rc-slot-wt,.rc-slot-off .rc-slot-pct{color:#b3a698}
-.rc-ledg-total{display:flex; align-items:center; justify-content:center; text-align:center; font-weight:900; font-size:9pt; color:var(--maroon)}
-.rc-ledg-foot{
-  display:flex; justify-content:space-between; gap:3mm; padding:.9mm 1.6mm;
-  background:var(--ivory); font-size:6.8pt; color:var(--muted);
+.rc-table th:last-child{border-right:0}
+.rc-table th.num,.rc-table td.num{text-align:center; white-space:nowrap}
+.rc-table td{padding:1.9mm 2.5mm; border-bottom:1px solid #e3dacc; font-size:9.5pt; vertical-align:middle}
+.rc-table tbody tr:nth-child(even){background:#fbfaf6}
+.rc-table tbody tr:nth-child(odd){background:#fffdf9}
+.rc-subj-cell .am{font-weight:800}
+.rc-subj-cell small{color:var(--muted); font-size:7.5pt; font-weight:400}
+.rc-tag{
+  font-size:6.4pt; color:#6d28d9; font-weight:700; font-style:normal;
+  letter-spacing:.5px; text-transform:uppercase; margin-left:1mm;
 }
-.rc-ledg-foot b{color:var(--maroon)}
+.rc-annual-cell b{color:var(--maroon)}
+.rc-badge{
+  display:inline-grid; place-items:center; min-width:6mm; height:6mm; border-radius:50%;
+  background:var(--maroon); color:#fff; font-weight:900; font-size:7.5pt; padding:0 1mm;
+}
+.rc-badge-off{background:#8a7d74}
+.rc-badge-gold{background:var(--gold); color:var(--maroon-dark)}
+.rc-badge-f{background:#8a2016}
+.rc-total-row td{background:var(--ivory); font-weight:900; color:var(--maroon-dark); border-bottom:0}
+.rc-total-row td b{font-size:11pt; color:var(--maroon)}
+.rc-notes{font-size:7pt; color:var(--muted); margin-top:1.8mm; line-height:1.5}
+.rc-signs{display:flex; gap:12mm; margin-top:auto; padding:6mm 4mm 0}
+.rc-sign{flex:1; border-top:.9mm solid var(--muted); padding-top:1.2mm; text-align:center; font-size:8pt; color:var(--muted)}
+.rc-sign .am{color:var(--ink)}
 
-/* ── footer ──────────────────────────────────────────────────────── */
-.rc-foot{
-  display:flex; justify-content:space-between; align-items:center;
-  color:var(--muted); font-size:7pt; border-top:1px solid var(--line); padding-top:.8mm; margin-top:1.4mm;
+/* ── back cover ──────────────────────────────────────────────────── */
+.rc-back{padding:8mm 9mm}
+.rc-back-grid{display:flex; gap:4mm}
+.rc-back-grid>.rc-card{flex:1}
+.rc-scale{display:grid; grid-template-columns:1fr 1fr; gap:1.5mm 4mm; font-size:8.5pt; align-content:start}
+.rc-scale-pass{grid-column:1 / -1; color:var(--muted); font-size:8pt; margin-top:1mm}
+.rc-scale-pass b{color:var(--maroon)}
+.rc-read{font-size:8pt; line-height:1.55}
+.rc-back-grid2{display:flex; gap:4mm; margin-top:4mm; flex:1}
+.rc-office{flex:1.4}
+.rc-office-line{display:flex; gap:5mm; margin-top:4mm}
+.rc-office-line>span:first-child{flex:1; border-top:.7mm solid #b3a698; padding-top:1mm; font-size:7.5pt; color:var(--muted)}
+.rc-office-date{flex:0 0 30mm; border-top:.7mm solid #b3a698; padding-top:1mm; font-size:7.5pt; color:var(--muted)}
+.rc-stamp{
+  flex:1; border:1px dashed #c9b98d; border-radius:2mm; background:var(--soft);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  color:#b3a698; font-size:7.5pt; letter-spacing:1px; text-transform:uppercase;
 }
-.rc-foot strong{color:var(--maroon)}
+.rc-stamp .am{margin-top:.5mm; font-size:7pt; text-transform:none; letter-spacing:0}
+.rc-back-foot{
+  display:flex; justify-content:space-between; margin-top:4mm; padding-top:2mm;
+  border-top:1px solid var(--line); font-size:7pt; color:var(--muted);
+}
+.rc-back-foot b{color:var(--maroon)}
 
-/* ── states / legacy helpers ─────────────────────────────────────── */
+/* ── front cover ─────────────────────────────────────────────────── */
+.rc-front{padding:6mm}
+.rc-cover-frame{
+  flex:1; border:2.2mm double var(--gold); background:var(--maroon);
+  position:relative; display:flex; align-items:center; padding:8mm 10mm; gap:8mm;
+  border-radius:1mm;
+}
+.rc-cover-frame:after{content:""; position:absolute; left:4mm; right:4mm; bottom:2.5mm; height:.6mm; background:var(--gold)}
+.rc-cover-logo img{
+  width:30mm; height:30mm; object-fit:contain; background:#fff;
+  border-radius:50%; padding:1.2mm; border:1mm solid var(--gold);
+}
+.rc-cover-names{flex:1; color:#fff; min-width:0}
+.rc-invoc{font-size:8pt; color:#f3e4b9}
+.rc-school-am{font-size:15.5pt; font-weight:800; line-height:1.25; margin-top:1mm}
+.rc-school-en{font-size:11pt; font-weight:800; letter-spacing:1px; margin-top:.8mm; color:#fff8dc}
+.rc-parish{font-size:7.5pt; color:#f3e4b9; margin-top:.8mm}
+.rc-cover-title{flex:0 0 52mm; text-align:right; color:#fff}
+.rc-cover-t1{font-size:13pt; font-weight:900; letter-spacing:1px; line-height:1.3}
+.rc-cover-t2{font-size:9.5pt; color:#f3e4b9; margin-top:1mm}
+.rc-cover-badge{
+  display:inline-block; margin-top:2.5mm; background:var(--gold); color:var(--maroon-dark);
+  font-size:8pt; font-weight:800; padding:1mm 3mm; border-radius:4mm; white-space:nowrap;
+}
+.rc-cover-strip{
+  margin-top:4mm; background:var(--ivory); border:1px solid var(--line); border-radius:2mm;
+  padding:3mm 5mm; display:flex; align-items:center; gap:6mm;
+}
+.rc-strip-name{font-size:13pt; font-weight:800; line-height:1.2}
+.rc-strip-class{font-size:11pt; font-weight:800}
+.rc-strip-class small{font-weight:400; font-size:8.5pt; color:var(--muted)}
+.rc-strip-id{margin-left:auto; text-align:right}
+.rc-strip-code{font-size:10pt; font-weight:800}
+
+/* ── states / actions / legacy helpers ───────────────────────────── */
 .rc-empty{text-align:center; color:var(--muted); font-size:8.5pt; padding:6mm 2mm}
 .rc-actions{display:flex; justify-content:flex-end; gap:.5rem; padding:.85rem 1rem; background:#fff; border-top:1px solid #e7d5c8}
 .rc-donebar{height:3px; background:#eee; border-radius:2px; overflow:hidden; margin-top:2px; max-width:120px}
@@ -176,22 +210,27 @@
 
 /* ── responsive screen ───────────────────────────────────────────── */
 /* Screen-only: Chromium's print layout evaluates width media queries
-   against the portrait paper width (794px for A4), which would wrongly
-   stack the columns on the landscape printed page. */
-@media screen and (max-width:900px){
-  .rc-content{grid-template-columns:1fr}
-  .rc-head{grid-template-columns:14mm 1fr}
-  .rc-head-title{grid-column:1 / -1; text-align:center; margin-top:1.5mm}
+   against the portrait paper width, so print must never match this. */
+@media screen and (max-width:780px){
+  .rc-panel{min-height:auto; padding:5mm}
+  .rc-top-grid,.rc-att-body,.rc-back-grid,.rc-back-grid2,.rc-cover-frame{flex-direction:column}
+  .rc-panel-top .rc-profile{width:100%}
+  .rc-cover-title{text-align:left}
+  .rc-signs{flex-direction:column; gap:4mm}
 }
 
-/* ── print: exact A4 landscape ───────────────────────────────────── */
+/* ── print: two exact A4 portrait pages, duplex short-edge ───────── */
 @media print{
-  @page{size:A4 landscape; margin:0}
-  body.rc-print-mode #rcPrintRoot .rc-sheet{
-    width:297mm; min-height:207mm; page-break-after:always; break-after:page; border-radius:0;
+  @page{size:A4 portrait; margin:0}
+  body.rc-print-mode #rcPrintRoot .rc-book{display:contents}
+  body.rc-print-mode #rcPrintRoot .rc-book-page{
+    width:210mm; max-width:none; height:297mm; box-shadow:none;
+    page-break-after:always; break-after:page;
   }
-  body.rc-print-mode #rcPrintRoot .rc-sheet:last-child{page-break-after:auto; break-after:auto}
-  body.rc-print-mode #sec-reportcards, body.rc-print-mode #sec-reports{display:none!important}
+  body.rc-print-mode #rcPrintRoot .rc-book-page:last-child{page-break-after:auto; break-after:auto}
+  body.rc-print-mode #rcPrintRoot .rc-panel{min-height:148.5mm; height:148.5mm}
+  body.rc-print-mode #rcPrintRoot .rc-fold,
+  body.rc-print-mode #rcPrintRoot .rc-sheet-label{display:none}
+  body.rc-print-mode #rcPrintRoot .rc-panel-bottom{page-break-inside:avoid}
   .rc-actions{display:none!important}
-  .rc-ledg-row{break-inside:avoid}
 }

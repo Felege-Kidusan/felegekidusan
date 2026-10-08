@@ -5,6 +5,28 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.10 (build 36) — Report card: foldable A5 booklet, totals only
+
+The report card is redesigned as a classic **foldable report card**: an A4
+portrait sheet printed double-sided (duplex, flip on SHORT edge) and folded
+along the middle into an A5 card, per the approved design:
+
+- **Front cover** — school logo in a gold seal, Amharic + English school
+  names, "Student Report Card", year badge, student name/class/ID strip.
+- **Inside** — student profile, four big metrics (overall, grade, rank,
+  attendance), attendance with reflections; then **one totals-only table**:
+  Subject | 1st sem. | 2nd sem. | Annual | Grade. The per-assessment
+  ledger is gone — individual scores are not shown on the card.
+- **Semester subjects** (one semester only) appear in the annual column
+  with their semester result — a subject is a subject.
+- **Back cover** — grade scale, how-to-read notes, office-use and
+  parent/guardian signature lines, school stamp box.
+- Semester views get the same booklet with a single result column.
+- Print: two exact A4 portrait pages per card; duplex short-edge; fold.
+
+Web admin only — the app itself is unchanged; the version bump keeps the
+single-version convention.
+
 ## 1.6.9 (build 35) — Report card: A4 landscape redesign
 
 The report card is now a proper one-page A4 **landscape** document with a

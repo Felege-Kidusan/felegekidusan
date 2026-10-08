@@ -1,26 +1,25 @@
 """
-Detailed semester report card — A4 landscape redesign (1.6.9+35, 2026-10-09)
+Detailed semester report card — foldable booklet redesign (1.6.10+36, 2026-10-09)
 ══════════════════════════════════════════════════════════════════════════════════
 MODEL (user Decision A, 2026-10-08, unchanged): the annual report card is
-DETAILED and semester-based —
-  • per subject, every assessment listed ONE BY ONE under its semester,
-    then that semester's total from 100% in its own column;
+semester-based —
   • a summary table: subject | 1st semester | 2nd semester | annual;
   • annual = the plain AVERAGE of the two semester totals (the per-year
     s1/s2 weights from 056 are superseded and no longer applied);
   • semester-only subjects show a "—" in the semester they don't run, so a
     dash means "semester-based subject, not offered here" — never a zero.
 
-1.6.9 (user-approved reference design): the card is A4 LANDSCAPE with a
-two-column layout (left: profile, metrics, summary, attendance, scale &
-signatures; right: assessment ledger) and a READABLE type scale — data
-values ≥ 7.6pt (the reference's 5–7pt text was unreadable).
+1.6.10 (user-approved foldable design): the card is an A5 BOOKLET — two A4
+portrait pages printed duplex (short edge) and folded. Per-assessment
+detail is intentionally GONE: totals only, ONE table. Semester-only
+subjects still appear in the annual column with their semester result
+(their final IS that semester's score, per SubjectDurationPolicy).
 
 SURFACES PINNED HERE
-  SubjectDurationPolicy      FULL_YEAR annual = plain average
+  SubjectDurationPolicy      SEMESTER_ONLY final = its semester; FULL_YEAR needs both
   ReportCardService          per-assessment term tagging + semester_detail
-  report_card.js             A4-landscape ledger layout + summary + dashes
-  report_card.css            landscape page, ledger grid, readable sizes
+  report_card.js             booklet layout + one totals table + cover panels
+  report_card.css            two A4 pages, fold, readable sizes
 """
 import unittest
 from pathlib import Path
@@ -50,6 +49,10 @@ class AnnualAveragePinned(unittest.TestCase):
     def test_one_semester_alone_is_never_the_annual_result(self):
         self.assertIn("full-year subject needs both semesters", self.php)
 
+    def test_semester_only_final_is_its_own_semester_score(self):
+        # 1.6.10: a semester subject's annual IS its semester result.
+        self.assertIn("semester-only subject closed at its own semester score", self.php)
+
 
 class ServiceDetailPinned(unittest.TestCase):
     def setUp(self):
@@ -77,57 +80,60 @@ class RendererPinned(unittest.TestCase):
     def test_annual_view_branches_on_the_term(self):
         self.assertIn("const isAnnualView = !(data.term && data.term.id);", self.js)
 
-    def test_sheet_is_a4_landscape_two_column(self):
-        self.assertIn('class="rc-sheet rc-a4l"', self.js)
-        self.assertIn("rc-content", self.js)
-        self.assertIn("rc-col-left", self.js)
-        self.assertIn("rc-col-right", self.js)
+    def test_booklet_has_two_a4_pages(self):
+        self.assertIn('class="rc-sheet rc-book"', self.js)
+        self.assertEqual(self.js.count("rc-book-page"), 2)  # one per <section>
+        self.assertIn("Sheet 1 · inside face", self.js)
+        self.assertIn("Sheet 2 · outside face", self.js)
+        self.assertIn("flip on SHORT edge", self.js)
 
-    def test_assessments_render_one_by_one_in_the_ledger(self):
-        self.assertIn("function slot(a)", self.js)
-        self.assertIn("rc-slot-name", self.js)
-        self.assertIn("rc-slot-score", self.js)
-        self.assertIn("rc-slot-wt", self.js)
-        self.assertIn("rc-slot-pct", self.js)
-        # real assessment names — not A1–A6 slot codes
-        self.assertIn("esc(a.assessment_name || '')", self.js)
-        self.assertNotIn("A1", self.js.split("function slot")[1][:400])
+    def test_per_assessment_ledger_is_gone(self):
+        # 1.6.10: totals only — the ledger must not come back.
+        self.assertNotIn("rc-ledg-grid", self.js)
+        self.assertNotIn("function slot(a)", self.js)
+        self.assertNotIn("rc-slot", self.js)
 
-    def test_ledger_grid_is_bilingual_with_totals_columns(self):
-        self.assertIn("rc-ledg-grid", self.js)
-        self.assertIn("1st semester · 1ኛ ሴሚስተር", self.js)
-        self.assertIn("2nd semester · 2ኛ ሴሚስተር", self.js)
-        self.assertIn("semTotal(det.s1 && det.s1.total)", self.js)
-        self.assertIn("semTotal(det.s2 && det.s2.total)", self.js)
-
-    def test_each_semester_total_is_explained_from_100(self):
-        self.assertIn("<b>Total</b> = semester result from 100%", self.js)
-        self.assertIn("<b>Annual</b> = average of the semester totals", self.js)
-
-    def test_semester_only_subjects_show_a_dash_not_a_zero(self):
-        self.assertIn("Not offered this semester", self.js)
-        self.assertIn("rc-slot-off", self.js)
-        self.assertIn("SEMESTER_ONLY", self.js)
-        self.assertIn("offering_term_number", self.js)
-
-    def test_running_subjects_say_so(self):
-        self.assertIn("Full year — continues next semester", self.js)
-
-    def test_summary_table_columns(self):
-        self.assertIn("<th>Subject</th>", self.js)
+    def test_one_totals_table_columns(self):
+        self.assertIn("<th>Subject · <span class=\"am\">ትምህርት</span></th>", self.js)
         self.assertIn('<th class="num">1st sem.</th>', self.js)
         self.assertIn('<th class="num">2nd sem.</th>', self.js)
         self.assertIn('<th class="num">Annual</th>', self.js)
+        self.assertIn('<th class="num">Grade</th>', self.js)
         self.assertIn("rc-total-row", self.js)
 
-    def test_header_and_footer_identity(self):
-        self.assertIn("Student Report Card", self.js)
-        self.assertIn("rc-school-am", self.js)
-        self.assertIn("Confidential academic record", self.js)
+    def test_semester_only_subjects_appear_in_the_annual_column(self):
+        # their semester result IS their annual result (dagger footnote)
+        self.assertIn("&thinsp;†", self.js)
+        self.assertIn("semester subject runs one semester only", self.js)
+        self.assertIn("semester subject", self.js)  # row tag
 
-    def test_term_view_gets_the_matching_single_semester_skin(self):
-        self.assertIn("rc-ledg-grid-term", self.js)
-        self.assertIn("<div>Assessments</div>", self.js)
+    def test_continuing_full_year_subjects_are_pended_not_guessed(self):
+        self.assertIn("&thinsp;*", self.js)
+        self.assertIn("full-year subject still in progress", self.js)
+
+    def test_dashes_never_zeros(self):
+        self.assertIn("rc-dash", self.js)
+
+    def test_cover_identity_panels(self):
+        self.assertIn("rc-cover-frame", self.js)
+        self.assertIn("rc-cover-strip", self.js)
+        self.assertIn("rc-school-am", self.js)
+        self.assertIn("Student<br>Report Card", self.js)
+
+    def test_back_cover_blocks(self):
+        self.assertIn("Grade scale", self.js)
+        self.assertIn("How to read", self.js)
+        self.assertIn("Office use", self.js)
+        self.assertIn("School stamp", self.js)
+        self.assertIn("deliver to parent / guardian", self.js)
+
+    def test_signature_lines(self):
+        self.assertIn("Class Teacher", self.js)
+        self.assertIn("Education Department", self.js)
+
+    def test_term_view_gets_single_result_column(self):
+        self.assertIn("'Semester<br>Report Card'", self.js)
+        self.assertIn('<th class="num">Result</th>', self.js)
 
     def test_exports_are_unchanged(self):
         self.assertIn("renderSheet: renderSheet,", self.js)
@@ -139,37 +145,32 @@ class StylesPinned(unittest.TestCase):
     def setUp(self):
         self.css = read("admin/css/report_card.css")
 
-    def test_print_page_is_a4_landscape(self):
-        self.assertIn("@page{size:A4 landscape; margin:0}", self.css)
-        self.assertIn("width:297mm", self.css)
-        self.assertIn("min-height:207mm", self.css)
+    def test_print_is_two_a4_portrait_pages(self):
+        self.assertIn("@page{size:A4 portrait; margin:0}", self.css)
+        self.assertIn("width:210mm; max-width:none; height:297mm", self.css)
+        self.assertIn("page-break-after:always; break-after:page", self.css)
 
-    def test_reference_palette_and_gold_frame(self):
-        self.assertIn("--maroon:#6f171e", self.css)
-        self.assertIn("inset:4mm", self.css)
+    def test_panels_are_half_page_for_the_fold(self):
+        self.assertIn("min-height:148.5mm", self.css)
+        self.assertIn(".rc-fold", self.css)
+
+    def test_fold_labels_are_screen_only(self):
+        self.assertIn(".rc-fold,\n  body.rc-print-mode #rcPrintRoot .rc-sheet-label{display:none}", self.css)
 
     def test_type_is_readable(self):
-        # base body size and the smallest data size must stay legible
-        self.assertIn("font-size:9pt", self.css)
-        self.assertIn("font-size:7.6pt", self.css)
+        self.assertIn("font-size:9.5pt", self.css)
+        self.assertIn("font-size:16pt", self.css)
         self.assertIn("font-variant-numeric:tabular-nums", self.css)
 
-    def test_ledger_grid_and_cards_exist(self):
-        for cls in (
-            ".rc-ledg-grid{",
-            ".rc-ledg-grid-term{",
-            ".rc-slot{",
-            ".rc-ledg-total{",
-            ".rc-metric{",
-            ".rc-badge{",
-            ".rc-identity{",
-            ".rc-progress{",
-            ".rc-signs{",
-        ):
-            self.assertIn(cls, self.css)
+    def test_reference_palette(self):
+        self.assertIn("--maroon:#6f171e", self.css)
+        self.assertIn("--gold:#c7a347", self.css)
 
-    def test_ledger_rows_do_not_break_across_print_pages(self):
-        self.assertIn(".rc-ledg-row{break-inside:avoid}", self.css)
+    def test_responsive_block_is_screen_only(self):
+        # Chromium print layout evaluates width queries against the portrait
+        # paper width — print must never match the responsive block.
+        self.assertIn("@media screen and (max-width:780px)", self.css)
+        self.assertNotIn("@media(max-width", self.css.replace("@media screen and (max-width", ""))
 
 
 if __name__ == "__main__":

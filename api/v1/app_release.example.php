@@ -20,12 +20,12 @@
  *   cp FKSS-arm64-v8a.apk    /home/arkeonet/fkss_releases/fkss-arm64.apk
  *
  * After each new build, raise latest_version / latest_build to match
- * pubspec.yaml (currently 1.6.9+35). Raise min_build only after the staged
+ * pubspec.yaml (currently 1.6.10+36). Raise min_build only after the staged
  * compatibility window and adoption checks in the release runbook.
  */
 return [
-    'latest_version' => '1.6.9',
-    'latest_build'   => 35,
+    'latest_version' => '1.6.10',
+    'latest_build'   => 36,
     'min_version'    => '1.0.0',
     'min_build'      => 1,
     'force_update'   => false,
