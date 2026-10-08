@@ -93,11 +93,15 @@ class SubjectDurationPolicyTests(unittest.TestCase):
         self.assertEqual(out["final"], 78.0, "(72 x 0.50) + (84 x 0.50) = 78")
         self.assertEqual(out["status"], "CLOSED")
 
-    def test_full_year_weighting_is_configurable_not_hardcoded(self):
+    def test_full_year_annual_is_the_plain_average_not_weighted(self):
+        # 1.6.7 (Decision A, 2026-10-08): the semester-based model supersedes
+        # the per-year weights — the annual score is the plain AVERAGE of the
+        # two semester totals. A 40/60 weight config must NOT change it.
         out = run_policy(
             W_40_60 + 'echo json_encode(P::finalScore(P::FULL_YEAR, 72.0, 84.0, $w));'
         )
-        self.assertEqual(out["final"], 79.2, "(72 x 0.40) + (84 x 0.60) = 79.2")
+        self.assertEqual(out["final"], 78.0, "(72 + 84) / 2 = 78 — weights are no longer applied")
+        self.assertEqual(out["status"], "CLOSED")
 
     def test_full_year_with_only_semester_1_has_no_annual_score(self):
         """A Semester 1 mark must never be reported as the annual result."""
