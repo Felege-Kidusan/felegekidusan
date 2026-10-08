@@ -42,6 +42,13 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
   // explain; falls back to a generic line offline.
   String? _subjectsNotice;
   List<dynamic> _assessments = [];
+  // 1.6.5 term-close model: the year's semesters (switcher) + which one is
+  // current. _selectedTermId == null → current semester (default working
+  // view); an explicit id → viewing that semester (read-only unless the
+  // Education Department reopened it for corrections).
+  List<dynamic> _terms = [];
+  Map<String, dynamic>? _currentTerm;
+  int? _selectedTermId;
   List<dynamic> _bootAssessments = [];
   bool _didBootstrap = false;
 
@@ -156,6 +163,13 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
       setState(() {
         _subjects = subjects;
         _bootAssessments = allA;
+        _terms = (res.data['terms'] as List?) ?? _terms;
+        _currentTerm = (res.data['current_term'] as Map?)?.cast<String, dynamic>();
+        // keep the selected semester if it still exists, else snap back to current
+        if (_selectedTermId != null &&
+            !_terms.any((t) => (t['id'] is int ? t['id'] : int.tryParse('${t['id']}')) == _selectedTermId)) {
+          _selectedTermId = null;
+        }
         _didBootstrap = true;
         _loadingSubjects = false;
         _isOffline = false;
@@ -175,19 +189,51 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     });
   }
 
+  int? _termIdOf(dynamic t) => t['id'] is int ? t['id'] as int : int.tryParse('${t['id']}');
+
+  /// The semester currently being viewed (defaults to the current one).
+  Map<String, dynamic>? get _viewedTerm {
+    if (_selectedTermId == null) return _currentTerm;
+    for (final t in _terms) {
+      if (_termIdOf(t) == _selectedTermId) return t;
+    }
+    return null;
+  }
+
+  /// Viewing a closed semester that the department has NOT reopened:
+  /// read-only analysis mode.
+  bool get _termViewLocked {
+    final t = _viewedTerm;
+    if (t == null) return false;
+    final isCur = t['is_current'] == true;
+    final reop = t['is_reopened'] == true;
+    return !isCur && !reop;
+  }
+
   Future<void> _loadAssessments() async {
     if (_selectedClassId == null || _selectedSubjectId == null) return;
     final sid = _selectedSubjectId!;
-    final cached = await _db.getCachedAssessments(_selectedClassId!, sid);
+    final cached = _selectedTermId == null ? await _db.getCachedAssessments(_selectedClassId!, sid) : <dynamic>[];
     if (!mounted) return;
     if (cached.isNotEmpty) {
       setState(() { _assessments = cached; _loadingAssessments = false; });
     }
 
+    // Term scoping: the working view (no explicit semester selected) keeps
+    // only current-semester + legacy rows; an explicit semester shows that
+    // semester's tests. Boot data may mix terms, so filter client-side.
+    bool termMatch(dynamic a) {
+      final atid = a['term_id'] is int ? a['term_id'] as int : int.tryParse('${a['term_id'] ?? ''}');
+      if (_selectedTermId == null) {
+        return atid == null || (_currentTerm != null && atid == _currentTerm!['id']);
+      }
+      return atid == _selectedTermId;
+    }
+
     final fromBoot = _bootAssessments.where((a) =>
-      (a['subject_id'] is int ? a['subject_id'] : int.tryParse('${a['subject_id']}')) == sid
+      (a['subject_id'] is int ? a['subject_id'] : int.tryParse('${a['subject_id']}')) == sid && termMatch(a)
     ).toList();
-    if (_didBootstrap && fromBoot.isNotEmpty) {
+    if (_didBootstrap && fromBoot.isNotEmpty && _selectedTermId == null) {
       setState(() { _assessments = fromBoot; _loadingAssessments = false; });
       await _db.cacheAssessments(_selectedClassId!, sid, fromBoot);
       return;
@@ -196,12 +242,21 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     if (cached.isEmpty) {
       setState(() => _loadingAssessments = true);
     }
-    final res = await _api.getAssessments(_selectedClassId!, sid);
+    final res = await _api.getAssessments(_selectedClassId!, sid,
+        termId: _selectedTermId);
     if (!mounted) return;
 
     if (res.success && res.data != null) {
       final assessments = res.data['assessments'] ?? [];
-      await _db.cacheAssessments(_selectedClassId!, sid, assessments);
+      if (res.data['terms'] != null) {
+        _terms = res.data['terms'] as List;
+        _currentTerm = (res.data['current_term'] as Map?)?.cast<String, dynamic>();
+      }
+      // Only the default (current-semester) view is cached; a closed
+      // semester is a view-only analysis path, not the working set.
+      if (_selectedTermId == null) {
+        await _db.cacheAssessments(_selectedClassId!, sid, assessments);
+      }
       setState(() { _assessments = assessments; _loadingAssessments = false; _isOffline = false; });
     } else {
       setState(() {
@@ -351,6 +406,51 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     );
   }
 
+  Widget _buildTermSwitcher() {
+    if (_terms.length < 2) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Semester', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textSecondary)),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, runSpacing: 8, children: _terms.map((t) {
+        final id = _termIdOf(t);
+        final selected = _selectedTermId == null
+            ? (t['is_current'] == true)
+            : (_selectedTermId == id);
+        final reop = t['is_reopened'] == true && t['is_current'] != true;
+        return ChoiceChip(
+          label: Text(
+            '${t['term_name'] ?? 'Semester'}${t['is_current'] == true ? ' (current)' : (reop ? ' (corrections open)' : '')}',
+            style: TextStyle(fontSize: 12, color: selected ? Colors.white : null, fontWeight: selected ? FontWeight.w600 : null)),
+          selected: selected,
+          selectedColor: AppTheme.primary,
+          onSelected: (_) {
+            setState(() => _selectedTermId = t['is_current'] == true ? null : id);
+            _loadAssessments();
+          },
+          side: BorderSide(color: selected ? AppTheme.primary : (reop ? AppTheme.warning : AppTheme.borderLight)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        );
+      }).toList()),
+      if (_termViewLocked)
+        Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.danger.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppTheme.danger.withOpacity(0.4)),
+          ),
+          child: Row(children: [
+            Icon(Icons.lock_outline, size: 16, color: AppTheme.danger),
+            const SizedBox(width: 8),
+            Expanded(child: Text(
+              'Viewing a closed semester — read-only. You can analyze these marks; ask the Education Department to reopen the semester for corrections.',
+              style: TextStyle(fontSize: 11, color: AppTheme.danger, height: 1.4))),
+          ])),
+      const SizedBox(height: 10),
+    ]);
+  }
+
   Widget _buildAssessmentSection() {
     if (_loadingAssessments) return const Padding(padding: EdgeInsets.all(24), child: StudentListSkeleton(count: 3));
     return Column(
@@ -360,6 +460,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
           const Text('Department Assessments', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
         ]),
         const SizedBox(height: 8),
+        _buildTermSwitcher(),
         if (_assessments.isEmpty)
           Container(
             padding: const EdgeInsets.all(20),
@@ -388,6 +489,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     final totalStudents = a['total_students'] ?? a['student_count'] ?? 0;
     final gradesEntered = a['grades_entered'] ?? 0;
     final isLocked = PacketLock.isLocked('${a['submission_status'] ?? ''}', flagged: a['locked'] == true);
+    final termLocked = a['term_locked'] == true;
     final typeColors = {'test': AppTheme.primary, 'quiz': AppTheme.info, 'midterm': AppTheme.warning, 'final': AppTheme.danger, 'assignment': AppTheme.accent};
     final color = typeColors[type] ?? AppTheme.primary;
 
@@ -395,7 +497,11 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
     Color statusBg;
     Color statusFg;
 
-    if (isLocked) {
+    if (termLocked) {
+      statusText = 'Closed';
+      statusBg = AppTheme.danger.withOpacity(0.10);
+      statusFg = AppTheme.danger;
+    } else if (isLocked) {
       statusText = 'Submitted';
       statusBg = AppTheme.primary.withOpacity(0.12);
       statusFg = AppTheme.primary;
@@ -442,6 +548,12 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
                 Text('Max: $maxScore', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
                 const SizedBox(width: 6),
                 Text('Wt: $weight%', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                if (a['term_name'] != null && a['is_current_term'] != true) ...[
+                  const SizedBox(width: 6),
+                  Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: AppTheme.warning.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
+                    child: Text('${a['term_name']}', style: TextStyle(fontSize: 9, color: AppTheme.warning, fontWeight: FontWeight.w600))),
+                ],
               ]),
             ])),
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -528,6 +640,7 @@ class TeacherGradesScreenState extends State<TeacherGradesScreen> {
         subjectName: subjectName,
         initialStatus: '${assessment['submission_status'] ?? ''}',
         initialLocked: assessment['locked'] == true,
+        initialTermLocked: assessment['term_locked'] == true,
       ),
     )).then((_) { _loadAssessments(); _updatePendingCount(); });
   }
@@ -547,6 +660,9 @@ class _GradeEntryScreen extends StatefulWidget {
   final String subjectName;
   final String initialStatus;
   final bool initialLocked;
+  /// 1.6.5: the test belongs to a semester that is neither current nor
+  /// reopened — read-only analysis for teachers.
+  final bool initialTermLocked;
 
   const _GradeEntryScreen({
     required this.assessmentId, required this.assessmentName,
@@ -554,6 +670,7 @@ class _GradeEntryScreen extends StatefulWidget {
     required this.classId, required this.subjectId, required this.subjectName,
     this.initialStatus = '',
     this.initialLocked = false,
+    this.initialTermLocked = false,
   });
 
   @override
@@ -571,6 +688,10 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
   /// Grayed-out Save until a score/remark changes (see TeacherActionBar).
   final ValueNotifier<bool> _dirty = ValueNotifier(false);
   String _packetStatus = '';
+  /// 1.6.5: this test's semester is closed (not current, not reopened) —
+  /// read-only for teachers. Refreshed from /grades/students on load.
+  bool _termLocked = false;
+  String? _termName;
   /// Education's reason when this mark list was returned for correction.
   String? _returnNote;
   String? _error;
@@ -590,6 +711,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     super.initState();
     _isOffline = !ConnectivityService().hasLink;
     _packetStatus = widget.initialStatus;
+    _termLocked = widget.initialTermLocked;
     if (widget.initialLocked && _packetStatus.isEmpty) _packetStatus = 'submitted';
     _netSub = ConnectivityService().statusStream.listen((hasLink) {
       if (!mounted || _isOffline == !hasLink) return;
@@ -659,6 +781,8 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       }
       final packet = '${res.data['submission_status'] ?? ''}';
       final locked = PacketLock.isLocked(packet, flagged: res.data['locked'] == true);
+      final termInfo = (res.data['assessment'] is Map) ? res.data['assessment'] as Map : null;
+      final termLockedNow = termInfo?['term_locked'] == true;
       if (locked) {
         await _db.dropPendingGrades(widget.assessmentId);
       }
@@ -668,6 +792,9 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
         _rosterNote = note;
         _packetStatus = locked && packet.isEmpty ? 'submitted' : (packet.isNotEmpty ? packet : _packetStatus);
         _returnNote = PacketLock.returnNote(res.data);
+        _termLocked = termLockedNow;
+        final t = termInfo?['term'];
+        _termName = (t is Map) ? (t['term_name'] as String?) : _termName;
       });
       _recountGraded();
       await _db.cacheGradeSheet(
@@ -854,7 +981,7 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
     if (mounted) setState(() => _commitInProgress = false);
   }
 
-  bool get _locked => _commitInProgress ||
+  bool get _locked => _commitInProgress || _termLocked ||
       PacketLock.isLocked(_packetStatus,
           flagged: widget.initialLocked && _packetStatus.isEmpty);
 
@@ -1026,7 +1153,18 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
       ),
       bottomNavigationBar: _students.isEmpty
           ? null
-          : _locked
+          : _termLocked
+              ? Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  color: AppTheme.danger.withOpacity(0.10),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.lock_outline, size: 16, color: AppTheme.danger),
+                    const SizedBox(width: 8),
+                    Text('Closed semester — read only',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.danger)),
+                  ]))
+              : _locked
               ? const SubmittedBar()
               : TeacherActionBar(
                   saveLabel: 'Save',
@@ -1035,7 +1173,20 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                   onSubmit: _submitGrades,
                   saveEnabled: _dirty,
                 ),
-      body: _loading
+      body: Column(children: [
+        if (_termLocked)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            color: AppTheme.danger.withOpacity(0.08),
+            child: Row(children: [
+              Icon(Icons.lock_outline, size: 16, color: AppTheme.danger),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                'This semester${_termName != null ? ' ($_termName)' : ''} is closed for editing — view only. Ask the Education Department to reopen it for corrections.',
+                style: TextStyle(fontSize: 11, color: AppTheme.danger, height: 1.35))),
+            ])),
+        Expanded(child: _loading
           ? const StudentListSkeleton()
           : _error != null
               ? Padding(padding: const EdgeInsets.all(16), child: AppErrorCard(error: AppError.fromMessage(_error), onRetry: _loadStudents, autoRetry: true))
@@ -1090,6 +1241,9 @@ class _GradeEntryScreenState extends State<_GradeEntryScreen> {
                         itemBuilder: (_, i) => _studentRow(i),
                       )),
                     ]),
+              ),
+            ],
+          ),
     );
   }
 

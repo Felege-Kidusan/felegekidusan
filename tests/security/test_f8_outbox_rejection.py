@@ -82,9 +82,15 @@ class F8ServerCodes(unittest.TestCase):
             'DomainException catches (save + submit) must be coded')
 
     def test_grades_locks_and_marklist_failure(self):
+        # 1.6.5: the refusal reason is resolved by teacherWriteRefusal() —
+        # a closed semester rejects with TERM_CLOSED, a submitted marklist
+        # with ALREADY_SUBMITTED. Both save and submit keep machine codes.
         self.assertEqual(
-            self.gra.count("['code' => 'ALREADY_SUBMITTED']"), 2,
+            self.gra.count("? 'ALREADY_SUBMITTED' : 'TERM_CLOSED'"), 2,
             'save-lock + submit-lock must be machine-rejectable')
+        self.assertEqual(
+            self.gra.count("teacherWriteRefusal($conn, $auth, $assessmentId)"), 2,
+            'both write paths must use the shared reason gate')
         self.assertEqual(
             self.gra.count("['code' => 'WORKFLOW_REJECTED']"), 1,
             'upsertMarklist workflow failure must be coded')

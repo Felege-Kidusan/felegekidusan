@@ -186,8 +186,18 @@ if ($action === 'stats' && $method === 'GET') {
         } catch (Exception $e) { $data['recent_registrations'] = 0; }
     }
     
+    // 1.6.5: current semester of the active year — the teacher dashboard's
+    // hero box shows it ("now running: 1ኛ ሴሚስተር"), cached with the stats.
+    $currentTerm = null;
+    try {
+        if (class_exists('\\App\\Services\\SubmissionService')) {
+            $currentTerm = \App\Services\SubmissionService::currentTermOfActiveYear($conn);
+        }
+    } catch (Exception $eTerm) { $currentTerm = null; }
+
     ok([
         'stats' => $data,
+        'current_term' => $currentTerm,
         'features' => \App\Services\FeatureGate::mobileCapabilities(),
         'server_time' => date('c'),
         'role' => $userRole
