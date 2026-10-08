@@ -1424,6 +1424,45 @@ class HymnStore extends ChangeNotifier {
   Future<void> ensureSearchIndexFresh({bool userIsSearching = false}) =>
       _db.ensureSearchIndexFresh(userIsSearching: userIsSearching);
 
+  /// Dataset identity check (1.6.2). GET /app/config publishes
+  /// sync_instance_id — generated once per dataset and rotated
+  /// deliberately on restore/migration. Local state is bound to the id
+  /// it was built from; a change (including an unset stored id on a
+  /// device that synced with a previous dataset) invalidates it, which
+  /// is the storage-reset semantics Android/Chrome sync use for
+  /// account/dataset switches. Failures are swallowed: the epoch check
+  /// must never break the sync cycle.
+  Future<void> _reconcileSyncInstanceEpoch(int generation) async {
+    if (!_ownsGeneration(generation)) return;
+    try {
+      final res = await _api.get('/app/config', auth: false);
+      if (res.sessionSuperseded || !_ownsGeneration(generation)) return;
+      if (!res.success || res.data is! Map) return;
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final serverId = '${data['sync_instance_id'] ?? ''}'.trim();
+      if (serverId.isEmpty) return; // legacy server: nothing to check
+      final storedId = await _db.getHymnSyncInstanceId();
+      if (storedId == serverId) return;
+      // Ids with unpushed local edits stay: the outbox owns them and
+      // re-pushes them to the new dataset (same protect rule as delta
+      // pulls and the taxonomy reconcile).
+      final protect = <int>{};
+      for (final op in await _db.getPendingHymnOps()) {
+        try {
+          final payload = jsonDecode('${op['payload_json'] ?? '{}'}');
+          if (payload is Map) {
+            final pid = int.tryParse('${payload['id'] ?? 0}') ?? 0;
+            if (pid > 0) protect.add(pid);
+          }
+        } catch (_) {}
+      }
+      await _db.resetHymnSyncForInstanceChange(protect);
+      await _db.setHymnSyncInstanceId(serverId);
+    } catch (_) {
+      // Network/DB hiccup: retry on the next cycle.
+    }
+  }
+
   Future<void> pullChanges({int lyricsBatch = 15}) async {
     final generation = sessionGenerationProvider?.call() ?? 0;
     if (!_api.isLoggedIn || !_ownsGeneration(generation)) return;
@@ -1440,6 +1479,13 @@ class HymnStore extends ChangeNotifier {
     _pullingGeneration = generation;
     _pullInflight = completion;
     try {
+      // 1.6.2 sync anchor: verify the server's dataset identity before
+      // pulling deltas. A mismatch means this device's corpus came from
+      // a different dataset (server migration/restore) — purge the
+      // server-derived rows (pending local edits are protected and
+      // re-pushed) and restart from an empty cursor so the authoritative
+      // corpus replaces the ghosts.
+      await _reconcileSyncInstanceEpoch(generation);
       final taxProtect = await _pendingTaxonomyIds();
       final cats = await _api.getMezmurCategories();
       if (cats.success && cats.data is Map && cats.data['items'] is List) {

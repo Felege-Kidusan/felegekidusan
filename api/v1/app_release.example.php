@@ -20,19 +20,19 @@
  *   cp FKSS-arm64-v8a.apk    /home/arkeonet/fkss_releases/fkss-arm64.apk
  *
  * After each new build, raise latest_version / latest_build to match
- * pubspec.yaml (currently 1.6.1+27). Raise min_build only after the staged
+ * pubspec.yaml (currently 1.6.2+28). Raise min_build only after the staged
  * compatibility window and adoption checks in the release runbook.
  */
 return [
-    'latest_version' => '1.6.1',
-    'latest_build'   => 27,
+    'latest_version' => '1.6.2',
+    'latest_build'   => 28,
     'min_version'    => '1.0.0',
     'min_build'      => 1,
     'force_update'   => false,
     // Emergency containment: set false to pause outbound app outbox drains.
     // Local SQLite saves and queued rows continue and must not be deleted.
     'background_drains_enabled' => true,
-    'release_notes'  => 'The system now lives at felegekidusan.com. This update points the app at the new address — install it so the app keeps working after the old address is retired. Attendance, mezmur and messages are unchanged.',
+    'release_notes'  => 'This update fixes hymns from the old system still appearing after the move to felegekidusan.com: the app now rebuilds its hymn list from the current system automatically. Your account, downloads and pending changes are kept.',
     'banner_text'    => '',
     'banner_kind'    => 'info',
     // Universal APK (both 32-bit and 64-bit phones) — ALWAYS publish.
