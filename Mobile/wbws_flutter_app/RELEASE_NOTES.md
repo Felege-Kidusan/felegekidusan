@@ -5,6 +5,26 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.4 (build 30) — Grade-entry semester fence (web admin; no app changes)
+
+Web admin only — the app itself is unchanged from 1.6.2; the version bump
+keeps the single-version convention.
+
+- **Semester fence on grade entry** — teachers now see which semester their
+  marks are being recorded into ("Recording into: 1ኛ ሴሚስተር") on both the
+  grade-entry screen and the marklist submission screen. If a test belongs
+  to a different semester than the current one, an amber notice explains
+  that marks will back-fill into that semester — the boundary after a
+  semester switch is never silent again.
+- **Assessment creation can target a semester** — the Education Department
+  may assign a test to any semester of the active year when creating it
+  (default: the current semester); tests with no semester are flagged in
+  the teacher's list.
+- **Semester re-assignment for existing tests** — moving a test to another
+  semester (of the active year) now also re-stamps its recorded marks in
+  the same transaction, so all marks of one test always sit in one
+  semester. This is the cleanup path for legacy tests with no semester.
+
 ## 1.6.3 (build 29) — Academic Year admin fixes (web admin; no app changes)
 
 This release is a web-admin maintenance release — the app itself is unchanged
