@@ -365,6 +365,7 @@ $csrfToken = generateCsrfToken();
                             <div class="p-4 border-b">
                                 <h3 class="font-semibold" id="gradeEntryTitle">Enter Grades</h3>
                                 <p class="text-sm text-slate-500" id="gradeEntrySubtitle"></p>
+                                <div id="termFenceNotice" style="display:none;margin-top:.6rem;padding:.6rem .8rem;border-radius:8px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;font-size:.8rem;line-height:1.45"></div>
                             </div>
                             <div class="table-container">
                                 <table class="data-table">
@@ -555,6 +556,7 @@ $csrfToken = generateCsrfToken();
                         <div class="p-4 border-b" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff">
                             <h3 class="font-semibold" id="submitTitle">Marklist</h3>
                             <p class="text-sm opacity-80" id="submitSubtitle"></p>
+                            <div id="submitTermFenceNotice" style="display:none;margin-top:.5rem;padding:.5rem .7rem;border-radius:8px;background:rgba(255,251,235,.95);border:1px solid #fcd34d;color:#92400e;font-size:.78rem;line-height:1.4"></div>
                         </div>
                         <div class="table-container">
                             <table class="data-table">
@@ -736,12 +738,21 @@ $csrfToken = generateCsrfToken();
                             `;
                         } else {
                             select.innerHTML = '<option value="">-- Select Assessment --</option>';
+                            const curTerm = data.current_term || null;
                             data.assessments.forEach(a => {
                                 const ge = a.grades_entered || a.graded_count || 0;
                                 const ts = a.total_students || a.student_count || 0;
                                 const pct = ts > 0 ? Math.round((ge / ts) * 100) : 0;
                                 const progText = ts > 0 ? ` — ${ge}/${ts} Graded (${pct}%)` : (ge > 0 ? ` — ${ge} Graded` : '');
-                                select.innerHTML += `<option value="${a.id}" data-max="${a.max_score}">${escapeHtml(a.assessment_name)} (Max: ${a.max_score} pts • ${a.weight_percentage}%)${progText}</option>`;
+                                // Term fence tag: mark tests that are NOT in the
+                                // current semester (or have no semester at all).
+                                let termTag = '';
+                                if (a.term_id === null || a.term_id === undefined) {
+                                    termTag = ' • ⚠ no semester';
+                                } else if (curTerm && parseInt(a.term_id) !== parseInt(curTerm.id)) {
+                                    termTag = ` • ${a.term_name || 'other semester'}`;
+                                }
+                                select.innerHTML += `<option value="${a.id}" data-max="${a.max_score}">${escapeHtml(a.assessment_name)} (Max: ${a.max_score} pts • ${a.weight_percentage}%)${progText}${termTag}</option>`;
                             });
                             document.getElementById('selectGradeMsg').innerHTML = `
                                 <i class="fa-solid fa-clipboard-list text-3xl mb-2"></i>
@@ -777,7 +788,22 @@ $csrfToken = generateCsrfToken();
                         const pctSt = totalSt > 0 ? Math.round((gradedSt / totalSt) * 100) : 0;
 
                         document.getElementById('gradeEntryTitle').textContent = data.assessment.assessment_name;
-                        document.getElementById('gradeEntrySubtitle').innerHTML = `Max Score: <strong>${data.assessment.max_score}</strong> | Weight: <strong>${data.assessment.weight_percentage}%</strong> | Progress: <span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:12px;font-weight:600;font-size:0.75rem"><span id="teacherLiveGraded">${gradedSt}</span> / ${totalSt} Graded (<span id="teacherLivePct">${pctSt}%</span>)</span>`;
+                        const a = data.assessment;
+                        const recInto = a.term_name ? a.term_name : (a.term_id ? 'semester #' + a.term_id : 'no semester (counts in every report)');
+                        document.getElementById('gradeEntrySubtitle').innerHTML = `Recording into: <strong>${escapeHtml(recInto)}</strong> | Max Score: <strong>${a.max_score}</strong> | Weight: <strong>${a.weight_percentage}%</strong> | Progress: <span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:12px;font-weight:600;font-size:0.75rem"><span id="teacherLiveGraded">${gradedSt}</span> / ${totalSt} Graded (<span id="teacherLivePct">${pctSt}%</span>)</span>`;
+                        // ── Term fence: never let a semester boundary be silent ──
+                        const fence = document.getElementById('termFenceNotice');
+                        if (fence) {
+                            if (a.term_id === null || a.term_id === undefined) {
+                                fence.style.display = 'block';
+                                fence.innerHTML = '<strong>⚠ No semester assigned.</strong> Marks for this test count in <strong>every</strong> report (annual and both semesters). Ask the Education Department to assign it a semester.';
+                            } else if (a.is_current_term === false && a.current_term_name) {
+                                fence.style.display = 'block';
+                                fence.innerHTML = `<strong>⚠ Semester fence.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'another semester')}</strong>, but the current semester is <strong>${escapeHtml(a.current_term_name)}</strong>. Marks you enter now are recorded into <strong>${escapeHtml(a.term_name || 'that semester')}</strong> (back‑fill).`;
+                            } else {
+                                fence.style.display = 'none';
+                            }
+                        }
                         document.getElementById('maxScoreHeader').textContent = data.assessment.max_score;
                         renderGradeEntryTable(students, data.assessment.max_score);
                     }
@@ -1004,11 +1030,18 @@ $csrfToken = generateCsrfToken();
                 .then(r => r.json())
                 .then(d => {
                     if (d.status === 'success') {
+                        const curTerm = d.current_term || null;
                         (d.assessments || []).forEach(a => {
                             const ge = a.grades_entered || a.graded_count || 0;
                             const ts = a.total_students || a.student_count || 0;
                             const prog = ts > 0 ? ` [${ge}/${ts} Graded]` : (ge > 0 ? ` [${ge} Graded]` : '');
-                            sel.innerHTML += `<option value="${a.id}" data-max="${a.max_score}" data-name="${escapeHtml(a.assessment_name)}">${escapeHtml(a.assessment_name)} (max: ${a.max_score})${prog}</option>`;
+                            let termTag = '';
+                            if (a.term_id === null || a.term_id === undefined) {
+                                termTag = ' [⚠ no semester]';
+                            } else if (curTerm && parseInt(a.term_id) !== parseInt(curTerm.id)) {
+                                termTag = ` [${a.term_name || 'other semester'}]`;
+                            }
+                            sel.innerHTML += `<option value="${a.id}" data-max="${a.max_score}" data-name="${escapeHtml(a.assessment_name)}">${escapeHtml(a.assessment_name)} (max: ${a.max_score})${prog}${termTag}</option>`;
                         });
                     }
                 });
@@ -1038,7 +1071,22 @@ $csrfToken = generateCsrfToken();
                         const totalSt = students.length;
                         const gradedSt = students.filter(s => s.score !== null && s.score !== '' && s.score !== undefined).length;
                         const pctSt = totalSt > 0 ? Math.round((gradedSt / totalSt) * 100) : 0;
-                        document.getElementById('submitSubtitle').textContent = (combo.selectedOptions[0]?.text || '') + ' • Max: ' + maxScore + ` • ${gradedSt}/${totalSt} Graded (${pctSt}%)`;
+                        const a = d.assessment || {};
+                        const recInto = a.term_name ? a.term_name : (a.term_id ? 'semester #' + a.term_id : 'no semester');
+                        document.getElementById('submitSubtitle').textContent = (combo.selectedOptions[0]?.text || '') + ' • Max: ' + maxScore + ` • ${gradedSt}/${totalSt} Graded (${pctSt}%) • Recording into: ${recInto}`;
+                        // ── Term fence (same rule as grade entry) ──
+                        const fence = document.getElementById('submitTermFenceNotice');
+                        if (fence) {
+                            if (a.term_id === null || a.term_id === undefined) {
+                                fence.style.display = 'block';
+                                fence.innerHTML = '<strong>⚠ No semester assigned.</strong> This marklist counts in every report. Ask the Education Department to assign it a semester.';
+                            } else if (a.is_current_term === false && a.current_term_name) {
+                                fence.style.display = 'block';
+                                fence.innerHTML = `<strong>⚠ Semester fence.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'another semester')}</strong> (current: ${escapeHtml(a.current_term_name)}). Submitted marks are recorded into <strong>${escapeHtml(a.term_name || 'that semester')}</strong> (back‑fill).`;
+                            } else {
+                                fence.style.display = 'none';
+                            }
+                        }
                         tbody.innerHTML = students.length ? students.map((s, i) => `
                             <tr>
                                 <td>${i+1}</td>

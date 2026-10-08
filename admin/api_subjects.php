@@ -112,6 +112,70 @@ if (function_exists('ay_require_writable')) {
     }
 }
 
+// ── Grade-entry term fence (2026-10-08, semester-boundary gap 1) ────────────
+// Marks are stamped with the ASSESSMENT's term (save_grades reads
+// assessments.term_id), and assessments are stamped with the CURRENT term at
+// creation. Before this patch that boundary was invisible and unoverridable:
+// a test created after the semester flip silently belonged to the new
+// semester, and a teacher entering marks could not see which semester they
+// were landing in. The fence makes the boundary explicit:
+//   • creation may target another semester of the ACTIVE year (validated),
+//   • every read surface names the semester marks will land in,
+//   • the teacher UI shows a fence notice when the assessment's semester
+//     differs from the current one (back-fill stays allowed, never silent).
+function _subj_current_term(mysqli $conn): ?array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $row = null;
+    try {
+        $activeId = 0;
+        if (function_exists('ay_resolve')) $activeId = (int)ay_resolve($conn)['active_id'];
+        $st = $conn->prepare(
+            "SELECT t.id, t.term_name, t.term_number FROM academic_terms t
+              JOIN academic_years y ON y.id = t.academic_year_id
+             WHERE t.is_current = 1 AND y.status = 'active'
+             ORDER BY t.id DESC LIMIT 1"
+        );
+        if ($st) {
+            $st->execute();
+            $row = $st->get_result()->fetch_assoc() ?: null;
+            $st->close();
+        }
+        if (!$row) {
+            // Legacy fallback: any current-flagged term (pre-scoping data).
+            $r = $conn->query("SELECT id, term_name, term_number FROM academic_terms WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
+            if ($r) $row = $r->fetch_assoc() ?: null;
+        }
+    } catch (Throwable $e) {
+        $row = null;
+    }
+    return $cache = $row;
+}
+
+/**
+ * A posted term_id is a legal fence override only when it is a semester of
+ * the ACTIVE academic year. Returns the term row or null.
+ */
+function _subj_term_of_active_year(mysqli $conn, int $termId): ?array {
+    if ($termId <= 0) return null;
+    try {
+        $st = $conn->prepare(
+            "SELECT t.id, t.term_name, t.term_number FROM academic_terms t
+              JOIN academic_years y ON y.id = t.academic_year_id
+             WHERE t.id = ? AND y.status = 'active' LIMIT 1"
+        );
+        if (!$st) return null;
+        $st->bind_param('i', $termId);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc() ?: null;
+        $st->close();
+        return $row;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+
 try {
 switch ($action) {
     // ============================================================
@@ -727,9 +791,10 @@ switch ($action) {
             exit;
         }
         
-        $sql = "SELECT a.*, 
+        $sql = "SELECT a.*, t.term_name, t.term_number,
                 (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id AND ar.score IS NOT NULL) as grades_entered
                 FROM assessments a
+                LEFT JOIN academic_terms t ON t.id = a.term_id
                 WHERE a.academic_year_id = ?";
         $params = [$currentYear['id']];
         $types = "i";
@@ -806,10 +871,26 @@ switch ($action) {
             $row['pending_count'] = max(0, $ts - $ge);
             $row['completion_percentage'] = $ts > 0 ? round(($ge / $ts) * 100, 1) : 0;
             $row['is_complete'] = ($ts > 0 && $ge >= $ts);
+            // Term-fence fields: which semester this test belongs to, and
+            // (resolved once below) whether that is the current one.
+            $row['term_id'] = $row['term_id'] !== null ? (int)$row['term_id'] : null;
 
             $assessments[] = $row;
         }
-        
+
+        // Current semester context for the fence UI (null when none set).
+        $cterm = _subj_current_term($conn);
+        $ctermOut = $cterm ? [
+            'id' => (int)$cterm['id'],
+            'term_name' => (string)$cterm['term_name'],
+            'term_number' => (int)$cterm['term_number'],
+        ] : null;
+        foreach ($assessments as &$a) {
+            $a['is_current_term'] = ($ctermOut !== null && $a['term_id'] !== null
+                && (int)$a['term_id'] === (int)$ctermOut['id']);
+        }
+        unset($a);
+
         // Calculate total percentage per class-subject
         $totals = [];
         foreach ($assessments as $a) {
@@ -821,7 +902,8 @@ switch ($action) {
         echo json_encode([
             'status' => 'success', 
             'assessments' => $assessments,
-            'totals' => $totals
+            'totals' => $totals,
+            'current_term' => $ctermOut
         ]);
         break;
     
@@ -931,10 +1013,21 @@ switch ($action) {
             $nextOrder = (int)$stmt->get_result()->fetch_assoc()['next_order'];
             $stmt->close();
             
-            $termId = null;
-            $termResult = $conn->query("SELECT id FROM academic_terms WHERE is_current = 1 LIMIT 1");
-            if ($termResult && $term = $termResult->fetch_assoc()) {
-                $termId = $term['id'];
+            $termId = null; $termName = null;
+            $ct = _subj_current_term($conn);
+            if ($ct) { $termId = (int)$ct['id']; $termName = (string)$ct['term_name']; }
+            // Fence override: the creator may explicitly target another
+            // semester of the ACTIVE year (back-fill after a flip). Anything
+            // else — foreign year, closed year, invented id — is rejected.
+            $postedTermId = (int)($_POST['term_id'] ?? 0);
+            if ($postedTermId > 0) {
+                $vt = _subj_term_of_active_year($conn, $postedTermId);
+                if (!$vt) {
+                    echo json_encode(['status' => 'error', 'message' => 'That semester is not part of the active academic year.']);
+                    exit;
+                }
+                $termId = (int)$vt['id'];
+                $termName = (string)$vt['term_name'];
             }
             
             $stmt = $conn->prepare("
@@ -958,7 +1051,9 @@ switch ($action) {
                     'status' => 'success', 
                     'message' => "Assessment created! Total weight now: {$newTotal}%",
                     'assessment_id' => $newId,
-                    'new_total' => $newTotal
+                    'new_total' => $newTotal,
+                    'term_id' => $termId,
+                    'term_name' => $termName
                 ]);
             } else {
                 $err = $conn->error;
@@ -1296,7 +1391,38 @@ switch ($action) {
         $stmt->bind_param("ssddssi", $name, $type, $weight, $maxScore, $description, $dueDate, $id);
         
         if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'message' => 'Assessment updated!']);
+            $stmt->close();
+            // ── Term fence remediation ─────────────────────────────────────
+            // Moving an assessment to another semester (of the ACTIVE year)
+            // also re-stamps that assessment's existing marks, so all marks
+            // of one test always sit in one semester. One transaction: the
+            // assessment row and its academic_records move together or not
+            // at all. This is the escape hatch for legacy NULL-term tests.
+            $postedTermId = isset($_POST['term_id']) && $_POST['term_id'] !== '' ? (int)$_POST['term_id'] : 0;
+            if ($postedTermId > 0) {
+                $vt = _subj_term_of_active_year($conn, $postedTermId);
+                if (!$vt) {
+                    echo json_encode(['status' => 'error', 'message' => 'That semester is not part of the active academic year. The other changes were saved; the semester was not changed.']);
+                    exit;
+                }
+                try {
+                    $conn->begin_transaction();
+                    $u1 = $conn->prepare("UPDATE assessments SET term_id=? WHERE id=?");
+                    $u1->bind_param('ii', $postedTermId, $id);
+                    $u1->execute(); $u1->close();
+                    $u2 = $conn->prepare("UPDATE academic_records SET term_id=? WHERE assessment_id=?");
+                    $u2->bind_param('ii', $postedTermId, $id);
+                    $u2->execute(); $u2->close();
+                    $conn->commit();
+                    echo json_encode(['status' => 'success', 'message' => 'Assessment updated and moved to '.$vt['term_name'].' (its recorded marks were re-stamped to that semester).']);
+                } catch (Exception $eMove) {
+                    try { $conn->rollback(); } catch (Throwable $rIgnore) {}
+                    reportInternalError('Assessment term move failed', $eMove);
+                    echo json_encode(['status' => 'error', 'message' => 'Assessment updated, but moving it to the other semester failed. No marks were changed.']);
+                }
+            } else {
+                echo json_encode(['status' => 'success', 'message' => 'Assessment updated!']);
+            }
         } else {
             reportInternalError('api_subjects db write failed', $conn->error);
             respondApiError('The change could not be saved. Please try again.', 500, 'server_error');
@@ -1414,7 +1540,34 @@ switch ($action) {
         $totalStudents = count($students);
         $pendingCount = max(0, $totalStudents - $gradedCount);
         $completionPercentage = $totalStudents > 0 ? round(($gradedCount / $totalStudents) * 100, 1) : 0;
-        
+
+        // ── Term-fence context: which semester these marks land in ──
+        $cterm = _subj_current_term($conn);
+        if ($cterm) {
+            $assessment['current_term_id'] = (int)$cterm['id'];
+            $assessment['current_term_name'] = (string)$cterm['term_name'];
+        }
+        if (!empty($assessment['term_id'])) {
+            $atid = (int)$assessment['term_id'];
+            $at = _subj_term_of_active_year($conn, $atid);
+            if (!$at) {
+                // The term may belong to a non-active year (closed year) —
+                // resolve its name directly instead.
+                try {
+                    $st = $conn->prepare("SELECT id, term_name, term_number FROM academic_terms WHERE id=? LIMIT 1");
+                    if ($st) { $st->bind_param('i', $atid); $st->execute(); $at = $st->get_result()->fetch_assoc() ?: null; $st->close(); }
+                } catch (Throwable $eAt) { $at = null; }
+            }
+            if ($at) {
+                $assessment['term_name'] = (string)$at['term_name'];
+                $assessment['term_number'] = (int)$at['term_number'];
+            }
+            $assessment['is_current_term'] = ($cterm && $atid === (int)$cterm['id']);
+        } else {
+            $assessment['term_id'] = null;
+            $assessment['is_current_term'] = null; // legacy: no semester assigned
+        }
+
         echo json_encode([
             'status' => 'success',
             'assessment' => $assessment,
