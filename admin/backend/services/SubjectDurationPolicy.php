@@ -8,10 +8,16 @@
  *   SEMESTER_ONLY  completed inside one semester. Its final score IS that
  *                  semester's score. It does not continue, and the semester
  *                  it did not run in is ABSENT, never zero.
- *   FULL_YEAR      runs across both semesters. Its final annual score is
- *                  (S1 x s1_weight) + (S2 x s2_weight). Until both semesters
- *                  exist the annual score is PENDING — a Semester 1 score is
- *                  never the annual result.
+ *   FULL_YEAR      runs across both semesters. Its final annual score is the
+ *                  plain AVERAGE of the two semester totals, (S1 + S2) / 2 —
+ *                  the school's semester-based model (2026-10-08 decision):
+ *                  each semester closes from 100% and the annual figure is
+ *                  just the average of the two closed semesters. (Until
+ *                  1.6.7 this was a weighted combination; the per-year
+ *                  s1/s2 weights are retained in the schema and the year
+ *                  admin for history but are no longer applied here.) Until
+ *                  both semesters exist the annual score is PENDING — a
+ *                  Semester 1 score is never the annual result.
  *
  * Weights are stored per academic year (academic_years.s1_weight_pct /
  * s2_weight_pct, migration 056) so a closed year keeps the distribution it
@@ -230,12 +236,15 @@ class SubjectDurationPolicy
                     'reason' => 'full-year subject needs both semesters before an annual score exists',
                 ];
             }
-            $annual = ($s1 * ($weights['s1'] / self::WEIGHT_TOTAL))
-                    + ($s2 * ($weights['s2'] / self::WEIGHT_TOTAL));
+            // 1.6.7: the annual score is the plain average of the two
+            // semester totals (semester-based model). The stored per-year
+            // weights are deliberately NOT applied any more.
+            unset($weights, $offeringTermNumber);
+            $annual = ($s1 + $s2) / 2.0;
             return [
                 'final'  => round($annual, 2),
                 'status' => self::STATUS_CLOSED,
-                'reason' => 'full-year subject combined from both semesters using the configured weights',
+                'reason' => 'full-year subject annual score = average of the two semester totals',
             ];
         }
 

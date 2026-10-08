@@ -559,16 +559,18 @@ class ReportCardService
             }
 
             $semesterScores = ['s1' => null, 's2' => null];
+            $semesterDetail = null;
             $untagged = 0;
             $finalScore = $agg['average'];
             $status = SubjectDurationPolicy::STATUS_PENDING;
             $reason = '';
 
-            if ($isAnnual && $duration !== SubjectDurationPolicy::UNCLASSIFIED) {
-                // Split this subject's marks by semester and combine them
-                // through the duration policy. Raw S1 and S2 marks are never
-                // averaged together.
-                $byTerm = [1 => [], 2 => []];
+            // 1.6.7 detailed report card: split this subject's marks by
+            // semester for EVERY annual view. The per-semester assessment
+            // lists and totals feed the detailed layout (assessments one by
+            // one, each semester closing from 100%).
+            $byTerm = [1 => [], 2 => []];
+            if ($isAnnual) {
                 foreach ($rows as $row) {
                     $tn = $termNumbers[(int)($row['term_id'] ?? 0)] ?? 0;
                     if ($tn === 1 || $tn === 2) {
@@ -579,8 +581,21 @@ class ReportCardService
                         $untagged++;
                     }
                 }
-                $s1 = $byTerm[1] ? self::aggregateSubject($byTerm[1])['average'] : null;
-                $s2 = $byTerm[2] ? self::aggregateSubject($byTerm[2])['average'] : null;
+                $semesterDetail = [];
+                foreach ([1 => 's1', 2 => 's2'] as $tn => $k) {
+                    $aggT = $byTerm[$tn] ? self::aggregateSubject($byTerm[$tn]) : null;
+                    $semesterDetail[$k] = $aggT
+                        ? ['assessments' => $aggT['assessments'], 'total' => $aggT['average']]
+                        : ['assessments' => [], 'total' => null];
+                }
+            }
+
+            if ($isAnnual && $duration !== SubjectDurationPolicy::UNCLASSIFIED) {
+                // Combine the two semesters through the duration policy
+                // (1.6.7: plain average of the semester totals). Raw S1 and
+                // S2 marks are never blended together.
+                $s1 = $semesterDetail['s1']['total'];
+                $s2 = $semesterDetail['s2']['total'];
                 $semesterScores = ['s1' => $s1, 's2' => $s2];
 
                 $decision = SubjectDurationPolicy::finalScore(
@@ -636,6 +651,11 @@ class ReportCardService
                 'semester_1_score' => $semesterScores['s1'],
                 'semester_2_score' => $semesterScores['s2'],
                 'semester_weights' => $isAnnual ? $weights : null,
+                // 1.6.7 detailed report card: per-semester assessment lists
+                // with their own totals (each semester closes from 100%).
+                'semester_detail' => $semesterDetail,
+                // How the annual figure is produced (displayed on the card).
+                'annual_method' => $isAnnual ? 'average_of_semesters' : null,
                 'untagged_mark_rows' => $untagged,
             ];
         }
@@ -696,6 +716,7 @@ class ReportCardService
                 'pending_subjects' => $pendingSubjects,
                 'is_annual' => $isAnnual,
                 'semester_weights' => $isAnnual ? $weights : null,
+                'annual_method' => $isAnnual ? 'average_of_semesters' : null,
             ],
             'attendance' => $attendance,
             'highlights' => [
@@ -759,6 +780,9 @@ class ReportCardService
                 'weight_percentage' => $weight > 0 ? $weight : null,
                 'percentage' => $pct !== null ? round($pct, 1) : null,
                 'remarks' => self::safeText($rec['remarks'] ?? ''),
+                // 1.6.7: the semester this mark belongs to (null = legacy
+                // row stamped before terms existed — counts in every term).
+                'term_id' => !empty($rec['term_id']) ? (int)$rec['term_id'] : null,
             ];
         }
 
