@@ -470,13 +470,145 @@ class SubmissionService
         return $status === null || self::statusIsOpen($status);
     }
 
-    public static function teacherMayWriteMarklist(\mysqli $conn, array $auth, int $assessmentId): bool
+    /**
+     * The current semester of the ACTIVE academic year, or null when no
+     * active year / no current semester exists. Shared by the term-close
+     * write gate (below) and any surface that needs "what semester are we
+     * in" (mobile hero box, /app/config, /dashboard/stats).
+     *
+     * Scoping to the ACTIVE year matters: is_current is a per-year flag, so
+     * an unscoped read could return a semester of a closed year while the
+     * active year is running (the same bug fixed for set_current_term on
+     * 2026-10-08). Falls back to any is_current row only when no active
+     * year can be resolved at all (legacy databases).
+     */
+    public static function currentTermOfActiveYear(\mysqli $conn): ?array
+    {
+        try {
+            $stmt = $conn->prepare(
+                "SELECT t.id, t.term_name, t.term_number
+                 FROM academic_terms t
+                 JOIN academic_years y ON y.id = t.academic_year_id
+                 WHERE y.status = 'active' AND t.is_current = 1
+                 LIMIT 1"
+            );
+            if ($stmt) {
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if ($row) {
+                    return $row;
+                }
+            }
+        } catch (\Exception $e) {
+            // fall through to the legacy fallback
+        }
+        try {
+            $r = $conn->query("SELECT id, term_name, term_number FROM academic_terms WHERE is_current = 1 LIMIT 1");
+            if ($r) {
+                $row = $r->fetch_assoc();
+                if ($row) {
+                    return $row;
+                }
+            }
+        } catch (\Exception $e) {
+            // no terms table / unreadable — callers treat null as "no fence"
+        }
+        return null;
+    }
+
+    /**
+     * Term-close gate (1.6.5). A teacher may write marks only into the
+     * CURRENT semester of the active year, or a semester the Education
+     * Department has explicitly reopened for corrections (sql/067).
+     * Staff (edu_dept / school_admin / super_admin) always pass — the
+     * department is the correction channel for closed semesters.
+     *
+     * A NULL term (legacy assessments created before terms existed) is
+     * always writable for teachers: those assessments predate the fence
+     * and are surfaced as "no semester assigned" by the entry screens.
+     */
+    public static function termWritableForTeachers(\mysqli $conn, array $auth, ?int $termId): bool
     {
         if (self::staffCanOverride($auth)) {
             return true;
         }
+        if ($termId === null || $termId <= 0) {
+            return true;
+        }
+        $current = self::currentTermOfActiveYear($conn);
+        if ($current !== null && (int)$current['id'] === $termId) {
+            return true;
+        }
+        try {
+            $stmt = $conn->prepare("SELECT is_reopened FROM academic_terms WHERE id = ? LIMIT 1");
+            if ($stmt) {
+                $stmt->bind_param('i', $termId);
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                return $row !== null && (int)$row['is_reopened'] === 1;
+            }
+        } catch (\Exception $e) {
+            // column missing (pre-067 database): the close gate must not
+            // brick grade entry — behave as "not reopened", but staff can
+            // still override.
+        }
+        return false;
+    }
+
+    /**
+     * Full write-gate reason (1.6.5). Returns null when the actor may
+     * write this marklist, or a user-safe reason when they may not:
+     *   1. staff always pass (department correction channel);
+     *   2. the assessment's semester must be writable for teachers
+     *      (current, reopened, or legacy NULL);
+     *   3. the marklist submission status must be open (pre-existing rule).
+     * Shared by the web and mobile save/submit paths so the two surfaces
+     * can never disagree.
+     */
+    public static function teacherWriteRefusal(\mysqli $conn, array $auth, int $assessmentId): ?string
+    {
+        if (self::staffCanOverride($auth)) {
+            return null;
+        }
+        $termId = null;
+        $termName = null;
+        try {
+            $stmt = $conn->prepare(
+                "SELECT a.term_id, t.term_name
+                 FROM assessments a
+                 LEFT JOIN academic_terms t ON t.id = a.term_id
+                 WHERE a.id = ? LIMIT 1"
+            );
+            if ($stmt) {
+                $stmt->bind_param('i', $assessmentId);
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if ($row) {
+                    $termId = $row['term_id'] !== null ? (int)$row['term_id'] : null;
+                    $termName = $row['term_name'];
+                }
+            }
+        } catch (\Exception $e) {
+            // unreadable — treat as legacy (no fence)
+        }
+        if ($termId !== null && !self::termWritableForTeachers($conn, $auth, $termId)) {
+            $label = $termName !== null && $termName !== '' ? (' (' . $termName . ')') : '';
+            return 'This semester' . $label . ' is closed for editing. Teachers can view it for analysis; '
+                . 'ask the Education Department to reopen it for corrections.';
+        }
         $status = self::resolvedMarklistStatus($conn, $assessmentId);
-        return $status === null || self::statusIsOpen($status);
+        if ($status !== null && !self::statusIsOpen($status)) {
+            return 'This test is already submitted. Only Education can change scores now.';
+        }
+        return null;
+    }
+
+    public static function teacherMayWriteMarklist(\mysqli $conn, array $auth, int $assessmentId): bool
+    {
+        return self::teacherWriteRefusal($conn, $auth, $assessmentId) === null;
     }
 
     public static function isLockedForTeacher(?string $status, array $auth): bool

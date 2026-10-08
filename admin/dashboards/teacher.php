@@ -791,25 +791,49 @@ $csrfToken = generateCsrfToken();
                         const a = data.assessment;
                         const recInto = a.term_name ? a.term_name : (a.term_id ? 'semester #' + a.term_id : 'no semester (counts in every report)');
                         document.getElementById('gradeEntrySubtitle').innerHTML = `Recording into: <strong>${escapeHtml(recInto)}</strong> | Max Score: <strong>${a.max_score}</strong> | Weight: <strong>${a.weight_percentage}%</strong> | Progress: <span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:12px;font-weight:600;font-size:0.75rem"><span id="teacherLiveGraded">${gradedSt}</span> / ${totalSt} Graded (<span id="teacherLivePct">${pctSt}%</span>)</span>`;
-                        // ── Term fence: never let a semester boundary be silent ──
+                        // ── Term fence / term-close lock (1.6.5) ──
+                        // Closed semester for a teacher = read-only (the department
+                        // can reopen it for corrections); staff keep the amber
+                        // back-fill fence instead of a hard lock.
                         const fence = document.getElementById('termFenceNotice');
+                        const entryLocked = (a.term_locked === true);
                         if (fence) {
                             if (a.term_id === null || a.term_id === undefined) {
                                 fence.style.display = 'block';
                                 fence.innerHTML = '<strong>⚠ No semester assigned.</strong> Marks for this test count in <strong>every</strong> report (annual and both semesters). Ask the Education Department to assign it a semester.';
+                            } else if (entryLocked) {
+                                fence.style.display = 'block';
+                                fence.style.background = '#fef2f2';
+                                fence.style.borderColor = '#fca5a5';
+                                fence.style.color = '#991b1b';
+                                fence.innerHTML = `<strong>🔒 Semester closed.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'a closed semester')}</strong> (current: <strong>${escapeHtml(a.current_term_name || '—')}</strong>). You can view these marks for analysis, but editing is closed — ask the Education Department to reopen the semester for corrections.`;
                             } else if (a.is_current_term === false && a.current_term_name) {
                                 fence.style.display = 'block';
-                                fence.innerHTML = `<strong>⚠ Semester fence.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'another semester')}</strong>, but the current semester is <strong>${escapeHtml(a.current_term_name)}</strong>. Marks you enter now are recorded into <strong>${escapeHtml(a.term_name || 'that semester')}</strong> (back‑fill).`;
+                                fence.style.background = '#fffbeb';
+                                fence.style.borderColor = '#fcd34d';
+                                fence.style.color = '#92400e';
+                                const reopNote = a.term_reopened ? ' <em>(corrections window reopened by the Education Department — edits allowed until it is closed again)</em>' : '';
+                                fence.innerHTML = `<strong>⚠ Semester fence.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'another semester')}</strong>, but the current semester is <strong>${escapeHtml(a.current_term_name)}</strong>. Marks you enter now are recorded into <strong>${escapeHtml(a.term_name || 'that semester')}</strong> (back‑fill).${reopNote}`;
                             } else {
                                 fence.style.display = 'none';
                             }
                         }
                         document.getElementById('maxScoreHeader').textContent = data.assessment.max_score;
                         renderGradeEntryTable(students, data.assessment.max_score);
+                        applyTermLockToEntry(entryLocked);
                     }
                 });
         }
         
+        // 1.6.5: a closed semester locks the entry UI for teachers (read-only
+        // analysis view). The server refuses the save anyway — this just makes
+        // the lock visible before a keystroke is wasted.
+        function applyTermLockToEntry(locked) {
+            const btn = document.getElementById('saveGradesBtn');
+            if (btn) btn.disabled = locked;
+            document.querySelectorAll('#gradeEntryBody input, #gradeEntryBody select, #gradeEntryBody textarea, #gradeEntryBody button').forEach(el => { el.disabled = locked; });
+        }
+
         function renderGradeEntryTable(students, maxScore) {
             const tbody = document.getElementById('gradeEntryBody');
             if (students.length === 0) {
@@ -1074,19 +1098,32 @@ $csrfToken = generateCsrfToken();
                         const a = d.assessment || {};
                         const recInto = a.term_name ? a.term_name : (a.term_id ? 'semester #' + a.term_id : 'no semester');
                         document.getElementById('submitSubtitle').textContent = (combo.selectedOptions[0]?.text || '') + ' • Max: ' + maxScore + ` • ${gradedSt}/${totalSt} Graded (${pctSt}%) • Recording into: ${recInto}`;
-                        // ── Term fence (same rule as grade entry) ──
+                        // ── Term fence / term-close lock (same rule as entry) ──
                         const fence = document.getElementById('submitTermFenceNotice');
+                        const submitLocked = (a.term_locked === true);
                         if (fence) {
                             if (a.term_id === null || a.term_id === undefined) {
                                 fence.style.display = 'block';
                                 fence.innerHTML = '<strong>⚠ No semester assigned.</strong> This marklist counts in every report. Ask the Education Department to assign it a semester.';
+                            } else if (submitLocked) {
+                                fence.style.display = 'block';
+                                fence.style.background = '#fef2f2';
+                                fence.style.borderColor = '#fca5a5';
+                                fence.style.color = '#991b1b';
+                                fence.innerHTML = `<strong>🔒 Semester closed.</strong> This marklist belongs to <strong>${escapeHtml(a.term_name || 'a closed semester')}</strong> (current: <strong>${escapeHtml(a.current_term_name || '—')}</strong>). Ask the Education Department to reopen the semester for corrections.`;
                             } else if (a.is_current_term === false && a.current_term_name) {
                                 fence.style.display = 'block';
-                                fence.innerHTML = `<strong>⚠ Semester fence.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'another semester')}</strong> (current: ${escapeHtml(a.current_term_name)}). Submitted marks are recorded into <strong>${escapeHtml(a.term_name || 'that semester')}</strong> (back‑fill).`;
+                                fence.style.background = 'rgba(255,251,235,.95)';
+                                fence.style.borderColor = '#fcd34d';
+                                fence.style.color = '#92400e';
+                                const reopNote = a.term_reopened ? ' <em>(corrections window open)</em>' : '';
+                                fence.innerHTML = `<strong>⚠ Semester fence.</strong> This test belongs to <strong>${escapeHtml(a.term_name || 'another semester')}</strong> (current: ${escapeHtml(a.current_term_name)}). Submitted marks are recorded into <strong>${escapeHtml(a.term_name || 'that semester')}</strong> (back‑fill).${reopNote}`;
                             } else {
                                 fence.style.display = 'none';
                             }
                         }
+                        document.getElementById('submitBtn').disabled = submitLocked;
+                        document.querySelectorAll('.submit-score').forEach(el => { el.disabled = submitLocked; });
                         tbody.innerHTML = students.length ? students.map((s, i) => `
                             <tr>
                                 <td>${i+1}</td>

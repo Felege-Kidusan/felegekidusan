@@ -207,12 +207,38 @@ if ($action === 'bootstrap' && $method === 'GET') {
     if (empty($subjects) && $isRestricted) {
         $notice = teacherNoSubjectsNotice($conn, $userId, $classId);
     }
+    // 1.6.5 term-close model: semester context for the hero box and the
+    // term switcher (current semester + every semester of the year).
+    $bootTerms = [];
+    $bootCurrent = null;
+    try {
+        $tq = $conn->prepare("SELECT id, term_name, term_number, is_current, is_reopened
+                              FROM academic_terms WHERE academic_year_id = ? ORDER BY term_number");
+        if ($tq) {
+            $tq->bind_param('i', $yearId);
+            $tq->execute();
+            $tr = $tq->get_result();
+            while ($trow = $tr->fetch_assoc()) {
+                $trow['id'] = (int)$trow['id'];
+                $trow['term_number'] = (int)$trow['term_number'];
+                $trow['is_current'] = (bool)$trow['is_current'];
+                $trow['is_reopened'] = (bool)$trow['is_reopened'];
+                if ($trow['is_current']) {
+                    $bootCurrent = ['id' => $trow['id'], 'term_name' => $trow['term_name'], 'term_number' => $trow['term_number']];
+                }
+                $bootTerms[] = $trow;
+            }
+            $tq->close();
+        }
+    } catch (Exception $eBootTerms) { /* pre-056 databases have no terms */ }
     ok([
         'subjects' => $subjects,
         'assessments' => $assessments,
         'class_id' => $classId,
         'linked' => $linked,
         'notice' => $notice,
+        'terms' => $bootTerms,
+        'current_term' => $bootCurrent,
     ]);
 }
 
@@ -322,17 +348,49 @@ if ($action === 'assessments' && $method === 'GET') {
     }
     
     $assessments = [];
+    // 1.6.5 term-close model: the list is TERM-SCOPED. Without term_id the
+    // response shows only the CURRENT semester's assessments (the working
+    // view — a closed semester's tests must not sit next to the live ones);
+    // term_id=0 returns the whole year (legacy/explicit); term_id=N returns
+    // that semester (view-only analysis of closed data for teachers).
+    $termFilter = null;            // null = current-term default
+    if (array_key_exists('term_id', $_GET)) {
+        $tf = (int)$_GET['term_id'];
+        if ($tf > 0) $termFilter = $tf;
+        elseif ($tf === 0) $termFilter = 0;   // explicit "all terms"
+    }
+    $currentTerm = null;
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        $currentTerm = \App\Services\SubmissionService::currentTermOfActiveYear($conn);
+    }
     try {
-        $stmt = $conn->prepare("SELECT a.id, a.assessment_name, a.assessment_type, 
-                                       a.weight_percentage, a.max_score, a.description,
-                                       a.due_date, a.assessment_order, a.is_published,
-                                       (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id AND ar.score IS NOT NULL) as grades_entered
-                                FROM assessments a
-                                WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?
-                                ORDER BY a.assessment_order, a.created_at");
-        $stmt->bind_param('iii', $classId, $subjectId, $yearId);
+        $sql = "SELECT a.id, a.assessment_name, a.assessment_type, 
+                       a.weight_percentage, a.max_score, a.description,
+                       a.due_date, a.assessment_order, a.is_published, a.term_id,
+                       (SELECT COUNT(*) FROM academic_records ar WHERE ar.assessment_id = a.id AND ar.score IS NOT NULL) as grades_entered
+                FROM assessments a
+                WHERE a.class_id = ? AND a.subject_id = ? AND a.academic_year_id = ?";
+        $params = [$classId, $subjectId, $yearId];
+        $types = 'iii';
+        if ($termFilter === null && $currentTerm !== null) {
+            $sql .= " AND (a.term_id = ? OR a.term_id IS NULL)";
+            $params[] = (int)$currentTerm['id'];
+            $types .= 'i';
+        } elseif ($termFilter !== null && $termFilter > 0) {
+            $sql .= " AND a.term_id = ?";
+            $params[] = $termFilter;
+            $types .= 'i';
+        }
+        $sql .= " ORDER BY a.assessment_order, a.created_at";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $r = $stmt->get_result();
+        $reopenedIds = [];
+        try {
+            $rr = $conn->query("SELECT id FROM academic_terms WHERE is_reopened = 1");
+            if ($rr) { while ($rrow = $rr->fetch_assoc()) $reopenedIds[(int)$rrow['id']] = true; }
+        } catch (Exception $eReopened) { /* pre-067 database */ }
         while ($row = $r->fetch_assoc()) {
             $ge = (int)$row['grades_entered'];
             $row['id'] = (int)$row['id'];
@@ -346,6 +404,16 @@ if ($action === 'assessments' && $method === 'GET') {
             $row['completion_percentage'] = $classStudentCount > 0 ? round(($ge / $classStudentCount) * 100, 1) : 0;
             $row['is_complete'] = ($classStudentCount > 0 && $ge >= $classStudentCount);
             $row['is_published'] = (bool)$row['is_published'];
+            $row['term_id'] = $row['term_id'] !== null ? (int)$row['term_id'] : null;
+            $row['is_current_term'] = ($currentTerm !== null && $row['term_id'] !== null
+                && $row['term_id'] === (int)$currentTerm['id']);
+            $row['term_reopened'] = ($row['term_id'] !== null && isset($reopenedIds[$row['term_id']]));
+            $row['term_locked'] = false;
+            if (class_exists('\\App\\Services\\SubmissionService') && $row['term_id'] !== null) {
+                $row['term_locked'] = !\App\Services\SubmissionService::termWritableForTeachers(
+                    $conn, $auth, $row['term_id']
+                );
+            }
             $assessments[] = $row;
         }
         $stmt->close();
@@ -353,8 +421,37 @@ if ($action === 'assessments' && $method === 'GET') {
         reportInternalError('API grades assessment list failed', $e);
         err('Unable to load assessments.', 500);
     }
-    
-    ok(['assessments' => $assessments, 'count' => count($assessments)]);
+    // The semester switcher data: every semester of the year with its
+    // state, so the app can offer "view last semester" without extra calls.
+    $termsOut = [];
+    try {
+        $tq = $conn->prepare("SELECT id, term_name, term_number, is_current, is_reopened
+                              FROM academic_terms WHERE academic_year_id = ? ORDER BY term_number");
+        if ($tq) {
+            $tq->bind_param('i', $yearId);
+            $tq->execute();
+            $tr = $tq->get_result();
+            while ($trow = $tr->fetch_assoc()) {
+                $trow['id'] = (int)$trow['id'];
+                $trow['term_number'] = (int)$trow['term_number'];
+                $trow['is_current'] = (bool)$trow['is_current'];
+                $trow['is_reopened'] = (bool)$trow['is_reopened'];
+                $termsOut[] = $trow;
+            }
+            $tq->close();
+        }
+    } catch (Exception $eTerms) { /* pre-056 databases have no terms */ }
+    $currentOut = $currentTerm !== null ? [
+        'id' => (int)$currentTerm['id'],
+        'term_name' => (string)$currentTerm['term_name'],
+        'term_number' => (int)$currentTerm['term_number'],
+    ] : null;
+    ok([
+        'assessments' => $assessments,
+        'count' => count($assessments),
+        'terms' => $termsOut,
+        'current_term' => $currentOut,
+    ]);
 }
 
 // ============================================================
@@ -760,12 +857,48 @@ if ($action === 'students' && $method === 'GET') {
     $pendingCount = max(0, $totalStudents - $gradedCount);
     $completionPercentage = $totalStudents > 0 ? round(($gradedCount / $totalStudents) * 100, 1) : 0;
 
+    // 1.6.5 term-close model: expose the semester context + whether THIS
+    // actor may write into it, so the entry screen can lock before a
+    // keystroke is wasted (the save path re-enforces server-side).
+    $termCtx = null;
+    $termLocked = false;
+    $termReopened = false;
+    if (!empty($assessment['term_id'])) {
+        $atid = (int)$assessment['term_id'];
+        try {
+            $tst = $conn->prepare("SELECT id, term_name, term_number, is_current, is_reopened FROM academic_terms WHERE id=? LIMIT 1");
+            if ($tst) {
+                $tst->bind_param('i', $atid);
+                $tst->execute();
+                $trow = $tst->get_result()->fetch_assoc();
+                $tst->close();
+                if ($trow) {
+                    $termReopened = (bool)$trow['is_reopened'];
+                    $currentT = class_exists('\\App\\Services\\SubmissionService')
+                        ? \App\Services\SubmissionService::currentTermOfActiveYear($conn) : null;
+                    $termCtx = [
+                        'id' => (int)$trow['id'],
+                        'term_name' => $trow['term_name'],
+                        'term_number' => (int)$trow['term_number'],
+                        'is_current' => ($currentT !== null && (int)$trow['id'] === (int)$currentT['id']),
+                    ];
+                }
+            }
+        } catch (Exception $eTermCtx) { /* pre-056/067 */ }
+        if (class_exists('\\App\\Services\\SubmissionService')) {
+            $termLocked = !\App\Services\SubmissionService::termWritableForTeachers($conn, $auth, $atid);
+        }
+    }
     ok([
         'assessment' => [
             'id' => (int)$assessment['id'],
             'assessment_name' => $assessment['assessment_name'],
             'max_score' => (float)$assessment['max_score'],
             'weight_percentage' => (float)$assessment['weight_percentage'],
+            'term_id' => !empty($assessment['term_id']) ? (int)$assessment['term_id'] : null,
+            'term' => $termCtx,
+            'term_locked' => $termLocked,
+            'term_reopened' => $termReopened,
         ],
         'students' => $students,
         'count' => $totalStudents,
@@ -817,10 +950,15 @@ if ($action === 'save' && $method === 'POST') {
         checkTeacherSubjectAccess($conn, $userId, $userRole, $aClassId, $aSubjectId, $yearId);
     }
 
-    if (class_exists('\\App\\Services\\SubmissionService')
-        && !\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
-        err('This test is already submitted. Only Education can change scores now.', 409,
-            ['code' => 'ALREADY_SUBMITTED']);
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        // 1.6.5 term-close model: same gate as the web path — the semester
+        // must be current or reopened for teachers; staff always pass.
+        $refusal = \App\Services\SubmissionService::teacherWriteRefusal($conn, $auth, $assessmentId);
+        if ($refusal !== null) {
+            $st = \App\Services\SubmissionService::resolvedMarklistStatus($conn, $assessmentId);
+            err($refusal, 409,
+                ['code' => ($st !== null && !\App\Services\SubmissionService::statusIsOpen($st)) ? 'ALREADY_SUBMITTED' : 'TERM_CLOSED']);
+        }
     }
     
     $successCount = 0;
@@ -932,10 +1070,15 @@ if ($action === 'submit' && $method === 'POST') {
         checkTeacherSubjectAccess($conn, $userId, $userRole, $aClassId, $aSubjectId, $yearId);
     }
 
-    if (class_exists('\\App\\Services\\SubmissionService')
-        && !\App\Services\SubmissionService::teacherMayWriteMarklist($conn, $auth, $assessmentId)) {
-        err('This test is already submitted. Only Education can change scores now.', 409,
-            ['code' => 'ALREADY_SUBMITTED']);
+    if (class_exists('\\App\\Services\\SubmissionService')) {
+        // 1.6.5 term-close model: same gate as the web path — the semester
+        // must be current or reopened for teachers; staff always pass.
+        $refusal = \App\Services\SubmissionService::teacherWriteRefusal($conn, $auth, $assessmentId);
+        if ($refusal !== null) {
+            $st = \App\Services\SubmissionService::resolvedMarklistStatus($conn, $assessmentId);
+            err($refusal, 409,
+                ['code' => ($st !== null && !\App\Services\SubmissionService::statusIsOpen($st)) ? 'ALREADY_SUBMITTED' : 'TERM_CLOSED']);
+        }
     }
 
     apiEnsureSubmissionsTable();
