@@ -5,6 +5,38 @@ script runs the full test suite (including the version-sync pin) so
 the version below must always match `pubspec.yaml` +
 `AppConfig.appVersion`.
 
+## 1.6.5 (build 31) — Semester close & reopen (term-close model, release 1)
+
+The school's reporting model is semester-based: when the Education
+Department flips the current semester, the previous one is CLOSED —
+teachers can view its marks for analysis, but editing belongs to the
+Education Department (the PowerSchool / Skyward pattern: locked reporting
+term + administrator-approved corrections).
+
+- **Teacher app hero box** — the home banner now shows which semester is
+  running ("አሁን ያለው ሴሚስተር · 1ኛ ሴሚስተር"), and the Grades screen gets a
+  semester switcher: the current semester is the default working view;
+  other semesters are viewable (read-only) for analysis.
+- **Server-enforced close** — saving or submitting marks into a closed
+  semester is refused on BOTH the website and the app (409 TERM_CLOSED)
+  with a clear message. Teachers keep full read access; the Education
+  Department, School Admin and Super Admin always pass the gate.
+- **Reopen for corrections** — new Education action (`reopen_term` /
+  `close_term_reopen`, sql/067): the department can reopen a closed
+  semester so teachers can fix wrong marks, then close it again. Setting
+  a new current semester re-closes every reopened window automatically.
+- **Visible locks** — the website's grade entry shows a red "Semester
+  closed" notice and disables the sheet; the app shows a "Closed
+  semester — read only" bar; assessment lists tag closed semesters.
+- **Assessment lists are semester-scoped** — the app's assessment list
+  (and the API default) now shows the current semester's tests; legacy
+  tests with no semester stay visible until the department assigns them.
+- **Audit** — the website's grade saves now write the same activity log
+  entries the app already wrote, including the semester context.
+
+Deploy note: run `sql/067_semester_reopen_flag.sql` on the database
+(one idempotent column addition) and upload the changed server files.
+
 ## 1.6.4 (build 30) — Grade-entry semester fence (web admin; no app changes)
 
 Web admin only — the app itself is unchanged from 1.6.2; the version bump

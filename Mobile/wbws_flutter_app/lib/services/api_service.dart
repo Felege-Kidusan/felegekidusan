@@ -1811,9 +1811,16 @@ class ApiService {
   Future<ApiResponse> getClassSubjects(int classId) =>
       get('/grades/subjects', params: {'class_id': '$classId'});
 
-  Future<ApiResponse> getAssessments(int classId, int subjectId) =>
+  /// 1.6.5: [termId] selects a specific semester's assessments (view-only
+  /// analysis of a closed semester for teachers). Omitted → the server
+  /// defaults to the CURRENT semester of the active year.
+  Future<ApiResponse> getAssessments(int classId, int subjectId, {int? termId}) =>
       get('/grades/assessments',
-          params: {'class_id': '$classId', 'subject_id': '$subjectId'});
+          params: {
+            'class_id': '$classId',
+            'subject_id': '$subjectId',
+            if (termId != null) 'term_id': '$termId',
+          });
 
   Future<ApiResponse> createAssessment(Map<String, dynamic> data) =>
       post('/grades/assessments', body: data);

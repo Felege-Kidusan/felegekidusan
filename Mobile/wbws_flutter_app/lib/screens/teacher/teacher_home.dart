@@ -33,6 +33,10 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
   // Dashboard data
   Map<String, dynamic> _stats = {};
   List<dynamic> _myClasses = [];
+  // 1.6.5: the current semester of the active year, published by
+  // /dashboard/stats so the hero box can tell teachers which semester
+  // grade entry is running in. Null = not set on the server — hide chip.
+  Map<String, dynamic>? _currentTerm;
   Map<String, dynamic> _todayAttendance = {};
   List<dynamic> _recentActivity = [];
   StreamSubscription<bool>? _netSub;
@@ -96,6 +100,7 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
     if (statsRes.success && statsRes.data != null) {
       setState(() {
+        _currentTerm = (statsRes.data['current_term'] as Map?)?.cast<String, dynamic>();
         _stats = statsRes.data['stats'] ?? {};
         _todayAttendance = _stats['today_attendance'] ?? {};
         _recentActivity = (statsRes.data['recent_activity'] as List?) ?? [];
@@ -329,6 +334,11 @@ class TeacherHomeScreenState extends State<TeacherHomeScreen> {
             spacing: 8,
             runSpacing: 6,
             children: [
+              if (_currentTerm != null)
+                _infoBadge(
+                    Icons.calendar_month_rounded,
+                    'አሁን ያለው ሴሚስተር · ${_currentTerm!['term_name'] ?? ''}',
+                    AppTheme.warning),
               _infoBadge(
                   Icons.class_rounded, '${_myClasses.length} classes',
                   AppTheme.info),
