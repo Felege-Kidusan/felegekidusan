@@ -31,6 +31,17 @@ final class MemberDirectoryService
         'student_photo_path', 'membership_tier', 'created_at',
     ];
 
+    private const NEW_MEMBERS_COLUMNS = [
+        'id', 'member_code', 'registration_type', 'member_type', 'status',
+        'age_group', 'current_section', 'student_name', 'father_name',
+        'grandfather_name', 'baptismal_name', 'gender', 'phone_number',
+        'alt_phone_number', 'guardian_name', 'guardian_phone1',
+        'guardian_phone2', 'city', 'sub_city', 'woreda', 'mender',
+        'block_number', 'house_number', 'work_profession', 'education_level',
+        'student_photo_path', 'membership_tier', 'registered_at', 'waiting_since',
+        'permanent_eligibility_notified_at', 'created_at',
+    ];
+
     private const MANAGER_COLUMNS = [
         'id', 'member_code', 'registration_type', 'member_type', 'status',
         'student_name', 'father_name',
@@ -78,6 +89,11 @@ final class MemberDirectoryService
             $criteria['eligible_for_id_card'] = true;
         } elseif ($view === 'archive') {
             $criteria['status'] = 'archived';
+        } elseif ($view === 'new_members') {
+            $criteria['membership_tier'] = 'temporary';
+            if ($criteria['status'] === '') {
+                $criteria['status'] = ''; // keep active/warning/inactive (default excludes archived)
+            }
         }
         [$whereSql, $params] = self::whereClause($criteria, $this->supportsFullText);
         $total = null;
@@ -201,6 +217,8 @@ final class MemberDirectoryService
             'archive_type' => $enum($input['archive_type'] ?? '', [
                 'permanent_archive', 'failed_observation',
             ]),
+            'membership_tier' => $enum($input['membership_tier'] ?? '', ['temporary', 'permanent']),
+            'eligible_for_promotion' => (string)($input['eligible_for_promotion'] ?? '') === '1',
             'page' => max(1, (int)($input['page'] ?? 1)),
             'limit' => min(self::MAX_PAGE_SIZE, max(1, (int)($input['limit'] ?? self::DEFAULT_PAGE_SIZE))),
             'cursor' => max(0, (int)($input['cursor'] ?? 0)),
@@ -233,6 +251,16 @@ final class MemberDirectoryService
 
         if ($criteria['eligible_for_id_card']) {
             $where[] = "(`registration_type` IN ('direct', 'transfer') OR `member_type` = 'honorary')";
+        }
+
+        if ($criteria['membership_tier'] !== '') {
+            $where[] = '`membership_tier` = ?';
+            $params[] = $criteria['membership_tier'];
+        }
+
+        if (!empty($criteria['eligible_for_promotion'])) {
+            $where[] = '`membership_tier` = ? AND `registered_at` <= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)';
+            $params[] = 'temporary';
         }
 
         $filters = [
@@ -319,6 +347,12 @@ final class MemberDirectoryService
                 throw new InvalidArgumentException('The requested directory view is not allowed.');
             }
             return self::ARCHIVE_COLUMNS;
+        }
+        if ($view === 'new_members') {
+            if (!in_array($role, self::PRIVILEGED_ROLES, true)) {
+                throw new InvalidArgumentException('The requested directory view is not allowed.');
+            }
+            return self::NEW_MEMBERS_COLUMNS;
         }
         if ($view === 'manager') {
             if (!in_array($role, self::PRIVILEGED_ROLES, true)) {

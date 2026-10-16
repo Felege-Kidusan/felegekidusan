@@ -364,6 +364,15 @@ if (!empty($uploadErrors)) {
     jsonExit(['status' => 'error', 'message' => "Upload error:\n" . implode("\n", $uploadErrors)]);
 }
 
+// Promotion (upgrade) requires the signed registration form to be uploaded.
+$upgrade_id_check = 0;
+if (isset($_POST['upgrade_member_id']) && is_scalar($_POST['upgrade_member_id'])) {
+    $upgrade_id_check = (int)$_POST['upgrade_member_id'];
+}
+if ($upgrade_id_check > 0 && !is_string($doc_signed_form_path)) {
+    jsonExit(['status' => 'error', 'message' => 'The signed registration form must be uploaded to promote a member.']);
+}
+
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  3. DATABASE INSERT                                     ║
@@ -597,7 +606,11 @@ try {
     try {
         if (file_exists(__DIR__ . '/backend/workflow.php')) {
             require_once __DIR__ . '/backend/workflow.php';
-            if (function_exists('onMemberRegistered')) onMemberRegistered($conn, $newId);
+            if ($upgrade_id > 0 && function_exists('onMemberPromoted')) {
+                onMemberPromoted($conn, $newId);
+            } elseif (function_exists('onMemberRegistered')) {
+                onMemberRegistered($conn, $newId);
+            }
         }
     } catch (Throwable $e) { error_log("Registration workflow error: " . $e->getMessage()); }
 

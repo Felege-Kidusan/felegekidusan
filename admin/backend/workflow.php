@@ -37,6 +37,8 @@ $DEPT_ROLES = \App\Services\NotificationCenterService::ROLE_LABELS;
 $NOTIFICATION_MATRIX = [
     'failure_alert' => ['super_admin'],
     'member_registered' => ['super_admin', 'school_admin', 'edu_dept'],
+    'member_eligible_permanent' => ['hr_dept', 'super_admin', 'school_admin'],
+    'member_promoted' => ['hr_dept', 'super_admin', 'school_admin'],
     'member_updated' => ['super_admin', 'school_admin'],
     'member_archived' => ['super_admin', 'school_admin', 'edu_dept', 'finance_dept'],
     'member_restored' => ['super_admin', 'school_admin', 'edu_dept'],
@@ -583,6 +585,40 @@ function onMemberRegistered($conn, $memberId) {
         ]);
     }
     
+    return true;
+    } catch (Exception $e) { return false; }
+}
+
+/**
+ * Handle promotion of a temporary member to permanent.
+ * Called from hr_register_member.php when upgrade_member_id > 0.
+ */
+function onMemberPromoted($conn, $memberId) {
+    try {
+    $stmt = $conn->prepare("SELECT student_name, father_name, member_code FROM members WHERE id = ?");
+    $stmt->bind_param("i", $memberId);
+    $stmt->execute();
+    $member = $stmt->get_result()->fetch_assoc();
+
+    if (!$member) return false;
+
+    $memberName = $member['student_name'] . ' ' . $member['father_name'];
+
+    logMemberChange($conn, $memberId, 'promoted', [
+        'summary' => "Member promoted to permanent: $memberName"
+    ]);
+
+    sendNotification($conn, 'member_promoted',
+        "Member Promoted to Permanent",
+        "$memberName has been promoted to permanent member",
+        [
+            'data' => [
+                'member_id' => $memberId,
+                'member_code' => $member['member_code'],
+            ]
+        ]
+    );
+
     return true;
     } catch (Exception $e) { return false; }
 }

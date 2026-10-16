@@ -141,6 +141,13 @@ if (isset($conn)) {
          LIMIT 10"
     );
 
+    // Eligible new members (temporary, 6+ months) count for badge
+    $eligibleNewMembersCount = 0;
+    try {
+        $r = $conn->query("SELECT COUNT(*) AS c FROM members WHERE membership_tier='temporary' AND status!='archived' AND registered_at <= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)");
+        if ($r && $row = $r->fetch_assoc()) $eligibleNewMembersCount = (int)$row['c'];
+    } catch (Throwable $e) {}
+
     // Eligible for upgrade (6 months+)
     $eligibleUpgrades = db_fetch_all_assoc(
         $conn,
@@ -622,6 +629,17 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-users text-sm"></i>
                 </span>
                 <span class="font-semibold">All Members</span>
+            </a>
+
+            <a href="#" data-section="newmembers"
+               class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
+                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                    <i class="fa-solid fa-user-plus text-sm"></i>
+                </span>
+                <span class="font-semibold">New Members</span>
+                <?php if (!empty($eligibleNewMembersCount)): ?>
+                <span class="ml-auto px-2 py-0.5 rounded-full bg-emerald-400 text-emerald-900 text-[10px] font-bold"><?= (int)$eligibleNewMembersCount ?></span>
+                <?php endif; ?>
             </a>
 
             <button data-section="manage"
@@ -1942,6 +1960,75 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 </div>
             </section>
 
+            <!-- NEW MEMBERS (temporary, promotion tracking) -->
+            <section id="section-newmembers" class="content-section">
+                <div class="panel p-4 mobile-card">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                                <span class="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                                    <i class="fa-solid fa-user-plus"></i>
+                                </span>
+                                <span>New Members (Temporary)</span>
+                            </h3>
+                            <p class="text-xs text-slate-500">
+                                Track temporary members. Green badge = eligible for promotion (6+ months).
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Filter bar -->
+                    <div class="bg-white border border-slate-200 rounded-xl p-3 mb-4 shadow-sm">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+                            <div class="relative">
+                                <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                <input type="text" id="newMembersSearch" autocomplete="off" placeholder="Search name, code, phone..."
+                                       class="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-emerald-200 focus:border-emerald-400">
+                            </div>
+                            <select id="newMembersFilterStatus" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
+                                <option value="">All Status</option>
+                                <option value="active">Active</option>
+                                <option value="warning">Warning</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                            <select id="newMembersFilterAgeGroup" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
+                                <option value="">All Age Groups</option>
+                                <option value="7_13">7-13</option>
+                                <option value="14_17">14-17</option>
+                                <option value="18_plus">18+</option>
+                            </select>
+                            <select id="newMembersFilterEligible" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
+                                <option value="">All</option>
+                                <option value="1">Eligible only (6+ months)</option>
+                            </select>
+                        </div>
+                        <div class="mt-3 flex flex-col sm:flex-row gap-2 justify-end">
+                            <button type="button" onclick="resetNewMembersFilters()" class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50">Reset</button>
+                            <button onclick="applyNewMembersFilters()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700">Filter</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto border rounded-xl bg-white shadow-sm">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-50 text-[11px] text-slate-500 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-4 py-3 font-semibold">Member</th>
+                                    <th class="px-4 py-3 font-semibold">Code</th>
+                                    <th class="px-4 py-3 font-semibold">Registered</th>
+                                    <th class="px-4 py-3 font-semibold">Months</th>
+                                    <th class="px-4 py-3 font-semibold">Status</th>
+                                    <th class="px-4 py-3 font-semibold text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="newMembersTableBody" class="divide-y divide-slate-100 text-xs text-slate-700">
+                                <tr><td colspan="6" class="p-4 text-center text-slate-400">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="newMembersPagination" class="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3" aria-live="polite"></div>
+                </div>
+            </section>
+
             <!-- MANAGE (edit, archive) -->
             <section id="section-manage" class="content-section">
                 <div class="panel p-4 mobile-card">
@@ -2045,6 +2132,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 <script>window.WBWS_SECTIONS=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;</script>
         <script src="/admin/js/all-members.js" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
+<script src="/admin/js/new-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/id-card-directory.js" defer></script>
 <script src="/admin/js/archive-members.js" defer></script>
@@ -2759,6 +2847,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         if (target) target.classList.add('active');
         if (name === 'manage') {
             loadManageMembers();
+        }
+        if (name === 'newmembers') {
+            if (typeof window.loadNewMembers === 'function') window.loadNewMembers();
         }
         if (name === 'submissions') {
             try { HrSub.init(); } catch (e) { console.error(e); }
