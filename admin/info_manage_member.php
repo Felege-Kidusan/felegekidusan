@@ -442,6 +442,12 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
 .mm-badge-slate { background: #f1f5f9; color: #475569; }
 .mm-badge-green { background: #d1fae5; color: #047857; }
 .mm-badge-blue { background: #dbeafe; color: #1d4ed8; }
+.mm-badge-amber { background: #fef3c7; color: #b45309; }
+.mm-status { display: inline-flex; align-items: center; gap: 6px; }
+.mm-status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.mm-tier-badge { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #e0e7ff; color: #3730a3; }
+.mm-tier-badge.mm-tier-permanent { background: #d1fae5; color: #047857; }
+.mm-tier-badge.mm-tier-temporary { background: #fef3c7; color: #b45309; }
 
 /* Role Grid */
 .mm-roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -536,7 +542,8 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                     <?php endif; ?>
                 </div>
             </div>
-            <span class="mm-status mm-status-<?= $m['status'] ?>"><?= ucfirst($m['status']) ?></span>
+            <span class="mm-status mm-status-<?= e($m['status']) ?>"><span class="mm-status-dot"></span><?= e(ucfirst($m['status'])) ?></span>
+            <span class="mm-tier-badge mm-tier-<?= e($m['membership_tier'] ?? 'temporary') ?>"><?= ucfirst($m['membership_tier'] ?? 'temporary') ?></span>
         </div>
     </div>
 
@@ -702,9 +709,10 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                 </div>
                 <div class="mm-card-body">
                     <div class="mm-badges">
-                        <span class="mm-badge mm-badge-slate"><?= ucfirst($m['registration_type']) ?></span>
-                        <span class="mm-badge mm-badge-green"><?= ucfirst(str_replace('_', ' ', $m['member_type'])) ?></span>
-                        <span class="mm-badge mm-badge-blue"><?= $m['current_section'] ?: $m['age_group'] ?></span>
+                        <span class="mm-badge mm-badge-slate"><?= e(ucfirst($m['registration_type'])) ?></span>
+                        <span class="mm-badge mm-badge-green"><?= e(ucfirst(str_replace('_', ' ', $m['member_type']))) ?></span>
+                        <span class="mm-badge mm-badge-blue"><?= e($m['current_section'] ?: $m['age_group']) ?></span>
+                        <span class="mm-badge mm-badge-amber"><?= e(ucfirst($m['membership_tier'] ?? 'temporary')) ?> member</span>
                     </div>
                     <div class="mm-roles">
                         <?php 
