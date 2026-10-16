@@ -3063,32 +3063,35 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(memberId) + '&format=json&v=' + new Date().getTime())
             .then(res => res.json())
             .then(data => {
-                if (data.status === 'success' && data.member) {
-                    toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
-                    const upgradeIdInput = document.getElementById('upgradeMemberIdField');
-                    if (upgradeIdInput) upgradeIdInput.value = memberId;
+                // Open the form regardless; prefill only if data is available
+                toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
+                const upgradeIdInput = document.getElementById('upgradeMemberIdField');
+                if (upgradeIdInput) upgradeIdInput.value = memberId;
 
-                    // Prefill form
+                if (data && data.status === 'success' && data.member) {
                     const m = data.member;
                     const f = document.getElementById('hrRegistrationForm');
-                    
-                    if(f.student_name) f.student_name.value = m.student_name || '';
-                    if(f.father_name) f.father_name.value = m.father_name || '';
-                    if(f.grandfather_name) f.grandfather_name.value = m.grandfather_name || '';
-                    if(f.phone_number) f.phone_number.value = m.phone_number || '';
-                    if(f.guardian_name) f.guardian_name.value = m.guardian_name || '';
-                    if(f.guardian_phone1) f.guardian_phone1.value = m.guardian_phone1 || '';
-                    // Populate other fields if needed, but the primary ones are enough to get started
-                    
-                    // Show toast
+                    if (f) {
+                        if (f.student_name) f.student_name.value = m.student_name || '';
+                        if (f.father_name) f.father_name.value = m.father_name || '';
+                        if (f.grandfather_name) f.grandfather_name.value = m.grandfather_name || '';
+                        if (f.phone_number) f.phone_number.value = m.phone_number || '';
+                        if (f.guardian_name) f.guardian_name.value = m.guardian_name || '';
+                        if (f.guardian_phone1) f.guardian_phone1.value = m.guardian_phone1 || '';
+                    }
                     if (typeof showToast === 'function') showToast('Please complete the remaining permanent fields.', 'info');
                 } else {
-                    alert('Error loading member data.');
+                    console.warn('Member prefill unavailable:', data);
+                    if (typeof showToast === 'function') showToast('Member data could not be prefilled. Please fill the form manually.', 'warning');
                 }
             })
             .catch(err => {
-                console.error(err);
-                alert('Error loading member data.');
+                console.error('openUpgradeModal fetch failed:', err);
+                // Still open the form so promotion can proceed
+                toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
+                const upgradeIdInput = document.getElementById('upgradeMemberIdField');
+                if (upgradeIdInput) upgradeIdInput.value = memberId;
+                if (typeof showToast === 'function') showToast('Member data could not be loaded. Please fill the form manually.', 'warning');
             });
     }
 
