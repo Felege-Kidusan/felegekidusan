@@ -61,9 +61,17 @@ final class MemberFileService
         $spec = self::FIELDS[$field];
         $mime = self::detectMime($tmp);
         $extension = self::IMAGE_MIMES[$mime] ?? null;
+        $reencodedTmp = null;
         if ($extension !== null) {
             if (@getimagesize($tmp) === false) {
                 return ['path' => null, 'error' => 'The file is not a valid image.'];
+            }
+            // Re-encode the image to strip EXIF metadata and any appended
+            // payload (polyglot protection). Falls back to the original upload
+            // when GD is unavailable or re-encoding fails.
+            $reencodedTmp = self::reencodeImage($tmp, $mime, $extension);
+            if ($reencodedTmp !== null) {
+                $tmp = $reencodedTmp;
             }
         } elseif (!empty($spec['pdf']) && $mime === 'application/pdf' && self::hasPdfHeader($tmp)) {
             $extension = 'pdf';
@@ -74,33 +82,59 @@ final class MemberFileService
         try {
             $random = bin2hex(random_bytes(16));
         } catch (\Throwable $error) {
+            if ($reencodedTmp !== null) @unlink($reencodedTmp);
             return ['path' => null, 'error' => 'Secure upload naming is unavailable.'];
         }
         $name = $random . '.' . $extension;
+
+        $saveFile = static function (string $source, string $target): bool {
+            // Re-encoded files are our own temp files (not uploads), so use
+            // rename/copy instead of move_uploaded_file.
+            if (@rename($source, $target)) {
+                return true;
+            }
+            if (@copy($source, $target)) {
+                @unlink($source);
+                return true;
+            }
+            return false;
+        };
 
         if (!empty($spec['private'])) {
             $base = self::privateRoot();
             $dir = $base . '/' . $spec['category'];
             if (!self::ensureDirectory($dir, 0700)) {
+                if ($reencodedTmp !== null) @unlink($reencodedTmp);
                 return ['path' => null, 'error' => 'Private document storage is unavailable.'];
             }
             $target = $dir . '/' . $name;
-            if (!move_uploaded_file($tmp, $target)) {
+            $ok = ($reencodedTmp !== null)
+                ? $saveFile($tmp, $target)
+                : move_uploaded_file($tmp, $target);
+            if (!$ok) {
+                if ($reencodedTmp !== null) @unlink($reencodedTmp);
                 return ['path' => null, 'error' => 'The file could not be saved.'];
             }
             @chmod($target, 0600);
+            if ($reencodedTmp !== null) @unlink($reencodedTmp);
             return ['path' => self::PRIVATE_PREFIX . $spec['category'] . '/' . $name, 'error' => null];
         }
 
         $dir = self::publicRoot() . '/' . $spec['category'];
         if (!self::ensureDirectory($dir, 0755)) {
+            if ($reencodedTmp !== null) @unlink($reencodedTmp);
             return ['path' => null, 'error' => 'Photo storage is unavailable.'];
         }
         $target = $dir . '/' . $name;
-        if (!move_uploaded_file($tmp, $target)) {
+        $ok = ($reencodedTmp !== null)
+            ? $saveFile($tmp, $target)
+            : move_uploaded_file($tmp, $target);
+        if (!$ok) {
+            if ($reencodedTmp !== null) @unlink($reencodedTmp);
             return ['path' => null, 'error' => 'The photo could not be saved.'];
         }
         @chmod($target, 0644);
+        if ($reencodedTmp !== null) @unlink($reencodedTmp);
         return ['path' => 'uploads/members/' . $spec['category'] . '/' . $name, 'error' => null];
     }
 
@@ -175,6 +209,45 @@ final class MemberFileService
     private static function ensureDirectory(string $dir, int $mode): bool
     {
         return (is_dir($dir) || @mkdir($dir, $mode, true)) && is_dir($dir) && is_writable($dir);
+    }
+
+    private static function reencodeImage(string $source, string $mime, string $extension): ?string
+    {
+        if (!extension_loaded('gd')) {
+            error_log('MemberFileService: GD not available; skipping image re-encode.');
+            return null;
+        }
+        $img = null;
+        switch ($mime) {
+            case 'image/jpeg': $img = @imagecreatefromjpeg($source); break;
+            case 'image/png':  $img = @imagecreatefrompng($source); break;
+            case 'image/gif':  $img = @imagecreatefromgif($source); break;
+            case 'image/webp': $img = function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($source) : null; break;
+            case 'image/bmp':
+            case 'image/x-ms-bmp': $img = function_exists('imagecreatefrombmp') ? @imagecreatefrombmp($source) : null; break;
+        }
+        if (!($img instanceof \GdImage)) {
+            return null;
+        }
+        $tmp = tempnam(sys_get_temp_dir(), 'reenc_');
+        if ($tmp === false) {
+            imagedestroy($img);
+            return null;
+        }
+        $ok = false;
+        switch ($extension) {
+            case 'jpg':  $ok = @imagejpeg($img, $tmp, 90); break;
+            case 'png':  $ok = @imagepng($img, $tmp, 6); break;
+            case 'gif':  $ok = @imagegif($img, $tmp); break;
+            case 'webp': $ok = function_exists('imagewebp') ? @imagewebp($img, $tmp, 90) : false; break;
+            case 'bmp':  $ok = function_exists('imagebmp') ? @imagebmp($img, $tmp) : false; break;
+        }
+        imagedestroy($img);
+        if (!$ok || !is_file($tmp) || filesize($tmp) <= 0) {
+            @unlink($tmp);
+            return null;
+        }
+        return $tmp;
     }
 
     private static function detectMime(string $path): string

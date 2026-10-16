@@ -23,7 +23,8 @@ final class MemberRegistrationPolicy
      */
     public static function prepare(array $input, string $role): array
     {
-        $quickAdd = $role === 'school_admin' || ($input['registration_profile'] ?? '') === 'quick_add';
+        // quick_add is a role capability, never triggered by a POST flag (security).
+        $quickAdd = $role === 'school_admin';
         $fullName = self::text($input['full_name_am'] ?? '', 150, 'Full name');
         if ($fullName === '') {
             throw new InvalidArgumentException('Full name is required.');

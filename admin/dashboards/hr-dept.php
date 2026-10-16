@@ -3664,7 +3664,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         const toast = document.createElement('div');
         toast.className = 'fixed top-4 right-4 z-[200] px-6 py-4 rounded-xl shadow-2xl text-white font-semibold text-sm transform transition-all duration-300 translate-x-full';
         toast.style.background = type === 'success' ? 'linear-gradient(135deg, #059669, #10b981)' : 'linear-gradient(135deg, #dc2626, #ef4444)';
-        toast.innerHTML = message;
+        toast.textContent = message;
         document.body.appendChild(toast);
         
         setTimeout(() => toast.classList.remove('translate-x-full'), 100);
@@ -3680,6 +3680,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         const div = document.createElement('div');
         div.textContent = String(text ?? '');
         return div.innerHTML;
+    }
+    function escapeAttr(text) {
+        return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // MANAGE SHEET FUNCTIONS (Tabs, Preview, Edit)
@@ -4090,7 +4093,7 @@ function showDuplicateWarning(matches) {
         const statusClass = isArchived ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
         const statusText = isArchived ? 'ARCHIVED' : 'ACTIVE';
         const photoHtml = m.student_photo_path 
-            ? `<img src="${m.student_photo_path}" class="w-full h-full object-cover">`
+            ? `<img src="${escapeAttr(m.student_photo_path)}" class="w-full h-full object-cover">`
             : `<i class="fa-solid fa-user text-slate-400 text-xl"></i>`;
         
         return `
@@ -4107,10 +4110,10 @@ function showDuplicateWarning(matches) {
                             </span>
                         </div>
                         <div class="space-y-1 text-xs text-slate-600">
-                            <p><i class="fa-solid fa-id-card w-4 text-slate-400"></i> ${m.member_code || 'No ID'}</p>
-                            <p><i class="fa-solid fa-users w-4 text-slate-400"></i> ${m.current_section || m.age_group || '—'}</p>
-                            <p><i class="fa-solid fa-phone w-4 text-slate-400"></i> ${m.phone_number || '—'}</p>
-                            ${m.match_reasons ? `<p class="text-red-500 text-[10px] mt-1"><i class="fa-solid fa-exclamation-circle"></i> ${m.match_reasons.join(', ')}</p>` : ''}
+                            <p><i class="fa-solid fa-id-card w-4 text-slate-400"></i> ${escapeHtml(m.member_code || 'No ID')}</p>
+                            <p><i class="fa-solid fa-users w-4 text-slate-400"></i> ${escapeHtml(m.current_section || m.age_group || '—')}</p>
+                            <p><i class="fa-solid fa-phone w-4 text-slate-400"></i> ${escapeHtml(m.phone_number || '—')}</p>
+                            ${m.match_reasons ? `<p class="text-red-500 text-[10px] mt-1"><i class="fa-solid fa-exclamation-circle"></i> ${escapeHtml(m.match_reasons.join(', '))}</p>` : ''}
                         </div>
                         <div class="mt-3 flex gap-2">
                             ${isArchived 
@@ -4832,8 +4835,8 @@ const HrReports = (function () {
                 if (results) results.innerHTML = '<p class="text-xs text-slate-400">No members found.</p>';
                 return;
             }
-            if (results) results.innerHTML = '<div class="flex flex-wrap gap-2">' + d.items.map(m =>
-                '<button type="button" onclick="HrReports.openMember(' + m.id + ')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition">' +
+            if (results) results.innerHTML = '<div class="flex flex-wrap gap-2">' + d.items.filter(m => Number.isSafeInteger(Number(m.id)) && Number(m.id) > 0).map(m =>
+                '<button type="button" onclick="HrReports.openMember(' + Number(m.id) + ')" class="px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition">' +
                 esc(m.student_name + ' ' + (m.father_name || '')) +
                 (m.member_code ? ' <span class="text-slate-400">· ' + esc(m.member_code) + '</span>' : '') +
                 '</button>'

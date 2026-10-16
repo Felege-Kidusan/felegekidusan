@@ -59,7 +59,11 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 }
 header('Content-Type: ' . $mime);
 header('Content-Length: ' . (string)filesize($path));
-header('Content-Disposition: inline; filename="' . $downloadName . '"');
+if ($mime === 'application/pdf') {
+    header('Content-Disposition: attachment; filename="' . $downloadName . '"');
+} else {
+    header('Content-Disposition: inline; filename="' . $downloadName . '"');
+}
 header('Cache-Control: private, no-store, max-age=0');
 header('Pragma: no-cache');
 header('X-Content-Type-Options: nosniff');

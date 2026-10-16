@@ -69,6 +69,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['status' => 'error', 'message' => 'Security token expired. Please refresh and try again.']);
             exit;
         }
+        if (function_exists('isRateLimited') && isRateLimited('info_manage', 60, 300)) {
+            echo json_encode(['status' => 'error', 'message' => 'Too many requests. Please try again later.']);
+            exit;
+        }
+        if (function_exists('recordAttempt')) recordAttempt('info_manage');
         
         if (!isset($conn) || $conn->connect_error) { 
             echo json_encode(['status' => 'error', 'message' => 'Database connection not available']); 
@@ -194,6 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $stmt->bind_param($bindTypes, ...$bindValues);
     
+    $conn->begin_transaction();
     if ($stmt->execute()) { 
         $uploadsCommitted = true;
         foreach ([
@@ -208,6 +214,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 \App\Services\MemberFileService::discard($oldPath);
             }
         }
+        // Audit the member update (enterprise accountability).
+        if (file_exists(__DIR__ . '/backend/services/SecurityAuditService.php')) {
+            require_once __DIR__ . '/backend/services/SecurityAuditService.php';
+            \App\Services\SecurityAuditService::record(
+                $conn,
+                'Member Updated',
+                ['profile' => 'full'],
+                'member',
+                $id
+            );
+        }
+        $conn->commit();
         // Identity v2: apply submitted positions, re-code if needed and
         // derive the legacy flags + member-type sync from them.
         require_once __DIR__ . '/backend/services/PositionSyncService.php';
@@ -227,6 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         echo json_encode(['status' => 'success', 'message' => 'Member updated successfully']); 
     } else { 
+        $conn->rollback();
         foreach ($newUploadedPaths as $uploadedPath) \App\Services\MemberFileService::discard($uploadedPath);
         reportInternalError('Member update execution failed', $stmt->error);
         echo json_encode(['status' => 'error', 'message' => 'Unable to update the member.']);
@@ -234,10 +253,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->close();
     
     } catch (InvalidArgumentException $e) {
+        try { $conn->rollback(); } catch (Throwable $r) {}
         foreach ($newUploadedPaths as $uploadedPath) \App\Services\MemberFileService::discard($uploadedPath);
         $uploadMessage = $e->getMessage();
         echo json_encode(['status' => 'error', 'message' => 'Upload error: ' . $uploadMessage]);
     } catch (Throwable $e) {
+        try { $conn->rollback(); } catch (Throwable $r) {}
         if (!$uploadsCommitted) {
             foreach ($newUploadedPaths as $uploadedPath) \App\Services\MemberFileService::discard($uploadedPath);
         }

@@ -141,6 +141,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 if (!validateCsrf()) {
     jsonExit(['status' => 'csrf_expired', 'message' => 'Security token expired. Page will refresh.', 'action' => 'reload'], 403);
 }
+// Rate limiting (per IP) to prevent abuse.
+if (function_exists('isRateLimited') && isRateLimited('hr_register', 30, 300)) {
+    jsonExit(['status' => 'error', 'message' => 'Too many requests. Please try again later.'], 429);
+}
+if (function_exists('recordAttempt')) recordAttempt('hr_register');
 if (!isset($conn) || $conn->connect_error) {
     jsonExit(['status' => 'error', 'message' => 'Database connection error.'], 503);
 }
@@ -270,7 +275,6 @@ if (!$isQuickAdd && isset($_POST['position_ids']) && is_array($_POST['position_i
 }
 
 // ── Member Code ──
-$member_code_form = field('student_id');
 $waiting_since = null;
 $member_code   = null;
 $code_letter   = null; // resolved category letter; allocation is deferred
