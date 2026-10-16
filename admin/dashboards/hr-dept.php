@@ -3070,7 +3070,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
     function prefillForm(m) {
         if (!m) return false;
-        var f = document.getElementById('hrRegistrationForm');
+        var f = document.getElementById('memberRegistrationForm');
         if (!f) return false;
         // Combined full name (required field) — SSOT: members.student_name + father_name + grandfather_name
         var fullName = [m.student_name, m.father_name, m.grandfather_name].filter(function (x) { return x != null && String(x).trim() !== ''; }).join(' ').trim();
@@ -3127,7 +3127,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             hidden.id = 'promotion_override_reason';
             hidden.name = 'promotion_override_reason';
             hidden.value = reason.trim().slice(0, 500);
-            var f = document.getElementById('hrRegistrationForm');
+            var f = document.getElementById('memberRegistrationForm');
             if (f) f.appendChild(hidden);
         }
 
