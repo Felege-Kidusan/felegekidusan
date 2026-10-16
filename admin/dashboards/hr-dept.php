@@ -3060,7 +3060,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
     function openUpgradeModal(memberId) {
         // Fetch existing data for upgrade
-        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(memberId) + '&v=' + new Date().getTime())
+        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(memberId) + '&format=json&v=' + new Date().getTime())
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success' && data.member) {
@@ -4223,6 +4223,7 @@ function submitRegistrationForm(formData) {
         if (data.status === 'success') {
             resetMemberForm();
             showMemberSuccessToast(data.message || 'Member registered successfully.');
+            if (typeof window.loadNewMembers === 'function') window.loadNewMembers();
             const wrapper = document.getElementById('memberRegistrationWrapper');
             if (wrapper) wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;

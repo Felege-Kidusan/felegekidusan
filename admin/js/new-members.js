@@ -95,6 +95,9 @@
             : 'px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 font-bold text-[11px] transition';
         promoteBtn.innerHTML = '<i class="fa-solid fa-arrow-up mr-1" aria-hidden="true"></i> Promote';
         promoteBtn.addEventListener('click', function () {
+            if (!eligible) {
+                if (!confirm('This member has not yet reached 6 months. Promote anyway?')) return;
+            }
             if (typeof window.openUpgradeModal === 'function') {
                 window.openUpgradeModal(id);
             }

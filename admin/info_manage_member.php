@@ -265,6 +265,13 @@ if (!$m) die('<div style="padding:20px;color:#dc2626;">Member not found</div>');
 $m['spiritual_education'] = $m['spiritual_education'] ?? '';
 $m['age_group'] = $m['age_group'] ?? '';
 
+// JSON mode for AJAX consumers (e.g. upgrade modal prefill)
+if (isset($_GET['format']) && $_GET['format'] === 'json') {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['status' => 'success', 'member' => $m], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // Ethiopian month names
 $ethMonths = [1=>'መስከረም',2=>'ጥቅምት',3=>'ኅዳር',4=>'ታኅሣሥ',5=>'ጥር',6=>'የካቲት',7=>'መጋቢት',8=>'ሚያዝያ',9=>'ግንቦት',10=>'ሰኔ',11=>'ሐምሌ',12=>'ነሐሴ',13=>'ጳጉሜ'];
 $dobDisplay = '';
