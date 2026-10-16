@@ -3058,39 +3058,103 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         }
     }
 
-    function openUpgradeModal(memberId) {
-        // Fetch existing data for upgrade
-        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(memberId) + '&format=json&v=' + new Date().getTime())
-            .then(res => res.json())
-            .then(data => {
-                // Open the form regardless; prefill only if data is available
-                toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
-                const upgradeIdInput = document.getElementById('upgradeMemberIdField');
-                if (upgradeIdInput) upgradeIdInput.value = memberId;
+    function setFormField(f, name, value) {
+        if (!f || !f[name]) return;
+        var el = f[name];
+        if (el.type === 'checkbox' || el.type === 'radio') {
+            el.checked = !!value;
+        } else {
+            el.value = (value == null ? '' : value);
+        }
+    }
 
+    function prefillForm(m) {
+        if (!m) return false;
+        var f = document.getElementById('hrRegistrationForm');
+        if (!f) return false;
+        // Combined full name (required field) — SSOT: members.student_name + father_name + grandfather_name
+        var fullName = [m.student_name, m.father_name, m.grandfather_name].filter(function (x) { return x != null && String(x).trim() !== ''; }).join(' ').trim();
+        if (fullName) setFormField(f, 'full_name_am', fullName);
+        // Direct 1:1 mappings (member column -> form field)
+        var direct = [
+            ['baptismal_name','baptismal_name'],
+            ['gender','gender'],
+            ['age_group','age_group'],
+            ['current_section','current_section'],
+            ['member_type','member_type'],
+            ['registration_type','registration_type'],
+            ['status','status'],
+            ['phone_number','phone_number'],
+            ['alt_phone_number','alt_phone_number'],
+            ['guardian_name','guardian_name'],
+            ['guardian_phone1','guardian_phone1'],
+            ['guardian_phone2','guardian_phone2'],
+            ['city','city'],
+            ['sub_city','sub_city'],
+            ['woreda','woreda'],
+            ['mender','mender'],
+            ['block_number','block_number'],
+            ['house_number','house_number'],
+            ['education_level','education_level'],
+            ['spiritual_education','spiritual_education'],
+            ['member_code','student_id']
+        ];
+        direct.forEach(function (pair) {
+            if (m[pair[0]] != null && String(m[pair[0]]).trim() !== '') {
+                setFormField(f, pair[1], m[pair[0]]);
+            }
+        });
+        // membership_tier forced to permanent on promotion
+        setFormField(f, 'membership_tier', 'permanent');
+        return true;
+    }
+
+    function openUpgradeModal(memberId, memberData, eligible) {
+        eligible = (eligible !== false);
+        // Open the form immediately (never block promotion on data loading)
+        toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
+        var upgradeIdInput = document.getElementById('upgradeMemberIdField');
+        if (upgradeIdInput) upgradeIdInput.value = memberId;
+
+        // Override reason (for non-eligible promotions) — captured for audit
+        var existingReason = document.getElementById('promotion_override_reason');
+        if (existingReason) existingReason.remove();
+        if (!eligible) {
+            var reason = '';
+            try { reason = window.prompt('This member has not reached 6 months. Reason for early promotion (optional, recorded in audit):') || ''; } catch (e) { reason = ''; }
+            var hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.id = 'promotion_override_reason';
+            hidden.name = 'promotion_override_reason';
+            hidden.value = reason.trim().slice(0, 500);
+            var f = document.getElementById('hrRegistrationForm');
+            if (f) f.appendChild(hidden);
+        }
+
+        // 1) Prefer the already-loaded member object (SSOT cache) — no network round-trip
+        var m = (memberData && typeof memberData === 'object') ? memberData : null;
+        if (m) {
+            if (prefillForm(m)) {
+                if (typeof showToast === 'function') showToast('Existing member data prefilled. Please verify and upload the signed form.', 'info');
+            }
+            return;
+        }
+
+        // 2) Fallback: fetch from authoritative endpoint
+        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(memberId) + '&format=json&v=' + new Date().getTime())
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
                 if (data && data.status === 'success' && data.member) {
-                    const m = data.member;
-                    const f = document.getElementById('hrRegistrationForm');
-                    if (f) {
-                        if (f.student_name) f.student_name.value = m.student_name || '';
-                        if (f.father_name) f.father_name.value = m.father_name || '';
-                        if (f.grandfather_name) f.grandfather_name.value = m.grandfather_name || '';
-                        if (f.phone_number) f.phone_number.value = m.phone_number || '';
-                        if (f.guardian_name) f.guardian_name.value = m.guardian_name || '';
-                        if (f.guardian_phone1) f.guardian_phone1.value = m.guardian_phone1 || '';
+                    if (prefillForm(data.member)) {
+                        if (typeof showToast === 'function') showToast('Existing member data prefilled. Please verify and upload the signed form.', 'info');
                     }
-                    if (typeof showToast === 'function') showToast('Please complete the remaining permanent fields.', 'info');
                 } else {
                     console.warn('Member prefill unavailable:', data);
                     if (typeof showToast === 'function') showToast('Member data could not be prefilled. Please fill the form manually.', 'warning');
                 }
             })
-            .catch(err => {
+            .catch(function (err) {
                 console.error('openUpgradeModal fetch failed:', err);
-                // Still open the form so promotion can proceed
-                toggleMemberRegistrationForm(true, 'permanent', 'Upgrade to Permanent Member');
-                const upgradeIdInput = document.getElementById('upgradeMemberIdField');
-                if (upgradeIdInput) upgradeIdInput.value = memberId;
                 if (typeof showToast === 'function') showToast('Member data could not be loaded. Please fill the form manually.', 'warning');
             });
     }

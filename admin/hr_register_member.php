@@ -607,7 +607,9 @@ try {
         if (file_exists(__DIR__ . '/backend/workflow.php')) {
             require_once __DIR__ . '/backend/workflow.php';
             if ($upgrade_id > 0 && function_exists('onMemberPromoted')) {
-                onMemberPromoted($conn, $newId);
+                $overrideReason = isset($_POST['promotion_override_reason']) && is_scalar($_POST['promotion_override_reason'])
+                    ? trim((string)$_POST['promotion_override_reason']) : null;
+                onMemberPromoted($conn, $newId, $overrideReason);
             } elseif (function_exists('onMemberRegistered')) {
                 onMemberRegistered($conn, $newId);
             }

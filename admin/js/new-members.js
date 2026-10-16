@@ -6,6 +6,7 @@
     'use strict';
 
     var list = null;
+    var memberCache = new Map();
 
     var filterMap = {
         newMembersSearch: 'q',
@@ -30,6 +31,7 @@
     function buildRow(member) {
         var id = safeId(member.id);
         if (id === null) return document.createDocumentFragment();
+        memberCache.set(id, member);
 
         var months = monthsSince(member.registered_at);
         var eligible = months >= 6;
@@ -99,7 +101,7 @@
                 if (!confirm('This member has not yet reached 6 months. Promote anyway?')) return;
             }
             if (typeof window.openUpgradeModal === 'function') {
-                window.openUpgradeModal(id);
+                window.openUpgradeModal(id, memberCache.get(id), eligible);
             }
         });
         actions.appendChild(promoteBtn);
@@ -138,7 +140,7 @@
             el.addEventListener(evt, debounce(function () { list.reset(); }, 300));
         });
 
-        window.loadNewMembers = function () { if (list) list.reset(); };
+        window.loadNewMembers = function () { memberCache.clear(); if (list) list.reset(); };
         window.applyNewMembersFilters = function () { if (list) list.reset(); };
         window.resetNewMembersFilters = function () {
             Object.keys(filterMap).forEach(function (id) { var e = document.getElementById(id); if (e) e.value = ''; });

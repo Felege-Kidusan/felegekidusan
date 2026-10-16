@@ -593,20 +593,23 @@ function onMemberRegistered($conn, $memberId) {
  * Handle promotion of a temporary member to permanent.
  * Called from hr_register_member.php when upgrade_member_id > 0.
  */
-function onMemberPromoted($conn, $memberId) {
+function onMemberPromoted($conn, $memberId, $overrideReason = null) {
     try {
-    $stmt = $conn->prepare("SELECT student_name, father_name, member_code FROM members WHERE id = ?");
+    $stmt = $conn->prepare("SELECT student_name, father_name, member_code, membership_tier FROM members WHERE id = ?");
     $stmt->bind_param("i", $memberId);
     $stmt->execute();
     $member = $stmt->get_result()->fetch_assoc();
 
     if (!$member) return false;
 
-    $memberName = $member['student_name'] . ' ' . $member['father_name'];
+    $memberName = trim($member['student_name'] . ' ' . $member['father_name']);
 
-    logMemberChange($conn, $memberId, 'promoted', [
-        'summary' => "Member promoted to permanent: $memberName"
-    ]);
+    $details = ['summary' => "Member promoted to permanent: $memberName"];
+    if (is_string($overrideReason) && trim($overrideReason) !== '') {
+        $details['override_reason'] = trim($overrideReason);
+    }
+
+    logMemberChange($conn, $memberId, 'promoted', $details);
 
     sendNotification($conn, 'member_promoted',
         "Member Promoted to Permanent",
@@ -615,6 +618,7 @@ function onMemberPromoted($conn, $memberId) {
             'data' => [
                 'member_id' => $memberId,
                 'member_code' => $member['member_code'],
+                'override_reason' => is_string($overrideReason) ? trim($overrideReason) : null,
             ]
         ]
     );
