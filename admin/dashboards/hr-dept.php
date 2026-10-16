@@ -1253,7 +1253,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 <input type="hidden" name="student_id" id="studentIdField" value="">
                             </div>
 
-                            <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-3 sm:p-4">
+                            <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-3 sm:p-4 permanent-only">
                                 <h4 class="text-xs font-semibold text-emerald-900 mb-2 flex items-center gap-2">
                                     <span class="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center">
                                         <i class="fa-solid fa-clipboard-check text-[10px]"></i>
@@ -1427,7 +1427,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                         $idCat = \App\Services\PositionSyncService::catalogue($conn);
                         ?>
                         <div id="positionPickerSection"
-                             class="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4 mb-4">
+                             class="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4 mb-4 permanent-only" data-conditional="positions">
                             <h4 class="text-xs font-semibold text-amber-900 mb-2 flex items-center gap-2">
                                 <span class="w-6 h-6 rounded-lg bg-amber-200 flex items-center justify-center">
                                     <i class="fa-solid fa-user-gear text-[10px]"></i>
@@ -1620,7 +1620,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                         </select>
                                     </div>
 
-                                    <div class="permanent-only md:col-span-2">
+                                    <div class="permanent-only md:col-span-2" data-conditional="class">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
                                             <i class="fa-solid fa-school text-violet-500 mr-1"></i>
                                             Education Class (optional)
@@ -3020,6 +3020,9 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 if (btnTemp) btnTemp.className = "mobile-touch-target inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-amber-700 bg-white shadow-sm border border-amber-200 text-xs sm:text-sm font-bold transition-all transform scale-105 ring-2 ring-amber-100 ring-offset-1";
                 
                 document.querySelectorAll('.permanent-only').forEach(el => el.classList.add('hidden'));
+                // Temporary members are always 'waiting' registration type.
+                const rtField = document.getElementById('registrationTypeField');
+                if (rtField) rtField.value = 'waiting';
                 // Clear upgrade ID
                 if (upgradeIdInput) upgradeIdInput.value = '0';
             } else if (tier === 'permanent') {
@@ -3038,6 +3041,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
             wrapper.classList.remove('hidden');
             list.classList.add('hidden');
+            updateRegistrationConditionalSections();
             navigateToSection('members');
         } else if (show === false) {
             wrapper.classList.add('hidden');
@@ -3106,6 +3110,15 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
         });
         // membership_tier forced to permanent on promotion
         setFormField(f, 'membership_tier', 'permanent');
+        // Sync member-type button UI + conditional sections
+        var mt = (m && m.member_type) ? String(m.member_type) : '';
+        if (mt) {
+            var btn = document.querySelector('.member-type-btn[data-member-type="' + mt + '"]');
+            if (btn) selectMemberTypeFull(mt, btn);
+            else updateRegistrationConditionalSections();
+        } else {
+            updateRegistrationConditionalSections();
+        }
         return true;
     }
 
@@ -3203,6 +3216,25 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             btn.classList.remove('border-slate-200', 'bg-white');
             btn.classList.add('ring-2', 'ring-emerald-500', 'bg-emerald-50', 'border-emerald-300');
         }
+        updateRegistrationConditionalSections();
+    }
+
+    function updateRegistrationConditionalSections() {
+        const memberType = (document.getElementById('memberTypeFieldFull') || {}).value || 'regular';
+        const tier = (document.getElementById('membershipTierField') || {}).value || 'permanent';
+        const isHonorary = (memberType === 'honorary');
+        const isTemporary = (tier === 'temporary');
+        // Positions section: only for regular/special_regular AND permanent tier
+        const posSec = document.getElementById('positionPickerSection');
+        if (posSec) {
+            if (isHonorary || isTemporary) posSec.classList.add('hidden');
+            else posSec.classList.remove('hidden');
+        }
+        // Class assignment: hidden for honorary (already permanent-only gated for tier)
+        document.querySelectorAll('[data-conditional="class"]').forEach(el => {
+            if (isHonorary) el.classList.add('hidden');
+            else if (!isTemporary) el.classList.remove('hidden');
+        });
     }
 
     function previewImage(input, imgId, placeholderId) {
