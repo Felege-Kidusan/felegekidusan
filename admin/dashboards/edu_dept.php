@@ -36,7 +36,7 @@ if ($tablesExist) {
     $currentTerm = $r ? $r->fetch_assoc() : null; } catch(Exception $e) {}
     $r = $conn->query("SELECT * FROM classes WHERE is_active = 1 ORDER BY level_order");
     if ($r) while ($row = $r->fetch_assoc()) $classes[] = $row;
-    $r = $conn->query("SELECT * FROM subjects WHERE is_active = 1 ORDER BY subject_name");
+    $r = $conn->query("SELECT s.*, (SELECT COUNT(*) FROM academic_records ar WHERE ar.subject_id = s.id) AS grade_count FROM subjects s ORDER BY s.is_active DESC, s.subject_name ASC");
     if ($r) while ($row = $r->fetch_assoc()) $subjects[] = $row;
     try {
         $r = $conn->query("SELECT id, year_name, is_current FROM academic_years ORDER BY is_current DESC, id DESC");
@@ -577,10 +577,10 @@ renderSidebarUserCard($userName, 'Education Dept', $todayFormatted, $initials, '
 <!-- ═══ SUBJECTS ═══ -->
 <div id="sec-subjects" class="sec">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem"><div><h2 style="font-size:1.2rem;font-weight:700;color:#1e293b"><i class="fa-solid fa-book" style="color:#f59e0b"></i> Subjects</h2><p style="font-size:.75rem;color:#64748b" class="amharic">የትምህርት ዓይነቶች</p></div><button class="btn btn-p" onclick="openSubjectModal()"><i class="fa-solid fa-plus"></i> Add Subject</button></div>
-<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Subject (Amharic)</th><th>Subject (English)</th><th>Code</th><th>Classes</th><th>Actions</th></tr></thead><tbody>
-<?php foreach ($subjects as $s): $cnt=0;try{$r2=$conn->query("SELECT COUNT(*) c FROM class_subjects WHERE subject_id={$s['id']}");if($r2)$cnt=(int)$r2->fetch_assoc()['c'];}catch(Exception $e){} ?>
-<tr><td class="amharic" style="font-weight:600"><?= e($s['subject_name']) ?></td><td><?= e($s['subject_name_en'] ?? '—') ?></td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px"><?= e($s['subject_code'] ?? '—') ?></code></td><td><span class="ch ch-i"><?= $cnt ?> classes</span></td><td><button onclick='editSubject(<?= json_encode($s, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>)' class="ab" style="background:#ede9fe;color:#7c3aed" title="Edit"><i class="fa-solid fa-pen"></i></button></td></tr>
-<?php endforeach; if(empty($subjects)): ?><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:#94a3b8">No subjects yet</td></tr><?php endif; ?>
+<div class="crd"><div class="tw"><table class="dt"><thead><tr><th>Subject (Amharic)</th><th>Subject (English)</th><th>Code</th><th>Classes</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+<?php foreach ($subjects as $s): $cnt=0;try{$r2=$conn->query("SELECT COUNT(*) c FROM class_subjects WHERE subject_id={$s['id']}");if($r2)$cnt=(int)$r2->fetch_assoc()['c'];}catch(Exception $e){} $gc=(int)($s['grade_count'] ?? 0); $act=(int)($s['is_active'] ?? 1)===1; ?>
+<tr style="<?= $act ? '' : 'opacity:.55' ?>"><td class="amharic" style="font-weight:600"><?= e($s['subject_name']) ?></td><td><?= e($s['subject_name_en'] ?? '—') ?></td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px"><?= e($s['subject_code'] ?? '—') ?></code></td><td><span class="ch ch-i"><?= $cnt ?> classes</span></td><td><?= $act ? '<span class="ch ch-ok">Active</span>' : '<span class="ch ch-d">Deactivated</span>' ?></td><td style="white-space:nowrap"><button onclick='editSubject(<?= json_encode($s, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>)' class="ab" style="background:#ede9fe;color:#7c3aed" title="Edit"><i class="fa-solid fa-pen"></i></button> <?php if ($act): ?><button onclick="deleteSubject(<?= (int)$s['id'] ?>, <?= (int)$gc ?>, this)" data-name="<?= e($s['subject_name']) ?>" class="ab" style="background:#fee2e2;color:#dc2626" title="Delete / deactivate"><i class="fa-solid fa-trash"></i></button><?php else: ?><button onclick="restoreSubject(<?= (int)$s['id'] ?>, this)" data-name="<?= e($s['subject_name']) ?>" class="ab" style="background:#d1fae5;color:#065f46" title="Restore (re-activate)"><i class="fa-solid fa-rotate-left"></i></button><?php endif; ?></td></tr>
+<?php endforeach; if(empty($subjects)): ?><tr><td colspan="6" style="text-align:center;padding:1.5rem;color:#94a3b8">No subjects yet</td></tr><?php endif; ?>
 </tbody></table></div></div>
 
 <!-- ═══ SUBJECT DURATION (migration 056) ═══ -->
@@ -2054,7 +2054,7 @@ async function deleteTeacher(id,name){if(!confirm(`Delete teacher "${name}"? Thi
 function exportTeachers(){if(!allTeachers.length)return toast('No data','err');const h=['Name','Username','Email','Status','Assignments'];const r=allTeachers.map(t=>[t.full_name,t.username,t.email||'',t.is_active==1?'Active':'Inactive',t.assigned_classes||0]);const ws=XLSX.utils.aoa_to_sheet([h,...r]);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Teachers');XLSX.writeFile(wb,'<?= MEMBER_CODE_PREFIX ?>_Teachers.xlsx');}
 
 // ═══ CLASSES ═══
-async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td><span class="ch ch-p">${esc(eduSecLabel(c.age_group||eduSecCode(c.section)))}</span></td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
+async function loadClasses(){try{const r=await fetch('/admin/api_education.php?action=get_classes',{credentials:'same-origin'});const txt=await r.text();let d;try{d=JSON.parse(txt);}catch(e){console.error('Classes API parse error:',txt);toast('Error loading classes: invalid response','err');return;}if(d.status==='success'){const cls=d.classes||[];document.getElementById('classBody').innerHTML=cls.length?cls.map(c=>`<tr><td style="font-weight:700">${c.level_order}</td><td class="amharic" style="font-weight:600">${esc(c.class_name)}</td><td>${esc(c.class_name_en||'—')}</td><td><code style="font-size:.7rem;background:#f1f5f9;padding:2px 6px;border-radius:4px">${esc(c.class_code)}</code></td><td><span class="ch ch-p">${esc(eduSecLabel(c.age_group||eduSecCode(c.section)))}</span></td><td><span class="ch ch-i">${c.student_count||0}</span></td><td><span class="ch ${c.is_active==1?'ch-ok':'ch-d'}">${c.is_active==1?'Active':'Inactive'}</span></td><td><button class="ab" style="background:#dbeafe;color:#2563eb" onclick='editClass(${JSON.stringify(c)})'><i class="fa-solid fa-pen"></i></button> <button class="ab" style="background:${c.is_active==1?'#fef3c7':'#d1fae5'};color:${c.is_active==1?'#92400e':'#065f46'}" onclick="toggleClass(${c.id},${c.is_active},this)" data-name="${esc(c.class_name)}" title="${c.is_active==1?'Deactivate':'Restore'}"><i class="fa-solid fa-${c.is_active==1?'ban':'rotate-left'}"></i></button> <button class="ab" style="background:#fee2e2;color:#dc2626" onclick="deleteClass(${c.id})"><i class="fa-solid fa-trash"></i></button></td></tr>`).join(''):'<tr><td colspan="8" style="text-align:center;padding:1.5rem;color:#94a3b8">No classes. Click Add Class.</td></tr>';}else{toast(d.message||'Error loading classes','err');}}catch(e){console.error('Classes load error:',e);toast('Error loading classes','err');}}
 function openClassModal(){document.getElementById('classFormId').value=0;document.getElementById('className').value='';document.getElementById('classNameEn').value='';document.getElementById('classCode').value='';document.getElementById('classLevel').value='1';document.getElementById('classAge').value='';document.getElementById('classDesc').value='';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-school"></i> Add Class';document.getElementById('classModal').classList.add('show');}
 function editClass(c){document.getElementById('classFormId').value=c.id;document.getElementById('className').value=c.class_name||'';document.getElementById('classNameEn').value=c.class_name_en||'';document.getElementById('classCode').value=c.class_code||'';document.getElementById('classLevel').value=c.level_order||1;document.getElementById('classAge').value=c.age_group||eduSecCode(c.section);document.getElementById('classDesc').value=c.description||'';document.getElementById('classModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Class';document.getElementById('classModal').classList.add('show');}
 async function saveClass(){const fd=new FormData();fd.append('action','save_class');fd.append('id',document.getElementById('classFormId').value);fd.append('class_name',document.getElementById('className').value);fd.append('class_name_en',document.getElementById('classNameEn').value);fd.append('class_code',document.getElementById('classCode').value);fd.append('level_order',document.getElementById('classLevel').value);fd.append('age_group',document.getElementById('classAge').value);fd.append('description',document.getElementById('classDesc').value);fd.append('is_active','1');try{const d=await postAPI('/admin/api_education.php',fd);if(d.status==='success'){toast('Class saved!');closeModal('classModal');loadClasses();}else toast(d.message,'err');}catch(e){toast('Error','err');}}
@@ -2062,6 +2062,43 @@ async function deleteClass(id){if(!confirm('Delete this class?'))return;const fd
 
 // ═══ SUBJECTS ═══
 function openSubjectModal(){document.getElementById('subjectForm').reset();document.getElementById('subjectFormId').value='';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-book"></i> Add Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);}
+function deleteSubject(id, grades, btn){
+  const name = btn && btn.dataset ? (btn.dataset.name || ('#'+id)) : ('#'+id);
+  const msg = grades > 0
+    ? 'Deactivate subject "' + name + '"? It has ' + grades + ' grade record(s), so it will be DEACTIVATED (hidden, history preserved) and can be restored later.'
+    : 'Permanently DELETE subject "' + name + '"? It has no grade records, so the subject and all its class/teacher links will be removed for good.';
+  if (!confirm(msg)) return;
+  const fd = new FormData();
+  fd.append('action', 'delete_subject');
+  fd.append('subject_id', id);
+  postAPI('/admin/api_subjects.php', fd).then(d => {
+    if (d.status === 'success') { toast(d.message || 'Done'); setTimeout(() => location.reload(), 600); }
+    else toast(d.message || 'Delete failed', 'err');
+  }).catch(() => toast('Network error', 'err'));
+}
+function restoreSubject(id, btn){
+  const name = btn && btn.dataset ? (btn.dataset.name || ('#'+id)) : ('#'+id);
+  if (!confirm('Restore subject "' + name + '"? It will become active and selectable again.')) return;
+  const fd = new FormData();
+  fd.append('action', 'restore_subject');
+  fd.append('subject_id', id);
+  postAPI('/admin/api_subjects.php', fd).then(d => {
+    if (d.status === 'success') { toast(d.message || 'Restored'); setTimeout(() => location.reload(), 600); }
+    else toast(d.message || 'Restore failed', 'err');
+  }).catch(() => toast('Network error', 'err'));
+}
+function toggleClass(id, active, btn){
+  const name = btn && btn.dataset ? (btn.dataset.name || ('#'+id)) : ('#'+id);
+  const verb = active == 1 ? 'Deactivate' : 'Restore';
+  if (!confirm(verb + ' class "' + name + '"? ' + (active == 1 ? 'It will be hidden from new enrolments and subject assignment.' : 'It will become active and selectable again.'))) return;
+  const fd = new FormData();
+  fd.append('action', 'toggle_class');
+  fd.append('class_id', id);
+  postAPI('/admin/api_education.php', fd).then(d => {
+    if (d.status === 'success') { toast(d.message || 'Updated'); loadClasses(); }
+    else toast(d.message || 'Update failed', 'err');
+  }).catch(() => toast('Network error', 'err'));
+}
 function editSubject(s){document.getElementById('subjectFormId').value=s.id;document.getElementById('subjectName').value=s.subject_name||'';document.getElementById('subjectNameEn').value=s.subject_name_en||'';document.getElementById('subjectDesc').value=s.description||'';document.getElementById('subjectModalTitle').innerHTML='<i class="fa-solid fa-pen"></i> Edit Subject';document.querySelectorAll('.subj-class-cb').forEach(cb=>cb.checked=false);document.getElementById('subjectModal').classList.add('show');refreshCounters(['subjectName','subjectNameEn','subjectDesc']);clearFieldErrors(['subjectName','subjectNameEn','subjectDesc']);if(s.id){getAPI('/admin/api_subjects.php?action=get_subject_classes&subject_id='+s.id).then(d=>{const ids=(d.classes||[]).map(c=>String(c.id));document.querySelectorAll('.subj-class-cb').forEach(cb=>{cb.checked=ids.includes(cb.value);});});}}
 document.getElementById('subjectForm')?.addEventListener('submit',function(e){
     e.preventDefault();

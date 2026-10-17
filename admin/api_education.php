@@ -86,7 +86,7 @@ if (in_array($action, $__termActions, true)
 // TIER 2 — Class / enrolment management: Education dept + admins.
 $__manageActions = [
     'enroll', 'unenroll_student', 'promote', 'bulk_enroll', 'transfer_student',
-    'assign_teacher', 'save_class', 'delete_class',
+    'assign_teacher', 'save_class', 'delete_class', 'toggle_class',
     'sync_member_types',
 ];
 if (in_array($action, $__manageActions, true)) {
@@ -935,6 +935,42 @@ switch ($action) {
                 throw $e;
             }
         }
+        break;
+
+    case 'toggle_class':
+        $id = (int)($_POST['class_id'] ?? 0);
+        if (!$id) { echo json_encode(['status'=>'error','message'=>'ID required']); exit; }
+        $stmt = $conn->prepare("SELECT class_name, is_active FROM classes WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $cls = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$cls) { echo json_encode(['status'=>'error','message'=>'Class not found.']); exit; }
+        $newState = ((int)$cls['is_active'] === 1) ? 0 : 1;
+        $stmt = $conn->prepare("UPDATE classes SET is_active = ? WHERE id = ?");
+        $stmt->bind_param("ii", $newState, $id);
+        $stmt->execute();
+        $stmt->close();
+        try {
+            $aStmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+            if ($aStmt) {
+                $aAction = $newState === 1 ? 'Class Restored' : 'Class Deactivated';
+                $aDetails = "Class '{$cls['class_name']}' (id {$id}) " . ($newState === 1 ? 're-activated.' : 'deactivated.');
+                $aUid = (int)($_SESSION['admin_id'] ?? 0);
+                $aUser = (string)($_SESSION['admin_username'] ?? 'admin');
+                $aIp = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+                $aStmt->bind_param('issss', $aUid, $aUser, $aAction, $aDetails, $aIp);
+                $aStmt->execute();
+                $aStmt->close();
+            }
+        } catch (Throwable $e) {
+            // Auditing must never break the managing action itself.
+        }
+        echo json_encode([
+            'status' => 'success',
+            'message' => $newState === 1 ? 'Class restored and active again.' : 'Class deactivated.',
+            'is_active' => $newState,
+        ]);
         break;
 
     // ============================================================

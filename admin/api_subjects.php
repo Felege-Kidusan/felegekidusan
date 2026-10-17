@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
-requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template', 'save_grades']);
+requirePostActions($action, ['create_subject', 'update_subject', 'delete_subject', 'restore_subject', 'assign_subject_to_classes', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template', 'save_grades']);
 $__gradeActions = [
     'get_assessments', 'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',
     'get_students_for_grading', 'save_grades', 'get_grade_summary',
@@ -49,7 +49,7 @@ if (in_array($action, $__gradeActions, true) && !feature_enabled('grades')) {
 // read subjects/assessments). But creating/editing/deleting subjects and
 // assessments is education-staff work. Block those for teachers.
 $__manageActions = [
-    'create_subject', 'update_subject', 'delete_subject', 'assign_subject_to_classes',
+    'create_subject', 'update_subject', 'delete_subject', 'restore_subject', 'assign_subject_to_classes',
     'create_assessment', 'update_assessment', 'delete_assessment', 'apply_assessment_template',
     // Subject duration is academic configuration: same Education-staff tier as
     // the rest of subject management. The read is gated too — a teacher has no
@@ -177,6 +177,60 @@ function _subj_term_of_active_year(mysqli $conn, int $termId): ?array {
 
 
 try {
+/**
+ * Audit a structural subject change into activity_logs (best-effort).
+ */
+function subjects_audit(mysqli $conn, string $action, string $details): void
+{
+    try {
+        $uid = (int)($_SESSION['admin_id'] ?? 0);
+        $uname = (string)($_SESSION['admin_username'] ?? 'admin');
+        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $stmt = $conn->prepare("INSERT INTO activity_logs (user_id, username, action, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+        if ($stmt) {
+            $stmt->bind_param('issss', $uid, $uname, $action, $details, $ip);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {
+        // Auditing must never break the managing action itself.
+    }
+}
+
+/**
+ * Permanently remove a subject and every link row in one transaction.
+ */
+function subjects_purge(mysqli $conn, int $id, string $subjectName): void
+{
+    $conn->begin_transaction();
+    try {
+        foreach (
+            [
+                "DELETE FROM class_subjects WHERE subject_id = ?",
+                "DELETE FROM teacher_assignments WHERE subject_id = ?",
+                "DELETE FROM grade_submissions WHERE subject_id = ?",
+                "DELETE FROM timetable_entries WHERE subject_id = ?",
+                "DELETE FROM assessments WHERE subject_id = ?",
+                "DELETE FROM subjects WHERE id = ?",
+            ] as $sql
+        ) {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) {
+                throw new RuntimeException('Cleanup step failed: ' . $conn->error);
+            }
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $stmt->close();
+        }
+        $conn->commit();
+        subjects_audit($conn, 'Subject Deleted', "Subject '{$subjectName}' (id {$id}) permanently deleted with link cleanup.");
+    } catch (Throwable $e) {
+        $conn->rollback();
+        throw $e;
+    }
+}
+
+
 switch ($action) {
     // ============================================================
     // SUBJECT MANAGEMENT
@@ -243,7 +297,8 @@ switch ($action) {
         }
 
         $sql = "SELECT s.*,
-                (SELECT COUNT(DISTINCT cs.class_id) FROM class_subjects cs WHERE cs.subject_id = s.id) as assigned_classes
+                (SELECT COUNT(DISTINCT cs.class_id) FROM class_subjects cs WHERE cs.subject_id = s.id) as assigned_classes,
+                (SELECT COUNT(*) FROM academic_records ar WHERE ar.subject_id = s.id) as grade_count
                 FROM subjects s
                 $subWhere
                 ORDER BY $subOrderCol $subDir, s.subject_name ASC";
@@ -378,54 +433,81 @@ switch ($action) {
     
     case 'delete_subject':
         $id = (int)($_POST['subject_id'] ?? 0);
-        
+
         if (!$id) {
             echo json_encode(['status' => 'error', 'message' => 'Subject ID required']);
             exit;
         }
-        
+
+        $subjRow = null;
+        $stmt = $conn->prepare("SELECT id, subject_name, is_active FROM subjects WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $subjRow = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$subjRow) {
+            echo json_encode(['status' => 'error', 'message' => 'Subject not found.']);
+            exit;
+        }
+
         // Check if subject has grades
         $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM academic_records WHERE subject_id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
-        $count = $stmt->get_result()->fetch_assoc()['cnt'];
-        
+        $count = (int)$stmt->get_result()->fetch_assoc()['cnt'];
+        $stmt->close();
+
+        $sName = (string)($subjRow['subject_name'] ?? '#' . $id);
+        $alreadyInactive = (int)($subjRow['is_active'] ?? 1) === 0;
+
         if ($count > 0) {
             // Soft delete - just deactivate (grade history must survive)
             $stmt = $conn->prepare("UPDATE subjects SET is_active = 0 WHERE id = ?");
             $stmt->bind_param("i", $id);
             $stmt->execute();
+            $stmt->close();
+            subjects_audit($conn, 'Subject Deactivated', "Subject '{$sName}' (id {$id}) deactivated; {$count} grade records preserved.");
             echo json_encode(['status' => 'success', 'message' => 'Subject deactivated (has existing grades)']);
+        } elseif ($alreadyInactive) {
+            // Purge: already deactivated AND no grade history → permanent removal.
+            subjects_purge($conn, $id, $sName);
+            echo json_encode(['status' => 'success', 'message' => 'Subject permanently deleted.']);
         } else {
             // Hard delete — no grade history exists, so remove the subject AND
             // every link row in one transaction (H4: orphan links used to break
             // other teachers' dropdowns and the assignment matrix).
-            try {
-                $conn->begin_transaction();
-                foreach (
-                    [
-                        "DELETE FROM class_subjects WHERE subject_id = ?",
-                        "DELETE FROM teacher_assignments WHERE subject_id = ?",
-                        "DELETE FROM grade_submissions WHERE subject_id = ?",
-                        "DELETE FROM timetable_entries WHERE subject_id = ?",
-                        "DELETE FROM assessments WHERE subject_id = ?",
-                        "DELETE FROM subjects WHERE id = ?",
-                    ] as $sql
-                ) {
-                    $stmt = $conn->prepare($sql);
-                    $stmt->bind_param("i", $id);
-                    $stmt->execute();
-                    $stmt->close();
-                }
-                $conn->commit();
-                echo json_encode(['status' => 'success', 'message' => 'Subject deleted']);
-            } catch (Throwable $e) {
-                $conn->rollback();
-                throw $e;
-            }
+            subjects_purge($conn, $id, $sName);
+            echo json_encode(['status' => 'success', 'message' => 'Subject deleted']);
         }
         break;
-    
+
+    case 'restore_subject':
+        $id = (int)($_POST['subject_id'] ?? 0);
+        if (!$id) {
+            echo json_encode(['status' => 'error', 'message' => 'Subject ID required']);
+            exit;
+        }
+        $stmt = $conn->prepare("SELECT subject_name, is_active FROM subjects WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$row) {
+            echo json_encode(['status' => 'error', 'message' => 'Subject not found.']);
+            exit;
+        }
+        if ((int)$row['is_active'] === 1) {
+            echo json_encode(['status' => 'success', 'message' => 'Subject is already active.']);
+            break;
+        }
+        $stmt = $conn->prepare("UPDATE subjects SET is_active = 1 WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $stmt->close();
+        subjects_audit($conn, 'Subject Restored', "Subject '{$row['subject_name']}' (id {$id}) re-activated.");
+        echo json_encode(['status' => 'success', 'message' => 'Subject restored and active again.']);
+        break;
+
     case 'assign_subject_to_classes':
         $subjectId = (int)($_POST['subject_id'] ?? 0);
         $classIds = $_POST['class_ids'] ?? []; // Array of class IDs
