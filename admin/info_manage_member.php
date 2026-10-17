@@ -79,6 +79,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['status' => 'error', 'message' => 'Database connection not available']); 
             exit; 
         }
+
+        // Role gating: only roles permitted by access_control may edit members.
+        // Info dept is a data-updater (viewer+edit); registration/promotion stay HR-only.
+        $allowedEditRoles = ['super_admin', 'school_admin', 'hr_dept', 'info_dept'];
+        if (!hasRole($allowedEditRoles)) {
+            echo json_encode(['status' => 'error', 'message' => 'You do not have permission to edit members.']);
+            http_response_code(403);
+            exit;
+        }
         
         $id = isset($_POST['id']) ? (int)$_POST['id'] : 0; 
         if ($id <= 0) { 

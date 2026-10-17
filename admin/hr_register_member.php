@@ -149,6 +149,11 @@ if (function_exists('recordAttempt')) recordAttempt('hr_register');
 if (!isset($conn) || $conn->connect_error) {
     jsonExit(['status' => 'error', 'message' => 'Database connection error.'], 503);
 }
+// Role gating: registration/promotion is HR-only (plus super_admin/school_admin).
+$allowedRegRoles = ['super_admin', 'school_admin', 'hr_dept'];
+if (!hasRole($allowedRegRoles)) {
+    jsonExit(['status' => 'error', 'message' => 'You do not have permission to register members.'], 403);
+}
 
 try {
     $registrationPolicy = \App\Services\MemberRegistrationPolicy::prepare(
