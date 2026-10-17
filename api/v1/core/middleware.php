@@ -29,9 +29,10 @@ function handleCors() {
         header('Access-Control-Allow-Origin: ' . $origin);
         header('Vary: Origin');
     } elseif ($origin === '') {
-        // No Origin header = not a browser CORS request (mobile app, curl, etc.)
-        // Allow these through — they're authenticated via JWT anyway
-        header('Access-Control-Allow-Origin: *');
+        // No Origin header = not a browser CORS request (mobile app, curl, etc.).
+        // Do not emit a wildcard ACAO: that is flagged as a cross-domain
+        // misconfiguration and is unnecessary for non-browser clients, which
+        // are authenticated via JWT and not subject to CORS.
     }
     // If Origin is set but NOT in our list → no CORS header = browser blocks it
     
@@ -39,6 +40,10 @@ function handleCors() {
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
+    header("Content-Security-Policy: base-uri 'self'; object-src 'none'; frame-ancestors 'none'");
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('X-API-Version: 1.0');
     

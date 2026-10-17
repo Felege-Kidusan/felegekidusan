@@ -554,7 +554,7 @@ if (file_exists($_cmsConfigPath)) {
                 <!-- Registration Form -->
                 <div>
                     <h3 class="text-2xl font-bold mb-6">Register Your Child</h3>
-                    <form id="registration-form" class="space-y-4">
+                    <form id="registration-form" class="space-y-4" method="POST" action="/register_submit.php">
                         <!-- Honeypot anti-spam (hidden from humans) -->
                         <input type="text" name="website" style="position:absolute;left:-9999px" tabindex="-1" autocomplete="off">
                         <div>
