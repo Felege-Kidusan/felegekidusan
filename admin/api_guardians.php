@@ -24,8 +24,8 @@ if (empty($_SESSION['admin_id']) || empty($_SESSION['admin_logged_in'])) {
 $role = (string)($_SESSION['admin_role'] ?? '');
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
 
-$__readActions = ['search', 'get', 'get_family', 'list_suggestions', 'score_check'];
-$__writeActions = ['create', 'update', 'link', 'unlink', 'merge', 'merge_suggestion', 'reject_suggestion', 'add_alias', 'run_rematch'];
+$__readActions = ['search', 'get', 'get_family', 'list_suggestions', 'score_check', 'stats', 'list_guardians', 'unlinked_members', 'activity'];
+$__writeActions = ['create', 'update', 'link', 'unlink', 'merge', 'merge_suggestion', 'reject_suggestion', 'add_alias', 'run_rematch', 'attach_member', 'attach_batch', 'set_relation', 'remove_alias'];
 
 if (in_array($action, $__writeActions, true) && !in_array($role, ['super_admin', 'school_admin', 'hr_dept'], true)) {
     http_response_code(403);
@@ -81,6 +81,89 @@ switch ($action) {
         }
         $g['children'] = GuardianService::childrenOf($conn, $gid);
         echo json_encode(['status' => 'success', 'guardian' => $g]);
+        exit;
+    }
+
+    case 'stats': {
+        echo json_encode(['status' => 'success', 'stats' => GuardianService::stats($conn)]);
+        exit;
+    }
+
+    case 'list_guardians': {
+        $q = (string)($_GET['q'] ?? '');
+        $filter = (string)($_GET['filter'] ?? 'all');
+        $page = (int)($_GET['page'] ?? 1);
+        echo json_encode(['status' => 'success'] + GuardianService::listGuardians($conn, $q, $filter, $page, 20), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+
+    case 'unlinked_members': {
+        $page = (int)($_GET['page'] ?? 1);
+        echo json_encode(['status' => 'success'] + GuardianService::unlinkedMembers($conn, $page, 25), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+
+    case 'activity': {
+        echo json_encode(['status' => 'success', 'rows' => GuardianService::activity($conn, 40)], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+
+    case 'attach_member': {
+        $mid = (int)($_POST['member_id'] ?? 0);
+        $gid = (int)($_POST['guardian_id'] ?? 0); // optional explicit pick
+        try {
+            if ($mid <= 0) {
+                throw new InvalidArgumentException('Member is required.');
+            }
+            $r = GuardianService::attachFromLegacy($conn, $mid, $gid, 'hr');
+            if ($r['mode'] === 'none') {
+                throw new InvalidArgumentException('This member has no guardian name saved — add it on the member profile first, or pick a guardian.');
+            }
+            echo json_encode(['status' => 'success', 'message' => 'Member linked.'] + $r);
+        } catch (Throwable $e) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => guardianSafeError($e, 'Member could not be linked.')]);
+        }
+        exit;
+    }
+
+    case 'attach_batch': {
+        $cursor = max(0, (int)($_POST['cursor'] ?? 0));
+        @set_time_limit(60);
+        $r = GuardianService::attachBatch($conn, $cursor, 40, 15.0);
+        if ($r['processed'] > 0) {
+            GuardianService::audit($conn, 'Guardian Backfill', "Link-all step: {$r['processed']} member(s) linked ({$r['created']} new guardians, {$r['matched']} matched, {$r['failed']} failed); " . ($r['done'] ? 'complete' : 'continuing') . '.');
+        }
+        echo json_encode(['status' => 'success'] + $r);
+        exit;
+    }
+
+    case 'set_relation': {
+        $gid = (int)($_POST['guardian_id'] ?? 0);
+        $mid = (int)($_POST['member_id'] ?? 0);
+        $rel = (string)($_POST['relation'] ?? '');
+        $prim = isset($_POST['is_primary']) ? ((int)$_POST['is_primary'] === 1) : null;
+        try {
+            GuardianService::setRelation($conn, $gid, $mid, $rel, $prim);
+            echo json_encode(['status' => 'success', 'message' => 'Link updated.']);
+        } catch (Throwable $e) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => guardianSafeError($e, 'Link could not be updated.')]);
+        }
+        exit;
+    }
+
+    case 'remove_alias': {
+        $id = (int)($_POST['guardian_id'] ?? 0);
+        $alias = trim((string)($_POST['alias_name'] ?? ''));
+        $st = $conn->prepare('DELETE FROM guardian_aliases WHERE guardian_id = ? AND alias_name = ?');
+        if ($st) {
+            $st->bind_param('is', $id, $alias);
+            $st->execute();
+            $st->close();
+        }
+        GuardianService::audit($conn, 'Guardian Alias Removed', "Alias '{$alias}' removed from guardian {$id}.");
+        echo json_encode(['status' => 'success', 'message' => 'Alias removed.']);
         exit;
     }
 
@@ -250,10 +333,16 @@ switch ($action) {
             while ($s = $r->fetch_assoc()) {
                 $s['guardian_a_row'] = $s['guardian_a'] ? GuardianService::get($conn, (int)$s['guardian_a']) : null;
                 $s['guardian_b_row'] = $s['guardian_b'] ? GuardianService::get($conn, (int)$s['guardian_b']) : null;
+                if ($s['guardian_a_row']) {
+                    $s['guardian_a_row']['children'] = GuardianService::childrenOf($conn, (int)$s['guardian_a'], 8);
+                }
+                if ($s['guardian_b_row']) {
+                    $s['guardian_b_row']['children'] = GuardianService::childrenOf($conn, (int)$s['guardian_b'], 8);
+                }
                 $rows[] = $s;
             }
         }
-        echo json_encode(['status' => 'success', 'suggestions' => $rows]);
+        echo json_encode(['status' => 'success', 'suggestions' => $rows], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         exit;
     }
 
@@ -270,8 +359,11 @@ switch ($action) {
             exit;
         }
         $uid = (int)($_SESSION['admin_id'] ?? 0);
+        $keep = (string)($_POST['keep'] ?? 'a');
+        $from = $keep === 'b' ? (int)$sug['guardian_a'] : (int)$sug['guardian_b'];
+        $into = $keep === 'b' ? (int)$sug['guardian_b'] : (int)$sug['guardian_a'];
         try {
-            GuardianService::merge($conn, (int)$sug['guardian_b'], (int)$sug['guardian_a'], $uid);
+            GuardianService::merge($conn, $from, $into, $uid);
         } catch (InvalidArgumentException $e) {
             // One side no longer mergeable (already merged elsewhere / deleted):
             // close the stale suggestion instead of leaving it stuck in the queue.

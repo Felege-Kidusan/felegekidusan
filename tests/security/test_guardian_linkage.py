@@ -136,7 +136,8 @@ class TestP4:
         tool = _read("admin/tools/guardian_rematch.php")
         assert "PHP_SAPI !== 'cli'" in tool
         dash = _read("admin/dashboards/hr-dept.php")
-        assert "famRunRematch" in dash and "famQueueBadge" in dash
+        assert "famRematchBtn" in dash and "famQueueBadge" in dash
+        assert "function runRematch(" in _read("admin/js/family_link.js")
 
     def test_profiling_pack_is_read_only(self):
         sql = _read("sql/preflight/guardian_profiling_pack.sql").upper()
@@ -151,8 +152,8 @@ class TestP4Audit:
         api = _read("admin/api_guardians.php")
         assert "'get'" in api.split("$__readActions")[1].split("\n")[0]
         assert "case 'get':" in api
-        ui = _read("admin/dashboards/hr-dept.php")
-        assert "action=get&guardian_id=" in ui
+        ui = _read("admin/js/family_link.js")
+        assert "get('get', { guardian_id: gid })" in ui
         assert "action=search&q='+gid" not in ui  # G1: never look up by id through search
 
     def test_shared_attach_helper_used_by_all_three_entry_points(self):
@@ -197,10 +198,11 @@ class TestP4Audit:
         assert "s.status = 'expired'" in ls  # self-heal stale pairs
 
     def test_ui_unlink_and_error_surfacing(self):
-        ui = _read("admin/dashboards/hr-dept.php")
-        assert "function famUnlink(" in ui
-        assert "function famClearPick()" in ui
-        assert "alert((d&&d.message)||'Request failed')" in ui
+        ui = _read("admin/js/family_link.js")
+        assert "function unlink(gid, mid, name)" in ui
+        assert "function clearPick()" in ui
+        assert "throw new Error((d && d.message) || 'Request failed')" in ui  # API message surfaces to the user
+        assert "function fail(e) { toast(" in ui
 
     def test_rematch_budget_under_shared_hosting_cap(self):
         api = _read("admin/api_guardians.php")
@@ -243,3 +245,110 @@ class TestP4Audit:
                     fh.write(js)
                 r = subprocess.run([node, "--check", fh.name], capture_output=True, text=True)
                 assert r.returncode == 0, f"{rel}: {r.stderr[-300:]}"
+
+
+class TestFamilyLinkUI:
+    """Pins for the Family Link UI/UX overhaul (light-theme workspace, member-profile navigation, new API)."""
+
+    def _section(self):
+        ui = _read("admin/dashboards/hr-dept.php")
+        start = ui.index('id="section-family"')
+        end = ui.index('id="famDrawer"')
+        return ui[start:end]
+
+    def test_section_is_light_theme(self):
+        sec = self._section()
+        # The HR content area is white: dark-theme utility classes render invisible (user-reported bug).
+        for bad in ("text-white", "bg-white/5", "bg-white/10", "text-slate-300", "border-white/10"):
+            assert bad not in sec, bad
+        assert "famStats" in sec and "famSearch" in sec and "famFilters" in sec
+
+    def test_section_workspace_parts(self):
+        sec = self._section()
+        for tab in ("famTab-families", "famTab-review", "famTab-unlinked", "famTab-activity"):
+            assert tab in sec, tab
+        for pane in ("famPane-families", "famPane-review", "famPane-unlinked", "famPane-activity"):
+            assert pane in sec, pane
+        assert "famRematchBtn" in sec and "famLastRematch" in sec and "famLinkAllBtn" in sec
+
+    def test_drawer_and_scripts_wired(self):
+        ui = _read("admin/dashboards/hr-dept.php")
+        assert 'id="famDrawer"' in ui and "z-index:70" in ui.split('.fam-drawer{')[1].split('}')[0]
+        assert "admin/js/family_link.js?v=" in ui and "admin/js/member_nav.js?v=" in ui
+        assert "FamilyLink.init()" in ui  # navigateToSection('family') hook
+        assert "famCsrf" not in ui  # old inline implementation fully removed
+
+    def test_family_link_js_contract(self):
+        js = _read("admin/js/family_link.js")
+        for name in ("window.FamilyLink", "function init(", "function go(", "function open(", "function close(",
+                     "function runRematch(", "function loadUnlinked(", "function linkAll(", "function loadActivity(",
+                     "function setRelation(", "function unlink(", "profile:"):
+            assert name in js, name
+        assert "params.get('guardian')" in js  # ?guardian=ID deep link opens the drawer
+        assert "fd.append('csrf_token', csrf())" in js  # every write carries the CSRF token
+        assert "fam-loading" in js  # loading placeholders distinguishable from empty states
+        # children primary flag is a per-child badge/button, not a lonely radio
+        assert "Make primary" in js and 'type="radio"' not in js
+
+    def test_member_nav_js_contract(self):
+        js = _read("admin/js/member_nav.js")
+        for name in ("window.MemberNav", "go:", "back:", "afterLoad:", "reset:", "manageFamily:"):
+            assert name in js, name
+        assert "dashboard.php?member=" in js
+        assert "section=family&guardian=" in js
+        assert "location.href = '/admin/info_manage_member.php" not in js  # never leave the dashboard
+
+    def test_dashboards_embed_profile_and_hook_navigation(self):
+        for rel in ("admin/dashboards/hr-dept.php", "admin/dashboards/info-dept.php"):
+            d = _read(rel)
+            assert "info_manage_member.php?id=' + encodeURIComponent(id) + '&embed=1" in d, rel
+            assert "MemberNav.afterLoad(id)" in d, rel
+            assert "MemberNav.reset()" in d, rel
+            assert "urlParams.get('member')" in d, rel  # ?member=ID deep link opens the sheet
+            assert "admin/js/member_nav.js?v=" in d, rel
+
+    def test_profile_family_card_navigation(self):
+        page = _read("admin/info_manage_member.php")
+        assert 'id="mmBackBtn"' in page
+        assert "mm-standalone-bar" in page
+        assert "location.replace('/admin/dashboard.php?member=" in page
+        assert "MemberNav.go(" in page  # sibling click stays inside the sheet
+        assert "MemberNav.manageFamily(" in page
+        assert "href=\"/admin/info_manage_member.php?id=" not in page  # no top-level profile links from inside the sheet
+        assert "$_SESSION['admin_role']" in page  # Manage family only for roles that can write
+
+    def test_new_api_actions_and_gates(self):
+        api = _read("admin/api_guardians.php")
+        read_line = api.split("$__readActions")[1].split("\n")[0]
+        write_line = api.split("$__writeActions")[1].split("\n")[0]
+        for a in ("stats", "list_guardians", "unlinked_members", "activity"):
+            assert f"'{a}'" in read_line, a
+        for a in ("attach_member", "attach_batch", "set_relation", "remove_alias"):
+            assert f"'{a}'" in write_line, a
+            assert f"case '{a}':" in api, a
+        # error builder never leaks driver diagnostics (only guardianSafeError may touch getMessage)
+        assert api.count("$e->getMessage()") == 2 and "function guardianSafeError" in api
+        svc = _read("admin/backend/services/GuardianService.php")
+        for fn in ("function stats(", "function listGuardians(", "function unlinkedMembers(", "function attachBatch(",
+                   "function activity(", "function setRelation("):
+            assert fn in svc, fn
+        # in-browser backfill stays within the shared-hosting request budget
+        assert "attachBatch($conn, $cursor, 40, 15.0" in api or "attachBatch($conn, $cursor, 40, 15" in api
+
+    def test_guardian_picker_light_theme(self):
+        js = _read("admin/js/guardian_picker.js")
+        assert "text-white" not in js and "bg-slate-800" not in js
+        assert "preventDefault" in js  # mousedown does not blur the input before the click lands
+
+    def test_external_js_parses(self):
+        import shutil
+        import subprocess
+
+        import pytest
+
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node not installed")
+        for rel in ("admin/js/family_link.js", "admin/js/member_nav.js", "admin/js/guardian_picker.js"):
+            r = subprocess.run([node, "--check", str(REPO / rel)], capture_output=True, text=True)
+            assert r.returncode == 0, f"{rel}: {r.stderr[-300:]}"

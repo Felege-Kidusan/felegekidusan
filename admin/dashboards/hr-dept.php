@@ -397,6 +397,63 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             box-shadow: 0 8px 20px rgba(148, 163, 184, 0.35);
         }
 
+
+        /* Family Link workspace */
+        .fam-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.6rem}
+        .fam-kpi{display:flex;gap:.6rem;align-items:flex-start;background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:.7rem .8rem;transition:box-shadow .15s,transform .15s}
+        .fam-kpi-click{cursor:pointer}.fam-kpi-click:hover{box-shadow:0 8px 20px rgba(148,163,184,.3);transform:translateY(-2px)}
+        .fam-kpi-icon{width:2.1rem;height:2.1rem;border-radius:.8rem;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .fam-kpi-value{font-size:1.25rem;font-weight:800;color:#0f172a;line-height:1.1}.fam-kpi-label{font-size:.72rem;font-weight:600;color:#334155}.fam-kpi-hint{font-size:.65rem;color:#94a3b8}
+        .fam-tabs{display:flex;gap:.25rem;border-bottom:1px solid #e2e8f0;margin-bottom:.9rem;overflow-x:auto}
+        .fam-tab{padding:.5rem .8rem;font-size:.75rem;font-weight:600;color:#64748b;border-bottom:2px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:.35rem}
+        .fam-tab:hover{color:#0f172a}.fam-tab-on{color:#047857;border-bottom-color:#059669}
+        .fam-tab-count{font-size:.62rem;font-weight:800;background:#f59e0b;color:#0f172a;border-radius:999px;padding:.05rem .4rem}
+        .fam-input{width:100%;padding:.5rem .75rem;border:1px solid #e2e8f0;border-radius:.75rem;font-size:.75rem;color:#0f172a;background:#fff}
+        .fam-input:focus{outline:none;border-color:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.2)}.fam-input-sm{padding:.3rem .5rem;font-size:.7rem;border-radius:.5rem;width:auto}
+        .fam-chip{padding:.3rem .65rem;border-radius:999px;border:1px solid #e2e8f0;background:#fff;font-size:.68rem;font-weight:600;color:#64748b}
+        .fam-chip:hover{border-color:#cbd5e1}.fam-chip-on{background:#0f172a;color:#fff;border-color:#0f172a}
+        .fam-btn{padding:.4rem .7rem;border-radius:.6rem;border:1px solid #e2e8f0;background:#fff;font-size:.72rem;font-weight:600;color:#334155;display:inline-flex;align-items:center;gap:.35rem;white-space:nowrap}
+        .fam-btn:hover{background:#f8fafc;border-color:#cbd5e1}.fam-btn:disabled{opacity:.55;cursor:not-allowed}
+        .fam-btn-primary{background:#059669;border-color:#059669;color:#fff}.fam-btn-primary:hover{background:#047857;border-color:#047857}
+        .fam-btn-danger{color:#be123c}.fam-btn-danger:hover{background:#fff1f2;border-color:#fecdd3}.fam-btn-sm{padding:.25rem .5rem;font-size:.66rem}
+        .fam-table{width:100%;border-collapse:separate;border-spacing:0;font-size:.74rem}
+        .fam-table th{text-align:left;font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;padding:.4rem .6rem;border-bottom:1px solid #e2e8f0;font-weight:700}
+        .fam-table td{padding:.55rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+        .fam-row{cursor:pointer}.fam-row:hover td{background:#f0fdf4}.fam-table-sm td{padding:.4rem .5rem}
+        .fam-pill{display:inline-block;font-size:.64rem;background:#f1f5f9;color:#334155;border-radius:999px;padding:.1rem .5rem;margin:.1rem .15rem .1rem 0}.fam-pill-more{background:#e2e8f0}.fam-pill-ok{background:#dcfce7;color:#166534;font-weight:600}
+        .fam-count{display:inline-flex;min-width:1.4rem;height:1.4rem;align-items:center;justify-content:center;border-radius:999px;background:#f1f5f9;color:#334155;font-weight:800;font-size:.68rem;margin-right:.25rem}.fam-count-multi{background:#d1fae5;color:#047857}
+        .fam-empty{text-align:center;padding:2rem 1rem;color:#475569;font-size:.78rem;background:#f8fafc;border:1px dashed #e2e8f0;border-radius:1rem}.fam-empty-sm{padding:.8rem}
+        .fam-note{display:flex;gap:1rem;align-items:flex-start;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.9rem;padding:.75rem .9rem;font-size:.72rem;color:#475569}
+        .fam-note-warn{background:#fffbeb;border-color:#fde68a;color:#92400e}
+        .fam-progress{height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;margin-top:.4rem}.fam-progress div{height:100%;width:40%;background:#059669;animation:famSlide 1.1s infinite linear}
+        @keyframes famSlide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+        .fam-sug{background:#fff;border:1px solid #fde68a;border-radius:1rem;padding:.8rem}
+        .fam-sug-hd{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem}
+        .fam-score{font-weight:800;font-size:.72rem;padding:.15rem .5rem;border-radius:999px}.fam-score-hi{background:#fee2e2;color:#b91c1c}.fam-score-mid{background:#fef3c7;color:#b45309}
+        .fam-ev{font-size:.66rem;color:#475569;background:#f1f5f9;border-radius:999px;padding:.1rem .45rem;margin-left:.2rem}.fam-ev-strong{background:#dcfce7;color:#166534}.fam-ev-muted{color:#94a3b8;background:transparent}
+        .fam-cmp-grid{display:grid;grid-template-columns:1fr auto 1fr;gap:.6rem;align-items:stretch}
+        .fam-cmp{background:#f8fafc;border:1px solid #e2e8f0;border-radius:.8rem;padding:.6rem .7rem;font-size:.74rem}
+        .fam-cmp-vs{align-self:center;font-size:.65rem;font-weight:800;color:#94a3b8}
+        @media (max-width:640px){.fam-cmp-grid{grid-template-columns:1fr}.fam-cmp-vs{text-align:center}.hide-sm{display:none}}
+        .fam-activity{list-style:none;margin:0;padding:0}.fam-activity li{display:flex;gap:.6rem;padding:.5rem 0;border-bottom:1px solid #f1f5f9}.fam-activity li i{width:1.2rem;text-align:center;margin-top:.15rem}
+        .fam-drawer{position:fixed;inset:0;z-index:70;display:none}.fam-drawer.open{display:block}
+        .fam-drawer-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.45)}
+        .fam-drawer-panel{position:absolute;top:0;right:0;bottom:0;width:100%;max-width:720px;background:#f8fafc;display:flex;flex-direction:column;box-shadow:-10px 0 40px rgba(0,0,0,.2);animation:sheet-slide-left .25s ease-out}
+        .fam-drawer-hd{display:flex;align-items:center;gap:.6rem;padding:.75rem 1rem;background:#fff;border-bottom:1px solid #e2e8f0}
+        .fam-drawer-body{flex:1;overflow-y:auto;padding:1rem}
+        .fam-gh{display:flex;gap:.8rem;align-items:center;margin-bottom:.9rem}
+        .fam-avatar{width:3rem;height:3rem;border-radius:1rem;background:linear-gradient(135deg,#059669,#0ea5e9);color:#fff;font-weight:800;font-size:1.2rem;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .fam-card{background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:.9rem;margin-bottom:.8rem}
+        .fam-card-hd{display:flex;justify-content:space-between;align-items:center;font-size:.78rem;font-weight:700;color:#0f172a;margin-bottom:.6rem}
+        .fam-form{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.fam-form .fam-field:first-child{grid-column:1 / -1}
+        .fam-field span{display:block;font-size:.62rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem}
+        .fam-form-actions{grid-column:1 / -1;display:flex;justify-content:flex-end;margin-top:.2rem}
+        @media (max-width:640px){.fam-form{grid-template-columns:1fr 1fr}}
+        .fam-dropdown{position:absolute;z-index:50;left:0;right:0;margin-top:2px;max-height:240px;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:.7rem;box-shadow:0 10px 30px rgba(15,23,42,.15)}
+        .fam-dd-item{display:block;width:100%;text-align:left;padding:.5rem .7rem;border:0;background:transparent;font-size:.72rem;color:#0f172a;border-bottom:1px solid #f1f5f9;cursor:pointer}.fam-dd-item:hover{background:#f0fdf4}
+        .fam-dd-empty{padding:.5rem .7rem;font-size:.7rem;color:#94a3b8}
+        .fam-toast{position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%) translateY(20px);opacity:0;background:#0f172a;color:#fff;font-size:.75rem;padding:.6rem 1rem;border-radius:.8rem;z-index:200;transition:all .25s;max-width:90vw}
+        .fam-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}.fam-toast-err{background:#be123c}
         .content-section { display: none; }
         .content-section.active { display: block; }
 
@@ -1807,16 +1864,16 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 </div>
 
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div class="md:col-span-2">
+                                    <div class="md:col-span-2" style="position:relative">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
-                                            Link existing guardian (optional — type a name or phone)
+                                            <i class="fa-solid fa-people-roof text-emerald-600"></i> Already-registered parent? Search and pick to link a sibling (optional)
                                         </label>
                                         <input type="hidden" name="guardian_link_id" id="regGuardianLinkId" value="0">
                                         <input type="text" id="regGuardianPick" autocomplete="off"
                                                placeholder="Search guardians… pick one to skip re-typing"
                                                class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400">
-                                        <div id="regGuardianPickList" style="display:none;position:absolute;z-index:40;margin-top:2px;width:100%;max-height:220px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.6rem;box-shadow:0 10px 30px rgba(0,0,0,.45)"></div>
-                                        <div id="regGuardianPicked" style="display:none;margin-top:.35rem;font-size:.72rem;color:#34d399"></div>
+                                        <div id="regGuardianPickList" class="fam-dropdown" style="display:none"></div>
+                                        <div id="regGuardianPicked" style="display:none;margin-top:.4rem;font-size:.72rem;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:.6rem;padding:.4rem .6rem"></div>
                                     </div>
 
                                     <div class="md:col-span-2">
@@ -1983,30 +2040,91 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 
             <!-- NEW MEMBERS (temporary, promotion tracking) -->
             <section id="section-family" class="content-section">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
-                        <h3 class="text-sm font-bold text-white mb-1"><i class="fa-solid fa-people-roof text-emerald-300"></i> Guardian search & family card</h3>
-                        <p class="text-[11px] text-slate-400 mb-3">Type a guardian name or phone to see their card, children and siblings links. Edits here update every linked child at once (single source of truth).</p>
-                        <div style="position:relative">
-                            <input type="text" id="famQ" autocomplete="off" placeholder="Guardian name or phone…"
-                                   class="w-full px-3 py-2 rounded-xl border border-white/15 bg-white/5 text-xs text-slate-100 placeholder:text-slate-500">
-                            <div id="famQList" style="display:none;position:absolute;z-index:40;margin-top:2px;width:100%;max-height:240px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.6rem"></div>
+                <div class="panel p-4 mobile-card">
+                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                                <span class="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600"><i class="fa-solid fa-people-roof"></i></span>
+                                <span>Family Link</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-0.5">One guardian record per parent; every child linked to it. Edit the guardian once — all siblings follow. Nothing is merged without HR approval.</p>
                         </div>
-                        <div id="famDetail" class="mt-3 text-xs text-slate-300"></div>
+                        <div class="text-[11px] text-slate-400 sm:text-right">
+                            <div><i class="fa-regular fa-lightbulb text-amber-500"></i> Registering a child? Use the <b>guardian picker</b> on the registration form to attach an existing parent.</div>
+                        </div>
                     </div>
-                    <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
-                        <div class="flex items-center justify-between mb-1">
-                            <h3 class="text-sm font-bold text-white"><i class="fa-solid fa-scale-balanced text-amber-300"></i> Review queue</h3>
-                            <div class="flex items-center gap-1">
-                                <button type="button" id="famRematchBtn" class="text-[11px] px-2 py-1 rounded-lg border border-amber-300/30 bg-amber-300/10 text-amber-200" onclick="famRunRematch()"><i class="fa-solid fa-magnifying-glass-arrow-right"></i> Run re-match now</button>
-                                <button type="button" class="text-[11px] px-2 py-1 rounded-lg border border-white/15 text-slate-300" onclick="famLoadQueue()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+
+                    <div id="famStats" class="fam-kpis mb-4"></div>
+
+                    <div class="fam-tabs" role="tablist">
+                        <button type="button" id="famTab-families" class="fam-tab fam-tab-on" onclick="FamilyLink.tab('families')"><i class="fa-solid fa-people-roof"></i> Families</button>
+                        <button type="button" id="famTab-review" class="fam-tab" onclick="FamilyLink.tab('review')"><i class="fa-solid fa-scale-balanced"></i> Needs review <span id="famTabReviewCount" class="fam-tab-count" style="display:none"></span></button>
+                        <button type="button" id="famTab-unlinked" class="fam-tab" onclick="FamilyLink.tab('unlinked')"><i class="fa-solid fa-link-slash"></i> Not linked yet <span id="famTabUnlinkedCount" class="fam-tab-count" style="display:none"></span></button>
+                        <button type="button" id="famTab-activity" class="fam-tab" onclick="FamilyLink.tab('activity')"><i class="fa-solid fa-clock-rotate-left"></i> Activity</button>
+                    </div>
+
+                    <!-- Families -->
+                    <div id="famPane-families">
+                        <div class="flex flex-col md:flex-row md:items-center gap-2 mb-3">
+                            <div class="relative flex-1">
+                                <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                <input type="text" id="famSearch" autocomplete="off" placeholder="Search guardian by name, alias or phone (e.g. 0911…, አስቴር)…" class="fam-input" style="padding-left:2rem">
+                            </div>
+                            <div id="famFilters" class="flex flex-wrap gap-1">
+                                <button type="button" class="fam-chip fam-chip-on" data-filter="all">All</button>
+                                <button type="button" class="fam-chip" data-filter="multi" title="Guardians with two or more linked children">2+ children</button>
+                                <button type="button" class="fam-chip" data-filter="single">1 child</button>
+                                <button type="button" class="fam-chip" data-filter="orphan" title="Guardian records with no linked member">No children</button>
+                                <button type="button" class="fam-chip" data-filter="nophone">Missing phone</button>
+                                <button type="button" class="fam-chip" data-filter="recent">Updated 30 d</button>
                             </div>
                         </div>
-                        <p class="text-[11px] text-slate-400 mb-3">Probable duplicate guardians (typo-tolerant matching). Merging moves all children and keeps the old row reversible; rejecting keeps both.</p>
-                        <div id="famQueue" class="space-y-2 text-xs"></div>
+                        <div class="flex items-center justify-between mb-2"><div id="famListMeta" class="text-[11px] text-slate-400"></div><div id="famPager" class="flex items-center gap-2"></div></div>
+                        <div id="famList"></div>
+                    </div>
+
+                    <!-- Needs review -->
+                    <div id="famPane-review" style="display:none">
+                        <div class="fam-note mb-3">
+                            <div class="flex-1"><b>How this works.</b> Pairs below look like the same parent recorded twice (same phone, near-identical names). Compare them side by side, open either record or a child, then <b>merge</b> (children move to the kept record, the other spelling becomes an alias, reversible) or mark them <b>different people</b>.</div>
+                            <div class="text-right shrink-0">
+                                <button type="button" id="famRematchBtn" class="fam-btn" onclick="FamilyLink.runRematch()"><i class="fa-solid fa-magnifying-glass-arrow-right"></i> Run re-match now</button>
+                                <div id="famLastRematch" class="text-[11px] text-slate-400 mt-1"></div>
+                                <div id="famRematchBar" class="fam-progress" style="display:none"><div></div></div>
+                            </div>
+                        </div>
+                        <div id="famQueue" class="space-y-3"></div>
+                    </div>
+
+                    <!-- Not linked yet -->
+                    <div id="famPane-unlinked" style="display:none">
+                        <div class="fam-note mb-3">
+                            <div class="flex-1"><b>Members registered before Family Link.</b> They have a guardian name/phone typed on their record but no guardian record yet. <b>Link</b> matches each one to an existing guardian (same phone or near-identical name) or creates a new guardian record; near-misses go to <i>Needs review</i>. Safe to run any time.</div>
+                            <div class="shrink-0"><button type="button" id="famLinkAllBtn" class="fam-btn fam-btn-primary" style="display:none" onclick="FamilyLink.linkAll()"><i class="fa-solid fa-wand-magic-sparkles"></i> Link all</button></div>
+                        </div>
+                        <div class="flex items-center justify-between mb-2"><div id="famUnlinkedMeta" class="text-[11px] text-slate-400"></div><div id="famUnlinkedPager" class="flex items-center gap-2"></div></div>
+                        <div id="famUnlinked"></div>
+                    </div>
+
+                    <!-- Activity -->
+                    <div id="famPane-activity" style="display:none">
+                        <div id="famActivity"></div>
                     </div>
                 </div>
             </section>
+
+            <!-- Guardian drawer (opens over the Family Link page; member profiles open above it) -->
+            <div id="famDrawer" class="fam-drawer" aria-hidden="true">
+                <div class="fam-drawer-backdrop" onclick="FamilyLink.close()"></div>
+                <div class="fam-drawer-panel" role="dialog" aria-label="Guardian">
+                    <div class="fam-drawer-hd">
+                        <button type="button" class="fam-btn fam-btn-sm" onclick="FamilyLink.close()" title="Back to families"><i class="fa-solid fa-arrow-left"></i> <span class="hidden sm:inline">Families</span></button>
+                        <div class="min-w-0 flex-1"><div class="label-soft">Guardian</div><div id="famDrawerTitle" class="text-sm font-bold text-slate-800 truncate">…</div></div>
+                        <button type="button" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500" onclick="FamilyLink.close()" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div id="famDrawerBody" class="fam-drawer-body"></div>
+                </div>
+            </div>
 
             <section id="section-newmembers" class="content-section">
                 <div class="panel p-4 mobile-card">
@@ -2177,113 +2295,10 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 <script>window.WBWS_SECTIONS=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;</script>
         <script src="/admin/js/all-members.js" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
-<script src="/admin/js/guardian_picker.js"></script>
-<script>
-function famCsrf(){ var i=document.querySelector('input[name="csrf_token"]'); if(i&&i.value)return i.value; if(window.SA_BOOT&&window.SA_BOOT.csrf)return window.SA_BOOT.csrf; return (window.CSRF_TOKEN||''); }
-function famPost(action, params, done){
-  var fd=new FormData(); fd.append('action',action); fd.append('csrf_token',famCsrf());
-  Object.keys(params||{}).forEach(function(k){ fd.append(k,params[k]); });
-  fetch('/admin/api_guardians.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
-    if(action!=='run_rematch' && (!d || d.status!=='success')){ alert((d&&d.message)||'Request failed'); if(action==='merge_suggestion'||action==='reject_suggestion'){ famLoadQueue(); } return; }
-    done(d);
-  }).catch(function(){ alert('Network error'); });
-}
-function famEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function famRenderGuardian(g){
-  var kids=(g.children||[]);
-  var html='<div class="border border-white/10 rounded-xl p-3 bg-white/5">'
-    +'<div class="flex items-start justify-between gap-2"><div><div class="font-bold text-white text-sm">'+famEsc(g.display_name)+'</div>'
-    +'<div class="text-[11px] text-slate-400">'+famEsc(g.phone_primary||'no phone')+(g.phone_alt?' · '+famEsc(g.phone_alt):'')+'</div>'
-    +(g.aliases&&g.aliases.length?'<div class="text-[11px] text-slate-500">aka: '+g.aliases.map(famEsc).join(', ')+'</div>':'')
-    +'</div><div class="flex gap-1 shrink-0">'
-    +'<button type="button" class="px-2 py-1 rounded-lg border border-white/15 text-[11px] text-slate-200" onclick="famEdit('+g.id+')">Edit</button>'
-    +'<button type="button" class="px-2 py-1 rounded-lg border border-white/15 text-[11px] text-slate-200" onclick="famAlias('+g.id+')">+ alias</button>'
-    +'</div></div>'
-    +'<div class="mt-2 text-[11px] text-slate-300"><b>Children:</b> '+(kids.length?kids.map(function(k){return '<span class="inline-flex items-center gap-1 mr-1 mb-1 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10">'+famEsc(k.student_name||k.full_name_am)+(k.current_section?' ('+famEsc(k.current_section)+')':'')+(parseInt(k.is_primary,10)===1?' <span title="primary contact" class="text-amber-300">★</span>':'')+(k.id?' <a href="#" title="Unlink this child" onclick="famUnlink('+g.id+','+parseInt(k.id,10)+'); return false;" class="text-rose-300 hover:text-rose-200">×</a>':'')+'</span>';}).join(''):'none linked yet')+'</div>'
-    +'<div class="mt-2" style="position:relative"><input id="famKidQ_'+g.id+'" autocomplete="off" placeholder="Add child: type member name…" class="w-full px-2 py-1.5 rounded-lg border border-white/15 bg-white/5 text-[11px] text-slate-100">'
-    +'<div id="famKidL_'+g.id+'" style="display:none;position:absolute;z-index:50;width:100%;max-height:180px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.5rem"></div></div>'
-    +'</div>';
-  document.getElementById('famDetail').innerHTML=html;
-  famMemberTypeahead(g.id);
-}
-function famMemberTypeahead(gid){
-  var input=document.getElementById('famKidQ_'+gid), list=document.getElementById('famKidL_'+gid), timer=null;
-  input.addEventListener('input',function(){ clearTimeout(timer); var q=input.value.trim();
-    if(q.length<2){list.style.display='none';return;}
-    timer=setTimeout(function(){
-      fetch('/admin/api_list_members.php?q='+encodeURIComponent(q)+'&limit=6',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
-        var rows=(d&&d.members)||[];
-        if(!rows.length){list.style.display='none';return;}
-        list.innerHTML=rows.map(function(m){return '<button type="button" data-mid="'+m.id+'" style="display:block;width:100%;text-align:left;padding:.4rem .6rem;border:0;background:transparent;color:#e2e8f0;cursor:pointer;border-bottom:1px solid rgba(148,163,184,.12);font-size:.72rem">'+famEsc(m.student_name||m.full_name_am)+' <span style="color:#94a3b8">'+famEsc(m.member_code||'')+'</span></button>';}).join('');
-        list.style.display='block';
-        Array.prototype.forEach.call(list.querySelectorAll('button[data-mid]'),function(b){ b.addEventListener('click',function(){
-          var mid=parseInt(b.getAttribute('data-mid'),10);
-          famPost('link',{guardian_id:gid,member_id:mid,relation:'other',contact_priority:1},function(){ list.style.display='none'; input.value=''; famRefreshCurrent(gid); });
-        });});
-      }).catch(function(){ list.style.display='none'; });
-    },250);
-  });
-  input.addEventListener('blur',function(){ setTimeout(function(){list.style.display='none';},180); });
-}
-var famCurrentGuardian=0;
-function famGet(gid, cb){ fetch('/admin/api_guardians.php?action=get&guardian_id='+encodeURIComponent(String(gid)),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){ if(d&&d.status==='success'&&d.guardian){ cb(d.guardian); } else { alert((d&&d.message)||'Guardian not found'); } }).catch(function(){ alert('Network error'); }); }
-function famRefreshCurrent(gid){ famGet(gid, famRenderGuardian); }
-function famUnlink(gid, mid){ if(!confirm('Remove this child from the guardian? (The member record itself is untouched.)'))return; famPost('unlink',{guardian_id:gid,member_id:mid},function(){ famRefreshCurrent(gid); }); }
-function famEdit(gid){ famGet(gid, function(g){
-  var name=prompt('Guardian name', g.display_name); if(name===null)return;
-  var p1=prompt('Primary phone', g.phone_primary||''); if(p1===null)return;
-  var p2=prompt('Alt phone', g.phone_alt||''); if(p2===null)return;
-  if(!name.trim()){ alert('Guardian name cannot be empty.'); return; }
-  famPost('update',{guardian_id:gid,display_name:name,phone_primary:p1,phone_alt:p2},function(){ famRefreshCurrent(gid); });
-});}
-function famAlias(gid){ var a=prompt('Alias / alternate spelling (Amharic variants welcome):'); if(!a)return; famPost('add_alias',{guardian_id:gid,alias_name:a},function(){ famRefreshCurrent(gid); }); }
-function famRunRematch(cursor, acc){
-  cursor=cursor||0; acc=acc||{scanned:0,filed:0};
-  var btn=document.getElementById('famRematchBtn');
-  if(cursor===0){ if(!confirm('Scan all guardians for probable duplicates? Nothing is merged automatically; findings go to this queue.')) return; }
-  btn.disabled=true; btn.textContent='Scanning… '+acc.scanned+' checked, '+acc.filed+' found';
-  famPost('run_rematch',{cursor:cursor},function(d){
-    if(!d||d.status!=='success'){ btn.disabled=false; btn.textContent='Run re-match now'; alert((d&&d.message)||'Sweep failed'); return; }
-    acc.scanned+=d.scanned; acc.filed+=d.filed;
-    if(!d.done && d.next_cursor>cursor){ famRunRematch(d.next_cursor, acc); return; }
-    btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-magnifying-glass-arrow-right"></i> Run re-match now';
-    alert('Re-match complete: '+acc.scanned+' guardians checked, '+acc.filed+' new suggestion(s) filed.');
-    famLoadQueue();
-  });
-}
-function famLoadQueue(){
-  fetch('/admin/api_guardians.php?action=list_suggestions',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
-    var box=document.getElementById('famQueue'); var rows=d.suggestions||[];
-    var badge=document.getElementById('famQueueBadge'); if(badge){ if(rows.length){ badge.textContent=rows.length; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); } }
-    if(!rows.length){ box.innerHTML='<div class="text-slate-500">Queue empty — no probable duplicates pending.</div>'; return; }
-    box.innerHTML=rows.map(function(s){
-      var a=s.guardian_a_row, b=s.guardian_b_row;
-      var ev={}; try{ ev=JSON.parse(s.evidence||'{}'); }catch(e){}
-      return '<div class="border border-amber-300/25 rounded-xl p-2.5 bg-amber-300/5">'
-        +'<div class="flex items-center justify-between gap-2"><div><b class="text-white">'+famEsc(a?a.display_name:'?')+'</b> <span class="text-slate-500">'+famEsc(a?a.phone_primary||'':'')+'</span>'
-        +' <span class="text-amber-300">≈ '+parseFloat(s.score).toFixed(2)+'</span> vs <b class="text-white">'+famEsc(b?b.display_name:'?')+'</b> <span class="text-slate-500">'+famEsc(b?b.phone_primary||'':'')+'</span></div>'
-        +'<div class="flex gap-1 shrink-0"><button type="button" class="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-400/30" onclick="famResolve('+s.id+',1)">Merge</button>'
-        +'<button type="button" class="px-2 py-1 rounded-lg bg-white/5 text-slate-300 border border-white/15" onclick="famResolve('+s.id+',0)">Keep separate</button></div></div>'
-        +'<div class="text-[10px] text-slate-400 mt-1">evidence: '+famEsc(JSON.stringify(ev))+'</div></div>';
-    }).join('');
-  });
-}
-function famResolve(sid, merge){ if(merge&&!confirm('Merge the second guardian into the first? Children move; the merge stays reversible.'))return;
-  famPost(merge?'merge_suggestion':'reject_suggestion',{suggestion_id:sid},function(){ famLoadQueue(); }); }
-function famClearPick(){ var i=document.getElementById('regGuardianLinkId'); if(i) i.value=0; var c=document.getElementById('regGuardianPicked'); if(c) c.style.display='none'; }
-document.addEventListener('DOMContentLoaded', function(){
-  if(window.GuardianPicker){
-    GuardianPicker.attach(document.getElementById('regGuardianPick'), document.getElementById('regGuardianPickList'), function(g){
-      document.getElementById('regGuardianLinkId').value=g.id;
-      var chip=document.getElementById('regGuardianPicked');
-      chip.style.display='block';
-      chip.innerHTML='Linked to existing guardian: <b>'+famEsc(g.display_name)+'</b> ('+famEsc(g.phone_primary||'no phone')+') — the typed guardian fields below are replaced by this record on save. <a href="#" onclick="famClearPick(); return false;" style="color:#f87171">clear</a>';
-    });
-    GuardianPicker.attach(document.getElementById('famQ'), document.getElementById('famQList'), function(g){ famCurrentGuardian=g.id; famRenderGuardian(g); });
-  }
-  famLoadQueue();
-});
-</script>
+<script src="/admin/js/guardian_picker.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
+<script src="/admin/js/family_link.js?v=<?= SSMS_ASSET_VER ?>"></script>
+
 <script src="/admin/js/new-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/id-card-directory.js" defer></script>
@@ -2997,11 +3012,14 @@ document.addEventListener('DOMContentLoaded', function(){
         document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
         const target = document.getElementById('section-' + name);
         if (target) target.classList.add('active');
-        if (name === 'manage') {
-            loadManageMembers();
+        if (name === 'manage' && typeof window.loadManageMembers === 'function') {
+            window.loadManageMembers();
         }
         if (name === 'newmembers') {
             if (typeof window.loadNewMembers === 'function') window.loadNewMembers();
+        }
+        if (name === 'family' && window.FamilyLink) {
+            FamilyLink.init();
         }
         if (name === 'submissions') {
             try { HrSub.init(); } catch (e) { console.error(e); }
@@ -3058,6 +3076,11 @@ document.addEventListener('DOMContentLoaded', function(){
         navigateToSection(sectionParam);
     } else {
         navigateToSection('dashboard');
+    }
+    const memberParam = parseInt(urlParams.get('member') || '0', 10);
+    if (memberParam > 0 && typeof openManageSheet === 'function') {
+        openManageSheet(memberParam);
+        const cleanUrl = new URL(window.location); cleanUrl.searchParams.delete('member'); history.replaceState(null, '', cleanUrl);
     }
 
     // Charts
@@ -3726,10 +3749,11 @@ document.addEventListener('DOMContentLoaded', function(){
         content.innerHTML = 'Loading...';
 
         const cacheBust = Date.now();
-        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(id) + '&v=' + cacheBust)
+        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(id) + '&embed=1&v=' + cacheBust)
             .then(res => res.text())
             .then(html => {
                 content.innerHTML = html;
+                if (window.MemberNav) MemberNav.afterLoad(id);
                 if (title) title.textContent = 'Member #' + id;
                 // Default to Preview tab
                 switchManageTab('preview');
@@ -3742,6 +3766,7 @@ document.addEventListener('DOMContentLoaded', function(){
     function closeManageSheet() {
         const sheet = document.getElementById('manageSheet');
         if (sheet) sheet.classList.remove('open');
+        if (window.MemberNav) MemberNav.reset();
     }
 
     // Archive action - Show verification modal

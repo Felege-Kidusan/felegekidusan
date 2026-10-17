@@ -326,5 +326,89 @@ check(ex.returncode == 0 and after == before + 1 and primary_of(ids[0]) == prima
 ex2 = cli("admin/tools/guardian_backfill.php", "--execute")
 check(int(one("SELECT COUNT(*) FROM guardians")) == after, "backfill re-run is a no-op")
 
+print("== 10. Family Link workspace API (UI overhaul)")
+st, j = api_get(sa, "stats")
+j = j.get("stats", j)
+check(st == 200 and {"guardians", "families_multi", "members_linked", "members_unlinked", "pending_reviews", "merged", "last_rematch"} <= set(j.keys()), "stats keys", str(j))
+check(int(j["guardians"]) == int(one("SELECT COUNT(*) FROM guardians WHERE status='active'")), "stats.guardians = active guardians", str(j["guardians"]))
+check(int(j["members_linked"]) == int(one("SELECT COUNT(DISTINCT member_id) FROM member_guardians")), "stats.members_linked = distinct linked members")
+check(j["last_rematch"] is not None, "stats.last_rematch stamped after sweeps")
+st, j = api_get(sa, "list_guardians", q="", filter="all", page=1)
+check(st == 200 and j["total"] >= 5 and all({"children_count", "children_names", "display_name"} <= set(r) for r in j["rows"]), "list_guardians rows carry children summary", str(j.get("total")))
+check(all(int(r["status"] == "merged") == 0 for r in j["rows"]), "list_guardians hides merged records")
+st, j = api_get(sa, "list_guardians", q="", filter="multi")
+check(st == 200 and j["rows"] and all(int(r["children_count"]) >= 2 for r in j["rows"]), "filter=multi -> only 2+ children")
+st, j = api_get(sa, "list_guardians", q="0911999", filter="all")
+check(st == 200 and [r for r in j["rows"] if int(r["id"]) == g1], "digit search matches by phone prefix")
+st, j = api_get(sa, "list_guardians", q="አስቴር", filter="all")
+check(st == 200 and [r for r in j["rows"] if int(r["id"]) == g4], "Amharic name search")
+st, j = api_get(sa, "list_guardians", q="Aster B.", filter="all")
+check(st == 200 and [r for r in j["rows"] if int(r["id"]) == g1], "alias search finds the guardian")
+st, j = api_get(sa, "list_guardians", q="", filter="nophone")
+check(st == 200 and all(not r["phone_primary"] for r in j["rows"]), "filter=nophone")
+
+# not linked yet + per-row attach + bounded batch
+sql("INSERT INTO members (full_name_am, student_name, father_name, gender, registration_type, member_type, status, membership_tier, guardian_name, guardian_phone1) VALUES ('Unlinked One','Unlinked','One','male','waiting','regular','active','permanent','Solomon Girma','0966000001'), ('Unlinked Two','Unlinked','Two','female','waiting','regular','active','permanent','Solomon Girma','0966000001'), ('Unlinked Three','Unlinked','Three','male','waiting','regular','active','permanent','Aster Bekele Haile','0911999999')")
+u1, u2, u3 = [int(x[0]) for x in sql("SELECT id FROM members WHERE full_name_am LIKE 'Unlinked %' ORDER BY id")]
+st, j = api_get(sa, "unlinked_members")
+ids_un = {int(r["id"]) for r in j["rows"]}
+check(st == 200 and {u1, u2, u3} <= ids_un and j["total"] >= 3, "unlinked_members lists legacy-only members", str(j.get("total")))
+st, j = api(sa, "attach_member", member_id=u3)
+check(st == 200 and j.get("mode") in ("auto", "synced") and primary_of(u3) == g1, "attach_member: same phone -> linked to the existing guardian", str(j))
+st, j = api(sa, "attach_member", member_id=u1, guardian_id=g2)
+check(st == 200 and primary_of(u1) == g2, "attach_member with explicit guardian_id links there", str(j))
+sql("INSERT INTO members (full_name_am, student_name, father_name, gender, registration_type, member_type, status, membership_tier, guardian_name, guardian_phone1) VALUES ('Orphan Record','Orphan','Record','male','waiting','regular','active','permanent','','')")
+u0 = int(one("SELECT id FROM members WHERE full_name_am='Orphan Record'"))
+st, j = api(sa, "attach_member", member_id=u0)
+check(st == 422 and links_of(u0) == [], "attach_member on a member with no guardian data -> 422, nothing created", str(j))
+before_g = int(one("SELECT COUNT(*) FROM guardians"))
+cursor, done, steps, created = 0, False, 0, 0
+while not done and steps < 20:
+    st, j = api(sa, "attach_batch", cursor=cursor)
+    assert st == 200, j
+    done, cursor, steps, created = j["done"], j["next_cursor"], steps + 1, created + j["created"]
+check(done and primary_of(u2) > 0, "attach_batch (in-browser backfill) links the remaining legacy member", str(j))
+check(int(one("SELECT COUNT(*) FROM guardians")) == before_g + 1 and created == 1, "attach_batch created exactly one guardian (Solomon Girma)")
+st, j = api_get(sa, "unlinked_members")
+check(st == 200 and not ({u1, u2, u3} & {int(r["id"]) for r in j["rows"]}), "unlinked list empties after linking")
+st, j = api(sa, "attach_batch", cursor=0)
+check(st == 200 and j["done"] and j["created"] == 0 and j["matched"] == 0, "attach_batch re-run is a no-op")
+
+# relation / primary
+st, j = api(sa, "set_relation", guardian_id=g1, member_id=u3, relation="mother")
+check(st == 200 and one(f"SELECT relation FROM member_guardians WHERE guardian_id={g1} AND member_id={u3}") == "mother", "set_relation updates relation")
+st, j = api(sa, "set_relation", guardian_id=g1, member_id=u3, is_primary=0)
+check(st == 422, "demoting the only primary guardian is refused (422)", str(j))
+st, j = api(sa, "link", guardian_id=g2, member_id=u3, relation="father")
+st, j = api(sa, "set_relation", guardian_id=g2, member_id=u3, is_primary=1)
+check(st == 200 and primary_of(u3) == g2 and member_legacy(u3)[0] == "Kebede Alemu", "set_relation is_primary=1 moves primary + legacy mirror follows", str(member_legacy(u3)))
+st, j = api(sa, "set_relation", guardian_id=g2, member_id=u3, relation="uncle")
+check(one(f"SELECT relation FROM member_guardians WHERE guardian_id={g2} AND member_id={u3}") == "father", "unknown relation value ignored (ENUM stays valid)", str(j))
+
+# alias removal, keep=b merge, activity
+st, j = api(sa, "add_alias", guardian_id=g2, alias_name="K. Alemu")
+st, j = api(sa, "remove_alias", guardian_id=g2, alias_name="K. Alemu")
+check(st == 200 and "K. Alemu" not in api_get(sa, "get", guardian_id=g2)[1]["guardian"]["aliases"], "remove_alias", str(j))
+st, j = api(sa, "create", display_name="Solomon Girma T.", phone_primary="0966000001")
+g8 = int(j["id"])
+api(sa, "run_rematch", cursor=0)
+sid3 = one(f"SELECT id FROM guardian_link_suggestions WHERE status='pending' AND (guardian_a={g8} OR guardian_b={g8}) ORDER BY id DESC LIMIT 1")
+check(sid3 not in (None, "", "NULL"), "re-match files the new phone-equal duplicate")
+st, q = api_get(sa, "list_suggestions")
+row = [x for x in q["suggestions"] if int(x["id"]) == int(sid3)][0]
+check(isinstance(row.get("guardian_a_row", {}).get("children"), list) and isinstance(row.get("guardian_b_row", {}).get("children"), list), "list_suggestions carries children for side-by-side compare")
+st, j = api(sa, "merge_suggestion", suggestion_id=int(sid3), keep="b")
+kept = int(row["guardian_b"]); lost = int(row["guardian_a"])
+check(st == 200 and guardian(lost)[3] == "merged" and int(guardian(lost)[4]) == kept, "merge_suggestion keep=b keeps record B", str(j))
+st, j = api_get(sa, "activity")
+check(st == 200 and j["rows"] and any("Guardian" in (r["action"] or "") for r in j["rows"]) and {"username", "action", "created_at"} <= set(j["rows"][0]), "activity feed lists guardian audit entries")
+check(any("Backfill" in (r["action"] or "") for r in j["rows"]), "attach_batch is audited as Guardian Backfill")
+for a in ("attach_member", "attach_batch", "set_relation", "remove_alias"):
+    st, j = api(info, a, member_id=u3, guardian_id=g2, cursor=0, alias_name="x")
+    check(st == 403, f"info_dept cannot {a} (403)")
+for a in ("stats", "list_guardians", "unlinked_members", "activity"):
+    st, j = api_get(info, a)
+    check(st == 200, f"info_dept can read {a}")
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

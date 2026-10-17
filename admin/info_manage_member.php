@@ -567,6 +567,24 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
 }
 .mm-save:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(5,150,105,.3); }
 .mm-save:disabled { opacity: .7; cursor: not-allowed; transform: none; }
+.mm-back-btn { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.35); border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600; cursor:pointer; margin-bottom:6px; }
+.mm-back-btn:hover { background:rgba(255,255,255,.3); }
+.mm-standalone-bar { display:flex; gap:14px; align-items:center; background:#fffbeb; border:1px solid #fde68a; color:#92400e; font-size:12px; padding:8px 14px; }
+.mm-standalone-bar a { color:#92400e; font-weight:700; text-decoration:underline; }
+.mm-fam-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid #f1f5f9; }
+.mm-fam-row:last-child { border-bottom:none; }
+.mm-fam-who { min-width:0; }
+.mm-fam-name { font-weight:700; color:#0f172a; font-size:13px; }
+.mm-fam-meta { font-size:11px; color:#64748b; }
+.mm-fam-tag { display:inline-block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#047857; background:#d1fae5; border-radius:999px; padding:1px 7px; margin-right:4px; }
+.mm-fam-tag-soft { color:#475569; background:#f1f5f9; }
+.mm-fam-btn { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:4px 9px; cursor:pointer; white-space:nowrap; }
+.mm-fam-btn:hover { background:#d1fae5; }
+.mm-fam-sib { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid #f1f5f9; text-decoration:none; color:inherit; }
+.mm-fam-sib:last-child { border-bottom:none; }
+.mm-fam-sib:hover .mm-fam-name { color:#047857; }
+.mm-fam-avatar { width:30px; height:30px; border-radius:10px; background:linear-gradient(135deg,#059669,#0ea5e9); color:#fff; font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.mm-fam-empty { font-size:12px; color:#64748b; background:#f8fafc; border:1px dashed #e2e8f0; border-radius:10px; padding:10px 12px; }
 /* ── MOBILE RESPONSIVE ── */
 @media (max-width: 768px) {
     .mm-wrap { font-size: 14px; }
@@ -600,6 +618,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                 <?php endif; ?>
             </div>
             <div class="mm-hdr-info">
+                <button type="button" id="mmBackBtn" class="mm-back-btn" style="display:none" onclick="return window.MemberNav ? MemberNav.back() : false;"><i class="fas fa-arrow-left"></i> <span data-label>Back to previous member</span></button>
                 <div class="mm-hdr-name"><?= e($m['student_name'] . ' ' . $m['father_name']) ?></div>
                 <div class="mm-hdr-id">
                     <?php if ($m['member_code']): ?>
@@ -613,6 +632,16 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
             <span class="mm-tier-badge mm-tier-<?= e($m['membership_tier'] ?? 'temporary') ?>"><?= ucfirst($m['membership_tier'] ?? 'temporary') ?></span>
         </div>
     </div>
+
+    <?php if (empty($_GET['embed'])): ?>
+    <!-- Opened outside the dashboard (direct link / old bookmark): hand over to the dashboard, which loads this profile in its panel -->
+    <div class="mm-standalone-bar">
+        <span><i class="fas fa-circle-info"></i> Opening this member inside the dashboard…</span>
+        <a href="/admin/dashboard.php?member=<?= (int)$m['id'] ?>"><i class="fas fa-arrow-right"></i> Continue</a>
+        <a href="javascript:history.back()"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+    <script>try { window.location.replace('/admin/dashboard.php?member=<?= (int)$m['id'] ?>'); } catch (e) {}</script>
+    <?php endif; ?>
 
     <!-- Tabs - IDs MUST be: tab-preview, tab-edit -->
     <div class="mm-tabs">
@@ -752,7 +781,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                 </div>
             </div>
 
-            <!-- Family Link (guardian records + siblings; HR manages links in HR → Family Link) -->
+            <!-- Family Link (guardian records + siblings). Links stay inside the dashboard panel via MemberNav. -->
             <?php
             $famGuardians = [];
             $famSiblings = [];
@@ -764,6 +793,10 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                 $famGuardians = [];
                 $famSiblings = [];
             }
+            $famCanManage = in_array((string)($_SESSION['admin_role'] ?? ''), ['super_admin', 'school_admin', 'hr_dept'], true);
+            $famRelLabel = static function (string $r): string {
+                return $r === 'father' ? 'Father' : ($r === 'mother' ? 'Mother' : 'Guardian');
+            };
             ?>
             <div class="mm-card">
                 <div class="mm-card-hdr">
@@ -772,16 +805,44 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                 </div>
                 <div class="mm-card-body">
                     <?php if (!$famGuardians): ?>
-                        <div class="mm-info-row"><span class="mm-info-label">Guardian record</span><span class="mm-info-value" style="color:#94a3b8">Not linked yet — saving guardian details links it automatically.</span></div>
+                        <div class="mm-fam-empty">
+                            <?php if (trim((string)($m['guardian_name'] ?? '')) !== ''): ?>
+                                <b><?= e($m['guardian_name']) ?></b> is typed on this record but has no guardian record yet, so siblings cannot be shown.
+                                <?php if ($famCanManage): ?><div style="margin-top:6px"><a href="/admin/dashboard.php?section=family" class="mm-fam-btn" onclick="if(window.FamilyLink&&window.navigateToSection){closeManageSheet();navigateToSection('family');FamilyLink.go('unlinked');return false;}"><i class="fas fa-link"></i> Link it in Family Link → Not linked yet</a></div><?php endif; ?>
+                            <?php else: ?>
+                                No guardian details on this record. Add the guardian's name and phone in <b>Edit</b> — a guardian record is created and siblings are detected automatically.
+                            <?php endif; ?>
+                        </div>
                     <?php else: foreach ($famGuardians as $famG): ?>
-                        <div class="mm-info-row"><span class="mm-info-label"><?= esc(ucfirst((string)$famG['relation'])) ?><?= (int)$famG['is_primary'] === 1 ? ' ★' : '' ?></span><span class="mm-info-value"><?= esc((string)$famG['display_name']) ?><?= trim((string)($famG['phone_primary'] ?? '')) !== '' ? ' · ' . esc((string)$famG['phone_primary']) : '' ?><?= !empty($famG['aliases']) ? ' <span style="color:#94a3b8">(aka ' . esc(implode(', ', $famG['aliases'])) . ')</span>' : '' ?></span></div>
+                        <div class="mm-fam-row">
+                            <div class="mm-fam-who">
+                                <div class="mm-fam-name"><?= e((string)$famG['display_name']) ?></div>
+                                <div class="mm-fam-meta">
+                                    <span class="mm-fam-tag <?= (int)$famG['is_primary'] === 1 ? '' : 'mm-fam-tag-soft' ?>" title="<?= (int)$famG['is_primary'] === 1 ? 'Primary contact — this phone is shown on the member record' : 'Additional guardian' ?>"><?= e($famRelLabel((string)$famG['relation'])) ?><?= (int)$famG['is_primary'] === 1 ? ' · primary' : '' ?></span>
+                                    <?= trim((string)($famG['phone_primary'] ?? '')) !== '' ? '<i class="fas fa-phone" style="color:#94a3b8"></i> ' . e((string)$famG['phone_primary']) : '<span style="color:#d97706">no phone</span>' ?>
+                                    <?= trim((string)($famG['phone_alt'] ?? '')) !== '' ? ' · ' . e((string)$famG['phone_alt']) : '' ?>
+                                    <?= !empty($famG['aliases']) ? '<div>aka ' . e(implode(', ', $famG['aliases'])) . '</div>' : '' ?>
+                                </div>
+                            </div>
+                            <?php if ($famCanManage): ?>
+                                <a href="/admin/dashboard.php?section=family&guardian=<?= (int)$famG['id'] ?>" class="mm-fam-btn" title="Open this guardian in Family Link: edit details once for all children, add or remove children, merge duplicates" onclick="return window.MemberNav ? MemberNav.manageFamily(<?= (int)$famG['id'] ?>) : true;"><i class="fas fa-people-roof"></i> Manage family</a>
+                            <?php endif; ?>
+                        </div>
                     <?php endforeach; endif; ?>
-                    <div class="mm-info-row"><span class="mm-info-label">Siblings</span><span class="mm-info-value">
-                        <?php if (!$famSiblings): ?><span style="color:#94a3b8">None linked</span>
-                        <?php else: foreach ($famSiblings as $famS): ?>
-                            <a href="/admin/info_manage_member.php?id=<?= (int)$famS['id'] ?>" style="text-decoration:underline"><?= esc((string)($famS['student_name'] ?: $famS['full_name_am'])) ?></a><?= trim((string)($famS['current_section'] ?? '')) !== '' ? ' (' . esc((string)$famS['current_section']) . ')' : '' ?><?= $famS !== end($famSiblings) ? ', ' : '' ?>
-                        <?php endforeach; endif; ?>
-                    </span></div>
+
+                    <div style="margin-top:10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em">Siblings<?= $famSiblings ? ' (' . count($famSiblings) . ')' : '' ?></div>
+                    <?php if (!$famSiblings): ?>
+                        <div class="mm-fam-meta" style="margin-top:4px"><?= $famGuardians ? 'No other member is linked to this guardian yet.' : '—' ?></div>
+                    <?php else: foreach ($famSiblings as $famS): $famSName = (string)($famS['student_name'] ?: $famS['full_name_am']); ?>
+                        <a class="mm-fam-sib" href="/admin/dashboard.php?member=<?= (int)$famS['id'] ?>" onclick="return window.MemberNav ? MemberNav.go(<?= (int)$m['id'] ?>, <?= (int)$famS['id'] ?>) : true;" title="Open <?= e($famSName) ?>'s profile (you can come back with the Back button)">
+                            <div class="mm-fam-avatar"><?= e(mb_strtoupper(mb_substr(trim($famSName), 0, 1, 'UTF-8'), 'UTF-8')) ?></div>
+                            <div class="mm-fam-who">
+                                <div class="mm-fam-name"><?= e($famSName) ?></div>
+                                <div class="mm-fam-meta"><?= e((string)($famS['member_code'] ?: 'no code yet')) ?><?= trim((string)($famS['current_section'] ?? '')) !== '' ? ' · ' . e((string)$famS['current_section']) : '' ?></div>
+                            </div>
+                            <i class="fas fa-chevron-right" style="margin-left:auto;color:#cbd5e1"></i>
+                        </a>
+                    <?php endforeach; endif; ?>
                 </div>
             </div>
 

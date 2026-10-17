@@ -571,7 +571,7 @@ class GuardianService
     public static function childrenOf(\mysqli $conn, int $guardianId, int $limit = 50): array
     {
         $kids = [];
-        $s = $conn->prepare('SELECT m.id, m.member_code, m.student_name, m.full_name_am, m.current_section, mg.relation, mg.is_primary FROM member_guardians mg JOIN members m ON m.id = mg.member_id WHERE mg.guardian_id = ? ORDER BY m.student_name LIMIT ' . max(1, (int)$limit));
+        $s = $conn->prepare('SELECT m.id, m.member_code, m.student_name, m.full_name_am, m.current_section, m.status, m.gender, mg.relation, mg.contact_priority, mg.is_primary FROM member_guardians mg JOIN members m ON m.id = mg.member_id WHERE mg.guardian_id = ? ORDER BY m.student_name LIMIT ' . max(1, (int)$limit));
         if ($s) {
             $s->bind_param('i', $guardianId);
             $s->execute();
@@ -582,5 +582,216 @@ class GuardianService
             $s->close();
         }
         return $kids;
+    }
+
+    // ── Family Link page data ────────────────────────────────────────
+    public static function stats(\mysqli $conn): array
+    {
+        $q = function (string $sql) use ($conn) {
+            $r = $conn->query($sql);
+            $row = $r ? $r->fetch_row() : null;
+            return $row ? (string)$row[0] : '0';
+        };
+        return [
+            'guardians' => (int)$q("SELECT COUNT(*) FROM guardians WHERE status = 'active'"),
+            'families_multi' => (int)$q("SELECT COUNT(*) FROM (SELECT guardian_id FROM member_guardians GROUP BY guardian_id HAVING COUNT(*) >= 2) t"),
+            'members_linked' => (int)$q("SELECT COUNT(DISTINCT member_id) FROM member_guardians"),
+            'members_unlinked' => (int)$q("SELECT COUNT(*) FROM members m WHERE m.status != 'archived' AND TRIM(COALESCE(m.guardian_name,'')) != '' AND NOT EXISTS (SELECT 1 FROM member_guardians mg WHERE mg.member_id = m.id)"),
+            'members_no_guardian' => (int)$q("SELECT COUNT(*) FROM members m WHERE m.status != 'archived' AND TRIM(COALESCE(m.guardian_name,'')) = '' AND NOT EXISTS (SELECT 1 FROM member_guardians mg WHERE mg.member_id = m.id)"),
+            'pending_reviews' => (int)$q("SELECT COUNT(*) FROM guardian_link_suggestions WHERE status = 'pending'"),
+            'merged' => (int)$q("SELECT COUNT(*) FROM guardians WHERE status = 'merged'"),
+            'last_rematch' => $q("SELECT COALESCE(MAX(created_at), '') FROM activity_logs WHERE action = 'Guardian Rematch'"),
+        ];
+    }
+
+    /**
+     * Paged guardian browser. $filter: all | multi | nophone | recent | single
+     * @return array{rows: array, total: int, page: int, pages: int}
+     */
+    public static function listGuardians(\mysqli $conn, string $q = '', string $filter = 'all', int $page = 1, int $per = 20): array
+    {
+        $q = trim($q);
+        $per = max(5, min(50, $per));
+        $page = max(1, $page);
+        $where = ["g.status != 'merged'"];
+        $types = '';
+        $vals = [];
+        if ($q !== '') {
+            $digits = preg_replace('/\D+/', '', $q);
+            $digits = is_string($digits) ? $digits : '';
+            if (strlen($digits) >= 4) {
+                if (strpos($digits, '251') === 0 && strlen($digits) > 5) {
+                    $digits = substr($digits, 3);
+                } elseif (strpos($digits, '0') === 0) {
+                    $digits = ltrim($digits, '0');
+                }
+                $like = '%' . substr($digits, -9) . '%';
+                $where[] = '(g.phone_primary_n9 LIKE ? OR g.phone_alt_n9 LIKE ?)';
+                $types .= 'ss';
+                $vals[] = $like;
+                $vals[] = $like;
+            } else {
+                $like = '%' . GuardianMatchService::normalizeName($q) . '%';
+                $where[] = '(g.display_name LIKE ? OR EXISTS (SELECT 1 FROM guardian_aliases al WHERE al.guardian_id = g.id AND al.alias_name LIKE ?))';
+                $types .= 'ss';
+                $vals[] = $like;
+                $vals[] = $like;
+            }
+        }
+        $having = '';
+        switch ($filter) {
+            case 'multi':
+                $having = 'HAVING children_count >= 2';
+                break;
+            case 'single':
+                $having = 'HAVING children_count = 1';
+                break;
+            case 'orphan':
+                $having = 'HAVING children_count = 0';
+                break;
+            case 'nophone':
+                $where[] = "(g.phone_primary IS NULL OR g.phone_primary = '')";
+                break;
+            case 'recent':
+                $where[] = 'g.updated_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
+                break;
+        }
+        $w = implode(' AND ', $where);
+        $base = "FROM guardians g WHERE {$w}";
+        $countSql = "SELECT COUNT(*) FROM (SELECT g.id, (SELECT COUNT(*) FROM member_guardians mg WHERE mg.guardian_id = g.id) AS children_count {$base} {$having}) t";
+        $st = $conn->prepare($countSql);
+        if (!$st) {
+            return ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1];
+        }
+        if ($types !== '') {
+            $st->bind_param($types, ...$vals);
+        }
+        $st->execute();
+        $total = (int)($st->get_result()->fetch_row()[0] ?? 0);
+        $st->close();
+        $pages = max(1, (int)ceil($total / $per));
+        $page = min($page, $pages);
+        $off = ($page - 1) * $per;
+        $sql = "SELECT g.id, g.display_name, g.phone_primary, g.phone_alt, g.city, g.sub_city, g.status, g.source, g.updated_at,
+                (SELECT COUNT(*) FROM member_guardians mg WHERE mg.guardian_id = g.id) AS children_count,
+                (SELECT GROUP_CONCAT(COALESCE(NULLIF(m.student_name,''), m.full_name_am) ORDER BY m.student_name SEPARATOR ', ') FROM member_guardians mg JOIN members m ON m.id = mg.member_id WHERE mg.guardian_id = g.id) AS children_names
+                {$base} {$having} ORDER BY g.updated_at DESC, g.id DESC LIMIT {$per} OFFSET {$off}";
+        $st = $conn->prepare($sql);
+        $rows = [];
+        if ($st) {
+            if ($types !== '') {
+                $st->bind_param($types, ...$vals);
+            }
+            $st->execute();
+            $r = $st->get_result();
+            while ($x = $r->fetch_assoc()) {
+                $rows[] = $x;
+            }
+            $st->close();
+        }
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
+    }
+
+    /** Members that carry a legacy guardian name but have no guardian link yet. */
+    public static function unlinkedMembers(\mysqli $conn, int $page = 1, int $per = 25, int $afterId = 0): array
+    {
+        $per = max(5, min(100, $per));
+        $page = max(1, $page);
+        $cond = "m.status != 'archived' AND TRIM(COALESCE(m.guardian_name,'')) != '' AND NOT EXISTS (SELECT 1 FROM member_guardians mg WHERE mg.member_id = m.id)";
+        $r = $conn->query("SELECT COUNT(*) FROM members m WHERE {$cond}");
+        $total = $r ? (int)$r->fetch_row()[0] : 0;
+        $pages = max(1, (int)ceil($total / $per));
+        $page = min($page, $pages);
+        $off = ($page - 1) * $per;
+        $extra = $afterId > 0 ? " AND m.id > " . (int)$afterId : '';
+        $order = $afterId > 0 ? 'ORDER BY m.id ASC' : 'ORDER BY m.id DESC';
+        $limit = $afterId > 0 ? "LIMIT {$per}" : "LIMIT {$per} OFFSET {$off}";
+        $rows = [];
+        $res = $conn->query("SELECT m.id, m.member_code, m.student_name, m.full_name_am, m.current_section, m.guardian_name, m.guardian_phone1, m.guardian_phone2 FROM members m WHERE {$cond}{$extra} {$order} {$limit}");
+        if ($res) {
+            while ($x = $res->fetch_assoc()) {
+                $rows[] = $x;
+            }
+        }
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
+    }
+
+    /**
+     * Bounded in-browser backfill: attach up to $limit unlinked members
+     * (match-or-create) within $budget seconds. Cursor-resumable by member id.
+     * @return array{processed:int, created:int, matched:int, failed:int, next_cursor:int, done:bool, remaining:int}
+     */
+    public static function attachBatch(\mysqli $conn, int $cursor = 0, int $limit = 40, float $budget = 15.0): array
+    {
+        $t0 = microtime(true);
+        $batch = self::unlinkedMembers($conn, 1, $limit, $cursor);
+        $processed = $created = $matched = $failed = 0;
+        $last = $cursor;
+        foreach ($batch['rows'] as $m) {
+            if ((microtime(true) - $t0) > $budget) {
+                break;
+            }
+            $last = (int)$m['id'];
+            try {
+                $r = self::attachFromLegacy($conn, (int)$m['id'], 0, 'backfill');
+                $processed++;
+                if ($r['mode'] === 'created') {
+                    $created++;
+                } elseif ($r['mode'] === 'auto' || $r['mode'] === 'synced') {
+                    $matched++;
+                }
+            } catch (\Throwable $e) {
+                $failed++;
+                error_log('attachBatch member ' . $m['id'] . ': ' . $e->getMessage());
+            }
+        }
+        $remaining = self::unlinkedMembers($conn, 1, 5, $last)['rows'];
+        $done = count($remaining) === 0;
+        $after = self::stats($conn)['members_unlinked'];
+        return ['processed' => $processed, 'created' => $created, 'matched' => $matched, 'failed' => $failed, 'next_cursor' => $last, 'done' => $done, 'remaining' => $after, 'elapsed' => round(microtime(true) - $t0, 2)];
+    }
+
+    /** Recent Family Link audit entries. */
+    public static function activity(\mysqli $conn, int $limit = 40): array
+    {
+        $out = [];
+        $limit = max(5, min(200, $limit));
+        $r = $conn->query("SELECT id, username, action, details, created_at FROM activity_logs WHERE action LIKE 'Guardian%' OR action LIKE 'Suggestion%' ORDER BY id DESC LIMIT {$limit}");
+        if ($r) {
+            while ($x = $r->fetch_assoc()) {
+                $out[] = $x;
+            }
+        }
+        return $out;
+    }
+
+    /** Change relation / primary flag of an existing link. */
+    public static function setRelation(\mysqli $conn, int $guardianId, int $memberId, string $relation, ?bool $isPrimary): void
+    {
+        $st = $conn->prepare('SELECT relation, contact_priority, is_primary FROM member_guardians WHERE member_id = ? AND guardian_id = ?');
+        if (!$st) {
+            throw new \RuntimeException('prepare failed');
+        }
+        $st->bind_param('ii', $memberId, $guardianId);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+        if (!$row) {
+            throw new \InvalidArgumentException('That member is not linked to this guardian.');
+        }
+        if (!in_array($relation, ['father', 'mother', 'other'], true)) {
+            $relation = (string)$row['relation'];
+        }
+        $primary = $isPrimary === null ? ((int)$row['is_primary'] === 1) : $isPrimary;
+        if (!$primary && (int)$row['is_primary'] === 1) {
+            // demoting the only primary is not allowed; pick another explicitly
+            $cnt = (int)$conn->query('SELECT COUNT(*) FROM member_guardians WHERE member_id = ' . (int)$memberId)->fetch_row()[0];
+            if ($cnt <= 1) {
+                throw new \InvalidArgumentException('A member must keep one primary guardian. Mark another guardian as primary instead.');
+            }
+        }
+        self::linkMember($conn, $guardianId, $memberId, $relation, (int)$row['contact_priority'], $primary, false);
+        self::ensurePrimary($conn, $memberId);
+        self::audit($conn, 'Guardian Linked', "Member {$memberId} ↔ guardian {$guardianId}: relation {$relation}" . ($primary ? ', primary' : '') . '.');
     }
 }

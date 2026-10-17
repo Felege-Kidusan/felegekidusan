@@ -2693,6 +2693,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
     } else {
         navigateToSection('dashboard');
     }
+    const memberParam = parseInt(urlParams.get('member') || '0', 10);
+    if (memberParam > 0 && typeof openManageSheet === 'function') {
+        openManageSheet(memberParam);
+        const cleanUrl = new URL(window.location); cleanUrl.searchParams.delete('member'); history.replaceState(null, '', cleanUrl);
+    }
 
     // Charts
     document.addEventListener('DOMContentLoaded', () => {
@@ -3251,10 +3256,11 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
         content.innerHTML = 'Loading...';
 
         const cacheBust = Date.now();
-        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(id) + '&v=' + cacheBust)
+        fetch('/admin/info_manage_member.php?id=' + encodeURIComponent(id) + '&embed=1&v=' + cacheBust)
             .then(res => res.text())
             .then(html => {
                 content.innerHTML = html;
+                if (window.MemberNav) MemberNav.afterLoad(id);
                 if (title) title.textContent = 'Member #' + id;
                 // Default to Preview tab
                 switchManageTab('preview');
@@ -3267,6 +3273,7 @@ $nextMemberCode = isset($conn) ? generate_next_member_code($conn) : '0001';
     function closeManageSheet() {
         const sheet = document.getElementById('manageSheet');
         if (sheet) sheet.classList.remove('open');
+        if (window.MemberNav) MemberNav.reset();
     }
 
     // Archive action - Show verification modal
@@ -4742,5 +4749,6 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 <?php include __DIR__ . '/../components/comm/comm_section.php'; ?>
+<script src="/admin/js/member_nav.js?v=<?= SSMS_ASSET_VER ?>"></script>
 </body>
 </html>
