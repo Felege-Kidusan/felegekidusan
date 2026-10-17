@@ -30,6 +30,15 @@ if (($_SESSION['admin_role'] ?? '') !== 'super_admin') {
     exit;
 }
 
+// Telegram-style parallel part uploads: release the session lock immediately
+// after authentication so concurrent chunk POSTs are not serialized behind a
+// single stalled request (PHP's default session handler holds an exclusive
+// lock per session for the whole request otherwise). $_SESSION stays readable
+// in memory for the audit entries below; only the lock is dropped.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : 'get_release';
 
 // 2. Validate CSRF for all POST / write requests

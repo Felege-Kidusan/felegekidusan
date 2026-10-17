@@ -1,14 +1,21 @@
 /**
  * Super Admin — Mobile App Release Management UI Module
- * Production-grade Resumable Chunked APK Upload Engine with
+ * Telegram-style parallel part-pool APK upload engine (512 KB parts,
+ * 4-way sliding window, per-part deadlines/retries, resumable) with
  * Real-time State Handling & cPanel Fault-Tolerance.
  */
 (function (window, document) {
   'use strict';
 
   var API_URL = '/admin/api_app_release.php';
-  var CHUNK_SIZE = 1 * 1024 * 1024; // 1MB per chunk — stays safely under common 2M PHP upload limits
-  var MAX_CHUNK_RETRIES = 12;
+  // Telegram-style part-pool transfer (modelled on MTProto upload.saveFilePart,
+  // core.telegram.org/api/files): fixed 512 KB parts, a sliding window of
+  // parallel part requests, per-part deadlines and independent retries.
+  var PART_SIZE = 512 * 1024;       // 512 KB — Telegram's recommended part quantum
+  var POOL_SIZE = 4;                // parts always in flight (parallel call queue)
+  var PART_DEADLINE_MS = 45000;     // a stalled part is aborted and retried alone
+  var MAX_PART_RETRIES = 8;
+  var WATCHDOG_MS = 60000;          // no ack at all in this window => visible diagnostics
 
   // Upload State Machine
   var currentUpload = {
@@ -26,7 +33,17 @@
     speedBps: 0,
     xhr: null,
     aborted: false,
-    resumable: null,
+    partsAcked: {},
+    partRetries: {},
+    controllers: {},
+    ackedBytes: 0,
+    ackedCount: 0,
+    inFlight: 0,
+    nextPart: 0,
+    base64Only: false,
+    watchdog: null,
+    lastAckAt: 0,
+    lastErrorText: '',
     fallbackActive: false
   };
 
@@ -173,7 +190,7 @@
 
       currentUpload.file = file;
       currentUpload.state = 'selected';
-      currentUpload.totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+      currentUpload.totalChunks = Math.max(1, Math.ceil(file.size / PART_SIZE));
       currentUpload.uploadId = generateUploadId();
 
       var abiSelect = document.getElementById('upload-abi-select');
@@ -212,7 +229,7 @@
 
             if (nameEl) nameEl.textContent = currentUpload.file ? currentUpload.file.name : '';
             if (sizeEl) sizeEl.textContent = currentUpload.file ? formatBytes(currentUpload.file.size) : '';
-            if (chunksEl) chunksEl.textContent = currentUpload.totalChunks + ' chunks (' + formatBytes(CHUNK_SIZE) + ' / chunk)';
+            if (chunksEl) chunksEl.textContent = currentUpload.totalChunks + ' parts (' + formatBytes(PART_SIZE) + ' / part)';
             if (abiEl) abiEl.textContent = currentUpload.abi === 'universal' ? 'Universal APK' : currentUpload.abi;
           }
           break;
@@ -244,7 +261,7 @@
         var fileInput = document.getElementById('upload-apk-input');
         if (fileInput && fileInput.files && fileInput.files[0]) {
           currentUpload.file = fileInput.files[0];
-          currentUpload.totalChunks = Math.max(1, Math.ceil(fileInput.files[0].size / CHUNK_SIZE));
+          currentUpload.totalChunks = Math.max(1, Math.ceil(fileInput.files[0].size / PART_SIZE));
           currentUpload.uploadId = generateUploadId();
         }
       }
@@ -270,111 +287,36 @@
       this.beginTransfer();
     },
 
-    // ── Transfer engine ────────────────────────────────────────────────
-    // Primary: Resumable.js (mature chunked/resumable sender with built-in
-    // retry backoff, per-chunk resume and cross-session recovery via the
-    // server-side GET chunk test). Emergency: legacy sequential XHR sender
-    // in base64 text mode, which survives WAF rules that kill binary
-    // multipart bodies. The server stores both into the same chunk store.
+
+    // ── Transfer engine — Telegram-style part pool ──────────────────
+    // Clones MTProto's upload strategy (core.telegram.org/api/files):
+    //   * the file is split into fixed 512 KB parts, each its own request;
+    //   * a sliding window keeps POOL_SIZE parts in flight at all times —
+    //     every ack immediately launches the next part (parallel call queue);
+    //   * each part carries its own deadline: a stalled request is aborted
+    //     and THAT PART alone is retried, so one dead connection can never
+    //     freeze the transfer (the old sequential engine died this way);
+    //   * resume = ask the server which parts already exist and send only
+    //     the missing ones (survives page reloads and browser restarts).
     beginTransfer: function () {
+      var self = this;
       currentUpload.fallbackActive = false;
-      if (typeof Resumable !== 'undefined') {
-        this.startResumableSender();
-      } else {
-        // CDN unavailable — go straight to the resilient built-in sender.
-        this.switchToFallback('Resumable.js not loaded; using built-in sender.');
-      }
-    },
+      currentUpload.base64Only = false;
+      currentUpload.partsAcked = {};
+      currentUpload.ackedBytes = 0;
+      currentUpload.ackedCount = 0;
+      currentUpload.nextPart = 0;
+      currentUpload.inFlight = 0;
+      currentUpload.partRetries = {};
+      currentUpload.controllers = {};
+      currentUpload.lastAckAt = Date.now();
+      currentUpload.lastErrorText = '';
 
-    startResumableSender: function () {
-      var self = this;
-      var r = new Resumable({
-        target: API_URL + '?action=upload_chunk',
-        chunkSize: CHUNK_SIZE,
-        simultaneousUploads: 1, // sequential = most stable on poor links
-        maxChunkRetries: MAX_CHUNK_RETRIES,
-        chunkRetryInterval: 2500,
-        fileParameterName: 'chunk_file',
-        testMethod: 'GET',
-        withCredentials: true,
-        headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-        query: {
-          action: 'upload_chunk',
-          csrf_token: getCsrfToken(),
-          abi: currentUpload.abi
-        },
-        permanentErrors: [401, 409, 415, 501],
-        // resumable.js identifier is stable per (size,name) so a retry after
-        // a page reload resumes from the chunks already on the server.
-      });
-      currentUpload.resumable = r;
-
-      r.on('fileAdded', function (file) {
-        currentUpload.uploadId = String(file.uniqueIdentifier);
-      });
-      r.on('fileProgress', function (file) { self.paintProgress(file); });
-      r.on('progress', function () {
-        if (currentUpload.resumable && currentUpload.resumable.files.length) {
-          self.paintProgress(currentUpload.resumable.files[0]);
-        }
-      });
-      r.on('fileRetry', function (file, message) {
-        self.noteRetry(message);
-      });
-      r.on('fileSuccess', function () {
-        currentUpload.resumable = null;
-        self.assembleChunksOnServer();
-      });
-      r.on('fileError', function (file, message) {
-        if (currentUpload.aborted) return;
-        self.switchToFallback(message || 'Chunk transfer failed.');
-      });
-
-      r.addFile(currentUpload.file);
-      r.upload();
-    },
-
-    paintProgress: function (file) {
-      if (!file || currentUpload.state !== 'uploading') return;
-      var total = currentUpload.file.size;
-      var frac = typeof file.progress === 'function' ? file.progress() : 0;
-      var loaded = Math.min(total, Math.floor(frac * total));
-      var pct = Math.min(99, Math.round((loaded / total) * 100));
-
-      var now = Date.now();
-      var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
-      if (timeDiff >= 0.5) {
-        currentUpload.speedBps = (loaded - currentUpload.lastLoadedBytes) / timeDiff;
-        currentUpload.lastSpeedUpdate = now;
-        currentUpload.lastLoadedBytes = loaded;
-      }
-      var remaining = Math.max(0, total - loaded);
-      var eta = currentUpload.speedBps > 0 ? remaining / currentUpload.speedBps : 0;
-      var chunkNum = Math.min(currentUpload.totalChunks, Math.floor(loaded / CHUNK_SIZE) + 1);
-      AppReleaseUI.updateProgressDisplay(pct, loaded, total, chunkNum, currentUpload.totalChunks, currentUpload.speedBps, eta);
-    },
-
-    noteRetry: function (message) {
       var label = document.getElementById('upload-status-subtext');
-      if (!label) return;
-      var snippet = message ? String(message).slice(0, 140) : '';
-      label.innerHTML = '<span style="color:#fbbf24"><i class="fa-solid fa-rotate fa-spin"></i> Unstable connection — retrying chunk ' +
-        (currentUpload.currentChunkIndex + 1) + ' (' + escapeHtml(snippet) + ')</span>';
-    },
+      if (label) {
+        label.innerHTML = '<span style="color:#38bdf8"><i class="fa-solid fa-satellite-dish"></i> Checking server for already-received parts…</span>';
+      }
 
-    // Ask the server which chunks it already has, then continue with the
-    // base64 text-mode sender from the first missing chunk.
-    switchToFallback: function (reason) {
-      if (currentUpload.aborted) return;
-      if (currentUpload.fallbackActive) {
-        this.showUploadError('Upload failed in resilient mode: ' + reason);
-        return;
-      }
-      var self = this;
-      if (currentUpload.resumable) {
-        try { currentUpload.resumable.cancel(); } catch (e) {}
-        currentUpload.resumable = null;
-      }
       var formData = new FormData();
       formData.append('action', 'upload_status');
       formData.append('upload_id', currentUpload.uploadId);
@@ -387,116 +329,234 @@
         credentials: 'same-origin',
         body: formData
       })
-      .then(function (res) { return res.json(); })
-      .then(function (res) {
-        var firstMissing = 0;
-        if (res && res.status === 'success' && res.data && res.data.missing && res.data.missing.length) {
-          firstMissing = res.data.missing[0];
-        } else if (res && res.status === 'success' && res.data && res.data.missing && res.data.missing.length === 0) {
-          self.assembleChunksOnServer();
-          return;
-        }
-        currentUpload.fallbackActive = true;
-        currentUpload.currentChunkIndex = firstMissing;
-        currentUpload.chunkRetries = 0;
-        var label = document.getElementById('upload-status-subtext');
-        if (label) {
-          label.innerHTML = '<span style="color:#38bdf8"><i class="fa-solid fa-shield-halved"></i> Resilient text-mode transfer from chunk ' + (firstMissing + 1) + ' (' + escapeHtml(String(reason).slice(0, 90)) + ')</span>';
-        }
-        self.legacySendChunk();
-      })
-      .catch(function (err) {
-        self.showUploadError('Cannot query upload state: ' + (err.message || err));
-      });
+        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (res && res.status === 'success' && res.data && Array.isArray(res.data.received)) {
+            res.data.received.forEach(function (idx) { self.markPartAcked(Number(idx), true); });
+          }
+          self.startWorkers();
+        })
+        .catch(function () { self.startWorkers(); });
     },
 
-    legacySendChunk: function () {
-      if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
-      var self = this;
+    partBytes: function (idx) {
+      var start = idx * PART_SIZE;
+      return Math.max(0, Math.min(PART_SIZE, currentUpload.file.size - start));
+    },
 
-      if (currentUpload.currentChunkIndex >= currentUpload.totalChunks) {
-        this.assembleChunksOnServer();
+    markPartAcked: function (idx, silent) {
+      if (currentUpload.partsAcked[idx]) return;
+      currentUpload.partsAcked[idx] = 1;
+      currentUpload.ackedCount++;
+      currentUpload.ackedBytes += this.partBytes(idx);
+      if (!silent) {
+        currentUpload.lastAckAt = Date.now();
+        var now = Date.now();
+        var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
+        if (timeDiff >= 0.5) {
+          currentUpload.speedBps = (currentUpload.ackedBytes - currentUpload.lastLoadedBytes) / timeDiff;
+          currentUpload.lastSpeedUpdate = now;
+          currentUpload.lastLoadedBytes = currentUpload.ackedBytes;
+        }
+        this.paintProgress();
+      }
+    },
+
+    paintProgress: function () {
+      var total = currentUpload.file.size;
+      var loaded = currentUpload.ackedBytes;
+      var pct = Math.min(99, Math.round((loaded / total) * 100));
+      var remaining = Math.max(0, total - loaded);
+      var eta = currentUpload.speedBps > 0 ? remaining / currentUpload.speedBps : 0;
+      AppReleaseUI.updateProgressDisplay(pct, loaded, total, currentUpload.ackedCount, currentUpload.totalChunks, currentUpload.speedBps, eta);
+      var label = document.getElementById('upload-status-subtext');
+      if (label) {
+        label.innerHTML = '<span style="color:#38bdf8"><i class="fa-solid fa-upload"></i> Part ' +
+          currentUpload.ackedCount + '/' + currentUpload.totalChunks +
+          ' &bull; ' + currentUpload.inFlight + ' in flight' +
+          (currentUpload.base64Only ? ' &bull; text-mode' : '') + '</span>';
+      }
+    },
+
+    startWorkers: function () {
+      this.startWatchdog();
+      var label = document.getElementById('upload-status-subtext');
+      if (label && currentUpload.ackedCount > 0) {
+        label.innerHTML = '<span style="color:#38bdf8"><i class="fa-solid fa-rotate-left"></i> Resuming — ' +
+          currentUpload.ackedCount + '/' + currentUpload.totalChunks + ' parts already on server</span>';
+      }
+      var n = Math.min(POOL_SIZE, currentUpload.totalChunks);
+      for (var i = 0; i < n; i++) this.workerLoop();
+    },
+
+    workerLoop: function () {
+      if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+      var idx = -1;
+      while (currentUpload.nextPart < currentUpload.totalChunks) {
+        var cand = currentUpload.nextPart++;
+        if (!currentUpload.partsAcked[cand]) { idx = cand; break; }
+      }
+      if (idx === -1) {
+        // Nothing left to claim. If no part is still in flight, every part
+        // is stored — commit exactly once (Telegram's atomic commit step).
+        if (currentUpload.inFlight === 0) this.assembleChunksOnServer();
         return;
       }
+      this.sendPart(idx);
+    },
 
-      var file = currentUpload.file;
-      var chunkIndex = currentUpload.currentChunkIndex;
-      var startByte = chunkIndex * CHUNK_SIZE;
-      var endByte = Math.min(startByte + CHUNK_SIZE, file.size);
-      var chunkBlob = file.slice(startByte, endByte);
-      var chunkSize = endByte - startByte;
+    sendPart: function (idx) {
+      if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+      var self = this;
+      currentUpload.inFlight++;
+      var start = idx * PART_SIZE;
+      var slice = currentUpload.file.slice(start, start + PART_SIZE);
 
-      blobToBase64(chunkBlob, function (b64) {
-        if (currentUpload.aborted) return;
+      var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      currentUpload.controllers[idx] = controller;
+      var deadline = setTimeout(function () {
+        if (controller) controller.abort(); // stall breaker: retry this part only
+      }, PART_DEADLINE_MS);
+
+      var settled = false;
+      var finishAttempt = function (ok, detail) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        delete currentUpload.controllers[idx];
+        currentUpload.inFlight--;
+        if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+        if (ok) {
+          currentUpload.partRetries[idx] = 0;
+          self.markPartAcked(idx, false);
+          self.workerLoop(); // success launches the next part (sliding window)
+          return;
+        }
+        self.handlePartFailure(idx, detail);
+      };
+
+      var postForm = function (formData) {
+        return fetch(API_URL + '?action=upload_chunk', {
+          method: 'POST',
+          headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+          credentials: 'same-origin',
+          body: formData,
+          signal: controller ? controller.signal : undefined
+        });
+      };
+
+      var sendBase64 = function () {
+        return new Promise(function (resolve) { blobToBase64(slice, resolve); }).then(function (b64) {
+          if (!b64) { finishAttempt(false, 'could not read file part'); return null; }
+          var formData = new FormData();
+          formData.append('action', 'upload_chunk');
+          formData.append('upload_id', currentUpload.uploadId);
+          formData.append('chunk_index', String(idx));
+          formData.append('total_chunks', String(currentUpload.totalChunks));
+          formData.append('total_size', String(currentUpload.file.size));
+          formData.append('chunk_size', String(self.partBytes(idx)));
+          formData.append('chunk_b64', b64);
+          formData.append('csrf_token', getCsrfToken());
+          return postForm(formData).then(function (res) {
+            if (!res.ok) { finishAttempt(false, 'HTTP ' + res.status + ' (text-mode)'); return null; }
+            return res.json().then(function (json) {
+              if (json && json.status === 'success') finishAttempt(true);
+              else finishAttempt(false, (json && json.message) || 'server rejected part (text-mode)');
+            }, function () { finishAttempt(false, 'unreadable server response (text-mode)'); });
+          });
+        });
+      };
+
+      var sendBinary = function () {
         var formData = new FormData();
         formData.append('action', 'upload_chunk');
         formData.append('upload_id', currentUpload.uploadId);
-        formData.append('chunk_index', chunkIndex);
-        formData.append('total_chunks', currentUpload.totalChunks);
-        formData.append('chunk_size', chunkSize);
-        formData.append('total_size', file.size);
-        formData.append('file_name', file.name);
-        formData.append('abi', currentUpload.abi);
+        formData.append('chunk_index', String(idx));
+        formData.append('total_chunks', String(currentUpload.totalChunks));
+        formData.append('total_size', String(currentUpload.file.size));
+        formData.append('chunk_size', String(self.partBytes(idx)));
+        formData.append('chunk_file', slice, 'part' + idx);
         formData.append('csrf_token', getCsrfToken());
-        formData.append('chunk_b64', b64);
+        return postForm(formData).then(function (res) {
+          if (res.status === 403 || res.status === 413 || res.status === 415 || res.status === 422) {
+            // A WAF or body-size rule rejected the binary body. Telegram's
+            // equivalent move: shrink/re-encode the part — here the remaining
+            // parts switch to text-mode, which survives WAF inspection.
+            currentUpload.base64Only = true;
+            return sendBase64();
+          }
+          if (!res.ok) { finishAttempt(false, 'HTTP ' + res.status); return null; }
+          return res.json().then(function (json) {
+            if (json && json.status === 'success') finishAttempt(true);
+            else finishAttempt(false, (json && json.message) || 'server rejected part');
+          }, function () { finishAttempt(false, 'unreadable server response'); });
+        });
+      };
 
-        var xhr = new XMLHttpRequest();
-        currentUpload.xhr = xhr;
-        xhr.open('POST', API_URL, true);
-        xhr.withCredentials = true;
-        xhr.setRequestHeader('X-CSRF-TOKEN', getCsrfToken());
-        xhr.timeout = 120000;
-
-        xhr.onload = function () {
-          if (currentUpload.aborted) return;
-          var res = null;
-          try { res = JSON.parse(xhr.responseText); } catch (e) {}
-          if (xhr.status === 200 && res && res.status === 'success') {
-            currentUpload.chunkRetries = 0;
-            currentUpload.currentChunkIndex++;
-            var loaded = Math.min(file.size, currentUpload.currentChunkIndex * CHUNK_SIZE);
-            var pct = Math.min(99, Math.round((loaded / file.size) * 100));
-            var now = Date.now();
-            var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
-            if (timeDiff >= 0.5) {
-              currentUpload.speedBps = (loaded - currentUpload.lastLoadedBytes) / timeDiff;
-              currentUpload.lastSpeedUpdate = now;
-              currentUpload.lastLoadedBytes = loaded;
-            }
-            var eta = currentUpload.speedBps > 0 ? (file.size - loaded) / currentUpload.speedBps : 0;
-            AppReleaseUI.updateProgressDisplay(pct, loaded, file.size, currentUpload.currentChunkIndex, currentUpload.totalChunks, currentUpload.speedBps, eta);
-            self.legacySendChunk();
+      (currentUpload.base64Only ? sendBase64() : sendBinary())
+        .catch(function (err) {
+          if (currentUpload.aborted || currentUpload.state !== 'uploading') {
+            if (!settled) { settled = true; clearTimeout(deadline); delete currentUpload.controllers[idx]; currentUpload.inFlight--; }
             return;
           }
-          self.handleLegacyFailure(xhr.status, xhr.responseText);
-        };
-        xhr.onerror = function () { if (!currentUpload.aborted) self.handleLegacyFailure(0, 'Network connection interrupted'); };
-        xhr.ontimeout = function () { if (!currentUpload.aborted) self.handleLegacyFailure(408, 'Chunk request timed out'); };
-        xhr.send(formData);
-      });
+          var name = (err && err.name) || '';
+          finishAttempt(false, name === 'AbortError'
+            ? 'part stalled — deadline exceeded'
+            : ((err && err.message) || 'network error'));
+        });
     },
 
-    handleLegacyFailure: function (status, responseText) {
-      if (currentUpload.aborted) return;
-      currentUpload.chunkRetries++;
-      if (currentUpload.chunkRetries <= MAX_CHUNK_RETRIES) {
-        var backoffMs = Math.min(8000, 1000 * Math.pow(1.6, currentUpload.chunkRetries - 1));
-        this.noteRetry('HTTP ' + status + ' — attempt ' + currentUpload.chunkRetries + '/' + MAX_CHUNK_RETRIES);
-        setTimeout(function () {
-          if (!currentUpload.aborted && currentUpload.state === 'uploading') {
-            AppReleaseUI.legacySendChunk();
-          }
-        }, backoffMs);
+    handlePartFailure: function (idx, detail) {
+      if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+      currentUpload.lastErrorText = 'part ' + (idx + 1) + ': ' + detail;
+      var retries = (currentUpload.partRetries[idx] || 0) + 1;
+      currentUpload.partRetries[idx] = retries;
+      if (retries > MAX_PART_RETRIES) {
+        this.showUploadError('Upload stopped on part ' + (idx + 1) + ' of ' + currentUpload.totalChunks +
+          ' after ' + MAX_PART_RETRIES + ' retries. Last error: ' + detail +
+          ' — press Upload again to resume from the parts already stored.');
         return;
       }
-      var errMsg = 'Upload stopped on chunk ' + (currentUpload.currentChunkIndex + 1) + ' of ' + currentUpload.totalChunks + '.';
-      try {
-        var res = JSON.parse(responseText);
-        if (res.message) errMsg += ' ' + res.message;
-      } catch (e) {
-        if (status) errMsg += ' (HTTP ' + status + ')';
-      }
-      AppReleaseUI.showUploadError(errMsg);
+      var self = this;
+      var backoff = Math.min(8000, 700 * Math.pow(1.6, retries - 1));
+      this.noteRetry('part ' + (idx + 1) + ' — ' + detail + ' (retry ' + retries + '/' + MAX_PART_RETRIES + ')');
+      setTimeout(function () {
+        if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+        if (!currentUpload.partsAcked[idx]) self.sendPart(idx);
+        else self.workerLoop();
+      }, backoff);
+    },
+
+    noteRetry: function (message) {
+      var label = document.getElementById('upload-status-subtext');
+      if (!label) return;
+      label.innerHTML = '<span style="color:#fbbf24"><i class="fa-solid fa-rotate fa-spin"></i> Unstable connection — retrying ' +
+        escapeHtml(message) + '</span>';
+    },
+
+    // Visible-diagnostics watchdog: the old engine could sit at 0% forever
+    // with no feedback. If no part is acked for WATCHDOG_MS the UI says so,
+    // in red, with the last concrete error — while retries continue.
+    startWatchdog: function () {
+      var self = this;
+      if (currentUpload.watchdog) clearInterval(currentUpload.watchdog);
+      currentUpload.watchdog = setInterval(function () {
+        if (currentUpload.state !== 'uploading' || currentUpload.aborted) {
+          clearInterval(currentUpload.watchdog);
+          currentUpload.watchdog = null;
+          return;
+        }
+        var idleFor = Date.now() - currentUpload.lastAckAt;
+        if (idleFor > WATCHDOG_MS && currentUpload.inFlight > 0) {
+          var label = document.getElementById('upload-status-subtext');
+          if (label) {
+            label.innerHTML = '<span style="color:#f87171"><i class="fa-solid fa-triangle-exclamation"></i> No server response for ' +
+              Math.round(idleFor / 1000) + 's' +
+              (currentUpload.lastErrorText ? ' — last error: ' + escapeHtml(currentUpload.lastErrorText) : '') +
+              '. Still retrying…</span>';
+          }
+        }
+      }, 5000);
     },
 
     updateProgressDisplay: function (pct, loadedBytes, totalBytes, chunkNum, totalChunks, speedBps, etaSeconds) {
@@ -516,6 +576,7 @@
     },
 
     assembleChunksOnServer: function () {
+      if (currentUpload.state !== 'uploading') return; // single commit, ever
       currentUpload.state = 'assembling';
       this.renderUploadUI();
 
@@ -581,13 +642,16 @@
 
     cancelUpload: function () {
       currentUpload.aborted = true;
-      if (currentUpload.resumable) {
-        try { currentUpload.resumable.cancel(); } catch (e) {}
-        currentUpload.resumable = null;
-      }
       if (currentUpload.xhr) {
         try { currentUpload.xhr.abort(); } catch (e) {}
       }
+      if (currentUpload.controllers) {
+        Object.keys(currentUpload.controllers).forEach(function (k) {
+          try { currentUpload.controllers[k] && currentUpload.controllers[k].abort(); } catch (e) {}
+        });
+        currentUpload.controllers = {};
+      }
+      if (currentUpload.watchdog) { clearInterval(currentUpload.watchdog); currentUpload.watchdog = null; }
 
       if (currentUpload.uploadId) {
         var formData = new FormData();
@@ -614,6 +678,14 @@
       currentUpload.totalChunks = 0;
       currentUpload.xhr = null;
       currentUpload.aborted = false;
+      currentUpload.partsAcked = {};
+      currentUpload.partRetries = {};
+      currentUpload.controllers = {};
+      currentUpload.ackedBytes = 0;
+      currentUpload.ackedCount = 0;
+      currentUpload.inFlight = 0;
+      currentUpload.base64Only = false;
+      if (currentUpload.watchdog) { clearInterval(currentUpload.watchdog); currentUpload.watchdog = null; }
 
       var fileInput = document.getElementById('upload-apk-input');
       if (fileInput) fileInput.value = '';

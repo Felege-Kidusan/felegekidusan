@@ -64,19 +64,34 @@ class AppReleaseManagementTests(unittest.TestCase):
         self.assertIn("id=\"upload-progress-fill\"", self.app_release_section)
 
     def test_js_engine_handles_chunking_retries_and_resilience(self):
-        # Phase-1/2 hardened engine: 1MB chunks, deep retries, Resumable.js
-        # primary sender with a base64 text-mode emergency fallback that
-        # resumes from server-truth (upload_status).
-        self.assertIn("CHUNK_SIZE = 1 * 1024 * 1024", self.app_release_js)
-        self.assertIn("MAX_CHUNK_RETRIES = 12", self.app_release_js)
-        self.assertIn("startResumableSender", self.app_release_js)
-        self.assertIn("new Resumable(", self.app_release_js)
-        self.assertIn("legacySendChunk", self.app_release_js)
+        # Telegram-style part-pool engine: 512 KB parts, 4-way parallel
+        # sliding window, per-part deadlines (a stalled part can never
+        # freeze the transfer), independent per-part retries, base64
+        # text-mode per part when a WAF rejects binary bodies, resume from
+        # server-truth (upload_status) and a visible watchdog diagnostic.
+        self.assertIn("PART_SIZE = 512 * 1024", self.app_release_js)
+        self.assertIn("POOL_SIZE = 4", self.app_release_js)
+        self.assertIn("PART_DEADLINE_MS = 45000", self.app_release_js)
+        self.assertIn("MAX_PART_RETRIES = 8", self.app_release_js)
+        self.assertIn("WATCHDOG_MS = 60000", self.app_release_js)
+        self.assertIn("workerLoop", self.app_release_js)
+        self.assertIn("sendPart", self.app_release_js)
+        self.assertIn("AbortController", self.app_release_js)
         self.assertIn("chunk_b64", self.app_release_js)
-        self.assertIn("switchToFallback", self.app_release_js)
         self.assertIn("upload_status", self.app_release_js)
         self.assertIn("assembleChunksOnServer", self.app_release_js)
         self.assertIn("cancelUpload", self.app_release_js)
+        self.assertIn("startWatchdog", self.app_release_js)
+        # the stalled-at-0% class of bug must stay impossible: deadline abort
+        # and the watchdog banner are the two guards against silent freezes.
+        self.assertIn("part stalled — deadline exceeded", self.app_release_js)
+        self.assertIn("No server response for", self.app_release_js)
+
+    def test_no_external_cdn_dependency_for_upload_engine(self):
+        # The engine must be fully self-contained: a blocked/slow CDN must
+        # never be able to stall an upload again.
+        self.assertNotIn("resumable.min.js", self.super_admin_dashboard)
+        self.assertNotIn("new Resumable(", self.app_release_js)
 
     def test_releases_storage_protection_rule(self):
         self.assertIn("Options -Indexes", self.app_release_manager)
@@ -94,6 +109,9 @@ class AppReleaseManagementTests(unittest.TestCase):
         self.assertIn("uploadStatus", self.app_release_manager)
         self.assertIn("chunkExists", self.app_release_manager)
         self.assertIn("uploadErrorText", self.app_release_manager)
+        # parallel part uploads must not serialize (or freeze) behind the
+        # PHP session lock — the lock is dropped right after auth/CSRF.
+        self.assertIn("session_write_close", self.api_app_release)
 
 
 if __name__ == "__main__":
