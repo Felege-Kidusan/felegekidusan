@@ -306,7 +306,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
     <script src="/admin/js/chart.umd.min.js"></script>
     <script src="/admin/js/request-id.js"></script>
     <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
 
     <style>
         /* Form Theme Overrides */

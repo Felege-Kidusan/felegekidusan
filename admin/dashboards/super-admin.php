@@ -604,7 +604,7 @@ if (!in_array($activeSection, $saAllowedSections, true)) {
          file-by-file, including every include), and the runtime compiler is
          render-blocking and fights the chrome CSS (the sa-section-lock block
          below exists because of it). Do not re-add without re-auditing. -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
     <link rel="stylesheet" href="/admin/css/super_admin.css?v=20261006a">
 <?= wbws_calendar_scripts($conn) ?>
 <link rel="stylesheet" href="/admin/css/mobile.css?v=<?= SSMS_ASSET_VER ?>">

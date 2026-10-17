@@ -66,7 +66,7 @@ $csrfToken = generateCsrfToken();
 const EDU_SECTIONS=<?= json_encode(\App\Services\MemberCategory::sections(), JSON_UNESCAPED_UNICODE) ?>;function eduSecLabel(code){const s=EDU_SECTIONS[code];return s?s.am+' · '+s.ages:(code||'—');}function eduSecCode(name){if(!name)return '';if(EDU_SECTIONS[name])return name;for(const c in EDU_SECTIONS){if(EDU_SECTIONS[c].am===name)return c;}return '';}</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/admin/js/chart.umd.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="/admin/js/advanced_analytics.js?v=20260927"></script>
 <script src="/admin/js/education_analytics_hub.js?v=20260927"></script>

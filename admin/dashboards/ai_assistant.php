@@ -17,7 +17,7 @@ $csrfToken = generateCsrfToken();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>AI Assistant — <?= SCHOOL_NAME_SHORT ?></title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha384-t1nt8BQoYMLFN5p42tRAtuAAFQaCQODekUVeKKZrEnEyp4H2R0RHFz0KWpmj7i8g" crossorigin="anonymous">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         :root{--bg:#0a0e17;--bg2:#111827;--bg3:#1a2234;--surface:#1e293b;--border:#2d3a4f;--text:#e2e8f0;--text2:#94a3b8;--accent:#22c55e;--accent2:#10b981;--ai-bg:rgba(16,185,129,.08);--ai-border:rgba(16,185,129,.2);--user-bg:rgba(59,130,246,.08);--user-border:rgba(59,130,246,.2);--blue:#3b82f6;--purple:#8b5cf6;--amber:#f59e0b;--red:#ef4444}

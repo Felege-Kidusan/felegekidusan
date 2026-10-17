@@ -21,7 +21,7 @@ $theme = defined('ACTIVE_THEME') ? ACTIVE_THEME : 'wbss';
     <title><?= e(defined('ADMIN_PANEL_TITLE') ? ADMIN_PANEL_TITLE : 'Login') ?></title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'><?= defined('ADMIN_LOGO_ICON') ? ADMIN_LOGO_ICON : '⛪' ?></text></svg>">
     <link rel="stylesheet" href="/themes/<?= $theme ?>/theme.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha384-/o6I2CkkWC//PSjvWC/eYN7l3xM3tJm8ZzVkCOfp//W05QcE3mlGskpoHB6XqI+B" crossorigin="anonymous">
 </head>
 <body class="school-login-page">
     <div class="school-login-wrapper">
