@@ -230,12 +230,13 @@ final class AppReleaseManager
      */
     public static function handleChunkUpload(
         string $projectRoot,
-        array $fileInfo,
+        ?array $fileInfo,
         string $uploadId,
         int $chunkIndex,
         int $totalChunks,
         int $chunkSize,
-        int $totalSize
+        int $totalSize,
+        ?string $base64Payload = null
     ): array {
         self::cleanupOldChunks($projectRoot);
 
@@ -247,20 +248,41 @@ final class AppReleaseManager
             throw new InvalidArgumentException('APK file exceeds the maximum allowed size of 250MB.');
         }
 
-        if (empty($fileInfo['tmp_name']) || !is_uploaded_file($fileInfo['tmp_name'])) {
-            throw new InvalidArgumentException('No valid chunk file uploaded.');
-        }
-
-        if ($fileInfo['error'] !== UPLOAD_ERR_OK) {
-            throw new RuntimeException('Chunk upload error: ' . $fileInfo['error']);
-        }
-
         $chunkDir = self::getChunkDirectory($projectRoot, $uploadId);
         $chunkFilename = sprintf('chunk_%05d', $chunkIndex);
         $chunkPath = $chunkDir . '/' . $chunkFilename;
 
-        if (!move_uploaded_file($fileInfo['tmp_name'], $chunkPath)) {
-            throw new RuntimeException("Failed to save chunk {$chunkIndex}.");
+        if ($base64Payload !== null) {
+            // Emergency text-mode transport (base64): bypasses WAF rules that
+            // reject binary multipart bodies. Strict-decode and verify length.
+            if ($chunkSize <= 0) {
+                throw new InvalidArgumentException('Chunk size must be positive.');
+            }
+            $raw = base64_decode($base64Payload, true);
+            if ($raw === false) {
+                throw new InvalidArgumentException('Chunk payload is not valid base64.');
+            }
+            if ($chunkSize > 0 && strlen($raw) !== $chunkSize) {
+                throw new InvalidArgumentException('Decoded chunk size mismatch: expected ' . $chunkSize . ' got ' . strlen($raw) . '.');
+            }
+            $tmp = $chunkPath . '.part';
+            if (file_put_contents($tmp, $raw) === false || !rename($tmp, $chunkPath)) {
+                throw new RuntimeException("Failed to save chunk {$chunkIndex}.");
+            }
+        } else {
+            if (empty($fileInfo['tmp_name']) || !is_uploaded_file($fileInfo['tmp_name'])) {
+                $limitHint = ' (server limits: upload_max_filesize=' . ini_get('upload_max_filesize')
+                    . ', post_max_size=' . ini_get('post_max_size') . ')';
+                throw new InvalidArgumentException('No valid chunk file uploaded.' . $limitHint);
+            }
+
+            if ($fileInfo['error'] !== UPLOAD_ERR_OK) {
+                throw new RuntimeException('Chunk upload error: ' . self::uploadErrorText((int)$fileInfo['error']));
+            }
+
+            if (!move_uploaded_file($fileInfo['tmp_name'], $chunkPath)) {
+                throw new RuntimeException("Failed to save chunk {$chunkIndex}.");
+            }
         }
 
         @chmod($chunkPath, 0644);
@@ -271,6 +293,118 @@ final class AppReleaseManager
             'received' => true,
             'size' => filesize($chunkPath),
         ];
+    }
+
+    /**
+     * Human-readable PHP upload error codes (UPLOAD_ERR_*).
+     */
+    public static function uploadErrorText(int $code): string
+    {
+        $map = [
+            UPLOAD_ERR_INI_SIZE   => 'file exceeds upload_max_filesize (' . ini_get('upload_max_filesize') . ')',
+            UPLOAD_ERR_FORM_SIZE  => 'file exceeds MAX_FILE_SIZE',
+            UPLOAD_ERR_PARTIAL    => 'file was only partially uploaded',
+            UPLOAD_ERR_NO_FILE    => 'no file was uploaded',
+            UPLOAD_ERR_NO_TMP_DIR => 'missing temporary folder',
+            UPLOAD_ERR_CANT_WRITE => 'failed to write file to disk (quota/permissions?)',
+            UPLOAD_ERR_EXTENSION  => 'a PHP extension stopped the upload',
+        ];
+        return $map[$code] ?? ('unknown upload error code ' . $code);
+    }
+
+    /**
+     * Whether a chunk was already received (resumable.js GET test + resume).
+     */
+    public static function chunkExists(string $projectRoot, string $uploadId, int $chunkIndex): bool
+    {
+        $cleanId = preg_replace('/[^a-zA-Z0-9_-]/', '', $uploadId);
+        if (strlen($cleanId) < 8 || strlen($cleanId) > 64) {
+            return false;
+        }
+        $path = self::getChunkDirectory($projectRoot, $cleanId) . '/' . sprintf('chunk_%05d', $chunkIndex);
+        return is_file($path) && filesize($path) > 0;
+    }
+
+    /**
+     * Server-side truth about which chunks exist — lets a fallback sender
+     * resume exactly where the primary sender stopped.
+     */
+    public static function uploadStatus(string $projectRoot, string $uploadId, int $totalChunks): array
+    {
+        $cleanId = preg_replace('/[^a-zA-Z0-9_-]/', '', $uploadId);
+        $received = [];
+        if (strlen($cleanId) >= 8 && strlen($cleanId) <= 64) {
+            $dir = self::getChunkDirectory($projectRoot, $cleanId);
+            for ($i = 0; $i < $totalChunks; $i++) {
+                $p = $dir . '/' . sprintf('chunk_%05d', $i);
+                if (is_file($p) && filesize($p) > 0) {
+                    $received[] = $i;
+                }
+            }
+        }
+        $missing = [];
+        for ($i = 0; $i < $totalChunks; $i++) {
+            if (!in_array($i, $received, true)) {
+                $missing[] = $i;
+            }
+        }
+        return [
+            'upload_id' => $cleanId,
+            'total_chunks' => $totalChunks,
+            'received' => $received,
+            'missing' => $missing,
+            'received_count' => count($received),
+        ];
+    }
+
+    /**
+     * Environment report for diagnosing upload failures on shared hosting.
+     */
+    public static function getPreflightInfo(string $projectRoot): array
+    {
+        $releasesDir = self::getReleasesDirectory($projectRoot);
+        $chunkBase = $releasesDir . '/.tmp_chunks';
+        if (!is_dir($chunkBase)) {
+            @mkdir($chunkBase, 0755, true);
+        }
+        $bytes = [
+            'upload_max_filesize' => self::iniBytes(ini_get('upload_max_filesize')),
+            'post_max_size'       => self::iniBytes(ini_get('post_max_size')),
+        ];
+        return [
+            'php_version' => PHP_VERSION,
+            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'cli',
+            'limits' => [
+                'upload_max_filesize' => ini_get('upload_max_filesize'),
+                'post_max_size' => ini_get('post_max_size'),
+                'memory_limit' => ini_get('memory_limit'),
+                'max_execution_time' => ini_get('max_execution_time'),
+                'max_input_time' => ini_get('max_input_time'),
+            ],
+            'limits_bytes' => $bytes,
+            'recommended_chunk_size' => max(262144, min(1048576, (int)floor(min($bytes['upload_max_filesize'], $bytes['post_max_size']) / 4))),
+            'releases_dir' => $releasesDir,
+            'releases_dir_writable' => is_writable($releasesDir),
+            'chunk_dir_writable' => is_dir($chunkBase) && is_writable($chunkBase),
+            'disk_free_space' => @disk_free_space($releasesDir) ?: null,
+            'mod_security_env_hint' => isset($_SERVER['MOD_SECURITY']) || false !== getenv('MODSEC'),
+        ];
+    }
+
+    private static function iniBytes(string $val): int
+    {
+        $val = trim($val);
+        if ($val === '') {
+            return 0;
+        }
+        $unit = strtolower($val[strlen($val) - 1]);
+        $num = (int)$val;
+        switch ($unit) {
+            case 'g': $num *= 1024 ** 3; break;
+            case 'm': $num *= 1024 ** 2; break;
+            case 'k': $num *= 1024; break;
+        }
+        return $num;
     }
 
     /**

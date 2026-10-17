@@ -64,16 +64,36 @@ class AppReleaseManagementTests(unittest.TestCase):
         self.assertIn("id=\"upload-progress-fill\"", self.app_release_section)
 
     def test_js_engine_handles_chunking_retries_and_resilience(self):
-        self.assertIn("CHUNK_SIZE = 2 * 1024 * 1024", self.app_release_js)
-        self.assertIn("MAX_CHUNK_RETRIES = 4", self.app_release_js)
-        self.assertIn("uploadNextChunk", self.app_release_js)
-        self.assertIn("handleChunkFailure", self.app_release_js)
+        # Phase-1/2 hardened engine: 1MB chunks, deep retries, Resumable.js
+        # primary sender with a base64 text-mode emergency fallback that
+        # resumes from server-truth (upload_status).
+        self.assertIn("CHUNK_SIZE = 1 * 1024 * 1024", self.app_release_js)
+        self.assertIn("MAX_CHUNK_RETRIES = 12", self.app_release_js)
+        self.assertIn("startResumableSender", self.app_release_js)
+        self.assertIn("new Resumable(", self.app_release_js)
+        self.assertIn("legacySendChunk", self.app_release_js)
+        self.assertIn("chunk_b64", self.app_release_js)
+        self.assertIn("switchToFallback", self.app_release_js)
+        self.assertIn("upload_status", self.app_release_js)
         self.assertIn("assembleChunksOnServer", self.app_release_js)
         self.assertIn("cancelUpload", self.app_release_js)
 
     def test_releases_storage_protection_rule(self):
         self.assertIn("Options -Indexes", self.app_release_manager)
         self.assertIn("Deny from all", self.app_release_manager)
+
+    def test_upload_diagnostics_and_resume_endpoints(self):
+        # Server-side half of the hardened upload engine: preflight env
+        # report, server-truth chunk status, resumable.js GET chunk test and
+        # the base64 emergency transport must all stay wired.
+        self.assertIn("case 'upload_preflight'", self.api_app_release)
+        self.assertIn("case 'upload_status'", self.api_app_release)
+        self.assertIn("chunk_b64", self.api_app_release)
+        self.assertIn("resumableChunkNumber", self.api_app_release)
+        self.assertIn("getPreflightInfo", self.app_release_manager)
+        self.assertIn("uploadStatus", self.app_release_manager)
+        self.assertIn("chunkExists", self.app_release_manager)
+        self.assertIn("uploadErrorText", self.app_release_manager)
 
 
 if __name__ == "__main__":

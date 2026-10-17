@@ -97,39 +97,97 @@ try {
         }
 
         case 'upload_chunk': {
+            // resumable.js speaks GET as a "does this chunk already exist?" test.
+            if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+                $gid = trim((string)($_GET['resumableIdentifier'] ?? $_GET['upload_id'] ?? ''));
+                $gidx = (int)($_GET['resumableChunkNumber'] ?? ($_GET['chunk_index'] ?? 0)) - (isset($_GET['resumableChunkNumber']) ? 1 : 0);
+                if (AppReleaseManager::chunkExists(ROOT_PATH, $gid, $gidx)) {
+                    http_response_code(200);
+                    echo json_encode(['status' => 'success', 'message' => 'Chunk already received.']);
+                } else {
+                    http_response_code(404);
+                    echo json_encode(['status' => 'error', 'message' => 'Chunk not found.']);
+                }
+                exit;
+            }
+
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                 http_response_code(405);
                 echo json_encode(['status' => 'error', 'message' => 'POST required']);
                 exit;
             }
 
-            if (empty($_FILES['chunk_file'])) {
+            // Accept both the legacy/custom parameter names and the
+            // resumable.js protocol names (resumable* namespace).
+            $uploadId = trim((string)($_POST['upload_id'] ?? $_POST['resumableIdentifier'] ?? ''));
+            $chunkIndex = isset($_POST['resumableChunkNumber'])
+                ? (int)$_POST['resumableChunkNumber'] - 1
+                : (int)($_POST['chunk_index'] ?? 0);
+            $totalChunks = (int)($_POST['total_chunks'] ?? $_POST['resumableTotalChunks'] ?? 1);
+            $totalSize = (int)($_POST['total_size'] ?? $_POST['resumableTotalSize'] ?? 0);
+            $base64Payload = isset($_POST['chunk_b64']) && is_string($_POST['chunk_b64']) ? $_POST['chunk_b64'] : null;
+
+            $file = $_FILES['chunk_file'] ?? null;
+            $chunkSize = $file !== null && isset($file['size'])
+                ? (int)$file['size']
+                : (int)($_POST['chunk_size'] ?? 0);
+
+            if ($file === null && $base64Payload === null) {
                 http_response_code(422);
-                echo json_encode(['status' => 'error', 'message' => 'No chunk payload received.']);
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'No chunk payload received. Server limits: upload_max_filesize='
+                        . ini_get('upload_max_filesize') . ', post_max_size=' . ini_get('post_max_size') . '.',
+                ]);
                 exit;
             }
 
-            $uploadId = trim((string)($_POST['upload_id'] ?? ''));
-            $chunkIndex = (int)($_POST['chunk_index'] ?? 0);
-            $totalChunks = (int)($_POST['total_chunks'] ?? 1);
-            $chunkSize = (int)($_POST['chunk_size'] ?? 0);
-            $totalSize = (int)($_POST['total_size'] ?? 0);
-
-            $result = AppReleaseManager::handleChunkUpload(
-                ROOT_PATH,
-                $_FILES['chunk_file'],
-                $uploadId,
-                $chunkIndex,
-                $totalChunks,
-                $chunkSize,
-                $totalSize
-            );
+            try {
+                $result = AppReleaseManager::handleChunkUpload(
+                    ROOT_PATH,
+                    $file,
+                    $uploadId,
+                    $chunkIndex,
+                    $totalChunks,
+                    $chunkSize,
+                    $totalSize,
+                    $base64Payload
+                );
+            } catch (Throwable $chunkErr) {
+                error_log(sprintf(
+                    'AppRelease chunk failure: upload=%s chunk=%d/%d status=%s err=%s',
+                    $uploadId,
+                    $chunkIndex,
+                    $totalChunks,
+                    http_response_code() ?: 'n/a',
+                    $chunkErr->getMessage()
+                ));
+                throw $chunkErr;
+            }
 
             echo json_encode([
                 'status' => 'success',
                 'message' => "Chunk {$chunkIndex} received successfully.",
                 'data' => $result,
             ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'upload_status': {
+            $uploadId = trim((string)($_REQUEST['upload_id'] ?? ''));
+            $totalChunks = (int)($_REQUEST['total_chunks'] ?? 0);
+            echo json_encode([
+                'status' => 'success',
+                'data' => AppReleaseManager::uploadStatus(ROOT_PATH, $uploadId, $totalChunks),
+            ]);
+            exit;
+        }
+
+        case 'upload_preflight': {
+            echo json_encode([
+                'status' => 'success',
+                'data' => AppReleaseManager::getPreflightInfo(ROOT_PATH),
+            ], JSON_PRETTY_PRINT);
             exit;
         }
 

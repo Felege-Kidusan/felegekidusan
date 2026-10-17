@@ -1496,7 +1496,8 @@ require __DIR__ . '/../components/bottom_nav.php';
     </script>
 
     <script>window.SA_BOOT=<?= json_encode(['section' => $activeSection, 'csrf' => $csrfToken], JSON_UNESCAPED_SLASHES) ?>;</script>
-    <script src="/admin/js/app_release.js?v=20260928b"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/resumable.js/1.1.0/resumable.min.js" integrity="sha384-EXTg7rRfdTPZWoKVCslusAAev2TYw76fm+Wox718iEtFQ+gdAdAc5Z/ndLHSo4mq" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="/admin/js/app_release.js?v=20261017a"></script>
     <script src="/admin/js/app_telemetry.js?v=20260928b"></script>
     <script src="/admin/js/failure_intelligence.js?v=20261006b"></script>
     <script src="/admin/js/super_admin.js?v=20261006a"></script>

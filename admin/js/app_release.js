@@ -7,8 +7,8 @@
   'use strict';
 
   var API_URL = '/admin/api_app_release.php';
-  var CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk (Optimal for cPanel / LiteSpeed / Nginx)
-  var MAX_CHUNK_RETRIES = 4;
+  var CHUNK_SIZE = 1 * 1024 * 1024; // 1MB per chunk — stays safely under common 2M PHP upload limits
+  var MAX_CHUNK_RETRIES = 12;
 
   // Upload State Machine
   var currentUpload = {
@@ -25,7 +25,9 @@
     lastLoadedBytes: 0,
     speedBps: 0,
     xhr: null,
-    aborted: false
+    aborted: false,
+    resumable: null,
+    fallbackActive: false
   };
 
   function escapeHtml(str) {
@@ -36,6 +38,16 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function blobToBase64(blob, cb) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      var s = String(fr.result || '');
+      cb(s.slice(s.indexOf(',') + 1));
+    };
+    fr.onerror = function () { cb(''); };
+    fr.readAsDataURL(blob);
   }
 
   function formatBytes(bytes) {
@@ -255,14 +267,154 @@
       currentUpload.speedBps = 0;
 
       this.renderUploadUI();
-      this.uploadNextChunk();
+      this.beginTransfer();
     },
 
-    uploadNextChunk: function () {
+    // ── Transfer engine ────────────────────────────────────────────────
+    // Primary: Resumable.js (mature chunked/resumable sender with built-in
+    // retry backoff, per-chunk resume and cross-session recovery via the
+    // server-side GET chunk test). Emergency: legacy sequential XHR sender
+    // in base64 text mode, which survives WAF rules that kill binary
+    // multipart bodies. The server stores both into the same chunk store.
+    beginTransfer: function () {
+      currentUpload.fallbackActive = false;
+      if (typeof Resumable !== 'undefined') {
+        this.startResumableSender();
+      } else {
+        // CDN unavailable — go straight to the resilient built-in sender.
+        this.switchToFallback('Resumable.js not loaded; using built-in sender.');
+      }
+    },
+
+    startResumableSender: function () {
+      var self = this;
+      var r = new Resumable({
+        target: API_URL + '?action=upload_chunk',
+        chunkSize: CHUNK_SIZE,
+        simultaneousUploads: 1, // sequential = most stable on poor links
+        maxChunkRetries: MAX_CHUNK_RETRIES,
+        chunkRetryInterval: 2500,
+        fileParameterName: 'chunk_file',
+        testMethod: 'GET',
+        withCredentials: true,
+        headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+        query: {
+          action: 'upload_chunk',
+          csrf_token: getCsrfToken(),
+          abi: currentUpload.abi
+        },
+        permanentErrors: [401, 409, 415, 501],
+        // resumable.js identifier is stable per (size,name) so a retry after
+        // a page reload resumes from the chunks already on the server.
+      });
+      currentUpload.resumable = r;
+
+      r.on('fileAdded', function (file) {
+        currentUpload.uploadId = String(file.uniqueIdentifier);
+      });
+      r.on('fileProgress', function (file) { self.paintProgress(file); });
+      r.on('progress', function () {
+        if (currentUpload.resumable && currentUpload.resumable.files.length) {
+          self.paintProgress(currentUpload.resumable.files[0]);
+        }
+      });
+      r.on('fileRetry', function (file, message) {
+        self.noteRetry(message);
+      });
+      r.on('fileSuccess', function () {
+        currentUpload.resumable = null;
+        self.assembleChunksOnServer();
+      });
+      r.on('fileError', function (file, message) {
+        if (currentUpload.aborted) return;
+        self.switchToFallback(message || 'Chunk transfer failed.');
+      });
+
+      r.addFile(currentUpload.file);
+      r.upload();
+    },
+
+    paintProgress: function (file) {
+      if (!file || currentUpload.state !== 'uploading') return;
+      var total = currentUpload.file.size;
+      var frac = typeof file.progress === 'function' ? file.progress() : 0;
+      var loaded = Math.min(total, Math.floor(frac * total));
+      var pct = Math.min(99, Math.round((loaded / total) * 100));
+
+      var now = Date.now();
+      var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
+      if (timeDiff >= 0.5) {
+        currentUpload.speedBps = (loaded - currentUpload.lastLoadedBytes) / timeDiff;
+        currentUpload.lastSpeedUpdate = now;
+        currentUpload.lastLoadedBytes = loaded;
+      }
+      var remaining = Math.max(0, total - loaded);
+      var eta = currentUpload.speedBps > 0 ? remaining / currentUpload.speedBps : 0;
+      var chunkNum = Math.min(currentUpload.totalChunks, Math.floor(loaded / CHUNK_SIZE) + 1);
+      AppReleaseUI.updateProgressDisplay(pct, loaded, total, chunkNum, currentUpload.totalChunks, currentUpload.speedBps, eta);
+    },
+
+    noteRetry: function (message) {
+      var label = document.getElementById('upload-status-subtext');
+      if (!label) return;
+      var snippet = message ? String(message).slice(0, 140) : '';
+      label.innerHTML = '<span style="color:#fbbf24"><i class="fa-solid fa-rotate fa-spin"></i> Unstable connection — retrying chunk ' +
+        (currentUpload.currentChunkIndex + 1) + ' (' + escapeHtml(snippet) + ')</span>';
+    },
+
+    // Ask the server which chunks it already has, then continue with the
+    // base64 text-mode sender from the first missing chunk.
+    switchToFallback: function (reason) {
+      if (currentUpload.aborted) return;
+      if (currentUpload.fallbackActive) {
+        this.showUploadError('Upload failed in resilient mode: ' + reason);
+        return;
+      }
+      var self = this;
+      if (currentUpload.resumable) {
+        try { currentUpload.resumable.cancel(); } catch (e) {}
+        currentUpload.resumable = null;
+      }
+      var formData = new FormData();
+      formData.append('action', 'upload_status');
+      formData.append('upload_id', currentUpload.uploadId);
+      formData.append('total_chunks', currentUpload.totalChunks);
+      formData.append('csrf_token', getCsrfToken());
+
+      fetch(API_URL + '?action=upload_status', {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': getCsrfToken() },
+        credentials: 'same-origin',
+        body: formData
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (res) {
+        var firstMissing = 0;
+        if (res && res.status === 'success' && res.data && res.data.missing && res.data.missing.length) {
+          firstMissing = res.data.missing[0];
+        } else if (res && res.status === 'success' && res.data && res.data.missing && res.data.missing.length === 0) {
+          self.assembleChunksOnServer();
+          return;
+        }
+        currentUpload.fallbackActive = true;
+        currentUpload.currentChunkIndex = firstMissing;
+        currentUpload.chunkRetries = 0;
+        var label = document.getElementById('upload-status-subtext');
+        if (label) {
+          label.innerHTML = '<span style="color:#38bdf8"><i class="fa-solid fa-shield-halved"></i> Resilient text-mode transfer from chunk ' + (firstMissing + 1) + ' (' + escapeHtml(String(reason).slice(0, 90)) + ')</span>';
+        }
+        self.legacySendChunk();
+      })
+      .catch(function (err) {
+        self.showUploadError('Cannot query upload state: ' + (err.message || err));
+      });
+    },
+
+    legacySendChunk: function () {
       if (currentUpload.aborted || currentUpload.state !== 'uploading') return;
+      var self = this;
 
       if (currentUpload.currentChunkIndex >= currentUpload.totalChunks) {
-        // All chunks uploaded! Now trigger assembly on server
         this.assembleChunksOnServer();
         return;
       }
@@ -274,110 +426,77 @@
       var chunkBlob = file.slice(startByte, endByte);
       var chunkSize = endByte - startByte;
 
-      var formData = new FormData();
-      formData.append('action', 'upload_chunk');
-      formData.append('upload_id', currentUpload.uploadId);
-      formData.append('chunk_index', chunkIndex);
-      formData.append('total_chunks', currentUpload.totalChunks);
-      formData.append('chunk_size', chunkSize);
-      formData.append('total_size', file.size);
-      formData.append('file_name', file.name);
-      formData.append('abi', currentUpload.abi);
-      formData.append('csrf_token', getCsrfToken());
-      formData.append('chunk_file', chunkBlob, 'chunk_' + chunkIndex + '.bin');
-
-      var xhr = new XMLHttpRequest();
-      currentUpload.xhr = xhr;
-      xhr.open('POST', API_URL, true);
-      xhr.withCredentials = true;
-      xhr.setRequestHeader('X-CSRF-TOKEN', getCsrfToken());
-
-      xhr.upload.onprogress = function (pe) {
-        if (pe.lengthComputable && currentUpload.state === 'uploading') {
-          var totalLoaded = currentUpload.uploadedBytesBeforeCurrentChunk + pe.loaded;
-          var totalBytes = file.size;
-          var pct = Math.min(99, Math.round((totalLoaded / totalBytes) * 100));
-
-          // Calculate Speed & ETA
-          var now = Date.now();
-          var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
-          if (timeDiff >= 0.5) {
-            var bytesDiff = totalLoaded - currentUpload.lastLoadedBytes;
-            currentUpload.speedBps = bytesDiff / timeDiff;
-            currentUpload.lastSpeedUpdate = now;
-            currentUpload.lastLoadedBytes = totalLoaded;
-          }
-
-          var remainingBytes = Math.max(0, totalBytes - totalLoaded);
-          var etaSeconds = currentUpload.speedBps > 0 ? (remainingBytes / currentUpload.speedBps) : 0;
-
-          AppReleaseUI.updateProgressDisplay(pct, totalLoaded, totalBytes, chunkIndex + 1, currentUpload.totalChunks, currentUpload.speedBps, etaSeconds);
-        }
-      };
-
-      xhr.onload = function () {
+      blobToBase64(chunkBlob, function (b64) {
         if (currentUpload.aborted) return;
+        var formData = new FormData();
+        formData.append('action', 'upload_chunk');
+        formData.append('upload_id', currentUpload.uploadId);
+        formData.append('chunk_index', chunkIndex);
+        formData.append('total_chunks', currentUpload.totalChunks);
+        formData.append('chunk_size', chunkSize);
+        formData.append('total_size', file.size);
+        formData.append('file_name', file.name);
+        formData.append('abi', currentUpload.abi);
+        formData.append('csrf_token', getCsrfToken());
+        formData.append('chunk_b64', b64);
 
-        if (xhr.status === 200) {
-          try {
-            var res = JSON.parse(xhr.responseText);
-            if (res.status === 'success') {
-              // Successfully uploaded chunk!
-              currentUpload.chunkRetries = 0;
-              currentUpload.uploadedBytesBeforeCurrentChunk += chunkSize;
-              currentUpload.currentChunkIndex++;
-              AppReleaseUI.uploadNextChunk();
-              return;
-            } else if (res.message) {
-              AppReleaseUI.handleChunkFailure(xhr.status, res.message);
-              return;
+        var xhr = new XMLHttpRequest();
+        currentUpload.xhr = xhr;
+        xhr.open('POST', API_URL, true);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('X-CSRF-TOKEN', getCsrfToken());
+        xhr.timeout = 120000;
+
+        xhr.onload = function () {
+          if (currentUpload.aborted) return;
+          var res = null;
+          try { res = JSON.parse(xhr.responseText); } catch (e) {}
+          if (xhr.status === 200 && res && res.status === 'success') {
+            currentUpload.chunkRetries = 0;
+            currentUpload.currentChunkIndex++;
+            var loaded = Math.min(file.size, currentUpload.currentChunkIndex * CHUNK_SIZE);
+            var pct = Math.min(99, Math.round((loaded / file.size) * 100));
+            var now = Date.now();
+            var timeDiff = (now - currentUpload.lastSpeedUpdate) / 1000;
+            if (timeDiff >= 0.5) {
+              currentUpload.speedBps = (loaded - currentUpload.lastLoadedBytes) / timeDiff;
+              currentUpload.lastSpeedUpdate = now;
+              currentUpload.lastLoadedBytes = loaded;
             }
-          } catch (e) {}
-        }
-
-        // Retry chunk on error
-        AppReleaseUI.handleChunkFailure(xhr.status, xhr.responseText);
-      };
-
-      xhr.onerror = function () {
-        if (currentUpload.aborted) return;
-        AppReleaseUI.handleChunkFailure(0, 'Network connection interrupted');
-      };
-
-      xhr.ontimeout = function () {
-        if (currentUpload.aborted) return;
-        AppReleaseUI.handleChunkFailure(408, 'Chunk request timed out');
-      };
-
-      xhr.timeout = 60000; // 60s timeout per chunk
-      xhr.send(formData);
+            var eta = currentUpload.speedBps > 0 ? (file.size - loaded) / currentUpload.speedBps : 0;
+            AppReleaseUI.updateProgressDisplay(pct, loaded, file.size, currentUpload.currentChunkIndex, currentUpload.totalChunks, currentUpload.speedBps, eta);
+            self.legacySendChunk();
+            return;
+          }
+          self.handleLegacyFailure(xhr.status, xhr.responseText);
+        };
+        xhr.onerror = function () { if (!currentUpload.aborted) self.handleLegacyFailure(0, 'Network connection interrupted'); };
+        xhr.ontimeout = function () { if (!currentUpload.aborted) self.handleLegacyFailure(408, 'Chunk request timed out'); };
+        xhr.send(formData);
+      });
     },
 
-    handleChunkFailure: function (status, responseText) {
+    handleLegacyFailure: function (status, responseText) {
       if (currentUpload.aborted) return;
-
       currentUpload.chunkRetries++;
       if (currentUpload.chunkRetries <= MAX_CHUNK_RETRIES) {
-        var backoffMs = Math.min(6000, 1000 * Math.pow(1.8, currentUpload.chunkRetries - 1));
-        var label = document.getElementById('upload-status-subtext');
-        if (label) {
-          label.innerHTML = '<span style="color:#fbbf24"><i class="fa-solid fa-rotate fa-spin"></i> Network hiccup on chunk ' + (currentUpload.currentChunkIndex + 1) + '. Retrying (' + currentUpload.chunkRetries + '/' + MAX_CHUNK_RETRIES + ') in ' + Math.ceil(backoffMs / 1000) + 's...</span>';
-        }
+        var backoffMs = Math.min(8000, 1000 * Math.pow(1.6, currentUpload.chunkRetries - 1));
+        this.noteRetry('HTTP ' + status + ' — attempt ' + currentUpload.chunkRetries + '/' + MAX_CHUNK_RETRIES);
         setTimeout(function () {
           if (!currentUpload.aborted && currentUpload.state === 'uploading') {
-            AppReleaseUI.uploadNextChunk();
+            AppReleaseUI.legacySendChunk();
           }
         }, backoffMs);
-      } else {
-        var errMsg = 'Upload stopped on chunk ' + (currentUpload.currentChunkIndex + 1) + ' of ' + currentUpload.totalChunks + '.';
-        try {
-          var res = JSON.parse(responseText);
-          if (res.message) errMsg += ' ' + res.message;
-        } catch (e) {
-          if (status) errMsg += ' (HTTP ' + status + ')';
-        }
-        AppReleaseUI.showUploadError(errMsg);
+        return;
       }
+      var errMsg = 'Upload stopped on chunk ' + (currentUpload.currentChunkIndex + 1) + ' of ' + currentUpload.totalChunks + '.';
+      try {
+        var res = JSON.parse(responseText);
+        if (res.message) errMsg += ' ' + res.message;
+      } catch (e) {
+        if (status) errMsg += ' (HTTP ' + status + ')';
+      }
+      AppReleaseUI.showUploadError(errMsg);
     },
 
     updateProgressDisplay: function (pct, loadedBytes, totalBytes, chunkNum, totalChunks, speedBps, etaSeconds) {
@@ -462,6 +581,10 @@
 
     cancelUpload: function () {
       currentUpload.aborted = true;
+      if (currentUpload.resumable) {
+        try { currentUpload.resumable.cancel(); } catch (e) {}
+        currentUpload.resumable = null;
+      }
       if (currentUpload.xhr) {
         try { currentUpload.xhr.abort(); } catch (e) {}
       }
