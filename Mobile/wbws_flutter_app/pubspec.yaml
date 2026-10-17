@@ -116,14 +116,14 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "../logo_felege_kidusan.png"
+  image_path: "../app_icon.png"
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "../logo_felege_kidusan.png"
+  adaptive_icon_foreground: "../app_icon.png"
 
 flutter_native_splash:
   color: "#FFFFFF"
-  image: "../logo_felege_kidusan.png"
+  image: "../splash_logo.png"
   android_12:
-    image: "../logo_felege_kidusan.png"
+    image: "../splash_logo.png"
     color: "#FFFFFF"
 
