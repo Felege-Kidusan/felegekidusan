@@ -1993,9 +1993,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                             </select>
                             <select id="newMembersFilterAgeGroup" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All Age Groups</option>
-                                <option value="7_13">7-13</option>
-                                <option value="14_17">14-17</option>
-                                <option value="18_plus">18+</option>
+                                <?php foreach (\App\Services\MemberCategory::sections() as $hrCode => $hrSec): ?><option value="<?= $hrCode ?>"><?= e($hrSec['am']) ?> (<?= e($hrSec['ages']) ?>)</option><?php endforeach; ?>
                             </select>
                             <select id="newMembersFilterEligible" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs">
                                 <option value="">All</option>
