@@ -110,3 +110,35 @@ class TestServiceAndApi:
                   "case 'link'", "case 'unlink'", "case 'merge'", "case 'list_suggestions'",
                   "case 'merge_suggestion'", "case 'reject_suggestion'"]:
             assert a in self.api
+
+
+class TestP4:
+    def test_mobile_registration_removed(self):
+        api = _read("api/v1/routes/members.php")
+        assert "INSERT INTO members" not in api
+        assert "intentionally NOT supported" in api
+        dart = _read("Mobile/wbws_flutter_app/lib/services/api_service.dart")
+        assert "createMember" not in dart
+        assert not (REPO / "Mobile/wbws_flutter_app/lib/screens/members/register_member_screen.dart").exists()
+
+    def test_mobile_put_reverse_syncs_guardian(self):
+        api = _read("api/v1/routes/members.php")
+        assert "GuardianService::update" in api
+        assert "is_primary = 1" in api
+
+    def test_rematch_sweep(self):
+        svc = _read("admin/backend/services/GuardianMatchService.php")
+        assert "function rematchBatch" in svc
+        assert "IN ('pending','rejected')" in svc   # HR decisions respected
+        assert "'source' => 'rematch'" in svc
+        api = _read("admin/api_guardians.php")
+        assert "'run_rematch'" in api and "case 'run_rematch'" in api
+        tool = _read("admin/tools/guardian_rematch.php")
+        assert "PHP_SAPI !== 'cli'" in tool
+        dash = _read("admin/dashboards/hr-dept.php")
+        assert "famRunRematch" in dash and "famQueueBadge" in dash
+
+    def test_profiling_pack_is_read_only(self):
+        sql = _read("sql/preflight/guardian_profiling_pack.sql").upper()
+        for verb in ["INSERT ", "UPDATE ", "DELETE ", "ALTER ", "DROP ", "CREATE "]:
+            assert verb not in sql

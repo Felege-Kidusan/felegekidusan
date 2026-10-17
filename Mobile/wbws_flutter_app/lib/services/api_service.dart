@@ -1426,8 +1426,6 @@ class ApiService {
   }
 
   Future<ApiResponse> getMember(int id) => get('/members/$id');
-  Future<ApiResponse> createMember(Map<String, dynamic> data) =>
-      post('/members', body: data);
   Future<ApiResponse> updateMember(int id, Map<String, dynamic> data) =>
       put('/members/$id', body: data);
   Future<ApiResponse> getMemberAttendance(int id, {int days = 90}) =>

@@ -49,11 +49,12 @@ class ReviewGatewayTests(unittest.TestCase):
         self.assertIn("SecurityAuditService::record", self.grades)
         self.assertIn("$__eduReviewRoles", self.grades)
 
-    def test_registration_has_duplicate_guard(self):
-        self.assertIn("MemberDuplicateService::findStrongMatch", self.members)
-        self.assertIn("duplicate_override", self.members)
-        self.assertIn("duplicate_override_reason", self.members)
-        self.assertIn("'data' => ['duplicate' => $strongMatch]", self.members)
+    def test_mobile_member_registration_removed(self):
+        # Member registration is web-dashboard-only (Family Link lives there).
+        # The mobile API must not expose a create handler.
+        self.assertNotIn("INSERT INTO members", self.members)
+        self.assertNotIn("$method === 'POST' && $id === null", self.members)
+        self.assertIn("POST /members — intentionally NOT supported", self.members)
 
 
 class MobileSurfaceTests(unittest.TestCase):
@@ -68,8 +69,8 @@ class MobileSurfaceTests(unittest.TestCase):
         cls.api = rd("Mobile/wbws_flutter_app/lib/services/api_service.dart")
         cls.members = rd(
             "Mobile/wbws_flutter_app/lib/screens/members/member_list_screen.dart")
-        cls.register = rd(
-            "Mobile/wbws_flutter_app/lib/screens/members/"
+        cls.register_path = (
+            ROOT / "Mobile/wbws_flutter_app/lib/screens/members/"
             "register_member_screen.dart")
 
     def test_inbox_shared_with_clone_parity(self):
@@ -108,11 +109,10 @@ class MobileSurfaceTests(unittest.TestCase):
         self.assertIn("findCachedMemberByCode", self.members)
         self.assertIn("QrFeedback.memberFound", self.members)
 
-    def test_registration_form_mirrors_web_rules(self):
-        self.assertIn("student_name", self.register)
-        self.assertIn("father_name", self.register)
-        self.assertIn("duplicate_override", self.register)
-        self.assertIn("7_13", self.register)
+    def test_mobile_registration_screen_removed(self):
+        # Registration is a web-dashboard-only HR workflow (Family Link).
+        self.assertFalse(self.register_path.exists())
+        self.assertNotIn("createMember", self.api)
 
 
 if __name__ == "__main__":

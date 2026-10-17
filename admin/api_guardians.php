@@ -25,7 +25,7 @@ $role = (string)($_SESSION['admin_role'] ?? '');
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
 
 $__readActions = ['search', 'get_family', 'list_suggestions', 'score_check'];
-$__writeActions = ['create', 'update', 'link', 'unlink', 'merge', 'merge_suggestion', 'reject_suggestion', 'add_alias'];
+$__writeActions = ['create', 'update', 'link', 'unlink', 'merge', 'merge_suggestion', 'reject_suggestion', 'add_alias', 'run_rematch'];
 
 if (in_array($action, $__writeActions, true) && !in_array($role, ['super_admin', 'school_admin', 'hr_dept'], true)) {
     http_response_code(403);
@@ -196,6 +196,17 @@ switch ($action) {
             http_response_code(422);
             echo json_encode(['status' => 'error', 'message' => guardianSafeError($e, 'Guardians could not be merged.')]);
         }
+        exit;
+    }
+
+    case 'run_rematch': {
+        // Bounded sweep step; the UI loops with next_cursor until done.
+        $cursor = max(0, (int)($_POST['cursor'] ?? 0));
+        $r = GuardianMatchService::rematchBatch($conn, $cursor, 300, 20.0);
+        if ($r['scanned'] > 0 || $r['filed'] > 0) {
+            GuardianService::audit($conn, 'Guardian Rematch', "Sweep step: scanned {$r['scanned']} guardians from cursor {$cursor}, filed {$r['filed']} suggestion(s), " . ($r['done'] ? 'complete' : 'continuing') . '.');
+        }
+        echo json_encode(['status' => 'success'] + $r);
         exit;
     }
 

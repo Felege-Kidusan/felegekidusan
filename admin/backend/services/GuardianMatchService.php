@@ -256,6 +256,97 @@ class GuardianMatchService
     }
 
     /**
+     * Re-match sweep: re-score active guardians against each other and file
+     * review-band pairs into guardian_link_suggestions. Never auto-merges.
+     *
+     * Bounded for shared hosting: at most $limit guardians per call and a
+     * wall-clock budget; resumable through the returned cursor. Pairs that
+     * are pending or were previously rejected are skipped (HR decisions are
+     * final until the data changes).
+     *
+     * @return array{scanned:int, filed:int, next_cursor:int, done:bool, elapsed:float}
+     */
+    public static function rematchBatch(\mysqli $conn, int $cursor = 0, int $limit = 300, float $budgetSeconds = 20.0): array
+    {
+        $t0 = microtime(true);
+        $scanned = 0;
+        $filed = 0;
+        $last = $cursor;
+        $done = true;
+
+        $stmt = $conn->prepare("SELECT * FROM guardians WHERE status = 'active' AND id > ? ORDER BY id ASC LIMIT " . max(1, $limit));
+        if (!$stmt) {
+            return ['scanned' => 0, 'filed' => 0, 'next_cursor' => $cursor, 'done' => true, 'elapsed' => 0.0];
+        }
+        $stmt->bind_param('i', $cursor);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $batch = [];
+        while ($g = $res->fetch_assoc()) {
+            $batch[] = $g;
+        }
+        $stmt->close();
+        if (count($batch) === $limit) {
+            $done = false;
+        }
+
+        foreach ($batch as $g) {
+            if ((microtime(true) - $t0) > $budgetSeconds) {
+                $done = false;
+                break;
+            }
+            $scanned++;
+            $last = (int)$g['id'];
+            $g['aliases'] = [];
+            $al = $conn->prepare('SELECT alias_name FROM guardian_aliases WHERE guardian_id = ?');
+            if ($al) {
+                $al->bind_param('i', $g['id']);
+                $al->execute();
+                $ar = $al->get_result();
+                while ($a = $ar->fetch_assoc()) {
+                    $g['aliases'][] = (string)$a['alias_name'];
+                }
+                $al->close();
+            }
+            $cands = self::findCandidates($conn, (string)$g['display_name'], (string)$g['phone_primary'], $g);
+            foreach ($cands as $c) {
+                $cid = (int)$c['id'];
+                if ($cid === (int)$g['id'] || $cid < (int)$g['id']) {
+                    continue; // each unordered pair once (lower id scans higher)
+                }
+                $r = self::score($g, $c);
+                if ($r['band'] === 'new') {
+                    continue;
+                }
+                $a = (int)$g['id'];
+                $b = $cid;
+                $chk = $conn->prepare("SELECT status FROM guardian_link_suggestions WHERE ((guardian_a = ? AND guardian_b = ?) OR (guardian_a = ? AND guardian_b = ?)) AND status IN ('pending','rejected') LIMIT 1");
+                if ($chk) {
+                    $chk->bind_param('iiii', $a, $b, $b, $a);
+                    $chk->execute();
+                    $exists = $chk->get_result()->fetch_assoc();
+                    $chk->close();
+                    if ($exists) {
+                        continue;
+                    }
+                }
+                $band = $r['band'] === 'auto' ? 'auto' : 'review';
+                $ev = json_encode($r['evidence'] + ['source' => 'rematch'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                $ins = $conn->prepare("INSERT INTO guardian_link_suggestions (guardian_a, guardian_b, member_id, score, band, evidence, status) VALUES (?, ?, NULL, ?, ?, ?, 'pending')");
+                if ($ins) {
+                    $sc = (float)$r['score'];
+                    $ins->bind_param('iidss', $a, $b, $sc, $band, $ev);
+                    if ($ins->execute()) {
+                        $filed++;
+                    }
+                    $ins->close();
+                }
+            }
+        }
+        return ['scanned' => $scanned, 'filed' => $filed, 'next_cursor' => $last, 'done' => $done, 'elapsed' => round(microtime(true) - $t0, 2)];
+    }
+
+    /**
      * Blocking: cheap SQL prefilter (phone n9, name prefix, alias prefix),
      * then trigram gate in PHP. Bounded by CANDIDATE_LIMIT.
      *

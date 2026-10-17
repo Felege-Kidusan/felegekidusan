@@ -637,6 +637,7 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <i class="fa-solid fa-people-roof text-sm"></i>
                 </span>
                 <span class="font-semibold">Family Link</span>
+                <span id="famQueueBadge" class="ml-auto hidden text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-900"></span>
             </a>
 
             <a href="#" data-section="newmembers"
@@ -1996,7 +1997,10 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                     <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
                         <div class="flex items-center justify-between mb-1">
                             <h3 class="text-sm font-bold text-white"><i class="fa-solid fa-scale-balanced text-amber-300"></i> Review queue</h3>
-                            <button type="button" class="text-[11px] px-2 py-1 rounded-lg border border-white/15 text-slate-300" onclick="famLoadQueue()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            <div class="flex items-center gap-1">
+                                <button type="button" id="famRematchBtn" class="text-[11px] px-2 py-1 rounded-lg border border-amber-300/30 bg-amber-300/10 text-amber-200" onclick="famRunRematch()"><i class="fa-solid fa-magnifying-glass-arrow-right"></i> Run re-match now</button>
+                                <button type="button" class="text-[11px] px-2 py-1 rounded-lg border border-white/15 text-slate-300" onclick="famLoadQueue()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            </div>
                         </div>
                         <p class="text-[11px] text-slate-400 mb-3">Probable duplicate guardians (typo-tolerant matching). Merging moves all children and keeps the old row reversible; rejecting keeps both.</p>
                         <div id="famQueue" class="space-y-2 text-xs"></div>
@@ -2228,9 +2232,24 @@ function famEdit(gid){ fetch('/admin/api_guardians.php?action=search&q='+gid,{cr
   famPost('update',{guardian_id:gid,display_name:name,phone_primary:p1,phone_alt:p2},function(){ famRefreshCurrent(gid); });
 });}
 function famAlias(gid){ var a=prompt('Alias / alternate spelling (Amharic variants welcome):'); if(!a)return; famPost('add_alias',{guardian_id:gid,alias_name:a},function(){ famRefreshCurrent(gid); }); }
+function famRunRematch(cursor, acc){
+  cursor=cursor||0; acc=acc||{scanned:0,filed:0};
+  var btn=document.getElementById('famRematchBtn');
+  if(cursor===0){ if(!confirm('Scan all guardians for probable duplicates? Nothing is merged automatically; findings go to this queue.')) return; }
+  btn.disabled=true; btn.textContent='Scanning… '+acc.scanned+' checked, '+acc.filed+' found';
+  famPost('run_rematch',{cursor:cursor},function(d){
+    if(!d||d.status!=='success'){ btn.disabled=false; btn.textContent='Run re-match now'; alert((d&&d.message)||'Sweep failed'); return; }
+    acc.scanned+=d.scanned; acc.filed+=d.filed;
+    if(!d.done && d.next_cursor>cursor){ famRunRematch(d.next_cursor, acc); return; }
+    btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-magnifying-glass-arrow-right"></i> Run re-match now';
+    alert('Re-match complete: '+acc.scanned+' guardians checked, '+acc.filed+' new suggestion(s) filed.');
+    famLoadQueue();
+  });
+}
 function famLoadQueue(){
   fetch('/admin/api_guardians.php?action=list_suggestions',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
     var box=document.getElementById('famQueue'); var rows=d.suggestions||[];
+    var badge=document.getElementById('famQueueBadge'); if(badge){ if(rows.length){ badge.textContent=rows.length; badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); } }
     if(!rows.length){ box.innerHTML='<div class="text-slate-500">Queue empty — no probable duplicates pending.</div>'; return; }
     box.innerHTML=rows.map(function(s){
       var a=s.guardian_a_row, b=s.guardian_b_row;
