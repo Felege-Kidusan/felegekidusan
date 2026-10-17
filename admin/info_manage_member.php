@@ -460,6 +460,13 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
 
 /* Role Grid */
 .mm-roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+/* Responsive 2-column flow for preview cards on wide screens */
+@media (min-width: 900px) {
+    #view-preview { column-count: 2; column-gap: 16px; }
+    #view-preview .mm-card { break-inside: avoid; -webkit-column-break-inside: avoid; margin-bottom: 16px; display: inline-block; width: 100%; vertical-align: top; }
+    #view-preview .mm-card.mm-card-full { column-span: all; -webkit-column-span: all; }
+}
 .mm-role { text-align: center; padding: 14px 6px; border-radius: 12px; background: #f8fafc; }
 .mm-role.active { background: linear-gradient(135deg, #d1fae5, #a7f3d0); }
 .mm-role i { font-size: 20px; color: #94a3b8; margin-bottom: 6px; display: block; }
@@ -581,7 +588,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
         <!-- PREVIEW PANEL - ID MUST be: view-preview -->
         <div id="view-preview" style="display: block;">
             <!-- Photos -->
-            <div class="mm-card">
+            <div class="mm-card mm-card-full">
                 <div class="mm-card-hdr">
                     <div class="mm-card-icon mm-icon-green"><i class="fas fa-camera"></i></div>
                     <div class="mm-card-title">Photos</div>
@@ -615,7 +622,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
             </div>
 
             <!-- Documents -->
-            <div class="mm-card">
+            <div class="mm-card mm-card-full">
                 <div class="mm-card-hdr">
                     <div class="mm-card-icon mm-icon-blue"><i class="fas fa-folder-open"></i></div>
                     <div class="mm-card-title">Documents</div>
@@ -711,7 +718,7 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
             </div>
 
             <!-- Status & Roles -->
-            <div class="mm-card">
+            <div class="mm-card mm-card-full">
                 <div class="mm-card-hdr">
                     <div class="mm-card-icon mm-icon-purple"><i class="fas fa-id-badge"></i></div>
                     <div class="mm-card-title">Status & Roles</div>
