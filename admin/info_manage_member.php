@@ -228,6 +228,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $conn->begin_transaction();
     if ($stmt->execute()) { 
         $uploadsCommitted = true;
+        // Family Link reverse-sync: if this member has a primary linked
+        // guardian and the contact fields were edited here, push the new
+        // values into the guardian record so every sibling follows
+        // (the guardian row is the single source of truth).
+        try {
+            $glChanged = trim((string)$guardian_name) !== trim((string)($cur['guardian_name'] ?? ''))
+                || trim((string)$guardian_phone1) !== trim((string)($cur['guardian_phone1'] ?? ''))
+                || trim((string)$guardian_phone2) !== trim((string)($cur['guardian_phone2'] ?? ''));
+            if ($glChanged && trim((string)$guardian_name) !== '') {
+                require_once __DIR__ . '/backend/services/GuardianService.php';
+                $glStmt = $conn->prepare('SELECT guardian_id FROM member_guardians WHERE member_id = ? AND is_primary = 1 LIMIT 1');
+                $glGid = 0;
+                if ($glStmt) {
+                    $glStmt->bind_param('i', $id);
+                    $glStmt->execute();
+                    $glRow = $glStmt->get_result()->fetch_assoc();
+                    $glStmt->close();
+                    $glGid = $glRow ? (int)$glRow['guardian_id'] : 0;
+                }
+                if ($glGid > 0) {
+                    \App\Services\GuardianService::update($conn, $glGid, [
+                        'display_name' => $guardian_name,
+                        'phone_primary' => $guardian_phone1,
+                        'phone_alt' => $guardian_phone2,
+                    ]);
+                }
+            }
+        } catch (\Throwable $glError) {
+            error_log('Family Link reverse-sync failed for member ' . $id . ': ' . $glError->getMessage());
+        }
         foreach ([
             'student_photo_path' => $student_photo_path,
             'guardian_photo_path' => $guardian_photo_path,

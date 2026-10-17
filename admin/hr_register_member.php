@@ -540,6 +540,77 @@ try {
         $stmt->close();
     }
 
+    // Family Link: attach the new member to a guardian record.
+    // Preference: explicit picker choice -> typo-tolerant auto-match ->
+    // create a fresh guardian from the typed legacy fields. Never fatal:
+    // a linkage failure must not break or roll back registration.
+    try {
+        require_once __DIR__ . '/backend/services/GuardianService.php';
+        require_once __DIR__ . '/backend/services/GuardianMatchService.php';
+        $pickedGuardianId = (int)($_POST['guardian_link_id'] ?? 0);
+        if ($pickedGuardianId > 0) {
+            \App\Services\GuardianService::linkMember($conn, $pickedGuardianId, $newId, 'other', 1, true);
+            \App\Services\GuardianService::audit($conn, 'Guardian Linked', "Member {$newId} linked to picked guardian {$pickedGuardianId} at registration.");
+        } elseif (trim($guardian_name) !== '') {
+            $glProbe = [
+                'display_name' => $guardian_name,
+                'phone_primary' => $guardian_phone1,
+                'phone_alt' => $guardian_phone2,
+                'phone_primary_n9' => \App\Services\GuardianMatchService::phoneN9($guardian_phone1),
+                'phone_alt_n9' => \App\Services\GuardianMatchService::phoneN9($guardian_phone2),
+                'aliases' => [],
+                'city' => $guardian_city,
+                'sub_city' => $guardian_sub_city,
+                'woreda' => $guardian_woreda,
+                'mender' => $guardian_mender,
+                'block_number' => $guardian_block_number,
+                'house' => $guardian_house,
+            ];
+            $glCandidates = \App\Services\GuardianMatchService::findCandidates($conn, $guardian_name, $guardian_phone1, $glProbe);
+            $glBestScore = 0.0;
+            $glBestRow = null;
+            $glBest = null;
+            foreach ($glCandidates as $glCand) {
+                $glRes = \App\Services\GuardianMatchService::score($glProbe, $glCand);
+                if ($glRes['score'] > $glBestScore) {
+                    $glBestScore = $glRes['score'];
+                    $glBestRow = $glCand;
+                    $glBest = $glRes;
+                }
+            }
+            if ($glBest !== null && $glBest['band'] === 'auto') {
+                $glGid = (int)$glBestRow['id'];
+                \App\Services\GuardianService::linkMember($conn, $glGid, $newId, 'other', 1, true);
+                \App\Services\GuardianService::audit($conn, 'Guardian Linked', "Member {$newId} auto-linked to guardian {$glGid} at registration (score {$glBest['score']}).");
+            } else {
+                $glGid = \App\Services\GuardianService::create($conn, [
+                    'display_name' => $guardian_name,
+                    'phone_primary' => $guardian_phone1,
+                    'phone_alt' => $guardian_phone2,
+                    'city' => $guardian_city,
+                    'sub_city' => $guardian_sub_city,
+                    'woreda' => $guardian_woreda,
+                    'mender' => $guardian_mender,
+                    'block_number' => $guardian_block_number,
+                    'house' => $guardian_house,
+                ], 'hr');
+                \App\Services\GuardianService::linkMember($conn, $glGid, $newId, 'other', 1, true);
+                if ($glBest !== null && $glBest['band'] === 'review') {
+                    $glStmt = $conn->prepare("INSERT INTO guardian_link_suggestions (guardian_a, guardian_b, member_id, score, band, evidence, status) VALUES (?,?,?,?, 'review', ?, 'pending')");
+                    if ($glStmt) {
+                        $glA = (int)$glBestRow['id'];
+                        $glEv = json_encode($glBest['evidence'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                        $glStmt->bind_param('iiids', $glA, $glGid, $newId, $glBestScore, $glEv);
+                        $glStmt->execute();
+                        $glStmt->close();
+                    }
+                }
+            }
+        }
+    } catch (\Throwable $glError) {
+        error_log('Family Link hook failed for member ' . $newId . ': ' . $glError->getMessage());
+    }
+
     if (!\App\Services\SecurityAuditService::record(
         $conn,
         $upgrade_id > 0 ? 'Member Registration Updated' : 'Member Registered',

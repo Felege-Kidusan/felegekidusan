@@ -631,6 +631,14 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                 <span class="font-semibold">All Members</span>
             </a>
 
+            <a href="#" data-section="family"
+               class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
+                <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                    <i class="fa-solid fa-people-roof text-sm"></i>
+                </span>
+                <span class="font-semibold">Family Link</span>
+            </a>
+
             <a href="#" data-section="newmembers"
                class="mobile-touch-target flex items-center gap-3 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition">
                 <span class="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
@@ -1800,6 +1808,18 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div class="md:col-span-2">
                                         <label class="block text-[11px] font-medium text-slate-700 mb-1">
+                                            Link existing guardian (optional — type a name or phone)
+                                        </label>
+                                        <input type="hidden" name="guardian_link_id" id="regGuardianLinkId" value="0">
+                                        <input type="text" id="regGuardianPick" autocomplete="off"
+                                               placeholder="Search guardians… pick one to skip re-typing"
+                                               class="mobile-touch-target w-full px-3 py-2 rounded-xl border border-slate-200 text-xs placeholder:text-[11px] focus:ring-emerald-200 focus:border-emerald-400">
+                                        <div id="regGuardianPickList" style="display:none;position:absolute;z-index:40;margin-top:2px;width:100%;max-height:220px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.6rem;box-shadow:0 10px 30px rgba(0,0,0,.45)"></div>
+                                        <div id="regGuardianPicked" style="display:none;margin-top:.35rem;font-size:.72rem;color:#34d399"></div>
+                                    </div>
+
+                                    <div class="md:col-span-2">
+                                        <label class="block text-[11px] font-medium text-slate-700 mb-1">
                                             Guardian Full Name *
                                         </label>
                                         <input type="text" name="guardian_name" required
@@ -1961,6 +1981,29 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
             </section>
 
             <!-- NEW MEMBERS (temporary, promotion tracking) -->
+            <section id="section-family" class="content-section">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <h3 class="text-sm font-bold text-white mb-1"><i class="fa-solid fa-people-roof text-emerald-300"></i> Guardian search & family card</h3>
+                        <p class="text-[11px] text-slate-400 mb-3">Type a guardian name or phone to see their card, children and siblings links. Edits here update every linked child at once (single source of truth).</p>
+                        <div style="position:relative">
+                            <input type="text" id="famQ" autocomplete="off" placeholder="Guardian name or phone…"
+                                   class="w-full px-3 py-2 rounded-xl border border-white/15 bg-white/5 text-xs text-slate-100 placeholder:text-slate-500">
+                            <div id="famQList" style="display:none;position:absolute;z-index:40;margin-top:2px;width:100%;max-height:240px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.6rem"></div>
+                        </div>
+                        <div id="famDetail" class="mt-3 text-xs text-slate-300"></div>
+                    </div>
+                    <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-1">
+                            <h3 class="text-sm font-bold text-white"><i class="fa-solid fa-scale-balanced text-amber-300"></i> Review queue</h3>
+                            <button type="button" class="text-[11px] px-2 py-1 rounded-lg border border-white/15 text-slate-300" onclick="famLoadQueue()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mb-3">Probable duplicate guardians (typo-tolerant matching). Merging moves all children and keeps the old row reversible; rejecting keeps both.</p>
+                        <div id="famQueue" class="space-y-2 text-xs"></div>
+                    </div>
+                </div>
+            </section>
+
             <section id="section-newmembers" class="content-section">
                 <div class="panel p-4 mobile-card">
                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -2130,6 +2173,92 @@ if (isset($conn) && $conn instanceof mysqli && !$conn->connect_error) {
 <script>window.WBWS_SECTIONS=<?= json_encode(array_map(static function($sec){return $sec['am'].' ('.$sec['letter'].')';}, \App\Services\MemberCategory::sections()), JSON_UNESCAPED_UNICODE) ?>;</script>
         <script src="/admin/js/all-members.js" defer></script>
 <script src="/admin/js/manage-members.js" defer></script>
+<script src="/admin/js/guardian_picker.js"></script>
+<script>
+function famCsrf(){ var i=document.querySelector('input[name="csrf_token"]'); if(i&&i.value)return i.value; if(window.SA_BOOT&&window.SA_BOOT.csrf)return window.SA_BOOT.csrf; return (window.CSRF_TOKEN||''); }
+function famPost(action, params, done){
+  var fd=new FormData(); fd.append('action',action); fd.append('csrf_token',famCsrf());
+  Object.keys(params||{}).forEach(function(k){ fd.append(k,params[k]); });
+  fetch('/admin/api_guardians.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(done).catch(function(){ alert('Network error'); });
+}
+function famEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function famRenderGuardian(g){
+  var kids=(g.children||[]);
+  var html='<div class="border border-white/10 rounded-xl p-3 bg-white/5">'
+    +'<div class="flex items-start justify-between gap-2"><div><div class="font-bold text-white text-sm">'+famEsc(g.display_name)+'</div>'
+    +'<div class="text-[11px] text-slate-400">'+famEsc(g.phone_primary||'no phone')+(g.phone_alt?' · '+famEsc(g.phone_alt):'')+'</div>'
+    +(g.aliases&&g.aliases.length?'<div class="text-[11px] text-slate-500">aka: '+g.aliases.map(famEsc).join(', ')+'</div>':'')
+    +'</div><div class="flex gap-1 shrink-0">'
+    +'<button type="button" class="px-2 py-1 rounded-lg border border-white/15 text-[11px] text-slate-200" onclick="famEdit('+g.id+')">Edit</button>'
+    +'<button type="button" class="px-2 py-1 rounded-lg border border-white/15 text-[11px] text-slate-200" onclick="famAlias('+g.id+')">+ alias</button>'
+    +'</div></div>'
+    +'<div class="mt-2 text-[11px] text-slate-300"><b>Children:</b> '+(kids.length?kids.map(function(k){return famEsc(k.student_name)+(k.current_section?' ('+famEsc(k.current_section)+')':'');}).join(', '):'none linked yet')+'</div>'
+    +'<div class="mt-2" style="position:relative"><input id="famKidQ_'+g.id+'" autocomplete="off" placeholder="Add child: type member name…" class="w-full px-2 py-1.5 rounded-lg border border-white/15 bg-white/5 text-[11px] text-slate-100">'
+    +'<div id="famKidL_'+g.id+'" style="display:none;position:absolute;z-index:50;width:100%;max-height:180px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.5rem"></div></div>'
+    +'</div>';
+  document.getElementById('famDetail').innerHTML=html;
+  famMemberTypeahead(g.id);
+}
+function famMemberTypeahead(gid){
+  var input=document.getElementById('famKidQ_'+gid), list=document.getElementById('famKidL_'+gid), timer=null;
+  input.addEventListener('input',function(){ clearTimeout(timer); var q=input.value.trim();
+    if(q.length<2){list.style.display='none';return;}
+    timer=setTimeout(function(){
+      fetch('/admin/api_list_members.php?q='+encodeURIComponent(q)+'&limit=6',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+        var rows=(d&&d.members)||[];
+        if(!rows.length){list.style.display='none';return;}
+        list.innerHTML=rows.map(function(m){return '<button type="button" data-mid="'+m.id+'" style="display:block;width:100%;text-align:left;padding:.4rem .6rem;border:0;background:transparent;color:#e2e8f0;cursor:pointer;border-bottom:1px solid rgba(148,163,184,.12);font-size:.72rem">'+famEsc(m.student_name||m.full_name_am)+' <span style="color:#94a3b8">'+famEsc(m.member_code||'')+'</span></button>';}).join('');
+        list.style.display='block';
+        Array.prototype.forEach.call(list.querySelectorAll('button[data-mid]'),function(b){ b.addEventListener('click',function(){
+          var mid=parseInt(b.getAttribute('data-mid'),10);
+          famPost('link',{guardian_id:gid,member_id:mid,relation:'other',contact_priority:1},function(){ list.style.display='none'; input.value=''; famRefreshCurrent(gid); });
+        });});
+      }).catch(function(){ list.style.display='none'; });
+    },250);
+  });
+  input.addEventListener('blur',function(){ setTimeout(function(){list.style.display='none';},180); });
+}
+var famCurrentGuardian=0;
+function famRefreshCurrent(gid){ fetch('/admin/api_guardians.php?action=search&q='+encodeURIComponent(String(gid)),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){ var g=(d.guardians||[]).filter(function(x){return x.id===gid;})[0]; if(g) famRenderGuardian(g); }); }
+function famEdit(gid){ fetch('/admin/api_guardians.php?action=search&q='+gid,{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+  var g=(d.guardians||[]).filter(function(x){return x.id===gid;})[0]; if(!g)return;
+  var name=prompt('Guardian name', g.display_name); if(name===null)return;
+  var p1=prompt('Primary phone', g.phone_primary||''); if(p1===null)return;
+  var p2=prompt('Alt phone', g.phone_alt||''); if(p2===null)return;
+  famPost('update',{guardian_id:gid,display_name:name,phone_primary:p1,phone_alt:p2},function(){ famRefreshCurrent(gid); });
+});}
+function famAlias(gid){ var a=prompt('Alias / alternate spelling (Amharic variants welcome):'); if(!a)return; famPost('add_alias',{guardian_id:gid,alias_name:a},function(){ famRefreshCurrent(gid); }); }
+function famLoadQueue(){
+  fetch('/admin/api_guardians.php?action=list_suggestions',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    var box=document.getElementById('famQueue'); var rows=d.suggestions||[];
+    if(!rows.length){ box.innerHTML='<div class="text-slate-500">Queue empty — no probable duplicates pending.</div>'; return; }
+    box.innerHTML=rows.map(function(s){
+      var a=s.guardian_a_row, b=s.guardian_b_row;
+      var ev={}; try{ ev=JSON.parse(s.evidence||'{}'); }catch(e){}
+      return '<div class="border border-amber-300/25 rounded-xl p-2.5 bg-amber-300/5">'
+        +'<div class="flex items-center justify-between gap-2"><div><b class="text-white">'+famEsc(a?a.display_name:'?')+'</b> <span class="text-slate-500">'+famEsc(a?a.phone_primary||'':'')+'</span>'
+        +' <span class="text-amber-300">≈ '+parseFloat(s.score).toFixed(2)+'</span> vs <b class="text-white">'+famEsc(b?b.display_name:'?')+'</b> <span class="text-slate-500">'+famEsc(b?b.phone_primary||'':'')+'</span></div>'
+        +'<div class="flex gap-1 shrink-0"><button type="button" class="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-200 border border-emerald-400/30" onclick="famResolve('+s.id+',1)">Merge</button>'
+        +'<button type="button" class="px-2 py-1 rounded-lg bg-white/5 text-slate-300 border border-white/15" onclick="famResolve('+s.id+',0)">Keep separate</button></div></div>'
+        +'<div class="text-[10px] text-slate-400 mt-1">evidence: '+famEsc(JSON.stringify(ev))+'</div></div>';
+    }).join('');
+  });
+}
+function famResolve(sid, merge){ if(merge&&!confirm('Merge the second guardian into the first? Children move; the merge stays reversible.'))return;
+  famPost(merge?'merge_suggestion':'reject_suggestion',{suggestion_id:sid},function(){ famLoadQueue(); }); }
+document.addEventListener('DOMContentLoaded', function(){
+  if(window.GuardianPicker){
+    GuardianPicker.attach(document.getElementById('regGuardianPick'), document.getElementById('regGuardianPickList'), function(g){
+      document.getElementById('regGuardianLinkId').value=g.id;
+      var chip=document.getElementById('regGuardianPicked');
+      chip.style.display='block';
+      chip.innerHTML='Linked to existing guardian: <b>'+famEsc(g.display_name)+'</b> — the typed guardian fields below will be ignored for linking. <a href="#" onclick="var i=document.getElementById('regGuardianLinkId'); i.value=0; i2=document.getElementById('regGuardianPicked'); i2.style.display='none'; return false;" style="color:#f87171">clear</a>';
+    });
+    GuardianPicker.attach(document.getElementById('famQ'), document.getElementById('famQList'), function(g){ famCurrentGuardian=g.id; famRenderGuardian(g); });
+  }
+  famLoadQueue();
+});
+</script>
 <script src="/admin/js/new-members.js" defer></script>
 <script src="/frontend/js/member-picker.js" defer></script>
 <script src="/admin/js/id-card-directory.js" defer></script>
