@@ -2183,7 +2183,10 @@ function famCsrf(){ var i=document.querySelector('input[name="csrf_token"]'); if
 function famPost(action, params, done){
   var fd=new FormData(); fd.append('action',action); fd.append('csrf_token',famCsrf());
   Object.keys(params||{}).forEach(function(k){ fd.append(k,params[k]); });
-  fetch('/admin/api_guardians.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(done).catch(function(){ alert('Network error'); });
+  fetch('/admin/api_guardians.php',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    if(action!=='run_rematch' && (!d || d.status!=='success')){ alert((d&&d.message)||'Request failed'); if(action==='merge_suggestion'||action==='reject_suggestion'){ famLoadQueue(); } return; }
+    done(d);
+  }).catch(function(){ alert('Network error'); });
 }
 function famEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function famRenderGuardian(g){
@@ -2196,7 +2199,7 @@ function famRenderGuardian(g){
     +'<button type="button" class="px-2 py-1 rounded-lg border border-white/15 text-[11px] text-slate-200" onclick="famEdit('+g.id+')">Edit</button>'
     +'<button type="button" class="px-2 py-1 rounded-lg border border-white/15 text-[11px] text-slate-200" onclick="famAlias('+g.id+')">+ alias</button>'
     +'</div></div>'
-    +'<div class="mt-2 text-[11px] text-slate-300"><b>Children:</b> '+(kids.length?kids.map(function(k){return famEsc(k.student_name)+(k.current_section?' ('+famEsc(k.current_section)+')':'');}).join(', '):'none linked yet')+'</div>'
+    +'<div class="mt-2 text-[11px] text-slate-300"><b>Children:</b> '+(kids.length?kids.map(function(k){return '<span class="inline-flex items-center gap-1 mr-1 mb-1 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10">'+famEsc(k.student_name||k.full_name_am)+(k.current_section?' ('+famEsc(k.current_section)+')':'')+(parseInt(k.is_primary,10)===1?' <span title="primary contact" class="text-amber-300">★</span>':'')+(k.id?' <a href="#" title="Unlink this child" onclick="famUnlink('+g.id+','+parseInt(k.id,10)+'); return false;" class="text-rose-300 hover:text-rose-200">×</a>':'')+'</span>';}).join(''):'none linked yet')+'</div>'
     +'<div class="mt-2" style="position:relative"><input id="famKidQ_'+g.id+'" autocomplete="off" placeholder="Add child: type member name…" class="w-full px-2 py-1.5 rounded-lg border border-white/15 bg-white/5 text-[11px] text-slate-100">'
     +'<div id="famKidL_'+g.id+'" style="display:none;position:absolute;z-index:50;width:100%;max-height:180px;overflow:auto;background:#0f172a;border:1px solid rgba(148,163,184,.25);border-radius:.5rem"></div></div>'
     +'</div>';
@@ -2223,12 +2226,14 @@ function famMemberTypeahead(gid){
   input.addEventListener('blur',function(){ setTimeout(function(){list.style.display='none';},180); });
 }
 var famCurrentGuardian=0;
-function famRefreshCurrent(gid){ fetch('/admin/api_guardians.php?action=search&q='+encodeURIComponent(String(gid)),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){ var g=(d.guardians||[]).filter(function(x){return x.id===gid;})[0]; if(g) famRenderGuardian(g); }); }
-function famEdit(gid){ fetch('/admin/api_guardians.php?action=search&q='+gid,{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
-  var g=(d.guardians||[]).filter(function(x){return x.id===gid;})[0]; if(!g)return;
+function famGet(gid, cb){ fetch('/admin/api_guardians.php?action=get&guardian_id='+encodeURIComponent(String(gid)),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){ if(d&&d.status==='success'&&d.guardian){ cb(d.guardian); } else { alert((d&&d.message)||'Guardian not found'); } }).catch(function(){ alert('Network error'); }); }
+function famRefreshCurrent(gid){ famGet(gid, famRenderGuardian); }
+function famUnlink(gid, mid){ if(!confirm('Remove this child from the guardian? (The member record itself is untouched.)'))return; famPost('unlink',{guardian_id:gid,member_id:mid},function(){ famRefreshCurrent(gid); }); }
+function famEdit(gid){ famGet(gid, function(g){
   var name=prompt('Guardian name', g.display_name); if(name===null)return;
   var p1=prompt('Primary phone', g.phone_primary||''); if(p1===null)return;
   var p2=prompt('Alt phone', g.phone_alt||''); if(p2===null)return;
+  if(!name.trim()){ alert('Guardian name cannot be empty.'); return; }
   famPost('update',{guardian_id:gid,display_name:name,phone_primary:p1,phone_alt:p2},function(){ famRefreshCurrent(gid); });
 });}
 function famAlias(gid){ var a=prompt('Alias / alternate spelling (Amharic variants welcome):'); if(!a)return; famPost('add_alias',{guardian_id:gid,alias_name:a},function(){ famRefreshCurrent(gid); }); }
@@ -2265,13 +2270,14 @@ function famLoadQueue(){
 }
 function famResolve(sid, merge){ if(merge&&!confirm('Merge the second guardian into the first? Children move; the merge stays reversible.'))return;
   famPost(merge?'merge_suggestion':'reject_suggestion',{suggestion_id:sid},function(){ famLoadQueue(); }); }
+function famClearPick(){ var i=document.getElementById('regGuardianLinkId'); if(i) i.value=0; var c=document.getElementById('regGuardianPicked'); if(c) c.style.display='none'; }
 document.addEventListener('DOMContentLoaded', function(){
   if(window.GuardianPicker){
     GuardianPicker.attach(document.getElementById('regGuardianPick'), document.getElementById('regGuardianPickList'), function(g){
       document.getElementById('regGuardianLinkId').value=g.id;
       var chip=document.getElementById('regGuardianPicked');
       chip.style.display='block';
-      chip.innerHTML='Linked to existing guardian: <b>'+famEsc(g.display_name)+'</b> — the typed guardian fields below will be ignored for linking. <a href="#" onclick="var i=document.getElementById('regGuardianLinkId'); i.value=0; i2=document.getElementById('regGuardianPicked'); i2.style.display='none'; return false;" style="color:#f87171">clear</a>';
+      chip.innerHTML='Linked to existing guardian: <b>'+famEsc(g.display_name)+'</b> ('+famEsc(g.phone_primary||'no phone')+') — the typed guardian fields below are replaced by this record on save. <a href="#" onclick="famClearPick(); return false;" style="color:#f87171">clear</a>';
     });
     GuardianPicker.attach(document.getElementById('famQ'), document.getElementById('famQList'), function(g){ famCurrentGuardian=g.id; famRenderGuardian(g); });
   }

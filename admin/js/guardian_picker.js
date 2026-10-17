@@ -42,7 +42,7 @@
               Array.prototype.forEach.call(listEl.querySelectorAll('button[data-gid]'), function (btn) {
                 btn.addEventListener('click', function () {
                   var gid = parseInt(btn.getAttribute('data-gid'), 10);
-                  var g = d.guardians.filter(function (x) { return x.id === gid; })[0] || null;
+                  var g = d.guardians.filter(function (x) { return parseInt(x.id, 10) === gid; })[0] || null;
                   listEl.innerHTML = ''; hide();
                   if (g && onSelect) onSelect(g);
                 });

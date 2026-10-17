@@ -310,8 +310,11 @@ if ($method === 'PUT' && is_int($id)) {
             if ($__gName === '') {
                 $__gName = $__gCurrentName;
             }
-            if ($__gGid > 0 && $__gName !== '') {
-                require_once dirname(__DIR__, 3) . '/admin/backend/services/GuardianService.php';
+            require_once dirname(__DIR__, 3) . '/admin/backend/services/GuardianService.php';
+            if ($__gGid === 0) {
+                // No guardian linked yet: match-or-create from the saved legacy columns.
+                \App\Services\GuardianService::attachFromLegacy($conn, (int)$id, 0, 'hr');
+            } elseif ($__gName !== '') {
                 // Only fields present in the payload are pushed; the guardian
                 // row keeps its current values for everything else.
                 $__gData = ['display_name' => $__gName];

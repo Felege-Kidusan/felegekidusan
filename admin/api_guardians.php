@@ -24,7 +24,7 @@ if (empty($_SESSION['admin_id']) || empty($_SESSION['admin_logged_in'])) {
 $role = (string)($_SESSION['admin_role'] ?? '');
 $action = is_scalar($_REQUEST['action'] ?? '') ? (string)$_REQUEST['action'] : '';
 
-$__readActions = ['search', 'get_family', 'list_suggestions', 'score_check'];
+$__readActions = ['search', 'get', 'get_family', 'list_suggestions', 'score_check'];
 $__writeActions = ['create', 'update', 'link', 'unlink', 'merge', 'merge_suggestion', 'reject_suggestion', 'add_alias', 'run_rematch'];
 
 if (in_array($action, $__writeActions, true) && !in_array($role, ['super_admin', 'school_admin', 'hr_dept'], true)) {
@@ -67,6 +67,20 @@ switch ($action) {
     case 'search': {
         $q = (string)($_GET['q'] ?? $_POST['q'] ?? '');
         echo json_encode(['status' => 'success', 'guardians' => GuardianService::searchForPicker($conn, $q)]);
+        exit;
+    }
+
+    case 'get': {
+        // One guardian by id, same shape as the picker rows (children + aliases).
+        $gid = (int)($_GET['guardian_id'] ?? $_POST['guardian_id'] ?? 0);
+        $g = $gid > 0 ? GuardianService::get($conn, $gid) : null;
+        if (!$g) {
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'Guardian not found.']);
+            exit;
+        }
+        $g['children'] = GuardianService::childrenOf($conn, $gid);
+        echo json_encode(['status' => 'success', 'guardian' => $g]);
         exit;
     }
 
@@ -158,7 +172,14 @@ switch ($action) {
 
     case 'add_alias': {
         $id = (int)($_POST['guardian_id'] ?? 0);
-        GuardianService::addAlias($conn, $id, (string)($_POST['alias_name'] ?? ''));
+        $alias = trim((string)($_POST['alias_name'] ?? ''));
+        if ($id <= 0 || $alias === '' || !GuardianService::get($conn, $id)) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => 'Guardian and alias text are required.']);
+            exit;
+        }
+        GuardianService::addAlias($conn, $id, $alias);
+        GuardianService::audit($conn, 'Guardian Alias Added', "Alias '{$alias}' added to guardian {$id}.");
         echo json_encode(['status' => 'success', 'message' => 'Alias added.']);
         exit;
     }
@@ -183,7 +204,14 @@ switch ($action) {
     }
 
     case 'unlink': {
-        GuardianService::unlinkMember($conn, (int)($_POST['guardian_id'] ?? 0), (int)($_POST['member_id'] ?? 0));
+        $gid = (int)($_POST['guardian_id'] ?? 0);
+        $mid = (int)($_POST['member_id'] ?? 0);
+        if ($gid <= 0 || $mid <= 0) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => 'Guardian and member are required.']);
+            exit;
+        }
+        GuardianService::unlinkMember($conn, $gid, $mid);
         echo json_encode(['status' => 'success', 'message' => 'Link removed.']);
         exit;
     }
@@ -202,7 +230,8 @@ switch ($action) {
     case 'run_rematch': {
         // Bounded sweep step; the UI loops with next_cursor until done.
         $cursor = max(0, (int)($_POST['cursor'] ?? 0));
-        $r = GuardianMatchService::rematchBatch($conn, $cursor, 300, 20.0);
+        @set_time_limit(60); // shared hosts may ignore this; the 15 s budget keeps us under a 30 s cap anyway
+        $r = GuardianMatchService::rematchBatch($conn, $cursor, 300, 15.0);
         if ($r['scanned'] > 0 || $r['filed'] > 0) {
             GuardianService::audit($conn, 'Guardian Rematch', "Sweep step: scanned {$r['scanned']} guardians from cursor {$cursor}, filed {$r['filed']} suggestion(s), " . ($r['done'] ? 'complete' : 'continuing') . '.');
         }
@@ -212,6 +241,10 @@ switch ($action) {
 
     case 'list_suggestions': {
         $rows = [];
+        // Self-heal: a pending pair whose side was merged/removed elsewhere is closed.
+        $conn->query("UPDATE guardian_link_suggestions s LEFT JOIN guardians a ON a.id = s.guardian_a LEFT JOIN guardians b ON b.id = s.guardian_b
+            SET s.status = 'expired', s.resolved_at = NOW()
+            WHERE s.status = 'pending' AND (a.id IS NULL OR b.id IS NULL OR a.status = 'merged' OR b.status = 'merged' OR s.guardian_a = s.guardian_b)");
         $r = $conn->query("SELECT * FROM guardian_link_suggestions WHERE status='pending' ORDER BY score DESC, id DESC LIMIT 100");
         if ($r) {
             while ($s = $r->fetch_assoc()) {
@@ -236,9 +269,25 @@ switch ($action) {
             echo json_encode(['status' => 'error', 'message' => 'Suggestion not pending.']);
             exit;
         }
-        GuardianService::merge($conn, (int)$sug['guardian_b'], (int)$sug['guardian_a'], (int)($_SESSION['admin_id'] ?? 0));
-        $st = $conn->prepare("UPDATE guardian_link_suggestions SET status='merged', resolved_by=?, resolved_at=NOW() WHERE id=?");
         $uid = (int)($_SESSION['admin_id'] ?? 0);
+        try {
+            GuardianService::merge($conn, (int)$sug['guardian_b'], (int)$sug['guardian_a'], $uid);
+        } catch (InvalidArgumentException $e) {
+            // One side no longer mergeable (already merged elsewhere / deleted):
+            // close the stale suggestion instead of leaving it stuck in the queue.
+            $st = $conn->prepare("UPDATE guardian_link_suggestions SET status='expired', resolved_by=?, resolved_at=NOW() WHERE id=? AND status='pending'");
+            $st->bind_param('ii', $uid, $sid);
+            $st->execute();
+            $st->close();
+            http_response_code(409);
+            echo json_encode(['status' => 'error', 'message' => guardianSafeError($e, 'Guardians could not be merged.') . ' Suggestion closed as expired.']);
+            exit;
+        } catch (Throwable $e) {
+            http_response_code(422);
+            echo json_encode(['status' => 'error', 'message' => guardianSafeError($e, 'Guardians could not be merged.')]);
+            exit;
+        }
+        $st = $conn->prepare("UPDATE guardian_link_suggestions SET status='merged', resolved_by=?, resolved_at=NOW() WHERE id=?");
         $st->bind_param('ii', $uid, $sid);
         $st->execute();
         $st->close();

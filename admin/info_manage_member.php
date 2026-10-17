@@ -253,6 +253,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'phone_primary' => $guardian_phone1,
                         'phone_alt' => $guardian_phone2,
                     ]);
+                } else {
+                    // Guardian details entered for the first time (or member
+                    // never linked): match-or-create exactly like registration.
+                    \App\Services\GuardianService::attachFromLegacy($conn, (int)$id, 0, 'hr');
                 }
             }
         } catch (\Throwable $glError) {
@@ -745,6 +749,39 @@ $fullName = trim($m['student_name'] . ' ' . $m['father_name'] . ' ' . $m['grandf
                     <div class="mm-info-row"><span class="mm-info-label">Alt Phone</span><span class="mm-info-value"><?= esc($m['alt_phone_number'], '—') ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Guardian</span><span class="mm-info-value"><?= esc($m['guardian_name'], '—') ?></span></div>
                     <div class="mm-info-row"><span class="mm-info-label">Guardian Phone</span><span class="mm-info-value"><?= esc($m['guardian_phone1'], '—') ?></span></div>
+                </div>
+            </div>
+
+            <!-- Family Link (guardian records + siblings; HR manages links in HR → Family Link) -->
+            <?php
+            $famGuardians = [];
+            $famSiblings = [];
+            try {
+                require_once __DIR__ . '/backend/services/GuardianService.php';
+                $famGuardians = \App\Services\GuardianService::familyOfMember($conn, (int)$m['id']);
+                $famSiblings = \App\Services\GuardianService::siblingsOf($conn, (int)$m['id']);
+            } catch (\Throwable $famError) {
+                $famGuardians = [];
+                $famSiblings = [];
+            }
+            ?>
+            <div class="mm-card">
+                <div class="mm-card-hdr">
+                    <div class="mm-card-icon mm-icon-green"><i class="fas fa-people-roof"></i></div>
+                    <div class="mm-card-title">Family</div>
+                </div>
+                <div class="mm-card-body">
+                    <?php if (!$famGuardians): ?>
+                        <div class="mm-info-row"><span class="mm-info-label">Guardian record</span><span class="mm-info-value" style="color:#94a3b8">Not linked yet — saving guardian details links it automatically.</span></div>
+                    <?php else: foreach ($famGuardians as $famG): ?>
+                        <div class="mm-info-row"><span class="mm-info-label"><?= esc(ucfirst((string)$famG['relation'])) ?><?= (int)$famG['is_primary'] === 1 ? ' ★' : '' ?></span><span class="mm-info-value"><?= esc((string)$famG['display_name']) ?><?= trim((string)($famG['phone_primary'] ?? '')) !== '' ? ' · ' . esc((string)$famG['phone_primary']) : '' ?><?= !empty($famG['aliases']) ? ' <span style="color:#94a3b8">(aka ' . esc(implode(', ', $famG['aliases'])) . ')</span>' : '' ?></span></div>
+                    <?php endforeach; endif; ?>
+                    <div class="mm-info-row"><span class="mm-info-label">Siblings</span><span class="mm-info-value">
+                        <?php if (!$famSiblings): ?><span style="color:#94a3b8">None linked</span>
+                        <?php else: foreach ($famSiblings as $famS): ?>
+                            <a href="/admin/info_manage_member.php?id=<?= (int)$famS['id'] ?>" style="text-decoration:underline"><?= esc((string)($famS['student_name'] ?: $famS['full_name_am'])) ?></a><?= trim((string)($famS['current_section'] ?? '')) !== '' ? ' (' . esc((string)$famS['current_section']) . ')' : '' ?><?= $famS !== end($famSiblings) ? ', ' : '' ?>
+                        <?php endforeach; endif; ?>
+                    </span></div>
                 </div>
             </div>
 

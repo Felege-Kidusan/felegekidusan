@@ -142,3 +142,104 @@ class TestP4:
         sql = _read("sql/preflight/guardian_profiling_pack.sql").upper()
         for verb in ["INSERT ", "UPDATE ", "DELETE ", "ALTER ", "DROP ", "CREATE "]:
             assert verb not in sql
+
+
+class TestP4Audit:
+    """Pins for the pre-deployment audit fixes (G1–G10)."""
+
+    def test_guardian_get_endpoint_for_ui_refresh(self):
+        api = _read("admin/api_guardians.php")
+        assert "'get'" in api.split("$__readActions")[1].split("\n")[0]
+        assert "case 'get':" in api
+        ui = _read("admin/dashboards/hr-dept.php")
+        assert "action=get&guardian_id=" in ui
+        assert "action=search&q='+gid" not in ui  # G1: never look up by id through search
+
+    def test_shared_attach_helper_used_by_all_three_entry_points(self):
+        svc = _read("admin/backend/services/GuardianService.php")
+        assert "public static function attachFromLegacy(" in svc
+        assert "attachFromLegacy($conn, (int)$newId, $pickedGuardianId" in _read("admin/hr_register_member.php")
+        assert "attachFromLegacy($conn, (int)$id, 0" in _read("admin/info_manage_member.php")
+        assert "attachFromLegacy($conn, (int)$id, 0" in _read("api/v1/routes/members.php")
+
+    def test_legacy_sync_only_primary_links(self):
+        svc = _read("admin/backend/services/GuardianService.php")
+        sync = svc.split("public static function syncLegacy(")[1].split("public static function")[0]
+        assert "mg.is_primary = 1" in sync
+        assert "public static function ensurePrimary(" in svc
+        unlink = svc.split("public static function unlinkMember(")[1].split("public static function")[0]
+        assert "ensurePrimary" in unlink
+
+    def test_link_validation(self):
+        svc = _read("admin/backend/services/GuardianService.php")
+        link = svc.split("public static function linkMember(")[1].split("public static function")[0]
+        assert "Guardian not found" in link
+        assert "Member not found" in link
+        assert "'merged'" in link
+        upd = svc.split("public static function update(")[1].split("public static function")[0]
+        assert "Guardian name cannot be empty" in upd
+
+    def test_merge_survivorship_and_suggestion_repointing(self):
+        svc = _read("admin/backend/services/GuardianService.php")
+        merge = svc.split("public static function merge(")[1].split("public static function")[0]
+        assert "survivorship" in merge
+        assert "addAlias($conn, $to" in merge
+        assert "SET guardian_a = {$to} WHERE guardian_a = {$from} AND status = 'pending'" in merge
+        assert "ensurePrimary($conn, $mid)" in merge
+        assert "syncLegacy($conn, $to)" in merge
+
+    def test_merge_suggestion_never_500s(self):
+        api = _read("admin/api_guardians.php")
+        block = api.split("case 'merge_suggestion':")[1].split("case 'reject_suggestion':")[0]
+        assert "try {" in block and "catch (InvalidArgumentException" in block
+        assert "status='expired'" in block
+        ls = api.split("case 'list_suggestions':")[1].split("case 'merge_suggestion':")[0]
+        assert "s.status = 'expired'" in ls  # self-heal stale pairs
+
+    def test_ui_unlink_and_error_surfacing(self):
+        ui = _read("admin/dashboards/hr-dept.php")
+        assert "function famUnlink(" in ui
+        assert "function famClearPick()" in ui
+        assert "alert((d&&d.message)||'Request failed')" in ui
+
+    def test_rematch_budget_under_shared_hosting_cap(self):
+        api = _read("admin/api_guardians.php")
+        assert "rematchBatch($conn, $cursor, 300, 15.0)" in api
+        ms = _read("admin/backend/services/GuardianMatchService.php")
+        assert "$g['phone_alt']" in ms  # alt phone participates in blocking
+
+    def test_member_profile_shows_family(self):
+        page = _read("admin/info_manage_member.php")
+        assert "familyOfMember($conn, (int)$m['id'])" in page
+        assert "siblingsOf($conn, (int)$m['id'])" in page
+
+    def test_no_php_concat_leaks_into_js(self):
+        # G10-family: PHP string concatenation inside inline JS is a syntax error in the browser
+        import re
+        for rel in ["admin/groups.php", "admin/dashboards/school_admin.php", "admin/dashboards/hr-dept.php"]:
+            src = _read(rel)
+            for block in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", src, re.S):
+                stripped = re.sub(r"<\?(?:php|=).*?\?>", "0", block, flags=re.S)
+                assert not re.search(r"\b(?:SCHOOL_NAME\w*|EXPORT_PREFIX|SCHOOL_TYPE)\b\s*\.\s*'", stripped), rel
+
+    def test_inline_scripts_parse(self):
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+
+        import pytest
+
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node not installed")
+        for rel in ["admin/dashboards/hr-dept.php", "admin/dashboards/school_admin.php", "admin/groups.php", "admin/dashboards/info-dept.php"]:
+            src = _read(rel)
+            for block in re.findall(r"<script(?![^>]*\bsrc=)(?![^>]*type=[\"'](?:application/json|text/template|module))[^>]*>(.*?)</script>", src, re.S):
+                js = re.sub(r"<\?(?:php|=).*?\?>", "0", block, flags=re.S)
+                if not js.strip():
+                    continue
+                with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+                    fh.write(js)
+                r = subprocess.run([node, "--check", fh.name], capture_output=True, text=True)
+                assert r.returncode == 0, f"{rel}: {r.stderr[-300:]}"

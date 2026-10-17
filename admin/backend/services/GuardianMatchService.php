@@ -309,6 +309,17 @@ class GuardianMatchService
                 $al->close();
             }
             $cands = self::findCandidates($conn, (string)$g['display_name'], (string)$g['phone_primary'], $g);
+            if (trim((string)($g['phone_alt'] ?? '')) !== '') {
+                $have = [];
+                foreach ($cands as $c0) {
+                    $have[(int)$c0['id']] = true;
+                }
+                foreach (self::findCandidates($conn, (string)$g['display_name'], (string)$g['phone_alt'], $g) as $c1) {
+                    if (!isset($have[(int)$c1['id']])) {
+                        $cands[] = $c1;
+                    }
+                }
+            }
             foreach ($cands as $c) {
                 $cid = (int)$c['id'];
                 if ($cid === (int)$g['id'] || $cid < (int)$g['id']) {
