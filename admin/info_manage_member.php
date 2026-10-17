@@ -146,6 +146,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $guardian_name    = field('guardian_name', $cur['guardian_name'] ?? '');
     $guardian_phone1  = field('guardian_phone1', $cur['guardian_phone1'] ?? '');
     $guardian_phone2  = field('guardian_phone2', $cur['guardian_phone2'] ?? '');
+
+    // Input length caps (consistent with MemberRegistrationPolicy limits).
+    $caps = [
+        'student_name' => 100, 'father_name' => 100, 'grandfather_name' => 100,
+        'baptismal_name' => 100, 'work_profession' => 100, 'city' => 100,
+        'sub_city' => 100, 'woreda' => 100, 'mender' => 100, 'current_section' => 100,
+        'guardian_name' => 100, 'education_level' => 50, 'spiritual_education' => 50,
+        'phone_number' => 30, 'alt_phone_number' => 30, 'guardian_phone1' => 30,
+        'guardian_phone2' => 30, 'block_number' => 20, 'house_number' => 20,
+    ];
+    foreach ($caps as $fname => $max) {
+        $val = ${$fname} ?? '';
+        if (is_string($val) && function_exists('mb_strlen') && mb_strlen($val, 'UTF-8') > $max) {
+            echo json_encode(['status' => 'error', 'message' => ucfirst(str_replace('_', ' ', $fname)) . ' is too long (max ' . $max . ').']);
+            exit;
+        }
+    }
     
 
     // File validation/storage is isolated from the UI and database update.
