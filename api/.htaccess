@@ -1,0 +1,7 @@
+# Disable directory browsing
+Options -Indexes
+
+# Deny access to the directory listing
+<IfModule mod_autoindex.c>
+    IndexIgnore *
+</IfModule>

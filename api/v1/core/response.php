@@ -85,6 +85,7 @@ function apiSendJson(array $response, int $code = 200) {
         http_response_code($code);
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: no-store, no-cache, must-revalidate');
         // S1 correlation. Additive and advisory: older clients ignore it.
         header('X-Request-Id: ' . apiRequestId());
     }

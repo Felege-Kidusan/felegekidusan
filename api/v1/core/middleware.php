@@ -38,6 +38,8 @@ function handleCors() {
     header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Idempotency-Key, X-Client-Attempt-Id, X-Client-Attempt-Number, X-Execution-Source, X-App-Version, X-App-Build, X-Installation-Id');
     header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
     header('X-API-Version: 1.0');
     
     // Handle preflight

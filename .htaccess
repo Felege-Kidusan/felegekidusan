@@ -1,3 +1,4 @@
+Options -Indexes
 # SSMS — production cache policy (standard HTTP caching)
 # Static assets are revalidated on every deploy so a `git pull` is always
 # reflected in the browser without manual cache clearing. HTML is never cached.
