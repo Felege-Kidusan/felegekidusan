@@ -302,7 +302,7 @@ ob_start();
             </section>
 
             <!-- ═══ ATTENDANCE SECTION ═══ -->
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 
 <!-- ═══ SECTION: CATALOG (standalone singers/category/subcategory manager) ═══ -->
             <section id="section-catalog" class="school-section" data-section="catalog">
